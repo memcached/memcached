@@ -133,6 +133,13 @@ conn *conn_new(int sfd, int init_state, int event_flags) {
         stats.conn_structs++;
     }
 
+    if (settings.verbose > 1) {
+        if (init_state == conn_listening)
+            fprintf(stderr, "<%d server listening\n", sfd);
+        else
+            fprintf(stderr, "<%d new client connection\n", sfd);
+    }
+
     c->sfd = sfd;
     c->state = init_state;
     c->rlbytes = 0;
@@ -165,6 +172,9 @@ conn *conn_new(int sfd, int init_state, int event_flags) {
 void conn_close(conn *c) {
     /* delete the event, the socket and the conn */
     event_del(&c->event);
+
+    if (settings.verbose > 1)
+        fprintf(stderr, "<%d connection closed.\n", c->sfd);
 
     close(c->sfd);
 
@@ -993,6 +1003,8 @@ void drive_machine(conn *c) {
                     it = *(c->icurr);
                     assert((it->it_flags & ITEM_SLABBED) == 0);
                     sprintf(c->ibuf, "VALUE %s %u %u\r\n", ITEM_key(it), it->flags, it->nbytes - 2);
+                    if (settings.verbose > 1)
+                        fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
                     c->iptr = c->ibuf;
                     c->ibytes = strlen(c->iptr);
                     c->ipart = 1;
@@ -1132,7 +1144,7 @@ void usage(void) {
     printf("-c <num>      max simultaneous connections, default is 1024\n");
     printf("-k            lock down all paged memory\n");
     printf("-v            verbose (print errors/warnings while in event loop)\n");
-    printf("-vv           more verbose (also print client commands/reponses)\n");
+    printf("-vv           very verbose (also print client commands/reponses)\n");
     printf("-h            print this help and exit\n");
     printf("-i            print memcached and libevent license\n");
     return;
@@ -1273,7 +1285,7 @@ int main (int argc, char **argv) {
 
     if (daemonize) {
         int res;
-        res = daemon(0, 0);
+        res = daemon(0, settings.verbose);
         if (res == -1) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
             return 1;

@@ -1,6 +1,6 @@
-2003-08-10  (Evan Martin)
+2003-08-10
 	* support multiple levels of verbosity (-vv)
-	
+
 2003-08-10  (Evan Martin)
 	* Makefile.am: debug, optimization, and static flags are controlled
 	  by the configure script.
