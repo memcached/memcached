@@ -19,3 +19,13 @@ Ryan <hotrodder@rocketmail.com>
 Jamie McCarthy <jamie@mccarthy.vg>
   -- Perl client fixes: Makefile.PL, stats, doc updates
 
+Lisa Marie Seelye <lisa@gentoo.org>
+  -- packaging for Gentoo Linux
+
+seanc@FreeBSD.org
+  -- packaging for FreeBSD
+
+Stuart Herbert <stuart@gentoo.org>
+  -- fix for: memcached's php client can run in an infinite loop
+     http://bugs.gentoo.org/show_bug.cgi?id=25385
+
