@@ -1305,21 +1305,18 @@ int main (int argc, char **argv) {
         }
     }
 
-    /* initialize other stuff */
-    item_init();
-    event_init();
-    stats_init();
-    assoc_init();
-    conn_init();
-    slabs_init(settings.maxbytes);
+    /* 
+     * initialization order: first create the listening socket
+     * (may need root on low ports), then drop root if needed,
+     * then daemonise if needed, then init libevent (in some cases
+     * descriptors created by libevent wouldn't survive forking).
+     */
 
-    /* lock paged memory if needed */
-    if (lock_memory) {
-#ifdef HAVE_MLOCKALL
-        mlockall(MCL_CURRENT | MCL_FUTURE);
-#else
-        fprintf(stderr, "warning: mlockall() not supported on this platform.  proceeding without.\n");
-#endif
+    /* create the listening socket and bind it */
+    l_socket = server_socket(settings.port);
+    if (l_socket == -1) {
+        fprintf(stderr, "failed to listen\n");
+        exit(1);
     }
 
     /* lose root privileges if we have them */
@@ -1338,6 +1335,7 @@ int main (int argc, char **argv) {
         }
     }
 
+    /* daemonize if requested */
     if (daemonize) {
         int res;
         res = daemon(0, settings.verbose);
@@ -1345,6 +1343,24 @@ int main (int argc, char **argv) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
             return 1;
         }
+    }
+
+
+    /* initialize other stuff */
+    item_init();
+    event_init();
+    stats_init();
+    assoc_init();
+    conn_init();
+    slabs_init(settings.maxbytes);
+
+    /* lock paged memory if needed */
+    if (lock_memory) {
+#ifdef HAVE_MLOCKALL
+        mlockall(MCL_CURRENT | MCL_FUTURE);
+#else
+        fprintf(stderr, "warning: mlockall() not supported on this platform.  proceeding without.\n");
+#endif
     }
 
     /*
@@ -1357,13 +1373,6 @@ int main (int argc, char **argv) {
         sigaction(SIGPIPE, &sa, 0) == -1) {
         perror("failed to ignore SIGPIPE; sigaction");
         exit(1); 
-    }
-
-    /* create the listening socket and bind it */
-    l_socket = server_socket(settings.port);
-    if (l_socket == -1) {
-        fprintf(stderr, "failed to listen\n");
-        exit(1);
     }
 
     /* create the initial listening connection */

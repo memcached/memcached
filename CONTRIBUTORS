@@ -35,6 +35,7 @@ Stuart Herbert <stuart@gentoo.org>
 
 Brion Vibber <brion@pobox.com>
   -- debugging abstraction in PHP client
+  -- debugging the failure of daemon mode on FreeBSD
 
 Brad Whitaker <whitaker@danga.com>
   -- compression support for the Perl API
