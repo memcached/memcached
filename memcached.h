@@ -1,3 +1,5 @@
+/* $Id$ */
+
 #define DATA_BUFFER_SIZE 2048
 
 struct stats {
