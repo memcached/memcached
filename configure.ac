@@ -20,6 +20,12 @@ AC_CHECK_LIB(event, event_set, ,
 	[AC_MSG_ERROR(libevent is required.  You can get it from $LIBEVENT_URL)])
 
 AC_CHECK_HEADER(malloc.h, AC_DEFINE(HAVE_MALLOC_H,,[do we have malloc.h?]))
+AC_CHECK_MEMBER([struct mallinfo.arena], [
+		AC_DEFINE(HAVE_STRUCT_MALLINFO,,[do we have stuct mallinfo?])
+	], ,[
+#	include <malloc.h>
+	]
+)
 
 dnl From licq: Copyright (c) 2000 Dirk Mueller
 dnl Check if the type socklen_t is defined anywhere

@@ -41,3 +41,7 @@ Brad Whitaker <whitaker@danga.com>
 
 Richard Russo <russor@msoe.edu>
   -- Java API
+
+Ryan T. Dean <rtdean@cytherianage.net>
+  -- Second PHP client with correct parsing (based on Perl client)
+  -- autoconf fixes for mallinfo.arena on BSD (don't just check malloc.h)

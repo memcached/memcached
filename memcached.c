@@ -348,6 +348,7 @@ void process_stat(conn *c, char *command) {
     }
 
 #ifdef HAVE_MALLOC_H
+#ifdef HAVE_STRUCT_MALLINFO
     if (strcmp(command, "stats malloc") == 0) {
         char temp[512];
         struct mallinfo info;
@@ -367,6 +368,7 @@ void process_stat(conn *c, char *command) {
         out_string(c, temp);
         return;
     }
+#endif /* HAVE_STRUCT_MALLINFO */
 #endif /* HAVE_MALLOC_H */
 
     if (strcmp(command, "stats maps") == 0) {
