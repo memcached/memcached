@@ -5,7 +5,7 @@
 # 
 
 echo "aclocal..."
-$ACLOCAL || aclocal-1.7 || aclocal-1.5 || exit 1
+$ACLOCAL || aclocal-1.7 || aclocal-1.5 || aclocal || exit 1
 
 echo "autoheader..."
 AUTOHEADER=${AUTOHEADER:-autoheader}
