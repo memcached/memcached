@@ -14,7 +14,7 @@ $AUTOHEADER || exit 1
 
 echo "automake..."
 AUTOMAKE=${AUTOMAKE:-automake-1.7}
-$AUTOMAKE --gnu --add-missing || automake --gnu --add-missing || exit 1
+$AUTOMAKE --foreign --add-missing || automake --gnu --add-missing || exit 1
 
 echo "autoconf..."
 AUTOCONF=${AUTOCONF:-autoconf}
