@@ -55,6 +55,8 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
 
     it = slabs_alloc(ntotal);
     if (it == 0) {
+        int tries = 50;
+        item *search;
 
         /* If requested to not push old items out of cache when memory runs out,
          * we're out of luck at this point...
@@ -68,9 +70,6 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
          * search up from tail an item with refcount==0 and unlink it; give up after 50
          * tries
          */
-
-        int tries = 50;
-        item *search;
 
         if (id > LARGEST_ID) return 0;
         if (tails[id]==0) return 0;
