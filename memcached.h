@@ -29,6 +29,7 @@ struct settings {
     int port;
     struct in_addr interface;
     int verbose;
+    time_t oldest_live;   /* ignore existing items older than this */
 };
 
 extern struct stats stats;

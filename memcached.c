@@ -91,6 +91,7 @@ void settings_init(void) {
     settings.maxbytes = 64*1024*1024; /* default is 64MB */
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
+    settings.oldest_live = 0;
 }
 
 conn **freeconns;
@@ -604,6 +605,10 @@ void process_command(conn *c, char *command) {
             if (it && (it->it_flags & ITEM_DELETED)) {
                 it = 0;
             }
+            if (settings.oldest_live && it && 
+                it->time <= settings.oldest_live) {
+                it = 0;
+            }
             if (it && it->exptime && it->exptime < now) {
                 item_unlink(it);
                 it = 0;
@@ -664,6 +669,12 @@ void process_command(conn *c, char *command) {
         
     if (strncmp(command, "stats", 5) == 0) {
         process_stat(c, command);
+        return;
+    }
+
+    if (strcmp(command, "flush_all") == 0) {
+        settings.oldest_live = time(0);
+        out_string(c, "OK");
         return;
     }
 
