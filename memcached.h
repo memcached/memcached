@@ -113,7 +113,7 @@ typedef struct {
     item   **icurr;
     int    ileft;
     int    ipart;     /* 1 if we're writing a VALUE line, 2 if we're writing data */
-    char   ibuf[256]; /* for VALUE lines */
+    char   ibuf[300]; /* for VALUE lines */
     char   *iptr;
     int    ibytes;
                          
