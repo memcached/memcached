@@ -16,254 +16,15 @@
 #include <malloc.h>
 #include <Judy.h>
 
-#define DATA_BUFFER_SIZE 2048
+#include "memcached.h"
 
-struct stats {
-    unsigned int  curr_items;
-    unsigned int  total_items;
-    unsigned long long  curr_bytes;
-    unsigned int  curr_conns;
-    unsigned int  total_conns;
-    unsigned int  conn_structs;
-    unsigned int  get_cmds;
-    unsigned int  set_cmds;
-    unsigned int  get_hits;
-    unsigned int  get_misses;
-    unsigned long long bytes_read;
-    unsigned long long bytes_written;
-};
+struct stats stats;
+struct settings settings;
 
-struct settings {
-    unsigned long long maxbytes;
-    int maxitems;
-    int maxconns;
-    int port;
-    struct in_addr interface;
-};
-
-static struct stats stats;
-static struct settings settings;
-
-#define ITEM_LINKED 1
-#define ITEM_DELETED 2
-
-typedef struct _stritem {
-    struct _stritem *next;
-    struct _stritem *prev;
-    int    usecount; 
-    int    it_flags;
-    char   *key;
-    void   *data;
-    int    nbytes;  /* size of data */
-    int    ntotal;  /* size of this struct + key + data */
-    int    flags;
-    time_t time;    /* least recent access */
-    time_t exptime; /* expire time */
-    void * end[0];
-} item;
-
-static item *items_head = 0;
-static item *items_tail = 0;
 
 static item **todelete = 0;
 static int delcurr;
 static int deltotal;
-
-enum conn_states {
-    conn_listening,  /* the socket which listens for connections */
-    conn_read,       /* reading in a command line */
-    conn_write,      /* writing out a simple response */
-    conn_nread,      /* reading in a fixed number of bytes */
-    conn_closing,    /* closing this connection */
-    conn_mwrite      /* writing out many items sequentially */
-};
-
-#define NREAD_ADD 1
-#define NREAD_SET 2
-#define NREAD_REPLACE 3
-
-typedef struct {
-    int    sfd;
-    int    state;
-    struct event event;
-    short  ev_flags;
-    short  which;  /* which events were just triggered */
-
-    char   *rbuf;  
-    int    rsize;  
-    int    rbytes;
-
-    char   *wbuf;
-    char   *wcurr;
-    int    wsize;
-    int    wbytes; 
-    int    write_and_close; /* close after finishing current write */
-    void   *write_and_free; /* free this memory after finishing writing */
-
-    char   *rcurr;
-    int    rlbytes;
-    
-    /* data for the nread state */
-
-    void   *item;     /* for commands set/add/replace  */
-    int    item_comm; /* which one is it: set/add/replace */
-
-    /* data for the mwrite state */
-    item   **ilist;   /* list of items to write out */
-    int    isize;
-    item   **icurr;
-    int    ileft;
-    int    ipart;     /* 1 if we're writing a VALUE line, 2 if we're writing data */
-    char   ibuf[256]; /* for VALUE lines */
-    char   *iptr;
-    int    ibytes;
-                         
-} conn;
-
-
-/* functions */
-
-/* event handling, network IO */
-void event_handler(int fd, short which, void *arg);
-conn *conn_new(int sfd, int init_state, int event_flags);
-void conn_close(conn *c);
-void conn_init(void);
-void drive_machine(conn *c);
-int new_socket(void);
-int server_socket(int port);
-int update_event(conn *c, int new_flags);
-int try_read_command(conn *c);
-int try_read_network(conn *c);
-void complete_nread(conn *c);
-void process_command(conn *c, char *command);
-
-/* stats */
-void stats_reset(void);
-void stats_init(void);
-
-/* defaults */
-void settings_init(void);
-
-/* associative array */
-void assoc_init(void);
-void *assoc_find(char *key);
-int assoc_insert(char *key, void *value);
-void assoc_delete(char *key);
-
-
-item *item_alloc(char *key, int flags, time_t exptime, int nbytes);
-
-void item_link_q(item *it);   /* only queue ops, no checks etc. */
-void item_unlink_q(item *it);
-
-int item_link(item *it);    /* may fail if transgresses limits */
-void item_unlink(item *it);
-void item_remove(item *it);
-
-void item_update(item *it);   /* update LRU time to current and reposition */
-int item_replace(item *it, item *new_it);
-void drop_tail(void); /* throw away the oldest item */
-
-item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
-    int ntotal, len;
-    item *it;
-
-    len = strlen(key) + 1; if(len % 4) len += 4 - (len % 4);
-    ntotal = sizeof(item) + len + nbytes;
-    
-    it = (item *)malloc(ntotal);
-    if (it == 0) return 0;
-
-    it->next = it->prev = 0;
-    it->usecount = 0;
-    it->it_flags = 0;
-    it->key = (char *)&(it->end[0]);
-    it->data = (void *) (it->key + len);
-    strcpy(it->key, key);
-    it->exptime = exptime;
-    it->nbytes = nbytes;
-    it->ntotal = ntotal;
-    it->flags = flags;
-    return it;
-}
-
-void item_link_q(item *it) {
-    /* item it is the new head */
-    it->prev = 0;
-    it->next = items_head;
-    if (it->next) it->next->prev = it;
-    items_head = it;
-    if (items_tail == 0) items_tail = it;
-    return;
-}
-
-void item_unlink_q(item *it) {
-    if (items_head == it) items_head = it->next;
-    if (items_tail == it) items_tail = it->prev;
-    if (it->next) it->next->prev = it->prev;
-    if (it->prev) it->prev->next = it->next;
-    return;
-}
-
-int item_link(item *it) {
-    int needed = it->ntotal;
-    unsigned long long maxbytes;
-    int maxitems;
-
-    maxbytes = settings.maxbytes ? settings.maxbytes : UINT_MAX;
-    maxitems = settings.maxitems ? settings.maxitems : INT_MAX;
-
-    while(items_tail && (stats.curr_bytes + needed > maxbytes ||
-                         stats.curr_items + 1 > maxitems)) {
-        drop_tail();
-    }
-    
-    it->it_flags |= ITEM_LINKED;
-    it->time = time(0);
-    assoc_insert(it->key, (void *)it);
-
-    stats.curr_bytes += needed;
-    stats.curr_items += 1;
-    stats.total_items += 1;
-
-    item_link_q(it);
-
-    return 1;
-}
-
-void item_unlink(item *it) {
-    it->it_flags &= ~ITEM_LINKED;
-    assoc_delete(it->key);
-    item_unlink_q(it);
-    stats.curr_bytes -= it->ntotal;
-    stats.curr_items -= 1;
-    if (it->usecount == 0) free(it);
-    return;
-}
-
-void item_remove(item *it) {
-    if (it->usecount) it->usecount--;
-    if (it->usecount == 0 && (it->it_flags & ITEM_LINKED) == 0) {
-        free(it);
-    }
-}
-
-void drop_tail(void) {
-    if (items_tail) {
-        item_unlink(items_tail);
-    }
-}
-
-void item_update(item *it) {
-    item_unlink_q(it);
-    it->time = time(0);
-    item_link_q(it);
-}
-
-int item_replace(item *it, item *new_it) {
-    item_unlink(it);
-    return item_link(new_it);
-}
 
 
 /* associative array, using Judy */
@@ -314,6 +75,7 @@ void settings_init(void) {
     settings.maxbytes = 5*1024*1024; /* default is 5Mb */
     settings.maxitems = 0;            /* no limit on no. of items by default */
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5Mb */
+    settings.verbose = 0;
 }
 
 conn **freeconns;
@@ -333,32 +95,31 @@ conn *conn_new(int sfd, int init_state, int event_flags) {
     /* do we have a free conn structure from a previous close? */
     if (freecurr > 0) {
         c = freeconns[--freecurr];
-    } else {
+    } else { /* allocate a new one */
         if (!(c = (conn *)malloc(sizeof(conn)))) {
             perror("malloc()");
             return 0;
         }
+        c->rbuf = c->wbuf = 0;
+        c->ilist = 0;
+
+        c->rbuf = (char *) malloc(DATA_BUFFER_SIZE);
+        c->wbuf = (char *) malloc(DATA_BUFFER_SIZE);
+        c->ilist = (item **) malloc(sizeof(item *)*200);
+
+        if (c->rbuf == 0 || c->wbuf == 0 || c->ilist == 0) {
+            if (c->rbuf != 0) free(c->rbuf);
+            if (c->wbuf != 0) free(c->wbuf);
+            if (c->ilist !=0) free(c->ilist);
+            free(c);
+            perror("malloc()");
+            return 0;
+        }
+        c->rsize = c->wsize = DATA_BUFFER_SIZE;
+        c->isize = 200;
         stats.conn_structs++;
     }
 
-    c->rbuf = c->wbuf = 0;
-    c->ilist = 0;
-
-    c->rbuf = (char *) malloc(DATA_BUFFER_SIZE);
-    c->wbuf = (char *) malloc(DATA_BUFFER_SIZE);
-    c->ilist = (item **) malloc(sizeof(item *)*200);
-
-    if (c->rbuf == 0 || c->wbuf == 0 || c->ilist == 0) {
-        if (c->rbuf != 0) free(c->rbuf);
-        if (c->wbuf != 0) free(c->wbuf);
-        if (c->ilist !=0) free(c->ilist);
-        free(c);
-        perror("malloc()");
-        return 0;
-    }
-    c->rsize = c->wsize = DATA_BUFFER_SIZE;
-    c->isize = 200;
-    
     c->sfd = sfd;
     c->state = init_state;
     c->rlbytes = 0;
@@ -370,7 +131,7 @@ conn *conn_new(int sfd, int init_state, int event_flags) {
     c->iptr = c->ibuf;
     c->ibytes = 0;
 
-    c->write_and_close = 0;
+    c->write_and_go = conn_read;
     c->write_and_free = 0;
     c->item = 0;
 
@@ -384,7 +145,6 @@ conn *conn_new(int sfd, int init_state, int event_flags) {
 
     stats.curr_conns++;
     stats.total_conns++;
-    /* if (stats.curr_conns % 10 == 0) printf("cons: %d\n", stats.curr_conns); */
 
     return c;
 }
@@ -395,11 +155,8 @@ void conn_close(conn *c) {
 
     close(c->sfd);
 
-    free(c->rbuf);
-    free(c->wbuf);
-
     if (c->item) {
-        free(c->item);
+        item_free(c->item);
     }
 
     if (c->ileft) {
@@ -407,7 +164,6 @@ void conn_close(conn *c) {
             item_remove(*(c->icurr));
         }
     }
-    free(c->ilist);
 
     if (c->write_and_free) {
         free(c->write_and_free);
@@ -417,11 +173,22 @@ void conn_close(conn *c) {
     if (freecurr < freetotal) {
         freeconns[freecurr++] = c;
     } else {
-        free(c);
+        /* try to enlarge free connections array */
+        conn **new_freeconns = realloc(freeconns, sizeof(conn *)*freetotal*2);
+        if (new_freeconns) {
+            freetotal *= 2;
+            freeconns = new_freeconns;
+            freeconns[freecurr++] = c;
+        } else {
+            free(c->rbuf);
+            free(c->wbuf);
+            free(c->ilist);
+            free(c);
+        }
     }
 
     stats.curr_conns--;
-    /* if (stats.curr_conns % 10 == 0) printf("conns: %d\n", stats.curr_conns); */
+
     return;
 }
 
@@ -441,6 +208,7 @@ void out_string(conn *c, char *str) {
     c->wcurr = c->wbuf;
 
     c->state = conn_write;
+    c->write_and_go = conn_read;
     return;
 }
 
@@ -495,7 +263,7 @@ void complete_nread(conn *c) {
         return;
     }
             
-    free(it); 
+    item_free(it); 
     c->item = 0; 
     return;
 }
@@ -504,7 +272,7 @@ void process_stat(conn *c, char *command) {
     time_t now = time(0);
 
     if (strcmp(command, "stats") == 0) {
-        char temp[512];
+        char temp[768];
         pid_t pid = getpid();
         char *pos = temp;
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
@@ -513,7 +281,6 @@ void process_stat(conn *c, char *command) {
         pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
         pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
         pos += sprintf(pos, "STAT connection_structures %u\r\n", stats.conn_structs);
-        pos += sprintf(pos, "STAT age %u\r\n", (items_tail ? now - items_tail->time : 0));
         pos += sprintf(pos, "STAT cmd_get %u\r\n", stats.get_cmds);
         pos += sprintf(pos, "STAT cmd_set %u\r\n", stats.set_cmds);
         pos += sprintf(pos, "STAT get_hits %u\r\n", stats.get_hits);
@@ -522,7 +289,7 @@ void process_stat(conn *c, char *command) {
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
         pos += sprintf(pos, "STAT limit_maxbytes %u\r\n", settings.maxbytes);
         pos += sprintf(pos, "STAT limit_maxitems %u\r\n", settings.maxitems);
-        pos += sprintf(pos,"STAT pid %u\r\nEND", pid);
+        pos += sprintf(pos, "STAT pid %u\r\nEND", pid);
         out_string(c, temp);
         return;
     }
@@ -543,8 +310,6 @@ void process_stat(conn *c, char *command) {
     }
 
     if (strcmp(command, "stats maps") == 0) {
-        pid_t pid = getpid();
-        char fname[32];
         char *wbuf;
         int wsize = 8192; /* should be enough */
         int fd;
@@ -556,8 +321,7 @@ void process_stat(conn *c, char *command) {
             return;
         }
             
-        sprintf(fname, "/proc/%u/maps", pid);
-        fd = open(fname, O_RDONLY);
+        fd = open("/proc/self/maps", O_RDONLY);
         if (fd == -1) {
             out_string(c, "SERVER_ERROR cannot open the maps file");
             free(wbuf);
@@ -580,51 +344,45 @@ void process_stat(conn *c, char *command) {
         c->wcurr=wbuf;
         c->wbytes = res + 6;
         c->state = conn_write;
+        c->write_and_go = conn_read;
         return;
     }
 
     if (strncmp(command, "stats cachedump", 15) == 0) {
+        char *buf;
+        unsigned int bytes, id, limit = 0;
         char *start = command + 15;
-        int limit = 0;
-        int memlimit = 2*1024*1024;
-        char *buffer;
-        int bufcurr;
-        item *it = items_head;
-        int bytes = 0;
-        int len;
-        int shown = 0;
-        char temp[256];
 
-        limit = atoi(start);
+        if (sscanf(start, "%u %u\r\n", &id, &limit) < 1) {
+            out_string(c, "CLIENT_ERROR bad command line");
+            return;
+        }
 
-        buffer = malloc(memlimit);
-        if (buffer == 0) {
+        buf = item_cachedump(id, limit, &bytes);
+        if (buf == 0) {
             out_string(c, "SERVER_ERROR out of memory");
             return;
         }
-        bufcurr = 0;
 
-        while(1) {
-            if(limit && shown >=limit)
-                break;
-            if (!it)
-                break;
-            sprintf(temp, "ITEM %s [%u b; %u s]\r\n", it->key, it->nbytes - 2, it->time);
-            len = strlen(temp);
-            if (bufcurr + len +5 > memlimit)  /* 5 is END\r\n */
-                break;
-            strcpy(buffer + bufcurr, temp);
-            bufcurr+=len;
-            shown++;
-            it = it->next;
-        }
-
-        strcpy(buffer+bufcurr, "END\r\n");
-        bufcurr+=5;
-        c->write_and_free = buffer;
-        c->wcurr = buffer;
-        c->wbytes = bufcurr;
+        c->write_and_free = buf;
+        c->wcurr = buf;
+        c->wbytes = bytes;
         c->state = conn_write;
+        c->write_and_go = conn_read;
+        return;
+    }
+
+    if (strcmp(command, "stats slabs")==0) {
+        char buffer[4096];
+        slabs_stats(buffer, 4096);
+        out_string(c, buffer);
+        return;
+    }
+
+    if (strcmp(command, "stats items")==0) {
+        char buffer[4096];
+        item_stats(buffer, 4096);
+        out_string(c, buffer);
         return;
     }
 
@@ -659,7 +417,9 @@ void process_command(conn *c, char *command) {
         it = item_alloc(key, flags, expire, len+2);
         if (it == 0) {
             out_string(c, "SERVER_ERROR out of memory");
-            c->write_and_close = 1;
+            /* swallow the data line */
+            c->write_and_go = conn_swallow;
+            c->sbytes = len+2;
             return;
         }
 
@@ -758,7 +518,7 @@ void process_command(conn *c, char *command) {
 
             if (it) {
                 stats.get_hits++;
-                it->usecount++;
+                it->refcount++;
                 item_update(it);
                 *(c->ilist + i) = it;
                 i++;
@@ -792,7 +552,7 @@ void process_command(conn *c, char *command) {
             out_string(c, "NOT_FOUND");
             return;
         } else {
-            it->usecount++;
+            it->refcount++;
             /* use its expiration time as its deletion time now */
             it->exptime = time(0) + 4;
             it->it_flags |= ITEM_DELETED;
@@ -813,6 +573,11 @@ void process_command(conn *c, char *command) {
 
     if (strcmp(command, "version") == 0) {
         out_string(c, "VERSION 2.0");
+        return;
+    }
+
+    if (strcmp(command, "quit") == 0) {
+        c->state = conn_closing;
         return;
     }
 
@@ -838,9 +603,6 @@ int try_read_command(conn *c) {
     }
     *el = '\0';
 
-    /* we now have the command as a C string in c->rbuf */
-    /* printf ("got command: %s\n", c->rbuf); */
-
     process_command(c, c->rbuf);
 
     if (cont - c->rbuf < c->rbytes) { /* more stuff in the buffer */
@@ -862,10 +624,11 @@ int try_read_network(conn *c) {
         if (c->rbytes >= c->rsize) {
             char *new_rbuf = realloc(c->rbuf, c->rsize*2);
             if (!new_rbuf) {
-                fprintf(stderr, "Couldn't realloc input buffer\n");
+                if(settings.verbose)
+                    fprintf(stderr, "Couldn't realloc input buffer\n");
                 c->rbytes = 0; /* ignore what we read */
                 out_string(c, "SERVER_ERROR out of memory");
-                c->write_and_close = 1;
+                c->write_and_go = conn_closing;
                 return 1;
             }
             c->rbuf = new_rbuf; c->rsize *= 2;
@@ -930,7 +693,8 @@ void drive_machine(conn *c) {
             }            
             newc = conn_new(sfd, conn_read, EV_READ | EV_PERSIST);
             if (!newc) {
-                fprintf(stderr, "couldn't create new connection\n");
+                if(settings.verbose)
+                    fprintf(stderr, "couldn't create new connection\n");
                 close(sfd);
                 return;
             }
@@ -946,7 +710,8 @@ void drive_machine(conn *c) {
             }
             /* we have no command line and no data to read from network */
             if (!update_event(c, EV_READ | EV_PERSIST)) {
-                fprintf(stderr, "Couldn't update event\n");
+                if(settings.verbose)
+                    fprintf(stderr, "Couldn't update event\n");
                 c->state = conn_closing;
                 break;
             }
@@ -986,7 +751,8 @@ void drive_machine(conn *c) {
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    fprintf(stderr, "Couldn't update event\n");
+                    if(settings.verbose) 
+                        fprintf(stderr, "Couldn't update event\n");
                     c->state = conn_closing;
                     break;
                 }
@@ -994,10 +760,56 @@ void drive_machine(conn *c) {
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */
-            fprintf(stderr, "Failed to read, and not due to blocking\n");
+            if(settings.verbose)
+                fprintf(stderr, "Failed to read, and not due to blocking\n");
             c->state = conn_closing;
             break;
-                
+
+        case conn_swallow:
+            /* we are reading sbytes and throwing them away */
+            if (c->sbytes == 0) {
+                c->state = conn_read;
+                break;
+            }
+
+            /* first check if we have leftovers in the conn_read buffer */
+            if (c->rbytes > 0) {
+                int tocopy = c->rbytes > c->sbytes ? c->sbytes : c->rbytes;
+                c->sbytes -= tocopy;
+                if (c->rbytes > tocopy) {
+                    memmove(c->rbuf, c->rbuf+tocopy, c->rbytes - tocopy);
+                }
+                c->rbytes -= tocopy;
+                break;
+            }
+
+            /*  now try reading from the socket */
+            res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+            if (res > 0) {
+                stats.bytes_read += res;
+                c->sbytes -= res;
+                break;
+            }
+            if (res == 0) { /* end of stream */
+                c->state = conn_closing;
+                break;
+            }
+            if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                if (!update_event(c, EV_READ | EV_PERSIST)) {
+                    if(settings.verbose)
+                        fprintf(stderr, "Couldn't update event\n");
+                    c->state = conn_closing;
+                    break;
+                }
+                exit = 1;
+                break;
+            }
+            /* otherwise we have a real error, on which we close the connection */
+            if(settings.verbose)
+                fprintf(stderr, "Failed to read, and not due to blocking\n");
+            c->state = conn_closing;
+            break;
+
         case conn_write:
             /* we are writing wbytes bytes starting from wcurr */
             if (c->wbytes == 0) {
@@ -1005,8 +817,7 @@ void drive_machine(conn *c) {
                     free(c->write_and_free);
                     c->write_and_free = 0;
                 }
-                if (c->write_and_close) c->state = conn_closing;
-                else c->state = conn_read;
+                c->state = c->write_and_go;
                 break;
             }
             res = write(c->sfd, c->wcurr, c->wbytes);
@@ -1018,7 +829,8 @@ void drive_machine(conn *c) {
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                    fprintf(stderr, "Couldn't update event\n");
+                    if(settings.verbose)
+                        fprintf(stderr, "Couldn't update event\n");
                     c->state = conn_closing;
                     break;
                 }                
@@ -1027,7 +839,8 @@ void drive_machine(conn *c) {
             }
             /* if res==0 or res==-1 and error is not EAGAIN or EWOULDBLOCK,
                we have a real error, on which we close the connection */
-            fprintf(stderr, "Failed to write, and not due to blocking\n");
+            if(settings.verbose)
+                fprintf(stderr, "Failed to write, and not due to blocking\n");
             c->state = conn_closing;
             break;
         case conn_mwrite:
@@ -1050,7 +863,8 @@ void drive_machine(conn *c) {
                 }
                 if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                     if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                        fprintf(stderr, "Couldn't update event\n");
+                        if(settings.verbose)
+                            fprintf(stderr, "Couldn't update event\n");
                         c->state = conn_closing;
                         break;
                     }
@@ -1059,7 +873,8 @@ void drive_machine(conn *c) {
                 }
                 /* if res==0 or res==-1 and error is not EAGAIN or EWOULDBLOCK,
                    we have a real error, on which we close the connection */
-                fprintf(stderr, "Failed to write, and not due to blocking\n");
+                if(settings.verbose)
+                    fprintf(stderr, "Failed to write, and not due to blocking\n");
                 c->state = conn_closing;
                 break;
             } else {
@@ -1117,7 +932,8 @@ void event_handler(int fd, short which, void *arg) {
 
     /* sanity */
     if (fd != c->sfd) {
-        fprintf(stderr, "Catastrophic: event fd doesn't match conn fd!\n");
+        if(settings.verbose)
+            fprintf(stderr, "Catastrophic: event fd doesn't match conn fd!\n");
         conn_close(c);
         return;
     }
@@ -1195,7 +1011,7 @@ void delete_handler(int fd, short which, void *arg) {
             if (todelete[i]->exptime < now) {
                 /* no longer mark it deleted. it's now expired, same as dead */
                 todelete[i]->it_flags &= ~ITEM_DELETED;
-                todelete[i]->usecount--;
+                todelete[i]->refcount--;
             } else {
                 todelete[j++] = todelete[i];
             }
@@ -1213,6 +1029,7 @@ void usage(void) {
     printf("-m <num>      max memory to use for items in megabytes, default is 5Mb\n");
     printf("-c <num>      max simultaneous connections, default is 1024\n");
     printf("-k            lock down all paged memory\n");
+    printf("-v            verbose (print errors/warnings while in event loop)\n");
     printf("-d            run as a daemon\n");
     printf("-h            print this help and exit\n");
 
@@ -1227,15 +1044,11 @@ int main (int argc, char **argv) {
     int lock_memory = 0;
     int daemonize = 0;
 
-    /* initialize stuff */
-    event_init();
-    stats_init();
-    assoc_init();
+    /* init settings */
     settings_init();
-    conn_init();
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "p:s:m:c:khdl:")) != -1) {
+    while ((c = getopt(argc, argv, "p:s:m:c:khvdl:")) != -1) {
         switch (c) {
         case 'p':
             settings.port = atoi(optarg);
@@ -1255,6 +1068,9 @@ int main (int argc, char **argv) {
         case 'k':
             lock_memory = 1;
             break;
+        case 'v':
+            settings.verbose = 1;
+            break;
         case 'l':
             if (!inet_aton(optarg, &addr)) {
                 fprintf(stderr, "Illegal address: %s\n", optarg);
@@ -1272,29 +1088,21 @@ int main (int argc, char **argv) {
         }
     }
 
+    /* initialize other stuff stuff */
+    item_init();
+    event_init();
+    stats_init();
+    assoc_init();
+    conn_init();
+    slabs_init(settings.maxbytes);
+
+
     if (daemonize) {
-        int child;
-        child = fork();
-        if (child == -1) {
+        int res;
+        res = daemon(0, 0);
+        if (res == -1) {
             fprintf(stderr, "failed to fork() in order to daemonize\n");
             return 1;
-        }
-        if (child) {        /* parent */
-            exit(0);
-        } else {            /* child */
-            setsid();       /* become a session group leader */
-            child = fork(); /* stop being a session group leader */
-            if (child) {    /* parent */
-                exit(0);
-            } else {
-                int null;
-                chdir("/");
-                null = open("/dev/null", O_RDWR);
-                dup2(null, 0);
-                dup2(null, 1);
-                dup2(null, 2);
-                close(null);
-            }
         }
     }
 
