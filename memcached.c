@@ -35,6 +35,7 @@
 #include <time.h>
 #include <event.h>
 #include <malloc.h>
+#include <assert.h>
 
 #include "memcached.h"
 

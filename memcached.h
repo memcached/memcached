@@ -123,8 +123,8 @@ typedef struct {
 extern int l_socket;
 
 /* temporary hack */
-#define assert(x) if(!(x)) { printf("assert failure: %s\n", #x); pre_gdb(); }
-void pre_gdb ();
+/* #define assert(x) if(!(x)) { printf("assert failure: %s\n", #x); pre_gdb(); }
+   void pre_gdb (); */
 
 /*
  * Functions

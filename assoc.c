@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <event.h>
 #include <malloc.h>
+#include <assert.h>
 
 #include "memcached.h"
 
