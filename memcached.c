@@ -1154,10 +1154,10 @@ void usage_license(void) {
     return;
 }
 
+int l_socket=0;
 
 int main (int argc, char **argv) {
     int c;
-    int l_socket;
     conn *l_conn;
     struct in_addr addr;
     int lock_memory = 0;

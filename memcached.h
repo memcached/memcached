@@ -116,6 +116,11 @@ typedef struct {
                          
 } conn;
 
+/* listening socket */
+extern int l_socket;
+
+/* temporary hack */
+#define assert(x) if(!(x)) { printf("assert failure!\n"); if(l_socket) close(l_socket); kill(getpid(), SIGABRT); }
 
 /*
  * Functions

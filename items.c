@@ -81,8 +81,9 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
         if (it==0) return 0;
     }
 
-
     it->slabs_clsid = id;
+
+    assert(it != heads[it->slabs_clsid]);
 
     it->next = it->prev = it->h_next = 0;
     it->refcount = 0;
