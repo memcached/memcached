@@ -141,13 +141,14 @@ int item_link(item *it) {
 }
 
 void item_unlink(item *it) {
-    it->it_flags &= ~ITEM_LINKED;
-    assoc_delete(ITEM_key(it));
-    item_unlink_q(it);
-    stats.curr_bytes -= ITEM_ntotal(it);
-    stats.curr_items -= 1;
+    if (it->it_flags & ITEM_LINKED) {
+        it->it_flags &= ~ITEM_LINKED;
+        stats.curr_bytes -= ITEM_ntotal(it);
+        stats.curr_items -= 1;
+        assoc_delete(ITEM_key(it));
+        item_unlink_q(it);
+    }
     if (it->refcount == 0) item_free(it);
-    return;
 }
 
 void item_remove(item *it) {
