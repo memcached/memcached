@@ -121,14 +121,22 @@ int slabs_newslab(unsigned int id) {
     return 1;
 }
 
-void *slabs_alloc(unsigned int id) {
+void *slabs_alloc(unsigned int size) {
     slabclass_t *p;
 
+    unsigned char id = slabs_clsid(size);
     if (id < POWER_SMALLEST || id > POWER_LARGEST)
         return 0;
 
     p = &slabclass[id];
 
+#ifdef USE_SYSTEM_MALLOC
+    if (mem_limit && mem_malloced + size > mem_limit)
+        return 0;
+    mem_malloced += size;
+    return malloc(size);
+#endif
+    
     /* fail unless we have space at the end of a recently allocated page,
        we have something on our freelist, or we could allocate a new page */
     if (! (p->end_page_ptr || p->sl_curr || slabs_newslab(id)))
@@ -152,14 +160,21 @@ void *slabs_alloc(unsigned int id) {
     return 0;  /* shouldn't ever get here */
 }
 
-void slabs_free(void *ptr, unsigned int id) {
+void slabs_free(void *ptr, unsigned int size) {
     slabclass_t *p;
     void **new_slots;
 
+    unsigned char id = slabs_clsid(size);
     if (id < POWER_SMALLEST || id > POWER_LARGEST)
         return;
 
     p = &slabclass[id];
+
+#ifdef USE_SYSTEM_MALLOC
+    mem_malloced -= size;
+    free(ptr);
+    return;
+#endif
 
     if (p->sl_curr == p->sl_total) { /* need more space on the free list */
         int new_size = p->sl_total ? p->sl_total*2 : 16;  /* 16 is arbitrary */

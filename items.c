@@ -56,7 +56,7 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
     if (id == 0)
         return 0;
 
-    it = slabs_alloc(id);
+    it = slabs_alloc(ntotal);
     if (it == 0) {
         /* 
          * try to get one off the right LRU 
@@ -77,7 +77,7 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
                 break;
             }
         }
-        it = slabs_alloc(id);
+        it = slabs_alloc(ntotal);
         if (it==0) return 0;
     }
 
@@ -96,9 +96,10 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
 }
 
 void item_free(item *it) {
-    slabs_free(it, it->slabs_clsid);
+    unsigned char ntotal = ITEM_ntotal(it);
     /* so slab size changer can tell later if item is already free or not */
     it->slabs_clsid = 0;
+    slabs_free(it, ntotal);
 }
 
 void item_link_q(item *it) { /* item is the new head */

@@ -3,6 +3,8 @@
 
 #define DATA_BUFFER_SIZE 2048
 
+/* #define USE_SYSTEM_MALLOC 1 */
+
 struct stats {
     unsigned int  curr_items;
     unsigned int  total_items;
@@ -130,11 +132,11 @@ void slabs_init(unsigned int limit);
 /* 0 means error: can't store such a large object */
 unsigned int slabs_clsid(unsigned int size);
 
-/* Allocate object of given size class identified by id. 0 on error */
-void *slabs_alloc(unsigned int id);
+/* Allocate object of given length. 0 on error */
+void *slabs_alloc(unsigned int size);
 
 /* Free previously allocated object */
-void slabs_free(void *ptr, unsigned int id);
+void slabs_free(void *ptr, unsigned int size);
     
 /* Fill buffer with stats */
 char* slabs_stats(int *buflen);
