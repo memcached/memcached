@@ -1,3 +1,6 @@
+2004-12-10
+	* document -M and -r in manpage (Doug Porter <dsp@dsp.name>)
+
 2004-07-22
 	* fix buffer overflow in items.c with 250 byte keys along with
 	  other info on the same line going into a 256 byte char[].

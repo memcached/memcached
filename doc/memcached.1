@@ -52,6 +52,13 @@ Listen on port <num>, the default is port 11211.
 .B \-r
 Maximize core file limit
 .TP
+.B \-M
+Disable automatic removal of items from the cache when out of memory.
+Additions will not be possible until adequate space is freed up.
+.TP
+.B \-r
+Raise the core file size limit to the maximum allowable.
+.TP
 .B \-h
 Show the version of memcached and a summary of options.
 .TP
