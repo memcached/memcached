@@ -208,6 +208,9 @@ void conn_close(conn *c) {
 void out_string(conn *c, char *str) {
     int len;
 
+    if (settings.verbose > 1)
+        fprintf(stderr, ">%d %s\n", c->sfd, str);
+
     len = strlen(str);
     if (len + 2 > c->wsize) {
         /* ought to be always enough. just fail for simplicity */
@@ -457,6 +460,9 @@ void process_command(conn *c, char *command) {
      * for commands set/add/replace, we build an item and read the data
      * directly into it, then continue in nread_complete().
      */ 
+
+    if (settings.verbose > 1)
+        fprintf(stderr, "<%d %s\n", c->sfd, command);
 
     if ((strncmp(command, "add ", 4) == 0 && (comm = NREAD_ADD)) || 
         (strncmp(command, "set ", 4) == 0 && (comm = NREAD_SET)) ||
@@ -708,7 +714,7 @@ int try_read_network(conn *c) {
         if (c->rbytes >= c->rsize) {
             char *new_rbuf = realloc(c->rbuf, c->rsize*2);
             if (!new_rbuf) {
-                if(settings.verbose)
+                if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't realloc input buffer\n");
                 c->rbytes = 0; /* ignore what we read */
                 out_string(c, "SERVER_ERROR out of memory");
@@ -757,7 +763,7 @@ void drive_machine(conn *c) {
     int res;
 
     while (!exit) {
-      /*printf("state %d\n", c->state); */
+        /* printf("state %d\n", c->state);*/
         switch(c->state) {
         case conn_listening:
             addrlen = sizeof(addr);
@@ -777,7 +783,7 @@ void drive_machine(conn *c) {
             }            
             newc = conn_new(sfd, conn_read, EV_READ | EV_PERSIST);
             if (!newc) {
-                if(settings.verbose)
+                if (settings.verbose > 0)
                     fprintf(stderr, "couldn't create new connection\n");
                 close(sfd);
                 return;
@@ -794,7 +800,7 @@ void drive_machine(conn *c) {
             }
             /* we have no command line and no data to read from network */
             if (!update_event(c, EV_READ | EV_PERSIST)) {
-                if(settings.verbose)
+                if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
                 c->state = conn_closing;
                 break;
@@ -835,7 +841,7 @@ void drive_machine(conn *c) {
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    if(settings.verbose) 
+                    if (settings.verbose > 0) 
                         fprintf(stderr, "Couldn't update event\n");
                     c->state = conn_closing;
                     break;
@@ -844,7 +850,7 @@ void drive_machine(conn *c) {
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */
-            if(settings.verbose)
+            if (settings.verbose > 0)
                 fprintf(stderr, "Failed to read, and not due to blocking\n");
             c->state = conn_closing;
             break;
@@ -880,7 +886,7 @@ void drive_machine(conn *c) {
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    if(settings.verbose)
+                    if (settings.verbose > 0)
                         fprintf(stderr, "Couldn't update event\n");
                     c->state = conn_closing;
                     break;
@@ -889,7 +895,7 @@ void drive_machine(conn *c) {
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */
-            if(settings.verbose)
+            if (settings.verbose > 0)
                 fprintf(stderr, "Failed to read, and not due to blocking\n");
             c->state = conn_closing;
             break;
@@ -913,7 +919,7 @@ void drive_machine(conn *c) {
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                    if(settings.verbose)
+                    if (settings.verbose > 0)
                         fprintf(stderr, "Couldn't update event\n");
                     c->state = conn_closing;
                     break;
@@ -923,7 +929,7 @@ void drive_machine(conn *c) {
             }
             /* if res==0 or res==-1 and error is not EAGAIN or EWOULDBLOCK,
                we have a real error, on which we close the connection */
-            if(settings.verbose)
+            if (settings.verbose > 0)
                 fprintf(stderr, "Failed to write, and not due to blocking\n");
             c->state = conn_closing;
             break;
@@ -947,7 +953,7 @@ void drive_machine(conn *c) {
                 }
                 if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                     if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                        if(settings.verbose)
+                        if (settings.verbose > 0)
                             fprintf(stderr, "Couldn't update event\n");
                         c->state = conn_closing;
                         break;
@@ -957,7 +963,7 @@ void drive_machine(conn *c) {
                 }
                 /* if res==0 or res==-1 and error is not EAGAIN or EWOULDBLOCK,
                    we have a real error, on which we close the connection */
-                if(settings.verbose)
+                if (settings.verbose > 0)
                     fprintf(stderr, "Failed to write, and not due to blocking\n");
                 c->state = conn_closing;
                 break;
@@ -1018,7 +1024,7 @@ void event_handler(int fd, short which, void *arg) {
 
     /* sanity */
     if (fd != c->sfd) {
-        if(settings.verbose)
+        if (settings.verbose > 0)
             fprintf(stderr, "Catastrophic: event fd doesn't match conn fd!\n");
         conn_close(c);
         return;
@@ -1126,6 +1132,7 @@ void usage(void) {
     printf("-c <num>      max simultaneous connections, default is 1024\n");
     printf("-k            lock down all paged memory\n");
     printf("-v            verbose (print errors/warnings while in event loop)\n");
+    printf("-vv           more verbose (also print client commands/reponses)\n");
     printf("-h            print this help and exit\n");
     printf("-i            print memcached and libevent license\n");
     return;
@@ -1236,7 +1243,7 @@ int main (int argc, char **argv) {
             lock_memory = 1;
             break;
         case 'v':
-            settings.verbose = 1;
+            settings.verbose++;
             break;
         case 'l':
             if (!inet_aton(optarg, &addr)) {
