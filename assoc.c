@@ -35,11 +35,6 @@
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
 
-typedef struct _hashitem {
-    struct _hashitem *next;
-    item *item;
-} hashitem;
-
 /* hard-code one million buckets, for now (2**20 == 4MB hash) */
 #define HASHPOWER  20
 
@@ -132,7 +127,7 @@ ub4 hash( k, length, initval)
     return c;
 }
 
-static hashitem** hashtable = 0;
+static item** hashtable = 0;
 
 void assoc_init(void) {
     unsigned int hash_size = hashsize(HASHPOWER) * sizeof(void*);
@@ -146,57 +141,47 @@ void assoc_init(void) {
 
 item *assoc_find(char *key) {
     ub4 hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
-    hashitem *hi = hashtable[hv];
-    int depth = 0;
+    item *it = hashtable[hv];
     
-    while (hi) {
-        item *it = hi->item;
-        if (strcmp(key, it->key) == 0)
+    while (it) {
+        if (strcmp(key, ITEM_key(it)) == 0)
             return it;
-        hi = hi->next;
+        it = it->h_next;
     }
     return 0;
 }
 
-/* returns the address of a hashitem* before the key.  if *hashitem == 0,
+/* returns the address of a item* before the key.  if *item == 0,
    the item wasn't found, and a new node should be allocated */
 
-static hashitem** _hashitem_before (char *key) {
+static item** _hashitem_before (char *key) {
     ub4 hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
-    hashitem **pos = &hashtable[hv];
+    item **pos = &hashtable[hv];
 
-    while (*pos && strcmp(key, (*pos)->item->key)) {
-        pos = &(*pos)->next;
+    while (*pos && strcmp(key, ITEM_key(*pos))) {
+        pos = &(*pos)->h_next;
     }
     return pos;
 }
 
 int assoc_insert(char *key, item *it) {
-    hashitem **before = _hashitem_before(key);
-
-    /* item already existed, so we're just updating it */
-    if (*before) {
-        (*before)->item = it;
-        return 1;
-
-    /* have to allocate a new item */
-    } else {
-        hashitem* hi = (hashitem*) slabs_alloc(slabs_clsid(sizeof(hashitem)));
-        if (! hi) return 0;
-        hi->next = 0;
-        hi->item = it;
-        *before = hi;
-        return 1;
-    }
+    item **before = _hashitem_before(key);
+    /* Note: in practice, *before is always 0, as the callers always unlink the old
+       item before replacing it with a new item of the same key.  TODO: assert? */
+    it->h_next = *before ? (*before)->h_next : 0;
+    *before = it;
+    return 1;
 }
 
 void assoc_delete(char *key) {
-    hashitem **before = _hashitem_before(key);
-
+    item **before = _hashitem_before(key);
     if (*before) {
-        hashitem *it = *before;
-        *before = it->next;
-        slabs_free(it, slabs_clsid(sizeof(hashitem)));
+        item *nxt = (*before)->h_next;
+        (*before)->h_next = 0;   /* probably pointless, but whatever. */
+        *before = nxt;
+        return;
     }
+    /* Note:  we actually get here.  the callers don't delete things 
+       they can't find.  TODO: assert?  */
 }
 

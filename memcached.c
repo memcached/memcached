@@ -214,12 +214,12 @@ void complete_nread(conn *c) {
     stats.set_cmds++;
 
     while(1) {
-        if (strncmp((char *)(it->data) + it->nbytes - 2, "\r\n", 2) != 0) {
+        if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
             out_string(c, "CLIENT_ERROR bad data chunk");
             break;
         }
 
-        old_it = (item *)assoc_find(it->key);
+        old_it = (item *)assoc_find(ITEM_key(it));
 
         if (old_it && old_it->exptime && old_it->exptime < now) {
             item_unlink(old_it);
@@ -420,15 +420,14 @@ void process_command(conn *c, char *command) {
         (strncmp(command, "set ", 4) == 0 && (comm = NREAD_SET)) ||
         (strncmp(command, "replace ", 8) == 0 && (comm = NREAD_REPLACE))) {
 
-        char s_comm[10];
         char key[256];
         int flags;
         time_t expire;
         int len, res;
         item *it;
 
-        res = sscanf(command, "%s %s %u %lu %d\n", s_comm, key, &flags, &expire, &len);
-        if (res!=5 || strlen(key)==0 ) {
+        res = sscanf(command, "%*s %255s %u %lu %d\n", key, &flags, &expire, &len);
+        if (res!=4 || strlen(key)==0 ) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -443,7 +442,7 @@ void process_command(conn *c, char *command) {
 
         c->item_comm = comm;
         c->item = it;
-        c->rcurr = it->data;
+        c->rcurr = ITEM_data(it);
         c->rlbytes = it->nbytes;
         c->state = conn_nread;
         return;
@@ -452,7 +451,6 @@ void process_command(conn *c, char *command) {
     if ((strncmp(command, "incr ", 5) == 0 && (incr = 1)) ||
         (strncmp(command, "decr ", 5) == 0)) {
         char temp[32];
-        char s_comm[10];
         unsigned int value;
         item *it;
         unsigned int delta;
@@ -461,8 +459,8 @@ void process_command(conn *c, char *command) {
         char *ptr;
         time_t now = time(0);
 
-        res = sscanf(command, "%s %s %u\n", s_comm, key, &delta);
-        if (res!=3 || strlen(key)==0 ) {
+        res = sscanf(command, "%*s %255s %u\n", key, &delta);
+        if (res!=2 || strlen(key)==0 ) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -481,7 +479,7 @@ void process_command(conn *c, char *command) {
             return;
         }
 
-        ptr = it->data;
+        ptr = ITEM_data(it);
         while (*ptr && (*ptr<'0' && *ptr>'9')) ptr++;
         
         value = atoi(ptr);
@@ -497,17 +495,17 @@ void process_command(conn *c, char *command) {
         res = strlen(temp);
         if (res + 2 > it->nbytes) { /* need to realloc */
             item *new_it;
-            new_it = item_alloc(it->key, it->flags, it->exptime, res + 2 );
+            new_it = item_alloc(ITEM_key(it), it->flags, it->exptime, res + 2 );
             if (new_it == 0) {
                 out_string(c, "SERVER_ERROR out of memory");
                 return;
             }
-            memcpy(new_it->data, temp, res);
-            memcpy((char *)(new_it->data) + res, "\r\n", 2);
+            memcpy(ITEM_data(new_it), temp, res);
+            memcpy(ITEM_data(new_it) + res, "\r\n", 2);
             item_replace(it, new_it);
         } else { /* replace in-place */
-            memcpy(it->data, temp, res);
-            memset(it->data + res, ' ', it->nbytes-res-2);
+            memcpy(ITEM_data(it), temp, res);
+            memset(ITEM_data(it) + res, ' ', it->nbytes-res-2);
         }
         out_string(c, temp);
         return;
@@ -522,7 +520,7 @@ void process_command(conn *c, char *command) {
         item *it;
         time_t now = time(0);
 
-        while(sscanf(start, " %s%n", key, &next) >= 1) {
+        while(sscanf(start, " %255s%n", key, &next) >= 1) {
             start+=next;
             stats.get_cmds++;
             it = (item *)assoc_find(key);
@@ -560,11 +558,11 @@ void process_command(conn *c, char *command) {
     }
 
     if (strncmp(command, "delete ", 7) == 0) {
-        char key [256];
+        char key[256];
         char *start = command+7;
         item *it;
 
-        sscanf(start, " %s", key);
+        sscanf(start, " %255s", key);
         it = assoc_find(key);
         if (!it) {
             out_string(c, "NOT_FOUND");
@@ -901,7 +899,7 @@ void drive_machine(conn *c) {
                 switch (c->ipart) {
                 case 1:
                     it = *(c->icurr);
-                    c->iptr = it->data;
+                    c->iptr = ITEM_data(it);
                     c->ibytes = it->nbytes;
                     c->ipart = 2;
                     break;
@@ -918,7 +916,7 @@ void drive_machine(conn *c) {
                     /* FALL THROUGH */
                 case 0:
                     it = *(c->icurr);
-                    sprintf(c->ibuf, "VALUE %s %u %u\r\n", it->key, it->flags, it->nbytes - 2);
+                    sprintf(c->ibuf, "VALUE %s %u %u\r\n", ITEM_key(it), it->flags, it->nbytes - 2);
                     c->iptr = c->ibuf;
                     c->ibytes = strlen(c->iptr);
                     c->ipart = 1;

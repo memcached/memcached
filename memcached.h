@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /* $Id$ */
 
 #define DATA_BUFFER_SIZE 2048
@@ -35,18 +36,24 @@ extern struct settings settings;
 typedef struct _stritem {
     struct _stritem *next;
     struct _stritem *prev;
-    int    refcount; 
-    int    it_flags;
-    char   *key;
-    void   *data;
-    unsigned int slabs_clsid;
+    struct _stritem *h_next;  /* hash chain next */
+    unsigned short  refcount; 
+    unsigned short  flags;
     int    nbytes;  /* size of data */
-    int    ntotal;  /* size of this struct + key + data */
-    int    flags;
     time_t time;    /* least recent access */
     time_t exptime; /* expire time */
+    unsigned char it_flags;     /* ITEM_* above */
+    unsigned char slabs_clsid;
+    unsigned char nkey;         /* key length, with terminating null and padding */
+    unsigned char dummy1;
     void * end[0];
 } item;
+
+#define ITEM_key(item) ((char*)&((item)->end[0]))
+
+/* warning: don't use these macros with a function, as it evals its arg twice */
+#define ITEM_data(item) ((void*) &((item)->end[0]) + (item)->nkey)
+#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + (item)->nbytes)
 
 enum conn_states {
     conn_listening,  /* the socket which listens for connections */

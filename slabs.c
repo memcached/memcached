@@ -83,9 +83,6 @@ int slabs_newslab(unsigned int id) {
     slabclass_t *p = &slabclass[id];
     int num = p->perslab;
     int len = POWER_BLOCK;
-    int i;
-    void **cur;
-    void **new_slots;
     char *ptr;
 
     if (mem_limit && mem_malloced + len > mem_limit)

@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /* $Id$ */
 
 #include <sys/types.h>
@@ -83,15 +84,13 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
 
     it->slabs_clsid = id;
 
-    it->next = it->prev = 0;
+    it->next = it->prev = it->h_next = 0;
     it->refcount = 0;
     it->it_flags = 0;
-    it->key = (char *)&(it->end[0]);
-    it->data = (void *) (it->key + len);
-    strcpy(it->key, key);
-    it->exptime = exptime;
+    it->nkey = len;
     it->nbytes = nbytes;
-    it->ntotal = ntotal;
+    strcpy(ITEM_key(it), key);
+    it->exptime = exptime;
     it->flags = flags;
     return it;
 }
@@ -130,9 +129,9 @@ void item_unlink_q(item *it) {
 int item_link(item *it) {
     it->it_flags |= ITEM_LINKED;
     it->time = time(0);
-    assoc_insert(it->key, (void *)it);
+    assoc_insert(ITEM_key(it), (void *)it);
 
-    stats.curr_bytes += it->ntotal;
+    stats.curr_bytes += ITEM_ntotal(it);
     stats.curr_items += 1;
     stats.total_items += 1;
 
@@ -143,9 +142,9 @@ int item_link(item *it) {
 
 void item_unlink(item *it) {
     it->it_flags &= ~ITEM_LINKED;
-    assoc_delete(it->key);
+    assoc_delete(ITEM_key(it));
     item_unlink_q(it);
-    stats.curr_bytes -= it->ntotal;
+    stats.curr_bytes -= ITEM_ntotal(it);
     stats.curr_items -= 1;
     if (it->refcount == 0) item_free(it);
     return;
@@ -191,7 +190,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
             break;
         if (!it)
             break;
-        sprintf(temp, "ITEM %s [%u b; %lu s]\r\n", it->key, it->nbytes - 2, it->time);
+        sprintf(temp, "ITEM %s [%u b; %lu s]\r\n", ITEM_key(it), it->nbytes - 2, it->time);
         len = strlen(temp);
         if (bufcurr + len +5 > memlimit)  /* 5 is END\r\n */
             break;
@@ -245,8 +244,9 @@ char* item_stats_sizes(int *bytes) {
     for (i=0; i<LARGEST_ID; i++) {
         item *iter = heads[i];
         while (iter) {
-            int bucket = iter->ntotal / 32;
-            if (iter->ntotal % 32) bucket++;
+            int ntotal = ITEM_ntotal(iter);
+            int bucket = ntotal / 32;
+            if (ntotal % 32) bucket++;
             if (bucket < num_buckets) histogram[bucket]++;
             iter = iter->next;
         }
