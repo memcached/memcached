@@ -121,11 +121,21 @@ void item_link_q(item *it) { /* item is the new head */
 
 void item_unlink_q(item *it) {
     item **head, **tail;
-    if (it->slabs_clsid > LARGEST_ID) return;
+    assert(it->slabs_clsid <= LARGEST_ID);
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
-    if (*head == it) *head = it->next;
-    if (*tail == it) *tail = it->prev;
+    
+    if (*head == it) {
+        assert(it->prev == 0);
+        *head = it->next;
+    }
+    if (*tail == it) {
+        assert(it->next == 0);
+        *tail = it->prev;
+    }
+    assert(it->next != it);
+    assert(it->prev != it);
+
     if (it->next) it->next->prev = it->prev;
     if (it->prev) it->prev->next = it->next;
     sizes[it->slabs_clsid]--;
