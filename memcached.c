@@ -614,7 +614,7 @@ void process_command(conn *c, char *command) {
     }
 
     if (strcmp(command, "version") == 0) {
-        out_string(c, "VERSION 2.0");
+        out_string(c, "VERSION " VERSION);
         return;
     }
 
@@ -697,7 +697,7 @@ int try_read_network(conn *c) {
 
 int update_event(conn *c, int new_flags) {
     if (c->ev_flags == new_flags)
-        return 0;
+        return 1;
     if (event_del(&c->event) == -1) return 0;
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     c->ev_flags = new_flags;
