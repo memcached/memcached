@@ -18,7 +18,6 @@
 #include <time.h>
 #include <event.h>
 #include <malloc.h>
-#include <Judy.h>
 #include <assert.h>
 
 #include "memcached.h"
