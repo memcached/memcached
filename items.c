@@ -55,6 +55,13 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
 
     it = slabs_alloc(ntotal);
     if (it == 0) {
+
+        /* If requested to not push old items out of cache when memory runs out,
+         * we're out of luck at this point...
+         */
+
+        if (!settings.evict_to_free) return 0;
+
         /* 
          * try to get one off the right LRU 
          * don't necessariuly unlink the tail because it may be locked: refcount>0

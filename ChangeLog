@@ -1,3 +1,7 @@
+2004-02-24
+	* Adds a '-M' flag to turn off tossing items from the cache.
+	  (Jason Titus <jtitus@postini.com>)
+
 2004-02-19 (Evan)
 	* Install manpage on "make install", etc.
 

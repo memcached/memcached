@@ -30,6 +30,7 @@ struct settings {
     struct in_addr interface;
     int verbose;
     time_t oldest_live;   /* ignore existing items older than this */
+    int evict_to_free;
 };
 
 extern struct stats stats;

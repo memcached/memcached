@@ -92,6 +92,7 @@ void settings_init(void) {
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
     settings.oldest_live = 0;
+    settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
 }
 
 conn **freeconns;
@@ -1177,6 +1178,7 @@ void usage(void) {
     printf("-d            run as a daemon\n");
     printf("-u <username> assume identity of <username> (only when run as root)\n");
     printf("-m <num>      max memory to use for items in megabytes, default is 64 MB\n");
+    printf("-M            return error on memory exhausted (rather than removing items)\n");
     printf("-c <num>      max simultaneous connections, default is 1024\n");
     printf("-k            lock down all paged memory\n");
     printf("-v            verbose (print errors/warnings while in event loop)\n");
@@ -1273,13 +1275,16 @@ int main (int argc, char **argv) {
     settings_init();
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "p:m:c:khivdl:u:")) != -1) {
+    while ((c = getopt(argc, argv, "p:m:Mc:khivdl:u:")) != -1) {
         switch (c) {
         case 'p':
             settings.port = atoi(optarg);
             break;
         case 'm':
             settings.maxbytes = atoi(optarg)*1024*1024;
+            break;
+        case 'M':
+            settings.evict_to_free = 0;
             break;
         case 'c':
             settings.maxconns = atoi(optarg);
