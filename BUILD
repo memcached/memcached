@@ -1,10 +1,11 @@
 Ideally, you want to make a static binary, otherwise the dynamic
 linker pollutes your address space with shared libs right in the
-middle.
+middle.  (NOTE: actually, this shouldn't matter so much anymore, now
+that we only allocate huge, fixed-size slabs)
 
 Make sure your libevent has epoll (Linux) or kqueue (BSD) support.
 Using poll or select only is slow, and works for testing, but
-shouldn't be used for high-traffice memcache installations.
+shouldn't be used for high-traffic memcache installations.
 
 To build libevent with epoll on Linux, you need:
 

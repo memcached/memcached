@@ -151,8 +151,8 @@ item *assoc_find(char *key) {
     return 0;
 }
 
-/* returns the address of a item* before the key.  if *item == 0,
-   the item wasn't found, and a new node should be allocated */
+/* returns the address of the item pointer before the key.  if *item == 0,
+   the item wasn't found */
 
 static item** _hashitem_before (char *key) {
     ub4 hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
@@ -164,12 +164,11 @@ static item** _hashitem_before (char *key) {
     return pos;
 }
 
+/* Note: this isn't an assoc_update.  The key must not already exist to call this */
 int assoc_insert(char *key, item *it) {
-    item **before = _hashitem_before(key);
-    /* Note: in practice, *before is always 0, as the callers always unlink the old
-       item before replacing it with a new item of the same key.  TODO: assert? */
-    it->h_next = *before ? (*before)->h_next : 0;
-    *before = it;
+    ub4 hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
+    it->h_next = hashtable[hv];
+    hashtable[hv] = it;
     return 1;
 }
 
@@ -181,7 +180,7 @@ void assoc_delete(char *key) {
         *before = nxt;
         return;
     }
-    /* Note:  we actually get here.  the callers don't delete things 
+    /* Note:  we never actually get here.  the callers don't delete things 
        they can't find.  TODO: assert?  */
 }
 

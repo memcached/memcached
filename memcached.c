@@ -219,7 +219,7 @@ void complete_nread(conn *c) {
             break;
         }
 
-        old_it = (item *)assoc_find(ITEM_key(it));
+        old_it = assoc_find(ITEM_key(it));
 
         if (old_it && old_it->exptime && old_it->exptime < now) {
             item_unlink(old_it);
@@ -420,13 +420,13 @@ void process_command(conn *c, char *command) {
         (strncmp(command, "set ", 4) == 0 && (comm = NREAD_SET)) ||
         (strncmp(command, "replace ", 8) == 0 && (comm = NREAD_REPLACE))) {
 
-        char key[256];
+        char key[251];
         int flags;
         time_t expire;
         int len, res;
         item *it;
 
-        res = sscanf(command, "%*s %255s %u %lu %d\n", key, &flags, &expire, &len);
+        res = sscanf(command, "%*s %250s %u %lu %d\n", key, &flags, &expire, &len);
         if (res!=4 || strlen(key)==0 ) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
@@ -454,12 +454,12 @@ void process_command(conn *c, char *command) {
         unsigned int value;
         item *it;
         unsigned int delta;
-        char key[255];
+        char key[251];
         int res;
         char *ptr;
         time_t now = time(0);
 
-        res = sscanf(command, "%*s %255s %u\n", key, &delta);
+        res = sscanf(command, "%*s %250s %u\n", key, &delta);
         if (res!=2 || strlen(key)==0 ) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
@@ -514,16 +514,16 @@ void process_command(conn *c, char *command) {
     if (strncmp(command, "get ", 4) == 0) {
 
         char *start = command + 4;
-        char key[256];
+        char key[251];
         int next;
         int i = 0;
         item *it;
         time_t now = time(0);
 
-        while(sscanf(start, " %255s%n", key, &next) >= 1) {
+        while(sscanf(start, " %250s%n", key, &next) >= 1) {
             start+=next;
             stats.get_cmds++;
-            it = (item *)assoc_find(key);
+            it = assoc_find(key);
             if (it && (it->it_flags & ITEM_DELETED)) {
                 it = 0;
             }
@@ -558,11 +558,11 @@ void process_command(conn *c, char *command) {
     }
 
     if (strncmp(command, "delete ", 7) == 0) {
-        char key[256];
+        char key[251];
         char *start = command+7;
         item *it;
 
-        sscanf(start, " %255s", key);
+        sscanf(start, " %250s", key);
         it = assoc_find(key);
         if (!it) {
             out_string(c, "NOT_FOUND");
@@ -862,10 +862,10 @@ void drive_machine(conn *c) {
         case conn_mwrite:
             /* 
              * we're writing ibytes bytes from iptr. iptr alternates between
-             * ibuf, where we build a string "VALUE...", and it->data for the 
+             * ibuf, where we build a string "VALUE...", and ITEM_data(it) for the 
              * current item. When we finish a chunk, we choose the next one using 
              * ipart, which has the following semantics: 0 - start the loop, 1 - 
-             * we finished ibuf, go to current it->data; 2 - we finished it->data,
+             * we finished ibuf, go to current ITEM_data(it); 2 - we finished ITEM_data(it),
              * move to the next item and build its ibuf; 3 - we finished all items, 
              * write "END".
              */

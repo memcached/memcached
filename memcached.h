@@ -52,7 +52,7 @@ typedef struct _stritem {
 #define ITEM_key(item) ((char*)&((item)->end[0]))
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
-#define ITEM_data(item) ((void*) &((item)->end[0]) + (item)->nkey)
+#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey)
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + (item)->nbytes)
 
 enum conn_states {
@@ -95,7 +95,7 @@ typedef struct {
     /* 
      * item is used to hold an item structure created after reading the command
      * line of set/add/replace commands, but before we finished reading the actual 
-     * data. The data is read into item->data to avoid extra copying.
+     * data. The data is read into ITEM_data(item) to avoid extra copying.
      */
 
     void   *item;     /* for commands set/add/replace  */

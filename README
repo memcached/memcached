@@ -1,6 +1,5 @@
 Dependencies:
 
-   -- Judy, http://judy.sf.net/ (Debian package libjudy-dev)
    -- libevent, http://www.monkey.org/~provos/libevent/ (libevent-dev)
 
 If using Linux, you need a kernel with epoll.  Sure, libevent will

@@ -129,7 +129,7 @@ void item_unlink_q(item *it) {
 int item_link(item *it) {
     it->it_flags |= ITEM_LINKED;
     it->time = time(0);
-    assoc_insert(ITEM_key(it), (void *)it);
+    assoc_insert(ITEM_key(it), it);
 
     stats.curr_bytes += ITEM_ntotal(it);
     stats.curr_items += 1;
