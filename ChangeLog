@@ -1,3 +1,6 @@
+2004-04-30
+	* released 1.1.11
+
 2004-04-24
 	* Avva: Add a new command line option: -r , to maximize core file
 	limit.
