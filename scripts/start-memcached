@@ -1,0 +1,77 @@
+#!/usr/bin/perl -w
+
+# start-memcached
+# 2003 - Jay Bonci <jaybonci@debian.org>
+# This script handles the parsing of the /etc/memcached.conf file
+# and was originally created for the Debian distribution.
+# Anyone may use this little script under the same terms as
+# memcached itself.
+
+use strict;
+
+if($> != 0 and $< != 0)
+{
+	print STDERR "Only root wants to run start-memcached.\n";
+	exit;
+}
+
+my $params; my $etchandle; my $etcfile = "/etc/memcached.conf";
+my $memcached = "/usr/bin/memcached";
+my $pidfile = "/var/run/memcached.pid";
+
+if(open $etchandle, $etcfile)
+{
+	foreach my $line (<$etchandle>)
+	{
+		$line ||= "";
+		$line =~ s/\#.*//g;
+		$line =~ s/\s+$//g;
+		$line =~ s/^\s+//g;
+		next unless $line;
+		next if $line =~ /\-[dvh]/;
+
+		push @$params, $line;		
+	}
+
+}else{
+	$params = [];
+}
+
+	push @$params, "-u root" unless(grep "-u", @$params);
+	$params = join " ", @$params;
+
+if(-e $pidfile)
+{
+	open PIDHANDLE, "$pidfile";
+	my $localpid = <PIDHANDLE>;
+	close PIDHANDLE;
+
+	chomp $localpid;
+	if(-d "/proc/$localpid")
+	{
+		print STDERR "memcached is already running.\n"; 
+		exit;		
+	}else{
+		`rm -f $localpid`;
+	}
+
+}
+
+my $pid = fork();
+
+if($pid == 0)
+{
+		exec "$memcached $params";
+		exit(0);
+
+}else{
+	if(open PIDHANDLE,">$pidfile")
+	{
+		print PIDHANDLE $pid;
+		close PIDHANDLE;
+	}else{
+
+		print STDERR "Can't write pidfile to $pidfile.\n";
+	}
+}
+

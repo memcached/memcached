@@ -1,0 +1,76 @@
+.TH MEMCACHED 1 "November 12, 2003"
+.SH NAME
+memcached \- high-performance memory object caching system
+.SH SYNOPSIS
+.B memcached
+.RI [ options ]
+.br
+.SH DESCRIPTION
+This manual page documents briefly the
+.B memcached
+memory object caching daemon.
+.PP
+.B memcached
+is a flexible memory object caching daemon designed to alleviate database load
+in dynamic web applications by storing objects in memory.  It's based on 
+libevent to scale to any size needed, and is specifically optimized to avoid 
+swapping and always use non-blocking I/O.
+.br
+.SH OPTIONS
+These programs follow the usual GNU command line syntax. A summary of options 
+is included below.
+.TP
+.B \-l <ip_addr>  
+Listen on <ip_addr>; default to INDRR_ANY. This is an important option to 
+consider as there is no other way to secure the installation. Binding to an 
+internal or firewalled network interface is suggested.
+.TP
+.B \-d
+Run memcached as a daemon.
+.TP
+.B \-u <username> 
+Assume the identity of <username> (only when run as root).
+.TP
+.B \-m <num>
+Use <num> MB memory max to use for object storage; the default is 64 megabytes.
+.TP
+.B \-c <num>
+Use <num> max simultaneous connections; the default is 1024.
+.TP
+.B \-k 
+Lock down all paged memory. This is a somewhat dangerous option with large
+caches, so consult the README and memcached homepage for configuration
+suggestions.
+.TP
+.B \-p <num> 
+Listen on port <num>, the default is port 11211.
+.TP
+.B \-h
+Show the version of memcached and a summary of options.
+.TP
+.B \-v
+Be verbose during the event loop; print out errors and warnings.
+.TP
+.B \-vv
+Be even more verbose; same as \-v but also print client commands and 
+responses.
+.TP
+.B \-i
+Print memcached and libevent licenses.
+.br
+.SH LICENSE
+The memcached daemon is copyright Danga Interactive and is distributed under 
+the BSD license. Note that daemon clients are licensed separately.
+.br
+.SH SEE ALSO
+The README file that comes with memcached
+.br
+.B http://www.danga.com/memcached
+.SH AUTHOR
+The memcached daemon was written by Anatoly Vorobey 
+.B <mellon@pobox.com>
+and Brad Fitzpatrick 
+.B <brad@danga.com> 
+and the rest of the crew of Danga Interactive 
+.B http://www.danga.com
+.br

@@ -1,3 +1,10 @@
+2003-12-30 (Brad)
+	* remove static build stuff.  interferes with PAM setuid stuff
+	  and was only included as a possible fix with the old memory
+	  allocator.  really shouldn't make a difference.
+	* add Jay Bonci's Debian scripts and manpage
+	* release version 1.1.10
+
 2003-12-01 (Avva)
 	* New command: flush_all, causes all existing items to
 	  be invalidated immediately (without deleting them from
