@@ -1,3 +1,14 @@
+2003-07-29
+	* version 1.1.7
+	
+2003-07-22
+	* make 'delete' take second arg, of time to refuse new add/replace
+	* set/add/replace/delete can all take abs or delta time (delta can't
+	  be larger than a month)
+
+2003-07-21
+	* added doc/protocol.txt
+
 2003-07-01
 	* report CPU usage in stats
 	 
