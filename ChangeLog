@@ -1,3 +1,7 @@
+2003-08-12 (Brad Fitzpatrick)
+	* use TCP_CORK on Linux or TCP_PUSH on BSD
+	* only use TCP_NODELAY when we don't have alternatives
+	
 2003-08-10
 	* disable Nagel's Algorithm (TCP_NODELAY) for better performance (avva)
 

@@ -96,6 +96,14 @@ conn **freeconns;
 int freetotal;
 int freecurr;
 
+void set_cork (conn *c, int val) {
+    if (c->is_corked == val) return;
+    c->is_corked = val;
+#ifdef TCP_NOPUSH
+    setsockopt(c->sfd, IPPROTO_TCP, TCP_NOPUSH, &val, sizeof(val));
+#endif
+}
+
 void conn_init(void) {
     freetotal = 200;
     freecurr = 0;
@@ -155,6 +163,9 @@ conn *conn_new(int sfd, int init_state, int event_flags) {
     c->write_and_go = conn_read;
     c->write_and_free = 0;
     c->item = 0;
+
+    c->write_and_uncork = 0;
+    c->is_corked = 0;
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
     c->ev_flags = event_flags;
@@ -234,6 +245,7 @@ void out_string(conn *c, char *str) {
     c->wbytes = len + 2;
     c->wcurr = c->wbuf;
 
+    c->write_and_uncork = 1;
     c->state = conn_write;
     c->write_and_go = conn_read;
     return;
@@ -474,6 +486,10 @@ void process_command(conn *c, char *command) {
 
     if (settings.verbose > 1)
         fprintf(stderr, "<%d %s\n", c->sfd, command);
+
+    /* All incoming commands will require a response, so we cork at the beginning,
+       and uncork at the very end (usually by means of out_string)  */
+    set_cork(c, 1);
 
     if ((strncmp(command, "add ", 4) == 0 && (comm = NREAD_ADD)) || 
         (strncmp(command, "set ", 4) == 0 && (comm = NREAD_SET)) ||
@@ -926,6 +942,8 @@ void drive_machine(conn *c) {
                 stats.bytes_written += res;
                 c->wcurr  += res;
                 c->wbytes -= res;
+                if (c->wbytes == 0 && c->write_and_uncork)
+                    set_cork(c, 0);
                 break;
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -1081,7 +1099,9 @@ int server_socket(int port) {
     setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &flags, sizeof(flags));
     setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, &flags, sizeof(flags));
     setsockopt(sfd, SOL_SOCKET, SO_LINGER, &ling, sizeof(ling));
+#if !defined(TCP_NOPUSH)
     setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &flags, sizeof(flags));
+#endif
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
