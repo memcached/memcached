@@ -623,15 +623,18 @@ void process_command(conn *c, char *command) {
             }
 
             if (it) {
+                if (i >= c->isize) {
+                    item **new_list = realloc(c->ilist, sizeof(item *)*c->isize*2);
+                    if (new_list) {
+                        c->isize *= 2;
+                        c->ilist = new_list;
+                    } else break;
+                }
                 stats.get_hits++;
                 it->refcount++;
                 item_update(it);
                 *(c->ilist + i) = it;
                 i++;
-                if (i > c->isize) {
-                    c->isize *= 2;
-                    c->ilist = realloc(c->ilist, sizeof(item *)*c->isize);
-                }
             } else stats.get_misses++;
         }
         c->icurr = c->ilist;
@@ -666,6 +669,21 @@ void process_command(conn *c, char *command) {
             return;
         }
 
+        if (delcurr >= deltotal) {
+            item **new_delete = realloc(todelete, sizeof(item *) * deltotal * 2);
+            if (new_delete) {
+                todelete = new_delete;
+                deltotal *= 2;
+            } else { 
+                /* 
+                 * can't delete it immediately, user wants a delay,
+                 * but we ran out of memory for the delete queue
+                 */
+                out_string(c, "SERVER_ERROR out of memory");
+                return;
+            }
+        }
+            
         exptime = realtime(exptime);
 
         it->refcount++;
@@ -673,10 +691,6 @@ void process_command(conn *c, char *command) {
         it->exptime = exptime;
         it->it_flags |= ITEM_DELETED;
         todelete[delcurr++] = it;
-        if (delcurr >= deltotal) {
-            deltotal *= 2;
-            todelete = realloc(todelete, sizeof(item *)*deltotal);
-        }
         out_string(c, "DELETED");
         return;
     }
