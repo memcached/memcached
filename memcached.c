@@ -933,6 +933,8 @@ void drive_machine(conn *c) {
                     c->write_and_free = 0;
                 }
                 c->state = c->write_and_go;
+                if (c->state == conn_read)
+                    set_cork(c, 0);
                 break;
             }
             res = write(c->sfd, c->wcurr, c->wbytes);
@@ -940,8 +942,6 @@ void drive_machine(conn *c) {
                 stats.bytes_written += res;
                 c->wcurr  += res;
                 c->wbytes -= res;
-                if (c->wbytes == 0 && c->write_and_go == conn_read)
-                    set_cork(c, 0);
                 break;
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
