@@ -144,11 +144,12 @@ void slabs_free(void *ptr, unsigned int id) {
     p = &slabclass[id];
 
     if (p->sl_curr == p->sl_total) { /* need more space on the free list */
-        new_slots = realloc(p->slots, p->sl_total*2*sizeof(void *));
+        int new_size = p->sl_total ? p->sl_total*2 : 16;  /* 16 is arbitrary */
+        new_slots = realloc(p->slots, new_size*sizeof(void *));
         if (new_slots == 0)
             return;
         p->slots = new_slots;
-        p->sl_total *= 2;
+        p->sl_total *= new_size;
     }
     p->slots[p->sl_curr++] = ptr;
     return;
