@@ -46,6 +46,17 @@ static item **todelete = 0;
 static int delcurr;
 static int deltotal;
 
+time_t realtime(time_t exptime) {
+    time_t now = time(0);
+
+    /* no. of seconds in 30 days - largest possible delta exptime */
+    #define REALTIME_MAXDELTA 60*60*24*30
+
+    if (exptime > REALTIME_MAXDELTA)
+        return exptime;
+    else return exptime + now;
+}
+
 void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = 0;
@@ -447,6 +458,7 @@ void process_command(conn *c, char *command) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
+        expire = realtime(expire);
         it = item_alloc(key, flags, expire, len+2);
         if (it == 0) {
             out_string(c, "SERVER_ERROR out of memory");
@@ -575,19 +587,22 @@ void process_command(conn *c, char *command) {
 
     if (strncmp(command, "delete ", 7) == 0) {
         char key[251];
-        char *start = command+7;
         item *it;
+        int res;
+        time_t exptime = 0;
 
-        sscanf(start, " %250s", key);
+        res = sscanf(command, "%*s %250s %d", key, &exptime);
         it = assoc_find(key);
         if (!it) {
             out_string(c, "NOT_FOUND");
             return;
         }
 
+        exptime = realtime(exptime);
+
         it->refcount++;
         /* use its expiration time as its deletion time now */
-        it->exptime = time(0) + 4;
+        it->exptime = exptime;
         it->it_flags |= ITEM_DELETED;
         todelete[delcurr++] = it;
         if (delcurr >= deltotal) {

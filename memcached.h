@@ -130,6 +130,14 @@ extern int l_socket;
  * Functions
  */
 
+/* 
+ * given time value that's either unix time or delta from current unix time, return
+ * unix time. Use the fact that delta can't exceed one month (and real time value can't 
+ * be that low).
+ */
+
+time_t realtime(time_t exptime);
+
 /* slabs memory allocation */
 
 /* Init the subsystem. The argument is the limit on no. of bytes to allocate, 0 if no limit */
