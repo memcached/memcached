@@ -297,6 +297,7 @@ void process_stat(conn *c, char *command) {
 
         pos += sprintf(pos, "STAT pid %u\r\n", pid);
         pos += sprintf(pos, "STAT uptime %lu\r\n", now - stats.started);
+        pos += sprintf(pos, "STAT version " VERSION "\r\n");
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
         pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
         pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);

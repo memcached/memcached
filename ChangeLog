@@ -1,3 +1,8 @@
+2003-06-14
+	* update to version 1.0.2
+	* autoconf/automake fixes for older versions
+	* make stats report version number
+	
 Fri, 13 Jun 2003 10:05:51 -0700  Evan Martin  <martine@danga.com>
 
 	* configure.ac, autogen.sh, Makefile.am:  Use autotools.

@@ -1,7 +1,7 @@
 AC_PREREQ(2.52)
-AC_INIT(memcached, 1.0.1, XXXzilla)
+AC_INIT(memcached, 1.0.2, brad@danga.com)
 AC_CONFIG_SRCDIR(memcached.c)
-AM_INIT_AUTOMAKE([dist-bzip2])
+AM_INIT_AUTOMAKE(AC_PACKAGE_NAME, AC_PACKAGE_VERSION)
 AM_CONFIG_HEADER(config.h)
 
 AC_PROG_CC
