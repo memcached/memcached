@@ -1,3 +1,9 @@
+2004-06-15
+	* immediate deletes weren't being unlinked a few seconds,
+	  preventing "add" commands to the same key in that time period.
+	  thanks to Michael Alan Dorman <mdorman@debian.org> for the
+	  bug report and demo script.
+	
 2004-04-30
 	* released 1.1.11
 

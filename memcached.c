@@ -653,6 +653,12 @@ void process_command(conn *c, char *command) {
             return;
         }
 
+        if (exptime == 0) {
+            item_unlink(it);
+            out_string(c, "DELETED");
+            return;
+        }
+
         exptime = realtime(exptime);
 
         it->refcount++;
