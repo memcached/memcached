@@ -19,7 +19,7 @@
 #include <event.h>
 #include <malloc.h>
 #include <Judy.h>
-
+#include <assert.h>
 
 #include "memcached.h"
 
@@ -97,6 +97,7 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
 
 void item_free(item *it) {
     unsigned int ntotal = ITEM_ntotal(it);
+    assert((it->it_flags & ITEM_LINKED) == 0);
     /* so slab size changer can tell later if item is already free or not */
     it->slabs_clsid = 0;
     slabs_free(it, ntotal);
@@ -104,9 +105,11 @@ void item_free(item *it) {
 
 void item_link_q(item *it) { /* item is the new head */
     item **head, **tail;
-    if (it->slabs_clsid > LARGEST_ID) return;
+    assert(it->slabs_clsid <= LARGEST_ID);
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
+    assert(it != *head);
+    assert((*head && *tail) || (*head == 0 && *tail == 0));
     it->prev = 0;
     it->next = *head;
     if (it->next) it->next->prev = it;
@@ -130,6 +133,9 @@ void item_unlink_q(item *it) {
 }
 
 int item_link(item *it) {
+    assert((it->it_flags & ITEM_LINKED) == 0);
+    assert(it->flags < 4);
+    assert(it->nbytes < 1048576);
     it->it_flags |= ITEM_LINKED;
     it->time = time(0);
     assoc_insert(ITEM_key(it), it);
