@@ -280,6 +280,12 @@ void complete_nread(conn *c) {
 
         old_it = assoc_find(ITEM_key(it));
 
+        if (old_it && settings.oldest_live &&
+            old_it->time <= settings.oldest_live) {
+            item_unlink(old_it);
+            old_it = 0;
+        }
+
         if (old_it && old_it->exptime && old_it->exptime < now) {
             item_unlink(old_it);
             old_it = 0;
@@ -613,8 +619,9 @@ void process_command(conn *c, char *command) {
             if (it && (it->it_flags & ITEM_DELETED)) {
                 it = 0;
             }
-            if (settings.oldest_live && it && 
+            if (settings.oldest_live && it &&
                 it->time <= settings.oldest_live) {
+                item_unlink(it);
                 it = 0;
             }
             if (it && it->exptime && it->exptime < now) {

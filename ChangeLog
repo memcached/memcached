@@ -1,3 +1,9 @@
+2005-04-04
+	* patch from Don MacAskill <don@smugmug.com> 'flush_all' doesn't
+	seem to work properly.  Basically, if you try to add a key which
+	is present, but expired, the store fails but the old key is no
+	longer expired.
+
 2005-01-14
 	* Date: Thu, 18 Nov 2004 15:25:59 -0600
 	  From: David Phillips <electrum@gmail.com>
