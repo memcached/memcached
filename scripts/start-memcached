@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 
 # start-memcached
-# 2003 - Jay Bonci <jaybonci@debian.org>
+# 2003/2004 - Jay Bonci <jaybonci@debian.org>
 # This script handles the parsing of the /etc/memcached.conf file
 # and was originally created for the Debian distribution.
 # Anyone may use this little script under the same terms as
@@ -16,8 +16,40 @@ if($> != 0 and $< != 0)
 }
 
 my $params; my $etchandle; my $etcfile = "/etc/memcached.conf";
+
+# This script assumes that memcached is located at /usr/bin/memcached, and
+# that the pidfile is writable at /var/run/memcached.pid
+
 my $memcached = "/usr/bin/memcached";
 my $pidfile = "/var/run/memcached.pid";
+
+# If we don't get a valid logfile parameter in the /etc/memcached.conf file,
+# we'll just throw away all of our in-daemon output. We need to re-tie it so
+# that non-bash shells will not hang on logout. Thanks to Michael Renner for 
+# the tip
+my $fd_reopened = "/dev/null";
+
+	sub handle_logfile
+	{
+		my ($logfile) = @_;
+		$fd_reopened = $logfile;
+	}
+
+	sub reopen_logfile
+	{
+		my ($logfile) = @_;
+
+		open *STDERR, ">>$logfile";
+		open *STDOUT, ">>$logfile";
+		open *STDIN, ">>/dev/null";
+		$fd_reopened = $logfile;
+	}
+
+# This is set up in place here to support other non -[a-z] directives
+
+my $conf_directives = {
+	"logfile" => \&handle_logfile,
+};
 
 if(open $etchandle, $etcfile)
 {
@@ -28,7 +60,14 @@ if(open $etchandle, $etcfile)
 		$line =~ s/\s+$//g;
 		$line =~ s/^\s+//g;
 		next unless $line;
-		next if $line =~ /\-[dvh]/;
+		next if $line =~ /^\-[dh]/;
+
+		if($line =~ /^[^\-]/)
+		{
+			my ($directive, $arg) = $line =~ /^(.*?)\s+(.*)/; 
+			$conf_directives->{$directive}->($arg);
+			next;
+		}
 
 		push @$params, $line;		
 	}
@@ -61,6 +100,7 @@ my $pid = fork();
 
 if($pid == 0)
 {
+		reopen_logfile($fd_reopened);
 		exec "$memcached $params";
 		exit(0);
 

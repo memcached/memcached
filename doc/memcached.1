@@ -34,6 +34,10 @@ Assume the identity of <username> (only when run as root).
 .B \-m <num>
 Use <num> MB memory max to use for object storage; the default is 64 megabytes.
 .TP
+.B \-M
+Instead of throwing items from the cache when max memory is reached, throw an 
+error
+.TP
 .B \-c <num>
 Use <num> max simultaneous connections; the default is 1024.
 .TP
@@ -44,6 +48,9 @@ suggestions.
 .TP
 .B \-p <num> 
 Listen on port <num>, the default is port 11211.
+.TP
+.B \-r
+Maximize core file limit
 .TP
 .B \-h
 Show the version of memcached and a summary of options.
