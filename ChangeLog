@@ -1,4 +1,8 @@
 2003-06-15
+	* forgot to distribute website/api (still learning auto*)
+	* version 1.0.3
+	
+2003-06-15
 	* update to version 1.0.2
 	* autoconf/automake fixes for older versions
 	* make stats report version number
