@@ -7,7 +7,6 @@
 #include <sys/socket.h>
 #include <sys/signal.h>
 #include <sys/resource.h>
-#include <sys/mman.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -17,7 +16,6 @@
 #include <errno.h>
 #include <time.h>
 #include <event.h>
-#include <malloc.h>
 #include <assert.h>
 
 #include "memcached.h"

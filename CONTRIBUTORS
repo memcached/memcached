@@ -13,6 +13,7 @@ Anatoly Vorobey <mellon@pobox.com>
 Evan Martin <martine@danga.com>
   -- automake/autoconf support
   -- Python client
+  -- portability work to build on OS X
 
 Ryan <hotrodder@rocketmail.com>
   -- PHP client

@@ -1,3 +1,14 @@
+2003-08-10  (Evan Martin)
+	* Makefile.am: debug, optimization, and static flags are controlled
+	  by the configure script.
+	* configure.ac:
+	  - allow specifying libevent directory with --with-libevent=DIR
+	  - check for malloc.h (unavailable on BSDs)
+	  - check for socklen_t (unavailable on OSX)
+	* assoc.c, items.c, slabs.c:  Remove some unused headers.
+	* memcached.c:  allow for nonexistence of malloc.h; #define a POSIX
+	  macro to import mlockall flags.
+
 2003-07-29
 	* version 1.1.7
 	* big bug fix: item exptime 0 meant expire immediately, not never

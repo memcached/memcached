@@ -23,6 +23,11 @@
 #include <sys/socket.h>
 #include <sys/signal.h>
 #include <sys/resource.h>
+/* some POSIX systems need the following definition
+ * to get mlockall flags out of sys/mman.h.  */
+#ifndef _P1003_1B_VISIBLE
+#define _P1003_1B_VISIBLE
+#endif
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -34,8 +39,11 @@
 #include <errno.h>
 #include <time.h>
 #include <event.h>
-#include <malloc.h>
 #include <assert.h>
+
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
+#endif
 
 #include "memcached.h"
 
@@ -314,6 +322,7 @@ void process_stat(conn *c, char *command) {
         return;
     }
 
+#ifdef HAVE_MALLOC_H
     if (strcmp(command, "stats malloc") == 0) {
         char temp[512];
         struct mallinfo info;
@@ -333,6 +342,7 @@ void process_stat(conn *c, char *command) {
         out_string(c, temp);
         return;
     }
+#endif /* HAVE_MALLOC_H */
 
     if (strcmp(command, "stats maps") == 0) {
         char *wbuf;
