@@ -1,4 +1,8 @@
 2005-01-14
+	* pidfile saving support from Lisa Seelye <lisa@gentoo.org>, sent
+	  Jan 13, 2005
+
+2005-01-14
 	* don't delete libevent events that haven't been added (the deltimer)
 	  patch from Ted Schundler <tschundler@gmail.com>
 

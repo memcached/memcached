@@ -1226,6 +1226,7 @@ void usage(void) {
     printf("-vv           very verbose (also print client commands/reponses)\n");
     printf("-h            print this help and exit\n");
     printf("-i            print memcached and libevent license\n");
+    printf("-P <file>     save PID in <file>, only used with -d option\n");
     return;
 }
 
@@ -1300,6 +1301,33 @@ void usage_license(void) {
     return;
 }
 
+void save_pid(pid_t pid,char *pid_file) {
+    FILE *fp;
+    if (!pid_file)
+        return;
+
+    if (!(fp = fopen(pid_file,"w"))) {
+        fprintf(stderr,"Could not open the pid file %s for writing\n",pid_file);
+        return;
+    }
+
+    fprintf(fp,"%ld\n",(long) pid);
+    if (fclose(fp) == -1) {
+        fprintf(stderr,"Could not close the pid file %s.\n",pid_file);
+        return;
+    }
+}
+
+void remove_pidfile(char *pid_file) {
+  if (!pid_file)
+      return;
+
+  if (unlink(pid_file)) {
+      fprintf("Could not remove the pid file %s.\n",pid_file);
+  }
+
+}
+
 int l_socket=0;
 
 int main (int argc, char **argv) {
@@ -1313,12 +1341,13 @@ int main (int argc, char **argv) {
     struct passwd *pw;
     struct sigaction sa;
     struct rlimit rlim;
+    char *pid_file = NULL;
 
     /* init settings */
     settings_init();
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "p:m:Mc:khirvdl:u:")) != -1) {
+    while ((c = getopt(argc, argv, "p:m:Mc:khirvdl:u:P:")) != -1) {
         switch (c) {
         case 'p':
             settings.port = atoi(optarg);
@@ -1360,6 +1389,9 @@ int main (int argc, char **argv) {
             break;
         case 'u':
             username = optarg;
+            break;
+        case 'P':
+            pid_file = optarg;
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
@@ -1496,8 +1528,16 @@ int main (int argc, char **argv) {
     todelete = malloc(sizeof(item *)*deltotal);
     delete_handler(0,0,0); /* sets up the event */
 
+    /* save the PID in if we're a daemon */
+    if (daemonize)
+        save_pid(getpid(),pid_file);
+
     /* enter the loop */
     event_loop(0);
+
+    /* remove the PID file if we're a daemon */
+    if (daemonize)
+        remove_pidfile(pid_file);
 
     return 0;
 }
