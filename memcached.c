@@ -264,11 +264,16 @@ void process_stat(conn *c, char *command) {
         char temp[1024];
         pid_t pid = getpid();
         char *pos = temp;
+        struct rusage usage;
+        
+        getrusage(RUSAGE_SELF, &usage);
 
         pos += sprintf(pos, "STAT pid %u\r\n", pid);
         pos += sprintf(pos, "STAT uptime %lu\r\n", now - stats.started);
         pos += sprintf(pos, "STAT time %u\r\n", now);
         pos += sprintf(pos, "STAT version " VERSION "\r\n");
+        pos += sprintf(pos, "STAT rusage_user %u:%u\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
+        pos += sprintf(pos, "STAT rusage_system %u:%u\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
         pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
         pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
