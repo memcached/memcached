@@ -17,4 +17,7 @@ dangerous when using a large cache.  Just make sure the memcached machines
 don't swap.  memcached does non-blocking network I/O, but not disk.  (it
 should never go to disk, or you've lost the whole point of it)
 
+The memcached website is at:
+
+    http://www.danga.com/memcached/
 
