@@ -169,7 +169,7 @@ the reply, which may be:
 - "NOT_STORED\r\n" to indicate the data was not stored, but not
 because of an error. This normally means that either that the
 condition for an "add" or a "replace" command wasn't met, or that the
-item is in a delete quete (see the "delete" command below).
+item is in a delete queue (see the "delete" command below).
 
 
 Retrieval command:
