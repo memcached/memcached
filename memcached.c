@@ -260,12 +260,13 @@ void process_stat(conn *c, char *command) {
     time_t now = time(0);
 
     if (strcmp(command, "stats") == 0) {
-        char temp[768];
+        char temp[1024];
         pid_t pid = getpid();
         char *pos = temp;
 
         pos += sprintf(pos, "STAT pid %u\r\n", pid);
         pos += sprintf(pos, "STAT uptime %lu\r\n", now - stats.started);
+        pos += sprintf(pos, "STAT time %u\r\n", now);
         pos += sprintf(pos, "STAT version " VERSION "\r\n");
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
         pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
