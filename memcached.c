@@ -606,6 +606,28 @@ void process_command(conn *c, char *command) {
         return;
     }
 
+    if (strncmp(command, "slabs reassign ", 15) == 0) {
+        int src, dst;
+        char *start = command+15;
+        if (sscanf(start, "%u %u\r\n", &src, &dst) == 2) {
+            int rv = slabs_reassign(src, dst);
+            if (rv == 1) {
+                out_string(c, "DONE");
+                return;
+            }
+            if (rv == 0) {
+                out_string(c, "CANT");
+                return;
+            }
+            if (rv == -1) {
+                out_string(c, "BUSY");
+                return;
+            }
+        }
+        out_string(c, "CLIENT_ERROR bogus command");
+        return;
+    }
+    
     out_string(c, "ERROR");
     return;
 }

@@ -46,6 +46,7 @@ typedef struct {
     void **slab_list;       /* array of slab pointers */
     unsigned int list_size; /* size of prev array */
 
+    unsigned int killing;  /* index+1 of dying slab, or zero if none */
 } slabclass_t;
 
 static slabclass_t slabclass[POWER_LARGEST+1];
@@ -81,7 +82,20 @@ void slabs_init(unsigned int limit) {
         slabclass[i].end_page_free = 0;
         slabclass[i].slab_list = 0;
         slabclass[i].list_size = 0;
+        slabclass[i].killing = 0;
     }
+}
+
+static int grow_slab_list (unsigned int id) { 
+    slabclass_t *p = &slabclass[id];
+    if (p->slabs == p->list_size) {
+        unsigned int new_size =  p->list_size ? p->list_size * 2 : 16;
+        void *new_list = realloc(p->slab_list, new_size);
+        if (new_list == 0) return 0;
+        p->list_size = new_size;
+        p->slab_list = new_list;
+    }
+    return 1;
 }
 
 int slabs_newslab(unsigned int id) {
@@ -93,15 +107,8 @@ int slabs_newslab(unsigned int id) {
     if (mem_limit && mem_malloced + len > mem_limit)
         return 0;
 
-    if (p->slabs == p->list_size) {
-        unsigned int new_size =  p->list_size ? p->list_size * 2 : 16;
-        void *new_list = realloc(p->slab_list, new_size);
-        if (new_list == 0) return 0;
-        p->list_size = new_size;
-        p->slab_list = new_list;
-        
-    }
-
+    if (! grow_slab_list(id)) return 0;
+   
     ptr = malloc(len);
     if (ptr == 0) return 0;
 
@@ -197,4 +204,64 @@ char* slabs_stats(int *buflen) {
     bufcurr += sprintf(bufcurr, "END\r\n");
     *buflen = bufcurr - buf;
     return buf;
+}
+
+/* 1 = success
+   0 = fail
+   -1 = tried. busy. send again shortly. */
+int slabs_reassign(unsigned char srcid, unsigned char dstid) {
+    void *slab, *slab_end;
+    slabclass_t *p, *dp;
+    void *iter;
+    int was_busy = 0;
+
+    if (srcid < POWER_SMALLEST || srcid > POWER_LARGEST ||
+        dstid < POWER_SMALLEST || dstid > POWER_LARGEST)
+        return 0;
+   
+    p = &slabclass[srcid];
+    dp = &slabclass[dstid];
+
+    /* fail if src still populating, or no slab to give up in src */
+    if (p->end_page_ptr || ! p->slabs)
+        return 0;
+
+    /* fail if dst is still growing or we can't make room to hold its new oaa*/
+    if (dp->end_page_ptr || ! grow_slab_list(dstid))
+        return 0;
+        
+    if (p->killing == 0) p->killing = 1;
+
+    slab = p->slab_list[p->killing-1];
+    slab_end = slab + POWER_BLOCK;
+    
+    for (iter=slab; iter<slab_end; iter+=p->size) {
+        item *it = (item *) iter;
+        if (it->slabs_clsid) {
+            if (it->refcount) was_busy = 1;
+            item_unlink(it);
+        }
+    }
+    
+    /* go through free list and discard items that are no longer part of this slab */
+    {
+        int fi;
+        for (fi=p->sl_curr-1; fi>=0; fi--) {
+            if (p->slots[fi] >= slab && p->slots[fi] < slab_end) {
+                p->sl_curr--;
+                if (p->sl_curr > fi) p->slots[fi] = p->slots[p->sl_curr];
+            }
+        }
+    }
+
+    if (was_busy) return -1;
+
+    /* if good, now move it to the dst slab class */
+    p->slab_list[p->killing-1] = p->slab_list[p->slabs-1];
+    p->slabs--;
+    p->killing = 0;
+    dp->slab_list[dp->slabs++] = slab;
+    dp->end_page_ptr = slab;
+    dp->end_page_free = dp->perslab;
+    return 1;
 }

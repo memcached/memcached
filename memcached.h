@@ -138,6 +138,12 @@ void slabs_free(void *ptr, unsigned int id);
     
 /* Fill buffer with stats */
 char* slabs_stats(int *buflen);
+
+/* Request some slab be moved between classes
+  1 = success
+   0 = fail
+   -1 = tried. busy. send again shortly. */
+int slabs_reassign(unsigned char srcid, unsigned char dstid);
     
 /* event handling, network IO */
 void event_handler(int fd, short which, void *arg);
