@@ -149,7 +149,7 @@ void slabs_free(void *ptr, unsigned int id) {
         if (new_slots == 0)
             return;
         p->slots = new_slots;
-        p->sl_total *= new_size;
+        p->sl_total = new_size;
     }
     p->slots[p->sl_curr++] = ptr;
     return;
