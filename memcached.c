@@ -300,6 +300,7 @@ void process_stat(conn *c, char *command) {
     if (strcmp(command, "stats reset") == 0) {
         stats_reset();
         out_string(c, "RESET");
+        return;
     }
 
     if (strcmp(command, "stats malloc") == 0) {
@@ -310,6 +311,7 @@ void process_stat(conn *c, char *command) {
         sprintf(temp, "STAT arena_size %d\r\nSTAT free_chunks %d\r\nSTAT fastbin_blocks %d\r\nSTAT mmaped_regions %d\r\nSTAT mmapped_space %d\r\nSTAT max_total_alloc %d\r\nSTAT fastbin_space %d\r\nSTAT total_alloc %d\r\nSTAT total_free %d\r\nSTAT releasable_space %d\r\nEND", 
                 info.arena, info.ordblks, info.smblks, info.hblks, info.hblkhd, info.usmblks, info.fsmblks, info.uordblks, info.fordblks, info.keepcost);
         out_string(c, temp);
+        return;
     }
 
     if (strcmp(command, "stats maps") == 0) {
