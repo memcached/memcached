@@ -1,3 +1,7 @@
+2005-01-14
+	* don't delete libevent events that haven't been added (the deltimer)
+	  patch from Ted Schundler <tschundler@gmail.com>
+
 2004-12-10
 	* document -M and -r in manpage (Doug Porter <dsp@dsp.name>)
 

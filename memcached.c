@@ -1177,8 +1177,16 @@ struct event deleteevent;
 
 void delete_handler(int fd, short which, void *arg) {
     struct timeval t;
+    static int initialized = 0;
 
-    evtimer_del(&deleteevent);
+    if (initialized) {
+        /* some versions of libevent don't like deleting events that don't exist,
+           so only delete once we know this event has been added. */
+        evtimer_del(&deleteevent);
+    } else {
+        initialized = 1;
+    }
+
     evtimer_set(&deleteevent, delete_handler, 0);
     t.tv_sec = 5; t.tv_usec=0;
     evtimer_add(&deleteevent, &t);
