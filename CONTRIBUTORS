@@ -38,3 +38,6 @@ Brion Vibber <brion@pobox.com>
 
 Brad Whitaker <whitaker@danga.com>
   -- compression support for the Perl API
+
+Richard Russo <russor@msoe.edu>
+  -- Java API
