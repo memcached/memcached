@@ -294,10 +294,19 @@ void process_stat(conn *c, char *command) {
     if (strcmp(command, "stats malloc") == 0) {
         char temp[512];
         struct mallinfo info;
+        char *pos = temp;
 
         info = mallinfo();
-        sprintf(temp, "STAT arena_size %d\r\nSTAT free_chunks %d\r\nSTAT fastbin_blocks %d\r\nSTAT mmaped_regions %d\r\nSTAT mmapped_space %d\r\nSTAT max_total_alloc %d\r\nSTAT fastbin_space %d\r\nSTAT total_alloc %d\r\nSTAT total_free %d\r\nSTAT releasable_space %d\r\nEND", 
-                info.arena, info.ordblks, info.smblks, info.hblks, info.hblkhd, info.usmblks, info.fsmblks, info.uordblks, info.fordblks, info.keepcost);
+        pos += sprintf(pos, "STAT arena_size %d\r\n", info.arena);
+        pos += sprintf(pos, "STAT free_chunks %d\r\n", info.ordblks);
+        pos += sprintf(pos, "STAT fastbin_blocks %d\r\n", info.smblks);
+        pos += sprintf(pos, "STAT mmapped_regions %d\r\n", info.hblks);
+        pos += sprintf(pos, "STAT mmapped_space %d\r\n", info.hblkhd);
+        pos += sprintf(pos, "STAT max_total_alloc %d\r\n", info.usmblks);
+        pos += sprintf(pos, "STAT fastbin_space %d\r\n", info.fsmblks);
+        pos += sprintf(pos, "STAT total_alloc %d\r\n", info.uordblks);
+        pos += sprintf(pos, "STAT total_free %d\r\n", info.fordblks);
+        pos += sprintf(pos, "STAT releasable_space %d\r\nEND", info.keepcost);
         out_string(c, temp);
         return;
     }
@@ -567,16 +576,16 @@ void process_command(conn *c, char *command) {
         if (!it) {
             out_string(c, "NOT_FOUND");
             return;
-        } else {
-            it->refcount++;
-            /* use its expiration time as its deletion time now */
-            it->exptime = time(0) + 4;
-            it->it_flags |= ITEM_DELETED;
-            todelete[delcurr++] = it;
-            if (delcurr >= deltotal) {
-                deltotal *= 2;
-                todelete = realloc(todelete, sizeof(item *)*deltotal);
-            }
+        }
+
+        it->refcount++;
+        /* use its expiration time as its deletion time now */
+        it->exptime = time(0) + 4;
+        it->it_flags |= ITEM_DELETED;
+        todelete[delcurr++] = it;
+        if (delcurr >= deltotal) {
+            deltotal *= 2;
+            todelete = realloc(todelete, sizeof(item *)*deltotal);
         }
         out_string(c, "DELETED");
         return;
