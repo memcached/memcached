@@ -794,26 +794,27 @@ void drive_machine(conn *c) {
             addrlen = sizeof(addr);
             if ((sfd = accept(c->sfd, &addr, &addrlen)) == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    perror("accept() shouldn't block");
+                    exit = 1;
+                    break;
                 } else {
                     perror("accept()");
                 }
-                return;
+                break;
             }
             if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
                 fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
                 perror("setting O_NONBLOCK");
                 close(sfd);
-                return;
+                break;
             }            
             newc = conn_new(sfd, conn_read, EV_READ | EV_PERSIST);
             if (!newc) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "couldn't create new connection\n");
                 close(sfd);
-                return;
+                break;
             }
-            exit = 1;
+
             break;
 
         case conn_read:

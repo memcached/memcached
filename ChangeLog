@@ -1,3 +1,6 @@
+2003-09-06 (Avva)
+	* accept all new connections in the same event (so we work with ET epoll)
+
 2003-08-12 (Brad Fitzpatrick)
 	* use TCP_CORK on Linux or TCP_PUSH on BSD
 	* only use TCP_NODELAY when we don't have alternatives
