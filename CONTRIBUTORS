@@ -9,6 +9,7 @@ Brad Fitzpatrick <brad@danga.com>
 Anatoly Vorobey <mellon@pobox.com>
   -- C server
   -- memory allocator design
+  -- revised setuid code
 
 Evan Martin <martine@danga.com>
   -- automake/autoconf support
@@ -23,6 +24,7 @@ Jamie McCarthy <jamie@mccarthy.vg>
 
 Lisa Marie Seelye <lisa@gentoo.org>
   -- packaging for Gentoo Linux
+  -- initial setuid code
 
 Sean Chittenden <seanc@FreeBSD.org>
   -- packaging for FreeBSD
