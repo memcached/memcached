@@ -99,6 +99,9 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
 void item_free(item *it) {
     unsigned int ntotal = ITEM_ntotal(it);
     assert((it->it_flags & ITEM_LINKED) == 0);
+    assert(it != heads[it->slabs_clsid]);
+    assert(it != tails[it->slabs_clsid]);
+
     /* so slab size changer can tell later if item is already free or not */
     it->slabs_clsid = 0;
     slabs_free(it, ntotal);
