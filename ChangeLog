@@ -4,6 +4,8 @@
 	is present, but expired, the store fails but the old key is no
 	longer expired.
 
+	* release 1.1.12
+
 2005-01-14
 	* Date: Thu, 18 Nov 2004 15:25:59 -0600
 	  From: David Phillips <electrum@gmail.com>
