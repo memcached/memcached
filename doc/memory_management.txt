@@ -1,0 +1,83 @@
+Date: Fri, 5 Sep 2003 20:31:03 +0300
+From: Anatoly Vorobey <mellon@pobox.com>
+To: memcached@lists.danga.com
+Subject: Re: Memory Management...
+
+On Fri, Sep 05, 2003 at 12:07:48PM -0400, Kyle R. Burton wrote:
+> prefixing keys with a container identifier).  We have just begun to
+> look at the implementation of the memory management sub-system with
+> regards to it's allocation, de-allocation and compaction approaches.
+> Is there any documentation or discussion of how this subsystem
+> operates? (slabs.c?)
+
+There's no documentation yet, and it's worth mentioning that this
+subsystem is the most active area of memcached under development at the 
+moment (however, all the changes to it won't modify the way memcached
+presents itself towards clients, they're primarily directed at making
+memcached use memory more efficiently).
+
+Here's a quick recap of what it does now and what is being worked
+on. 
+
+The primary goal of the slabs subsystem in memcached was to eliminate
+memory fragmentation issues totally by using fixed-size memory chunks
+coming from a few predetermined size classes (early versions of 
+memcached relied on malloc()'s handling of fragmentation which proved 
+woefully inadequate for our purposes). For instance, suppose
+we decide at the outset that the list of possible sizes is: 64 bytes,
+128 bytes, 256 bytes, etc. - doubling all the way up to 1Mb. For each
+size class in this list (each possible size) we maintain a list of free
+chunks of this size. Whenever a request comes for a particular size,
+it is rounded up to the closest size class and a free chunk is taken 
+from that size class. In the above example, if you request from the 
+slabs subsystem 100 bytes of memory, you'll actually get a chunk 128
+bytes worth, from the 128-bytes size class. If there are no free chunks
+of the needed size at the moment, there are two ways to get one: 1) free
+an existing chunk in the same size class, using LRU queues to free the 
+least needed objects; 2) get more memory from the system, which we 
+currently always do in _slabs_ of 1Mb each; we malloc() a slab, divide 
+it to chunks of the needed size, and use them.
+
+The tradeoff is between memory fragmentation and memory utilisation. In 
+the scheme we're now using, we have zero fragmentation, but a relatively
+high percentage of memory is wasted. The most efficient way to reduce
+the waste is to use a list of size classes that closely matches (if 
+that's at all possible) common sizes of objects that the clients
+of this particular installation of memcached are likely to store.
+For example, if your installation is going to store hundreds of                                                                  thousands of objects of the size exactly 120 bytes, you'd be much better
+off changing, in the "naive" list of sizes outlined above, the class
+of 128 bytes to something a bit higher (because the overhead of 
+storing an item, while not large, will push those 120-bytes objects over 
+128 bytes of storage internally, and will require using 256 bytes for
+each of them in the naive scheme, forcing you to waste almost 50% of
+memory). Such tinkering with the list of size classes is not currently
+possible with memcached, but enabling it is one of the immediate goals.
+
+Ideally, the slabs subsystem would analyze at runtime the common sizes
+of objects that are being requested, and would be able to modify the
+list of sizes dynamically to improve memory utilisation. This is not
+planned for the immediate future, however. What is planned is the 
+ability to reassign slabs to different classes. Here's what this means. 
+Currently, the total amount of memory allocated for each size class is
+determined by how clients interact with memcached during the initial 
+phase of its execution, when it keeps malloc()'ing more slabs and 
+dividing them into chunks, until it hits the specified memory limit 
+(say, 2Gb, or whatever else was specified). Once it hits the limit, to 
+allocate a new chunk it'll always delete an existing chunk of the same 
+size (using LRU queues), and will never malloc() or free() any memory 
+from/to the system. So if, for example, during those initial few hours 
+of memcached's execution your clients mainly wanted to store very small 
+items, the bulk of memory allocated will be divided to small-sized 
+chunks, and the large size classes will get fewer memory, therefore the 
+life-cycle of large objects you'll store in memcached will henceforth 
+always be much shorter, with this instance of memcached (their LRU 
+queues will be shorter and they'll be pushed out much more often). In 
+general, if your system starts producing a different pattern of common 
+object sizes, the memcached servers will become less efficient, unless 
+you restart them. Slabs reassignment, which is the next feature being 
+worked on, will ensure the server's ability to reclaim a slab (1Mb of 
+memory) from one size  class and put it into another class size, where 
+it's needed more.
+
+-- 
+avva
