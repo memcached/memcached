@@ -35,6 +35,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <time.h>
@@ -1080,6 +1081,7 @@ int server_socket(int port) {
     setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &flags, sizeof(flags));
     setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, &flags, sizeof(flags));
     setsockopt(sfd, SOL_SOCKET, SO_LINGER, &ling, sizeof(ling));
+    setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &flags, sizeof(flags));
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);

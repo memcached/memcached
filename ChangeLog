@@ -1,4 +1,7 @@
 2003-08-10
+	* disable Nagel's Algorithm (TCP_NODELAY) for better performance (avva)
+
+2003-08-10
 	* support multiple levels of verbosity (-vv)
 
 2003-08-10  (Evan Martin)
