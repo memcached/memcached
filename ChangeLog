@@ -1,3 +1,8 @@
+2003-06-16
+	* adding PHP support
+	* added CONTRIBUTORS file
+	* version 1.0.4
+	
 2003-06-15
 	* forgot to distribute website/api (still learning auto*)
 	* version 1.0.3

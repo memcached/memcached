@@ -1,0 +1,17 @@
+Brad Fitzpatrick <brad@danga.com>
+  -- design/protocol
+  -- Perl client
+  -- prototype Perl server
+  -- memory allocator design
+  -- small enhancements/changes to C server
+  -- website
+
+Anatoly Vorobey <mellon@pobox.com>
+  -- C server
+  -- memory allocator design
+
+Evan Martine <evan@danga.com>
+  -- automake/autoconf support
+
+Ryan <hotrodder@rocketmail.com>
+  -- PHP client
