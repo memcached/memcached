@@ -2,7 +2,7 @@
 #
 
 use strict;
-use lib 'api/perl';
+use lib '../api/perl';
 use MemCachedClient;
 use Time::HiRes qw(time);
 
