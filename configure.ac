@@ -20,10 +20,6 @@ else
 	AC_MSG_RESULT(yes)
 fi
 
-JUDY_URL=http://judy.sf.net
-AC_CHECK_HEADERS(Judy.h, , [AC_MSG_ERROR(libJudy is required.  You can get it from $JUDY_URL.)])
-AC_CHECK_LIB(Judy, Judy1Test, , [AC_MSG_ERROR(libJudy is required.  You can get it from $JUDY_URL.)])
-
 LIBEVENT_URL=http://www.monkey.org/~provos/libevent/
 AC_CHECK_LIB(event, event_set, ,
 	[AC_MSG_ERROR(libevent is required.  You can get it from $LIBEVENT_URL)])

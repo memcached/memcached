@@ -21,11 +21,10 @@
 #include <errno.h>
 #include <event.h>
 #include <malloc.h>
-#include <Judy.h>
 
 #include "memcached.h"
 
-#define POWER_SMALLEST 6
+#define POWER_SMALLEST 3
 #define POWER_LARGEST  20
 #define POWER_BLOCK 1048576
 
@@ -155,14 +154,13 @@ void slabs_free(void *ptr, unsigned int id) {
     return;
 }
 
-void slabs_stats(char *buffer, int buflen) {
+char* slabs_stats(int *buflen) {
     int i, total;
-    char *bufcurr = buffer;
+    char *buf = (char*) malloc(8192);
+    char *bufcurr = buf;
 
-    if (buflen < 4096) {
-        strcpy(buffer, "ERROR buffer too small");
-        return;
-    }
+    *buflen = 0;
+    if (!buf) return 0;
 
     total = 0;
     for(i = POWER_SMALLEST; i <= POWER_LARGEST; i++) {
@@ -184,6 +182,7 @@ void slabs_stats(char *buffer, int buflen) {
         }
     }
     bufcurr += sprintf(bufcurr, "STAT active_slabs %d\r\nSTAT total_malloced %u\r\n", total, mem_malloced);
-    strcpy(bufcurr, "END");
-    return;
+    bufcurr += sprintf(bufcurr, "END\r\n");
+    *buflen = bufcurr - buf;
+    return buf;
 }

@@ -130,8 +130,7 @@ void *slabs_alloc(unsigned int id);
 void slabs_free(void *ptr, unsigned int id);
     
 /* Fill buffer with stats */
-void slabs_stats(char *buffer, int buflen);
-        
+char* slabs_stats(int *buflen);
     
 /* event handling, network IO */
 void event_handler(int fd, short which, void *arg);
@@ -156,8 +155,8 @@ void settings_init(void);
 
 /* associative array */
 void assoc_init(void);
-void *assoc_find(char *key);
-int assoc_insert(char *key, void *value);
+item *assoc_find(char *key);
+int assoc_insert(char *key, item *item);
 void assoc_delete(char *key);
 
 

@@ -35,7 +35,6 @@
 #include <time.h>
 #include <event.h>
 #include <malloc.h>
-#include <Judy.h>
 
 #include "memcached.h"
 
@@ -45,36 +44,6 @@ struct settings settings;
 static item **todelete = 0;
 static int delcurr;
 static int deltotal;
-
-/* associative array, using Judy */
-static Pvoid_t PJSLArray = (Pvoid_t) NULL;
-
-void assoc_init(void) {
-    return;
-}
-
-void *assoc_find(char *key) {
-    Word_t * PValue;  
-    JSLG( PValue, PJSLArray, key);
-    if (PValue) {
-        return ((void *)*PValue);
-    } else return 0;
-}
-
-int assoc_insert(char *key, void *value) {
-    Word_t *PValue;
-    JSLI( PValue, PJSLArray, key);
-    if (PValue) {
-        *PValue = (Word_t) value;
-        return 1;
-    } else return 0;
-}
-
-void assoc_delete(char *key) {
-    int Rc_int;
-    JSLD( Rc_int, PJSLArray, key);
-    return;
-}
 
 void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
@@ -397,9 +366,17 @@ void process_stat(conn *c, char *command) {
     }
 
     if (strcmp(command, "stats slabs")==0) {
-        char buffer[4096];
-        slabs_stats(buffer, 4096);
-        out_string(c, buffer);
+        int bytes = 0;
+        char *buf = slabs_stats(&bytes);
+        if (!buf) {
+            out_string(c, "SERVER_ERROR out of memory");
+            return;
+        }
+        c->write_and_free = buf;
+        c->wcurr = buf;
+        c->wbytes = bytes;
+        c->state = conn_write;
+        c->write_and_go = conn_read;
         return;
     }
 
