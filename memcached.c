@@ -328,10 +328,10 @@ void process_stat(conn *c, char *command) {
 
         pos += sprintf(pos, "STAT pid %u\r\n", pid);
         pos += sprintf(pos, "STAT uptime %lu\r\n", now - stats.started);
-        pos += sprintf(pos, "STAT time %u\r\n", now);
+        pos += sprintf(pos, "STAT time %ld\r\n", now);
         pos += sprintf(pos, "STAT version " VERSION "\r\n");
-        pos += sprintf(pos, "STAT rusage_user %u:%u\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
-        pos += sprintf(pos, "STAT rusage_system %u:%u\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
+        pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
+        pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
         pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
         pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
@@ -511,7 +511,7 @@ void process_command(conn *c, char *command) {
         int len, res;
         item *it;
 
-        res = sscanf(command, "%*s %250s %u %lu %d\n", key, &flags, &expire, &len);
+        res = sscanf(command, "%*s %250s %u %ld %d\n", key, &flags, &expire, &len);
         if (res!=4 || strlen(key)==0 ) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
@@ -656,7 +656,7 @@ void process_command(conn *c, char *command) {
         int res;
         time_t exptime = 0;
 
-        res = sscanf(command, "%*s %250s %d", key, &exptime);
+        res = sscanf(command, "%*s %250s %ld", key, &exptime);
         it = assoc_find(key);
         if (!it) {
             out_string(c, "NOT_FOUND");
@@ -1062,11 +1062,10 @@ void drive_machine(conn *c) {
                 case 0:
                     it = *(c->icurr);
                     assert((it->it_flags & ITEM_SLABBED) == 0);
-                    sprintf(c->ibuf, "VALUE %s %u %u\r\n", ITEM_key(it), it->flags, it->nbytes - 2);
+                    c->ibytes = sprintf(c->ibuf, "VALUE %s %u %u\r\n", ITEM_key(it), it->flags, it->nbytes - 2);
                     if (settings.verbose > 1)
                         fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
                     c->iptr = c->ibuf;
-                    c->ibytes = strlen(c->iptr);
                     c->ipart = 1;
                     break;
                 case 3:
