@@ -1353,7 +1353,7 @@ int main (int argc, char **argv) {
     sa.sa_flags = 0;
     if (sigemptyset(&sa.sa_mask) == -1 ||
         sigaction(SIGPIPE, &sa, 0) == -1) {
-        fprintf(stderr, "failed to ignore SIGPIPE\n");
+        perror("failed to ignore SIGPIPE; sigaction");
         exit(1); 
     }
 
