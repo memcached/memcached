@@ -47,14 +47,19 @@ static int delcurr;
 static int deltotal;
 
 time_t realtime(time_t exptime) {
-    time_t now = time(0);
+    time_t now;
 
     /* no. of seconds in 30 days - largest possible delta exptime */
     #define REALTIME_MAXDELTA 60*60*24*30
 
+    if (exptime == 0) return 0; /* 0 means never expire */
+
     if (exptime > REALTIME_MAXDELTA)
         return exptime;
-    else return exptime + now;
+    else {
+        now = time(0);
+        return exptime + now;
+    }
 }
 
 void stats_init(void) {

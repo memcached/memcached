@@ -1,6 +1,8 @@
 2003-07-29
 	* version 1.1.7
-	
+	* big bug fix: item exptime 0 meant expire immediately, not never
+	* version 1.1.8
+
 2003-07-22
 	* make 'delete' take second arg, of time to refuse new add/replace
 	* set/add/replace/delete can all take abs or delta time (delta can't
