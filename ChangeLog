@@ -1,3 +1,13 @@
+2004-04-24
+	* Avva: Add a new command line option: -r , to maximize core file
+	limit.
+
+2004-03-31
+	* Avva: Use getrlimit and setrlimit to set limits for number of
+	simultaneously open file descriptors. Get the current limits and
+	try to raise them if they're not enough for the specified (or the
+	default) setting of max connections.
+	
 2004-02-24
 	* Adds a '-M' flag to turn off tossing items from the cache.
 	  (Jason Titus <jtitus@postini.com>)
