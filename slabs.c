@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
  * Slabs memory allocation, based on powers-of-2
  *
@@ -33,10 +34,16 @@
 typedef struct {
     unsigned int size;      /* sizes of items */
     unsigned int perslab;   /* how many items per slab */
+
     void **slots;           /* list of item ptrs */
     unsigned int sl_total;  /* size of previous array */
     unsigned int sl_curr;   /* first free slot */
+ 
+    void *end_page_ptr;         /* pointer to next free item at end of page, or 0 */
+    unsigned int end_page_free; /* number of items remaining at end of last alloced page */
+
     unsigned int slabs;     /* how many slabs were allocated for this class */
+  
 } slabclass_t;
 
 static slabclass_t slabclass[POWER_LARGEST+1];
@@ -68,6 +75,8 @@ void slabs_init(unsigned int limit) {
         slabclass[i].perslab = POWER_BLOCK / size;
         slabclass[i].slots = 0;
         slabclass[i].sl_curr = slabclass[i].sl_total = slabclass[i].slabs = 0;
+        slabclass[i].end_page_ptr = 0;
+        slabclass[i].end_page_free = 0;
     }
 }
 
@@ -83,23 +92,14 @@ int slabs_newslab(unsigned int id) {
     if (mem_limit && mem_malloced + len > mem_limit)
         return 0;
 
-    if (p->sl_total < num) {
-        new_slots = realloc(p->slots, num*sizeof(void *));
-        if (new_slots == 0)
-            return 0;
-        p->slots = new_slots;
-        p->sl_total = num;
-    }
-
     ptr = malloc(len);
     if (ptr == 0) return 0;
-    for (i=0, cur = p->slots; i<num; i++, cur++, ptr+=p->size) {
-            *cur = ptr;
-    }
-    p->sl_curr+=num;
+
+    p->end_page_ptr = ptr;
+    p->end_page_free = num;
+
     p->slabs++;
     mem_malloced += len;
-
     return 1;
 }
 
@@ -111,9 +111,27 @@ void *slabs_alloc(unsigned int id) {
 
     p = &slabclass[id];
 
-    if (p->sl_curr == 0 && !slabs_newslab(id)) return 0;
+    /* fail unless we have space at the end of a recently allocated page,
+       we have something on our freelist, or we could allocate a new page */
+    if (! (p->end_page_ptr || p->sl_curr || slabs_newslab(id)))
+        return 0;
 
-    return p->slots[--p->sl_curr];
+    /* return off our freelist, if we have one */
+    if (p->sl_curr)
+        return p->slots[--p->sl_curr];
+
+    /* if we recently allocated a whole page, return from that */
+    if (p->end_page_ptr) {
+        void *ptr = p->end_page_ptr;
+        if (--p->end_page_free) {
+            p->end_page_ptr += p->size;
+        } else {
+            p->end_page_ptr = 0;
+        }
+        return ptr;
+    }
+
+    return 0;  /* shouldn't ever get here */
 }
 
 void slabs_free(void *ptr, unsigned int id) {
@@ -145,19 +163,22 @@ void slabs_stats(char *buffer, int buflen) {
         return;
     }
 
+    total = 0;
     for(i = POWER_SMALLEST; i <= POWER_LARGEST; i++) {
-        if (slabclass[i].slabs) {
+        slabclass_t *p = &slabclass[i];
+        if (p->slabs) {
             unsigned int perslab, slabs;
 
-            slabs = slabclass[i].slabs;
-            perslab = slabclass[i].perslab;
+            slabs = p->slabs;
+            perslab = p->perslab;
 
-            bufcurr += sprintf(bufcurr, "STAT %d:chunk_size %u\r\n", i, slabclass[i].size);
+            bufcurr += sprintf(bufcurr, "STAT %d:chunk_size %u\r\n", i, p->size);
             bufcurr += sprintf(bufcurr, "STAT %d:chunks_per_page %u\r\n", i, perslab);
             bufcurr += sprintf(bufcurr, "STAT %d:total_pages %u\r\n", i, slabs);
             bufcurr += sprintf(bufcurr, "STAT %d:total_chunks %u\r\n", i, slabs*perslab);
-            bufcurr += sprintf(bufcurr, "STAT %d:used_chunks %u\r\n", i, slabs*perslab - slabclass[i].sl_curr);
-            bufcurr += sprintf(bufcurr, "STAT %d:free_chunks %u\r\n", i, slabclass[i].sl_curr);
+            bufcurr += sprintf(bufcurr, "STAT %d:used_chunks %u\r\n", i, slabs*perslab - p->sl_curr);
+            bufcurr += sprintf(bufcurr, "STAT %d:free_chunks %u\r\n", i, p->sl_curr);
+            bufcurr += sprintf(bufcurr, "STAT %d:free_chunks_end %u\r\n", i, p->end_page_free);
             total++;
         }
     }
