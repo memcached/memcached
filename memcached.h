@@ -3,8 +3,6 @@
 
 #define DATA_BUFFER_SIZE 2048
 
-/* #define USE_SYSTEM_MALLOC 1 */
-
 struct stats {
     unsigned int  curr_items;
     unsigned int  total_items;
