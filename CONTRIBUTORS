@@ -23,10 +23,12 @@ Jamie McCarthy <jamie@mccarthy.vg>
 Lisa Marie Seelye <lisa@gentoo.org>
   -- packaging for Gentoo Linux
 
-seanc@FreeBSD.org
+Sean Chittenden <seanc@FreeBSD.org>
   -- packaging for FreeBSD
 
 Stuart Herbert <stuart@gentoo.org>
   -- fix for: memcached's php client can run in an infinite loop
      http://bugs.gentoo.org/show_bug.cgi?id=25385
 
+Brion Vibber <brion@pobox.com>
+  -- debugging abstraction in PHP client
