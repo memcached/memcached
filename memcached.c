@@ -255,6 +255,7 @@ void drop_tail(void) {
 
 void item_update(item *it) {
     item_unlink_q(it);
+    it->time = time(0);
     item_link_q(it);
 }
 
