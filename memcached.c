@@ -1176,6 +1176,7 @@ void usage(void) {
     printf("-p <num>      port number to listen on\n");
     printf("-l <ip_addr>  interface to listen on, default is INDRR_ANY\n");
     printf("-d            run as a daemon\n");
+    printf("-r            maximize core file limit\n");
     printf("-u <username> assume identity of <username> (only when run as root)\n");
     printf("-m <num>      max memory to use for items in megabytes, default is 64 MB\n");
     printf("-M            return error on memory exhausted (rather than removing items)\n");
@@ -1267,6 +1268,7 @@ int main (int argc, char **argv) {
     struct in_addr addr;
     int lock_memory = 0;
     int daemonize = 0;
+    int maxcore = 0;
     char *username = 0;
     struct passwd *pw;
     struct sigaction sa;
@@ -1276,7 +1278,7 @@ int main (int argc, char **argv) {
     settings_init();
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "p:m:Mc:khivdl:u:")) != -1) {
+    while ((c = getopt(argc, argv, "p:m:Mc:khirvdl:u:")) != -1) {
         switch (c) {
         case 'p':
             settings.port = atoi(optarg);
@@ -1313,6 +1315,9 @@ int main (int argc, char **argv) {
         case 'd':
             daemonize = 1;
             break;
+        case 'r':
+            maxcore = 1;
+            break;
         case 'u':
             username = optarg;
             break;
@@ -1322,6 +1327,33 @@ int main (int argc, char **argv) {
         }
     }
 
+    if (maxcore) {
+        struct rlimit rlim_new;
+        /* 
+         * First try raising to infinity; if that fails, try bringing
+         * the soft limit to the hard. 
+         */
+        if (getrlimit(RLIMIT_CORE, &rlim)==0) {
+            rlim_new.rlim_cur = rlim_new.rlim_max = RLIM_INFINITY;
+            if (setrlimit(RLIMIT_CORE, &rlim_new)!=0) {
+                /* failed. try raising just to the old max */
+                rlim_new.rlim_cur = rlim_new.rlim_max = 
+                    rlim.rlim_max;
+                (void) setrlimit(RLIMIT_CORE, &rlim_new);
+            }
+        }
+        /* 
+         * getrlimit again to see what we ended up with. Only fail if 
+         * the soft limit ends up 0, because then no core files will be 
+         * created at all.
+         */
+           
+        if ((getrlimit(RLIMIT_CORE, &rlim)!=0) || rlim.rlim_cur==0) {
+            fprintf(stderr, "failed to ensure corefile creation\n");
+            exit(1);
+        }
+    }
+                        
     /* 
      * If needed, increase rlimits to allow as many connections
      * as needed.
@@ -1373,9 +1405,10 @@ int main (int argc, char **argv) {
     }
 
     /* daemonize if requested */
+    /* if we want to ensure our ability to dump core, don't chdir to / */
     if (daemonize) {
         int res;
-        res = daemon(0, settings.verbose);
+        res = daemon(maxcore, settings.verbose);
         if (res == -1) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
             return 1;
