@@ -1,3 +1,6 @@
+2003-09-09 (Avva, Lisa Marie Seelye <lisa@gentoo.org>)
+	* setuid support
+	
 2003-09-05 (Avva)
 	* accept all new connections in the same event (so we work with ET epoll)
 	* mark all items as clsid=0 after slab page reassignment to please future

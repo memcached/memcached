@@ -28,6 +28,7 @@
 #ifndef _P1003_1B_VISIBLE
 #define _P1003_1B_VISIBLE
 #endif
+#include <pwd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -1161,6 +1162,7 @@ void usage(void) {
     printf("-p <num>      port number to listen on\n");
     printf("-l <ip_addr>  interface to listen on, default is INDRR_ANY\n");
     printf("-d            run as a daemon\n");
+    printf("-u <username> assume identity of <username> (only when run as root)\n");
     printf("-m <num>      max memory to use for items in megabytes, default is 64 MB\n");
     printf("-c <num>      max simultaneous connections, default is 1024\n");
     printf("-k            lock down all paged memory\n");
@@ -1250,12 +1252,14 @@ int main (int argc, char **argv) {
     struct in_addr addr;
     int lock_memory = 0;
     int daemonize = 0;
+    char *username = 0;
+    struct passwd *pw;
 
     /* init settings */
     settings_init();
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "p:m:c:khivdl:")) != -1) {
+    while ((c = getopt(argc, argv, "p:m:c:khivdl:u:")) != -1) {
         switch (c) {
         case 'p':
             settings.port = atoi(optarg);
@@ -1289,6 +1293,9 @@ int main (int argc, char **argv) {
         case 'd':
             daemonize = 1;
             break;
+        case 'u':
+            username = optarg;
+            break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
@@ -1310,6 +1317,22 @@ int main (int argc, char **argv) {
 #else
         fprintf(stderr, "warning: mlockall() not supported on this platform.  proceeding without.\n");
 #endif
+    }
+
+    /* lose root privileges if we have them */
+    if (getuid()== 0 || geteuid()==0) {
+        if (username==0 || *username=='\0') {
+            fprintf(stderr, "can't run as root without the -u switch\n");
+            return 1;
+        }
+        if ((pw = getpwnam(username)) == 0) {
+            fprintf(stderr, "can't find the user %s to switch to\n", username);
+            return 1;
+        }
+        if (setgid(pw->pw_gid)<0 || setuid(pw->pw_uid)<0) {
+            fprintf(stderr, "failed to assume identity of user %s\n", username);
+            return 1;
+        }
     }
 
     if (daemonize) {
