@@ -164,7 +164,6 @@ conn *conn_new(int sfd, int init_state, int event_flags) {
     c->write_and_free = 0;
     c->item = 0;
 
-    c->write_and_uncork = 0;
     c->is_corked = 0;
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
@@ -245,7 +244,6 @@ void out_string(conn *c, char *str) {
     c->wbytes = len + 2;
     c->wcurr = c->wbuf;
 
-    c->write_and_uncork = 1;
     c->state = conn_write;
     c->write_and_go = conn_read;
     return;
@@ -942,7 +940,7 @@ void drive_machine(conn *c) {
                 stats.bytes_written += res;
                 c->wcurr  += res;
                 c->wbytes -= res;
-                if (c->wbytes == 0 && c->write_and_uncork)
+                if (c->wbytes == 0 && c->write_and_go == conn_read)
                     set_cork(c, 0);
                 break;
             }

@@ -93,7 +93,6 @@ typedef struct {
     int    wbytes; 
     int    write_and_go; /* which state to go into after finishing current write */
     void   *write_and_free; /* free this memory after finishing writing */
-    char    write_and_uncork;  /* boolean, uncork when done writing */
     char    is_corked;         /* boolean, connection is corked */
 
     char   *rcurr;
