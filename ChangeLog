@@ -1,3 +1,8 @@
+2003-09-29
+	* ignore SIGPIPE at start instead of crashing in rare cases it
+	  comes up.  no other code had to be modified, since everything
+	  else is already dead-connection-aware.  (avva)
+	
 2003-09-09 (Avva, Lisa Marie Seelye <lisa@gentoo.org>)
 	* setuid support
 	

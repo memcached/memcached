@@ -1254,6 +1254,7 @@ int main (int argc, char **argv) {
     int daemonize = 0;
     char *username = 0;
     struct passwd *pw;
+    struct sigaction sa;
 
     /* init settings */
     settings_init();
@@ -1342,6 +1343,18 @@ int main (int argc, char **argv) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
             return 1;
         }
+    }
+
+    /*
+     * ignore SIGPIPE signals; we can use errno==EPIPE if we
+     * need that information
+     */
+    sa.sa_handler = SIG_IGN;
+    sa.sa_flags = 0;
+    if (sigemptyset(&sa.sa_mask) == -1 ||
+        sigaction(SIGPIPE, &sa, 0) == -1) {
+        fprintf(stderr, "failed to ignore SIGPIPE\n");
+        exit(1); 
     }
 
     /* create the listening socket and bind it */
