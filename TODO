@@ -9,3 +9,5 @@
 
 * calendar queue for early expirations of items, so they don't push
   out other objects with infinite expirations.
+
+* drop root on start, if root. to what? nobody/nogroup? configurable?
