@@ -1,7 +1,8 @@
-2003-06-14
+2003-06-15
 	* update to version 1.0.2
 	* autoconf/automake fixes for older versions
 	* make stats report version number
+	* change license from GPL to BSD
 	
 Fri, 13 Jun 2003 10:05:51 -0700  Evan Martin  <martine@danga.com>
 

@@ -6,7 +6,8 @@
  *
  *  Copyright 2003 Danga Interactive, Inc.  All rights reserved.
  *
- *  Use and distribution licensed under the GNU General Public License (GPL)
+ *  Use and distribution licensed under the BSD license.  See
+ *  the LICENSE file for full text.
  *
  *  Authors:
  *      Anatoly Vorobey <mellon@pobox.com>
@@ -92,7 +93,6 @@ void settings_init(void) {
     settings.port = 11211;
     settings.interface.s_addr = htonl(INADDR_ANY);
     settings.maxbytes = 64*1024*1024; /* default is 64MB */
-    settings.maxitems = 0;            /* no limit on no. of items by default */
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
 }
@@ -311,7 +311,6 @@ void process_stat(conn *c, char *command) {
         pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
         pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", settings.maxbytes);
-        pos += sprintf(pos, "STAT limit_maxitems %u\r\n", settings.maxitems);
         pos += sprintf(pos, "END");
         out_string(c, temp);
         return;
@@ -1065,19 +1064,90 @@ void delete_handler(int fd, short which, void *arg) {
 }
         
 void usage(void) {
-    printf(PACKAGE " " VERSION ".\n");
+    printf(PACKAGE " " VERSION "\n");
     printf("-p <num>      port number to listen on\n");
     printf("-l <ip_addr>  interface to listen on, default is INDRR_ANY\n");
-    printf("-s <num>      maximum number of items to store, default is unlimited\n");
+    printf("-d            run as a daemon\n");
     printf("-m <num>      max memory to use for items in megabytes, default is 64 MB\n");
     printf("-c <num>      max simultaneous connections, default is 1024\n");
     printf("-k            lock down all paged memory\n");
     printf("-v            verbose (print errors/warnings while in event loop)\n");
-    printf("-d            run as a daemon\n");
     printf("-h            print this help and exit\n");
+    printf("-i            print memcached and libevent license\n");
+    return;
+}
+
+void usage_license(void) {
+    printf(PACKAGE " " VERSION "\n\n");
+    printf(
+	"Copyright (c) 2003, Danga Interactive, Inc. <http://www.danga.com/>\n"
+	"All rights reserved.\n"
+	"\n"
+	"Redistribution and use in source and binary forms, with or without\n"
+	"modification, are permitted provided that the following conditions are\n"
+	"met:\n"
+	"\n"
+	"    * Redistributions of source code must retain the above copyright\n"
+	"notice, this list of conditions and the following disclaimer.\n"
+	"\n"
+	"    * Redistributions in binary form must reproduce the above\n"
+	"copyright notice, this list of conditions and the following disclaimer\n"
+	"in the documentation and/or other materials provided with the\n"
+	"distribution.\n"
+	"\n"
+	"    * Neither the name of the Danga Interactive nor the names of its\n"
+	"contributors may be used to endorse or promote products derived from\n"
+	"this software without specific prior written permission.\n"
+	"\n"
+	"THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS\n"
+	"\"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT\n"
+	"LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR\n"
+	"A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT\n"
+	"OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\n"
+	"SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\n"
+	"LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\n"
+	"DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\n"
+	"THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n"
+	"(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n"
+	"OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+	"\n"
+	"\n"
+	"This product includes software developed by Niels Provos.\n"
+	"\n"
+	"[ libevent ]\n"
+	"\n"
+	"Copyright 2000-2003 Niels Provos <provos@citi.umich.edu>\n"
+	"All rights reserved.\n"
+	"\n"
+	"Redistribution and use in source and binary forms, with or without\n"
+	"modification, are permitted provided that the following conditions\n"
+	"are met:\n"
+	"1. Redistributions of source code must retain the above copyright\n"
+	"   notice, this list of conditions and the following disclaimer.\n"
+	"2. Redistributions in binary form must reproduce the above copyright\n"
+	"   notice, this list of conditions and the following disclaimer in the\n"
+	"   documentation and/or other materials provided with the distribution.\n"
+	"3. All advertising materials mentioning features or use of this software\n"
+	"   must display the following acknowledgement:\n"
+	"      This product includes software developed by Niels Provos.\n"
+	"4. The name of the author may not be used to endorse or promote products\n"
+	"   derived from this software without specific prior written permission.\n"
+	"\n"
+	"THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR\n"
+	"IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES\n"
+	"OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.\n"
+	"IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,\n"
+	"INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT\n"
+	"NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\n"
+	"DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\n"
+	"THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n"
+	"(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF\n"
+	"THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+    );
 
     return;
 }
+
 
 int main (int argc, char **argv) {
     int c;
@@ -1091,13 +1161,10 @@ int main (int argc, char **argv) {
     settings_init();
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "p:s:m:c:khvdl:")) != -1) {
+    while ((c = getopt(argc, argv, "p:m:c:khivdl:")) != -1) {
         switch (c) {
         case 'p':
             settings.port = atoi(optarg);
-            break;
-        case 's':
-            settings.maxitems = atoi(optarg);
             break;
         case 'm':
             settings.maxbytes = atoi(optarg)*1024*1024;
@@ -1107,6 +1174,9 @@ int main (int argc, char **argv) {
             break;
         case 'h':
             usage();
+            exit(0);
+        case 'i':
+            usage_license();
             exit(0);
         case 'k':
             lock_memory = 1;
