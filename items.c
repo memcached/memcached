@@ -107,12 +107,15 @@ void item_free(item *it) {
 
     /* so slab size changer can tell later if item is already free or not */
     it->slabs_clsid = 0;
+    it->it_flags |= ITEM_SLABBED;
     slabs_free(it, ntotal);
 }
 
 void item_link_q(item *it) { /* item is the new head */
     item **head, **tail;
     assert(it->slabs_clsid <= LARGEST_ID);
+    assert((it->it_flags & ITEM_SLABBED) == 0);
+
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
     assert(it != *head);
@@ -150,8 +153,7 @@ void item_unlink_q(item *it) {
 }
 
 int item_link(item *it) {
-    assert((it->it_flags & ITEM_LINKED) == 0);
-    assert(it->it_flags < 4);
+    assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     assert(it->nbytes < 1048576);
     it->it_flags |= ITEM_LINKED;
     it->time = time(0);
@@ -178,6 +180,8 @@ void item_unlink(item *it) {
 }
 
 void item_remove(item *it) {
+    assert((it->it_flags & ITEM_SLABBED) == 0);
+
     if (it->refcount) it->refcount--;
     if (it->refcount == 0 && (it->it_flags & ITEM_LINKED) == 0) {
         item_free(it);
@@ -185,12 +189,16 @@ void item_remove(item *it) {
 }
 
 void item_update(item *it) {
+    assert((it->it_flags & ITEM_SLABBED) == 0);
+
     item_unlink_q(it);
     it->time = time(0);
     item_link_q(it);
 }
 
 int item_replace(item *it, item *new_it) {
+    assert((it->it_flags & ITEM_SLABBED) == 0);
+
     item_unlink(it);
     return item_link(new_it);
 }

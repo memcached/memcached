@@ -33,6 +33,9 @@ extern struct settings settings;
 #define ITEM_LINKED 1
 #define ITEM_DELETED 2
 
+/* temp */
+#define ITEM_SLABBED 4
+
 typedef struct _stritem {
     struct _stritem *next;
     struct _stritem *prev;

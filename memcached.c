@@ -931,6 +931,7 @@ void drive_machine(conn *c) {
                 switch (c->ipart) {
                 case 1:
                     it = *(c->icurr);
+                    assert((it->it_flags & ITEM_SLABBED) == 0);
                     c->iptr = ITEM_data(it);
                     c->ibytes = it->nbytes;
                     c->ipart = 2;
@@ -948,6 +949,7 @@ void drive_machine(conn *c) {
                     /* FALL THROUGH */
                 case 0:
                     it = *(c->icurr);
+                    assert((it->it_flags & ITEM_SLABBED) == 0);
                     sprintf(c->ibuf, "VALUE %s %u %u\r\n", ITEM_key(it), it->flags, it->nbytes - 2);
                     c->iptr = c->ibuf;
                     c->ibytes = strlen(c->iptr);
