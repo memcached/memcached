@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <errno.h>
 #include <event.h>
+#include <malloc.h>
 #include <Judy.h>
 
 #define DATA_BUFFER_SIZE 2048
@@ -516,6 +517,57 @@ void process_stat(conn *c, char *command) {
         out_string(c, "RESET");
     }
 
+    if (strcmp(command, "stats malloc") == 0) {
+        char temp[512];
+        struct mallinfo info;
+
+        info = mallinfo();
+        sprintf(temp, "STAT arena_size %d\r\nSTAT free_chunks %d\r\nSTAT fastbin_blocks %d\r\nSTAT mmaped_regions %d\r\nSTAT mmapped_space %d\r\nSTAT max_total_alloc %d\r\nSTAT fastbin_space %d\r\nSTAT total_alloc %d\r\nSTAT total_free %d\r\nSTAT releasable_space %d\r\nEND", 
+                info.arena, info.ordblks, info.smblks, info.hblks, info.hblkhd, info.usmblks, info.fsmblks, info.uordblks, info.fordblks, info.keepcost);
+        out_string(c, temp);
+    }
+
+    if (strcmp(command, "stats maps") == 0) {
+        pid_t pid = getpid();
+        char fname[32];
+        char *wbuf;
+        int wsize = 8192; /* should be enough */
+        int fd;
+        int res;
+
+        wbuf = (char *)malloc(wsize);
+        if (wbuf == 0) {
+            out_string(c, "SERVER_ERROR out of memory");
+            return;
+        }
+            
+        sprintf(fname, "/proc/%u/maps", pid);
+        fd = open(fname, O_RDONLY);
+        if (fd == -1) {
+            out_string(c, "SERVER_ERROR cannot open the maps file");
+            free(wbuf);
+            return;
+        }
+
+        res = read(fd, wbuf, wsize - 6);  /* 6 = END\r\n\0 */
+        if (res == wsize - 6) {
+            out_string(c, "SERVER_ERROR buffer overflow");
+            free(wbuf); close(fd);
+            return;
+        }
+        if (res == 0 || res == -1) {
+            out_string(c, "SERVER_ERROR can't read the maps file");
+            free(wbuf); close(fd);
+            return;
+        }
+        strcpy(wbuf + res, "END\r\n");
+        c->write_and_free=wbuf;
+        c->wcurr=wbuf;
+        c->wbytes = res + 6;
+        c->state = conn_write;
+        return;
+    }
+
     if (strncmp(command, "stats cachedump", 15) == 0) {
         char *start = command + 15;
         int limit = 0;
@@ -566,6 +618,7 @@ void process_stat(conn *c, char *command) {
 void process_command(conn *c, char *command) {
     
     int comm = 0;
+    int incr = 0;
 
     /* 
      * for commands set/add/replace, we build an item and read the data
@@ -602,6 +655,71 @@ void process_command(conn *c, char *command) {
         c->state = conn_nread;
         return;
     }
+
+    if ((strncmp(command, "incr ", 5) == 0 && (incr = 1)) ||
+        (strncmp(command, "decr ", 5) == 0)) {
+        char temp[32];
+        char s_comm[10];
+        unsigned int value;
+        item *it;
+        unsigned int delta;
+        char key[255];
+        int res;
+        char *ptr;
+        time_t now = time(0);
+
+        res = sscanf(command, "%s %s %u\n", s_comm, key, &delta);
+        if (res!=3 || strlen(key)==0 ) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+        
+        it = assoc_find(key);
+        if (it && (it->it_flags & ITEM_DELETED)) {
+            it = 0;
+        }
+        if (it && it->exptime && it->exptime < now) {
+            item_unlink(it);
+            it = 0;
+        }
+
+        if (!it) {
+            out_string(c, "NOT_FOUND");
+            return;
+        }
+
+        ptr = it->data;
+        while (*ptr && (*ptr<'0' && *ptr>'9')) ptr++;
+        
+        value = atoi(ptr);
+
+        if (incr)
+            value+=delta;
+        else {
+            if (delta >= value) value = 0;
+            else value-=delta;
+        }
+
+        sprintf(temp, "%u", value);
+        res = strlen(temp);
+        if (res + 2 > it->nbytes) { /* need to realloc */
+            item *new_it;
+            new_it = item_alloc(it->key, it->flags, it->exptime, res + 2 );
+            if (new_it == 0) {
+                out_string(c, "SERVER_ERROR out of memory");
+                return;
+            }
+            memcpy(new_it->data, temp, res);
+            memcpy((char *)(new_it->data) + res, "\r\n", 2);
+            item_replace(it, new_it);
+        } else { /* replace in-place */
+            memcpy(it->data, temp, res);
+            memset(it->data + res, ' ', it->nbytes-res-2);
+        }
+        out_string(c, temp);
+        return;
+    }
+        
     if (strncmp(command, "get ", 4) == 0) {
 
         char *start = command + 4;
