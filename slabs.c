@@ -244,7 +244,7 @@ int slabs_reassign(unsigned char srcid, unsigned char dstid) {
     if (p->end_page_ptr || ! p->slabs)
         return 0;
 
-    /* fail if dst is still growing or we can't make room to hold its new oaa*/
+    /* fail if dst is still growing or we can't make room to hold its new one */
     if (dp->end_page_ptr || ! grow_slab_list(dstid))
         return 0;
         
