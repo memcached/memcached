@@ -1,5 +1,7 @@
-2003-09-06 (Avva)
+2003-09-05 (Avva)
 	* accept all new connections in the same event (so we work with ET epoll)
+	* mark all items as clsid=0 after slab page reassignment to please future
+	  asserts (on the road to making slab page reassignment work fully)
 
 2003-08-12 (Brad Fitzpatrick)
 	* use TCP_CORK on Linux or TCP_PUSH on BSD

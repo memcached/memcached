@@ -279,5 +279,12 @@ int slabs_reassign(unsigned char srcid, unsigned char dstid) {
     dp->slab_list[dp->slabs++] = slab;
     dp->end_page_ptr = slab;
     dp->end_page_free = dp->perslab;
+
+    /* this isn't too critical, but other parts of the code do asserts to
+       make sure this field is always 0.  */
+    for (iter=slab; iter<slab_end; iter+=dp->size) {
+        ((item *)iter)->slabs_clsid = 0;
+    }
+
     return 1;
 }
