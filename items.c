@@ -96,7 +96,7 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
 }
 
 void item_free(item *it) {
-    unsigned char ntotal = ITEM_ntotal(it);
+    unsigned int ntotal = ITEM_ntotal(it);
     /* so slab size changer can tell later if item is already free or not */
     it->slabs_clsid = 0;
     slabs_free(it, ntotal);
