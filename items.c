@@ -223,14 +223,9 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
     if (buffer == 0) return 0;
     bufcurr = 0;
 
-    while(1) {
-        if(limit && shown >=limit)
-            break;
-        if (!it)
-            break;
-        sprintf(temp, "ITEM %s [%u b; %lu s]\r\n", ITEM_key(it), it->nbytes - 2, it->time);
-        len = strlen(temp);
-        if (bufcurr + len +5 > memlimit)  /* 5 is END\r\n */
+    while (it && (!limit || shown < limit)) {
+        len = sprintf(temp, "ITEM %s [%u b; %lu s]\r\n", ITEM_key(it), it->nbytes - 2, it->time);
+        if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;
         strcpy(buffer + bufcurr, temp);
         bufcurr+=len;
@@ -278,7 +273,7 @@ char* item_stats_sizes(int *bytes) {
     }
 
     /* build the histogram */
-    memset(buf, 0, num_buckets * sizeof(int));
+    memset(histogram, 0, num_buckets * sizeof(int));
     for (i=0; i<LARGEST_ID; i++) {
         item *iter = heads[i];
         while (iter) {
