@@ -1143,6 +1143,12 @@ int server_socket(int port) {
     setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &flags, sizeof(flags));
 #endif
 
+    /* 
+     * the memset call clears nonstandard fields in some impementations
+     * that otherwise mess things up.
+     */
+    memset(&addr, 0, sizeof(addr));
+
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr = settings.interface;
