@@ -1,4 +1,18 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+/*
+ *  memcached - memory caching daemon
+ *
+ *       http://www.danga.com/memcached/
+ *
+ *  Copyright 2003 Danga Interactive, Inc.  All rights reserved.
+ *
+ *  Use and distribution licensed under the GNU General Public License (GPL)
+ *
+ *  Authors:
+ *      Anatoly Vorobey <mellon@pobox.com>
+ *      Brad Fitzpatrick <brad@danga.com>
+ */
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
