@@ -181,8 +181,8 @@ void item_unlink(item *it) {
 
 void item_remove(item *it) {
     assert((it->it_flags & ITEM_SLABBED) == 0);
-
     if (it->refcount) it->refcount--;
+    assert((it->it_flags & ITEM_DELETED) == 0 || it->refcount);
     if (it->refcount == 0 && (it->it_flags & ITEM_LINKED) == 0) {
         item_free(it);
     }

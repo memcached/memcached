@@ -939,11 +939,11 @@ void drive_machine(conn *c) {
                 case 2:
                     it = *(c->icurr);
                     item_remove(it);
-                    if (c->ileft <= 1) {
+                    c->ileft--;
+                    if (c->ileft <= 0) {
                         c->ipart = 3;
                         break;
                     } else {
-                        c->ileft--;
                         c->icurr++;
                     }
                     /* FALL THROUGH */
@@ -1065,11 +1065,14 @@ void delete_handler(int fd, short which, void *arg) {
         int i, j=0;
         time_t now = time(0);
         for (i=0; i<delcurr; i++) {
-            if (todelete[i]->exptime < now) {
-                item_unlink(todelete[i]);
-                item_remove(todelete[i]);
+            item *it = todelete[i];
+            if (it->exptime < now) {
+                assert(it->refcount > 0);
+                it->it_flags &= ~ITEM_DELETED;
+                item_unlink(it);
+                item_remove(it);
             } else {
-                todelete[j++] = todelete[i];
+                todelete[j++] = it;
             }
         }
         delcurr = j;
