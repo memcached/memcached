@@ -107,11 +107,5 @@ foreach my $n (6..17) {
 	sprintf("%d kB", $it->{chunk_size} / 1024);
     my $full = $it->{free_chunks_end} == 0 ? "yes" : " no";
     printf "%3d    %6s%7d s %7d     $full\n", $n, $size, $it->{age}, $it->{total_pages};
-    
-
 }
-
-use Data::Dumper;
-#print Dumper(\%items);
-
 
