@@ -11,6 +11,7 @@ struct stats {
     unsigned int  set_cmds;
     unsigned int  get_hits;
     unsigned int  get_misses;
+    time_t        started;          /* when the process was started */
     unsigned long long bytes_read;
     unsigned long long bytes_written;
 };
@@ -170,4 +171,5 @@ void item_remove(item *it);
 void item_update(item *it);   /* update LRU time to current and reposition */
 int item_replace(item *it, item *new_it);
 char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes);
+char *item_stats_sizes(int *bytes);
 void item_stats(char *buffer, int buflen);

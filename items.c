@@ -29,7 +29,6 @@
 static item *heads[LARGEST_ID];
 static item *tails[LARGEST_ID];
 unsigned int sizes[LARGEST_ID];
-unsigned int ages[LARGEST_ID];
 
 void item_init(void) {
     int i;
@@ -37,7 +36,6 @@ void item_init(void) {
         heads[i]=0;
         tails[i]=0;
         sizes[i]=0;
-        ages[i]=0;
     }
 }
 
@@ -108,10 +106,7 @@ void item_link_q(item *it) { /* item is the new head */
     it->next = *head;
     if (it->next) it->next->prev = it;
     *head = it;
-    if (*tail == 0) {
-        *tail = it;
-        ages[it->slabs_clsid] = it->time;
-    }
+    if (*tail == 0) *tail = it;
     sizes[it->slabs_clsid]++;
     return;
 }
@@ -122,10 +117,7 @@ void item_unlink_q(item *it) {
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
     if (*head == it) *head = it->next;
-    if (*tail == it) {
-        *tail = it->prev;
-        ages[it->slabs_clsid] = (*tail ? (*tail)->time : 0);
-    }
+    if (*tail == it) *tail = it->prev;
     if (it->next) it->next->prev = it->prev;
     if (it->prev) it->prev->next = it->next;
     sizes[it->slabs_clsid]--;
@@ -226,8 +218,47 @@ void item_stats(char *buffer, int buflen) {
     for (i=0; i<LARGEST_ID; i++) {
         if (tails[i])
             bufcurr += sprintf(bufcurr, "STAT items:%u:number %u\r\nSTAT items:%u:age %u\r\n", 
-                               i, sizes[i], i, now - ages[i]);
+                               i, sizes[i], i, now - tails[i]->time);
     }
     strcpy(bufcurr, "END");
     return;
+}
+
+/* dumps out a list of objects of each size, with granularity of 32 bytes */
+char* item_stats_sizes(int *bytes) {
+    int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
+    unsigned int *histogram = (int*) malloc(num_buckets * sizeof(int));
+    char *buf = (char*) malloc(1024*1024*2*sizeof(char));
+    int i;
+
+    if (histogram == 0 || buf == 0) {
+        if (histogram) free(histogram);
+        if (buf) free(buf);
+        return 0;
+        return;
+    }
+
+    /* build the histogram */
+    memset(buf, 0, num_buckets * sizeof(int));
+    for (i=0; i<LARGEST_ID; i++) {
+        item *iter = heads[i];
+        while (iter) {
+            int bucket = iter->ntotal / 32;
+            if (iter->ntotal % 32) bucket++;
+            if (bucket < num_buckets) histogram[bucket]++;
+            iter = iter->next;
+        }
+    }
+
+    /* write the buffer */
+    *bytes = 0;
+    for (i=0; i<num_buckets; i++) {
+        if (histogram[i]) {
+            *bytes += sprintf(&buf[*bytes], "%u %u\r\n", i*32, histogram[i]);
+        }
+    }
+    *bytes += sprintf(&buf[*bytes], "END\r\n");
+
+    free(histogram);
+    return buf;
 }

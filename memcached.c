@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -21,11 +22,9 @@
 struct stats stats;
 struct settings settings;
 
-
 static item **todelete = 0;
 static int delcurr;
 static int deltotal;
-
 
 /* associative array, using Judy */
 static Pvoid_t PJSLArray = (Pvoid_t) NULL;
@@ -61,6 +60,7 @@ void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = 0;
     stats.curr_bytes = stats.bytes_read = stats.bytes_written = 0;
+    stats.started = time(0);
 }
 
 void stats_reset(void) {
@@ -72,9 +72,9 @@ void stats_reset(void) {
 void settings_init(void) {
     settings.port = 11211;
     settings.interface.s_addr = htonl(INADDR_ANY);
-    settings.maxbytes = 5*1024*1024; /* default is 5Mb */
+    settings.maxbytes = 64*1024*1024; /* default is 64MB */
     settings.maxitems = 0;            /* no limit on no. of items by default */
-    settings.maxconns = 1024;         /* to limit connections-related memory to about 5Mb */
+    settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
 }
 
@@ -275,6 +275,9 @@ void process_stat(conn *c, char *command) {
         char temp[768];
         pid_t pid = getpid();
         char *pos = temp;
+
+        pos += sprintf(pos, "STAT pid %u\r\n", pid);
+        pos += sprintf(pos, "STAT uptime %u\r\n", now - stats.started);
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
         pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
         pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
@@ -289,7 +292,7 @@ void process_stat(conn *c, char *command) {
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
         pos += sprintf(pos, "STAT limit_maxbytes %u\r\n", settings.maxbytes);
         pos += sprintf(pos, "STAT limit_maxitems %u\r\n", settings.maxitems);
-        pos += sprintf(pos, "STAT pid %u\r\nEND", pid);
+        pos += sprintf(pos, "END");
         out_string(c, temp);
         return;
     }
@@ -345,6 +348,7 @@ void process_stat(conn *c, char *command) {
         c->wbytes = res + 6;
         c->state = conn_write;
         c->write_and_go = conn_read;
+        close(fd);
         return;
     }
 
@@ -352,7 +356,6 @@ void process_stat(conn *c, char *command) {
         char *buf;
         unsigned int bytes, id, limit = 0;
         char *start = command + 15;
-
         if (sscanf(start, "%u %u\r\n", &id, &limit) < 1) {
             out_string(c, "CLIENT_ERROR bad command line");
             return;
@@ -386,6 +389,23 @@ void process_stat(conn *c, char *command) {
         return;
     }
 
+    if (strcmp(command, "stats sizes")==0) {
+        int bytes = 0;
+        char *buf = item_stats_sizes(&bytes);
+        if (! buf) {
+            out_string(c, "SERVER_ERROR out of memory");
+            return;
+        }
+
+        c->write_and_free = buf;
+        c->wcurr = buf;
+        c->wbytes = bytes;
+        c->state = conn_write;
+        c->write_and_go = conn_read;
+        return;
+    }
+
+    out_string(c, "ERROR");
 }
 
 void process_command(conn *c, char *command) {
@@ -1026,7 +1046,7 @@ void usage(void) {
     printf("-p <num>      port number to listen on\n");
     printf("-l <ip_addr>  interface to listen on, default is INDRR_ANY\n");
     printf("-s <num>      maximum number of items to store, default is unlimited\n");
-    printf("-m <num>      max memory to use for items in megabytes, default is 5Mb\n");
+    printf("-m <num>      max memory to use for items in megabytes, default is 64 MB\n");
     printf("-c <num>      max simultaneous connections, default is 1024\n");
     printf("-k            lock down all paged memory\n");
     printf("-v            verbose (print errors/warnings while in event loop)\n");
