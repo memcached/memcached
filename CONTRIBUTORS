@@ -33,3 +33,6 @@ Stuart Herbert <stuart@gentoo.org>
 
 Brion Vibber <brion@pobox.com>
   -- debugging abstraction in PHP client
+
+Brad Whitaker <whitaker@danga.com>
+  -- compression support for the Perl API
