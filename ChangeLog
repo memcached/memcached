@@ -1,3 +1,8 @@
+2003-06-30
+	* version 1.1.6
+	* fix a number of obscure bugs
+	* more stats reporting
+	
 2003-06-10
 	* removing use of Judy; use a hash.  (judy caused memory fragmentation)
 	* shrink some structures
