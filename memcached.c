@@ -1284,6 +1284,14 @@ int main (int argc, char **argv) {
     conn_init();
     slabs_init(settings.maxbytes);
 
+    /* lock paged memory if needed */
+    if (lock_memory) {
+#ifdef HAVE_MLOCKALL
+        mlockall(MCL_CURRENT | MCL_FUTURE);
+#else
+        fprintf(stderr, "warning: mlockall() not supported on this platform.  proceeding without.\n");
+#endif
+    }
 
     if (daemonize) {
         int res;
@@ -1292,11 +1300,6 @@ int main (int argc, char **argv) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
             return 1;
         }
-    }
-
-    /* lock paged memory if needed */
-    if (lock_memory) {
-        mlockall(MCL_CURRENT | MCL_FUTURE);
     }
 
     /* create the listening socket and bind it */

@@ -56,5 +56,7 @@ else
 	AC_MSG_RESULT(yes)
 fi
 
+AC_CHECK_FUNCS(mlockall)
+
 AC_CONFIG_FILES(Makefile)
 AC_OUTPUT
