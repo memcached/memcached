@@ -52,5 +52,5 @@ AC_C_SOCKLEN_T
 
 AC_CHECK_FUNCS(mlockall)
 
-AC_CONFIG_FILES(Makefile)
+AC_CONFIG_FILES(Makefile doc/Makefile)
 AC_OUTPUT

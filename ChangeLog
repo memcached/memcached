@@ -1,4 +1,21 @@
 2005-01-14
+	* Date: Thu, 18 Nov 2004 15:25:59 -0600
+	  From: David Phillips <electrum@gmail.com>
+	Here is a patch to configure.ac and Makefile.am to put the man page in
+	the correct location.  Trying to install the man page from a
+	subdirectory results in the subdirectory being used in the install
+	path (it tries to install to doc/memcached.1).  This is the correct
+	thing to  do:
+
+	- create a Makefile.am in the doc directory that installs the man page
+	  with man_MANS
+	- modify Makefile.am in the base directory to reference the doc
+  	  directory using SUBDIRS
+	- modify the AC_CONFIG_FILES macro in configure.ac to output the 
+	  Makefile in doc
+
+	
+2005-01-14
 	* pidfile saving support from Lisa Seelye <lisa@gentoo.org>, sent
 	  Jan 13, 2005
 
