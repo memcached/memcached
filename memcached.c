@@ -1057,9 +1057,8 @@ void delete_handler(int fd, short which, void *arg) {
         time_t now = time(0);
         for (i=0; i<delcurr; i++) {
             if (todelete[i]->exptime < now) {
-                /* no longer mark it deleted. it's now expired, same as dead */
-                todelete[i]->it_flags &= ~ITEM_DELETED;
-                todelete[i]->refcount--;
+                item_unlink(todelete[i]);
+                item_remove(todelete[i]);
             } else {
                 todelete[j++] = todelete[i];
             }
