@@ -10,8 +10,9 @@ Anatoly Vorobey <mellon@pobox.com>
   -- C server
   -- memory allocator design
 
-Evan Martine <evan@danga.com>
+Evan Martin <martine@danga.com>
   -- automake/autoconf support
+  -- Python client
 
 Ryan <hotrodder@rocketmail.com>
   -- PHP client
