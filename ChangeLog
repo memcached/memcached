@@ -1,3 +1,6 @@
+2004-02-19 (Evan)
+	* Install manpage on "make install", etc.
+
 2003-12-30 (Brad)
 	* remove static build stuff.  interferes with PAM setuid stuff
 	  and was only included as a possible fix with the old memory
