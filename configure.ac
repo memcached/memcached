@@ -10,7 +10,7 @@ AC_PROG_INSTALL
 
 AC_ARG_WITH(libevent,
 	AC_HELP_STRING([--with-libevent=DIRECTORY],[base directory for libevent]))
-if test ${with_libevent+set} = set && test $with_libevent != no; then
+if test "$with_libevent" != "no"; then
 	CFLAGS="$CFLAGS -I$with_libevent/include"
 	LDFLAGS="$LDFLAGS -L$with_libevent/lib"
 fi
