@@ -97,6 +97,8 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
 
 void item_free(item *it) {
     slabs_free(it, it->slabs_clsid);
+    /* so slab size changer can tell later if item is already free or not */
+    it->slabs_clsid = 0;
 }
 
 void item_link_q(item *it) { /* item is the new head */

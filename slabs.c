@@ -42,7 +42,10 @@ typedef struct {
     unsigned int end_page_free; /* number of items remaining at end of last alloced page */
 
     unsigned int slabs;     /* how many slabs were allocated for this class */
-  
+
+    void **slab_list;       /* array of slab pointers */
+    unsigned int list_size; /* size of prev array */
+
 } slabclass_t;
 
 static slabclass_t slabclass[POWER_LARGEST+1];
@@ -76,6 +79,8 @@ void slabs_init(unsigned int limit) {
         slabclass[i].sl_curr = slabclass[i].sl_total = slabclass[i].slabs = 0;
         slabclass[i].end_page_ptr = 0;
         slabclass[i].end_page_free = 0;
+        slabclass[i].slab_list = 0;
+        slabclass[i].list_size = 0;
     }
 }
 
@@ -88,13 +93,23 @@ int slabs_newslab(unsigned int id) {
     if (mem_limit && mem_malloced + len > mem_limit)
         return 0;
 
+    if (p->slabs == p->list_size) {
+        unsigned int new_size =  p->list_size ? p->list_size * 2 : 16;
+        void *new_list = realloc(p->slab_list, new_size);
+        if (new_list == 0) return 0;
+        p->list_size = new_size;
+        p->slab_list = new_list;
+        
+    }
+
     ptr = malloc(len);
     if (ptr == 0) return 0;
 
+    memset(ptr, 0, len);
     p->end_page_ptr = ptr;
     p->end_page_free = num;
 
-    p->slabs++;
+    p->slab_list[p->slabs++] = ptr;
     mem_malloced += len;
     return 1;
 }
