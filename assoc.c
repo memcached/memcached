@@ -181,6 +181,7 @@ void assoc_delete(char *key) {
         return;
     }
     /* Note:  we never actually get here.  the callers don't delete things 
-       they can't find.  TODO: assert?  */
+       they can't find. */
+    assert(*before != 0);
 }
 

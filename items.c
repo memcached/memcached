@@ -81,6 +81,8 @@ item *item_alloc(char *key, int flags, time_t exptime, int nbytes) {
         if (it==0) return 0;
     }
 
+    assert(it->slabs_clsid == 0);
+
     it->slabs_clsid = id;
 
     assert(it != heads[it->slabs_clsid]);
@@ -101,6 +103,7 @@ void item_free(item *it) {
     assert((it->it_flags & ITEM_LINKED) == 0);
     assert(it != heads[it->slabs_clsid]);
     assert(it != tails[it->slabs_clsid]);
+    assert(it->refcount == 0);    
 
     /* so slab size changer can tell later if item is already free or not */
     it->slabs_clsid = 0;
@@ -148,7 +151,7 @@ void item_unlink_q(item *it) {
 
 int item_link(item *it) {
     assert((it->it_flags & ITEM_LINKED) == 0);
-    assert(it->flags < 4);
+    assert(it->it_flags < 4);
     assert(it->nbytes < 1048576);
     it->it_flags |= ITEM_LINKED;
     it->time = time(0);

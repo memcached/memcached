@@ -1041,6 +1041,13 @@ int server_socket(int port) {
     return sfd;
 }
 
+/* invoke right before gdb is called, on assert */
+void pre_gdb () {
+    int i = 0;
+    if(l_socket) close(l_socket);
+    for (i=3; i<=500; i++) close(i); /* so lame */
+    kill(getpid(), SIGABRT);
+}
 
 struct event deleteevent;
 

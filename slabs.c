@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <event.h>
 #include <malloc.h>
+#include <assert.h>
 
 #include "memcached.h"
 
@@ -129,6 +130,7 @@ void *slabs_alloc(unsigned int size) {
         return 0;
 
     p = &slabclass[id];
+    assert(p->sl_curr == 0 || ((item*)p->slots[p->sl_curr-1])->slabs_clsid == 0);
 
 #ifdef USE_SYSTEM_MALLOC
     if (mem_limit && mem_malloced + size > mem_limit)
@@ -161,10 +163,11 @@ void *slabs_alloc(unsigned int size) {
 }
 
 void slabs_free(void *ptr, unsigned int size) {
-    slabclass_t *p;
-    void **new_slots;
-
     unsigned char id = slabs_clsid(size);
+    slabclass_t *p;
+
+    assert(((item *)ptr)->slabs_clsid==0);
+    assert(id >= POWER_SMALLEST && id <= POWER_LARGEST);
     if (id < POWER_SMALLEST || id > POWER_LARGEST)
         return;
 
@@ -178,7 +181,7 @@ void slabs_free(void *ptr, unsigned int size) {
 
     if (p->sl_curr == p->sl_total) { /* need more space on the free list */
         int new_size = p->sl_total ? p->sl_total*2 : 16;  /* 16 is arbitrary */
-        new_slots = realloc(p->slots, new_size*sizeof(void *));
+        void **new_slots = realloc(p->slots, new_size*sizeof(void *));
         if (new_slots == 0)
             return;
         p->slots = new_slots;
