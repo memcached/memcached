@@ -15,3 +15,7 @@ Evan Martine <evan@danga.com>
 
 Ryan <hotrodder@rocketmail.com>
   -- PHP client
+
+Jamie McCarthy <jamie@mccarthy.vg>
+  -- Perl client fixes: Makefile.PL, stats, doc updates
+
