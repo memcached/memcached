@@ -19,7 +19,7 @@ struct stats {
 };
 
 struct settings {
-    unsigned long long maxbytes;
+    unsigned int maxbytes;
     int maxconns;
     int port;
     struct in_addr interface;

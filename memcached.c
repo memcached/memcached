@@ -310,7 +310,7 @@ void process_stat(conn *c, char *command) {
         pos += sprintf(pos, "STAT get_misses %u\r\n", stats.get_misses);
         pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
-        pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", settings.maxbytes);
+        pos += sprintf(pos, "STAT limit_maxbytes %u\r\n", settings.maxbytes);
         pos += sprintf(pos, "END");
         out_string(c, temp);
         return;

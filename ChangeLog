@@ -1,3 +1,6 @@
+2003-06-18
+	* changing maxsize back to an unsigned int
+	
 2003-06-16
 	* adding PHP support
 	* added CONTRIBUTORS file
