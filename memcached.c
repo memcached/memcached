@@ -173,7 +173,14 @@ conn *conn_new(int sfd, int init_state, int event_flags) {
     c->ev_flags = event_flags;
 
     if (event_add(&c->event, 0) == -1) {
-        free(c);
+        if (freecurr < freetotal) {
+            freeconns[freecurr++] = c;
+        } else {
+            free (c->rbuf);
+            free (c->wbuf);
+            free (c->ilist);
+            free (c);
+        }
         return 0;
     }
 
