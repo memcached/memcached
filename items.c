@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <errno.h>
+#include <time.h>
 #include <event.h>
 #include <malloc.h>
 #include <Judy.h>
@@ -190,7 +191,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
             break;
         if (!it)
             break;
-        sprintf(temp, "ITEM %s [%u b; %u s]\r\n", it->key, it->nbytes - 2, it->time);
+        sprintf(temp, "ITEM %s [%u b; %lu s]\r\n", it->key, it->nbytes - 2, it->time);
         len = strlen(temp);
         if (bufcurr + len +5 > memlimit)  /* 5 is END\r\n */
             break;
@@ -219,7 +220,7 @@ void item_stats(char *buffer, int buflen) {
 
     for (i=0; i<LARGEST_ID; i++) {
         if (tails[i])
-            bufcurr += sprintf(bufcurr, "STAT items:%u:number %u\r\nSTAT items:%u:age %u\r\n", 
+            bufcurr += sprintf(bufcurr, "STAT items:%u:number %u\r\nSTAT items:%u:age %lu\r\n", 
                                i, sizes[i], i, now - tails[i]->time);
     }
     strcpy(bufcurr, "END");
@@ -237,7 +238,6 @@ char* item_stats_sizes(int *bytes) {
         if (histogram) free(histogram);
         if (buf) free(buf);
         return 0;
-        return;
     }
 
     /* build the histogram */

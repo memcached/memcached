@@ -1,0 +1,7 @@
+Fri, 13 Jun 2003 10:05:51 -0700  Evan Martin  <martine@danga.com>
+
+	* configure.ac, autogen.sh, Makefile.am:  Use autotools.
+	* items.c, memcached.c:  #include <time.h> for time(),
+	  printf time_t as %lu (is this correct?),
+	  minor warnings fixes.
+

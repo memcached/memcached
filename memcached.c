@@ -15,6 +15,7 @@
  *  $Id$
  */
 
+#include "config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -28,7 +29,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <errno.h>
+#include <time.h>
 #include <event.h>
 #include <malloc.h>
 #include <Judy.h>
@@ -293,7 +296,7 @@ void process_stat(conn *c, char *command) {
         char *pos = temp;
 
         pos += sprintf(pos, "STAT pid %u\r\n", pid);
-        pos += sprintf(pos, "STAT uptime %u\r\n", now - stats.started);
+        pos += sprintf(pos, "STAT uptime %lu\r\n", now - stats.started);
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
         pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
         pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
@@ -306,7 +309,7 @@ void process_stat(conn *c, char *command) {
         pos += sprintf(pos, "STAT get_misses %u\r\n", stats.get_misses);
         pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
-        pos += sprintf(pos, "STAT limit_maxbytes %u\r\n", settings.maxbytes);
+        pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", settings.maxbytes);
         pos += sprintf(pos, "STAT limit_maxitems %u\r\n", settings.maxitems);
         pos += sprintf(pos, "END");
         out_string(c, temp);
@@ -447,7 +450,7 @@ void process_command(conn *c, char *command) {
         int len, res;
         item *it;
 
-        res = sscanf(command, "%s %s %u %u %d\n", s_comm, key, &flags, &expire, &len);
+        res = sscanf(command, "%s %s %u %lu %d\n", s_comm, key, &flags, &expire, &len);
         if (res!=5 || strlen(key)==0 ) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
@@ -693,7 +696,7 @@ int try_read_network(conn *c) {
 
 int update_event(conn *c, int new_flags) {
     if (c->ev_flags == new_flags)
-        return;
+        return 0;
     if (event_del(&c->event) == -1) return 0;
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     c->ev_flags = new_flags;
@@ -1061,6 +1064,7 @@ void delete_handler(int fd, short which, void *arg) {
 }
         
 void usage(void) {
+    printf(PACKAGE " " VERSION ".\n");
     printf("-p <num>      port number to listen on\n");
     printf("-l <ip_addr>  interface to listen on, default is INDRR_ANY\n");
     printf("-s <num>      maximum number of items to store, default is unlimited\n");
@@ -1126,7 +1130,7 @@ int main (int argc, char **argv) {
         }
     }
 
-    /* initialize other stuff stuff */
+    /* initialize other stuff */
     item_init();
     event_init();
     stats_init();
@@ -1139,7 +1143,7 @@ int main (int argc, char **argv) {
         int res;
         res = daemon(0, 0);
         if (res == -1) {
-            fprintf(stderr, "failed to fork() in order to daemonize\n");
+            fprintf(stderr, "failed to daemon() in order to daemonize\n");
             return 1;
         }
     }
@@ -1170,6 +1174,6 @@ int main (int argc, char **argv) {
     /* enter the loop */
     event_loop(0);
 
-    return;
+    return 0;
 }
 
