@@ -214,7 +214,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
     item *it;
     int len;
     int shown = 0;
-    char temp[256];
+    char temp[512];
     
     if (slabs_clsid > LARGEST_ID) return 0;
     it = heads[slabs_clsid];

@@ -1,3 +1,8 @@
+2004-07-22
+	* fix buffer overflow in items.c with 250 byte keys along with
+	  other info on the same line going into a 256 byte char[].
+	  thanks to Andrei Nigmatulin <anight@monamour.ru>
+	
 2004-06-15
 	* immediate deletes weren't being unlinked a few seconds,
 	  preventing "add" commands to the same key in that time period.
