@@ -505,9 +505,24 @@ void process_stat(conn *c, char *command) {
 
     if (strcmp(command, "stats") == 0) {
         char temp[512];
-        /* we report curr_conns - 1, because one conn is the listening one */
-        sprintf(temp, "STAT curr_items %u\r\nSTAT total_items %u\r\nSTAT bytes %llu\r\nSTAT curr_connections %u\r\nSTAT total_connections %u\r\nSTAT connection_structures %u\r\nSTAT age %u\r\nSTAT cmd_get %u\r\nSTAT cmd_set %u\r\nSTAT get_hits %u\r\nSTAT get_misses %u\r\nSTAT bytes_read %llu\r\nSTAT bytes_written %llu\r\nSTAT limit_maxbytes %u\r\nSTAT limit_maxitems %u\r\nEND",
-                stats.curr_items, stats.total_items, stats.curr_bytes, stats.curr_conns - 1, stats.total_conns, stats.conn_structs, (items_tail ? now - items_tail->time : 0), stats.get_cmds, stats.set_cmds, stats.get_hits, stats.get_misses, stats.bytes_read, stats.bytes_written, settings.maxbytes, settings.maxitems);
+        pid_t pid = getpid();
+        char *pos = temp;
+        pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
+        pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
+        pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
+        pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
+        pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
+        pos += sprintf(pos, "STAT connection_structures %u\r\n", stats.conn_structs);
+        pos += sprintf(pos, "STAT age %u\r\n", (items_tail ? now - items_tail->time : 0));
+        pos += sprintf(pos, "STAT cmd_get %u\r\n", stats.get_cmds);
+        pos += sprintf(pos, "STAT cmd_set %u\r\n", stats.set_cmds);
+        pos += sprintf(pos, "STAT get_hits %u\r\n", stats.get_hits);
+        pos += sprintf(pos, "STAT get_misses %u\r\n", stats.get_misses);
+        pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
+        pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
+        pos += sprintf(pos, "STAT limit_maxbytes %u\r\n", settings.maxbytes);
+        pos += sprintf(pos, "STAT limit_maxitems %u\r\n", settings.maxitems);
+        pos += sprintf(pos,"STAT pid %u\r\nEND", pid);
         out_string(c, temp);
         return;
     }
