@@ -1353,6 +1353,9 @@ int main (int argc, char **argv) {
     /* init settings */
     settings_init();
 
+    /* set stderr non-buffering (for running under, say, daemontools) */
+    setbuf(stderr, NULL);
+
     /* process arguments */
     while ((c = getopt(argc, argv, "p:m:Mc:khirvdl:u:P:")) != -1) {
         switch (c) {

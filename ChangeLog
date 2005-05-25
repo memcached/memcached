@@ -1,3 +1,7 @@
+2005-05-25
+	* patch from Peter van Dijk <peter@nextgear.nl> to make
+	  stderr unbuffered, for running under daemontools
+
 2005-04-04
 	* patch from Don MacAskill <don@smugmug.com> 'flush_all' doesn't
 	seem to work properly.  Basically, if you try to add a key which
