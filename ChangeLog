@@ -1,3 +1,11 @@
+2005-08-09
+	* Elizabeth Mattijsen <liz@dijkmat.nl>: needed a way to flush all
+	memcached backend servers, but not at exactly the same time (to
+	reduce load peaks), I've added some simple functionality to the
+	memcached protocol in the "flush_all" command that allows you to
+	specify a time at which the flush will actually occur (instead of
+	always at the moment the "flush_all" command is received).
+
 2005-05-25
 	* patch from Peter van Dijk <peter@nextgear.nl> to make
 	  stderr unbuffered, for running under daemontools

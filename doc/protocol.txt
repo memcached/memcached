@@ -359,16 +359,17 @@ limit_maxbytes    32u      Number of bytes this server is allowed to
 Other commands
 --------------
 
-"flush_all" is a command with no arguments. It always succeeds,
-and the server sends "OK\r\n" in response. Its effect is to immediately
-invalidate all existing items: none of them will be returned in
-response to a retrieval command (unless it's stored again under the
-same key *after* flush_all has been executed). flush_all doesn't
+"flush_all" is a command with an optional numeric argument. It always
+succeeds, and the server sends "OK\r\n" in response. Its effect is to
+invalidate all existing items immediately (by default) or after the
+expiration specified.  After invalidation none of the items will be returned
+in response to a retrieval command (unless it's stored again under the
+same key *after* flush_all has invalidated the items). flush_all doesn't
 actually free all the memory taken up by existing items; that will
 happen gradually as new items are stored. The most precise definition
 of what flush_all does is the following: it causes all items whose
-update time is earlier than the time at which flush_all was executed
-to be ignored for retrieval purposes.
+update time is earlier than the time at which flush_all was set to be
+executed to be ignored for retrieval purposes.
 
 "version" is a command with no arguments:
 

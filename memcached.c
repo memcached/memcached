@@ -619,8 +619,8 @@ void process_command(conn *c, char *command) {
             if (it && (it->it_flags & ITEM_DELETED)) {
                 it = 0;
             }
-            if (settings.oldest_live && it &&
-                it->time <= settings.oldest_live) {
+            if (settings.oldest_live && settings.oldest_live <= now &&
+                it && it->time <= settings.oldest_live) {
                 item_unlink(it);
                 it = 0;
             }
@@ -707,8 +707,23 @@ void process_command(conn *c, char *command) {
         return;
     }
 
-    if (strcmp(command, "flush_all") == 0) {
-        settings.oldest_live = time(0);
+    if (strncmp(command, "flush_all", 9) == 0) {
+        time_t exptime = 0;
+        int res;
+
+        if (strcmp(command, "flush_all") == 0) {
+            settings.oldest_live = time(0);
+            out_string(c, "OK");
+            return;
+        }
+
+        res = sscanf(command, "%*s %ld", &exptime); 
+        if (res != 1) {
+            out_string(c, "ERROR");
+            return;
+        }
+
+        settings.oldest_live = realtime(exptime);
         out_string(c, "OK");
         return;
     }
