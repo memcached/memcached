@@ -83,6 +83,26 @@ void slabs_init(unsigned int limit) {
         slabclass[i].list_size = 0;
         slabclass[i].killing = 0;
     }
+
+    slabs_preallocate(limit / POWER_BLOCK);
+}
+
+void slabs_preallocate (unsigned int maxslabs) {
+    int i;
+    unsigned int prealloc = 0;
+
+    /* pre-allocate a 1MB slab in every size class so people don't get
+       confused by non-intuitive "SERVER_ERROR out of memory"
+       messages.  this is the most common question on the mailing
+       list.  if you really don't want this, you can rebuild without
+       these three lines.  */
+
+    for(i=POWER_SMALLEST; i<=POWER_LARGEST; i++) {
+        if (++prealloc > maxslabs)
+            return;
+        slabs_newslab(i);
+    } 
+ 
 }
 
 static int grow_slab_list (unsigned int id) { 

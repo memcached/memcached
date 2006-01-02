@@ -150,6 +150,14 @@ time_t realtime(time_t exptime);
 /* Init the subsystem. The argument is the limit on no. of bytes to allocate, 0 if no limit */
 void slabs_init(unsigned int limit);
 
+/* Preallocate as many slab pages as possible (called from slabs_init)
+   on start-up, so users don't get confused out-of-memory errors when
+   they do have free (in-slab) space, but no space to make new slabs.
+   if maxslabs is 18 (POWER_LARGEST - POWER_SMALLEST + 1), then all
+   slab types can be made.  if max memory is less than 18 MB, only the
+   smaller ones will be made.  */
+void slabs_preallocate (unsigned int maxslabs);
+
 /* Given object size, return id to use when allocating/freeing memory for object */
 /* 0 means error: can't store such a large object */
 unsigned int slabs_clsid(unsigned int size);
