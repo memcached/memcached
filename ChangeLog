@@ -1,3 +1,7 @@
+2006-03-04
+	* avva: bucket/generation patch (old, but Brad's just finally
+	committing it)
+
 2006-01-01
 	* Brad Fitzpatrick <brad@danga.com>:  allocate 1 slab per class
 	on start-up, to avoid confusing users with out-of-memory errors

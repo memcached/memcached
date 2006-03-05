@@ -29,6 +29,7 @@ struct settings {
     int port;
     struct in_addr interface;
     int verbose;
+    int managed;          /* if 1, a tracker manages virtual buckets */
     time_t oldest_live;   /* ignore existing items older than this */
     int evict_to_free;
 };
@@ -83,11 +84,12 @@ typedef struct {
     int    state;
     struct event event;
     short  ev_flags;
-    short  which;  /* which events were just triggered */
+    short  which;   /* which events were just triggered */
 
-    char   *rbuf;  
-    int    rsize;  
-    int    rbytes;
+    char   *rbuf;   /* buffer to read commands into */
+    char   *rcurr;  /* but if we parsed some already, this is where we stopped */
+    int    rsize;   /* total allocated size of rbuf */
+    int    rbytes;  /* how much data, starting from rcur, do we have unparsed */
 
     char   *wbuf;
     char   *wcurr;
@@ -97,7 +99,7 @@ typedef struct {
     void   *write_and_free; /* free this memory after finishing writing */
     char    is_corked;         /* boolean, connection is corked */
 
-    char   *rcurr;
+    char   *ritem;  /* when we read in an item's value, it goes here */
     int    rlbytes;
     
     /* data for the nread state */
@@ -123,8 +125,14 @@ typedef struct {
     char   ibuf[300]; /* for VALUE lines */
     char   *iptr;
     int    ibytes;
+    int    bucket;    /* bucket number for the next command, if running as
+                         a managed instance. -1 (_not_ 0) means invalid. */
+    int    gen;       /* generation requested for the bucket */
                          
 } conn;
+
+/* number of virtual buckets for a managed instance */
+#define MAX_BUCKETS 32768
 
 /* listening socket */
 extern int l_socket;
