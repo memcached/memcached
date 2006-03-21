@@ -1,0 +1,8 @@
+Change of address, we're no longer using cvs.
+
+Hack here:
+
+  http://code.sixapart.com/svn/memcached/trunk/
+
+That is all.
+
