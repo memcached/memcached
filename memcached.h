@@ -125,6 +125,7 @@ typedef struct {
     char   ibuf[300]; /* for VALUE lines */
     char   *iptr;
     int    ibytes;
+    int    binary;    /* are we in binary mode */
     int    bucket;    /* bucket number for the next command, if running as
                          a managed instance. -1 (_not_ 0) means invalid. */
     int    gen;       /* generation requested for the bucket */

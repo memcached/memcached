@@ -636,6 +636,10 @@ void process_command(conn *c, char *command) {
         return;
     }
         
+    if (strncmp(command, "bget ", 5) == 0) {
+        c->binary = 1;
+        goto get;
+    }
     if (strncmp(command, "get ", 4) == 0) {
 
         char *start = command + 4;
@@ -644,6 +648,7 @@ void process_command(conn *c, char *command) {
         int i = 0;
         item *it;
         time_t now = time(0);
+    get:
 
         if (settings.managed) {
             int bucket = c->bucket;
@@ -1197,7 +1202,11 @@ void drive_machine(conn *c) {
                     it = *(c->icurr);
                     assert((it->it_flags & ITEM_SLABBED) == 0);
                     c->iptr = ITEM_data(it);
+                    if (c->binary) {
+                        c->ibytes = it->nbytes - 2;
+                    } else {
                     c->ibytes = it->nbytes;
+                    }
                     c->ipart = 2;
                     break;
                 case 2:
@@ -1214,14 +1223,39 @@ void drive_machine(conn *c) {
                 case 0:
                     it = *(c->icurr);
                     assert((it->it_flags & ITEM_SLABBED) == 0);
+                    // add branch for binary mode
+                    if (c->binary) {
+                        c->ibuf[0] = 0x01; // key
+                        long int key_size   = htonl(it->nkey - 3);
+                        long int value_size = htonl(it->nbytes - 2);
+                        /* XXX NOT SAFE ON 64 BIT FOR PROTOCOL REASONS
+                           NEED TO RECODE TO USE 4 byte INTS ONLY */
+                        memcpy(c->ibuf + 1, (char *)&key_size, sizeof(key_size));
+                        memcpy(c->ibuf + 1 + 4, ITEM_key(it), it->nkey - 3);
+                        memcpy(c->ibuf + 1 + 4 + it->nkey - 3, (char *)&value_size, sizeof(value_size));
+                        c->ibytes =      1 + 4 + it->nkey - 3 + 4;
+                    } else {
                     c->ibytes = sprintf(c->ibuf, "VALUE %s %u %u\r\n", ITEM_key(it), it->flags, it->nbytes - 2);
+                    }
                     if (settings.verbose > 1)
                         fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
                     c->iptr = c->ibuf;
                     c->ipart = 1;
                     break;
                 case 3:
+                    // add branch for binary mode
+                    if (c->binary) {
+                        c->binary = 0;
+
+                        c->wbuf[0] = 0x01;
+                        c->wbytes = 1;
+                        c->wcurr = c->wbuf;
+                        c->state = conn_write;
+                        c->write_and_go = conn_read;
+
+                    } else {
                     out_string(c, "END");
+                    }
                     break;
                 }
             }
