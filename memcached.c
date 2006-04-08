@@ -949,7 +949,8 @@ int try_read_network(conn *c) {
                 c->write_and_go = conn_closing;
                 return 1;
             }
-            c->rbuf = new_rbuf; c->rsize *= 2;
+            c->rcurr  = c->rbuf = new_rbuf;
+            c->rsize *= 2;
         }
         res = read(c->sfd, c->rbuf + c->rbytes, c->rsize - c->rbytes);
         if (res > 0) {
