@@ -19,6 +19,13 @@ LIBEVENT_URL=http://www.monkey.org/~provos/libevent/
 AC_CHECK_LIB(event, event_set, ,
 	[AC_MSG_ERROR(libevent is required.  You can get it from $LIBEVENT_URL)])
 
+AC_SEARCH_LIBS(socket, socket)
+AC_SEARCH_LIBS(gethostbyname, nsl)
+AC_SEARCH_LIBS(mallinfo, malloc)
+
+AC_CHECK_FUNC(daemon,AC_DEFINE([HAVE_DAEMON],,[Define this if you have daemon()]),[AC_LIBOBJ(daemon)])
+
+
 AC_CHECK_HEADER(malloc.h, AC_DEFINE(HAVE_MALLOC_H,,[do we have malloc.h?]))
 AC_CHECK_MEMBER([struct mallinfo.arena], [
 		AC_DEFINE(HAVE_STRUCT_MALLINFO,,[do we have stuct mallinfo?])

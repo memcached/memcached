@@ -1,3 +1,7 @@
+2006-04-30
+	* River Tarnell:  autoconf work for Solaris 10.  Brad:
+	merge and verify it works on Nexenta.
+
 2006-03-04
 	* avva: bucket/generation patch (old, but Brad's just finally
 	committing it)
@@ -8,7 +12,7 @@
 	later.  this is 18 MB of allocation on start, unless max memory
 	allowed with -m is lower, in which case only the smaller slab
 	classes are allocated.
-	
+
 2005-08-09
 	* Elizabeth Mattijsen <liz@dijkmat.nl>: needed a way to flush all
 	memcached backend servers, but not at exactly the same time (to
