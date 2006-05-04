@@ -1226,9 +1226,9 @@ void drive_machine(conn *c) {
                     assert((it->it_flags & ITEM_SLABBED) == 0);
                     // add branch for binary mode
                     if (c->binary) {
-                        c->ibuf[0] = 0x01; // key
                         long int key_size   = htonl(it->nkey - 3);
                         long int value_size = htonl(it->nbytes - 2);
+                        c->ibuf[0] = 0x01; // key
                         /* XXX NOT SAFE ON 64 BIT FOR PROTOCOL REASONS
                            NEED TO RECODE TO USE 4 byte INTS ONLY */
                         memcpy(c->ibuf + 1, (char *)&key_size, sizeof(key_size));
@@ -1568,7 +1568,7 @@ int main (int argc, char **argv) {
             settings.verbose++;
             break;
         case 'l':
-            if (!inet_aton(optarg, &addr)) {
+            if (!inet_pton(AF_INET, optarg, &addr)) {
                 fprintf(stderr, "Illegal address: %s\n", optarg);
                 return 1;
             } else {
