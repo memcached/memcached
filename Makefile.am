@@ -9,3 +9,8 @@ EXTRA_DIST = doc scripts TODO
 
 AM_CFLAGS=-DNDEBUG
 
+dist-hook:
+	rm -rf $(distdir)/doc/.svn/
+	rm -rf $(distdir)/scripts/.svn/
+
+
