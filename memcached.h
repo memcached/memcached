@@ -2,36 +2,58 @@
 /* $Id$ */
 
 #define DATA_BUFFER_SIZE 2048
+#define UDP_READ_BUFFER_SIZE 65536
+#define UDP_MAX_PAYLOAD_SIZE 1400
+#define UDP_HEADER_SIZE 8
+#define MAX_SENDBUF_SIZE (256 * 1024 * 1024)
 
-#if defined(TCP_CORK) && !defined(TCP_NOPUSH)
-#define TCP_NOPUSH TCP_CORK
-#endif
+/* Initial size of list of items being returned by "get". */
+#define ITEM_LIST_INITIAL 200
+
+/* Initial size of the sendmsg() scatter/gather array. */
+#define IOV_LIST_INITIAL 400
+
+/* Initial number of sendmsg() argument structures to allocate. */
+#define MSG_LIST_INITIAL 10
+
+/* High water marks for buffer shrinking */
+#define READ_BUFFER_HIGHWAT 8192
+#define ITEM_LIST_HIGHWAT 400
+#define IOV_LIST_HIGHWAT 600
+#define MSG_LIST_HIGHWAT 100
+
+/* Time relative to server start. Smaller than time_t on 64-bit systems. */
+typedef unsigned int rel_time_t;
 
 struct stats {
     unsigned int  curr_items;
     unsigned int  total_items;
-    unsigned long long  curr_bytes;
+    unsigned long long curr_bytes;
     unsigned int  curr_conns;
     unsigned int  total_conns;
     unsigned int  conn_structs;
-    unsigned int  get_cmds;
-    unsigned int  set_cmds;
-    unsigned int  get_hits;
-    unsigned int  get_misses;
+    unsigned long long  get_cmds;
+    unsigned long long  set_cmds;
+    unsigned long long  get_hits;
+    unsigned long long  get_misses;
     time_t        started;          /* when the process was started */
     unsigned long long bytes_read;
     unsigned long long bytes_written;
 };
 
 struct settings {
-    unsigned int maxbytes;
+    size_t maxbytes;
     int maxconns;
     int port;
+    int udpport;
     struct in_addr interface;
     int verbose;
+    rel_time_t oldest_live; /* ignore existing items older than this */
     int managed;          /* if 1, a tracker manages virtual buckets */
-    time_t oldest_live;   /* ignore existing items older than this */
     int evict_to_free;
+    char *socketpath;   /* path to unix socket if using local socket */
+    double factor;          /* chunk size growth factor */
+    int chunk_size;
 };
 
 extern struct stats stats;
@@ -46,24 +68,27 @@ extern struct settings settings;
 typedef struct _stritem {
     struct _stritem *next;
     struct _stritem *prev;
-    struct _stritem *h_next;  /* hash chain next */
+    struct _stritem *h_next;    /* hash chain next */
+    rel_time_t      time;       /* least recent access */
+    rel_time_t      exptime;    /* expire time */
+    int             nbytes;     /* size of data */
     unsigned short  refcount; 
-    unsigned short  flags;
-    int    nbytes;  /* size of data */
-    time_t time;    /* least recent access */
-    time_t exptime; /* expire time */
-    unsigned char it_flags;     /* ITEM_* above */
-    unsigned char slabs_clsid;
-    unsigned char nkey;         /* key length, with terminating null and padding */
-    unsigned char dummy1;
+    unsigned char   nsuffix;    /* length of flags-and-length string */
+    unsigned char   it_flags;   /* ITEM_* above */
+    unsigned char   slabs_clsid;/* which slab class we're in */
+    unsigned char   nkey;       /* key length, w/terminating null and padding */
     void * end[0];
+    /* then null-terminated key */
+    /* then " flags length\r\n" (no terminating null) */
+    /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
 
 #define ITEM_key(item) ((char*)&((item)->end[0]))
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
-#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey)
-#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + (item)->nbytes)
+#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey)
+#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + (item)->nsuffix)
+#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + (item)->nsuffix + (item)->nbytes)
 
 enum conn_states {
     conn_listening,  /* the socket which listens for connections */
@@ -97,7 +122,6 @@ typedef struct {
     int    wbytes; 
     int    write_and_go; /* which state to go into after finishing current write */
     void   *write_and_free; /* free this memory after finishing writing */
-    char    is_corked;         /* boolean, connection is corked */
 
     char   *ritem;  /* when we read in an item's value, it goes here */
     int    rlbytes;
@@ -117,19 +141,33 @@ typedef struct {
     int    sbytes;    /* how many bytes to swallow */
 
     /* data for the mwrite state */
+    struct iovec *iov;
+    int    iovsize;   /* number of elements allocated in iov[] */
+    int    iovused;   /* number of elements used in iov[] */
+
+    struct msghdr *msglist;
+    int    msgsize;   /* number of elements allocated in msglist[] */
+    int    msgused;   /* number of elements used in msglist[] */
+    int    msgcurr;   /* element in msglist[] being transmitted now */
+    int    msgbytes;  /* number of bytes in current msg */
+
     item   **ilist;   /* list of items to write out */
     int    isize;
     item   **icurr;
     int    ileft;
-    int    ipart;     /* 1 if we're writing a VALUE line, 2 if we're writing data */
-    char   ibuf[300]; /* for VALUE lines */
-    char   *iptr;
-    int    ibytes;
+
+    /* data for UDP clients */
+    int    udp;       /* 1 if this is a UDP "connection" */
+    int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
+    struct sockaddr request_addr; /* Who sent the most recent request */
+    socklen_t request_addr_size;
+    unsigned char *hdrbuf; /* udp packet headers */
+    int    hdrsize;   /* number of headers' worth of space is allocated */
+
     int    binary;    /* are we in binary mode */
     int    bucket;    /* bucket number for the next command, if running as
                          a managed instance. -1 (_not_ 0) means invalid. */
     int    gen;       /* generation requested for the bucket */
-                         
 } conn;
 
 /* number of virtual buckets for a managed instance */
@@ -137,6 +175,12 @@ typedef struct {
 
 /* listening socket */
 extern int l_socket;
+
+/* udp socket */
+extern int u_socket;
+
+/* current time of day (updated periodically) */
+extern volatile rel_time_t current_time;
 
 /* temporary hack */
 /* #define assert(x) if(!(x)) { printf("assert failure: %s\n", #x); pre_gdb(); }
@@ -152,12 +196,14 @@ extern int l_socket;
  * be that low).
  */
 
-time_t realtime(time_t exptime);
+rel_time_t realtime(time_t exptime);
 
 /* slabs memory allocation */
 
-/* Init the subsystem. The argument is the limit on no. of bytes to allocate, 0 if no limit */
-void slabs_init(unsigned int limit);
+/* Init the subsystem. 1st argument is the limit on no. of bytes to allocate,
+   0 if no limit. 2nd argument is the growth factor; each slab will use a chunk
+   size equal to the previous slab's chunk size times this factor. */
+void slabs_init(size_t limit, double factor);
 
 /* Preallocate as many slab pages as possible (called from slabs_init)
    on start-up, so users don't get confused out-of-memory errors when
@@ -169,13 +215,13 @@ void slabs_preallocate (unsigned int maxslabs);
 
 /* Given object size, return id to use when allocating/freeing memory for object */
 /* 0 means error: can't store such a large object */
-unsigned int slabs_clsid(unsigned int size);
+unsigned int slabs_clsid(size_t size);
 
 /* Allocate object of given length. 0 on error */
-void *slabs_alloc(unsigned int size);
+void *slabs_alloc(size_t size);
 
 /* Free previously allocated object */
-void slabs_free(void *ptr, unsigned int size);
+void slabs_free(void *ptr, size_t size);
     
 /* Fill buffer with stats */
 char* slabs_stats(int *buflen);
@@ -188,17 +234,22 @@ int slabs_reassign(unsigned char srcid, unsigned char dstid);
     
 /* event handling, network IO */
 void event_handler(int fd, short which, void *arg);
-conn *conn_new(int sfd, int init_state, int event_flags);
+conn *conn_new(int sfd, int init_state, int event_flags, int read_buffer_size, int is_udp);
 void conn_close(conn *c);
 void conn_init(void);
 void drive_machine(conn *c);
-int new_socket(void);
-int server_socket(int port);
+int new_socket(int isUdp);
+int server_socket(int port, int isUdp);
 int update_event(conn *c, int new_flags);
 int try_read_command(conn *c);
 int try_read_network(conn *c);
+int try_read_udp(conn *c);
 void complete_nread(conn *c);
 void process_command(conn *c, char *command);
+int transmit(conn *c);
+int ensure_iov_space(conn *c);
+int add_iov(conn *c, const void *buf, int len);
+int add_msghdr(conn *c);
 
 /* stats */
 void stats_reset(void);
@@ -215,8 +266,9 @@ void assoc_delete(char *key);
 
 
 void item_init(void);
-item *item_alloc(char *key, int flags, time_t exptime, int nbytes);
+item *item_alloc(char *key, int flags, rel_time_t exptime, int nbytes);
 void item_free(item *it);
+int item_size_ok(char *key, int flags, int nbytes);
 
 int item_link(item *it);    /* may fail if transgresses limits */
 void item_unlink(item *it);

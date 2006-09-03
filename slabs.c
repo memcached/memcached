@@ -1,6 +1,11 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
- * Slabs memory allocation, based on powers-of-2
+ * Slabs memory allocation, based on powers-of-N. Slabs are up to 1MB in size
+ * and are divided into chunks. The chunk sizes start off at the size of the
+ * "item" structure plus space for a small key and value. They increase by
+ * a multiplier factor from there, up to half the maximum slab size. The last
+ * slab size is always 1MB, since that's the maximum item size allowed by the
+ * memcached protocol.
  *
  * $Id$
  */
@@ -23,11 +28,12 @@
 
 #include "memcached.h"
 
-#define POWER_SMALLEST 3
-#define POWER_LARGEST  20
+#define POWER_SMALLEST 1
+#define POWER_LARGEST  200
 #define POWER_BLOCK 1048576
+#define CHUNK_ALIGN_BYTES (sizeof(void *))
 
-/* powers-of-2 allocation structures */
+/* powers-of-N allocation structures */
 
 typedef struct {
     unsigned int size;      /* sizes of items */
@@ -49,42 +55,61 @@ typedef struct {
 } slabclass_t;
 
 static slabclass_t slabclass[POWER_LARGEST+1];
-static unsigned int mem_limit = 0;
-static unsigned int mem_malloced = 0;
+static size_t mem_limit = 0;
+static size_t mem_malloced = 0;
+static int power_largest;
 
-unsigned int slabs_clsid(unsigned int size) {
-    int res = 1;
+/*
+ * Figures out which slab class (chunk size) is required to store an item of
+ * a given size.
+ */
+unsigned int slabs_clsid(size_t size) {
+    int res = POWER_SMALLEST;
 
     if(size==0)
         return 0;
-    size--;
-    while(size >>= 1)
-        res++;
-    if (res < POWER_SMALLEST) 
-        res = POWER_SMALLEST;
-    if (res > POWER_LARGEST)
-        res = 0;
+    while (size > slabclass[res].size)
+        if (res++ == power_largest)     /* won't fit in the biggest slab */
+            return 0;
     return res;
 }
 
-void slabs_init(unsigned int limit) {
-    int i;
-    int size=1;
+/*
+ * Determines the chunk sizes and initializes the slab class descriptors
+ * accordingly.
+ */
+void slabs_init(size_t limit, double factor) {
+    int i = POWER_SMALLEST - 1;
+    unsigned int size = sizeof(item) + settings.chunk_size;
+
+    /* Factor of 2.0 means use the default memcached behavior */
+    if (factor == 2.0 && size < 128)
+        size = 128;
 
     mem_limit = limit;
-    for(i=0; i<=POWER_LARGEST; i++, size*=2) {
+    memset(slabclass, 0, sizeof(slabclass));
+
+    while (++i < POWER_LARGEST && size <= POWER_BLOCK / 2) {
+        /* Make sure items are always n-byte aligned */
+        if (size % CHUNK_ALIGN_BYTES)
+            size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
+
         slabclass[i].size = size;
-        slabclass[i].perslab = POWER_BLOCK / size;
-        slabclass[i].slots = 0;
-        slabclass[i].sl_curr = slabclass[i].sl_total = slabclass[i].slabs = 0;
-        slabclass[i].end_page_ptr = 0;
-        slabclass[i].end_page_free = 0;
-        slabclass[i].slab_list = 0;
-        slabclass[i].list_size = 0;
-        slabclass[i].killing = 0;
+        slabclass[i].perslab = POWER_BLOCK / slabclass[i].size;
+        size *= factor;
+        if (settings.verbose > 1) {
+            fprintf(stderr, "slab class %3d: chunk size %6d perslab %5d\n",
+                    i, slabclass[i].size, slabclass[i].perslab);
+        }
     }
 
+    power_largest = i;
+    slabclass[power_largest].size = POWER_BLOCK;
+    slabclass[power_largest].perslab = 1;
+
+#ifndef DONT_PREALLOC_SLABS
     slabs_preallocate(limit / POWER_BLOCK);
+#endif
 }
 
 void slabs_preallocate (unsigned int maxslabs) {
@@ -101,14 +126,14 @@ void slabs_preallocate (unsigned int maxslabs) {
         if (++prealloc > maxslabs)
             return;
         slabs_newslab(i);
-    } 
- 
+    }
+
 }
 
 static int grow_slab_list (unsigned int id) { 
     slabclass_t *p = &slabclass[id];
     if (p->slabs == p->list_size) {
-        unsigned int new_size =  p->list_size ? p->list_size * 2 : 16;
+        size_t new_size =  p->list_size ? p->list_size * 2 : 16;
         void *new_list = realloc(p->slab_list, new_size*sizeof(void*));
         if (new_list == 0) return 0;
         p->list_size = new_size;
@@ -119,11 +144,14 @@ static int grow_slab_list (unsigned int id) {
 
 int slabs_newslab(unsigned int id) {
     slabclass_t *p = &slabclass[id];
-    int num = p->perslab;
+#ifdef ALLOW_SLABS_REASSIGN
     int len = POWER_BLOCK;
+#else
+    int len = p->size * p->perslab;
+#endif
     char *ptr;
 
-    if (mem_limit && mem_malloced + len > mem_limit)
+    if (mem_limit && mem_malloced + len > mem_limit && p->slabs > 0)
         return 0;
 
     if (! grow_slab_list(id)) return 0;
@@ -133,18 +161,18 @@ int slabs_newslab(unsigned int id) {
 
     memset(ptr, 0, len);
     p->end_page_ptr = ptr;
-    p->end_page_free = num;
+    p->end_page_free = p->perslab;
 
     p->slab_list[p->slabs++] = ptr;
     mem_malloced += len;
     return 1;
 }
 
-void *slabs_alloc(unsigned int size) {
+void *slabs_alloc(size_t size) {
     slabclass_t *p;
 
     unsigned char id = slabs_clsid(size);
-    if (id < POWER_SMALLEST || id > POWER_LARGEST)
+    if (id < POWER_SMALLEST || id > power_largest)
         return 0;
 
     p = &slabclass[id];
@@ -180,13 +208,13 @@ void *slabs_alloc(unsigned int size) {
     return 0;  /* shouldn't ever get here */
 }
 
-void slabs_free(void *ptr, unsigned int size) {
+void slabs_free(void *ptr, size_t size) {
     unsigned char id = slabs_clsid(size);
     slabclass_t *p;
 
     assert(((item *)ptr)->slabs_clsid==0);
-    assert(id >= POWER_SMALLEST && id <= POWER_LARGEST);
-    if (id < POWER_SMALLEST || id > POWER_LARGEST)
+    assert(id >= POWER_SMALLEST && id <= power_largest);
+    if (id < POWER_SMALLEST || id > power_largest)
         return;
 
     p = &slabclass[id];
@@ -211,14 +239,14 @@ void slabs_free(void *ptr, unsigned int size) {
 
 char* slabs_stats(int *buflen) {
     int i, total;
-    char *buf = (char*) malloc(8192);
+    char *buf = (char*) malloc(power_largest * 200 + 100);
     char *bufcurr = buf;
 
     *buflen = 0;
     if (!buf) return 0;
 
     total = 0;
-    for(i = POWER_SMALLEST; i <= POWER_LARGEST; i++) {
+    for(i = POWER_SMALLEST; i <= power_largest; i++) {
         slabclass_t *p = &slabclass[i];
         if (p->slabs) {
             unsigned int perslab, slabs;
@@ -236,13 +264,19 @@ char* slabs_stats(int *buflen) {
             total++;
         }
     }
-    bufcurr += sprintf(bufcurr, "STAT active_slabs %d\r\nSTAT total_malloced %u\r\n", total, mem_malloced);
+    bufcurr += sprintf(bufcurr, "STAT active_slabs %d\r\nSTAT total_malloced %llu\r\n", total, (unsigned long long) mem_malloced);
     bufcurr += sprintf(bufcurr, "END\r\n");
     *buflen = bufcurr - buf;
     return buf;
 }
 
-/* 1 = success
+#ifdef ALLOW_SLABS_REASSIGN
+/* Blows away all the items in a slab class and moves its slabs to another
+   class. This is only used by the "slabs reassign" command, for manual tweaking
+   of memory allocation. It's disabled by default since it requires that all
+   slabs be the same size (which can waste space for chunk size mantissas of
+   other than 2.0).
+   1 = success
    0 = fail
    -1 = tried. busy. send again shortly. */
 int slabs_reassign(unsigned char srcid, unsigned char dstid) {
@@ -251,8 +285,8 @@ int slabs_reassign(unsigned char srcid, unsigned char dstid) {
     void *iter;
     int was_busy = 0;
 
-    if (srcid < POWER_SMALLEST || srcid > POWER_LARGEST ||
-        dstid < POWER_SMALLEST || dstid > POWER_LARGEST)
+    if (srcid < POWER_SMALLEST || srcid > power_largest ||
+        dstid < POWER_SMALLEST || dstid > power_largest)
         return 0;
    
     p = &slabclass[srcid];
@@ -308,3 +342,4 @@ int slabs_reassign(unsigned char srcid, unsigned char dstid) {
 
     return 1;
 }
+#endif

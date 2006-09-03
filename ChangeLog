@@ -1,3 +1,18 @@
+2006-08-21
+	* Nathan Neulinger <nneul@umr.edu>: fix incompatabilities with
+	  unix domain socket support and the UDP code and clean up stale 
+	  sockets
+
+2006-08-20
+	* Nathan Neulinger <nneul@umr.edu>: unix domain socket support
+
+2006-05-03
+	* Steven Grimm <sgrimm@facebook.com>:  big bunch of changes:
+	  big CPU reduction work, UDP-based interface, increased memory
+	  efficiency.  (intertwined patch, committed all together)
+	  <http://lists.danga.com/pipermail/memcached/2006-May/002164.html>
+	  or see svn commit logs
+
 2006-04-30
 	* River Tarnell:  autoconf work for Solaris 10.  Brad:
 	merge and verify it works on Nexenta.

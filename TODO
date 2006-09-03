@@ -1,3 +1,20 @@
+* bug as shown with netcat (w/ small 16 byte object reproduces)
+
+>>I've done the following script to check that memcached has a key in it's
+>>inside, and thus know that it's working correctly:
+>>echo -e "get is_ok\r\nquit\r\n" | netcat $host $ip
+>>
+>>and I find that sometimes it returns the VALUE in it's inside, but other
+>>not.
+
+* namespaces
+
+* binary get protocol
+
+* refresh/touch command.
+
+* finer granularity of time for flush_all/delete, or generation number.
+
 * slab class reassignment still buggy and can crash.  once that's
   stable, server should re-assign pages every 60 seconds or so
   to keep all classes roughly equal.  [Update: fixed now?, but 

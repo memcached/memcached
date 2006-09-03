@@ -43,7 +43,10 @@ caches, so consult the README and memcached homepage for configuration
 suggestions.
 .TP
 .B \-p <num> 
-Listen on port <num>, the default is port 11211.
+Listen on TCP port <num>, the default is port 11211.
+.TP
+.B \-U <num> 
+Listen on UDP port <num>, the default is port 11211.
 .TP
 .B \-M
 Disable automatic removal of items from the cache when out of memory.
@@ -51,6 +54,20 @@ Additions will not be possible until adequate space is freed up.
 .TP
 .B \-r
 Raise the core file size limit to the maximum allowable.
+.TP
+.B \-f <factor>
+Use <factor> as the multiplier for computing the sizes of memory chunks that
+items are stored in. A lower value may result in less wasted memory depending
+on the total amount of memory available and the distribution of item sizes.
+The default is 1.25.
+.TP
+.B \-s <size>
+Allocate a minimum of <size> bytes for the item key, value, and flags. The
+default is 48. If you have a lot of small keys and values, you can get a
+significant memory efficiency gain with a lower value. If you use a high
+chunk growth factor (-f option), on the other hand, you may want to increase
+the size to allow a bigger percentage of your items to fit in the most densely
+packed (smallest) chunks.
 .TP
 .B \-h
 Show the version of memcached and a summary of options.
