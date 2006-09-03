@@ -814,7 +814,7 @@ void process_command(conn *c, char *command) {
         }
 
         expire = realtime(expire);
-        it = item_alloc(key, flags, realtime(expire), len+2);
+        it = item_alloc(key, flags, expire, len+2);
 
         if (it == 0) {
             if (! item_size_ok(key, flags, len + 2))

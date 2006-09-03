@@ -1,3 +1,7 @@
+2006-09-02
+	* Nathan Neulinger <nneul@umr.edu>: fix breakage in expiration code
+	  causing expiration times to not be processed correctly.
+
 2006-08-21
 	* Nathan Neulinger <nneul@umr.edu>: fix incompatabilities with
 	  unix domain socket support and the UDP code and clean up stale 
