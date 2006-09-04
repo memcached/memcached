@@ -268,7 +268,7 @@ decr <key> <value>\r\n
 - <value> is the amount by which the client wants to increase/decrease
 the item. It is a decimal representation of a 32-bit unsigned integer.
 
-The response will be one of: 
+The response will be one of:
 
 - "NOT_FOUND\r\n" to indicate the item with this value was not found
 
@@ -279,6 +279,10 @@ Note that underflow in the "decr" command is caught: if a client tries
 to decrease the value below 0, the new value will be 0. Overflow in
 the "incr" command is not checked.
 
+Note also that decrementing a number such that it loses length isn't
+guaranteed to decrement its returned length.  The number MAY be
+space-padded at the end, but this is purely an implementation
+optimization, so you also shouldn't rely on that.
 
 Statistics
 ----------
