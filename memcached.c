@@ -910,7 +910,7 @@ void process_command(conn *c, char *command) {
         out_string(c, temp);
         return;
     }
-        
+
     if (strncmp(command, "bget ", 5) == 0) {
         c->binary = 1;
         goto get;
@@ -920,10 +920,12 @@ void process_command(conn *c, char *command) {
         char *start = command + 4;
         char key[251];
         int next;
-        int i = 0;
+        int i;
         item *it;
-        rel_time_t now = current_time;
+        rel_time_t now;
     get:
+        now = current_time;
+        i = 0;
 
         if (settings.managed) {
             int bucket = c->bucket;
