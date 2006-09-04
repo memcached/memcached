@@ -17,6 +17,8 @@ sub mem_get_is {
     # works on single-line values only.  no newlines in value.
     my $sock = shift;
     my ($key, $val, $msg) = @_;
+    my $dval = defined $val ? "'$val'" : "<undef>";
+    $msg ||= "$key == $dval";
     print $sock "get $key\r\n";
     if (! defined $val) {
         Test::More::is(scalar <$sock>, "END\r\n", $msg);
