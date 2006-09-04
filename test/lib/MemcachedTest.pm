@@ -6,11 +6,25 @@ use FindBin qw($Bin);
 use Carp qw(croak);
 use vars qw(@EXPORT);
 
-@EXPORT = qw(new_memcached sleep mem_get_is);
+@EXPORT = qw(new_memcached sleep mem_get_is mem_stats);
 
 sub sleep {
     my $n = shift;
     select undef, undef, undef, $n;
+}
+
+sub mem_stats {
+    my ($sock, $type) = @_;
+    $type = $type ? " $type" : "";
+    print $sock "stats$type\r\n";
+    my $stats = {};
+    while (<$sock>) {
+        last if /^(\.|END)/;
+        /^STAT (\S+) (\d+)/;
+        #print " slabs: $_";
+        $stats->{$1} = $2;
+    }
+    return $stats;
 }
 
 sub mem_get_is {
@@ -61,7 +75,7 @@ sub new_memcached {
     my $port = free_port();
     $args .= " -p $port";
     if ($< == 0) {
-	$args .= " -u root";
+        $args .= " -u root";
     }
     my $childpid = fork();
 
