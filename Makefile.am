@@ -10,7 +10,10 @@ EXTRA_DIST = doc scripts TODO test
 # FIXME: how to run Perl tests from automake?
 #TESTS = test/getset.t
 
-AM_CFLAGS=-DNDEBUG
+# Uncomment the following to save some CPU (by disabling assertions), at the risk of silent data
+# structure corruption.  After all, this is a new branch of memcached, so you probably want
+# assertions enabled.
+#AM_CFLAGS=-DNDEBUG
 
 dist-hook:
 	rm -rf $(distdir)/doc/.svn/
