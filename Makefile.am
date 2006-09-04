@@ -18,5 +18,5 @@ EXTRA_DIST = doc scripts TODO test
 dist-hook:
 	rm -rf $(distdir)/doc/.svn/
 	rm -rf $(distdir)/scripts/.svn/
-
-
+	rm -rf $(distdir)/test/.svn/
+	rm -rf $(distdir)/test/lib/.svn/
