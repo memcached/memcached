@@ -28,8 +28,14 @@ sub mem_get_is {
         Test::More::is(scalar <$sock>, "END\r\n", $msg);
     } else {
         my $len = length($val);
-        my $body = scalar(<$sock>) . scalar(<$sock>) . scalar(<$sock>);
-        Test::More::is($body, "VALUE $key $expect_flags $len\r\n$val\r\nEND\r\n", $msg);
+        my $body = scalar(<$sock>);
+        my $expected = "VALUE $key $expect_flags $len\r\n$val\r\nEND\r\n";
+        if (!$body || $body =~ /^END/) {
+            Test::More::is($body, $expected, $msg);
+            return;
+        }
+        $body .= scalar(<$sock>) . scalar(<$sock>);
+        Test::More::is($body, $expected, $msg);
     }
 }
 
