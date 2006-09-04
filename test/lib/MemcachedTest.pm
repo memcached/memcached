@@ -15,8 +15,11 @@ sub sleep {
 
 sub mem_get_is {
     # works on single-line values only.  no newlines in value.
-    my $sock = shift;
-    my ($key, $val, $msg) = @_;
+    my ($sock_opts, $key, $val, $msg) = @_;
+    my $opts = ref $sock_opts eq "HASH" ? $sock_opts : {};
+    my $sock = ref $sock_opts eq "GLOB" ? $sock_opts : $opts->{sock};
+    my $expect_flags = $opts->{flags} || 0;
+
     my $dval = defined $val ? "'$val'" : "<undef>";
     $msg ||= "$key == $dval";
     print $sock "get $key\r\n";
@@ -25,7 +28,7 @@ sub mem_get_is {
     } else {
         my $len = length($val);
         my $body = scalar(<$sock>) . scalar(<$sock>) . scalar(<$sock>);
-        Test::More::is($body, "VALUE $key 0 $len\r\n$val\r\nEND\r\n", $msg);
+        Test::More::is($body, "VALUE $key $expect_flags $len\r\n$val\r\nEND\r\n", $msg);
     }
 }
 
