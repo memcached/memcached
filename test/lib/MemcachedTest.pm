@@ -6,11 +6,25 @@ use FindBin qw($Bin);
 use Carp qw(croak);
 use vars qw(@EXPORT);
 
-@EXPORT = qw(new_memcached sleep);
+@EXPORT = qw(new_memcached sleep mem_get_is);
 
 sub sleep {
     my $n = shift;
     select undef, undef, undef, $n;
+}
+
+sub mem_get_is {
+    # works on single-line values only.  no newlines in value.
+    my $sock = shift;
+    my ($key, $val, $msg) = @_;
+    print $sock "get $key\r\n";
+    if (! defined $val) {
+        Test::More::is(scalar <$sock>, "END\r\n", $msg);
+    } else {
+        my $len = length($val);
+        my $body = scalar(<$sock>) . scalar(<$sock>) . scalar(<$sock>);
+        Test::More::is($body, "VALUE $key 0 $len\r\n$val\r\nEND\r\n", $msg);
+    }
 }
 
 sub free_port {

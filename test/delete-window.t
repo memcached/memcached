@@ -45,38 +45,25 @@ sleep(1.2);
 print $sock "add foo 0 0 7\r\nfoo-add\r\n";
 is($line->(), "STORED\r\n", "stored foo-add");
 
-my $get_fooadd = sub {
-    my $msg = shift;
-    print $sock "get foo\r\n";
-    is($line->(), "VALUE foo 0 7\r\n", "got foo value... ($msg)");
-    is($line->(), "foo-add\r\n", ".. with value foo-add ($msg)");
-    is($line->(), "END\r\n", "got END ($msg)");
-};
-$get_fooadd->("before deleter event");
+mem_get_is($sock, "foo", "foo-add", "foo == 'foo-add' (before deleter)");
 
-# wait fo
-diag("waiting 5 seconds for the deleter event...");
-sleep(5.2);
-$get_fooadd->("after deleter event");
-
-
-__END__
-sleep 10;
-
-# test a set, delete w/ timer, set, wait 5.2 seconds (for 5 second
-# deleter event), then get to see which we get.
+# test 'baz' with set, delete w/ timer, set, wait 5.2 seconds (for 5
+# second deleter event), then get to see which we get.
 print $sock "set baz 0 0 4\r\nval1\r\n";
 is($line->(), "STORED\r\n", "stored baz = val1");
-print $sock "delete foo 1\r\n";
+print $sock "delete baz 1\r\n";
 is($line->(), "DELETED\r\n", "deleted with 1 second window");
-
 print $sock "set baz 0 0 4\r\nval2\r\n";
 is($line->(), "STORED\r\n", "stored baz = val2");
-diag("sleeping for 5 seconds to wait for deleter event...");
+
+diag("waiting 5 seconds for the deleter event...");
 sleep(5.2);
-print $sock "get baz\r\n";
-is($line->(), "VALUE baz 0 4\r\n", "got baz value...");
-is($line->(), "val2\r\n", ".. with value val2");
-is($line->(), "END\r\n", "got END");
+
+# follow-up on 1st test:
+mem_get_is($sock, "foo", "foo-add", "foo == 'foo-add' (after deleter)");
+
+# and follow-up on 2nd test:
+mem_get_is($sock, "baz", "val2", "baz=='val2'");
+
 
 
