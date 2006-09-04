@@ -12,7 +12,7 @@ my $sock = $server->sock;
 # set foo (and should get it)
 print $sock "set foo 0 0 6\r\nfooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo");
-print $sock "get foo\n";
+print $sock "get foo\r\n";
 is(scalar <$sock>, "VALUE foo 0 6\r\n", "got FOO value");
 is(scalar <$sock>, "fooval\r\n", "got fooval");
 is(scalar <$sock>, "END\r\n", "got END");
@@ -20,7 +20,7 @@ is(scalar <$sock>, "END\r\n", "got END");
 # add bar (and should get it)
 print $sock "add bar 0 0 6\r\nbarval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored barval");
-print $sock "get bar\n";
+print $sock "get bar\r\n";
 is(scalar <$sock>, "VALUE bar 0 6\r\n", "got bar value");
 is(scalar <$sock>, "barval\r\n", "got barval");
 is(scalar <$sock>, "END\r\n", "got END");
@@ -28,7 +28,7 @@ is(scalar <$sock>, "END\r\n", "got END");
 # add foo (but shouldn't get new value)
 print $sock "add foo 0 0 5\r\nfoov2\r\n";
 is(scalar <$sock>, "NOT_STORED\r\n", "not stored");
-print $sock "get foo\n";
+print $sock "get foo\r\n";
 is(scalar <$sock>, "VALUE foo 0 6\r\n", "got FOO value");
 is(scalar <$sock>, "fooval\r\n", "got fooval");
 is(scalar <$sock>, "END\r\n", "got END");
