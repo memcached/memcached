@@ -140,7 +140,7 @@ int item_size_ok(char *key, int flags, int nbytes) {
 
 void item_link_q(item *it) { /* item is the new head */
     item **head, **tail;
-    assert(it->slabs_clsid <= LARGEST_ID);
+    /* always true, warns: assert(it->slabs_clsid <= LARGEST_ID); */
     assert((it->it_flags & ITEM_SLABBED) == 0);
 
     head = &heads[it->slabs_clsid];
@@ -158,7 +158,7 @@ void item_link_q(item *it) { /* item is the new head */
 
 void item_unlink_q(item *it) {
     item **head, **tail;
-    assert(it->slabs_clsid <= LARGEST_ID);
+    /* always true, warns: assert(it->slabs_clsid <= LARGEST_ID); */
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
 
