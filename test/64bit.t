@@ -17,20 +17,20 @@ my %stats;
 my $get_slabs = sub{
     print $sock "stats slabs\r\n";
     while (<$sock>) {
-	last if /^(\.|END)/;
-	/^STAT (\S+) (\d+)/;
-	#print " slabs: $_";
-	$slabs{$1} = $2;
+        last if /^(\.|END)/;
+        /^STAT (\S+) (\d+)/;
+        #print " slabs: $_";
+        $slabs{$1} = $2;
     }
 };
 
 my $get_stats = sub{
     print $sock "stats\r\n";
     while (<$sock>) {
-	last if /^(\.|END)/;
-	/^STAT (\S+) (\d+)/;
-	#print " stats ($1) = ($2)\n";
-	$stats{$1} = $2;
+        last if /^(\.|END)/;
+        /^STAT (\S+) (\d+)/;
+        #print " stats ($1) = ($2)\n";
+        $stats{$1} = $2;
     }
 };
 
