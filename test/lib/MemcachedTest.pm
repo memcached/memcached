@@ -60,6 +60,9 @@ sub new_memcached {
     my $args = shift || "";
     my $port = free_port();
     $args .= " -p $port";
+    if ($< == 0) {
+	$args .= " -u root";
+    }
     my $childpid = fork();
 
     my $exe = "$Bin/../memcached";
