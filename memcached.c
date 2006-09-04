@@ -107,11 +107,26 @@ void settings_init(void) {
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
 }
+
+/* returns true if a deleted item's delete-locked-time is over, and it
+   should be removed from the namespace */
+int item_delete_lock_over (item *it) {
+    assert(it->it_flags & ITEM_DELETED);
+    return (current_time >= it->exptime);
+}
+
 /* wrapper around assoc_find which does the lazy expiration/deletion logic */
-item *get_item(char *key) {
+item *get_item_notedeleted(char *key, int *delete_locked) {
     item *it = assoc_find(key);
+    if (delete_locked) *delete_locked = 0;
     if (it && (it->it_flags & ITEM_DELETED)) {
-        it = 0;
+        /* it's flagged as delete-locked.  let's see if that condition
+           is past due, and the 5-second delete_timer just hasn't
+           gotten to it yet... */
+        if (! item_delete_lock_over(it)) {
+            if (delete_locked) *delete_locked = 1;
+            it = 0;
+        }
     }
     if (it && settings.oldest_live && settings.oldest_live <= current_time &&
         it->time <= settings.oldest_live) {
@@ -123,6 +138,10 @@ item *get_item(char *key) {
         it = 0;
     }
     return it;
+}
+
+item *get_item(char *key) {
+    return get_item_notedeleted(key, 0);
 }
 
 /*
@@ -557,57 +576,54 @@ void complete_nread(conn *c) {
     item *it = c->item;
     int comm = c->item_comm;
     item *old_it;
-    rel_time_t now = current_time;
-
+    int delete_locked = 0;
     stats.set_cmds++;
+    char *key = ITEM_key(it);
 
-    while(1) {
-        if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
-            out_string(c, "CLIENT_ERROR bad data chunk");
-            break;
-        }
-
-        old_it = assoc_find(ITEM_key(it));
-
-        if (old_it && settings.oldest_live &&
-            old_it->time <= settings.oldest_live) {
-            item_unlink(old_it);
-            old_it = 0;
-        }
-
-        if (old_it && old_it->exptime && old_it->exptime < now) {
-            item_unlink(old_it);
-            old_it = 0;
-        }
-
-        if (old_it && comm==NREAD_ADD) {
-            item_update(old_it);
-            out_string(c, "NOT_STORED");
-            break;
-        }
-
-        if (!old_it && comm == NREAD_REPLACE) {
-            out_string(c, "NOT_STORED");
-            break;
-        }
-
-        if (old_it && (old_it->it_flags & ITEM_DELETED) && (comm == NREAD_REPLACE || comm == NREAD_ADD)) {
-            out_string(c, "NOT_STORED");
-            break;
-        }
-
-        if (old_it) {
-            item_replace(old_it, it);
-        } else item_link(it);
-
-        c->item = 0;
-        out_string(c, "STORED");
-        return;
+    if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
+        out_string(c, "CLIENT_ERROR bad data chunk");
+        goto err;
     }
 
-    item_free(it);
+    old_it = get_item_notedeleted(key, &delete_locked);
+
+    if (old_it && comm == NREAD_ADD) {
+        item_update(old_it);  /* touches item, promotes to head of LRU */
+        out_string(c, "NOT_STORED");
+        goto err;
+    }
+
+    if (!old_it && comm == NREAD_REPLACE) {
+        out_string(c, "NOT_STORED");
+        goto err;
+    }
+
+    if (delete_locked) {
+        if (comm == NREAD_REPLACE || comm == NREAD_ADD) {
+            out_string(c, "NOT_STORED");
+            goto err;
+        }
+
+        /* but "set" commands can override the delete lock
+         window... in which case we have to find the old hidden item
+         that's in the namespace/LRU but wasn't returned by
+         get_item.... because we need to replace it (below) */
+        old_it = assoc_find(key);
+    }
+
+    if (old_it)
+        item_replace(old_it, it);
+    else
+        item_link(it);
+
     c->item = 0;
+    out_string(c, "STORED");
     return;
+
+err:
+     item_free(it);
+     c->item = 0;
+     return;
 }
 
 void process_stat(conn *c, char *command) {
@@ -1827,7 +1843,7 @@ void delete_handler(int fd, short which, void *arg) {
         rel_time_t now = current_time;
         for (i=0; i<delcurr; i++) {
             item *it = todelete[i];
-            if (it->exptime < now) {
+            if (item_delete_lock_over(it)) {
                 assert(it->refcount > 0);
                 it->it_flags &= ~ITEM_DELETED;
                 item_unlink(it);

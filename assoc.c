@@ -164,7 +164,9 @@ static item** _hashitem_before (char *key) {
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
 int assoc_insert(char *key, item *it) {
-    ub4 hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
+    ub4 hv;
+    assert(assoc_find(key) == 0);  /* shouldn't have duplicately named things defined */
+    hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
     it->h_next = hashtable[hv];
     hashtable[hv] = it;
     return 1;

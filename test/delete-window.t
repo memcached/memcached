@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 14;
+use Test::More tests => 20;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -45,13 +45,19 @@ sleep(1.2);
 print $sock "add foo 0 0 7\r\nfoo-add\r\n";
 is($line->(), "STORED\r\n", "stored foo-add");
 
+my $get_fooadd = sub {
+    my $msg = shift;
+    print $sock "get foo\r\n";
+    is($line->(), "VALUE foo 0 7\r\n", "got foo value... ($msg)");
+    is($line->(), "foo-add\r\n", ".. with value foo-add ($msg)");
+    is($line->(), "END\r\n", "got END ($msg)");
+};
+$get_fooadd->("before deleter event");
+
 # wait fo
 diag("waiting 5 seconds for the deleter event...");
 sleep(5.2);
-print $sock "get foo\r\n";
-is($line->(), "VALUE foo 0 7\r\n", "got foo value...");
-is($line->(), "foo-add\r\n", ".. with value foo-add");
-is($line->(), "END\r\n", "got END");
+$get_fooadd->("after deleter event");
 
 
 __END__
