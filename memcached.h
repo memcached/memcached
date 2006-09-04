@@ -271,3 +271,8 @@ int item_replace(item *it, item *new_it);
 char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes);
 char *item_stats_sizes(int *bytes);
 void item_stats(char *buffer, int buflen);
+
+/* time handling */
+void set_current_time ();  /* update the global variable holding
+                              global 32-bit seconds-since-start time
+                              (to avoid 64 bit time_t) */

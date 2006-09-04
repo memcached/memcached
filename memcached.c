@@ -85,7 +85,12 @@ void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = 0;
     stats.curr_bytes = stats.bytes_read = stats.bytes_written = 0;
-    stats.started = time(0);
+
+    /* make the time we started always be 1 second before we really
+       did, so time(0) - time.started is never zero.  if so, things
+       like 'settings.oldest_live' which act as booleans as well as
+       values are now false in boolean context... */
+    stats.started = time(0) - 1;
 }
 void stats_reset(void) {
     stats.total_items = stats.total_conns = 0;
@@ -1137,6 +1142,7 @@ void process_command(conn *c, char *command) {
     if (strncmp(command, "flush_all", 9) == 0) {
         time_t exptime = 0;
         int res;
+        set_current_time();
 
         if (strcmp(command, "flush_all") == 0) {
             settings.oldest_live = current_time;
@@ -1801,6 +1807,11 @@ void pre_gdb () {
 volatile rel_time_t current_time;
 struct event clockevent;
 
+/* time-sensitive callers can call it by hand with this, outside the normal ever-1-second timer */
+void set_current_time () {
+    current_time = (rel_time_t) (time(0) - stats.started);
+}
+
 void clock_handler(int fd, short which, void *arg) {
     struct timeval t;
     static int initialized = 0;
@@ -1817,7 +1828,7 @@ void clock_handler(int fd, short which, void *arg) {
     t.tv_usec = 0;
     evtimer_add(&clockevent, &t);
 
-    current_time = (rel_time_t) (time(0) - stats.started);
+    set_current_time();
 }
 
 struct event deleteevent;
