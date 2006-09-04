@@ -25,7 +25,11 @@ sub mem_get_is {
 
     print $sock "get $key\r\n";
     if (! defined $val) {
-        Test::More::is(scalar <$sock>, "END\r\n", $msg);
+        my $line = scalar <$sock>;
+        if ($line =~ /^VALUE/) {
+            $line .= scalar(<$sock>) . scalar(<$sock>);
+        }
+        Test::More::is($line, "END\r\n", $msg);
     } else {
         my $len = length($val);
         my $body = scalar(<$sock>);
