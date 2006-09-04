@@ -491,7 +491,7 @@ int add_iov(conn *c, const void *buf, int len) {
         }
 
         m = &c->msglist[c->msgused - 1];
-        m->msg_iov[m->msg_iovlen].iov_base = buf;
+        m->msg_iov[m->msg_iovlen].iov_base = (void*) buf;
         m->msg_iov[m->msg_iovlen].iov_len = len;
 
         c->msgbytes += len;
