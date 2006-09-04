@@ -13,7 +13,7 @@ my $sock2 = $server->new_sock;
 ok($sock != $sock2, "have two different connections open");
 
 # set large value
-my $size   = 32 * 1024;  # 256 kB
+my $size   = 256 * 1024;  # 256 kB
 my $bigval = "0123456789abcdef" x ($size / 16);
 $bigval =~ s/^0/\[/; $bigval =~ s/f$/\]/;
 my $bigval2 = uc($bigval);
