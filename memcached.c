@@ -96,6 +96,23 @@ void settings_init(void) {
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
 }
+/* wrapper around assoc_find which does the lazy expiration/deletion logic */
+item *get_item(char *key) {
+    item *it = assoc_find(key);
+    if (it && (it->it_flags & ITEM_DELETED)) {
+        it = 0;
+    }
+    if (it && settings.oldest_live && settings.oldest_live <= current_time &&
+        it->time <= settings.oldest_live) {
+        item_unlink(it);
+        it = 0;
+    }
+    if (it && it->exptime && it->exptime <= current_time) {
+        item_unlink(it);
+        it = 0;
+    }
+    return it;
+}
 /*
  * Adds a message header to a connection.
  *
@@ -722,7 +739,6 @@ void process_command(conn *c, char *command) {
         char key[251];
         int res;
         char *ptr;
-        rel_time_t now = current_time;
         res = sscanf(command, "%*s %250s %u\n", key, &delta);
         if (res!=2 || strlen(key)==0 ) {
             out_string(c, "CLIENT_ERROR bad command line format");
@@ -740,14 +756,7 @@ void process_command(conn *c, char *command) {
                 return;
             }
         }
-        it = assoc_find(key);
-        if (it && (it->it_flags & ITEM_DELETED)) {
-            it = 0;
-        }
-        if (it && it->exptime && it->exptime < now) {
-            item_unlink(it);
-            it = 0;
-        }
+        it = get_item(key);
         if (!it) {
             out_string(c, "NOT_FOUND");
             return;
@@ -809,19 +818,7 @@ void process_command(conn *c, char *command) {
         while(sscanf(start, " %250s%n", key, &next) >= 1) {
             start+=next;
             stats.get_cmds++;
-            it = assoc_find(key);
-            if (it && (it->it_flags & ITEM_DELETED)) {
-                it = 0;
-            }
-            if (settings.oldest_live && settings.oldest_live <= now &&
-                it && it->time <= settings.oldest_live) {
-                item_unlink(it);
-                it = 0;
-            }
-            if (it && it->exptime && it->exptime < now) {
-                item_unlink(it);
-                it = 0;
-            }
+            it = get_item(key);
             if (it) {
                 if (i >= c->isize) {
                     item **new_list = realloc(c->ilist, sizeof(item *)*c->isize*2);
@@ -885,7 +882,7 @@ void process_command(conn *c, char *command) {
             }
         }
         res = sscanf(command, "%*s %250s %ld", key, &exptime);
-        it = assoc_find(key);
+        it = get_item(key);
         if (!it) {
             out_string(c, "NOT_FOUND");
             return;

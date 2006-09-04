@@ -5,7 +5,10 @@ memcached_LDADD = @LIBOBJS@
 
 SUBDIRS = doc
 DIST_DIRS = scripts
-EXTRA_DIST = doc scripts TODO
+EXTRA_DIST = doc scripts TODO test
+
+# FIXME: how to run Perl tests from automake?
+#TESTS = test/getset.t
 
 AM_CFLAGS=-DNDEBUG
 

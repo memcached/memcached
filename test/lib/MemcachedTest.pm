@@ -6,7 +6,12 @@ use FindBin qw($Bin);
 use Carp qw(croak);
 use vars qw(@EXPORT);
 
-@EXPORT = qw(new_memcached);
+@EXPORT = qw(new_memcached sleep);
+
+sub sleep {
+    my $n = shift;
+    select undef, undef, undef, $n;
+}
 
 sub free_port {
     my $sock;
