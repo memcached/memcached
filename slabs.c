@@ -106,8 +106,22 @@ void slabs_init(size_t limit, double factor) {
     slabclass[power_largest].size = POWER_BLOCK;
     slabclass[power_largest].perslab = 1;
 
+    /* for the test suite:  faking of how much we've already malloc'd */
+    {
+        char *t_initial_malloc = getenv("T_MEMD_INITIAL_MALLOC");
+        if (t_initial_malloc) {
+            mem_malloced = atoll(getenv("T_MEMD_INITIAL_MALLOC"));
+        }
+
+    }
+
 #ifndef DONT_PREALLOC_SLABS
-    slabs_preallocate(limit / POWER_BLOCK);
+    {
+        char *pre_alloc = getenv("T_MEMD_SLABS_ALLOC");
+        if (!pre_alloc || atoi(pre_alloc)) {
+            slabs_preallocate(limit / POWER_BLOCK);
+        }
+    }
 #endif
 }
 
