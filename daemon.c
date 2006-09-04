@@ -28,22 +28,18 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
 #if defined __SUNPRO_C || defined __DECC || defined __HP_cc
 # pragma ident "@(#)$Header: /cvsroot/wikipedia/willow/src/bin/willow/daemon.c,v 1.1 2005/05/02 19:15:21 kateturner Exp $"
 # pragma ident "$NetBSD: daemon.c,v 1.9 2003/08/07 16:42:46 agc Exp $"
 #endif
-
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
-
 int
 daemon(nochdir, noclose)
     int nochdir, noclose;
 {
     int fd;
-
     switch (fork()) {
     case -1:
         return (-1);
@@ -52,13 +48,10 @@ daemon(nochdir, noclose)
     default:
         _exit(0);
     }
-
     if (setsid() == -1)
         return (-1);
-
     if (!nochdir)
         (void)chdir("/");
-
     if (!noclose && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
         (void)dup2(fd, STDIN_FILENO);
         (void)dup2(fd, STDOUT_FILENO);

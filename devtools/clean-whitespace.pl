@@ -9,7 +9,7 @@ foreach my $f (@files) {
     close ($fh);
     my $after = $before;
     $after =~ s/\t/    /g;
-    $after =~ s/\s+$//m;
+    $after =~ s/\s+$//mg;
     next if $after eq $before;
     open(my $fh, ">$f") or die;
     print $fh $after;
