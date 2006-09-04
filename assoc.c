@@ -4,7 +4,7 @@
  *
  * The hash function used here is by Bob Jenkins, 1996:
  *    <http://burtleburtle.net/bob/hash/doobs.html>
- *       "By Bob Jenkins, 1996.  bob_jenkins@burtleburtle.net.  
+ *       "By Bob Jenkins, 1996.  bob_jenkins@burtleburtle.net.
  *       You may use this code any way you wish, private, educational, 
  *       or commercial.  It's free."
  *

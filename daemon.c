@@ -1,9 +1,8 @@
-/*	$Header: /cvsroot/wikipedia/willow/src/bin/willow/daemon.c,v 1.1 2005/05/02 19:15:21 kateturner Exp $	*/
-/*	$NetBSD: daemon.c,v 1.9 2003/08/07 16:42:46 agc Exp $	*/
-
+/*    $Header: /cvsroot/wikipedia/willow/src/bin/willow/daemon.c,v 1.1 2005/05/02 19:15:21 kateturner Exp $    */
+/*    $NetBSD: daemon.c,v 1.9 2003/08/07 16:42:46 agc Exp $    */
 /*-
  * Copyright (c) 1990, 1993
- *	The Regents of the University of California.  All rights reserved.
+ *    The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,31 +40,31 @@
 
 int
 daemon(nochdir, noclose)
-	int nochdir, noclose;
+    int nochdir, noclose;
 {
-	int fd;
+    int fd;
 
-	switch (fork()) {
-	case -1:
-		return (-1);
-	case 0:
-		break;
-	default:
-		_exit(0);
-	}
+    switch (fork()) {
+    case -1:
+        return (-1);
+    case 0:
+        break;
+    default:
+        _exit(0);
+    }
 
-	if (setsid() == -1)
-		return (-1);
+    if (setsid() == -1)
+        return (-1);
 
-	if (!nochdir)
-		(void)chdir("/");
+    if (!nochdir)
+        (void)chdir("/");
 
-	if (!noclose && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
-		(void)dup2(fd, STDIN_FILENO);
-		(void)dup2(fd, STDOUT_FILENO);
-		(void)dup2(fd, STDERR_FILENO);
-		if (fd > STDERR_FILENO)
-			(void)close(fd);
-	}
-	return (0);
+    if (!noclose && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
+        (void)dup2(fd, STDIN_FILENO);
+        (void)dup2(fd, STDOUT_FILENO);
+        (void)dup2(fd, STDERR_FILENO);
+        if (fd > STDERR_FILENO)
+            (void)close(fd);
+    }
+    return (0);
 }
