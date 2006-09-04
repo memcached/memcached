@@ -518,7 +518,7 @@ int build_udp_headers(conn *c) {
         *hdr++ = c->msgused % 256;
         *hdr++ = 0;
         *hdr++ = 0;
-        assert(hdr == c->msglist[i].iov[0].iov_base + UDP_HEADER_SIZE);
+        assert(hdr == c->msglist[i].msg_iov[0].iov_base + UDP_HEADER_SIZE);
     }
 
     return 0;
