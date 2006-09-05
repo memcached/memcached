@@ -1236,10 +1236,10 @@ int try_read_udp(conn *c) {
     int res;
 
     c->request_addr_size = sizeof(c->request_addr);
-    res = recvfrom(c->sfd, c->rbuf + c->rbytes, c->rsize - c->rbytes,
+    res = recvfrom(c->sfd, c->rbuf, c->rsize,
                    0, &c->request_addr, &c->request_addr_size);
     if (res > 8) {
-        unsigned char *buf = (unsigned char *)c->rbuf + c->rbytes;
+        unsigned char *buf = (unsigned char *)c->rbuf;
         stats.bytes_read += res;
 
         /* Beginning of UDP packet is the request ID; save it. */
