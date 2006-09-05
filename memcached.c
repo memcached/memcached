@@ -23,6 +23,8 @@
 #include <sys/un.h>
 #include <sys/signal.h>
 #include <sys/resource.h>
+#include <sys/uio.h>
+
 /* some POSIX systems need the following definition
  * to get mlockall flags out of sys/mman.h.  */
 #ifndef _P1003_1B_VISIBLE
