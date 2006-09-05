@@ -167,13 +167,15 @@ int add_msghdr(conn *c)
     }
 
     msg = c->msglist + c->msgused;
+
+    /* this wipes msg_iovlen, msg_control, msg_controllen, and
+       msg_flags, the last 3 of which aren't defined on solaris: */
+    memset(msg, 0, sizeof(struct msghdr));
+
     msg->msg_iov = &c->iov[c->iovused];
-    msg->msg_iovlen = 0;
     msg->msg_name = &c->request_addr;
     msg->msg_namelen = c->request_addr_size;
-    msg->msg_control = 0;
-    msg->msg_controllen = 0;
-    msg->msg_flags = 0;
+
     c->msgbytes = 0;
     c->msgused++;
 
