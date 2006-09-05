@@ -1296,7 +1296,7 @@ int try_read_network(conn *c) {
         /* unix socket mode doesn't need this, so zeroed out.  but why
          * is this done for every command?  presumably for UDP
          * mode.  */
-        if (c->request_addr.sa_family != AF_UNSPEC) {
+        if (!settings.socketpath) {
             c->request_addr_size = sizeof(c->request_addr);
         } else {
             c->request_addr_size = 0;
