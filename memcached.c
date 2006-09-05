@@ -655,6 +655,7 @@ void process_stat(conn *c, char *command) {
         pos += sprintf(pos, "STAT uptime %u\r\n", now);
         pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
         pos += sprintf(pos, "STAT version " VERSION "\r\n");
+        pos += sprintf(pos, "STAT pointer_size %d\r\n", 8 * sizeof(void*));
         pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
         pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);

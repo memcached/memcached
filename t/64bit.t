@@ -11,43 +11,24 @@ $ENV{T_MEMD_SLABS_ALLOC}    = 0;  # don't preallocate slabs
 
 my $server = new_memcached("-m 4097 -M");
 my $sock = $server->sock;
-my %slabs;
-my %stats;
 
-my $get_slabs = sub{
-    print $sock "stats slabs\r\n";
-    while (<$sock>) {
-        last if /^(\.|END)/;
-        /^STAT (\S+) (\d+)/;
-        #print " slabs: $_";
-        $slabs{$1} = $2;
-    }
-};
+my ($stats, $slabs) = @_;
 
-my $get_stats = sub{
-    print $sock "stats\r\n";
-    while (<$sock>) {
-        last if /^(\.|END)/;
-        /^STAT (\S+) (\d+)/;
-        #print " stats ($1) = ($2)\n";
-        $stats{$1} = $2;
-    }
-};
+$stats = mem_stats($sock);
 
-$get_slabs->();
-$get_stats->();
-
-if ($slabs{'total_malloced'} eq "32" || $slabs{'total_malloced'} eq "2147483647") {
+if ($stats->{'pointer_size'} eq "32") {
     plan skip_all => 'Skipping 64-bit tests on 32-bit build';
     exit 0;
 } else {
     plan tests => 6;
 }
 
-ok(1, "is 64 bit");
-is($stats{'limit_maxbytes'}, "4296015872", "max bytes is 4097 MB");
-is($slabs{'total_malloced'}, "4294967328", "expected (faked) value of total_malloced");
-is($slabs{'active_slabs'}, 0, "no active slabs");
+is($stats->{'pointer_size'}, 64, "is 64 bit");
+is($stats->{'limit_maxbytes'}, "4296015872", "max bytes is 4097 MB");
+
+$slabs = mem_stats($sock, 'slabs');
+is($slabs->{'total_malloced'}, "4294967328", "expected (faked) value of total_malloced");
+is($slabs->{'active_slabs'}, 0, "no active slabs");
 
 my $hit_limit = 0;
 for (1..3) {
@@ -59,5 +40,5 @@ for (1..3) {
 }
 ok($hit_limit, "hit size limit");
 
-$get_slabs->();
-is($slabs{'active_slabs'}, 1, "1 active slab");
+$slabs = mem_stats($sock, 'slabs');
+is($slabs->{'active_slabs'}, 1, "1 active slab");
