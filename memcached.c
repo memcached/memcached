@@ -581,8 +581,9 @@ void complete_nread(conn *c) {
     int comm = c->item_comm;
     item *old_it;
     int delete_locked = 0;
-    stats.set_cmds++;
     char *key = ITEM_key(it);
+
+    stats.set_cmds++;
 
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
