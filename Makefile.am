@@ -5,7 +5,7 @@ memcached_LDADD = @LIBOBJS@
 
 SUBDIRS = doc
 DIST_DIRS = scripts
-EXTRA_DIST = doc scripts TODO test
+EXTRA_DIST = doc scripts TODO t
 
 # FIXME: how to run Perl tests from automake?
 #TESTS = test/getset.t
@@ -18,5 +18,5 @@ EXTRA_DIST = doc scripts TODO test
 dist-hook:
 	rm -rf $(distdir)/doc/.svn/
 	rm -rf $(distdir)/scripts/.svn/
-	rm -rf $(distdir)/test/.svn/
-	rm -rf $(distdir)/test/lib/.svn/
+	rm -rf $(distdir)/t/.svn/
+	rm -rf $(distdir)/t/lib/.svn/
