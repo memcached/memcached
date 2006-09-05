@@ -110,7 +110,7 @@ void slabs_init(size_t limit, double factor) {
     {
         char *t_initial_malloc = getenv("T_MEMD_INITIAL_MALLOC");
         if (t_initial_malloc) {
-            mem_malloced = atoll(getenv("T_MEMD_INITIAL_MALLOC"));
+            mem_malloced = atol(getenv("T_MEMD_INITIAL_MALLOC"));
         }
 
     }
