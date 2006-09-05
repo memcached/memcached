@@ -1,3 +1,10 @@
+2006-09-04
+	* improved autoconf libevent detection, from the Tor project.
+
+2006-09-03
+	* test suite and lot of expiration, delete, flush_all, etc corner
+	  case bugs fixed (Brad Fitzpatrick)
+
 2006-09-02
 	* Nathan Neulinger <nneul@umr.edu>: fix breakage in expiration code
 	  causing expiration times to not be processed correctly.
