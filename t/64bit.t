@@ -37,7 +37,7 @@ my $get_stats = sub{
 $get_slabs->();
 $get_stats->();
 
-if ($slabs{'total_malloced'} eq "32") {
+if ($slabs{'total_malloced'} eq "32" || $slabs{'total_malloced'} eq "2147483647") {
     plan skip_all => 'Skipping 64-bit tests on 32-bit build';
     exit 0;
 } else {
@@ -46,7 +46,7 @@ if ($slabs{'total_malloced'} eq "32") {
 
 ok(1, "is 64 bit");
 is($stats{'limit_maxbytes'}, "4296015872", "max bytes is 4097 MB");
-is($slabs{'total_malloced'}, "4294967328", "correct value");
+is($slabs{'total_malloced'}, "4294967328", "expected (faked) value of total_malloced");
 is($slabs{'active_slabs'}, 0, "no active slabs");
 
 my $hit_limit = 0;
