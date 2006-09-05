@@ -241,9 +241,6 @@ conn *conn_new(int sfd, int init_state, int event_flags, int read_buffer_size,
             return 0;
         }
 
-        c->rsize = c->wsize = DATA_BUFFER_SIZE;
-        c->isize = 200;   /* TODO: another instance of '200'.  must kill all these */
-
         stats.conn_structs++;
     }
 
