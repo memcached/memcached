@@ -1,0 +1,19 @@
+Major authors:
+==============
+
+  Brad Fitzpatrick <brad@danga.com>  -- maintainer, original implementations
+
+  Anatoly Vorobey <mellon@pobox.com> -- lots of the modern server code
+
+  Steven Grimm <sgrimm@facebook.com> -- iov writing (less CPU), UDP mode,
+                                        non-2.0 slab mantissas, ...
+
+Bug reports, patches, testing, help:
+====================================
+
+   Evan Martin <evan@danga.com>
+   Nathan Neulinger <nneul@umr.edu>
+   Eric Hodel <drbrain@segment7.net>
+   Michael Johnson <ahze@ahze.net>
+   Paul Querna <chip@corelands.com>
+   Jamie McCarthy <jamie@mccarthy.vg>
