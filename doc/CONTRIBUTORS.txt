@@ -17,3 +17,8 @@ Bug reports, patches, testing, help:
    Michael Johnson <ahze@ahze.net>
    Paul Querna <chip@corelands.com>
    Jamie McCarthy <jamie@mccarthy.vg>
+   Philip Neustrom <philipn@gmail.com>
+   Andrew O'Brien <andrewo@oriel.com.au>
+   Josh Rotenberg <joshrotenberg@gmail.com>
+   Robin H. Johnson <robbat2@gentoo.org> -- automake foo
+

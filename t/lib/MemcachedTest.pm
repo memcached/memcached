@@ -79,7 +79,7 @@ sub new_memcached {
     }
     my $childpid = fork();
 
-    my $exe = "$Bin/../memcached";
+    my $exe = "$Bin/../memcached-debug";
     croak("memcached binary doesn't exist.  Haven't run 'make' ?\n") unless -e $exe;
     croak("memcached binary not executable\n") unless -x _;
 
