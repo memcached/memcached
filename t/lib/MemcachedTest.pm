@@ -6,7 +6,7 @@ use FindBin qw($Bin);
 use Carp qw(croak);
 use vars qw(@EXPORT);
 
-@EXPORT = qw(new_memcached sleep mem_get_is mem_stats);
+@EXPORT = qw(new_memcached sleep mem_get_is mem_stats free_port);
 
 sub sleep {
     my $n = shift;
@@ -58,13 +58,14 @@ sub mem_get_is {
 }
 
 sub free_port {
+    my $type = shift || "tcp";
     my $sock;
     my $port;
     while (!$sock) {
         $port = int(rand(20000)) + 30000;
         $sock = IO::Socket::INET->new(LocalAddr => '127.0.0.1',
                                       LocalPort => $port,
-                                      Proto     => 'tcp',
+                                      Proto     => $type,
                                       ReuseAddr => 1);
     }
     return $port;
@@ -73,7 +74,8 @@ sub free_port {
 sub new_memcached {
     my $args = shift || "";
     my $port = free_port();
-    $args .= " -p $port";
+    my $udpport = free_port("udp");
+    $args .= " -p $port -U $udpport";
     if ($< == 0) {
         $args .= " -u root";
     }
@@ -93,6 +95,7 @@ sub new_memcached {
         if ($conn) {
             return Memcached::Handle->new(pid  => $childpid,
                                           conn => $conn,
+                                          udpport => $udpport,
                                           port => $port);
         }
         select undef, undef, undef, 0.10;
@@ -114,6 +117,7 @@ sub DESTROY {
 }
 
 sub port { $_[0]{port} }
+sub udpport { $_[0]{udpport} }
 
 sub sock {
     my $self = shift;
@@ -124,6 +128,17 @@ sub sock {
 sub new_sock {
     my $self = shift;
     return IO::Socket::INET->new(PeerAddr => "127.0.0.1:$self->{port}");
+}
+
+sub new_udp_sock {
+    my $self = shift;
+    return IO::Socket::INET->new(PeerAddr => '127.0.0.1',
+                                 PeerPort => $self->{udpport},
+                                 Proto    => 'udp',
+                                 LocalAddr => '127.0.0.1',
+                                 LocalPort => MemcachedTest::free_port('udp'),
+                                 );
+
 }
 
 1;
