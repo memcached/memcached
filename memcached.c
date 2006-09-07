@@ -1264,6 +1264,7 @@ int try_read_udp(conn *c) {
         memmove(c->rbuf, c->rbuf + 8, res);
 
         c->rbytes += res;
+        c->rcurr = c->rbuf;
         return 1;
     }
     return 0;
