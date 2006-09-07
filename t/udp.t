@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 10;
+use Test::More tests => 33;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -17,14 +17,18 @@ mem_get_is($sock, "foo", "fooval");
 my $usock = $server->new_udp_sock
     or die "Can't bind : $@\n";
 
-#test_single($usock);
+# test all the steps, one by one:
+test_single($usock);
 
-for my $pass (1, 2) {
-    my $res = send_udp_request($usock, 160 + $pass, "get foo\r\n");
+# testing sequence numbers
+for my $offt (1, 1, 2) {
+    my $seq = 160 + $offt;
+    my $res = send_udp_request($usock, $seq, "get foo\r\n");
     ok($res, "got result");
     is(keys %$res, 1, "one key (one packet)");
     ok($res->{0}, "only got seq number 0");
     is(substr($res->{0}, 8), "VALUE foo 0 6\r\nfooval\r\nEND\r\n");
+    is(hexify(substr($res->{0}, 0, 2)), hexify(pack("n", $seq)), "sequence number in response ($seq) is correct");
 }
 
 # testing non-existent stuff
@@ -32,8 +36,22 @@ my $res = send_udp_request($usock, 404, "get notexist\r\n");
 ok($res, "got result");
 is(keys %$res, 1, "one key (one packet)");
 ok($res->{0}, "only got seq number 0");
+is(hexify(substr($res->{0}, 0, 2)), hexify(pack("n", 404)), "sequence number 404 correct");
 is(substr($res->{0}, 8), "END\r\n");
 
+# test multi-packet response
+{
+    my $big = "abcd" x 1024;
+    my $len = length $big;
+    print $sock "set big 0 0 $len\r\n$big\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored big");
+    mem_get_is($sock, "big", $big, "big value matches");
+    my $res = send_udp_request($usock, 999, "get big\r\n");
+    is(scalar keys %$res, 3, "three packet response");
+    like($res->{0}, qr/VALUE big 0 4096/, "first packet has value line");
+    like($res->{2}, qr/\r\nEND\r\n/, "last packet has end");
+    is(hexify(substr($res->{1}, 0, 2)), hexify(pack("n", 999)), "sequence number of middle packet is correct");
+}
 
 sub test_single {
     my $usock = shift;
