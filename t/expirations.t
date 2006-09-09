@@ -11,10 +11,14 @@ my $sock = $server->sock;
 my $expire;
 
 sub wait_for_early_second {
-    use Time::HiRes ();
-    my $tsh = Time::HiRes::time();
-    my $ts = int($tsh);  # in case time was overloaded to be hires.
-    return if ($tsh - $ts) < 0.5;
+    my $have_hires = eval "use Time::HiRes (); 1";
+    if ($have_hires) {
+        my $tsh = Time::HiRes::time();
+        my $ts = int($tsh);
+        return if ($tsh - $ts) < 0.5;
+    }
+
+    my $ts = int(time());
     while (1) {
         my $t = int(time());
         return if $t != $ts;
