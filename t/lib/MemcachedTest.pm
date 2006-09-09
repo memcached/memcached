@@ -71,11 +71,20 @@ sub free_port {
     return $port;
 }
 
+sub supports_udp {
+    my $output = `$Bin/../memcached-debug -h`;
+    return 0 if $output =~ /^memcached 1\.1\./;
+    return 1;
+}
+
 sub new_memcached {
     my $args = shift || "";
     my $port = free_port();
     my $udpport = free_port("udp");
-    $args .= " -p $port -U $udpport";
+    $args .= " -p $port";
+    if (supports_udp()) {
+        $args .= " -U $udpport";
+    }
     if ($< == 0) {
         $args .= " -u root";
     }
