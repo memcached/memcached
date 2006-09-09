@@ -6,10 +6,10 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-$ENV{T_MEMD_INITIAL_MALLOC} = "4294967328"; # 2**32 + 32  :)
+$ENV{T_MEMD_INITIAL_MALLOC} = "4294967328"; # 2**32 + 32 , just over 4GB
 $ENV{T_MEMD_SLABS_ALLOC}    = 0;  # don't preallocate slabs
 
-my $server = new_memcached("-m 4097 -M");
+my $server = new_memcached("-m 4098 -M");
 my $sock = $server->sock;
 
 my ($stats, $slabs) = @_;
@@ -24,14 +24,14 @@ if ($stats->{'pointer_size'} eq "32") {
 }
 
 is($stats->{'pointer_size'}, 64, "is 64 bit");
-is($stats->{'limit_maxbytes'}, "4296015872", "max bytes is 4097 MB");
+is($stats->{'limit_maxbytes'}, "4297064448", "max bytes is 4098 MB");
 
 $slabs = mem_stats($sock, 'slabs');
 is($slabs->{'total_malloced'}, "4294967328", "expected (faked) value of total_malloced");
 is($slabs->{'active_slabs'}, 0, "no active slabs");
 
 my $hit_limit = 0;
-for (1..3) {
+for (1..5) {
     my $size = 400 * 1024;
     my $data = "a" x $size;
     print $sock "set big$_ 0 0 $size\r\n$data\r\n";
