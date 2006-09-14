@@ -2,8 +2,8 @@
 #
 
 use strict;
-use lib '../api/perl';
-use MemCachedClient;
+use lib '../../api/perl/lib';
+use Cache::Memcached;
 use Time::HiRes qw(time);
 
 unless (@ARGV == 2) {
@@ -13,7 +13,7 @@ unless (@ARGV == 2) {
 my $host = shift;
 my $threads = shift;
 
-my $memc = new MemCachedClient;
+my $memc = new Cache::Memcached;
 $memc->set_servers([$host]);
 
 unless ($memc->set("foo", "bar") &&
@@ -42,21 +42,21 @@ while (1) {
 
 sub stress {
     undef $memc;
-    $memc = new MemCachedClient;
+    $memc = new Cache::Memcached;
     $memc->set_servers([$host]);
 
     my ($t1, $t2);
     my $start = sub { $t1 = time(); };
-    my $stop = sub { 
+    my $stop = sub {
         my $op = shift;
-        $t2 = time(); 
+        $t2 = time();
         my $td = sprintf("%0.3f", $t2 - $t1);
         if ($td > 0.25) { print "Took $td seconds for: $op\n"; }
     };
 
     my $max = rand(50);
     my $sets = 0;
-    
+
     for (my $i = 0; $i < $max; $i++) {
         my $key = key($i);
         my $set = $memc->set($key, $key);
@@ -94,7 +94,7 @@ sub stress {
 }
 
 sub key {
-    my $n = shift; 
+    my $n = shift;
     $_ = sprintf("%04d", $n);
     if ($n % 2) { $_ .= "a"x20; }
     $_;
