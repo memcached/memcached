@@ -1880,7 +1880,8 @@ void delete_handler(int fd, short which, void *arg) {
 
 void usage(void) {
     printf(PACKAGE " " VERSION "\n");
-    printf("-p <num>      port number to listen on\n");
+    printf("-p <num>      TCP port number to listen on (default: 11211)\n");
+    printf("-U <num>      UDP port number to listen on (default: 0, off)\n");
     printf("-s <file>     unix socket path to listen on (disables network support)\n");
     printf("-l <ip_addr>  interface to listen on, default is INDRR_ANY\n");
     printf("-d            run as a daemon\n");
