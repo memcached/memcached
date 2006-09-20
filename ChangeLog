@@ -1,3 +1,14 @@
+2006-09-20
+
+	* don't listen on UDP by default; more clear message when UDP port in use
+
+2006-09-09
+	* release 1.2.0 (along with 1.1.13, which is the more tested branch)
+
+	nobody has run 1.2.0 in production, to my knowledge.  facebook has run
+	their pre-merge-with-trunk version, but bugs were discovered (and fixed)
+	after the merge.  there might be more.  you've been warned.  :)
+
 2006-09-04
 	* improved autoconf libevent detection, from the Tor project.
 
