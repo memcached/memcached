@@ -1,3 +1,6 @@
+2006-10-13
+	* Steven Grimm <sgrimm@facebook.com>: New faster hash function.
+
 2006-09-20
 
 	* don't listen on UDP by default; more clear message when UDP port in use
