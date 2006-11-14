@@ -1,3 +1,7 @@
+2006-11-13
+	* Iain Wade <iwade@optusnet.com.au>: Fix for UDP responses on non-"get"
+	 commands.
+
 2006-10-13
 	* Steven Grimm <sgrimm@facebook.com>: New faster hash function.
 

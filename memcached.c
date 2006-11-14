@@ -1554,7 +1554,7 @@ void drive_machine(conn *c) {
              * assemble it into a msgbuf list (this will be a single-entry
              * list for TCP or a two-entry list for UDP).
              */
-            if (c->iovused == 0) {
+            if (c->iovused == 0 || (c->udp && c->iovused == 1)) {
                 if (add_iov(c, c->wcurr, c->wbytes) ||
                         c->udp && build_udp_headers(c)) {
                     if (settings.verbose > 0)
