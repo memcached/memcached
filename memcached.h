@@ -271,6 +271,7 @@ int item_replace(item *it, item *new_it);
 char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes);
 char *item_stats_sizes(int *bytes);
 void item_stats(char *buffer, int buflen);
+void item_flush_expired(void);
 
 /* time handling */
 void set_current_time ();  /* update the global variable holding

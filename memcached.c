@@ -95,11 +95,11 @@ void stats_init(void) {
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = 0;
     stats.curr_bytes = stats.bytes_read = stats.bytes_written = 0;
 
-    /* make the time we started always be 1 second before we really
+    /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
        like 'settings.oldest_live' which act as booleans as well as
        values are now false in boolean context... */
-    stats.started = time(0) - 1;
+    stats.started = time(0) - 2;
 }
 void stats_reset(void) {
     stats.total_items = stats.total_conns = 0;
@@ -1155,7 +1155,8 @@ void process_command(conn *c, char *command) {
         set_current_time();
 
         if (strcmp(command, "flush_all") == 0) {
-            settings.oldest_live = current_time;
+            settings.oldest_live = current_time - 1;
+            item_flush_expired();
             out_string(c, "OK");
             return;
         }
@@ -1166,7 +1167,8 @@ void process_command(conn *c, char *command) {
             return;
         }
 
-        settings.oldest_live = realtime(exptime);
+        settings.oldest_live = realtime(exptime) - 1;
+        item_flush_expired();
         out_string(c, "OK");
         return;
     }

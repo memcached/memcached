@@ -320,3 +320,29 @@ char* item_stats_sizes(int *bytes) {
     free(histogram);
     return buf;
 }
+
+/* expires items that are more recent than the oldest_live setting. */
+void item_flush_expired() {
+    int i;
+    item *iter, *next;
+    if (! settings.oldest_live)
+        return;
+    for (i = 0; i < LARGEST_ID; i++) {
+        /* The LRU is sorted in decreasing time order, and an item's timestamp
+         * is never newer than its last access time, so we only need to walk
+         * back until we hit an item older than the oldest_live time.
+         * The oldest_live checking will auto-expire the remaining items.
+         */
+        for (iter = heads[i]; iter != NULL; iter = next) {
+            if (iter->time >= settings.oldest_live) {
+                next = iter->next;
+                if ((iter->it_flags & ITEM_SLABBED) == 0) {
+                    item_unlink(iter);
+                }
+            } else {
+                /* We've hit the first old item. Continue to the next queue. */
+                break;
+            }
+        }
+    }
+}
