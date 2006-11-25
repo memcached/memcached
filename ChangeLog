@@ -1,3 +1,7 @@
+2006-11-25
+	* Steve Peters <steve@fisharerojo.org>: OpenBSD has a malloc.h,
+	but warns to use stdlib.h instead
+
 2006-11-13
 	* Iain Wade <iwade@optusnet.com.au>: Fix for UDP responses on non-"get"
 	 commands.
