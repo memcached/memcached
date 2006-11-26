@@ -19,6 +19,12 @@
 
 #include "memcached.h"
 
+/*
+ * We only reposition items in the LRU queue if they haven't been repositioned
+ * in this many seconds. That saves us from churning on frequently-accessed
+ * items.
+ */
+#define ITEM_UPDATE_INTERVAL 60
 
 #define LARGEST_ID 255
 static item *heads[LARGEST_ID];
@@ -38,28 +44,29 @@ void item_init(void) {
 /*
  * Generates the variable-sized part of the header for an object.
  *
+ * key     - The key 
+ * nkey    - The length of the key
+ * flags   - key flags
+ * nbytes  - Number of bytes to hold value and addition CRLF terminator
  * suffix  - Buffer for the "VALUE" line suffix (flags, size).
  * nsuffix - The length of the suffix is stored here.
- * keylen  - The length of the key plus any padding required to word-align the
- *           "VALUE" suffix (which is done to speed up copying.)
  *
  * Returns the total size of the header.
  */
-int item_make_header(char *key, int flags, int nbytes,
-                     char *suffix, int *nsuffix, int *keylen) {
-    *keylen = strlen(key) + 1; if(*keylen % 4) *keylen += 4 - (*keylen % 4);
+int item_make_header(char *key, uint8_t nkey, int flags, int nbytes,
+                     char *suffix, int *nsuffix) {
     *nsuffix = sprintf(suffix, " %u %u\r\n", flags, nbytes - 2);
-    return sizeof(item) + *keylen + *nsuffix + nbytes;
+    return sizeof(item) + nkey + *nsuffix + nbytes;
 }
-
-item *item_alloc(char *key, int flags, rel_time_t exptime, int nbytes) {
-    int nsuffix, ntotal, len;
+ 
+item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes) {
+    int nsuffix, ntotal;
     item *it;
     unsigned int id;
     char suffix[40];
 
-    ntotal = item_make_header(key, flags, nbytes, suffix, &nsuffix, &len);
-
+    ntotal = item_make_header(key, nkey + 1, flags, nbytes, suffix, &nsuffix);
+ 
     id = slabs_clsid(ntotal);
     if (id == 0)
         return 0;
@@ -75,8 +82,8 @@ item *item_alloc(char *key, int flags, rel_time_t exptime, int nbytes) {
 
         if (!settings.evict_to_free) return 0;
 
-        /*
-         * try to get one off the right LRU
+        /* 
+         * try to get one off the right LRU 
          * don't necessariuly unlink the tail because it may be locked: refcount>0
          * search up from tail an item with refcount==0 and unlink it; give up after 50
          * tries
@@ -104,7 +111,7 @@ item *item_alloc(char *key, int flags, rel_time_t exptime, int nbytes) {
     it->next = it->prev = it->h_next = 0;
     it->refcount = 0;
     it->it_flags = 0;
-    it->nkey = len;
+    it->nkey = nkey;
     it->nbytes = nbytes;
     strcpy(ITEM_key(it), key);
     it->exptime = exptime;
@@ -130,12 +137,12 @@ void item_free(item *it) {
  * Returns true if an item will fit in the cache (its size does not exceed
  * the maximum for a cache entry.)
  */
-int item_size_ok(char *key, int flags, int nbytes) {
+int item_size_ok(char *key, size_t nkey, int flags, int nbytes) {
     char prefix[40];
-    int keylen, nsuffix;
+    int nsuffix;
 
-    return slabs_clsid(item_make_header(key, flags, nbytes,
-                                        prefix, &nsuffix, &keylen)) != 0;
+    return slabs_clsid(item_make_header(key, nkey + 1, flags, nbytes,
+                                        prefix, &nsuffix)) != 0;
 }
 
 void item_link_q(item *it) { /* item is the new head */
@@ -184,7 +191,7 @@ int item_link(item *it) {
     assert(it->nbytes < 1048576);
     it->it_flags |= ITEM_LINKED;
     it->time = current_time;
-    assoc_insert(ITEM_key(it), it);
+    assoc_insert(it);
 
     stats.curr_bytes += ITEM_ntotal(it);
     stats.curr_items += 1;
@@ -200,7 +207,7 @@ void item_unlink(item *it) {
         it->it_flags &= ~ITEM_LINKED;
         stats.curr_bytes -= ITEM_ntotal(it);
         stats.curr_items -= 1;
-        assoc_delete(ITEM_key(it));
+        assoc_delete(ITEM_key(it), it->nkey);
         item_unlink_q(it);
     }
     if (it->refcount == 0) item_free(it);
@@ -216,11 +223,13 @@ void item_remove(item *it) {
 }
 
 void item_update(item *it) {
-    assert((it->it_flags & ITEM_SLABBED) == 0);
+    if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
+        assert((it->it_flags & ITEM_SLABBED) == 0);
 
-    item_unlink_q(it);
-    it->time = current_time;
-    item_link_q(it);
+        item_unlink_q(it);
+        it->time = current_time;
+        item_link_q(it);
+    }
 }
 
 int item_replace(item *it, item *new_it) {

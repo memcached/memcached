@@ -31,15 +31,6 @@
 
 #include "memcached.h"
 
-typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
-typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
-
-/* hard-code one million buckets, for now (2**20 == 4MB hash) */
-#define HASHPOWER  20
-
-#define hashsize(n) ((ub4)1<<(n))
-#define hashmask(n) (hashsize(n)-1)
-
 /*
  * Since the hash function does bit manipulation, it needs to know
  * whether it's big or little-endian. ENDIAN_LITTLE and ENDIAN_BIG
@@ -459,25 +450,64 @@ uint32_t hash( const void *key, size_t length, uint32_t initval)
 #error Must define HASH_BIG_ENDIAN or HASH_LITTLE_ENDIAN 
 #endif // hash_XXX_ENDIAN == 1
 
-static item** hashtable = 0;
+typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
+typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
+
+/* how many powers of 2's worth of buckets we use */
+int hashpower = 16;
+
+#define hashsize(n) ((ub4)1<<(n))
+#define hashmask(n) (hashsize(n)-1)
+
+/* Main hash table. This is where we look except during expansion. */
+static item** primary_hashtable = 0;
+
+/*
+ * Previous hash table. During expansion, we look here for keys that haven't
+ * been moved over to the primary yet.
+ */
+static item** old_hashtable = 0;
+
+/* Number of items in the hash table. */
+static int hash_items = 0;
+
+/* Flag: Are we in the middle of expanding now? */
+static int expanding = 0;
+
+/*
+ * During expansion we migrate values with bucket granularity; this is how
+ * far we've gotten so far. Ranges from 0 .. hashsize(hashpower - 1) - 1.
+ */
+static int expand_bucket = 0;
 
 void assoc_init(void) {
-    unsigned int hash_size = hashsize(HASHPOWER) * sizeof(void*);
-    hashtable = malloc(hash_size);
-    if (! hashtable) {
+    unsigned int hash_size = hashsize(hashpower) * sizeof(void*);
+    primary_hashtable = malloc(hash_size);
+    if (! primary_hashtable) {
         fprintf(stderr, "Failed to init hashtable.\n");
         exit(1);
     }
-    memset(hashtable, 0, hash_size);
+    memset(primary_hashtable, 0, hash_size);
 }
 
-item *assoc_find(char *key) {
-    ub4 hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
-    item *it = hashtable[hv];
+item *assoc_find(const char *key, size_t nkey) {
+    uint32_t hv = hash(key, nkey, 0);
+    item *it;
+    int oldbucket;
+
+    if (expanding &&
+        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+    {
+        it = old_hashtable[oldbucket];
+    } else {
+        it = primary_hashtable[hv & hashmask(hashpower)];
+    }
 
     while (it) {
-        if (strcmp(key, ITEM_key(it)) == 0)
+        if ((nkey == it->nkey) &&
+            (memcmp(key, ITEM_key(it), nkey) == 0)) {
             return it;
+        }
         it = it->h_next;
     }
     return 0;
@@ -486,35 +516,104 @@ item *assoc_find(char *key) {
 /* returns the address of the item pointer before the key.  if *item == 0,
    the item wasn't found */
 
-static item** _hashitem_before (char *key) {
-    ub4 hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
-    item **pos = &hashtable[hv];
+static item** _hashitem_before (const char *key, size_t nkey) {
+    uint32_t hv = hash(key, nkey, 0);
+    item **pos;
+    int oldbucket;
 
-    while (*pos && strcmp(key, ITEM_key(*pos))) {
+    if (expanding &&
+        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+    {
+        pos = &old_hashtable[oldbucket];
+    } else {
+        pos = &primary_hashtable[hv & hashmask(hashpower)];
+    }
+
+    while (*pos && ((nkey != (*pos)->nkey) || memcmp(key, ITEM_key(*pos), nkey))) {
         pos = &(*pos)->h_next;
     }
     return pos;
 }
 
+/* grows the hashtable to the next power of 2. */
+static void assoc_expand(void) {
+    old_hashtable = primary_hashtable;
+
+    primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));
+    if (primary_hashtable) {
+	if (settings.verbose > 1)
+	    fprintf(stderr, "Hash table expansion starting\n");
+        hashpower++;
+        expanding = 1;
+        expand_bucket = 0;
+	assoc_move_next_bucket();
+    } else {
+        primary_hashtable = old_hashtable;
+	/* Bad news, but we can keep running. */
+    }
+}
+
+/* migrates the next bucket to the primary hashtable if we're expanding. */
+void assoc_move_next_bucket(void) {
+    item *it, *next;
+    int bucket;
+
+    if (expanding) {
+        for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
+	    next = it->h_next;
+
+            bucket = hash(ITEM_key(it), it->nkey, 0) & hashmask(hashpower);
+            it->h_next = primary_hashtable[bucket];
+            primary_hashtable[bucket] = it;
+	}
+
+	expand_bucket++;
+	if (expand_bucket == hashsize(hashpower - 1)) {
+	    expanding = 0;
+	    free(old_hashtable);
+	    if (settings.verbose > 1)
+	        fprintf(stderr, "Hash table expansion done\n");
+	}
+    }
+}
+
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
-int assoc_insert(char *key, item *it) {
-    ub4 hv;
-    assert(assoc_find(key) == 0);  /* shouldn't have duplicately named things defined */
-    hv = hash(key, strlen(key), 0) & hashmask(HASHPOWER);
-    it->h_next = hashtable[hv];
-    hashtable[hv] = it;
+int assoc_insert(item *it) {
+    uint32_t hv;
+    int oldbucket;
+
+    assert(assoc_find(ITEM_key(it), it->nkey) == 0);  /* shouldn't have duplicately named things defined */
+
+    hv = hash(ITEM_key(it), it->nkey, 0);
+    if (expanding &&
+        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+    {
+        it->h_next = old_hashtable[oldbucket];
+        old_hashtable[oldbucket] = it;
+    } else {
+        it->h_next = primary_hashtable[hv & hashmask(hashpower)];
+        primary_hashtable[hv & hashmask(hashpower)] = it;
+    }
+
+    hash_items++;
+    if (! expanding && hash_items > (hashsize(hashpower) * 3) / 2) {
+        assoc_expand();
+    }
+
     return 1;
 }
 
-void assoc_delete(char *key) {
-    item **before = _hashitem_before(key);
+void assoc_delete(const char *key, size_t nkey) {
+    item **before = _hashitem_before(key, nkey);
+
     if (*before) {
         item *nxt = (*before)->h_next;
         (*before)->h_next = 0;   /* probably pointless, but whatever. */
         *before = nxt;
+        hash_items--;
         return;
     }
-    /* Note:  we never actually get here.  the callers don't delete things
+    /* Note:  we never actually get here.  the callers don't delete things 
        they can't find. */
     assert(*before != 0);
 }

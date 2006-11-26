@@ -1,3 +1,21 @@
+2006-11-26
+	* Steven Grimm <sgrimm@facebook.com>: Performance improvements:
+	  
+	  Dynamic sizing of hashtable to reduce collisions on very large
+	  caches and conserve memory on small caches.
+
+	  Only reposition items in the LRU queue once a minute, to reduce
+	  overhead of accessing extremely frequently-used items.
+
+	  Stop listening for new connections until an existing one closes
+	  if we run out of available file descriptors.
+
+	  Command parser refactoring: Add a single-pass tokenizer to cut
+	  down on string scanning.  Split the command processing into
+	  separate functions for easier profiling and better readability.
+	  Pass key lengths along with the keys in all API functions that
+	  need keys, to avoid needing to call strlen() repeatedly.
+
 2006-11-25
 	* Steve Peters <steve@fisharerojo.org>: OpenBSD has a malloc.h,
 	but warns to use stdlib.h instead

@@ -85,9 +85,9 @@ typedef struct _stritem {
 #define ITEM_key(item) ((char*)&((item)->end[0]))
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
-#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey)
-#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + (item)->nsuffix)
-#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + (item)->nsuffix + (item)->nbytes)
+#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey + 1)
+#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 + (item)->nsuffix)
+#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 + (item)->nsuffix + (item)->nbytes)
 
 enum conn_states {
     conn_listening,  /* the socket which listens for connections */
@@ -230,12 +230,14 @@ char* slabs_stats(int *buflen);
    0 = fail
    -1 = tried. busy. send again shortly. */
 int slabs_reassign(unsigned char srcid, unsigned char dstid);
+int slabs_newslab(unsigned int id);
 
 /* event handling, network IO */
 void event_handler(int fd, short which, void *arg);
 conn *conn_new(int sfd, int init_state, int event_flags, int read_buffer_size, int is_udp);
 void conn_close(conn *c);
 void conn_init(void);
+void accept_new_conns(int do_accept);
 void drive_machine(conn *c);
 int new_socket(int isUdp);
 int server_socket(int port, int isUdp);
@@ -256,13 +258,16 @@ void stats_init(void);
 void settings_init(void);
 /* associative array */
 void assoc_init(void);
-item *assoc_find(char *key);
-int assoc_insert(char *key, item *item);
-void assoc_delete(char *key);
+item *assoc_find(const char *key, size_t nkey);
+int assoc_insert(item *item);
+void assoc_delete(const char *key, size_t nkey);
+void assoc_move_next_bucket(void);
+
 void item_init(void);
-item *item_alloc(char *key, int flags, rel_time_t exptime, int nbytes);
+item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 void item_free(item *it);
-int item_size_ok(char *key, int flags, int nbytes);
+int item_size_ok(char *key, size_t nkey, int flags, int nbytes);
+
 int item_link(item *it);    /* may fail if transgresses limits */
 void item_unlink(item *it);
 void item_remove(item *it);
