@@ -1,3 +1,9 @@
+2006-12-23
+	* fix expirations of items set with absolute expiration times in
+	  the past, before the server's start time.  bug was introduced in
+	  1.2.0 with rel_time_t.  Thanks to Adam Dixon
+	  <adamtdixon@gmail.com> for the bug report and test case!
+
 2006-11-26
 	* Steven Grimm <sgrimm@facebook.com>: Performance improvements:
 	  

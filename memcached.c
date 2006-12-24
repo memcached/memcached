@@ -87,9 +87,17 @@ rel_time_t realtime(time_t exptime) {
 
     if (exptime == 0) return 0; /* 0 means never expire */
 
-    if (exptime > REALTIME_MAXDELTA)
+    if (exptime > REALTIME_MAXDELTA) {
+        /* if item expiration is at/before the server started, give it an
+           expiration time of 1 second after the server started.
+           (because 0 means don't expire).  without this, we'd
+           underflow and wrap around to some large value way in the
+           future, effectively making items expiring in the past
+           really expiring never */
+        if (exptime <= stats.started)
+            return (rel_time_t) 1;
         return (rel_time_t) (exptime - stats.started);
-    else {
+    } else {
         return (rel_time_t) (exptime + current_time);
     }
 }
