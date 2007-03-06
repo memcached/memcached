@@ -142,10 +142,10 @@ and these came close:
 }
 
 #if HASH_LITTLE_ENDIAN == 1
-uint32_t hash( 
+static uint32_t hash( 
   const void *key,       /* the key to hash */
   size_t      length,    /* length of the key */
-  uint32_t    initval)   /* initval */
+  const uint32_t    initval)   /* initval */
 {
   uint32_t a,b,c;                                          /* internal state */
   union { const void *ptr; size_t i; } u;     /* needed for Mac Powerbook G4 */
@@ -323,7 +323,7 @@ uint32_t hash(
  * from hashlittle() on all machines.  hashbig() takes advantage of
  * big-endian byte ordering. 
  */
-uint32_t hash( const void *key, size_t length, uint32_t initval)
+static uint32_t hash( const void *key, size_t length, const uint32_t initval)
 {
   uint32_t a,b,c;
   union { const void *ptr; size_t i; } u; /* to cast key to (size_t) happily */
@@ -454,7 +454,7 @@ typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
 
 /* how many powers of 2's worth of buckets we use */
-int hashpower = 16;
+static int hashpower = 16;
 
 #define hashsize(n) ((ub4)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
@@ -490,7 +490,7 @@ void assoc_init(void) {
     memset(primary_hashtable, 0, hash_size);
 }
 
-item *assoc_find(const char *key, size_t nkey) {
+item *assoc_find(const char *key, const size_t nkey) {
     uint32_t hv = hash(key, nkey, 0);
     item *it;
     int oldbucket;
@@ -516,7 +516,7 @@ item *assoc_find(const char *key, size_t nkey) {
 /* returns the address of the item pointer before the key.  if *item == 0,
    the item wasn't found */
 
-static item** _hashitem_before (const char *key, size_t nkey) {
+static item** _hashitem_before (const char *key, const size_t nkey) {
     uint32_t hv = hash(key, nkey, 0);
     item **pos;
     int oldbucket;
@@ -603,7 +603,7 @@ int assoc_insert(item *it) {
     return 1;
 }
 
-void assoc_delete(const char *key, size_t nkey) {
+void assoc_delete(const char *key, const size_t nkey) {
     item **before = _hashitem_before(key, nkey);
 
     if (*before) {
