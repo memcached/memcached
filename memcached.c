@@ -393,18 +393,6 @@ void conn_close(conn *c) {
     return;
 }
 
-/*
- * Reallocates memory and updates a buffer size if successful.
- */
-int do_realloc(void **orig, int newsize, int bytes_per_item, int *size) {
-    void *newbuf = realloc(*orig, newsize * bytes_per_item);
-    if (newbuf) {
-        *orig = newbuf;
-        *size = newsize;
-        return 1;
-    }
-    return 0;
-}
 
 /*
  * Shrinks a connection's buffers if they're too big.  This prevents
@@ -414,27 +402,48 @@ int do_realloc(void **orig, int newsize, int bytes_per_item, int *size) {
  * This should only be called in between requests since it can wipe output
  * buffers!
  */
-void conn_shrink(conn *c) {
+static void conn_shrink(conn *c) {
     if (c->udp)
         return;
 
     if (c->rsize > READ_BUFFER_HIGHWAT && c->rbytes < DATA_BUFFER_SIZE) {
         if (c->rcurr != c->rbuf)
             memmove(c->rbuf, c->rcurr, c->rbytes);
-        do_realloc((void **)&c->rbuf, DATA_BUFFER_SIZE, 1, &c->rsize);
+
+        char *newbuf = (char*) realloc((void*)c->rbuf, DATA_BUFFER_SIZE);
+        if (newbuf) {
+            c->rbuf = newbuf;
+            c->rsize = DATA_BUFFER_SIZE;
+        }
+        /* TODO check other branch... */
         c->rcurr = c->rbuf;
     }
 
     if (c->isize > ITEM_LIST_HIGHWAT) {
-        do_realloc((void **)&c->ilist, ITEM_LIST_INITIAL, sizeof(c->ilist[0]), &c->isize);
+        item **newbuf = (item**) realloc((void*)&c->ilist, ITEM_LIST_INITIAL * sizeof(c->ilist[0]));
+        if (newbuf) {
+            c->ilist = newbuf;
+            c->isize = ITEM_LIST_INITIAL;
+        }
+	/* TODO check error condition? */
     }
 
     if (c->msgsize > MSG_LIST_HIGHWAT) {
-        do_realloc((void **)&c->msglist, MSG_LIST_INITIAL, sizeof(c->msglist[0]), &c->msgsize);
+        struct msghdr *newbuf = (struct msghdr*) realloc((void*)&c->msglist, MSG_LIST_INITIAL * sizeof(c->msglist[0]));
+        if (newbuf) {
+            c->msglist = newbuf;
+            c->msgsize = MSG_LIST_INITIAL;
+        }
+	/* TODO check error condition? */
     }
 
     if (c->iovsize > IOV_LIST_HIGHWAT) {
-        do_realloc((void **)&c->iov, IOV_LIST_INITIAL, sizeof(c->iov[0]), &c->iovsize);
+        struct iovec* newbuf = (struct iovec *) realloc((void*)&c->iov, IOV_LIST_INITIAL * sizeof(c->iov[0]));
+        if (newbuf) {
+            c->iov = newbuf;
+            c->iovsize = IOV_LIST_INITIAL;
+        }
+	/* TODO check return value */
     }
 }
 
