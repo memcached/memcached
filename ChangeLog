@@ -1,5 +1,7 @@
 2007-03-05
-	* Paul Lindner <lindner@inuus.com>: Refactor/Cleanup
+        * Paul Lindner <lindner@inuus.com>: Fix overflow
+          bug where uninitialized access to slabclass caused
+          size-0 mallocs during slab preallocation.
 
 2006-12-23
 	* fix expirations of items set with absolute expiration times in

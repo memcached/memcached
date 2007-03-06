@@ -119,7 +119,7 @@ void slabs_init(size_t limit, double factor) {
     {
         char *pre_alloc = getenv("T_MEMD_SLABS_ALLOC");
         if (!pre_alloc || atoi(pre_alloc)) {
-            slabs_preallocate(limit / POWER_BLOCK);
+            slabs_preallocate(power_largest);
         }
     }
 #endif
