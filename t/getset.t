@@ -1,13 +1,15 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 14;
+use Test::More tests => 528;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
+
 my $server = new_memcached();
 my $sock = $server->sock;
+
 
 # set foo (and should get it)
 print $sock "set foo 0 0 6\r\nfooval\r\n";
@@ -48,4 +50,18 @@ is(scalar <$sock>, "STORED\r\n",  "pipeline set");
 is(scalar <$sock>, "DELETED\r\n", "pipeline delete");
 
 
+# Test sets up to a large size around 1MB.
+# Everything up to 1MB - 1k should succeed, everything 1MB +1k should fail.
+
+my $len = 1024;
+while ($len < 1024*1028) {
+    my $val = "B"x$len;
+    print $sock "set foo_$len 0 0 $len\r\n$val\r\n";
+    if ($len > (1024*1024)) {
+        is(scalar <$sock>, "SERVER_ERROR object too large for cache\r\n", "failed to store size $len");
+    } else {
+        is(scalar <$sock>, "STORED\r\n", "stored size $len");
+    }
+    $len += 2048;
+}
 
