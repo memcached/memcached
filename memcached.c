@@ -1057,7 +1057,7 @@ static inline void process_get_command(conn *c, token_t* tokens, size_t ntokens)
          * of tokens.
          */
         if(key_token->value != NULL) {
-           ntokens = tokenize_command(key_token->value, tokens, MAX_TOKENS);
+            ntokens = tokenize_command(key_token->value, tokens, MAX_TOKENS);
             key_token = tokens;
         }
         
@@ -1121,7 +1121,7 @@ static void process_update_command(conn *c, token_t* tokens, const size_t ntoken
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
 
     if (it == 0) {
-        if (! item_size_ok(key, nkey, flags, vlen + 2))
+        if (! item_size_ok(nkey, flags, vlen + 2))
             out_string(c, "SERVER_ERROR object too large for cache");
         else
             out_string(c, "SERVER_ERROR out of memory");
@@ -2168,25 +2168,25 @@ static void delete_handler(const int fd, const short which, void *arg) {
 
 static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
-    printf("-p <num>      TCP port number to listen on (default: 11211)\n");
-    printf("-U <num>      UDP port number to listen on (default: 0, off)\n");
-    printf("-s <file>     unix socket path to listen on (disables network support)\n");
-    printf("-l <ip_addr>  interface to listen on, default is INDRR_ANY\n");
-    printf("-d            run as a daemon\n");
-    printf("-r            maximize core file limit\n");
-    printf("-u <username> assume identity of <username> (only when run as root)\n");
-    printf("-m <num>      max memory to use for items in megabytes, default is 64 MB\n");
-    printf("-M            return error on memory exhausted (rather than removing items)\n");
-    printf("-c <num>      max simultaneous connections, default is 1024\n");
-    printf("-k            lock down all paged memory\n");
-    printf("-v            verbose (print errors/warnings while in event loop)\n");
-    printf("-vv           very verbose (also print client commands/reponses)\n");
-    printf("-h            print this help and exit\n");
-    printf("-i            print memcached and libevent license\n");
-    printf("-b            run a managed instanced (mnemonic: buckets)\n");
-    printf("-P <file>     save PID in <file>, only used with -d option\n");
-    printf("-f <factor>   chunk size growth factor, default 1.25\n");
-    printf("-n <bytes>    minimum space allocated for key+value+flags, default 48\n");
+    printf("-p <num>      TCP port number to listen on (default: 11211)\n"
+           "-U <num>      UDP port number to listen on (default: 0, off)\n"
+           "-s <file>     unix socket path to listen on (disables network support)\n"
+           "-l <ip_addr>  interface to listen on, default is INDRR_ANY\n"
+           "-d            run as a daemon\n"
+           "-r            maximize core file limit\n"
+           "-u <username> assume identity of <username> (only when run as root)\n"
+           "-m <num>      max memory to use for items in megabytes, default is 64 MB\n"
+           "-M            return error on memory exhausted (rather than removing items)\n"
+           "-c <num>      max simultaneous connections, default is 1024\n"
+           "-k            lock down all paged memory\n"
+           "-v            verbose (print errors/warnings while in event loop)\n"
+           "-vv           very verbose (also print client commands/reponses)\n"
+           "-h            print this help and exit\n"
+           "-i            print memcached and libevent license\n"
+           "-b            run a managed instanced (mnemonic: buckets)\n"
+           "-P <file>     save PID in <file>, only used with -d option\n"
+           "-f <factor>   chunk size growth factor, default 1.25\n"
+           "-n <bytes>    minimum space allocated for key+value+flags, default 48\n");
     return;
 }
 

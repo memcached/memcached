@@ -1,3 +1,17 @@
+2007-03-18  Paul Lindner  <lindner@mirth.inuus.com>
+
+
+2007-03-18  Paul Lindner  <lindner@inuus.com>
+
+	* Add more test cases using larger buffer sizes up to and greater
+	  than 1MB.
+
+	* Remove unused parameter to item_size_ok()
+
+	* Use a single printf() in usage()
+
+	* Add a failing test for conforming with maximum connections.
+
 2007-03-17
 	* crash fix from Thomas van Gulick <thomas@partyflock.nl> in
 	  conn_shrink(), passing &ptr, instead of ptr to realloc().
