@@ -346,12 +346,14 @@ total_connections 32u      Total number of connections opened since
                            the server started running
 connection_structures 32u  Number of connection structures allocated 
                            by the server
-cmd_get           32u      Cumulative number of retrieval requests
-cmd_set           32u      Cumulative number of storage requests
-get_hits          32u      Number of keys that have been requested and 
+cmd_get           64u      Cumulative number of retrieval requests
+cmd_set           64u      Cumulative number of storage requests
+get_hits          64u      Number of keys that have been requested and 
                            found present
-get_misses        32u      Number of items that have been requested 
+get_misses        64u      Number of items that have been requested 
                            and not found
+evictions         64u      Number of items removed from cache because
+                           they passed their expiration time
 bytes_read        64u      Total number of bytes read by this server 
                            from network
 bytes_written     64u      Total number of bytes sent by this server to 

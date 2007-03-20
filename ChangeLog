@@ -1,5 +1,8 @@
-2007-03-18  Paul Lindner  <lindner@mirth.inuus.com>
+2007-03-20  Paul Lindner  <lindner@inuus.com>
+	* Add patch to collect eviction statistics from
+          Jean-Francois BUSTARRET <jfbustarret@wat.tv>.
 
+        * Updated docs, added new test cases for t/stats.t
 
 2007-03-18  Paul Lindner  <lindner@inuus.com>
 

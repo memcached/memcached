@@ -101,6 +101,8 @@ item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t
 
         for (search = tails[id]; tries>0 && search; tries--, search=search->prev) {
             if (search->refcount==0) {
+               if (search->exptime > current_time)
+                       stats.evictions++;
                 item_unlink(search);
                 break;
             }

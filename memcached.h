@@ -48,6 +48,7 @@ struct stats {
     unsigned long long  set_cmds;
     unsigned long long  get_hits;
     unsigned long long  get_misses;
+    unsigned long long  evictions;
     time_t        started;          /* when the process was started */
     unsigned long long bytes_read;
     unsigned long long bytes_written;
