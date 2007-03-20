@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 10;
+use Test::More tests => 21;
 
 use FindBin qw($Bin);
 use lib "$Bin/lib";
@@ -18,15 +18,19 @@ my @sockets;
 ok(defined($sock), 'Connection 0');
 push (@sockets, $sock);
 
-foreach my $conn (1..20) {
+
+foreach my $conn (1..10) {
   $sock = $server->new_sock;
-  if ($conn > 10) {
-    ok(!defined($sock), "Failed Connection $conn $sock");
-  } else {
-    ok(defined($sock), "Connection $conn");
-    push(@sockets, $sock);
-  }    
+  ok(defined($sock), "Made connection $conn");
+  push(@sockets, $sock);
 }
 
-mem_stats($sock, '');
-sleep(100);
+TODO: {
+local $TODO = "Need to decide on what -c semantics are";
+
+foreach my $conn (11..20) {
+  $sock = $server->new_sock;
+  ok(defined($sock), "Connection $conn");
+  push(@sockets, $sock);
+}
+}
