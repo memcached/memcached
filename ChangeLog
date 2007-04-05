@@ -1,3 +1,8 @@
+2007-04-04  Paul Lindner  <lindner@inuus.com>
+
+	* Add clarification of flush_all in the protocol docs
+	  from Elizabeth Mattijsen <liz@dijkmat.nl>
+
 2007-03-31  Paul Lindner  <lindner@inuus.com>
 
 	* Add patch from Eli Bingham <eli@pandora.com> to 
