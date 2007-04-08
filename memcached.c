@@ -104,6 +104,7 @@ static void set_current_time(void);  /* update the global variable holding
                               (to avoid 64 bit time_t) */
 
 void pre_gdb(void);
+static void conn_free(conn *c);
 
 /** exported globals **/
 struct stats stats;
@@ -141,10 +142,10 @@ static rel_time_t realtime(const time_t exptime) {
            future, effectively making items expiring in the past
            really expiring never */
         if (exptime <= stats.started)
-            return (rel_time_t) 1;
-        return (rel_time_t) (exptime - stats.started);
+            return (rel_time_t)1;
+        return (rel_time_t)(exptime - stats.started);
     } else {
-        return (rel_time_t) (exptime + current_time);
+        return (rel_time_t)(exptime + current_time);
     }
 }
 
@@ -170,7 +171,7 @@ static void settings_init(void) {
     settings.port = 11211;
     settings.udpport = 0;
     settings.interface.s_addr = htonl(INADDR_ANY);
-    settings.maxbytes = 64*1024*1024; /* default is 64MB */
+    settings.maxbytes = 67108864; /* default is 64MB: (64 * 1024 * 1024) */
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
     settings.oldest_live = 0;
@@ -228,6 +229,8 @@ static int add_msghdr(conn *c)
 {
     struct msghdr *msg;
 
+    assert(c != NULL);
+
     if (c->msgsize == c->msgused) {
         msg = realloc(c->msglist, c->msgsize * 2 * sizeof(struct msghdr));
         if (! msg)
@@ -264,8 +267,9 @@ static int freecurr;
 static void conn_init(void) {
     freetotal = 200;
     freecurr = 0;
-    freeconns = (conn **)malloc(sizeof (conn *)*freetotal);
-    /** TODO check for NULL **/
+    if (!(freeconns = (conn **)malloc(sizeof(conn *) * freetotal))) {
+        perror("malloc()");
+    }
     return;
 }
 
@@ -295,11 +299,11 @@ static conn *conn_new(const int sfd, const int init_state, const int event_flags
         c->msgsize = MSG_LIST_INITIAL;
         c->hdrsize = 0;
 
-        c->rbuf = (char *) malloc((size_t)c->rsize);
-        c->wbuf = (char *) malloc((size_t)c->wsize);
-        c->ilist = (item **) malloc(sizeof(item *) * c->isize);
-        c->iov = (struct iovec *) malloc(sizeof(struct iovec) * c->iovsize);
-        c->msglist = (struct msghdr *) malloc(sizeof(struct msghdr) * c->msgsize);
+        c->rbuf = (char *)malloc((size_t)c->rsize);
+        c->wbuf = (char *)malloc((size_t)c->wsize);
+        c->ilist = (item **)malloc(sizeof(item *) * c->isize);
+        c->iov = (struct iovec *)malloc(sizeof(struct iovec) * c->iovsize);
+        c->msglist = (struct msghdr *)malloc(sizeof(struct msghdr) * c->msgsize);
 
         if (c->rbuf == 0 || c->wbuf == 0 || c->ilist == 0 || c->iov == 0 ||
                 c->msglist == 0) {
@@ -371,6 +375,8 @@ static conn *conn_new(const int sfd, const int init_state, const int event_flags
 }
 
 static void conn_cleanup(conn *c) {
+    assert(c != NULL);
+
     if (c->item) {
         item_free(c->item);
         c->item = 0;
@@ -410,6 +416,8 @@ static void conn_free(conn *c) {
 }
 
 static void conn_close(conn *c) {
+    assert(c != NULL);
+
     /* delete the event, the socket and the conn */
     event_del(&c->event);
 
@@ -428,7 +436,7 @@ static void conn_close(conn *c) {
         freeconns[freecurr++] = c;
     } else {
         /* try to enlarge free connections array */
-        conn **new_freeconns = realloc((void*)freeconns, sizeof(conn *)*freetotal*2);
+        conn **new_freeconns = realloc((void *)freeconns, sizeof(conn *) * freetotal * 2);
         if (new_freeconns) {
             freetotal *= 2;
             freeconns = new_freeconns;
@@ -453,14 +461,16 @@ static void conn_close(conn *c) {
  * buffers!
  */
 static void conn_shrink(conn *c) {
+    assert(c != NULL);
+
     if (c->udp)
         return;
 
     if (c->rsize > READ_BUFFER_HIGHWAT && c->rbytes < DATA_BUFFER_SIZE) {
         if (c->rcurr != c->rbuf)
-            memmove(c->rbuf, c->rcurr, (size_t) c->rbytes);
+            memmove(c->rbuf, c->rcurr, (size_t)c->rbytes);
 
-        char *newbuf = (char*) realloc((void*)c->rbuf, DATA_BUFFER_SIZE);
+        char *newbuf = (char *)realloc((void *)c->rbuf, DATA_BUFFER_SIZE);
 
         if (newbuf) {
             c->rbuf = newbuf;
@@ -471,7 +481,7 @@ static void conn_shrink(conn *c) {
     }
 
     if (c->isize > ITEM_LIST_HIGHWAT) {
-        item **newbuf = (item**) realloc((void*)c->ilist, ITEM_LIST_INITIAL * sizeof(c->ilist[0]));
+        item **newbuf = (item**) realloc((void *)c->ilist, ITEM_LIST_INITIAL * sizeof(c->ilist[0]));
         if (newbuf) {
             c->ilist = newbuf;
             c->isize = ITEM_LIST_INITIAL;
@@ -480,7 +490,7 @@ static void conn_shrink(conn *c) {
     }
 
     if (c->msgsize > MSG_LIST_HIGHWAT) {
-        struct msghdr *newbuf = (struct msghdr*) realloc((void*)c->msglist, MSG_LIST_INITIAL * sizeof(c->msglist[0]));
+        struct msghdr *newbuf = (struct msghdr *) realloc((void *)c->msglist, MSG_LIST_INITIAL * sizeof(c->msglist[0]));
         if (newbuf) {
             c->msglist = newbuf;
             c->msgsize = MSG_LIST_INITIAL;
@@ -489,7 +499,7 @@ static void conn_shrink(conn *c) {
     }
 
     if (c->iovsize > IOV_LIST_HIGHWAT) {
-        struct iovec* newbuf = (struct iovec *) realloc((void*)c->iov, IOV_LIST_INITIAL * sizeof(c->iov[0]));
+        struct iovec *newbuf = (struct iovec *) realloc((void *)c->iov, IOV_LIST_INITIAL * sizeof(c->iov[0]));
         if (newbuf) {
             c->iov = newbuf;
             c->iovsize = IOV_LIST_INITIAL;
@@ -504,6 +514,8 @@ static void conn_shrink(conn *c) {
  * happen here.
  */
 static void conn_set_state(conn *c, int state) {
+    assert(c != NULL);
+
     if (state != c->state) {
         if (state == conn_read) {
             conn_shrink(c);
@@ -521,9 +533,11 @@ static void conn_set_state(conn *c, int state) {
  * Returns 0 on success, -1 on out-of-memory.
  */
 static int ensure_iov_space(conn *c) {
+    assert(c != NULL);
+
     if (c->iovused >= c->iovsize) {
         int i, iovnum;
-        struct iovec *new_iov = (struct iovec *) realloc(c->iov,
+        struct iovec *new_iov = (struct iovec *)realloc(c->iov,
                                 (c->iovsize * 2) * sizeof(struct iovec));
         if (! new_iov)
             return -1;
@@ -553,6 +567,8 @@ static int add_iov(conn *c, const void *buf, int len) {
     int leftover;
     bool limit_to_mtu;
 
+    assert(c != NULL);
+
     do {
         m = &c->msglist[c->msgused - 1];
 
@@ -581,7 +597,7 @@ static int add_iov(conn *c, const void *buf, int len) {
         }
 
         m = &c->msglist[c->msgused - 1];
-        m->msg_iov[m->msg_iovlen].iov_base = (void*) buf;
+        m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
         m->msg_iov[m->msg_iovlen].iov_len = len;
 
         c->msgbytes += len;
@@ -603,6 +619,8 @@ static int build_udp_headers(conn *c) {
     int i;
     unsigned char *hdr;
 
+    assert(c != NULL);
+
     if (c->msgused > c->hdrsize) {
         void *new_hdrbuf;
         if (c->hdrbuf)
@@ -611,7 +629,7 @@ static int build_udp_headers(conn *c) {
             new_hdrbuf = malloc(c->msgused * 2 * UDP_HEADER_SIZE);
         if (! new_hdrbuf)
             return -1;
-        c->hdrbuf = (unsigned char *) new_hdrbuf;
+        c->hdrbuf = (unsigned char *)new_hdrbuf;
         c->hdrsize = c->msgused * 2;
     }
 
@@ -627,7 +645,7 @@ static int build_udp_headers(conn *c) {
         *hdr++ = c->msgused % 256;
         *hdr++ = 0;
         *hdr++ = 0;
-        assert((void*) hdr == (void*) c->msglist[i].msg_iov[0].iov_base + UDP_HEADER_SIZE);
+        assert((void *) hdr == (void *)c->msglist[i].msg_iov[0].iov_base + UDP_HEADER_SIZE);
     }
 
     return 0;
@@ -637,11 +655,13 @@ static int build_udp_headers(conn *c) {
 static void out_string(conn *c, const char *str) {
     int len;
 
+    assert(c != NULL);
+
     if (settings.verbose > 1)
         fprintf(stderr, ">%d %s\n", c->sfd, str);
 
     len = strlen(str);
-    if (len + 2 > c->wsize) {
+    if ((len + 2) > c->wsize) {
         /* ought to be always enough. just fail for simplicity */
         str = "SERVER_ERROR output line too long";
         len = strlen(str);
@@ -663,6 +683,8 @@ static void out_string(conn *c, const char *str) {
  */
 
 static void complete_nread(conn *c) {
+    assert(c != NULL);
+
     item *it = c->item;
     int comm = c->item_comm;
     item *old_it;
@@ -718,7 +740,7 @@ err:
 }
 
 typedef struct token_s {
-    char* value;
+    char *value;
     size_t length;
 } token_t;
 
@@ -746,9 +768,9 @@ typedef struct token_s {
  *      command  = tokens[ix].value;
  *   }
  */
-static size_t tokenize_command(char* command, token_t* tokens, const size_t max_tokens)  {
-    char* cp;
-    char* value = NULL;
+static size_t tokenize_command(char *command, token_t *tokens, const size_t max_tokens)  {
+    char *cp;
+    char *value = NULL;
     size_t length = 0;
     size_t ntokens = 0;
 
@@ -792,10 +814,12 @@ static size_t tokenize_command(char* command, token_t* tokens, const size_t max_
     return ntokens;
 }
 
-static void process_stat(conn *c, token_t* tokens, const size_t ntokens) {
+static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     rel_time_t now = current_time;
-    char* command;
-    char* subcommand;
+    char *command;
+    char *subcommand;
+
+    assert(c != NULL);
 
     if(ntokens < 2) {
         out_string(c, "CLIENT_ERROR bad command line");
@@ -816,7 +840,7 @@ static void process_stat(conn *c, token_t* tokens, const size_t ntokens) {
         pos += sprintf(pos, "STAT uptime %u\r\n", now);
         pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
         pos += sprintf(pos, "STAT version " VERSION "\r\n");
-        pos += sprintf(pos, "STAT pointer_size %d\r\n", 8 * sizeof(void*));
+        pos += sprintf(pos, "STAT pointer_size %d\r\n", 8 * sizeof(void *));
         pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
         pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
@@ -832,7 +856,7 @@ static void process_stat(conn *c, token_t* tokens, const size_t ntokens) {
         pos += sprintf(pos, "STAT evictions %llu\r\n", stats.evictions);
         pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
-        pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (unsigned long long) settings.maxbytes);
+        pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (unsigned long long)settings.maxbytes);
         pos += sprintf(pos, "END");
         out_string(c, temp);
         return;
@@ -876,8 +900,7 @@ static void process_stat(conn *c, token_t* tokens, const size_t ntokens) {
         int fd;
         int res;
 
-        wbuf = (char *)malloc(wsize);
-        if (wbuf == 0) {
+        if (!(wbuf = (char *)malloc(wsize))) {
             out_string(c, "SERVER_ERROR out of memory");
             return;
         }
@@ -901,8 +924,8 @@ static void process_stat(conn *c, token_t* tokens, const size_t ntokens) {
             return;
         }
         strcpy(wbuf + res, "END\r\n");
-        c->write_and_free=wbuf;
-        c->wcurr=wbuf;
+        c->write_and_free = wbuf;
+        c->wcurr = wbuf;
         c->wbytes = res + 5; // Don't write the terminal '\0' 
         conn_set_state(c, conn_write);
         c->write_and_go = conn_read;
@@ -942,7 +965,7 @@ static void process_stat(conn *c, token_t* tokens, const size_t ntokens) {
         return;
     }
 
-    if (strcmp(subcommand, "slabs")==0) {
+    if (strcmp(subcommand, "slabs") == 0) {
         int bytes = 0;
         char *buf = slabs_stats(&bytes);
         if (!buf) {
@@ -957,14 +980,14 @@ static void process_stat(conn *c, token_t* tokens, const size_t ntokens) {
         return;
     }
 
-    if (strcmp(subcommand, "items")==0) {
+    if (strcmp(subcommand, "items") == 0) {
         char buffer[4096];
         item_stats(buffer, 4096);
         out_string(c, buffer);
         return;
     }
 
-    if (strcmp(subcommand, "sizes")==0) {
+    if (strcmp(subcommand, "sizes") == 0) {
         int bytes = 0;
         char *buf = item_stats_sizes(&bytes);
         if (! buf) {
@@ -984,12 +1007,14 @@ static void process_stat(conn *c, token_t* tokens, const size_t ntokens) {
 }
 
 /* ntokens is overwritten here... shrug.. */
-static inline void process_get_command(conn *c, token_t* tokens, size_t ntokens) {
+static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens) {
     char *key;
     size_t nkey;
     int i = 0;
     item *it;
-    token_t* key_token = &tokens[KEY_TOKEN];
+    token_t *key_token = &tokens[KEY_TOKEN];
+
+    assert(c != NULL);
 
     if (settings.managed) {
         int bucket = c->bucket;
@@ -1019,7 +1044,7 @@ static inline void process_get_command(conn *c, token_t* tokens, size_t ntokens)
             it = get_item(key, nkey);
             if (it) {
                 if (i >= c->isize) {
-                    item **new_list = realloc(c->ilist, sizeof(item *)*c->isize*2);
+                    item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
                     if (new_list) {
                         c->isize *= 2;
                         c->ilist = new_list;
@@ -1081,13 +1106,15 @@ static inline void process_get_command(conn *c, token_t* tokens, size_t ntokens)
     return;
 }
 
-static void process_update_command(conn *c, token_t* tokens, const size_t ntokens, int comm) {
+static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm) {
     char *key;
     size_t nkey;
     int flags;
     time_t exptime;
     int vlen;
     item *it;
+
+    assert(c != NULL);
 
     if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
@@ -1128,7 +1155,7 @@ static void process_update_command(conn *c, token_t* tokens, const size_t ntoken
             out_string(c, "SERVER_ERROR out of memory");
         /* swallow the data line */
         c->write_and_go = conn_swallow;
-        c->sbytes = vlen+2;
+        c->sbytes = vlen + 2;
         return;
     }
     
@@ -1140,7 +1167,7 @@ static void process_update_command(conn *c, token_t* tokens, const size_t ntoken
     return;
 }
 
-static void process_arithmetic_command(conn *c, token_t* tokens, const size_t ntokens, const int incr) {
+static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const int incr) {
     char temp[32];
     unsigned int value;
     item *it;
@@ -1149,6 +1176,8 @@ static void process_arithmetic_command(conn *c, token_t* tokens, const size_t nt
     size_t nkey;
     int res;
     char *ptr;
+
+    assert(c != NULL);
     
     if(tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) { 
         out_string(c, "CLIENT_ERROR bad command line format");
@@ -1185,7 +1214,7 @@ static void process_arithmetic_command(conn *c, token_t* tokens, const size_t nt
     }
 
     ptr = ITEM_data(it);
-    while ((*ptr != '\0') && (*ptr<'0' && *ptr>'9')) ptr++;    // BUG: can't be true
+    while ((*ptr != '\0') && (*ptr < '0' && *ptr > '9')) ptr++;    // BUG: can't be true
         
     value = strtol(ptr, NULL, 10);
 
@@ -1195,10 +1224,10 @@ static void process_arithmetic_command(conn *c, token_t* tokens, const size_t nt
     }
     
     if (incr != 0)
-        value+=delta;
+        value += delta;
     else {
         if (delta >= value) value = 0;
-        else value-=delta;
+        else value -= delta;
     }
     snprintf(temp, 32, "%u", value);
     res = strlen(temp);
@@ -1214,18 +1243,20 @@ static void process_arithmetic_command(conn *c, token_t* tokens, const size_t nt
         item_replace(it, new_it);
     } else { /* replace in-place */
         memcpy(ITEM_data(it), temp, res);
-        memset(ITEM_data(it) + res, ' ', it->nbytes-res-2);
+        memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
     }
     out_string(c, temp);
     return;
 }
 
-static void process_delete_command(conn *c, token_t* tokens, const size_t ntokens) {
+static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
     item *it;
     time_t exptime = 0;
     
+    assert(c != NULL);
+
     if (settings.managed) {
         int bucket = c->bucket;
         if (bucket == -1) {
@@ -1296,6 +1327,8 @@ static void process_command(conn *c, char *command) {
     token_t tokens[MAX_TOKENS];
     size_t ntokens;
     int comm;
+
+    assert(c != NULL);
 
     if (settings.verbose > 1)
         fprintf(stderr, "<%d %s\n", c->sfd, command);
@@ -1386,9 +1419,9 @@ static void process_command(conn *c, char *command) {
             out_string(c, "CLIENT_ERROR not a managed instance");
             return;
         }
-        if (sscanf(tokens[1].value, "%u:%u", &bucket,&gen) == 2) {
+        if (sscanf(tokens[1].value, "%u:%u", &bucket, &gen) == 2) {
             /* we never write anything back, even if input's wrong */
-            if ((bucket < 0) || (bucket >= MAX_BUCKETS) || (gen<=0)) {
+            if ((bucket < 0) || (bucket >= MAX_BUCKETS) || (gen <= 0)) {
                 /* do nothing, bad input */
             } else {
                 c->bucket = bucket;
@@ -1478,7 +1511,8 @@ static void process_command(conn *c, char *command) {
 static int try_read_command(conn *c) {
     char *el, *cont;
 
-    assert(c->rcurr <= c->rbuf + c->rsize);
+    assert(c != NULL);
+    assert(c->rcurr <= (c->rbuf + c->rsize));
 
     if (c->rbytes == 0)
         return 0;
@@ -1486,19 +1520,19 @@ static int try_read_command(conn *c) {
     if (!el)
         return 0;
     cont = el + 1;
-    if (el - c->rcurr > 1 && *(el - 1) == '\r') {
+    if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
         el--;
     }
     *el = '\0';
 
-    assert(cont <= c->rcurr + c->rbytes);
+    assert(cont <= (c->rcurr + c->rbytes));
 
     process_command(c, c->rcurr);
 
     c->rbytes -= (cont - c->rcurr);
     c->rcurr = cont;
 
-    assert(c->rcurr <= c->rbuf + c->rsize);
+    assert(c->rcurr <= (c->rbuf + c->rsize));
 
     return 1;
 }
@@ -1509,6 +1543,8 @@ static int try_read_command(conn *c) {
  */
 static int try_read_udp(conn *c) {
     int res;
+
+    assert(c != NULL);
 
     c->request_addr_size = sizeof(c->request_addr);
     res = recvfrom(c->sfd, c->rbuf, c->rsize,
@@ -1548,6 +1584,8 @@ static int try_read_network(conn *c) {
     int gotdata = 0;
     int res;
 
+    assert(c != NULL);
+
     if (c->rcurr != c->rbuf) {
         if (c->rbytes != 0) /* otherwise there's nothing to copy */
             memmove(c->rbuf, c->rcurr, c->rbytes);
@@ -1556,7 +1594,7 @@ static int try_read_network(conn *c) {
 
     while (1) {
         if (c->rbytes >= c->rsize) {
-            char *new_rbuf = realloc(c->rbuf, c->rsize*2);
+            char *new_rbuf = realloc(c->rbuf, c->rsize * 2);
             if (!new_rbuf) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't realloc input buffer\n");
@@ -1565,7 +1603,7 @@ static int try_read_network(conn *c) {
                 c->write_and_go = conn_closing;
                 return 1;
             }
-            c->rcurr  = c->rbuf = new_rbuf;
+            c->rcurr = c->rbuf = new_rbuf;
             c->rsize *= 2;
         }
 
@@ -1599,6 +1637,8 @@ static int try_read_network(conn *c) {
 }
 
 static bool update_event(conn *c, const int new_flags) {
+    assert(c != NULL);
+
     if (c->ev_flags == new_flags)
         return true;
     if (event_del(&c->event) == -1) return false;
@@ -1638,6 +1678,8 @@ void accept_new_conns(const bool do_accept) {
  */
 static int transmit(conn *c) {
     int res;
+
+    assert(c != NULL);
 
     if (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
@@ -1695,8 +1737,9 @@ static void drive_machine(conn *c) {
     int sfd, flags = 1;
     socklen_t addrlen;
     struct sockaddr addr;
-    conn *newc;
     int res;
+
+    assert(c != NULL);
 
     while (!stop) {
         switch(c->state) {
@@ -1721,7 +1764,7 @@ static void drive_machine(conn *c) {
                 close(sfd);
                 break;
             }
-            newc = conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
+            conn *newc = conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
                             DATA_BUFFER_SIZE, false);
             if (!newc) {
                 if (settings.verbose > 0)
@@ -1908,6 +1951,8 @@ void event_handler(const int fd, const short which, void *arg) {
     conn *c;
 
     c = (conn *)arg;
+    assert(c != NULL);
+
     c->which = which;
 
     /* sanity */
@@ -1965,7 +2010,7 @@ static void maximize_sndbuf(const int sfd) {
     max = MAX_SENDBUF_SIZE;
 
     while (min <= max) {
-        avg = ((unsigned int) min + max) / 2;
+        avg = ((unsigned int)(min + max)) / 2;
         if (setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &avg, intsize) == 0) {
             last_good = avg;
             min = avg + 1;
@@ -2007,7 +2052,7 @@ static int server_socket(const int port, const bool is_udp) {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr = settings.interface;
-    if (bind(sfd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
+    if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
         close(sfd);
         return -1;
@@ -2073,7 +2118,7 @@ static int server_socket_unix(char *path) {
 
     addr.sun_family = AF_UNIX;
     strcpy(addr.sun_path, path);
-    if (bind(sfd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
+    if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
         close(sfd);
         return -1;
@@ -2087,17 +2132,17 @@ static int server_socket_unix(char *path) {
 }
 
 /* listening socket */
-static int l_socket=0;
+static int l_socket = 0;
 
 /* udp socket */
-static int u_socket=-1;
+static int u_socket = -1;
 
 /* invoke right before gdb is called, on assert */
 void pre_gdb(void) {
-    int i = 0;
+    int i;
     if (l_socket > -1) close(l_socket);
     if (u_socket > -1) close(u_socket);
-    for (i=3; i<=500; i++) close(i); /* so lame */
+    for (i = 3; i <= 500; i++) close(i); /* so lame */
     kill(getpid(), SIGABRT);
 }
 
@@ -2267,14 +2312,14 @@ static void save_pid(const pid_t pid, const char *pid_file) {
     if (!pid_file)
         return;
 
-    if (!(fp = fopen(pid_file,"w"))) {
-        fprintf(stderr,"Could not open the pid file %s for writing\n",pid_file);
+    if (!(fp = fopen(pid_file, "w"))) {
+        fprintf(stderr, "Could not open the pid file %s for writing\n", pid_file);
         return;
     }
 
-    fprintf(fp,"%ld\n",(long) pid);
+    fprintf(fp,"%ld\n", (long)pid);
     if (fclose(fp) == -1) {
-        fprintf(stderr,"Could not close the pid file %s.\n",pid_file);
+        fprintf(stderr, "Could not close the pid file %s.\n", pid_file);
         return;
     }
 }
@@ -2284,7 +2329,7 @@ static void remove_pidfile(const char *pid_file) {
       return;
 
   if (unlink(pid_file) != 0) {
-      fprintf(stderr,"Could not remove the pid file %s.\n",pid_file);
+      fprintf(stderr, "Could not remove the pid file %s.\n", pid_file);
   }
 
 }
@@ -2333,7 +2378,7 @@ int main (int argc, char **argv) {
             settings.socketpath = optarg;
             break;
         case 'm':
-            settings.maxbytes = ((size_t)atoi(optarg))*1024*1024;
+            settings.maxbytes = ((size_t)atoi(optarg)) * 1024 * 1024;
             break;
         case 'M':
             settings.evict_to_free = 0;
@@ -2399,13 +2444,12 @@ int main (int argc, char **argv) {
          * First try raising to infinity; if that fails, try bringing
          * the soft limit to the hard.
          */
-        if (getrlimit(RLIMIT_CORE, &rlim)==0) {
+        if (getrlimit(RLIMIT_CORE, &rlim) == 0) {
             rlim_new.rlim_cur = rlim_new.rlim_max = RLIM_INFINITY;
-            if (setrlimit(RLIMIT_CORE, &rlim_new)!=0) {
+            if (setrlimit(RLIMIT_CORE, &rlim_new)!= 0) {
                 /* failed. try raising just to the old max */
-                rlim_new.rlim_cur = rlim_new.rlim_max =
-                    rlim.rlim_max;
-                (void) setrlimit(RLIMIT_CORE, &rlim_new);
+                rlim_new.rlim_cur = rlim_new.rlim_max = rlim.rlim_max;
+                (void)setrlimit(RLIMIT_CORE, &rlim_new);
             }
         }
         /*
@@ -2414,7 +2458,7 @@ int main (int argc, char **argv) {
          * created at all.
          */
 
-        if ((getrlimit(RLIMIT_CORE, &rlim)!=0) || rlim.rlim_cur==0) {
+        if ((getrlimit(RLIMIT_CORE, &rlim) != 0) || rlim.rlim_cur == 0) {
             fprintf(stderr, "failed to ensure corefile creation\n");
             exit(EXIT_FAILURE);
         }
@@ -2466,8 +2510,8 @@ int main (int argc, char **argv) {
     }
 
     /* lose root privileges if we have them */
-    if (getuid()== 0 || geteuid()==0) {
-        if (username==0 || *username=='\0') {
+    if (getuid() == 0 || geteuid() == 0) {
+        if (username == 0 || *username == '\0') {
             fprintf(stderr, "can't run as root without the -u switch\n");
             return 1;
         }
@@ -2475,7 +2519,7 @@ int main (int argc, char **argv) {
             fprintf(stderr, "can't find the user %s to switch to\n", username);
             return 1;
         }
-        if (setgid(pw->pw_gid)<0 || setuid(pw->pw_uid)<0) {
+        if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
             fprintf(stderr, "failed to assume identity of user %s\n", username);
             return 1;
         }
@@ -2512,12 +2556,12 @@ int main (int argc, char **argv) {
 
     /* managed instance? alloc and zero a bucket array */
     if (settings.managed) {
-        buckets = malloc(sizeof(int)*MAX_BUCKETS);
+        buckets = malloc(sizeof(int) * MAX_BUCKETS);
         if (buckets == 0) {
             fprintf(stderr, "failed to allocate the bucket array");
             exit(EXIT_FAILURE);
         }
-        memset(buckets, 0, sizeof(int)*MAX_BUCKETS);
+        memset(buckets, 0, sizeof(int) * MAX_BUCKETS);
     }
 
     /* lock paged memory if needed */
@@ -2552,14 +2596,15 @@ int main (int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
     /* initialise clock event */
-    clock_handler(0,0,0);
+    clock_handler(0, 0, 0);
     /* initialise deletion array and timer event */
-    deltotal = 200; delcurr = 0;
-    todelete = malloc(sizeof(item *)*deltotal);
-    delete_handler(0,0,0); /* sets up the event */
+    deltotal = 200;
+    delcurr = 0;
+    todelete = malloc(sizeof(item *) * deltotal);
+    delete_handler(0, 0, 0); /* sets up the event */
     /* save the PID in if we're a daemon */
     if (daemonize)
-        save_pid(getpid(),pid_file);
+        save_pid(getpid(), pid_file);
     /* enter the loop */
     event_loop(0);
     /* remove the PID file if we're a daemon */

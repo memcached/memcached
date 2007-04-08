@@ -37,10 +37,10 @@ static unsigned int sizes[LARGEST_ID];
 
 void item_init(void) {
     int i;
-    for(i=0; i<LARGEST_ID; i++) {
-        heads[i]=NULL;
-        tails[i]=NULL;
-        sizes[i]=0;
+    for(i = 0; i < LARGEST_ID; i++) {
+        heads[i] = NULL;
+        tails[i] = NULL;
+        sizes[i] = 0;
     }
 }
 
@@ -67,14 +67,11 @@ static size_t item_make_header(const uint8_t nkey, const int flags, const int nb
 /*@null@*/
 item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
-    size_t ntotal;
     item *it;
-    unsigned int id;
     char suffix[40];
+    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
 
-    ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
- 
-    id = slabs_clsid(ntotal);
+    unsigned int id = slabs_clsid(ntotal);
     if (id == 0)
         return 0;
 
@@ -97,10 +94,10 @@ item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t
          */
 
         if (id > LARGEST_ID) return NULL;
-        if (tails[id]==0) return NULL;
+        if (tails[id] == 0) return NULL;
 
-        for (search = tails[id]; tries>0 && search; tries--, search=search->prev) {
-            if (search->refcount==0) {
+        for (search = tails[id]; tries > 0 && search; tries--, search=search->prev) {
+            if (search->refcount == 0) {
                if (search->exptime > current_time)
                        stats.evictions++;
                 item_unlink(search);
@@ -108,7 +105,7 @@ item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t
             }
         }
         it = slabs_alloc(ntotal);
-        if (it==0) return NULL;
+        if (it == 0) return NULL;
     }
 
     assert(it->slabs_clsid == 0);
@@ -124,7 +121,7 @@ item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t
     it->nbytes = nbytes;
     strcpy(ITEM_key(it), key);
     it->exptime = exptime;
-    memcpy(ITEM_suffix(it), suffix, (size_t) nsuffix);
+    memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
     it->nsuffix = nsuffix;
     return it;
 }
@@ -250,7 +247,7 @@ int item_replace(item *it, item *new_it) {
 
 /*@null@*/
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
-    int memlimit = 2*1024*1024;
+    int memlimit = 2097152; /* 2097152: (2 * 1024 * 1024) */
     char *buffer;
     unsigned int bufcurr;
     item *it;
@@ -265,18 +262,18 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     if (buffer == 0) return NULL;
     bufcurr = 0;
 
-    while (it != NULL && (limit==0 || shown < limit)) {
+    while (it != NULL && (limit == 0 || shown < limit)) {
         len = snprintf(temp, 512, "ITEM %s [%d b; %lu s]\r\n", ITEM_key(it), it->nbytes - 2, it->time + stats.started);
         if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;
         strcpy(buffer + bufcurr, temp);
-        bufcurr+=len;
+        bufcurr += len;
         shown++;
         it = it->next;
     }
 
-    strcpy(buffer+bufcurr, "END\r\n");
-    bufcurr+=5;
+    strcpy(buffer + bufcurr, "END\r\n");
+    bufcurr += 5;
 
     *bytes = bufcurr;
     return buffer;
@@ -292,7 +289,7 @@ void item_stats(char *buffer, const int buflen) {
         return;
     }
 
-    for (i=0; i<LARGEST_ID; i++) {
+    for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i])
             bufcurr += snprintf(bufcurr, (size_t)buflen, "STAT items:%d:number %u\r\nSTAT items:%d:age %u\r\n",
                                i, sizes[i], i, now - tails[i]->time);
@@ -305,8 +302,8 @@ void item_stats(char *buffer, const int buflen) {
 /*@null@*/
 char* item_stats_sizes(int *bytes) {
     const int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
-    unsigned int *histogram = (unsigned int*) malloc((size_t)num_buckets * sizeof(int));
-    char *buf = (char*) malloc(1024*1024*2*sizeof(char));
+    unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
+    char *buf = (char *)malloc(2097152 * sizeof(char)); /* 2097152: 2 * 1024 * 1024 */
     int i;
 
     if (histogram == 0 || buf == 0) {
@@ -316,8 +313,8 @@ char* item_stats_sizes(int *bytes) {
     }
 
     /* build the histogram */
-    memset(histogram, 0, (size_t) num_buckets * sizeof(int));
-    for (i=0; i<LARGEST_ID; i++) {
+    memset(histogram, 0, (size_t)num_buckets * sizeof(int));
+    for (i = 0; i < LARGEST_ID; i++) {
         item *iter = heads[i];
         while (iter) {
             int ntotal = ITEM_ntotal(iter);
@@ -330,9 +327,9 @@ char* item_stats_sizes(int *bytes) {
 
     /* write the buffer */
     *bytes = 0;
-    for (i=0; i<num_buckets; i++) {
+    for (i = 0; i < num_buckets; i++) {
         if (histogram[i] != 0) {
-            *bytes += sprintf(&buf[*bytes], "%d %u\r\n", i*32, histogram[i]);
+            *bytes += sprintf(&buf[*bytes], "%d %u\r\n", i * 32, histogram[i]);
         }
     }
     *bytes += sprintf(&buf[*bytes], "END\r\n");

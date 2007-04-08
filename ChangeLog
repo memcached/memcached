@@ -1,3 +1,10 @@
+2007-04-08  Paul Lindner  <lindner@inuus.com>
+
+	* Add cleanup patch from "Tim Yardley" <liquid@haveheart.com> to
+	  clean up source spacing issues, fix -Wall warnings, add some
+	  null checks, adds asserts at the top of each function for any
+	  use of conn *c without checking to see if c is NULL first.
+
 2007-04-04  Paul Lindner  <lindner@inuus.com>
 
 	* Add clarification of flush_all in the protocol docs
