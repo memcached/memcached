@@ -48,7 +48,7 @@ void item_init(void) {
 /*
  * Generates the variable-sized part of the header for an object.
  *
- * key     - The key 
+ * key     - The key
  * nkey    - The length of the key
  * flags   - key flags
  * nbytes  - Number of bytes to hold value and addition CRLF terminator
@@ -63,7 +63,7 @@ static size_t item_make_header(const uint8_t nkey, const int flags, const int nb
     *nsuffix = (uint8_t) snprintf(suffix, 40, " %d %d\r\n", flags, nbytes - 2);
     return sizeof(item) + nkey + *nsuffix + nbytes;
 }
- 
+
 /*@null@*/
 item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
@@ -86,8 +86,8 @@ item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t
 
         if (settings.evict_to_free == 0) return NULL;
 
-        /* 
-         * try to get one off the right LRU 
+        /*
+         * try to get one off the right LRU
          * don't necessariuly unlink the tail because it may be locked: refcount>0
          * search up from tail an item with refcount==0 and unlink it; give up after 50
          * tries

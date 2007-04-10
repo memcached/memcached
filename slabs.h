@@ -6,7 +6,7 @@
 void slabs_init(const size_t limit, const double factor);
 
 
-/*  
+/*
  * Given object size, return id to use when allocating/freeing memory for object
  * 0 means error: can't store such a large object
  */

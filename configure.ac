@@ -101,10 +101,10 @@ AC_HEADER_STDBOOL
 AC_C_CONST
 AC_CHECK_HEADER(malloc.h, AC_DEFINE(HAVE_MALLOC_H,,[do we have malloc.h?]))
 AC_CHECK_MEMBER([struct mallinfo.arena], [
-		AC_DEFINE(HAVE_STRUCT_MALLINFO,,[do we have stuct mallinfo?])
-	], ,[
-#	include <malloc.h>
-	]
+        AC_DEFINE(HAVE_STRUCT_MALLINFO,,[do we have stuct mallinfo?])
+    ], ,[
+#    include <malloc.h>
+    ]
 )
 
 dnl From licq: Copyright (c) 2000 Dirk Mueller

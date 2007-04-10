@@ -78,8 +78,8 @@ static void slabs_preallocate (const unsigned int maxslabs);
  * Figures out which slab class (chunk size) is required to store an item of
  * a given size.
  *
- * Given object size, return id to use when allocating/freeing memory for object 
- * 0 means error: can't store such a large object 
+ * Given object size, return id to use when allocating/freeing memory for object
+ * 0 means error: can't store such a large object
  */
 
 unsigned int slabs_clsid(const size_t size) {

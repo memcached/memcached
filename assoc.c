@@ -69,7 +69,7 @@ This was tested for:
   the output delta to a Gray code (a^(a>>1)) so a string of 1's (as
   is commonly produced by subtraction) look like a single 1-bit
   difference.
-* the base values were pseudorandom, all zero but one bit set, or 
+* the base values were pseudorandom, all zero but one bit set, or
   all zero plus a counter that starts at zero.
 
 Some k values for my "a-=c; a^=rot(c,k); c+=b;" arrangement that
@@ -79,7 +79,7 @@ satisfy this are
    14  9  3  7 17  3
 Well, "9 15 3 18 27 15" didn't quite get 32 bits diffing
 for "differ" defined as + with a one-bit base and a two-bit delta.  I
-used http://burtleburtle.net/bob/hash/avalanche.html to choose 
+used http://burtleburtle.net/bob/hash/avalanche.html to choose
 the operations, constants, and arrangements of the variables.
 
 This does not achieve avalanche.  There are input bits of (a,b,c)
@@ -118,7 +118,7 @@ produce values of c that look totally different.  This was tested for
   the output delta to a Gray code (a^(a>>1)) so a string of 1's (as
   is commonly produced by subtraction) look like a single 1-bit
   difference.
-* the base values were pseudorandom, all zero but one bit set, or 
+* the base values were pseudorandom, all zero but one bit set, or
   all zero plus a counter that starts at zero.
 
 These constants passed:
@@ -142,7 +142,7 @@ and these came close:
 }
 
 #if HASH_LITTLE_ENDIAN == 1
-static uint32_t hash( 
+static uint32_t hash(
   const void *key,       /* the key to hash */
   size_t      length,    /* length of the key */
   const uint32_t    initval)   /* initval */
@@ -150,7 +150,7 @@ static uint32_t hash(
   uint32_t a,b,c;                                          /* internal state */
   union { const void *ptr; size_t i; } u;     /* needed for Mac Powerbook G4 */
 
-  /* Set up the internal state */  
+  /* Set up the internal state */
   a = b = c = 0xdeadbeef + ((uint32_t)length) + initval;
 
   u.ptr = key;
@@ -172,7 +172,7 @@ static uint32_t hash(
     }
 
     /*----------------------------- handle the last (probably partial) block */
-    /* 
+    /*
      * "k[2]&0xffffff" actually reads beyond the end of the string, but
      * then masks off the part it's not allowed to read.  Because the
      * string is aligned, the masked-off tail is in the same word as the
@@ -321,7 +321,7 @@ static uint32_t hash(
  * hashbig():
  * This is the same as hashword() on big-endian machines.  It is different
  * from hashlittle() on all machines.  hashbig() takes advantage of
- * big-endian byte ordering. 
+ * big-endian byte ordering.
  */
 static uint32_t hash( const void *key, size_t length, const uint32_t initval)
 {
@@ -350,7 +350,7 @@ static uint32_t hash( const void *key, size_t length, const uint32_t initval)
     }
 
     /*----------------------------- handle the last (probably partial) block */
-    /* 
+    /*
      * "k[2]<<8" actually reads beyond the end of the string, but
      * then shifts out the part it's not allowed to read.  Because the
      * string is aligned, the illegal read is in the same word as the
@@ -447,7 +447,7 @@ static uint32_t hash( const void *key, size_t length, const uint32_t initval)
   return c;
 }
 #else // HASH_XXX_ENDIAN == 1
-#error Must define HASH_BIG_ENDIAN or HASH_LITTLE_ENDIAN 
+#error Must define HASH_BIG_ENDIAN or HASH_LITTLE_ENDIAN
 #endif // hash_XXX_ENDIAN == 1
 
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
@@ -541,15 +541,15 @@ static void assoc_expand(void) {
 
     primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));
     if (primary_hashtable) {
-	if (settings.verbose > 1)
-	    fprintf(stderr, "Hash table expansion starting\n");
+    if (settings.verbose > 1)
+        fprintf(stderr, "Hash table expansion starting\n");
         hashpower++;
         expanding = 1;
         expand_bucket = 0;
-	assoc_move_next_bucket();
+    assoc_move_next_bucket();
     } else {
         primary_hashtable = old_hashtable;
-	/* Bad news, but we can keep running. */
+    /* Bad news, but we can keep running. */
     }
 }
 
@@ -560,20 +560,20 @@ void assoc_move_next_bucket(void) {
 
     if (expanding) {
         for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
-	    next = it->h_next;
+        next = it->h_next;
 
             bucket = hash(ITEM_key(it), it->nkey, 0) & hashmask(hashpower);
             it->h_next = primary_hashtable[bucket];
             primary_hashtable[bucket] = it;
-	}
+    }
 
-	expand_bucket++;
-	if (expand_bucket == hashsize(hashpower - 1)) {
-	    expanding = 0;
-	    free(old_hashtable);
-	    if (settings.verbose > 1)
-	        fprintf(stderr, "Hash table expansion done\n");
-	}
+    expand_bucket++;
+    if (expand_bucket == hashsize(hashpower - 1)) {
+        expanding = 0;
+        free(old_hashtable);
+        if (settings.verbose > 1)
+            fprintf(stderr, "Hash table expansion done\n");
+    }
     }
 }
 
@@ -613,7 +613,7 @@ void assoc_delete(const char *key, const size_t nkey) {
         hash_items--;
         return;
     }
-    /* Note:  we never actually get here.  the callers don't delete things 
+    /* Note:  we never actually get here.  the callers don't delete things
        they can't find. */
     assert(*before != 0);
 }

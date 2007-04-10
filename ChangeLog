@@ -5,6 +5,9 @@
 	  null checks, adds asserts at the top of each function for any
 	  use of conn *c without checking to see if c is NULL first.
 
+        * Also adjust clean-whitespace.pl to clean *.ac files.  Add
+          script to test-suite to test for tabs.
+
 2007-04-04  Paul Lindner  <lindner@inuus.com>
 
 	* Add clarification of flush_all in the protocol docs
