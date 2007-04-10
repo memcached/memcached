@@ -5,7 +5,7 @@ our @files;
 
 BEGIN {
     chdir "$Bin/.." or die;
-    @files = (glob("*.h"), glob("*.c"), glob("*.ac"));
+    @files = grep {! /^config.h$/ } (glob("*.h"), glob("*.c"), glob("*.ac"));
 }
 use Test::More tests => scalar(@files);
 
