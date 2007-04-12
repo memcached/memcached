@@ -26,6 +26,8 @@ if ($mode eq "display") {
     undef $mode if $from < 6 || $from > 17;
     undef $mode if $to   < 6 || $to   > 17;
     print STDERR "ERROR: parameters out of range\n\n" unless $mode;
+} elsif ($mode eq 'dump') {
+    ;
 } else {
     undef $mode;
 }
@@ -75,6 +77,53 @@ if ($mode eq "move") {
 	}
     }
 
+    exit;
+}
+
+if ($mode eq 'dump') {
+    my %items;
+    my $totalitems;
+
+    print $sock "stats items\r\n";
+
+    while (<$sock>) {
+        last if /^END/;
+        if (/^STAT items:(\d*):number (\d*)/) {
+            $items{$1} = $2;
+            $totalitems += $2;
+        }
+    }
+    print STDERR "Dumping memcache contents\n";
+    print STDERR "  Number of buckets: " . scalar(keys(%items)) . "\n";
+    print STDERR "  Number of items  : $totalitems\n";
+
+    foreach my $bucket (sort(keys(%items))) {
+        print STDERR "Dumping bucket $bucket - " . $items{$bucket} . " total items\n";
+        print $sock "stats cachedump $bucket $items{$bucket} 1\r\n";
+        my %keyexp;
+        while (<$sock>) {
+            last if /^END/;
+            # return format looks like this
+            # ITEM foo [6 b; 1176415152 s]
+            if (/^ITEM (\w+) \[.* (\d+) s\]/) {
+                $keyexp{$1} = $2;
+            }
+        }
+
+        foreach my $k (keys(%keyexp)) {
+            my $val;
+            print $sock "get $k\r\n";
+            my $response = <$sock>;
+            $response =~ /VALUE (\w+) (\d+) (\d+)/;
+            my $flags = $2;
+            my $len = $3;
+            read $sock, $val , $len;
+            # get the END
+            $_ = <$sock>;
+            $_ = <$sock>;
+            print "add $k $flags $keyexp{$k} $len\r\n$val\r\n";
+        }
+    }
     exit;
 }
 
