@@ -1322,6 +1322,17 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     return;
 }
 
+static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
+    unsigned int level;
+
+    assert(c != NULL);
+
+    level = strtoul(tokens[1].value, NULL, 10);
+    settings.verbose = level > MAX_VERBOSITY_LEVEL ? MAX_VERBOSITY_LEVEL : level;
+    out_string(c, "DONE");
+    return;
+}
+
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -1498,7 +1509,8 @@ static void process_command(conn *c, char *command) {
 #else
         out_string(c, "CLIENT_ERROR Slab reassignment not supported");
 #endif
-
+    } else if (ntokens == 3 && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
+        process_verbosity_command(c, tokens, ntokens);
     } else {
         out_string(c, "ERROR");
     }

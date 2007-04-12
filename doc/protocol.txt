@@ -399,6 +399,14 @@ In response, the server sends
 "VERSION <version>\r\n", where <version> is the version string for the
 server.
 
+"verbosity" is a command with one argument, the verbosity level:
+
+verbosity 2\r\n
+
+In response, the server sends
+
+"DONE"
+
 
 "quit" is a command with no arguments:
 

@@ -245,23 +245,23 @@ static uint32_t hash(
              b+=k[2]+(((uint32_t)k[3])<<16);
              a+=k[0]+(((uint32_t)k[1])<<16);
              break;
-    case 11: c+=((uint32_t)k8[10])<<16;     /* fall through */
-    case 10: c+=k[4];
+    case 11: c+=((uint32_t)k8[10])<<16;     /* @fallthrough */
+    case 10: c+=k[4];                       /* @fallthrough@ */
              b+=k[2]+(((uint32_t)k[3])<<16);
              a+=k[0]+(((uint32_t)k[1])<<16);
              break;
-    case 9 : c+=k8[8];                      /* fall through */
+    case 9 : c+=k8[8];                      /* @fallthrough */
     case 8 : b+=k[2]+(((uint32_t)k[3])<<16);
              a+=k[0]+(((uint32_t)k[1])<<16);
              break;
-    case 7 : b+=((uint32_t)k8[6])<<16;      /* fall through */
+    case 7 : b+=((uint32_t)k8[6])<<16;      /* @fallthrough */
     case 6 : b+=k[2];
              a+=k[0]+(((uint32_t)k[1])<<16);
              break;
-    case 5 : b+=k8[4];                      /* fall through */
+    case 5 : b+=k8[4];                      /* @fallthrough */
     case 4 : a+=k[0]+(((uint32_t)k[1])<<16);
              break;
-    case 3 : a+=((uint32_t)k8[2])<<16;      /* fall through */
+    case 3 : a+=((uint32_t)k8[2])<<16;      /* @fallthrough */
     case 2 : a+=k[0];
              break;
     case 1 : a+=k8[0];
