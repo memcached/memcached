@@ -485,7 +485,7 @@ void assoc_init(void) {
     primary_hashtable = malloc(hash_size);
     if (! primary_hashtable) {
         fprintf(stderr, "Failed to init hashtable.\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     memset(primary_hashtable, 0, hash_size);
 }

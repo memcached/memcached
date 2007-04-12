@@ -50,7 +50,7 @@ daemon(nochdir, noclose)
     case 0:
         break;
     default:
-        _exit(0);
+        _exit(EXIT_SUCCESS);
     }
 
     if (setsid() == -1)
