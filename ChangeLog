@@ -1,8 +1,8 @@
 2007-04-12  Paul Lindner  <lindner@mirth.inuus.com>
 
 	* Allow changes to the verbosity level of the server with a new
-	  "verbosity" command.  Patch contributed by Paolo Borelli
-	  <paolo.borelli@gmail.com>.
+	  "verbosity" command and some compiler cleanups. 
+          Patch contributed by Paolo Borelli <paolo.borelli@gmail.com>.
 
 2007-04-08  Paul Lindner  <lindner@inuus.com>
 
