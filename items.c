@@ -272,7 +272,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
         it = it->next;
     }
 
-    strcpy(buffer + bufcurr, "END\r\n");
+    memcpy(buffer + bufcurr, "END\r\n", 6);
     bufcurr += 5;
 
     *bytes = bufcurr;
@@ -294,7 +294,7 @@ void item_stats(char *buffer, const int buflen) {
             bufcurr += snprintf(bufcurr, (size_t)buflen, "STAT items:%d:number %u\r\nSTAT items:%d:age %u\r\n",
                                i, sizes[i], i, now - tails[i]->time);
     }
-    strcpy(bufcurr, "END");
+    memcpy(bufcurr, "END", 4);
     return;
 }
 

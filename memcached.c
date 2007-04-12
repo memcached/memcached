@@ -670,7 +670,7 @@ static void out_string(conn *c, const char *str) {
     }
 
     memcpy(c->wbuf, str, len);
-    memcpy(c->wbuf + len, "\r\n", 2);
+    memcpy(c->wbuf + len, "\r\n", 3);
     c->wbytes = len + 2;
     c->wcurr = c->wbuf;
 
@@ -925,7 +925,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             free(wbuf); close(fd);
             return;
         }
-        strcpy(wbuf + res, "END\r\n");
+        memcpy(wbuf + res, "END\r\n", 6);
         c->write_and_free = wbuf;
         c->wcurr = wbuf;
         c->wbytes = res + 5; // Don't write the terminal '\0'
@@ -1241,7 +1241,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
             return;
         }
         memcpy(ITEM_data(new_it), temp, res);
-        memcpy(ITEM_data(new_it) + res, "\r\n", 2);
+        memcpy(ITEM_data(new_it) + res, "\r\n", 3);
         item_replace(it, new_it);
     } else { /* replace in-place */
         memcpy(ITEM_data(it), temp, res);
