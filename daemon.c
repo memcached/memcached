@@ -38,9 +38,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-int
-daemon(nochdir, noclose)
-    int nochdir, noclose;
+int daemon(int nochdir, int noclose)
 {
     int fd;
 
@@ -56,10 +54,10 @@ daemon(nochdir, noclose)
     if (setsid() == -1)
         return (-1);
 
-    if (!nochdir)
+    if (nochdir == 0)
         (void)chdir("/");
 
-    if (!noclose && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
+    if (noclose==0 && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
         (void)dup2(fd, STDIN_FILENO);
         (void)dup2(fd, STDOUT_FILENO);
         (void)dup2(fd, STDERR_FILENO);
