@@ -2323,7 +2323,7 @@ static void usage_license(void) {
 
 static void save_pid(const pid_t pid, const char *pid_file) {
     FILE *fp;
-    if (!pid_file)
+    if (pid_file == NULL)
         return;
 
     if (!(fp = fopen(pid_file, "w"))) {
@@ -2339,7 +2339,7 @@ static void save_pid(const pid_t pid, const char *pid_file) {
 }
 
 static void remove_pidfile(const char *pid_file) {
-  if (!pid_file)
+  if (pid_file == NULL)
       return;
 
   if (unlink(pid_file) != 0) {
