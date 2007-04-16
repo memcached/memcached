@@ -360,47 +360,47 @@ char* item_stats_sizes(int *bytes) {
 
 /* returns true if a deleted item's delete-locked-time is over, and it
    should be removed from the namespace */
-int item_delete_lock_over (item *it) {
+bool item_delete_lock_over (item *it) {
     assert(it->it_flags & ITEM_DELETED);
     return (current_time >= it->exptime);
 }
 
 /* wrapper around assoc_find which does the lazy expiration/deletion logic */
-item *do_item_get_notedeleted(char *key, size_t nkey, int *delete_locked) {
+item *do_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked) {
     item *it = assoc_find(key, nkey);
-    if (delete_locked) *delete_locked = 0;
+    if (delete_locked) *delete_locked = false;
     if (it && (it->it_flags & ITEM_DELETED)) {
         /* it's flagged as delete-locked.  let's see if that condition
            is past due, and the 5-second delete_timer just hasn't
            gotten to it yet... */
-        if (! item_delete_lock_over(it)) {
-            if (delete_locked) *delete_locked = 1;
+        if (!item_delete_lock_over(it)) {
+            if (delete_locked) *delete_locked = true;
             it = 0;
         }
     }
-    if (it && settings.oldest_live && settings.oldest_live <= current_time &&
+    if (it != NULL && settings.oldest_live != 0 && settings.oldest_live <= current_time &&
         it->time <= settings.oldest_live) {
         do_item_unlink(it);           // MTSAFE - cache_lock held
         it = 0;
     }
-    if (it && it->exptime && it->exptime <= current_time) {
+    if (it != NULL && it->exptime != 0 && it->exptime <= current_time) {
         do_item_unlink(it);           // MTSAFE - cache_lock held
         it = 0;
     }
 
-    if (it) {
+    if (it != NULL) {
         it->refcount++;
         DEBUG_REFCNT(it, '+');
     }
     return it;
 }
 
-item *item_get(char *key, size_t nkey) {
+item *item_get(const char *key, const size_t nkey) {
     return item_get_notedeleted(key, nkey, 0);
 }
 
 /* returns an item whether or not it's delete-locked or expired. */
-item *do_item_get_nocheck(char *key, size_t nkey) {
+item *do_item_get_nocheck(const char *key, const size_t nkey) {
     item *it = assoc_find(key, nkey);
     if (it) {
         it->refcount++;

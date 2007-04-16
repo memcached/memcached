@@ -12,7 +12,9 @@
 #include "memcached.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
+#include <assert.h>
 
 /*
  * Stats are tracked on the basis of key prefixes. This is a simple
@@ -21,16 +23,17 @@
  */
 typedef struct _prefix_stats PREFIX_STATS;
 struct _prefix_stats {
-    char               *prefix;
-    int                prefix_len;
-    unsigned long long num_gets;
-    unsigned long long num_sets;
-    unsigned long long num_deletes;
-    unsigned long long num_hits;
-    PREFIX_STATS       *next;
+    char         *prefix;
+    size_t        prefix_len;
+    uint64_t      num_gets;
+    uint64_t      num_sets;
+    uint64_t      num_deletes;
+    uint64_t      num_hits;
+    PREFIX_STATS *next;
 };
 
 #define PREFIX_HASH_SIZE 256
+
 static PREFIX_STATS *prefix_stats[PREFIX_HASH_SIZE];
 static int num_prefixes = 0;
 static int total_prefix_size = 0;
@@ -45,9 +48,9 @@ void stats_prefix_init() {
  */
 void stats_prefix_clear() {
     int i;
-    PREFIX_STATS *cur, *next;
 
     for (i = 0; i < PREFIX_HASH_SIZE; i++) {
+        PREFIX_STATS *cur, *next;
         for (cur = prefix_stats[i]; cur != NULL; cur = next) {
             next = cur->next;
             free(cur->prefix);
@@ -63,10 +66,13 @@ void stats_prefix_clear() {
  * Returns the stats structure for a prefix, creating it if it's not already
  * in the list.
  */
-static PREFIX_STATS *stats_prefix_find(char *key) {
+/*@null@*/
+static PREFIX_STATS *stats_prefix_find(const char *key) {
     PREFIX_STATS *pfs;
-    int hashval;
-    int length;
+    uint32_t hashval;
+    size_t length;
+
+    assert(key != NULL);
 
     for (length = 0; key[length] != '\0'; length++)
         if (key[length] == settings.prefix_delimiter)
@@ -75,7 +81,7 @@ static PREFIX_STATS *stats_prefix_find(char *key) {
     hashval = hash(key, length, 0) % PREFIX_HASH_SIZE;
 
     for (pfs = prefix_stats[hashval]; NULL != pfs; pfs = pfs->next) {
-        if (! strncmp(pfs->prefix, key, length))
+        if (strncmp(pfs->prefix, key, length) == 0)
             return pfs;
     }
 
@@ -108,7 +114,7 @@ static PREFIX_STATS *stats_prefix_find(char *key) {
 /*
  * Records a "get" of a key.
  */
-void stats_prefix_record_get(char *key, int is_hit) {
+void stats_prefix_record_get(const char *key, const bool is_hit) {
     PREFIX_STATS *pfs;
 
     STATS_LOCK();
@@ -125,7 +131,7 @@ void stats_prefix_record_get(char *key, int is_hit) {
 /*
  * Records a "delete" of a key.
  */
-void stats_prefix_record_delete(char *key) {
+void stats_prefix_record_delete(const char *key) {
     PREFIX_STATS *pfs;
 
     STATS_LOCK();
@@ -139,7 +145,7 @@ void stats_prefix_record_delete(char *key) {
 /*
  * Records a "set" of a key.
  */
-void stats_prefix_record_set(char *key) {
+void stats_prefix_record_set(const char *key) {
     PREFIX_STATS *pfs;
 
     STATS_LOCK();
@@ -153,12 +159,13 @@ void stats_prefix_record_set(char *key) {
 /*
  * Returns stats in textual form suitable for writing to a client.
  */
+/*@null@*/
 char *stats_prefix_dump(int *length) {
-    char *format = "PREFIX %s get %llu hit %llu set %llu del %llu\r\n";
+    const char *format = "PREFIX %s get %llu hit %llu set %llu del %llu\r\n";
     PREFIX_STATS *pfs;
     char *buf;
     int i, pos;
-    int size;
+    size_t size;
 
     /*
      * Figure out how big the buffer needs to be. This is the sum of the
@@ -181,14 +188,14 @@ char *stats_prefix_dump(int *length) {
     pos = 0;
     for (i = 0; i < PREFIX_HASH_SIZE; i++) {
         for (pfs = prefix_stats[i]; NULL != pfs; pfs = pfs->next) {
-            pos += sprintf(buf + pos, format,
+            pos += snprintf(buf + pos, size-pos, format,
                            pfs->prefix, pfs->num_gets, pfs->num_hits,
                            pfs->num_sets, pfs->num_deletes);
         }
     }
 
     STATS_UNLOCK();
-    strcpy(buf + pos, "END\r\n");
+    memcpy(buf + pos, "END\r\n", 6);
 
     *length = pos + 5;
     return buf;
@@ -212,7 +219,7 @@ static void fail(char *what) { printf("\tFAIL: %s\n", what); fflush(stdout); fai
 static void test_equals_int(char *what, int a, int b) { test_count++; if (a != b) fail(what); }
 static void test_equals_ptr(char *what, void *a, void *b) { test_count++; if (a != b) fail(what); }
 static void test_equals_str(char *what, const char *a, const char *b) { test_count++; if (strcmp(a, b)) fail(what); }
-static void test_equals_ull(char *what, unsigned long long a, unsigned long long b) { test_count++; if (a != b) fail(what); }
+static void test_equals_ull(char *what, uint64_t a, uint64_t b) { test_count++; if (a != b) fail(what); }
 static void test_notequals_ptr(char *what, void *a, void *b) { test_count++; if (a == b) fail(what); }
 static void test_notnull_ptr(char *what, void *a) { test_count++; if (NULL == a) fail(what); }
 

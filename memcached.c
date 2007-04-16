@@ -714,7 +714,7 @@ static void complete_nread(conn *c) {
  */
 int do_store_item(item *it, int comm) {
     char *key = ITEM_key(it);
-    int delete_locked = 0;
+    bool delete_locked = false;
     item *old_it = do_item_get_notedeleted(key, it->nkey, &delete_locked);
     int stored = 0;
 

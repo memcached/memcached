@@ -381,7 +381,7 @@ item *mt_item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int n
  * Returns an item if it hasn't been marked as expired or deleted,
  * lazy-expiring as needed.
  */
-item *mt_item_get_notedeleted(char *key, size_t nkey, int *delete_locked) {
+item *mt_item_get_notedeleted(char *key, size_t nkey, bool *delete_locked) {
     item *it;
     pthread_mutex_lock(&cache_lock);
     it = do_item_get_notedeleted(key, nkey, delete_locked);

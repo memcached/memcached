@@ -18,7 +18,7 @@ void item_stats(char *buffer, const int buflen);
 /*@null@*/
 char *item_stats_sizes(int *bytes);
 void do_item_flush_expired(void);
-item *item_get(char *key, size_t nkey);
+item *item_get(const char *key, const size_t nkey);
 
-item *do_item_get_notedeleted(char *key, size_t nkey, int *delete_locked);
-item *do_item_get_nocheck(char *key, size_t nkey);
+item *do_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked);
+item *do_item_get_nocheck(const char *key, const size_t nkey);

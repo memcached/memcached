@@ -251,7 +251,7 @@ char *mt_defer_delete(item *it, time_t exptime);
 int   mt_is_listen_thread(void);
 item *mt_item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 void  mt_item_flush_expired(void);
-item *mt_item_get_notedeleted(char *key, size_t nkey, int *delete_locked);
+item *mt_item_get_notedeleted(char *key, size_t nkey, bool *delete_locked);
 item *mt_item_get_nocheck(char *key, size_t nkey);
 int   mt_item_link(item *it);
 void  mt_item_remove(item *it);
