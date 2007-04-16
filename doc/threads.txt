@@ -1,0 +1,68 @@
+Multithreading support in memcached
+
+OVERVIEW
+
+By default, memcached is compiled as a single-threaded application. This is
+the most CPU-efficient mode of operation, and it is appropriate for memcached
+instances running on single-processor servers or whose request volume is
+low enough that available CPU power is not a bottleneck.
+
+More heavily-used memcached instances can benefit from multithreaded mode.
+To enable it, use the "--enable-threads" option to the configure script:
+
+./configure --enable-threads
+
+You must have the POSIX thread functions (pthread_*) on your system in order
+to use memcached's multithreaded mode.
+
+Once you have a thread-capable memcached executable, you can control the
+number of threads using the "-t" option; the default is 4. On a machine
+that's dedicated to memcached, you will typically want one thread per
+processor core. Due to memcached's nonblocking architecture, there is no
+real advantage to using more threads than the number of CPUs on the machine;
+doing so will increase lock contention and is likely to degrade performance.
+
+
+INTERNALS
+
+The threading support is mostly implemented as a series of wrapper functions
+that protect calls to underlying code with one of a small number of locks.
+In single-threaded mode, the wrappers are replaced with direct invocations
+of the target code using #define; that is done in memcached.h. This approach
+allows memcached to be compiled in either single- or multi-threaded mode.
+
+Each thread has its own instance of libevent ("base" in libevent terminology).
+The only direct interaction between threads is for new connections. One of
+the threads handles the TCP listen socket; each new connection is passed to
+a different thread on a round-robin basis. After that, each thread operates
+on its set of connections as if it were running in single-threaded mode,
+using libevent to manage nonblocking I/O as usual.
+
+UDP requests are a bit different, since there is only one UDP socket that's
+shared by all clients. The UDP socket is monitored by all of the threads.
+When a datagram comes in, all the threads that aren't already processing
+another request will receive "socket readable" callbacks from libevent.
+Only one thread will successfully read the request; the others will go back
+to sleep or, in the case of a very busy server, will read whatever other
+UDP requests are waiting in the socket buffer. Note that in the case of
+moderately busy servers, this results in increased CPU consumption since
+threads will constantly wake up and find no input waiting for them. But
+short of much more major surgery on the I/O code, this is not easy to avoid.
+
+
+TO DO
+
+The locking is currently very coarse-grained.  There is, for example, one
+lock that protects all the calls to the hashtable-related functions. Since
+memcached spends much of its CPU time on command parsing and response
+assembly, rather than managing the hashtable per se, this is not a huge
+bottleneck for small numbers of processors. However, the locking will likely
+have to be refined in the event that memcached needs to run well on
+massively-parallel machines.
+
+One cheap optimization to reduce contention on that lock: move the hash value
+computation so it occurs before the lock is obtained whenever possible.
+Right now the hash is performed at the lowest levels of the functions in
+assoc.c. If instead it was computed in memcached.c, then passed along with
+the key and length into the items.c code and down into assoc.c, that would
+reduce the amount of time each thread needs to keep the hashtable lock held.
