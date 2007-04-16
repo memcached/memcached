@@ -1,5 +1,11 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /* $Id$ */
+#include "config.h"
+#include <sys/types.h>
+#include <sys/time.h>
+#include <netinet/in.h>
+#include <event.h>
+
 #define DATA_BUFFER_SIZE 2048
 #define UDP_READ_BUFFER_SIZE 65536
 #define UDP_MAX_PAYLOAD_SIZE 1400
@@ -69,6 +75,9 @@ struct settings {
     char *socketpath;   /* path to unix socket if using local socket */
     double factor;          /* chunk size growth factor */
     int chunk_size;
+    int num_threads;        /* number of libevent threads to run */
+    char prefix_delimiter;  /* character that marks a key prefix (for stats) */
+    int detail_enabled;     /* nonzero if we're collecting detailed stats */
 };
 
 extern struct stats stats;
@@ -199,6 +208,120 @@ extern volatile rel_time_t current_time;
  * Functions
  */
 
+conn *do_conn_from_freelist();
+int do_conn_add_to_freelist(conn *c);
+char *do_defer_delete(item *item, time_t exptime);
+void do_run_deferred_deletes(void);
+char *do_add_delta(item *item, int incr, unsigned int delta, char *buf);
+int do_store_item(item *item, int comm);
+conn *conn_new(const int sfd, const int init_state, const int event_flags, const int read_buffer_size, const bool is_udp, struct event_base *base);
+
+
+#include "stats.h"
 #include "slabs.h"
 #include "assoc.h"
 #include "items.h"
+
+
+/*
+ * In multithreaded mode, we wrap certain functions with lock management and
+ * replace the logic of some other functions. All wrapped functions have
+ * "mt_" and "do_" variants. In multithreaded mode, the plain version of a
+ * function is #define-d to the "mt_" variant, which often just grabs a
+ * lock and calls the "do_" function. In singlethreaded mode, the "do_"
+ * function is called directly.
+ *
+ * Functions such as the libevent-related calls that need to do cross-thread
+ * communication in multithreaded mode (rather than actually doing the work
+ * in the current thread) are called via "dispatch_" frontends, which are
+ * also #define-d to directly call the underlying code in singlethreaded mode.
+ */
+#ifdef USE_THREADS
+
+void thread_init(int nthreads, struct event_base *main_base);
+int  dispatch_event_add(int thread, conn *c);
+void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer_size, int is_udp);
+
+/* Lock wrappers for cache functions that are called from main loop. */
+char *mt_add_delta(item *item, int incr, unsigned int delta, char *buf);
+conn *mt_conn_from_freelist(void);
+int   mt_conn_add_to_freelist(conn *c);
+char *mt_defer_delete(item *it, time_t exptime);
+int   mt_is_listen_thread(void);
+item *mt_item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
+void  mt_item_flush_expired(void);
+item *mt_item_get_notedeleted(char *key, size_t nkey, int *delete_locked);
+item *mt_item_get_nocheck(char *key, size_t nkey);
+int   mt_item_link(item *it);
+void  mt_item_remove(item *it);
+int   mt_item_replace(item *it, item *new_it);
+void  mt_item_unlink(item *it);
+void  mt_item_update(item *it);
+void  mt_run_deferred_deletes(void);
+void *mt_slabs_alloc(size_t size);
+void  mt_slabs_free(void *ptr, size_t size);
+int   mt_slabs_reassign(unsigned char srcid, unsigned char dstid);
+char *mt_slabs_stats(int *buflen);
+void  mt_stats_lock(void);
+void  mt_stats_unlock(void);
+int   mt_store_item(item *item, int comm);
+
+
+# define add_delta(x,y,z,a)          mt_add_delta(x,y,z,a)
+# define assoc_move_next_bucket()    mt_assoc_move_next_bucket()
+# define conn_from_freelist()        mt_conn_from_freelist()
+# define conn_add_to_freelist(x)     mt_conn_add_to_freelist(x)
+# define defer_delete(x,y)           mt_defer_delete(x,y)
+# define is_listen_thread()          mt_is_listen_thread()
+# define item_alloc(x,y,z,a,b)       mt_item_alloc(x,y,z,a,b)
+# define item_flush_expired()        mt_item_flush_expired()
+# define item_get_nocheck(x,y)       mt_item_get_nocheck(x,y)
+# define item_get_notedeleted(x,y,z) mt_item_get_notedeleted(x,y,z)
+# define item_link(x)                mt_item_link(x)
+# define item_remove(x)              mt_item_remove(x)
+# define item_replace(x,y)           mt_item_replace(x,y)
+# define item_update(x)              mt_item_update(x)
+# define item_unlink(x)              mt_item_unlink(x)
+# define run_deferred_deletes()      mt_run_deferred_deletes()
+# define slabs_alloc(x)              mt_slabs_alloc(x)
+# define slabs_free(x,y)             mt_slabs_free(x,y)
+# define slabs_reassign(x,y)         mt_slabs_reassign(x,y)
+# define slabs_stats(x)              mt_slabs_stats(x)
+# define store_item(x,y)             mt_store_item(x,y)
+
+# define STATS_LOCK()                mt_stats_lock()
+# define STATS_UNLOCK()              mt_stats_unlock()
+
+#else /* !USE_THREADS */
+
+# define add_delta(x,y,z,a)          do_add_delta(x,y,z,a)
+# define assoc_move_next_bucket()    do_assoc_move_next_bucket()
+# define conn_from_freelist()        do_conn_from_freelist()
+# define conn_add_to_freelist(x)     do_conn_add_to_freelist(x)
+# define defer_delete(x,y)           do_defer_delete(x,y)
+# define dispatch_conn_new(x,y,z,a,b) conn_new(x,y,z,a,b,main_base)
+# define dispatch_event_add(t,c)     event_add(&(c)->event, 0)
+# define is_listen_thread()          1
+# define item_alloc(x,y,z,a,b)       do_item_alloc(x,y,z,a,b)
+# define item_flush_expired()        do_item_flush_expired()
+# define item_get_nocheck(x,y)       do_item_get_nocheck(x,y)
+# define item_get_notedeleted(x,y,z) do_item_get_notedeleted(x,y,z)
+# define item_link(x)                do_item_link(x)
+# define item_remove(x)              do_item_remove(x)
+# define item_replace(x,y)           do_item_replace(x,y)
+# define item_unlink(x)              do_item_unlink(x)
+# define item_update(x)              do_item_update(x)
+# define run_deferred_deletes()      do_run_deferred_deletes()
+# define slabs_alloc(x)              do_slabs_alloc(x)
+# define slabs_free(x,y)             do_slabs_free(x,y)
+# define slabs_reassign(x,y)         do_slabs_reassign(x,y)
+# define slabs_stats(x)              do_slabs_stats(x)
+# define store_item(x,y)             do_store_item(x,y)
+# define thread_init(x,y)            0
+
+# define STATS_LOCK()                /**/
+# define STATS_UNLOCK()              /**/
+
+#endif /* !USE_THREADS */
+
+

@@ -1,8 +1,7 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /* $Id$ */
-#include <sys/types.h>
+#include "memcached.h"
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/signal.h>
 #include <sys/resource.h>
@@ -11,13 +10,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <netinet/in.h>
 #include <errno.h>
 #include <time.h>
-#include <event.h>
 #include <assert.h>
-
-#include "memcached.h"
 
 /* Forward Declarations */
 static void item_link_q(item *it);
@@ -44,6 +39,17 @@ void item_init(void) {
     }
 }
 
+/* Enable this for reference-count debugging. */
+#if 0
+# define DEBUG_REFCNT(it,op) \
+                fprintf(stderr, "item %x refcnt(%c) %d %c%c%c\n", \
+                        it, op, it->refcount, \
+                        (it->it_flags & ITEM_LINKED) ? 'L' : ' ', \
+                        (it->it_flags & ITEM_SLABBED) ? 'S' : ' ', \
+                        (it->it_flags & ITEM_DELETED) ? 'D' : ' ')
+#else
+# define DEBUG_REFCNT(it,op) while(0)
+#endif
 
 /*
  * Generates the variable-sized part of the header for an object.
@@ -65,7 +71,7 @@ static size_t item_make_header(const uint8_t nkey, const int flags, const int nb
 }
 
 /*@null@*/
-item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes) {
+item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
     item *it;
     char suffix[40];
@@ -98,9 +104,12 @@ item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t
 
         for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
             if (search->refcount == 0) {
-               if (search->exptime > current_time)
+               if (search->exptime > current_time) {
+                       STATS_LOCK();
                        stats.evictions++;
-                item_unlink(search);
+                       STATS_UNLOCK();
+                }
+                do_item_unlink(search);
                 break;
             }
         }
@@ -115,7 +124,8 @@ item *item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t
     assert(it != heads[it->slabs_clsid]);
 
     it->next = it->prev = it->h_next = 0;
-    it->refcount = 0;
+    it->refcount = 1;     /* the caller will have a reference */
+    DEBUG_REFCNT(it, '*');
     it->it_flags = 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
@@ -136,6 +146,7 @@ void item_free(item *it) {
     /* so slab size changer can tell later if item is already free or not */
     it->slabs_clsid = 0;
     it->it_flags |= ITEM_SLABBED;
+    DEBUG_REFCNT(it, 'F');
     slabs_free(it, ntotal);
 }
 
@@ -192,57 +203,66 @@ static void item_unlink_q(item *it) {
     return;
 }
 
-int item_link(item *it) {
+int do_item_link(item *it) {
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     assert(it->nbytes < 1048576);
     it->it_flags |= ITEM_LINKED;
     it->time = current_time;
     assoc_insert(it);
 
+    STATS_LOCK();
     stats.curr_bytes += ITEM_ntotal(it);
     stats.curr_items += 1;
     stats.total_items += 1;
+    STATS_UNLOCK();
 
     item_link_q(it);
 
     return 1;
 }
 
-void item_unlink(item *it) {
+void do_item_unlink(item *it) {
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
+        STATS_LOCK();
         stats.curr_bytes -= ITEM_ntotal(it);
         stats.curr_items -= 1;
+        STATS_UNLOCK();
         assoc_delete(ITEM_key(it), it->nkey);
         item_unlink_q(it);
+        if (it->refcount == 0) item_free(it);
     }
-    if (it->refcount == 0) item_free(it);
 }
 
-void item_remove(item *it) {
+void do_item_remove(item *it) {
     assert((it->it_flags & ITEM_SLABBED) == 0);
-    if (it->refcount != 0) it->refcount--;
+    if (it->refcount != 0) {
+        it->refcount--;
+        DEBUG_REFCNT(it, '-');
+    }
     assert((it->it_flags & ITEM_DELETED) == 0 || it->refcount != 0);
     if (it->refcount == 0 && (it->it_flags & ITEM_LINKED) == 0) {
         item_free(it);
     }
 }
 
-void item_update(item *it) {
+void do_item_update(item *it) {
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
 
-        item_unlink_q(it);
-        it->time = current_time;
-        item_link_q(it);
+        if (it->it_flags & ITEM_LINKED) {
+            item_unlink_q(it);
+            it->time = current_time;
+            item_link_q(it);
+        }
     }
 }
 
-int item_replace(item *it, item *new_it) {
+int do_item_replace(item *it, item *new_it) {
     assert((it->it_flags & ITEM_SLABBED) == 0);
 
-    item_unlink(it);
-    return item_link(new_it);
+    do_item_unlink(it);
+    return do_item_link(new_it);
 }
 
 /*@null@*/
@@ -337,8 +357,59 @@ char* item_stats_sizes(int *bytes) {
     return buf;
 }
 
+/* returns true if a deleted item's delete-locked-time is over, and it
+   should be removed from the namespace */
+int item_delete_lock_over (item *it) {
+    assert(it->it_flags & ITEM_DELETED);
+    return (current_time >= it->exptime);
+}
+
+/* wrapper around assoc_find which does the lazy expiration/deletion logic */
+item *do_item_get_notedeleted(char *key, size_t nkey, int *delete_locked) {
+    item *it = assoc_find(key, nkey);
+    if (delete_locked) *delete_locked = 0;
+    if (it && (it->it_flags & ITEM_DELETED)) {
+        /* it's flagged as delete-locked.  let's see if that condition
+           is past due, and the 5-second delete_timer just hasn't
+           gotten to it yet... */
+        if (! item_delete_lock_over(it)) {
+            if (delete_locked) *delete_locked = 1;
+            it = 0;
+        }
+    }
+    if (it && settings.oldest_live && settings.oldest_live <= current_time &&
+        it->time <= settings.oldest_live) {
+        do_item_unlink(it);           // MTSAFE - cache_lock held
+        it = 0;
+    }
+    if (it && it->exptime && it->exptime <= current_time) {
+        do_item_unlink(it);           // MTSAFE - cache_lock held
+        it = 0;
+    }
+
+    if (it) {
+        it->refcount++;
+        DEBUG_REFCNT(it, '+');
+    }
+    return it;
+}
+
+item *item_get(char *key, size_t nkey) {
+    return item_get_notedeleted(key, nkey, 0);
+}
+
+/* returns an item whether or not it's delete-locked or expired. */
+item *do_item_get_nocheck(char *key, size_t nkey) {
+    item *it = assoc_find(key, nkey);
+    if (it) {
+        it->refcount++;
+        DEBUG_REFCNT(it, '+');
+    }
+    return it;
+}
+
 /* expires items that are more recent than the oldest_live setting. */
-void item_flush_expired(void) {
+void do_item_flush_expired(void) {
     int i;
     item *iter, *next;
     if (settings.oldest_live == 0)
@@ -353,7 +424,7 @@ void item_flush_expired(void) {
             if (iter->time >= settings.oldest_live) {
                 next = iter->next;
                 if ((iter->it_flags & ITEM_SLABBED) == 0) {
-                    item_unlink(iter);
+                    do_item_unlink(iter);
                 }
             } else {
                 /* We've hit the first old item. Continue to the next queue. */

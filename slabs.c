@@ -9,10 +9,8 @@
  *
  * $Id$
  */
-#include "config.h"
-#include <sys/types.h>
+#include "memcached.h"
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/signal.h>
 #include <sys/resource.h>
@@ -21,18 +19,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <netinet/in.h>
 #include <errno.h>
-#include <event.h>
 #include <assert.h>
 #include <stdbool.h>
-
-#include "memcached.h"
 
 #define POWER_SMALLEST 1
 #define POWER_LARGEST  200
 #define POWER_BLOCK 1048576
 #define CHUNK_ALIGN_BYTES (sizeof(void *))
+#define DONT_PREALLOC_SLABS
 
 /* powers-of-N allocation structures */
 
@@ -63,7 +58,7 @@ static int power_largest;
 /*
  * Forward Declarations
  */
-static int slabs_newslab(const unsigned int id);
+static int do_slabs_newslab(const unsigned int id);
 
 #ifndef DONT_PREALLOC_SLABS
 /* Preallocate as many slab pages as possible (called from slabs_init)
@@ -161,7 +156,7 @@ static void slabs_preallocate (const unsigned int maxslabs) {
     for (i = POWER_SMALLEST; i <= POWER_LARGEST; i++) {
         if (++prealloc > maxslabs)
             return;
-        slabs_newslab(i);
+        do_slabs_newslab(i);
     }
 
 }
@@ -179,7 +174,7 @@ static int grow_slab_list (const unsigned int id) {
     return 1;
 }
 
-static int slabs_newslab(const unsigned int id) {
+static int do_slabs_newslab(const unsigned int id) {
     slabclass_t *p = &slabclass[id];
 #ifdef ALLOW_SLABS_REASSIGN
     int len = POWER_BLOCK;
@@ -206,7 +201,7 @@ static int slabs_newslab(const unsigned int id) {
 }
 
 /*@null@*/
-void *slabs_alloc(const size_t size) {
+void *do_slabs_alloc(const size_t size) {
     slabclass_t *p;
 
     unsigned int id = slabs_clsid(size);
@@ -225,7 +220,7 @@ void *slabs_alloc(const size_t size) {
 
     /* fail unless we have space at the end of a recently allocated page,
        we have something on our freelist, or we could allocate a new page */
-    if (! (p->end_page_ptr != 0 || p->sl_curr != 0 || slabs_newslab(id)  != 0))
+    if (! (p->end_page_ptr != 0 || p->sl_curr != 0 || do_slabs_newslab(id) != 0))
         return 0;
 
     /* return off our freelist, if we have one */
@@ -246,7 +241,7 @@ void *slabs_alloc(const size_t size) {
     return NULL;  /* shouldn't ever get here */
 }
 
-void slabs_free(void *ptr, const size_t size) {
+void do_slabs_free(void *ptr, const size_t size) {
     unsigned char id = slabs_clsid(size);
     slabclass_t *p;
 
@@ -276,7 +271,7 @@ void slabs_free(void *ptr, const size_t size) {
 }
 
 /*@null@*/
-char* slabs_stats(int *buflen) {
+char* do_slabs_stats(int *buflen) {
     int i, total;
     char *buf = (char *)malloc(power_largest * 200 + 100);
     char *bufcurr = buf;
@@ -318,7 +313,7 @@ char* slabs_stats(int *buflen) {
    1 = success
    0 = fail
    -1 = tried. busy. send again shortly. */
-int slabs_reassign(unsigned char srcid, unsigned char dstid) {
+int do_slabs_reassign(unsigned char srcid, unsigned char dstid) {
     void *slab, *slab_end;
     slabclass_t *p, *dp;
     void *iter;

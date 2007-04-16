@@ -14,17 +14,17 @@ void slabs_init(const size_t limit, const double factor);
 unsigned int slabs_clsid(const size_t size);
 
 /* Allocate object of given length. 0 on error */ /*@null@*/
-void *slabs_alloc(const size_t size);
+void *do_slabs_alloc(const size_t size);
 
 /* Free previously allocated object */
-void slabs_free(void *ptr, size_t size);
+void do_slabs_free(void *ptr, size_t size);
 
 /* Fill buffer with stats */ /*@null@*/
-char* slabs_stats(int *buflen);
+char* do_slabs_stats(int *buflen);
 
 /* Request some slab be moved between classes
   1 = success
    0 = fail
    -1 = tried. busy. send again shortly. */
-int slabs_reassign(unsigned char srcid, unsigned char dstid);
+int do_slabs_reassign(unsigned char srcid, unsigned char dstid);
 

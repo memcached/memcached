@@ -84,6 +84,18 @@ Print memcached and libevent licenses.
 .TP
 .B \-P <filename>
 Print pidfile to <filename>, only used under -d option.
+.TP
+.B \-t <threads>
+Number of threads to use to process incoming requests. This option is only
+meaningful if memcached was compiled with thread support enabled. It is 
+typically not useful to set this higher than the number of CPU cores on the
+memcached server.
+.TP
+.B \-D <char>
+Use <char> as the delimiter between key prefixes and IDs. This is used for
+per-prefix stats reporting. The default is ":" (colon). If this option is
+specified, stats collection is turned on automatically; if not, then it may
+be turned on by sending the "stats detail on" command to the server.
 .br
 .SH LICENSE
 The memcached daemon is copyright Danga Interactive and is distributed under 

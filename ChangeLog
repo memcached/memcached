@@ -69,6 +69,17 @@
 
 	* Explicitly compare against NULL or zero in many places.
 
+2007-03-05
+	* Steven Grimm <sgrimm@facebook.com>: Per-object-type stats collection
+	  support. Specify the object type delimiter with the -D command line
+	  option. Turn stats gathering on and off with "stats detail on" and
+	  "stats detail off". Dump the per-object-type details with
+	  "stats detail dump".
+
+2007-03-01
+	* Steven Grimm <sgrimm@facebook.com>: Fix an off-by-one error in the
+	  multithreaded version's message passing code.
+
 2006-12-23
 	* fix expirations of items set with absolute expiration times in
 	  the past, before the server's start time.  bug was introduced in
@@ -97,9 +108,19 @@
 	* Steve Peters <steve@fisharerojo.org>: OpenBSD has a malloc.h,
 	but warns to use stdlib.h instead
 
+2006-11-22
+	* Steven Grimm <sgrimm@facebook.com>: Add support for multithreaded
+	  execution. Run configure with "--enable-threads" to enable. See
+	  doc/threads.txt for details.
+
 2006-11-13
 	* Iain Wade <iwade@optusnet.com.au>: Fix for UDP responses on non-"get"
 	 commands.
+
+2006-10-15
+	* Steven Grimm <sgrimm@facebook.com>: Dynamic sizing of hashtable to
+	  reduce collisions on very large caches and conserve memory on
+	  small caches.
 
 2006-10-13
 	* Steven Grimm <sgrimm@facebook.com>: New faster hash function.

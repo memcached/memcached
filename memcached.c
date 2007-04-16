@@ -15,10 +15,8 @@
  *
  *  $Id$
  */
-#include "config.h"
-#include <sys/types.h>
+#include "memcached.h"
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/signal.h>
@@ -41,12 +39,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <time.h>
-#include <event.h>
 #include <assert.h>
 #include <limits.h>
 
@@ -63,8 +59,6 @@
 # define IOV_MAX 1024
 #endif
 #endif
-
-#include "memcached.h"
 
 /*
  * forward declarations
@@ -85,7 +79,6 @@ static void settings_init(void);
 
 /* event handling, network IO */
 static void event_handler(const int fd, const short which, void *arg);
-static conn *conn_new(const int sfd, const int init_state, const int event_flags, const int read_buffer_size, const bool is_udp);
 static void conn_close(conn *c);
 static void conn_init(void);
 static void accept_new_conns(const bool do_accept);
@@ -115,6 +108,7 @@ static item **todelete = 0;
 static int delcurr;
 static int deltotal;
 static conn *listen_conn;
+static struct event_base *main_base;
 
 #define TRANSMIT_COMPLETE   0
 #define TRANSMIT_INCOMPLETE 1
@@ -159,12 +153,16 @@ static void stats_init(void) {
        like 'settings.oldest_live' which act as booleans as well as
        values are now false in boolean context... */
     stats.started = time(0) - 2;
+    stats_prefix_init();
 }
 
 static void stats_reset(void) {
+    STATS_LOCK();
     stats.total_items = stats.total_conns = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
     stats.bytes_read = stats.bytes_written = 0;
+    stats_prefix_clear();
+    STATS_UNLOCK();
 }
 
 static void settings_init(void) {
@@ -180,6 +178,13 @@ static void settings_init(void) {
     settings.managed = false;
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
+#ifdef USE_THREADS
+    settings.num_threads = 4;
+#else
+    settings.num_threads = 1;
+#endif
+    settings.prefix_delimiter = ':';
+    settings.detail_enabled = 0;
 }
 
 /* returns true if a deleted item's delete-locked-time is over, and it
@@ -187,37 +192,6 @@ static void settings_init(void) {
 static bool item_delete_lock_over (item *it) {
     assert(it->it_flags & ITEM_DELETED);
     return (current_time >= it->exptime);
-}
-
-/* wrapper around assoc_find which does the lazy expiration/deletion logic */
-static item *get_item_notedeleted(const char *key, const size_t nkey, int *delete_locked) {
-    item *it = assoc_find(key, nkey);
-
-    if (delete_locked) *delete_locked = 0;
-
-    if (it != NULL && (it->it_flags & ITEM_DELETED)) {
-        /* it's flagged as delete-locked.  let's see if that condition
-           is past due, and the 5-second delete_timer just hasn't
-           gotten to it yet... */
-        if (! item_delete_lock_over(it)) {
-            if (delete_locked) *delete_locked = 1;
-            it = 0;
-        }
-    }
-    if (it != NULL && settings.oldest_live != 0 && settings.oldest_live <= current_time &&
-        it->time <= settings.oldest_live) {
-        item_unlink(it);
-        it = 0;
-    }
-    if (it != NULL && it->exptime != 0 && it->exptime <= current_time) {
-        item_unlink(it);
-        it = 0;
-    }
-    return it;
-}
-
-static item *get_item(const char *key, const size_t nkey) {
-    return get_item_notedeleted(key, nkey, 0);
 }
 
 /*
@@ -260,9 +234,15 @@ static int add_msghdr(conn *c)
     return 0;
 }
 
+
+/*
+ * Free list management for connections.
+ */
+
 static conn **freeconns;
 static int freetotal;
 static int freecurr;
+
 
 static void conn_init(void) {
     freetotal = 200;
@@ -273,15 +253,48 @@ static void conn_init(void) {
     return;
 }
 
-/*@null@*/
-static conn *conn_new(const int sfd, const int init_state, const int event_flags,
-                      const int read_buffer_size, const bool is_udp) {
+/*
+ * Returns a connection from the freelist, if any. Should call this using
+ * conn_from_freelist() for thread safety.
+ */
+conn *do_conn_from_freelist() {
     conn *c;
 
-    /* do we have a free conn structure from a previous close? */
     if (freecurr > 0) {
         c = freeconns[--freecurr];
-    } else { /* allocate a new one */
+    } else {
+        c = NULL;
+    }
+
+    return c;
+}
+
+/*
+ * Adds a connection to the freelist. 0 = success. Should call this using
+ * conn_add_to_freelist() for thread safety.
+ */
+int do_conn_add_to_freelist(conn *c) {
+    if (freecurr < freetotal) {
+        freeconns[freecurr++] = c;
+        return 0;
+    } else {
+        /* try to enlarge free connections array */
+        conn **new_freeconns = realloc(freeconns, sizeof(conn *) * freetotal * 2);
+        if (new_freeconns) {
+            freetotal *= 2;
+            freeconns = new_freeconns;
+            freeconns[freecurr++] = c;
+            return 0;
+        }
+    }
+    return 1;
+}
+
+conn *conn_new(const int sfd, const int init_state, const int event_flags,
+                const int read_buffer_size, const bool is_udp, struct event_base *base) {
+    conn *c = conn_from_freelist();
+
+    if (NULL == c) {
         if (!(c = (conn *)malloc(sizeof(conn)))) {
             perror("malloc()");
             return NULL;
@@ -317,7 +330,9 @@ static conn *conn_new(const int sfd, const int init_state, const int event_flags
             return NULL;
         }
 
+        STATS_LOCK();
         stats.conn_structs++;
+        STATS_UNLOCK();
     }
 
     if (settings.verbose > 1) {
@@ -350,26 +365,20 @@ static conn *conn_new(const int sfd, const int init_state, const int event_flags
     c->gen = 0;
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
+    event_base_set(base, &c->event);
     c->ev_flags = event_flags;
 
     if (event_add(&c->event, 0) == -1) {
-        if (freecurr < freetotal) {
-            freeconns[freecurr++] = c;
-        } else {
-            if (c->hdrbuf)
-                free (c->hdrbuf);
-            free (c->msglist);
-            free (c->rbuf);
-            free (c->wbuf);
-            free (c->ilist);
-            free (c->iov);
-            free (c);
+        if (conn_add_to_freelist(c)) {
+            conn_free(c);
         }
         return NULL;
     }
 
+    STATS_LOCK();
     stats.curr_conns++;
     stats.total_conns++;
+    STATS_UNLOCK();
 
     return c;
 }
@@ -378,7 +387,7 @@ static void conn_cleanup(conn *c) {
     assert(c != NULL);
 
     if (c->item) {
-        item_free(c->item);
+        item_remove(c->item);
         c->item = 0;
     }
 
@@ -397,7 +406,7 @@ static void conn_cleanup(conn *c) {
 /*
  * Frees a connection.
  */
-static void conn_free(conn *c) {
+void conn_free(conn *c) {
     if (c) {
         if (c->hdrbuf)
             free(c->hdrbuf);
@@ -429,24 +438,13 @@ static void conn_close(conn *c) {
     conn_cleanup(c);
 
     /* if the connection has big buffers, just free it */
-    if (c->rsize > READ_BUFFER_HIGHWAT) {
+    if (c->rsize > READ_BUFFER_HIGHWAT || conn_add_to_freelist(c)) {
         conn_free(c);
-    } else if (freecurr < freetotal) {
-        /* if we have enough space in the free connections array, put the structure there */
-        freeconns[freecurr++] = c;
-    } else {
-        /* try to enlarge free connections array */
-        conn **new_freeconns = realloc((void *)freeconns, sizeof(conn *) * freetotal * 2);
-        if (new_freeconns) {
-            freetotal *= 2;
-            freeconns = new_freeconns;
-            freeconns[freecurr++] = c;
-        } else {
-            conn_free(c);
-        }
     }
 
+    STATS_LOCK();
     stats.curr_conns--;
+    STATS_UNLOCK();
 
     return;
 }
@@ -689,56 +687,63 @@ static void complete_nread(conn *c) {
 
     item *it = c->item;
     int comm = c->item_comm;
-    item *old_it;
-    int delete_locked = 0;
-    char *key = ITEM_key(it);
 
+    STATS_LOCK();
     stats.set_cmds++;
+    STATS_UNLOCK();
 
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
-        goto err;
+    } else {
+        if (store_item(it, comm)) {
+            out_string(c, "STORED");
+        } else {
+            out_string(c, "NOT_STORED");
+        }
     }
 
-    old_it = get_item_notedeleted(key, it->nkey, &delete_locked);
+    item_remove(c->item);       /* release the c->item reference */
+    c->item = 0;
+}
+
+/*
+ * Stores an item in the cache according to the semantics of one of the set
+ * commands. In threaded mode, this is protected by the cache lock.
+ *
+ * Returns true if the item was stored.
+ */
+int do_store_item(item *it, int comm) {
+    char *key = ITEM_key(it);
+    int delete_locked = 0;
+    item *old_it = do_item_get_notedeleted(key, it->nkey, &delete_locked);
+    int stored = 0;
 
     if (old_it != NULL && comm == NREAD_ADD) {
-        item_update(old_it);  /* touches item, promotes to head of LRU */
-        out_string(c, "NOT_STORED");
-        goto err;
-    }
+        /* add only adds a nonexistent item, but promote to head of LRU */
+        do_item_update(old_it);
+    } else if (!old_it && comm == NREAD_REPLACE) {
+        /* replace only replaces an existing value; don't store */
+    } else if (delete_locked && (comm == NREAD_REPLACE || comm == NREAD_ADD)) {
+        /* replace and add can't override delete locks; don't store */
+    } else {
+        /* "set" commands can override the delete lock
+           window... in which case we have to find the old hidden item
+           that's in the namespace/LRU but wasn't returned by
+           item_get.... because we need to replace it */
+        if (delete_locked)
+            old_it = do_item_get_nocheck(key, it->nkey);
 
-    if (old_it == NULL && comm == NREAD_REPLACE) {
-        out_string(c, "NOT_STORED");
-        goto err;
-    }
+        if (old_it != NULL)
+            do_item_replace(old_it, it);
+        else
+            do_item_link(it);
 
-    if (delete_locked != 0) {
-        if (comm == NREAD_REPLACE || comm == NREAD_ADD) {
-            out_string(c, "NOT_STORED");
-            goto err;
-        }
-
-        /* but "set" commands can override the delete lock
-         window... in which case we have to find the old hidden item
-         that's in the namespace/LRU but wasn't returned by
-         get_item.... because we need to replace it (below) */
-        old_it = assoc_find(key, it->nkey);
+        stored = 1;
     }
 
     if (old_it)
-        item_replace(old_it, it);
-    else
-        item_link(it);
-
-    c->item = 0;
-    out_string(c, "STORED");
-    return;
-
-err:
-     item_free(it);
-     c->item = 0;
-     return;
+        do_item_remove(old_it);         /* release our reference */
+    return stored;
 }
 
 typedef struct token_s {
@@ -816,6 +821,36 @@ static size_t tokenize_command(char *command, token_t *tokens, const size_t max_
     return ntokens;
 }
 
+inline void process_stats_detail(conn *c, const char *command) {
+    assert(c != NULL);
+
+    if (strcmp(command, "on") == 0) {
+        settings.detail_enabled = 1;
+        out_string(c, "OK");
+    }
+    else if (strcmp(command, "off") == 0) {
+        settings.detail_enabled = 0;
+        out_string(c, "OK");
+    }
+    else if (strcmp(command, "dump") == 0) {
+        int len;
+        char *stats = stats_prefix_dump(&len);
+        if (NULL != stats) {
+            c->write_and_free = stats;
+            c->wcurr = stats;
+            c->wbytes = len;
+            conn_set_state(c, conn_write);
+            c->write_and_go = conn_read;
+        }
+        else {
+            out_string(c, "SERVER_ERROR");
+        }
+    }
+    else {
+        out_string(c, "CLIENT_ERROR usage: stats detail on|off|dump");
+    }
+}
+
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     rel_time_t now = current_time;
     char *command;
@@ -838,6 +873,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
         getrusage(RUSAGE_SELF, &usage);
 
+        STATS_LOCK();
         pos += sprintf(pos, "STAT pid %u\r\n", pid);
         pos += sprintf(pos, "STAT uptime %u\r\n", now);
         pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
@@ -859,7 +895,9 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
         pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (unsigned long long)settings.maxbytes);
+        pos += sprintf(pos, "STAT threads %u\r\n", settings.num_threads);
         pos += sprintf(pos, "END");
+        STATS_UNLOCK();
         out_string(c, temp);
         return;
     }
@@ -989,6 +1027,14 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         return;
     }
 
+    if (strcmp(subcommand, "detail") == 0) {
+        if (ntokens < 4)
+            process_stats_detail(c, "");  /* outputs the error message */
+        else
+            process_stats_detail(c, tokens[2].value);
+        return;
+    }
+
     if (strcmp(subcommand, "sizes") == 0) {
         int bytes = 0;
         char *buf = item_stats_sizes(&bytes);
@@ -1042,8 +1088,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens)
                 return;
             }
 
+            STATS_LOCK();
             stats.get_cmds++;
-            it = get_item(key, nkey);
+            STATS_UNLOCK();
+            it = item_get(key, nkey);
+            if (settings.detail_enabled) {
+                stats_prefix_record_get(key, NULL != it);
+            }
             if (it) {
                 if (i >= c->isize) {
                     item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
@@ -1069,13 +1120,19 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens)
                 if (settings.verbose > 1)
                     fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
 
+                /* item_get() has incremented it->refcount for us */
+                STATS_LOCK();
                 stats.get_hits++;
-                it->refcount++;
+                STATS_UNLOCK();
                 item_update(it);
                 *(c->ilist + i) = it;
                 i++;
 
-            } else stats.get_misses++;
+            } else {
+                STATS_LOCK();
+                stats.get_misses++;
+                STATS_UNLOCK();
+            }
 
             key_token++;
         }
@@ -1135,6 +1192,10 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         return;
     }
 
+    if (settings.detail_enabled) {
+        stats_prefix_record_set(key);
+    }
+
     if (settings.managed) {
         int bucket = c->bucket;
         if (bucket == -1) {
@@ -1166,18 +1227,14 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     c->ritem = ITEM_data(it);
     c->rlbytes = it->nbytes;
     conn_set_state(c, conn_nread);
-    return;
 }
 
 static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const int incr) {
     char temp[32];
-    unsigned int value;
     item *it;
     unsigned int delta;
     char *key;
     size_t nkey;
-    int res;
-    char *ptr;
 
     assert(c != NULL);
 
@@ -1202,12 +1259,6 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         }
     }
 
-    it = get_item(key, nkey);
-    if (!it) {
-        out_string(c, "NOT_FOUND");
-        return;
-    }
-
     delta = strtoul(tokens[2].value, NULL, 10);
 
     if(errno == ERANGE) {
@@ -1215,14 +1266,38 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
+    it = item_get(key, nkey);
+    if (!it) {
+        out_string(c, "NOT_FOUND");
+        return;
+    }
+
+    out_string(c, add_delta(it, incr, delta, temp));
+    item_remove(it);         /* release our reference */
+}
+
+/*
+ * adds a delta value to a numeric item.
+ *
+ * it    item to adjust
+ * incr  true to increment value, false to decrement
+ * delta amount to adjust value by
+ * buf   buffer for response string
+ *
+ * returns a response string to send back to the client.
+ */
+char *do_add_delta(item *it, int incr, unsigned int delta, char *buf) {
+    char *ptr;
+    unsigned int value;
+    int res;
+
     ptr = ITEM_data(it);
     while ((*ptr != '\0') && (*ptr < '0' && *ptr > '9')) ptr++;    // BUG: can't be true
 
     value = strtol(ptr, NULL, 10);
 
     if(errno == ERANGE) {
-        out_string(c, "CLIENT_ERROR cannot increment or decrement non-numeric value");
-        return;
+        return "CLIENT_ERROR cannot increment or decrement non-numeric value";
     }
 
     if (incr != 0)
@@ -1231,24 +1306,24 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         if (delta >= value) value = 0;
         else value -= delta;
     }
-    snprintf(temp, 32, "%u", value);
-    res = strlen(temp);
+    snprintf(buf, 32, "%u", value);
+    res = strlen(buf);
     if (res + 2 > it->nbytes) { /* need to realloc */
         item *new_it;
-        new_it = item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
+        new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
         if (new_it == 0) {
-            out_string(c, "SERVER_ERROR out of memory");
-            return;
+            return "SERVER_ERROR out of memory";
         }
-        memcpy(ITEM_data(new_it), temp, res);
+        memcpy(ITEM_data(new_it), buf, res);
         memcpy(ITEM_data(new_it) + res, "\r\n", 3);
-        item_replace(it, new_it);
+        do_item_replace(it, new_it);
+        do_item_remove(new_it);       /* release our reference */
     } else { /* replace in-place */
-        memcpy(ITEM_data(it), temp, res);
+        memcpy(ITEM_data(it), buf, res);
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
     }
-    out_string(c, temp);
-    return;
+
+    return buf;
 }
 
 static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -1289,17 +1364,32 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         }
     }
 
-    it = get_item(key, nkey);
-    if (!it) {
-        out_string(c, "NOT_FOUND");
-        return;
+    if (settings.detail_enabled) {
+        stats_prefix_record_delete(key);
     }
 
-    if (exptime == 0) {
-        item_unlink(it);
-        out_string(c, "DELETED");
-        return;
+    it = item_get(key, nkey);
+    if (it) {
+        if (exptime == 0) {
+            item_unlink(it);
+            item_remove(it);      /* release our reference */
+            out_string(c, "DELETED");
+        } else {
+            /* our reference will be transfered to the delete queue */
+            out_string(c, defer_delete(it, exptime));
+        }
+    } else {
+        out_string(c, "NOT_FOUND");
     }
+}
+
+/*
+ * Adds an item to the deferred-delete list so it can be reaped later.
+ *
+ * Returns the result to send to the client.
+ */
+char *do_defer_delete(item *it, time_t exptime)
+{
     if (delcurr >= deltotal) {
         item **new_delete = realloc(todelete, sizeof(item *) * deltotal * 2);
         if (new_delete) {
@@ -1310,18 +1400,17 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
              * can't delete it immediately, user wants a delay,
              * but we ran out of memory for the delete queue
              */
-            out_string(c, "SERVER_ERROR out of memory");
-            return;
+            item_remove(it);    /* release reference */
+            return "SERVER_ERROR out of memory";
         }
     }
 
-    it->refcount++;
     /* use its expiration time as its deletion time now */
     it->exptime = realtime(exptime);
     it->it_flags |= ITEM_DELETED;
     todelete[delcurr++] = it;
-    out_string(c, "DELETED");
-    return;
+
+    return "DELETED";
 }
 
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -1565,7 +1654,9 @@ static int try_read_udp(conn *c) {
                    0, &c->request_addr, &c->request_addr_size);
     if (res > 8) {
         unsigned char *buf = (unsigned char *)c->rbuf;
+        STATS_LOCK();
         stats.bytes_read += res;
+        STATS_UNLOCK();
 
         /* Beginning of UDP packet is the request ID; save it. */
         c->request_id = buf[0] * 256 + buf[1];
@@ -1632,7 +1723,9 @@ static int try_read_network(conn *c) {
 
         res = read(c->sfd, c->rbuf + c->rbytes, c->rsize - c->rbytes);
         if (res > 0) {
+            STATS_LOCK();
             stats.bytes_read += res;
+            STATS_UNLOCK();
             gotdata = 1;
             c->rbytes += res;
             continue;
@@ -1653,10 +1746,12 @@ static int try_read_network(conn *c) {
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
 
+    struct event_base *base = c->event.ev_base;
     if (c->ev_flags == new_flags)
         return true;
     if (event_del(&c->event) == -1) return false;
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
+    event_base_set(base, &c->event);
     c->ev_flags = new_flags;
     if (event_add(&c->event, 0) == -1) return false;
     return true;
@@ -1666,6 +1761,8 @@ static bool update_event(conn *c, const int new_flags) {
  * Sets whether we are listening for new connections or not.
  */
 void accept_new_conns(const bool do_accept) {
+    if (! is_listen_thread())
+        return;
     if (do_accept) {
         update_event(listen_conn, EV_READ | EV_PERSIST);
         if (listen(listen_conn->sfd, 1024) != 0) {
@@ -1704,7 +1801,9 @@ static int transmit(conn *c) {
 
         res = sendmsg(c->sfd, m, 0);
         if (res > 0) {
+            STATS_LOCK();
             stats.bytes_written += res;
+            STATS_UNLOCK();
 
             /* We've written some of the data. Remove the completed
                iovec entries from the list of pending writes. */
@@ -1762,14 +1861,16 @@ static void drive_machine(conn *c) {
             addrlen = sizeof(addr);
             if ((sfd = accept(c->sfd, &addr, &addrlen)) == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    /* these are transient, so don't log anything */
                     stop = true;
-                    break;
                 } else if (errno == EMFILE) {
                     if (settings.verbose > 0)
                         fprintf(stderr, "Too many open connections\n");
                     accept_new_conns(false);
+                    stop = true;
                 } else {
                     perror("accept()");
+                    stop = true;
                 }
                 break;
             }
@@ -1779,14 +1880,8 @@ static void drive_machine(conn *c) {
                 close(sfd);
                 break;
             }
-            if (conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
-                            DATA_BUFFER_SIZE, false) == NULL) {
-                if (settings.verbose > 0)
-                    fprintf(stderr, "couldn't create new connection\n");
-                close(sfd);
-                break;
-            }
-
+            dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
+                                     DATA_BUFFER_SIZE, false);
             break;
 
         case conn_read:
@@ -1826,7 +1921,9 @@ static void drive_machine(conn *c) {
             /*  now try reading from the socket */
             res = read(c->sfd, c->ritem, c->rlbytes);
             if (res > 0) {
+                STATS_LOCK();
                 stats.bytes_read += res;
+                STATS_UNLOCK();
                 c->ritem += res;
                 c->rlbytes -= res;
                 break;
@@ -1870,7 +1967,9 @@ static void drive_machine(conn *c) {
             /*  now try reading from the socket */
             res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
             if (res > 0) {
+                STATS_LOCK();
                 stats.bytes_read += res;
+                STATS_UNLOCK();
                 c->sbytes -= res;
                 break;
             }
@@ -1955,7 +2054,6 @@ static void drive_machine(conn *c) {
             stop = true;
             break;
         }
-
     }
 
     return;
@@ -1977,7 +2075,6 @@ void event_handler(const int fd, const short which, void *arg) {
         return;
     }
 
-    /* do as much I/O as possible until we block */
     drive_machine(c);
 
     /* wait for next event */
@@ -2188,6 +2285,7 @@ static void clock_handler(const int fd, const short which, void *arg) {
     }
 
     evtimer_set(&clockevent, clock_handler, 0);
+    event_base_set(main_base, &clockevent);
     evtimer_add(&clockevent, &t);
 
     set_current_time();
@@ -2208,22 +2306,28 @@ static void delete_handler(const int fd, const short which, void *arg) {
     }
 
     evtimer_set(&deleteevent, delete_handler, 0);
+    event_base_set(main_base, &deleteevent);
     evtimer_add(&deleteevent, &t);
-    {
-        int i=0, j=0;
-        for (i=0; i<delcurr; i++) {
-            item *it = todelete[i];
-            if (item_delete_lock_over(it)) {
-                assert(it->refcount > 0);
-                it->it_flags &= ~ITEM_DELETED;
-                item_unlink(it);
-                item_remove(it);
-            } else {
-                todelete[j++] = it;
-            }
+    run_deferred_deletes();
+}
+
+/* Call run_deferred_deletes instead of this. */
+void do_run_deferred_deletes(void)
+{
+    int i, j = 0;
+
+    for (i = 0; i < delcurr; i++) {
+        item *it = todelete[i];
+        if (item_delete_lock_over(it)) {
+            assert(it->refcount > 0);
+            it->it_flags &= ~ITEM_DELETED;
+            do_item_unlink(it);
+            do_item_remove(it);
+        } else {
+            todelete[j++] = it;
         }
-        delcurr = j;
     }
+    delcurr = j;
 }
 
 static void usage(void) {
@@ -2247,6 +2351,9 @@ static void usage(void) {
            "-P <file>     save PID in <file>, only used with -d option\n"
            "-f <factor>   chunk size growth factor, default 1.25\n"
            "-n <bytes>    minimum space allocated for key+value+flags, default 48\n");
+#ifdef USE_THREADS
+    printf("-t <num>      number of threads to use, default 4\n");
+#endif
     return;
 }
 
@@ -2356,7 +2463,6 @@ static void sig_handler(const int sig) {
 
 int main (int argc, char **argv) {
     int c;
-    conn *u_conn;
     struct in_addr addr;
     bool lock_memory = false;
     bool daemonize = false;
@@ -2377,7 +2483,7 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "bp:s:U:m:Mc:khirvdl:u:P:f:s:n:")) != -1) {
+    while ((c = getopt(argc, argv, "bp:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:")) != -1) {
         switch (c) {
         case 'U':
             settings.udpport = atoi(optarg);
@@ -2445,6 +2551,21 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "Chunk size must be greater than 0\n");
                 return 1;
             }
+            break;
+        case 't':
+            settings.num_threads = atoi(optarg);
+            if (settings.num_threads == 0) {
+                fprintf(stderr, "Number of threads must be greater than 0\n");
+                return 1;
+            }
+            break;
+        case 'D':
+            if (! optarg || ! optarg[0]) {
+                fprintf(stderr, "No delimiter specified\n");
+                return 1;
+            }
+            settings.prefix_delimiter = optarg[0];
+            settings.detail_enabled = 1;
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
@@ -2559,10 +2680,11 @@ int main (int argc, char **argv) {
         }
     }
 
+    /* initialize main thread libevent instance */
+    main_base = event_init();
 
     /* initialize other stuff */
     item_init();
-    event_init();
     stats_init();
     assoc_init();
     conn_init();
@@ -2599,16 +2721,16 @@ int main (int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
     /* create the initial listening connection */
-    if (!(listen_conn = conn_new(l_socket, conn_listening, EV_READ | EV_PERSIST, 1, false))) {
+    if (!(listen_conn = conn_new(l_socket, conn_listening,
+                                 EV_READ | EV_PERSIST, 1, false, main_base))) {
         fprintf(stderr, "failed to create listening connection");
         exit(EXIT_FAILURE);
     }
-    /* create the initial listening udp connection */
-    if (u_socket > -1 &&
-        !(u_conn = conn_new(u_socket, conn_read, EV_READ | EV_PERSIST, UDP_READ_BUFFER_SIZE, true))) {
-        fprintf(stderr, "failed to create udp connection");
-        exit(EXIT_FAILURE);
-    }
+    /* save the PID in if we're a daemon */
+    if (daemonize)
+        save_pid(getpid(), pid_file);
+    /* start up worker threads if MT mode */
+    thread_init(settings.num_threads, main_base);
     /* initialise clock event */
     clock_handler(0, 0, 0);
     /* initialise deletion array and timer event */
@@ -2616,11 +2738,16 @@ int main (int argc, char **argv) {
     delcurr = 0;
     todelete = malloc(sizeof(item *) * deltotal);
     delete_handler(0, 0, 0); /* sets up the event */
-    /* save the PID in if we're a daemon */
-    if (daemonize)
-        save_pid(getpid(), pid_file);
-    /* enter the loop */
-    event_loop(0);
+    /* create the initial listening udp connection, monitored on all threads */
+    if (u_socket > -1) {
+        for (c = 0; c < settings.num_threads; c++) {
+            /* this is guaranteed to hit all threads because we round-robin */
+            dispatch_conn_new(u_socket, conn_read, EV_READ | EV_PERSIST,
+                              UDP_READ_BUFFER_SIZE, 1);
+        }
+    }
+    /* enter the event loop */
+    event_base_loop(main_base, 0);
     /* remove the PID file if we're a daemon */
     if (daemonize)
         remove_pidfile(pid_file);

@@ -12,10 +12,9 @@
  *
  * $Id$
  */
-#include "config.h"
-#include <sys/types.h>
+
+#include "memcached.h"
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/signal.h>
 #include <sys/resource.h>
@@ -24,12 +23,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include <netinet/in.h>
 #include <errno.h>
-#include <event.h>
 #include <assert.h>
-
-#include "memcached.h"
 
 /*
  * Since the hash function does bit manipulation, it needs to know
@@ -142,7 +137,7 @@ and these came close:
 }
 
 #if HASH_LITTLE_ENDIAN == 1
-static uint32_t hash(
+uint32_t hash(
   const void *key,       /* the key to hash */
   size_t      length,    /* length of the key */
   const uint32_t    initval)   /* initval */
@@ -323,7 +318,7 @@ static uint32_t hash(
  * from hashlittle() on all machines.  hashbig() takes advantage of
  * big-endian byte ordering.
  */
-static uint32_t hash( const void *key, size_t length, const uint32_t initval)
+uint32_t hash( const void *key, size_t length, const uint32_t initval)
 {
   uint32_t a,b,c;
   union { const void *ptr; size_t i; } u; /* to cast key to (size_t) happily */
@@ -541,39 +536,41 @@ static void assoc_expand(void) {
 
     primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));
     if (primary_hashtable) {
-    if (settings.verbose > 1)
-        fprintf(stderr, "Hash table expansion starting\n");
+        if (settings.verbose > 1)
+            fprintf(stderr, "Hash table expansion starting\n");
         hashpower++;
         expanding = 1;
         expand_bucket = 0;
-    assoc_move_next_bucket();
+        do_assoc_move_next_bucket();
     } else {
         primary_hashtable = old_hashtable;
-    /* Bad news, but we can keep running. */
+        /* Bad news, but we can keep running. */
     }
 }
 
 /* migrates the next bucket to the primary hashtable if we're expanding. */
-void assoc_move_next_bucket(void) {
+void do_assoc_move_next_bucket(void) {
     item *it, *next;
     int bucket;
 
     if (expanding) {
         for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
-        next = it->h_next;
+            next = it->h_next;
 
             bucket = hash(ITEM_key(it), it->nkey, 0) & hashmask(hashpower);
             it->h_next = primary_hashtable[bucket];
             primary_hashtable[bucket] = it;
-    }
+        }
 
-    expand_bucket++;
-    if (expand_bucket == hashsize(hashpower - 1)) {
-        expanding = 0;
-        free(old_hashtable);
-        if (settings.verbose > 1)
-            fprintf(stderr, "Hash table expansion done\n");
-    }
+        old_hashtable[expand_bucket] = NULL;
+
+        expand_bucket++;
+        if (expand_bucket == hashsize(hashpower - 1)) {
+            expanding = 0;
+            free(old_hashtable);
+            if (settings.verbose > 1)
+                fprintf(stderr, "Hash table expansion done\n");
+        }
     }
 }
 
