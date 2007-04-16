@@ -12,7 +12,7 @@
  *  Authors:
  *      Anatoly Vorobey <mellon@pobox.com>
  *      Brad Fitzpatrick <brad@danga.com>
- *
+std *
  *  $Id$
  */
 #include "memcached.h"
@@ -35,13 +35,13 @@
 #include <pwd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <unistd.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <assert.h>
 #include <limits.h>
@@ -168,7 +168,7 @@ static void stats_reset(void) {
 static void settings_init(void) {
     settings.port = 11211;
     settings.udpport = 0;
-    settings.interface.s_addr = htonl(INADDR_ANY);
+    settings.interf.s_addr = htonl(INADDR_ANY);
     settings.maxbytes = 67108864; /* default is 64MB: (64 * 1024 * 1024) */
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
@@ -894,7 +894,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         pos += sprintf(pos, "STAT evictions %llu\r\n", stats.evictions);
         pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
-        pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (unsigned long long)settings.maxbytes);
+        pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (uint64_t) settings.maxbytes);
         pos += sprintf(pos, "STAT threads %u\r\n", settings.num_threads);
         pos += sprintf(pos, "END");
         STATS_UNLOCK();
@@ -2122,7 +2122,7 @@ static void maximize_sndbuf(const int sfd) {
 
     while (min <= max) {
         avg = ((unsigned int)(min + max)) / 2;
-        if (setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &avg, intsize) == 0) {
+        if (setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, (void *)&avg, intsize) == 0) {
             last_good = avg;
             min = avg + 1;
         } else {
@@ -2145,13 +2145,13 @@ static int server_socket(const int port, const bool is_udp) {
         return -1;
     }
 
-    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &flags, sizeof(flags));
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
     if (is_udp) {
         maximize_sndbuf(sfd);
     } else {
-        setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, &flags, sizeof(flags));
-        setsockopt(sfd, SOL_SOCKET, SO_LINGER, &ling, sizeof(ling));
-        setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, &flags, sizeof(flags));
+        setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
+        setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
+        setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
     }
 
     /*
@@ -2162,7 +2162,7 @@ static int server_socket(const int port, const bool is_udp) {
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr = settings.interface;
+    addr.sin_addr = settings.interf;
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
         close(sfd);
@@ -2217,9 +2217,9 @@ static int server_socket_unix(const char *path) {
             unlink(path);
     }
 
-    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &flags, sizeof(flags));
-    setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, &flags, sizeof(flags));
-    setsockopt(sfd, SOL_SOCKET, SO_LINGER, &ling, sizeof(ling));
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
+    setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
+    setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
 
     /*
      * the memset call clears nonstandard fields in some impementations
@@ -2468,10 +2468,10 @@ int main (int argc, char **argv) {
     bool daemonize = false;
     int maxcore = 0;
     char *username = NULL;
+    char *pid_file = NULL;
     struct passwd *pw;
     struct sigaction sa;
     struct rlimit rlim;
-    char *pid_file = NULL;
 
     /* handle SIGINT */
     signal(SIGINT, sig_handler);
@@ -2523,7 +2523,7 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "Illegal address: %s\n", optarg);
                 return 1;
             } else {
-                settings.interface = addr;
+                settings.interf = addr;
             }
             break;
         case 'd':

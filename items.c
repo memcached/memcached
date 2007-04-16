@@ -6,11 +6,12 @@
 #include <sys/signal.h>
 #include <sys/resource.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
-#include <errno.h>
 #include <time.h>
 #include <assert.h>
 
@@ -310,7 +311,7 @@ void item_stats(char *buffer, const int buflen) {
     }
 
     for (i = 0; i < LARGEST_ID; i++) {
-        if (tails[i])
+        if (tails[i] != NULL)
             bufcurr += snprintf(bufcurr, (size_t)buflen, "STAT items:%d:number %u\r\nSTAT items:%d:age %u\r\n",
                                i, sizes[i], i, now - tails[i]->time);
     }

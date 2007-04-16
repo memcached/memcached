@@ -19,11 +19,12 @@
 #include <sys/signal.h>
 #include <sys/resource.h>
 #include <fcntl.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
-#include <errno.h>
 #include <assert.h>
 
 /*

@@ -1,5 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /* $Id$ */
+
 #include "config.h"
 #include <sys/types.h>
 #include <sys/time.h>
@@ -46,18 +47,18 @@ typedef unsigned int rel_time_t;
 struct stats {
     unsigned int  curr_items;
     unsigned int  total_items;
-    unsigned long long curr_bytes;
+    uint64_t      curr_bytes;
     unsigned int  curr_conns;
     unsigned int  total_conns;
     unsigned int  conn_structs;
-    unsigned long long  get_cmds;
-    unsigned long long  set_cmds;
-    unsigned long long  get_hits;
-    unsigned long long  get_misses;
-    unsigned long long  evictions;
+    uint64_t      get_cmds;
+    uint64_t      set_cmds;
+    uint64_t      get_hits;
+    uint64_t      get_misses;
+    uint64_t      evictions;
     time_t        started;          /* when the process was started */
-    unsigned long long bytes_read;
-    unsigned long long bytes_written;
+    uint64_t      bytes_read;
+    uint64_t      bytes_written;
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -67,7 +68,7 @@ struct settings {
     int maxconns;
     int port;
     int udpport;
-    struct in_addr interface;
+    struct in_addr interf;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
     bool managed;          /* if 1, a tracker manages virtual buckets */
