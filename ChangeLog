@@ -1,7 +1,11 @@
+
 2007-04-16  Paul Lindner  <lindner@inuus.com>
+
+	* Add notes to README about MacOS, libevent and kqueue.
 
 	* Windows Patch integration -- part 1, warnings elimination.
 
+	
 2007-04-12  Paul Lindner  <lindner@mirth.inuus.com>
 
 	* Allow changes to the verbosity level of the server with a new
