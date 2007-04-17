@@ -22,7 +22,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-#include <stdbool.h>
 
 #define POWER_SMALLEST 1
 #define POWER_LARGEST  200
