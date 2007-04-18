@@ -2511,7 +2511,7 @@ int main (int argc, char **argv) {
             settings.verbose++;
             break;
         case 'l':
-            if (inet_pton(AF_INET, optarg, &addr) != 0) {
+            if (inet_pton(AF_INET, optarg, &addr) <= 0) {
                 fprintf(stderr, "Illegal address: %s\n", optarg);
                 return 1;
             } else {
