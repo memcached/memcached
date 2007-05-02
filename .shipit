@@ -1,5 +1,4 @@
-# auto-generated shipit config file.
-#steps = FindVersion, ChangeVersion, CheckChangeLog, DistTest, Commit, Tag, MakeDist
-steps = FindVersion, ChangeVersion, CheckChangeLog, DistTest, MakeDist
+steps = FindVersion, ChangeVersion, CheckChangeLog, DistTest, Commit, Tag, MakeDist, AddToSVNDir
 
+AddToSVNDir.dir = /home/lj/cvs/memcached/website/dist
 svn.tagpattern = %v
