@@ -1,24 +1,39 @@
+MEMCACHED CONTRIBUTORS
+
+This file contains a list of people who have contributed code and
+effort to the memcached project.  If you don't see your name mentioned
+send email to the memcached mailing list so you can be immortalized.
+
+Also see the ChangeLog for even more people who have helped over the
+years by submitting fixes, patches and reporting bugs.
+
+
 Major authors:
-==============
+--------------
 
-  Brad Fitzpatrick <brad@danga.com>  -- maintainer, original implementations
+Brad Fitzpatrick <brad@danga.com>  -- maintainer, original implementations
 
-  Anatoly Vorobey <mellon@pobox.com> -- lots of the modern server code
+Anatoly Vorobey <mellon@pobox.com> -- lots of the modern server code
 
-  Steven Grimm <sgrimm@facebook.com> -- iov writing (less CPU), UDP mode,
+Steven Grimm <sgrimm@facebook.com> -- iov writing (less CPU), UDP mode,
                                         non-2.0 slab mantissas, multithread, ...
 
-Bug reports, patches, testing, help:
-====================================
+Other Contributors
+------------------
 
-   Evan Martin <evan@danga.com>
-   Nathan Neulinger <nneul@umr.edu>
-   Eric Hodel <drbrain@segment7.net>
-   Michael Johnson <ahze@ahze.net>
-   Paul Querna <chip@corelands.com>
-   Jamie McCarthy <jamie@mccarthy.vg>
-   Philip Neustrom <philipn@gmail.com>
-   Andrew O'Brien <andrewo@oriel.com.au>
-   Josh Rotenberg <joshrotenberg@gmail.com>
-   Robin H. Johnson <robbat2@gentoo.org> -- automake foo
-
+Evan Martin <evan@danga.com>
+Nathan Neulinger <nneul@umr.edu>
+Eric Hodel <drbrain@segment7.net>
+Michael Johnson <ahze@ahze.net>
+Paul Querna <chip@corelands.com>
+Jamie McCarthy <jamie@mccarthy.vg>
+Philip Neustrom <philipn@gmail.com>
+Andrew O'Brien <andrewo@oriel.com.au>
+Josh Rotenberg <joshrotenberg@gmail.com>
+Robin H. Johnson <robbat2@gentoo.org>
+Tim Yardley <liquid@haveheart.com>
+Paolo Borelli <paolo.borelli@gmail.com>
+Eli Bingham <eli@pandora.com>
+Jean-Francois Bustarret <jfbustarret@wat.tv>
+Paul G <paul-lists@perforge.com>
+Paul Lindner <lindner@inuus.com>
