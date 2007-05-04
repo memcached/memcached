@@ -1,3 +1,7 @@
+2007-05-04  Paul Lindner  <lindner@inuus.com>
+
+	* Add fedora/redhat style init script and RPM spec file
+
 2007-05-12 [Version 1.2.2 released]
 
 2007-04-16  Steven Grimm  <sgrimm@facebook.com>
