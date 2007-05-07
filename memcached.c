@@ -1283,7 +1283,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  *
  * returns a response string to send back to the client.
  */
-char *do_add_delta(item *it, int incr, unsigned int delta, char *buf) {
+char *do_add_delta(item *it, const int incr, unsigned int delta, char *buf) {
     char *ptr;
     unsigned int value;
     int res;

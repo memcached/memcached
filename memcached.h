@@ -219,7 +219,7 @@ conn *do_conn_from_freelist();
 int do_conn_add_to_freelist(conn *c);
 char *do_defer_delete(item *item, time_t exptime);
 void do_run_deferred_deletes(void);
-char *do_add_delta(item *item, int incr, unsigned int delta, char *buf);
+char *do_add_delta(item *item, int incr, const unsigned int delta, char *buf);
 int do_store_item(item *item, int comm);
 conn *conn_new(const int sfd, const int init_state, const int event_flags, const int read_buffer_size, const bool is_udp, struct event_base *base);
 
@@ -250,7 +250,7 @@ int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer_size, int is_udp);
 
 /* Lock wrappers for cache functions that are called from main loop. */
-char *mt_add_delta(item *item, int incr, unsigned int delta, char *buf);
+char *mt_add_delta(item *item, const int incr, const unsigned int delta, char *buf);
 void mt_assoc_move_next_bucket(void);
 conn *mt_conn_from_freelist(void);
 int   mt_conn_add_to_freelist(conn *c);
@@ -258,8 +258,8 @@ char *mt_defer_delete(item *it, time_t exptime);
 int   mt_is_listen_thread(void);
 item *mt_item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 void  mt_item_flush_expired(void);
-item *mt_item_get_notedeleted(char *key, size_t nkey, bool *delete_locked);
-item *mt_item_get_nocheck(char *key, size_t nkey);
+item *mt_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked);
+item *mt_item_get_nocheck(const char *key, const size_t nkey);
 int   mt_item_link(item *it);
 void  mt_item_remove(item *it);
 int   mt_item_replace(item *it, item *new_it);
