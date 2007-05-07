@@ -1,6 +1,9 @@
 2007-05-07  Paul Lindner  <lindner@inuus.com>
 
 	* Fix compilation bug on freebsd 6.x (and maybe others)
+	* Update RPM spec file per redhat bugzilla #238994
+	* Move unistd.h to memcached.h to get rid of warnings
+	* Add string.h to thread.c to get correctly prototyped strerror()
 
 2007-05-04  Paul Lindner  <lindner@inuus.com>
 

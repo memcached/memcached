@@ -42,6 +42,11 @@
  typedef unsigned char             uint8_t;
 #endif
 
+/* unistd.h is here */
+#if HAVE_UNISTD_H
+# include <unistd.h>
+#endif
+
 /* Time relative to server start. Smaller than time_t on 64-bit systems. */
 typedef unsigned int rel_time_t;
 
@@ -246,6 +251,7 @@ void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer
 
 /* Lock wrappers for cache functions that are called from main loop. */
 char *mt_add_delta(item *item, int incr, unsigned int delta, char *buf);
+void mt_assoc_move_next_bucket(void);
 conn *mt_conn_from_freelist(void);
 int   mt_conn_add_to_freelist(conn *c);
 char *mt_defer_delete(item *it, time_t exptime);

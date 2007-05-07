@@ -14,6 +14,10 @@
 #include <malloc.h>
 #endif
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
 #ifdef USE_THREADS
 
 #include <pthread.h>
@@ -112,6 +116,7 @@ static CQ_ITEM *cq_pop(CQ *cq) {
 /*
  * Looks for an item on a connection queue, but doesn't block if there isn't
  * one.
+ * Returns the item, or NULL if no item is available
  */
 static CQ_ITEM *cq_peek(CQ *cq) {
     CQ_ITEM *item;
@@ -203,7 +208,7 @@ static void create_worker(void *(*func)(void *), void *arg) {
 
     pthread_attr_init(&attr);
 
-    if (ret = pthread_create(&thread, &attr, func, arg)) {
+    if ((ret = pthread_create(&thread, &attr, func, arg)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n",
                 strerror(ret));
         exit(1);
@@ -283,7 +288,7 @@ static void *worker_libevent(void *arg) {
     pthread_cond_signal(&init_cond);
     pthread_mutex_unlock(&init_lock);
 
-    event_base_loop(me->base, 0);
+    return (void*) event_base_loop(me->base, 0);
 }
 
 
@@ -300,22 +305,23 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         if (settings.verbose > 0)
             fprintf(stderr, "Can't read from libevent pipe\n");
 
-    if (item = cq_peek(&me->new_conn_queue)) {
-    conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
-                       item->read_buffer_size, item->is_udp, me->base);
-    if (!c) {
-        if (item->is_udp) {
-            fprintf(stderr, "Can't listen for events on UDP socket\n");
-            exit(1);
+    item = cq_peek(&me->new_conn_queue);
+
+    if (NULL != item) {
+        conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
+                           item->read_buffer_size, item->is_udp, me->base);
+        if (!c) {
+            if (item->is_udp) {
+                fprintf(stderr, "Can't listen for events on UDP socket\n");
+                exit(1);
+            } else {
+                if (settings.verbose > 0) {
+                    fprintf(stderr, "Can't listen for events on fd %d\n",
+                        item->sfd);
+                }
+                close(item->sfd);
             }
-        else {
-        if (settings.verbose > 0) {
-                fprintf(stderr, "Can't listen for events on fd %d\n",
-                    item->sfd);
         }
-        close(item->sfd);
-        }
-    }
         cqi_free(item);
     }
 }
@@ -562,7 +568,6 @@ void mt_stats_unlock() {
  */
 void thread_init(int nthreads, struct event_base *main_base) {
     int         i;
-    pthread_t   *thread;
 
     pthread_mutex_init(&cache_lock, NULL);
     pthread_mutex_init(&conn_lock, NULL);

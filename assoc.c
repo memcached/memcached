@@ -19,7 +19,6 @@
 #include <sys/signal.h>
 #include <sys/resource.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <netinet/in.h>
 #include <errno.h>
 #include <stdlib.h>

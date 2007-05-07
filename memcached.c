@@ -35,7 +35,6 @@ std *
 #include <pwd.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -861,9 +860,11 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         char temp[1024];
         pid_t pid = getpid();
         char *pos = temp;
-        struct rusage usage;
 
+#ifndef WIN32
+        struct rusage usage;
         getrusage(RUSAGE_SELF, &usage);
+#endif /* !WIN32 */
 
         STATS_LOCK();
         pos += sprintf(pos, "STAT pid %u\r\n", pid);
@@ -871,8 +872,10 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
         pos += sprintf(pos, "STAT version " VERSION "\r\n");
         pos += sprintf(pos, "STAT pointer_size %d\r\n", 8 * sizeof(void *));
+#ifndef WIN32
         pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
         pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
+#endif /* !WIN32 */
         pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
         pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
         pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
@@ -926,6 +929,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 #endif /* HAVE_STRUCT_MALLINFO */
 #endif /* HAVE_MALLOC_H */
 
+#if !defined(WIN32) || !defined(__APPLE__)
     if (strcmp(subcommand, "maps") == 0) {
         char *wbuf;
         int wsize = 8192; /* should be enough */
@@ -964,6 +968,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         close(fd);
         return;
     }
+#endif
 
     if (strcmp(subcommand, "cachedump") == 0) {
 

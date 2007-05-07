@@ -1,6 +1,6 @@
 Name:           memcached
 Version:        1.2.2
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        High Performance, Distributed Memory Object Cache
 
 Group:          System Environment/Daemons
@@ -11,8 +11,6 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:  libevent-devel
 
-Requires:       libevent
-Requires:       perl
 Requires(post): /sbin/chkconfig
 Requires(preun): /sbin/chkconfig, /sbin/service
 Requires(postun): /sbin/service
@@ -24,16 +22,13 @@ memcached is a high-performance, distributed memory object caching
 system, generic in nature, but intended for use in speeding up dynamic
 web applications by alleviating database load.
 
-Available rpmbuild rebuild options :
-  --with=threads   - build a multiprocessor optimized memcached server
-
 %prep
 %setup -q
 
 
 %build
 %configure \
-	%{?_with_threads:--enable-threads}
+	--enable-threads
 
 make %{?_smp_mflags}
 
@@ -43,18 +38,18 @@ make %{?_smp_mflags}
 #make test
 
 %install
-rm -rf $RPM_BUILD_ROOT
-make install DESTDIR=$RPM_BUILD_ROOT
+rm -rf %{buildroot}
+make install DESTDIR=%{buildroot}
 
 # Perl script monitoring memcached
-install -Dp -m0755 $RPM_BUILD_DIR/%{name}-%{version}/scripts/memcached-tool %{buildroot}%{_bindir}/memcached-tool
+install -Dp -m0755 scripts/memcached-tool %{buildroot}%{_bindir}/memcached-tool
 
 # Init script
-install -Dp -m0755 $RPM_BUILD_DIR/%{name}-%{version}/scripts/memcached.sysv %{buildroot}%{_sysconfdir}/rc.d/init.d/memcached
+install -Dp -m0755 scripts/memcached.sysv %{buildroot}%{_initrddir}/memcached
 
 # Default configs
-mkdir -p $RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig
-cat <<EOF >$RPM_BUILD_ROOT/%{_sysconfdir}/sysconfig/%{name}
+mkdir -p %{buildroot}/%{_sysconfdir}/sysconfig
+cat <<EOF >%{buildroot}/%{_sysconfdir}/sysconfig/%{name}
 PORT="11211"
 USER="nobody"
 MAXCONN="1024"
@@ -63,7 +58,7 @@ OPTIONS=""
 EOF
 
 %clean
-rm -rf $RPM_BUILD_ROOT
+rm -rf %{buildroot}
 
 
 %post
@@ -91,9 +86,12 @@ exit 0
 %{_bindir}/memcached
 %{_bindir}/memcached-debug
 %{_mandir}/man1/memcached.1*
-%{_sysconfdir}/rc.d/init.d/memcached
+%{_initrddir}/memcached
 
 
 %changelog
+* Mon May  7 2007 Paul Lindner <lindner@inuus.com> - 1.2.2-2
+- Tidyness improvements suggested by Ruben Kerkhof in bugzilla #238994
+
 * Fri May  4 2007 Paul Lindner <lindner@inuus.com> - 1.2.2-1
 - Initial spec file created via rpmdev-newspec
