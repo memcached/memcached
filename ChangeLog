@@ -1,3 +1,8 @@
+2007-05-10  Paul Lindner  <lindner@inuus.com>
+
+	* Flesh out tests for unix domain sockets and binary data.
+	* Update rpm spec file to run tests
+
 2007-05-07  Paul Lindner  <lindner@inuus.com>
 
 	* Fix compilation bug on freebsd 6.x (and maybe others)

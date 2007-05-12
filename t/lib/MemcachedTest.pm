@@ -1,6 +1,7 @@
 package MemcachedTest;
 use strict;
 use IO::Socket::INET;
+use IO::Socket::UNIX;
 use Exporter 'import';
 use FindBin qw($Bin);
 use Carp qw(croak);
@@ -99,18 +100,32 @@ sub new_memcached {
         exit; # never gets here.
     }
 
+    # unix domain sockets
+    if ($args =~ /-s (\S+)/) {
+	my $filename = $1;
+	my $conn = IO::Socket::UNIX->new(Peer => $filename) || 
+	    croak("Failed to connect to unix domain socket");
+
+	return Memcached::Handle->new(pid  => $childpid,
+				      conn => $conn,
+				      domainsocket => $filename,
+				      port => $port);
+    }
+
+    # try to connect / find open port, only if we're not using unix domain
+    # sockets
+
     for (1..20) {
-        my $conn = IO::Socket::INET->new(PeerAddr => "127.0.0.1:$port");
-        if ($conn) {
-            return Memcached::Handle->new(pid  => $childpid,
-                                          conn => $conn,
-                                          udpport => $udpport,
-                                          port => $port);
-        }
-        select undef, undef, undef, 0.10;
+	my $conn = IO::Socket::INET->new(PeerAddr => "127.0.0.1:$port");
+	if ($conn) {
+	    return Memcached::Handle->new(pid  => $childpid,
+					  conn => $conn,
+					  udpport => $udpport,
+					  port => $port);
+	}
+	select undef, undef, undef, 0.10;
     }
     croak("Failed to startup/connect to memcached server.");
-
 }
 
 ############################################################################
@@ -130,13 +145,20 @@ sub udpport { $_[0]{udpport} }
 
 sub sock {
     my $self = shift;
-    return $self->{conn} if $self->{conn} && getpeername($self->{conn});
+
+    if ($self->{conn} && ($self->{domainsocket} || getpeername($self->{conn}))) {
+	return $self->{conn};
+    }
     return $self->new_sock;
 }
 
 sub new_sock {
     my $self = shift;
-    return IO::Socket::INET->new(PeerAddr => "127.0.0.1:$self->{port}");
+    if ($self->{domainsocket}) {
+	return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
+    } else {
+	return IO::Socket::INET->new(PeerAddr => "127.0.0.1:$self->{port}");
+    }
 }
 
 sub new_udp_sock {
