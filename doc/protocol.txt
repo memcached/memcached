@@ -352,8 +352,8 @@ get_hits          64u      Number of keys that have been requested and
                            found present
 get_misses        64u      Number of items that have been requested 
                            and not found
-evictions         64u      Number of items removed from cache because
-                           they passed their expiration time
+evictions         64u      Number of valid items removed from cache                                                                           
+                           to free memory for new items                                                                                       
 bytes_read        64u      Total number of bytes read by this server 
                            from network
 bytes_written     64u      Total number of bytes sent by this server to 

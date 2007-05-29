@@ -1,3 +1,7 @@
+2007-05-29  Paul Lindner  <lindner@mirth.inuus.com>
+
+	* Properly document evictions statistic value
+
 2007-05-10  Paul Lindner  <lindner@inuus.com>
 
 	* Flesh out tests for unix domain sockets and binary data.
