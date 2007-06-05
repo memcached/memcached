@@ -102,9 +102,10 @@ sub new_memcached {
 
     # unix domain sockets
     if ($args =~ /-s (\S+)/) {
+        sleep 1;
 	my $filename = $1;
 	my $conn = IO::Socket::UNIX->new(Peer => $filename) || 
-	    croak("Failed to connect to unix domain socket");
+	    croak("Failed to connect to unix domain socket: $! '$filename'");
 
 	return Memcached::Handle->new(pid  => $childpid,
 				      conn => $conn,
