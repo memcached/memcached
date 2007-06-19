@@ -396,19 +396,6 @@ item *mt_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_l
 }
 
 /*
- * Returns an item whether or not it's been marked as expired or deleted.
- */
-item *mt_item_get_nocheck(const char *key, const size_t nkey) {
-    item *it;
-
-    pthread_mutex_lock(&cache_lock);
-    it = assoc_find(key, nkey);
-    it->refcount++;
-    pthread_mutex_unlock(&cache_lock);
-    return it;
-}
-
-/*
  * Links an item into the LRU and hashtable.
  */
 int mt_item_link(item *item) {

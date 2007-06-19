@@ -259,7 +259,6 @@ int   mt_is_listen_thread(void);
 item *mt_item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 void  mt_item_flush_expired(void);
 item *mt_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked);
-item *mt_item_get_nocheck(const char *key, const size_t nkey);
 int   mt_item_link(item *it);
 void  mt_item_remove(item *it);
 int   mt_item_replace(item *it, item *new_it);
@@ -283,7 +282,6 @@ int   mt_store_item(item *item, int comm);
 # define is_listen_thread()          mt_is_listen_thread()
 # define item_alloc(x,y,z,a,b)       mt_item_alloc(x,y,z,a,b)
 # define item_flush_expired()        mt_item_flush_expired()
-# define item_get_nocheck(x,y)       mt_item_get_nocheck(x,y)
 # define item_get_notedeleted(x,y,z) mt_item_get_notedeleted(x,y,z)
 # define item_link(x)                mt_item_link(x)
 # define item_remove(x)              mt_item_remove(x)
@@ -312,7 +310,6 @@ int   mt_store_item(item *item, int comm);
 # define is_listen_thread()          1
 # define item_alloc(x,y,z,a,b)       do_item_alloc(x,y,z,a,b)
 # define item_flush_expired()        do_item_flush_expired()
-# define item_get_nocheck(x,y)       do_item_get_nocheck(x,y)
 # define item_get_notedeleted(x,y,z) do_item_get_notedeleted(x,y,z)
 # define item_link(x)                do_item_link(x)
 # define item_remove(x)              do_item_remove(x)
