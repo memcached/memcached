@@ -812,7 +812,7 @@ static size_t tokenize_command(char *command, token_t *tokens, const size_t max_
     return ntokens;
 }
 
-inline void process_stats_detail(conn *c, const char *command) {
+inline static void process_stats_detail(conn *c, const char *command) {
     assert(c != NULL);
 
     if (strcmp(command, "on") == 0) {

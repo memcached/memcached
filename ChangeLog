@@ -1,3 +1,7 @@
+2007-06-19  Paul Lindner  <lindner@mirth.inuus.com>
+
+	* Solaris portability fixes from Trond Norbye
+
 2007-05-29  Paul Lindner  <lindner@mirth.inuus.com>
 
 	* Properly document evictions statistic value
