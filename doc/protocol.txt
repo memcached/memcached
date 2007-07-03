@@ -143,6 +143,9 @@ First, the client sends a command line which looks like this:
   decimal) that the server stores along with the data and sends back
   when the item is retrieved. Clients may use this as a bit field to
   store data-specific information; this field is opaque to the server.
+  Note that in memcached 1.2.1 and higher, flags may be 32-bits, instead
+  of 16, but you might want to restrict yourself to 16 bits for
+  compatibility with older versions.
 
 - <exptime> is expiration time. If it's 0, the item never expires
   (although it may be deleted from the cache to make place for other
