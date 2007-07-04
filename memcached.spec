@@ -1,6 +1,6 @@
 Name:           memcached
 Version:        1.2.2
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        High Performance, Distributed Memory Object Cache
 
 Group:          System Environment/Daemons
@@ -56,6 +56,9 @@ CACHESIZE="64"
 OPTIONS=""
 EOF
 
+# pid directory
+mkdir -p %{buildroot}/%{_localstatedir}/run/memcached
+
 %clean
 rm -rf %{buildroot}
 
@@ -81,6 +84,8 @@ exit 0
 %defattr(-,root,root,-)
 %doc AUTHORS ChangeLog COPYING NEWS README TODO doc/CONTRIBUTORS doc/*.txt
 %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
+
+%dir %attr(750,nobody,nobody) %{_localstatedir}/run/memcached
 %{_bindir}/memcached-tool
 %{_bindir}/memcached
 %{_mandir}/man1/memcached.1*
@@ -88,6 +93,9 @@ exit 0
 
 
 %changelog
+* Wed Jul  4 2007 Paul Lindner <lindner@inuus.com> - 1.2.2-5
+- Use /var/run/memcached/ directory to hold PID file
+
 * Sat May 12 2007 Paul Lindner <lindner@inuus.com> - 1.2.2-4
 - Remove tabs from spec file, rpmlint reports no more errors
 

@@ -29,7 +29,9 @@ prog="memcached"
 
 start () {
 	echo -n $"Starting $prog: "
-	daemon memcached -d -p $PORT -u $USER  -m $CACHESIZE -c $MAXCONN -P /var/run/memcached.pid $OPTIONS
+	# insure that /var/run/memcached has proper permissions
+        chown $USER /var/run/memcached
+	daemon memcached -d -p $PORT -u $USER  -m $CACHESIZE -c $MAXCONN -P /var/run/memcached/memcached.pid $OPTIONS
 	RETVAL=$?
 	echo
 	[ $RETVAL -eq 0 ] && touch /var/lock/subsys/memcached
