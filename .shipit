@@ -1,4 +1,4 @@
 steps = FindVersion, ChangeVersion, CheckChangeLog, DistTest, Commit, Tag, MakeDist, AddToSVNDir
 
-AddToSVNDir.dir = /home/lj/cvs/memcached/website/dist
+AddToSVNDir.dir = /home/lindner/projects/memcached/trunk/website/dist
 svn.tagpattern = %v
