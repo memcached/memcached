@@ -168,7 +168,7 @@ static void settings_init(void) {
     settings.port = 11211;
     settings.udpport = 0;
     settings.interf.s_addr = htonl(INADDR_ANY);
-    settings.maxbytes = 67108864; /* default is 64MB: (64 * 1024 * 1024) */
+    settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
     settings.oldest_live = 0;

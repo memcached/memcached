@@ -205,7 +205,7 @@ static void item_unlink_q(item *it) {
 
 int do_item_link(item *it) {
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
-    assert(it->nbytes < 1048576);
+    assert(it->nbytes < (1024 * 1024));  /* 1MB max size */
     it->it_flags |= ITEM_LINKED;
     it->time = current_time;
     assoc_insert(it);
@@ -267,7 +267,7 @@ int do_item_replace(item *it, item *new_it) {
 
 /*@null@*/
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
-    int memlimit = 2097152; /* 2097152: (2 * 1024 * 1024) */
+    int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
     unsigned int bufcurr;
     item *it;
@@ -323,7 +323,7 @@ void item_stats(char *buffer, const int buflen) {
 char* item_stats_sizes(int *bytes) {
     const int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
     unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
-    char *buf = (char *)malloc(2097152 * sizeof(char)); /* 2097152: 2 * 1024 * 1024 */
+    char *buf = (char *)malloc(2 * 1024 * 1024); /* 2MB max response size */
     int i;
 
     if (histogram == 0 || buf == 0) {
