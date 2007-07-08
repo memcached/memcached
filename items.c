@@ -299,23 +299,23 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     return buffer;
 }
 
-void do_item_stats(char *buffer, const int buflen) {
+char *do_item_stats(int *bytes) {
+    size_t bufleft = (size_t) LARGEST_ID * 80;
+    char *buffer = malloc(bufleft);
+    char *bufcurr = buffer;
+    rel_time_t now = current_time;
     int i;
     int linelen;
-    char *bufcurr = buffer;
-    size_t bufleft = (size_t) buflen;
-    rel_time_t now = current_time;
 
-    if (buflen < 4096) {
-        strcpy(buffer, "SERVER_ERROR out of memory");
-        return;
+    if (buffer == NULL) {
+        return NULL;
     }
 
     for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i] != NULL) {
             linelen = snprintf(bufcurr, bufleft, "STAT items:%d:number %u\r\nSTAT items:%d:age %u\r\n",
                                i, sizes[i], i, now - tails[i]->time);
-            if (linelen + sizeof("END") < bufleft) {
+            if (linelen + sizeof("END\r\n") < bufleft) {
                 bufcurr += linelen;
                 bufleft -= linelen;
             }
@@ -325,8 +325,11 @@ void do_item_stats(char *buffer, const int buflen) {
             }
         }
     }
-    memcpy(bufcurr, "END", 4);
-    return;
+    memcpy(bufcurr, "END\r\n", 6);
+    bufcurr += 5;
+
+    *bytes = bufcurr - buffer;
+    return buffer;
 }
 
 /* dumps out a list of objects of each size, with granularity of 32 bytes */

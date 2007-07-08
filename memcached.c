@@ -1001,9 +1001,9 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 
     if (strcmp(subcommand, "items") == 0) {
-        char buffer[4096];
-        item_stats(buffer, 4096);
-        out_string(c, buffer);
+        int bytes = 0;
+        char *buf = item_stats(&bytes);
+        write_and_free(c, buf, bytes);
         return;
     }
 

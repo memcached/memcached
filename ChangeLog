@@ -2,6 +2,8 @@
 
 	* Item stats commands weren't thread-safe; wrap them with locks
 	  when compiled in multithreaded mode.
+	* The "stats items" command now works again; it broke with the
+	  introduction of the powers-of-N chunk size change.
 
 2007-07-06 [Version 1.2.3 released]
 

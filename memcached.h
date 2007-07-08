@@ -257,12 +257,13 @@ int   mt_conn_add_to_freelist(conn *c);
 char *mt_defer_delete(item *it, time_t exptime);
 int   mt_is_listen_thread(void);
 item *mt_item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
+char *mt_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
 void  mt_item_flush_expired(void);
 item *mt_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked);
 int   mt_item_link(item *it);
 void  mt_item_remove(item *it);
 int   mt_item_replace(item *it, item *new_it);
-void  mt_item_stats(char *buffer, int buflen);
+char *mt_item_stats(int *bytes);
 char *mt_item_stats_sizes(int *bytes);
 void  mt_item_unlink(item *it);
 void  mt_item_update(item *it);
@@ -289,7 +290,7 @@ int   mt_store_item(item *item, int comm);
 # define item_link(x)                mt_item_link(x)
 # define item_remove(x)              mt_item_remove(x)
 # define item_replace(x,y)           mt_item_replace(x,y)
-# define item_stats(x,y)             mt_item_stats(x,y)
+# define item_stats(x)               mt_item_stats(x)
 # define item_stats_sizes(x)         mt_item_stats_sizes(x)
 # define item_update(x)              mt_item_update(x)
 # define item_unlink(x)              mt_item_unlink(x)
@@ -320,7 +321,7 @@ int   mt_store_item(item *item, int comm);
 # define item_link(x)                do_item_link(x)
 # define item_remove(x)              do_item_remove(x)
 # define item_replace(x,y)           do_item_replace(x,y)
-# define item_stats(x,y)             do_item_stats(x,y)
+# define item_stats(x)               do_item_stats(x)
 # define item_stats_sizes(x)         do_item_stats_sizes(x)
 # define item_unlink(x)              do_item_unlink(x)
 # define item_update(x)              do_item_update(x)

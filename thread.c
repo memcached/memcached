@@ -507,10 +507,13 @@ char *mt_item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned i
 /*
  * Dumps statistics about slab classes
  */
-void mt_item_stats(char *buffer, int buflen) {
+char *mt_item_stats(int *bytes) {
+    char *ret;
+
     pthread_mutex_lock(&cache_lock);
-    do_item_stats(buffer, buflen);
+    ret = do_item_stats(bytes);
     pthread_mutex_unlock(&cache_lock);
+    return ret;
 }
 
 /*
