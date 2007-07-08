@@ -262,6 +262,8 @@ item *mt_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_l
 int   mt_item_link(item *it);
 void  mt_item_remove(item *it);
 int   mt_item_replace(item *it, item *new_it);
+void  mt_item_stats(char *buffer, int buflen);
+char *mt_item_stats_sizes(int *bytes);
 void  mt_item_unlink(item *it);
 void  mt_item_update(item *it);
 void  mt_run_deferred_deletes(void);
@@ -281,11 +283,14 @@ int   mt_store_item(item *item, int comm);
 # define defer_delete(x,y)           mt_defer_delete(x,y)
 # define is_listen_thread()          mt_is_listen_thread()
 # define item_alloc(x,y,z,a,b)       mt_item_alloc(x,y,z,a,b)
+# define item_cachedump(x,y,z)       mt_item_cachedump(x,y,z)
 # define item_flush_expired()        mt_item_flush_expired()
 # define item_get_notedeleted(x,y,z) mt_item_get_notedeleted(x,y,z)
 # define item_link(x)                mt_item_link(x)
 # define item_remove(x)              mt_item_remove(x)
 # define item_replace(x,y)           mt_item_replace(x,y)
+# define item_stats(x,y)             mt_item_stats(x,y)
+# define item_stats_sizes(x)         mt_item_stats_sizes(x)
 # define item_update(x)              mt_item_update(x)
 # define item_unlink(x)              mt_item_unlink(x)
 # define run_deferred_deletes()      mt_run_deferred_deletes()
@@ -309,11 +314,14 @@ int   mt_store_item(item *item, int comm);
 # define dispatch_event_add(t,c)     event_add(&(c)->event, 0)
 # define is_listen_thread()          1
 # define item_alloc(x,y,z,a,b)       do_item_alloc(x,y,z,a,b)
+# define item_cachedump(x,y,z)       do_item_cachedump(x,y,z)
 # define item_flush_expired()        do_item_flush_expired()
 # define item_get_notedeleted(x,y,z) do_item_get_notedeleted(x,y,z)
 # define item_link(x)                do_item_link(x)
 # define item_remove(x)              do_item_remove(x)
 # define item_replace(x,y)           do_item_replace(x,y)
+# define item_stats(x,y)             do_item_stats(x,y)
+# define item_stats_sizes(x)         do_item_stats_sizes(x)
 # define item_unlink(x)              do_item_unlink(x)
 # define item_update(x)              do_item_update(x)
 # define run_deferred_deletes()      do_run_deferred_deletes()

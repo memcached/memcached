@@ -12,11 +12,11 @@ void do_item_update(item *it);   /* update LRU time to current and reposition */
 int  do_item_replace(item *it, item *new_it);
 
 /*@null@*/
-char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
-void item_stats(char *buffer, const int buflen);
+char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
+void do_item_stats(char *buffer, const int buflen);
 
 /*@null@*/
-char *item_stats_sizes(int *bytes);
+char *do_item_stats_sizes(int *bytes);
 void do_item_flush_expired(void);
 item *item_get(const char *key, const size_t nkey);
 

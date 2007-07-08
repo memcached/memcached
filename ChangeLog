@@ -1,3 +1,8 @@
+2007-07-08  Steven Grimm  <sgrimm@facebook.com>
+
+	* Item stats commands weren't thread-safe; wrap them with locks
+	  when compiled in multithreaded mode.
+
 2007-07-06 [Version 1.2.3 released]
 
 2007-06-19  Paul Lindner  <lindner@mirth.inuus.com>

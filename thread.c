@@ -492,6 +492,39 @@ void mt_item_flush_expired() {
     pthread_mutex_unlock(&cache_lock);
 }
 
+/*
+ * Dumps part of the cache
+ */
+char *mt_item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes) {
+    char *ret;
+
+    pthread_mutex_lock(&cache_lock);
+    ret = do_item_cachedump(slabs_clsid, limit, bytes);
+    pthread_mutex_unlock(&cache_lock);
+    return ret;
+}
+
+/*
+ * Dumps statistics about slab classes
+ */
+void mt_item_stats(char *buffer, int buflen) {
+    pthread_mutex_lock(&cache_lock);
+    do_item_stats(buffer, buflen);
+    pthread_mutex_unlock(&cache_lock);
+}
+
+/*
+ * Dumps a list of objects of each size in 32-byte increments
+ */
+char *mt_item_stats_sizes(int *bytes) {
+    char *ret;
+
+    pthread_mutex_lock(&cache_lock);
+    ret = do_item_stats_sizes(bytes);
+    pthread_mutex_unlock(&cache_lock);
+    return ret;
+}
+
 /****************************** HASHTABLE MODULE *****************************/
 
 void mt_assoc_move_next_bucket() {

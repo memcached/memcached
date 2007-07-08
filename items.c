@@ -266,7 +266,7 @@ int do_item_replace(item *it, item *new_it) {
 }
 
 /*@null@*/
-char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
+char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
     int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
     unsigned int bufcurr;
@@ -299,7 +299,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     return buffer;
 }
 
-void item_stats(char *buffer, const int buflen) {
+void do_item_stats(char *buffer, const int buflen) {
     int i;
     int linelen;
     char *bufcurr = buffer;
@@ -331,7 +331,7 @@ void item_stats(char *buffer, const int buflen) {
 
 /* dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
-char* item_stats_sizes(int *bytes) {
+char* do_item_stats_sizes(int *bytes) {
     const int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
     unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
     char *buf = (char *)malloc(2 * 1024 * 1024); /* 2MB max response size */
