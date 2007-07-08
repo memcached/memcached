@@ -283,7 +283,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     bufcurr = 0;
 
     while (it != NULL && (limit == 0 || shown < limit)) {
-        len = snprintf(temp, 512, "ITEM %s [%d b; %lu s]\r\n", ITEM_key(it), it->nbytes - 2, it->time + stats.started);
+        len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n", ITEM_key(it), it->nbytes - 2, it->time + stats.started);
         if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;
         strcpy(buffer + bufcurr, temp);
@@ -301,7 +301,9 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
 
 void item_stats(char *buffer, const int buflen) {
     int i;
+    int linelen;
     char *bufcurr = buffer;
+    size_t bufleft = (size_t) buflen;
     rel_time_t now = current_time;
 
     if (buflen < 4096) {
@@ -310,9 +312,18 @@ void item_stats(char *buffer, const int buflen) {
     }
 
     for (i = 0; i < LARGEST_ID; i++) {
-        if (tails[i] != NULL)
-            bufcurr += snprintf(bufcurr, (size_t)buflen, "STAT items:%d:number %u\r\nSTAT items:%d:age %u\r\n",
+        if (tails[i] != NULL) {
+            linelen = snprintf(bufcurr, bufleft, "STAT items:%d:number %u\r\nSTAT items:%d:age %u\r\n",
                                i, sizes[i], i, now - tails[i]->time);
+            if (linelen + sizeof("END") < bufleft) {
+                bufcurr += linelen;
+                bufleft -= linelen;
+            }
+            else {
+                /* The caller didn't allocate enough buffer space. */
+                break;
+            }
+        }
     }
     memcpy(bufcurr, "END", 4);
     return;

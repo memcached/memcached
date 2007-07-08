@@ -310,7 +310,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     if (NULL != item) {
         conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
                            item->read_buffer_size, item->is_udp, me->base);
-        if (!c) {
+        if (c == NULL) {
             if (item->is_udp) {
                 fprintf(stderr, "Can't listen for events on UDP socket\n");
                 exit(1);

@@ -246,7 +246,7 @@ static int freecurr;
 static void conn_init(void) {
     freetotal = 200;
     freecurr = 0;
-    if (!(freeconns = (conn **)malloc(sizeof(conn *) * freetotal))) {
+    if ((freeconns = (conn **)malloc(sizeof(conn *) * freetotal)) == NULL) {
         perror("malloc()");
     }
     return;
@@ -936,7 +936,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         int fd;
         int res;
 
-        if (!(wbuf = (char *)malloc(wsize))) {
+        if ((wbuf = (char *)malloc(wsize)) == NULL) {
             out_string(c, "SERVER_ERROR out of memory");
             return;
         }
@@ -2430,7 +2430,7 @@ static void save_pid(const pid_t pid, const char *pid_file) {
     if (pid_file == NULL)
         return;
 
-    if (!(fp = fopen(pid_file, "w"))) {
+    if ((fp = fopen(pid_file, "w")) == NULL) {
         fprintf(stderr, "Could not open the pid file %s for writing\n", pid_file);
         return;
     }
@@ -2733,7 +2733,10 @@ int main (int argc, char **argv) {
     /* initialise deletion array and timer event */
     deltotal = 200;
     delcurr = 0;
-    todelete = malloc(sizeof(item *) * deltotal);
+    if ((todelete = malloc(sizeof(item *) * deltotal)) == NULL) {
+        perror("failed to allocate memory for deletion array");
+        exit(EXIT_FAILURE);
+    }
     delete_handler(0, 0, 0); /* sets up the event */
     /* create the initial listening udp connection, monitored on all threads */
     if (u_socket > -1) {
