@@ -88,7 +88,7 @@ unsigned int slabs_clsid(const size_t size) {
     return res;
 }
 
-/*
+/**
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */

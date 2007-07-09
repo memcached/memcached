@@ -98,7 +98,7 @@ static PREFIX_STATS *stats_prefix_find(const char *key) {
     }
 
     strncpy(pfs->prefix, key, length);
-    pfs->prefix[length] = '\0';      // because strncpy() sucks
+    pfs->prefix[length] = '\0';      /* because strncpy() sucks */
     pfs->prefix_len = length;
 
     pfs->next = prefix_stats[hashval];

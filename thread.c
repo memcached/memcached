@@ -632,7 +632,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);
-    init_count++; // main thread
+    init_count++; /* main thread */
     while (init_count < nthreads) {
         pthread_cond_wait(&init_cond, &init_lock);
     }

@@ -153,7 +153,7 @@ uint32_t hash(
     const uint32_t *k = key;                           /* read 32-bit chunks */
 #ifdef VALGRIND
     const uint8_t  *k8;
-#endif // ifdef VALGRIND
+#endif /* ifdef VALGRIND */
 
     /*------ all but last block: aligned reads and affect 32 bits of (a,b,c) */
     while (length > 12)
@@ -331,7 +331,7 @@ uint32_t hash( const void *key, size_t length, const uint32_t initval)
     const uint32_t *k = key;                           /* read 32-bit chunks */
 #ifdef VALGRIND
     const uint8_t  *k8;
-#endif // ifdef VALGRIND
+#endif /* ifdef VALGRIND */
 
     /*------ all but last block: aligned reads and affect 32 bits of (a,b,c) */
     while (length > 12)
@@ -449,7 +449,7 @@ typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
 
 /* how many powers of 2's worth of buckets we use */
-static int hashpower = 16;
+static unsigned int hashpower = 16;
 
 #define hashsize(n) ((ub4)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
@@ -464,16 +464,16 @@ static item** primary_hashtable = 0;
 static item** old_hashtable = 0;
 
 /* Number of items in the hash table. */
-static int hash_items = 0;
+static unsigned int hash_items = 0;
 
 /* Flag: Are we in the middle of expanding now? */
-static int expanding = 0;
+static bool expanding = false;
 
 /*
  * During expansion we migrate values with bucket granularity; this is how
  * far we've gotten so far. Ranges from 0 .. hashsize(hashpower - 1) - 1.
  */
-static int expand_bucket = 0;
+static unsigned int expand_bucket = 0;
 
 void assoc_init(void) {
     unsigned int hash_size = hashsize(hashpower) * sizeof(void*);
@@ -488,7 +488,7 @@ void assoc_init(void) {
 item *assoc_find(const char *key, const size_t nkey) {
     uint32_t hv = hash(key, nkey, 0);
     item *it;
-    int oldbucket;
+    unsigned int oldbucket;
 
     if (expanding &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
@@ -514,7 +514,7 @@ item *assoc_find(const char *key, const size_t nkey) {
 static item** _hashitem_before (const char *key, const size_t nkey) {
     uint32_t hv = hash(key, nkey, 0);
     item **pos;
-    int oldbucket;
+    unsigned int oldbucket;
 
     if (expanding &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
@@ -539,7 +539,7 @@ static void assoc_expand(void) {
         if (settings.verbose > 1)
             fprintf(stderr, "Hash table expansion starting\n");
         hashpower++;
-        expanding = 1;
+        expanding = true;
         expand_bucket = 0;
         do_assoc_move_next_bucket();
     } else {
@@ -566,7 +566,7 @@ void do_assoc_move_next_bucket(void) {
 
         expand_bucket++;
         if (expand_bucket == hashsize(hashpower - 1)) {
-            expanding = 0;
+            expanding = false;
             free(old_hashtable);
             if (settings.verbose > 1)
                 fprintf(stderr, "Hash table expansion done\n");
@@ -577,7 +577,7 @@ void do_assoc_move_next_bucket(void) {
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
 int assoc_insert(item *it) {
     uint32_t hv;
-    int oldbucket;
+    unsigned int oldbucket;
 
     assert(assoc_find(ITEM_key(it), it->nkey) == 0);  /* shouldn't have duplicately named things defined */
 
