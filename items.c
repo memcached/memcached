@@ -250,7 +250,7 @@ void do_item_update(item *it) {
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
 
-        if (it->it_flags & ITEM_LINKED) {
+        if (it->it_flags & ITEM_LINKED != 0) {
             item_unlink_q(it);
             it->time = current_time;
             item_link_q(it);
@@ -382,23 +382,23 @@ bool item_delete_lock_over (item *it) {
 item *do_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked) {
     item *it = assoc_find(key, nkey);
     if (delete_locked) *delete_locked = false;
-    if (it && (it->it_flags & ITEM_DELETED)) {
+    if (it != NULL && (it->it_flags & ITEM_DELETED)) {
         /* it's flagged as delete-locked.  let's see if that condition
            is past due, and the 5-second delete_timer just hasn't
            gotten to it yet... */
         if (!item_delete_lock_over(it)) {
             if (delete_locked) *delete_locked = true;
-            it = 0;
+            it = NULL;
         }
     }
     if (it != NULL && settings.oldest_live != 0 && settings.oldest_live <= current_time &&
         it->time <= settings.oldest_live) {
         do_item_unlink(it);           /* MTSAFE - cache_lock held */
-        it = 0;
+        it = NULL;
     }
     if (it != NULL && it->exptime != 0 && it->exptime <= current_time) {
         do_item_unlink(it);           /* MTSAFE - cache_lock held */
-        it = 0;
+        it = NULL;
     }
 
     if (it != NULL) {
