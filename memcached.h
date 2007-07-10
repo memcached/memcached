@@ -14,16 +14,16 @@
 #define UDP_HEADER_SIZE 8
 #define MAX_SENDBUF_SIZE (256 * 1024 * 1024)
 
-/* Initial size of list of items being returned by "get". */
+/** Initial size of list of items being returned by "get". */
 #define ITEM_LIST_INITIAL 200
 
-/* Initial size of the sendmsg() scatter/gather array. */
+/** Initial size of the sendmsg() scatter/gather array. */
 #define IOV_LIST_INITIAL 400
 
-/* Initial number of sendmsg() argument structures to allocate. */
+/** Initial number of sendmsg() argument structures to allocate. */
 #define MSG_LIST_INITIAL 10
 
-/* High water marks for buffer shrinking */
+/** High water marks for buffer shrinking */
 #define READ_BUFFER_HIGHWAT 8192
 #define ITEM_LIST_HIGHWAT 400
 #define IOV_LIST_HIGHWAT 600
@@ -47,7 +47,7 @@
 # include <unistd.h>
 #endif
 
-/* Time relative to server start. Smaller than time_t on 64-bit systems. */
+/** Time relative to server start. Smaller than time_t on 64-bit systems. */
 typedef unsigned int rel_time_t;
 
 struct stats {
@@ -122,13 +122,13 @@ typedef struct _stritem {
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 + (item)->nsuffix + (item)->nbytes)
 
 enum conn_states {
-    conn_listening,  /* the socket which listens for connections */
-    conn_read,       /* reading in a command line */
-    conn_write,      /* writing out a simple response */
-    conn_nread,      /* reading in a fixed number of bytes */
-    conn_swallow,    /* swallowing unnecessary bytes w/o storing */
-    conn_closing,    /* closing this connection */
-    conn_mwrite      /* writing out many items sequentially */
+    conn_listening,  /** the socket which listens for connections */
+    conn_read,       /** reading in a command line */
+    conn_write,      /** writing out a simple response */
+    conn_nread,      /** reading in a fixed number of bytes */
+    conn_swallow,    /** swallowing unnecessary bytes w/o storing */
+    conn_closing,    /** closing this connection */
+    conn_mwrite      /** writing out many items sequentially */
 };
 
 #define NREAD_ADD 1
@@ -140,26 +140,26 @@ typedef struct {
     int    state;
     struct event event;
     short  ev_flags;
-    short  which;   /* which events were just triggered */
+    short  which;   /** which events were just triggered */
 
-    char   *rbuf;   /* buffer to read commands into */
-    char   *rcurr;  /* but if we parsed some already, this is where we stopped */
-    int    rsize;   /* total allocated size of rbuf */
-    int    rbytes;  /* how much data, starting from rcur, do we have unparsed */
+    char   *rbuf;   /** buffer to read commands into */
+    char   *rcurr;  /** but if we parsed some already, this is where we stopped */
+    int    rsize;   /** total allocated size of rbuf */
+    int    rbytes;  /** how much data, starting from rcur, do we have unparsed */
 
     char   *wbuf;
     char   *wcurr;
     int    wsize;
     int    wbytes;
-    int    write_and_go; /* which state to go into after finishing current write */
-    void   *write_and_free; /* free this memory after finishing writing */
+    int    write_and_go; /** which state to go into after finishing current write */
+    void   *write_and_free; /** free this memory after finishing writing */
 
-    char   *ritem;  /* when we read in an item's value, it goes here */
+    char   *ritem;  /** when we read in an item's value, it goes here */
     int    rlbytes;
 
     /* data for the nread state */
 
-    /*
+    /**
      * item is used to hold an item structure created after reading the command
      * line of set/add/replace commands, but before we finished reading the actual
      * data. The data is read into ITEM_data(item) to avoid extra copying.
