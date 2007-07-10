@@ -103,7 +103,7 @@ struct stats stats;
 struct settings settings;
 
 /** file scope variables **/
-static item **todelete = 0;
+static item **todelete = NULL;
 static int delcurr;
 static int deltotal;
 static conn *listen_conn;
@@ -272,10 +272,10 @@ conn *do_conn_from_freelist() {
  * Adds a connection to the freelist. 0 = success. Should call this using
  * conn_add_to_freelist() for thread safety.
  */
-int do_conn_add_to_freelist(conn *c) {
+bool do_conn_add_to_freelist(conn *c) {
     if (freecurr < freetotal) {
         freeconns[freecurr++] = c;
-        return 0;
+        return false;
     } else {
         /* try to enlarge free connections array */
         conn **new_freeconns = realloc(freeconns, sizeof(conn *) * freetotal * 2);
@@ -283,10 +283,10 @@ int do_conn_add_to_freelist(conn *c) {
             freetotal *= 2;
             freeconns = new_freeconns;
             freeconns[freecurr++] = c;
-            return 0;
+            return false;
         }
     }
-    return 1;
+    return true;
 }
 
 conn *conn_new(const int sfd, const int init_state, const int event_flags,

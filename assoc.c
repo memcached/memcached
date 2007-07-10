@@ -441,9 +441,9 @@ uint32_t hash( const void *key, size_t length, const uint32_t initval)
   final(a,b,c);
   return c;
 }
-#else // HASH_XXX_ENDIAN == 1
+#else /* HASH_XXX_ENDIAN == 1 */
 #error Must define HASH_BIG_ENDIAN or HASH_LITTLE_ENDIAN
-#endif // hash_XXX_ENDIAN == 1
+#endif /* HASH_XXX_ENDIAN == 1 */
 
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */

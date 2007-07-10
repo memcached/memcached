@@ -216,7 +216,7 @@ extern volatile rel_time_t current_time;
  */
 
 conn *do_conn_from_freelist();
-int do_conn_add_to_freelist(conn *c);
+bool do_conn_add_to_freelist(conn *c);
 char *do_defer_delete(item *item, time_t exptime);
 void do_run_deferred_deletes(void);
 char *do_add_delta(item *item, int incr, const unsigned int delta, char *buf);

@@ -235,8 +235,8 @@ conn *mt_conn_from_freelist() {
  *
  * Returns 0 on success, 1 if the structure couldn't be added.
  */
-int mt_conn_add_to_freelist(conn *c) {
-    int result;
+bool mt_conn_add_to_freelist(conn *c) {
+    bool result;
 
     pthread_mutex_lock(&conn_lock);
     result = do_conn_add_to_freelist(c);
