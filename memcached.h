@@ -253,7 +253,7 @@ void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer
 char *mt_add_delta(item *item, const int incr, const unsigned int delta, char *buf);
 void mt_assoc_move_next_bucket(void);
 conn *mt_conn_from_freelist(void);
-int   mt_conn_add_to_freelist(conn *c);
+bool  mt_conn_add_to_freelist(conn *c);
 char *mt_defer_delete(item *it, time_t exptime);
 int   mt_is_listen_thread(void);
 item *mt_item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
