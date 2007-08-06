@@ -2697,11 +2697,12 @@ int main (int argc, char **argv) {
         fprintf(stderr, "failed to create listening connection");
         exit(EXIT_FAILURE);
     }
-    /* save the PID in if we're a daemon */
-    if (daemonize)
-        save_pid(getpid(), pid_file);
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
+    /* save the PID in if we're a daemon, do this after thread_init due to
+       a file descriptor handling bug somewhere in libevent */
+    if (daemonize)
+        save_pid(getpid(), pid_file);
     /* initialise clock event */
     clock_handler(0, 0, 0);
     /* initialise deletion array and timer event */
