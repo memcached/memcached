@@ -20,6 +20,9 @@ swapping and always use non-blocking I/O.
 These programs follow the usual GNU command line syntax. A summary of options 
 is included below.
 .TP
+.B \-s <file>
+Unix socket path to listen on (disables network support).
+.TP
 .B \-l <ip_addr>  
 Listen on <ip_addr>; default to INDRR_ANY. This is an important option to 
 consider as there is no other way to secure the installation. Binding to an 
@@ -46,7 +49,7 @@ suggestions.
 Listen on TCP port <num>, the default is port 11211.
 .TP
 .B \-U <num> 
-Listen on UDP port <num>, the default is port 11211.
+Listen on UDP port <num>, the default is 0, off.
 .TP
 .B \-M
 Disable automatic removal of items from the cache when out of memory.
@@ -55,13 +58,16 @@ Additions will not be possible until adequate space is freed up.
 .B \-r
 Raise the core file size limit to the maximum allowable.
 .TP
+.B \-b
+Run a managed instanced (mnemonic: buckets)\n".
+.TP
 .B \-f <factor>
 Use <factor> as the multiplier for computing the sizes of memory chunks that
 items are stored in. A lower value may result in less wasted memory depending
 on the total amount of memory available and the distribution of item sizes.
 The default is 1.25.
 .TP
-.B \-s <size>
+.B \-n <size>
 Allocate a minimum of <size> bytes for the item key, value, and flags. The
 default is 48. If you have a lot of small keys and values, you can get a
 significant memory efficiency gain with a lower value. If you use a high
@@ -89,7 +95,7 @@ Print pidfile to <filename>, only used under -d option.
 Number of threads to use to process incoming requests. This option is only
 meaningful if memcached was compiled with thread support enabled. It is 
 typically not useful to set this higher than the number of CPU cores on the
-memcached server.
+memcached server. The default is 4.
 .TP
 .B \-D <char>
 Use <char> as the delimiter between key prefixes and IDs. This is used for

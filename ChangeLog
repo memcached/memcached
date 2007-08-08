@@ -1,3 +1,6 @@
+2007-08-07 Leon Brocard <acme@astray.com>
+	* Bring the memcached.1 manpage up to date
+
 2007-08-06 Paul Lindner <lindner@inuus.com>
 	* Fix crash when using -P and -d flags on x86_64
 	  with latest libevent release.
