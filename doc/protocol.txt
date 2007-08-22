@@ -279,8 +279,8 @@ The response will be one of:
   after the increment/decrement operation was carried out.
 
 Note that underflow in the "decr" command is caught: if a client tries
-to decrease the value below 0, the new value will be 0. Overflow in
-the "incr" command is not checked.
+to decrease the value below 0, the new value will be 0.  Overflow in the
+"incr" command will wrap around the 32 bit mark.
 
 Note also that decrementing a number such that it loses length isn't
 guaranteed to decrement its returned length.  The number MAY be

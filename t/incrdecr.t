@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 13;
+use Test::More tests => 16;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -30,6 +30,15 @@ is(scalar <$sock>, "0\r\n", "- 9 = 0");
 print $sock "decr num 5\r\n";
 is(scalar <$sock>, "0\r\n", "- 5 = 0");
 
+print $sock "incr num ".(2**32-2)."\r\n";
+is(scalar <$sock>, (2**32-2)."\r\n", "+ ".(2**32-2)." = ".(2**32-2));
+
+print $sock "incr num 1\r\n";
+is(scalar <$sock>, (2**32-1)."\r\n", "+ 1 = ".(2**32-1));
+
+print $sock "incr num 1\r\n";
+is(scalar <$sock>, "0\r\n", "+ 1 = 0");
+
 print $sock "decr bogus 5\r\n";
 is(scalar <$sock>, "NOT_FOUND\r\n", "can't decr bogus key");
 
@@ -40,5 +49,3 @@ print $sock "set text 0 0 2\r\nhi\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored text");
 print $sock "incr text 1\r\n";
 is(scalar <$sock>, "1\r\n", "hi - 1 = 0");
-
-

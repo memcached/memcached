@@ -89,7 +89,6 @@ static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
 static int add_msghdr(conn *c);
 
-
 /* time handling */
 static void set_current_time(void);  /* update the global variable holding
                               global 32-bit seconds-since-start time
@@ -1257,15 +1256,15 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  *
  * returns a response string to send back to the client.
  */
-char *do_add_delta(item *it, const int incr, unsigned int delta, char *buf) {
+char *do_add_delta(item *it, const int incr, const unsigned int delta, char *buf) {
     char *ptr;
-    unsigned int value;
+    uint32_t value;
     int res;
 
     ptr = ITEM_data(it);
     while ((*ptr != '\0') && (*ptr < '0' && *ptr > '9')) ptr++;    // BUG: can't be true
 
-    value = strtol(ptr, NULL, 10);
+    value = strtoul(ptr, NULL, 10);
 
     if(errno == ERANGE) {
         return "CLIENT_ERROR cannot increment or decrement non-numeric value";
@@ -2650,6 +2649,7 @@ int main (int argc, char **argv) {
             return 1;
         }
     }
+
 
     /* initialize main thread libevent instance */
     main_base = event_init();
