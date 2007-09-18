@@ -335,6 +335,8 @@ pid               32u      Process id of this server process
 uptime            32u      Number of seconds this server has been running
 time              32u      current UNIX time according to the server
 version           string   Version string of this server
+pointer_size      32       Default size of pointers on the host OS
+                           (generally 32 or 64)
 rusage_user       32u:32u  Accumulated user time for this process 
                            (seconds:microseconds)
 rusage_system     32u:32u  Accumulated system time for this process 
@@ -363,6 +365,8 @@ bytes_written     64u      Total number of bytes sent by this server to
                            network
 limit_maxbytes    32u      Number of bytes this server is allowed to
                            use for storage. 
+threads           32u      Number of worker threads requested.
+                           (see doc/threads.txt)
 
 
 
