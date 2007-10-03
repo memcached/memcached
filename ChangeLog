@@ -16,6 +16,9 @@
 	* Add append command support written by Filipe Laborde.
 	  Tests/protocol doc updates by Paul Lindner.
 
+	* The memcached-tool script can now display stats.  Patch
+	  provided by Dan Christian <dchristian@google.com>
+
 2007-08-21 Paul Lindner <lindner@inuus.com>
 	* Incorporate incrememnt patch from Evan Miller 
 	  <emiller@imvu.com> to define increment overflow

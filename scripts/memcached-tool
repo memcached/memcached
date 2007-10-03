@@ -28,6 +28,8 @@ if ($mode eq "display") {
     print STDERR "ERROR: parameters out of range\n\n" unless $mode;
 } elsif ($mode eq 'dump') {
     ;
+} elsif ($mode eq 'stats') {
+    ;
 } else {
     undef $mode;
 }
@@ -38,6 +40,7 @@ die
 "Usage: memcached-tool <host[:port]> [mode]\n
        memcached-tool 10.0.0.5:11211 display    # shows slabs
        memcached-tool 10.0.0.5:11211            # same.  (default is display)
+       memcached-tool 10.0.0.5:11211 stats      # shows general stats
        memcached-tool 10.0.0.5:11211 move 7 9   # takes 1MB slab from class #7
                                                 # to class #9.
 
@@ -127,6 +130,26 @@ if ($mode eq 'dump') {
     exit;
 }
 
+if ($mode eq 'stats') {
+    my %items;
+
+    print $sock "stats\r\n";
+
+    while (<$sock>) {
+        last if /^END/;
+        chomp;
+        if (/^STAT\s+(\S*)\s+(.*)/) {
+            $items{$1} = $2;
+        }
+    }
+    printf ("#%-17s %5s %11s\n", $host, "Field", "Value");
+    foreach my $name (sort(keys(%items))) {
+      printf ("%24s %12s\n", $name, $items{$name});
+      
+    }
+    exit;
+}
+
 # display mode:
 
 my %items;  # class -> { number, age, chunk_size, chunks_per_page,
@@ -149,12 +172,15 @@ while (<$sock>) {
     }
 }
 
-print "  # Item_Size  Max_age  1MB_pages Full?\n";
-foreach my $n (6..17) {
+print "  #  Item_Size   Max_age  1MB_pages Count   Full?\n";
+foreach my $n (1..40) {
     my $it = $items{$n};
-    my $size = $it->{chunk_size} < 1024 ? "$it->{chunk_size} B" : 
-	sprintf("%d kB", $it->{chunk_size} / 1024);
+    next if (0 == $it->{total_pages});
+    my $size = $it->{chunk_size} < 1024 ? "$it->{chunk_size} B " : 
+	sprintf("%.1f kB", $it->{chunk_size} / 1024.0);
     my $full = $it->{free_chunks_end} == 0 ? "yes" : " no";
-    printf "%3d    %6s%7d s %7d     $full\n", $n, $size, $it->{age}, $it->{total_pages};
+    printf "%3d   %8s %7d s %7d %7d %7s\n",
+                        $n, $size, $it->{age}, $it->{total_pages},
+                        $it->{number}, $full;
 }
 
