@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 528;
+use Test::More tests => 535;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -41,6 +41,33 @@ is(scalar <$sock>, "DELETED\r\n", "deleted foo");
 # delete foo again.  not found this time.
 print $sock "delete foo\r\n";
 is(scalar <$sock>, "NOT_FOUND\r\n", "deleted foo, but not found");
+
+# add moo
+#
+print $sock "add moo 0 0 6\r\nmooval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored barval");
+mem_get_is($sock, "moo", "mooval");
+
+# check-and-set (cas) failure case, try to set value with incorrect cas unique val
+print $sock "cas moo 0 0 6 0\r\nMOOVAL\r\n";
+is(scalar <$sock>, "EXISTS\r\n", "check and set with invalid id");
+
+# test "gets", grab unique ID
+print $sock "gets moo\r\n";
+# VALUE moo 0 6 3084947704
+# 
+my @retvals = split(/ /, scalar <$sock>);
+my $data = scalar <$sock>; # grab data
+my $dot  = scalar <$sock>; # grab dot on line by itself
+is($retvals[0], "VALUE", "get value using 'gets'");
+my $unique_id = $retvals[4];
+# clean off \r\n
+$unique_id =~ s/\r\n$//;
+ok($unique_id =~ /^\d+$/, "unique ID '$unique_id' is an integer");
+# now test that we can store moo with the correct unique id
+print $sock "cas moo 0 0 6 $unique_id\r\nMOOVAL\r\n";
+is(scalar <$sock>, "STORED\r\n");
+mem_get_is($sock, "moo", "MOOVAL");
 
 # pipeling is okay
 print $sock "set foo 0 0 6\r\nfooval\r\ndelete foo\r\nset foo 0 0 6\r\nfooval\r\ndelete foo\r\n";

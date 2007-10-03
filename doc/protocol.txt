@@ -53,12 +53,12 @@ Commands
 
 There are three types of commands. 
 
-Storage commands (there are three: "set", "add" and "replace") ask the
-server to store some data identified by a key. The client sends a
-command line, and then a data block; after that the client expects one
-line of response, which will indicate success or faulure.
+Storage commands (there are four: "set", "add", "replace", and "cas")
+ask the server to store some data identified by a key. The client
+sends a command line, and then a data block; after that the client
+expects one line of response, which will indicate success or faulure.
 
-Retrieval commands (there is only one: "get") ask the server to
+Retrieval commands (there are two: "get" and "gets") ask the server to
 retrieve data corresponding to a set of keys (one or more keys in one
 request). The client sends a command line, which includes all the
 requested keys; after that for each item the server finds it sends to
@@ -125,9 +125,9 @@ Storage commands
 
 First, the client sends a command line which looks like this:
 
-<command name> <key> <flags> <exptime> <bytes>\r\n
+<command name> <key> <flags> <exptime> <bytes> [<unqiue>]\r\n
 
-- <command name> is "set", "add" or "replace"
+- <command name> is "set", "add", "replace", or "cas"
 
   "set" means "store this data".  
 
@@ -136,6 +136,9 @@ First, the client sends a command line which looks like this:
 
   "replace" means "store this data, but only if the server *does*
   already hold data for this key".
+
+  "cas" is a check and set operation which means "store this data but
+  only if no one else has updated since I last fetched it."
 
 - <key> is the key under which the client asks to store the data
 
@@ -158,6 +161,8 @@ First, the client sends a command line which looks like this:
   including the delimiting \r\n. <bytes> may be zero (in which case
   it's followed by an empty data block).
 
+- <cas unique> is a unique 64-bit value of an existing entry.
+
 After this line, the client sends the data block:
 
 <data block>\r\n
@@ -175,13 +180,16 @@ because of an error. This normally means that either that the
 condition for an "add" or a "replace" command wasn't met, or that the
 item is in a delete queue (see the "delete" command below).
 
+- "EXISTS\r\n" to indicate that the item you are trying to store with
+a "cas" command has been modified since you last fetched it.
 
 Retrieval command:
 ------------------
 
-The retrieval command looks like this:
+The retrieval commands "get" and "gets" operates like this:
 
 get <key>*\r\n
+gets <key>*\r\n
 
 - <key>* means one or more key strings separated by whitespace.
 
@@ -195,7 +203,7 @@ to indicate the end of response.
 
 Each item sent by the server looks like this:
 
-VALUE <key> <flags> <bytes>\r\n
+VALUE <key> <flags> <bytes> [<cas unique>]\r\n
 <data block>\r\n
 
 - <key> is the key for the item being sent
@@ -205,6 +213,9 @@ VALUE <key> <flags> <bytes>\r\n
 - <bytes> is the length of the data block to follow, *not* including
   its delimiting \r\n
 
+- <cas unique> is a unique 64-bit integer that uniquely identifies
+  this specific item.
+
 - <data block> is the data for this item.
 
 If some of the keys appearing in a retrieval request are not sent back
@@ -212,7 +223,6 @@ by the server in the item list this means that the server does not
 hold items with such keys (because they were never stored, or stored
 but deleted to make space for more items, or expired, or explicitly
 deleted by a client).
-
 
 
 Deletion

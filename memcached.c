@@ -1025,13 +1025,14 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 }
 
 /* ntokens is overwritten here... shrug.. */
-static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens) {
+static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_key_ptr) {
     char *key;
     size_t nkey;
     int i = 0;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
-
+    char suffix[255];
+    uint32_t in_memory_ptr;
     assert(c != NULL);
 
     if (settings.managed) {
@@ -1081,12 +1082,30 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens)
                  *   key
                  *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
                  */
-                if (add_iov(c, "VALUE ", 6) != 0 ||
-                    add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                    add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
-                    {
-                        break;
-                    }
+
+                if(return_key_ptr == true)
+                {
+                  in_memory_ptr = (uint32_t)item_get(key, nkey);
+                  sprintf(suffix," %d %d %lu\r\n", atoi(ITEM_suffix(it) + 1), it->nbytes - 2, in_memory_ptr);
+                  if (add_iov(c, "VALUE ", 6) != 0 ||
+                      add_iov(c, ITEM_key(it), it->nkey) != 0 ||
+                      add_iov(c, suffix, strlen(suffix)) != 0 ||
+                      add_iov(c, ITEM_data(it), it->nbytes) != 0)
+                      {
+                          break;
+                      }
+                }
+                else
+                {
+                  if (add_iov(c, "VALUE ", 6) != 0 ||
+                      add_iov(c, ITEM_key(it), it->nkey) != 0 ||
+                      add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
+                      {
+                          break;
+                      }
+                }
+
+
                 if (settings.verbose > 1)
                     fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
 
@@ -1135,12 +1154,14 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens)
     return;
 }
 
-static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm) {
+static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
     char *key;
     size_t nkey;
     int flags;
     time_t exptime;
     int vlen;
+    uint32_t req_memory_ptr, in_memory_ptr;
+
     item *it;
 
     assert(c != NULL);
@@ -1156,6 +1177,12 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     flags = strtoul(tokens[2].value, NULL, 10);
     exptime = strtol(tokens[3].value, NULL, 10);
     vlen = strtol(tokens[4].value, NULL, 10);
+
+    // does cas value exist?
+    if(tokens[5].value)
+    {
+      req_memory_ptr = strtoull(tokens[5].value, NULL, 10);
+    }
 
     if(errno == ERANGE || ((flags == 0 || exptime == 0) && errno == EINVAL)) {
         out_string(c, "CLIENT_ERROR bad command line format");
@@ -1180,6 +1207,38 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     }
 
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
+
+    /* HANDLE_CAS VALIDATION */
+    if(handle_cas == true)
+    {
+      item *itmp=item_get(key, it->nkey);
+      /* Release the reference */
+      if(itmp) {
+        item_remove(itmp);
+      }
+      in_memory_ptr = (uint32_t)itmp;
+      if(in_memory_ptr == req_memory_ptr)
+      {
+        // validates allow the set
+      }
+      else if(in_memory_ptr)
+      {
+        out_string(c, "EXISTS");
+
+        /* swallow the data line */
+        c->write_and_go = conn_swallow;
+        c->sbytes = vlen + 2;
+        return;
+      }
+      else
+      {
+        out_string(c, "NOT FOUND");
+        /* swallow the data line */
+        c->write_and_go = conn_swallow;
+        c->sbytes = vlen + 2;
+        return;
+      }
+    }
 
     if (it == 0) {
         if (! item_size_ok(nkey, flags, vlen + 2))
@@ -1419,23 +1478,30 @@ static void process_command(conn *c, char *command) {
     }
 
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
-
     if (ntokens >= 3 &&
         ((strcmp(tokens[COMMAND_TOKEN].value, "get") == 0) ||
          (strcmp(tokens[COMMAND_TOKEN].value, "bget") == 0))) {
 
-        process_get_command(c, tokens, ntokens);
+        process_get_command(c, tokens, ntokens, false);
 
     } else if (ntokens == 6 &&
                ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "replace") == 0 && (comm = NREAD_REPLACE)))) {
 
-        process_update_command(c, tokens, ntokens, comm);
+        process_update_command(c, tokens, ntokens, comm, false);
+
+    } else if (ntokens == 6 && (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0)) {
+
+        process_update_command(c, tokens, ntokens, comm, true);
 
     } else if (ntokens == 4 && (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0)) {
 
         process_arithmetic_command(c, tokens, ntokens, 1);
+
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "gets") == 0)) {
+
+        process_get_command(c, tokens, ntokens, true);
 
     } else if (ntokens == 4 && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
