@@ -8,7 +8,10 @@
 	* Fix for stats.evictions not incrementing
 	  when exptime == 0 items are kicked off the cache. 
 	  from Jean-Francois BUSTARRET <jfbustarret@wat.tv>.
-	
+
+	* Fix for do_item_cachedump() which was returning
+	  an incorrect timestamp.
+
 2007-08-21 Paul Lindner <lindner@inuus.com>
 	* Incorporate incrememnt patch from Evan Miller 
 	  <emiller@imvu.com> to define increment overflow
