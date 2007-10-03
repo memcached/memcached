@@ -462,7 +462,7 @@ char *mt_defer_delete(item *item, time_t exptime) {
 /*
  * Does arithmetic on a numeric item value.
  */
-char *mt_add_delta(item *item, int incr, const unsigned int delta, char *buf) {
+char *mt_add_delta(item *item, int incr, const int64_t delta, char *buf) {
     char *ret;
 
     pthread_mutex_lock(&cache_lock);

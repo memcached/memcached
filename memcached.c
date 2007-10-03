@@ -1258,10 +1258,10 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     conn_set_state(c, conn_nread);
 }
 
-static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const int incr) {
-    char temp[32];
+static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
+    char temp[sizeof("18446744073709551615")];
     item *it;
-    unsigned int delta;
+    int64_t delta;
     char *key;
     size_t nkey;
 
@@ -1288,7 +1288,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         }
     }
 
-    delta = strtoul(tokens[2].value, NULL, 10);
+    delta = strtoll(tokens[2].value, NULL, 10);
 
     if(errno == ERANGE) {
         out_string(c, "CLIENT_ERROR bad command line format");
@@ -1315,27 +1315,27 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  *
  * returns a response string to send back to the client.
  */
-char *do_add_delta(item *it, const int incr, const unsigned int delta, char *buf) {
+char *do_add_delta(item *it, const bool incr, const int64_t delta, char *buf) {
     char *ptr;
-    uint32_t value;
+    int64_t value;
     int res;
 
     ptr = ITEM_data(it);
     while ((*ptr != '\0') && (*ptr < '0' && *ptr > '9')) ptr++;    // BUG: can't be true
 
-    value = strtoul(ptr, NULL, 10);
+    value = strtoull(ptr, NULL, 10);
 
     if(errno == ERANGE) {
         return "CLIENT_ERROR cannot increment or decrement non-numeric value";
     }
 
-    if (incr != 0)
+    if (incr)
         value += delta;
     else {
         if (delta >= value) value = 0;
         else value -= delta;
     }
-    snprintf(buf, 32, "%u", value);
+    sprintf(buf, "%llu", value);
     res = strlen(buf);
     if (res + 2 > it->nbytes) { /* need to realloc */
         item *new_it;

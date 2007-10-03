@@ -11,6 +11,9 @@
 
 	* Fix for do_item_cachedump() which was returning
 	  an incorrect timestamp.
+	
+	* Switch to unsigned 64-bit increment/decrement counters
+	  from Evan Miller and Dusgtin Sallings.
 
 2007-08-21 Paul Lindner <lindner@inuus.com>
 	* Incorporate incrememnt patch from Evan Miller 
