@@ -16,7 +16,7 @@
 	  from Evan Miller and Dusgtin Sallings.
 
 	* Add append command support written by Filipe Laborde.
-	  Tests/protocol doc updates by myself.
+	  Tests/protocol doc updates by Paul Lindner.
 
 2007-08-21 Paul Lindner <lindner@inuus.com>
 	* Incorporate incrememnt patch from Evan Miller 
