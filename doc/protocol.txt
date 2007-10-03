@@ -53,10 +53,11 @@ Commands
 
 There are three types of commands. 
 
-Storage commands (there are four: "set", "add", "replace", and "cas")
-ask the server to store some data identified by a key. The client
-sends a command line, and then a data block; after that the client
-expects one line of response, which will indicate success or faulure.
+Storage commands (there are five: "set", "add", "replace", "append"
+and "cas") ask the server to store some data identified by a key. The
+client sends a command line, and then a data block; after that the
+client expects one line of response, which will indicate success or
+faulure.
 
 Retrieval commands (there are two: "get" and "gets") ask the server to
 retrieve data corresponding to a set of keys (one or more keys in one
@@ -127,7 +128,7 @@ First, the client sends a command line which looks like this:
 
 <command name> <key> <flags> <exptime> <bytes> [<unqiue>]\r\n
 
-- <command name> is "set", "add", "replace", or "cas"
+- <command name> is "set", "add", "replace", "append", or "cas"
 
   "set" means "store this data".  
 
@@ -136,6 +137,8 @@ First, the client sends a command line which looks like this:
 
   "replace" means "store this data, but only if the server *does*
   already hold data for this key".
+
+  "append" means "add this data to an existing key".
 
   "cas" is a check and set operation which means "store this data but
   only if no one else has updated since I last fetched it."
@@ -182,6 +185,7 @@ item is in a delete queue (see the "delete" command below).
 
 - "EXISTS\r\n" to indicate that the item you are trying to store with
 a "cas" command has been modified since you last fetched it.
+
 
 Retrieval command:
 ------------------

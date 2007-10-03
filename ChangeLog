@@ -15,6 +15,9 @@
 	* Switch to unsigned 64-bit increment/decrement counters
 	  from Evan Miller and Dusgtin Sallings.
 
+	* Add append command support written by Filipe Laborde.
+	  Tests/protocol doc updates by myself.
+
 2007-08-21 Paul Lindner <lindner@inuus.com>
 	* Incorporate incrememnt patch from Evan Miller 
 	  <emiller@imvu.com> to define increment overflow

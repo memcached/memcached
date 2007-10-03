@@ -1159,10 +1159,9 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     size_t nkey;
     int flags;
     time_t exptime;
-    int vlen;
+    int vlen, old_vlen;
     uint32_t req_memory_ptr, in_memory_ptr;
-
-    item *it;
+    item *it, *old_it;
 
     assert(c != NULL);
 
@@ -1206,10 +1205,22 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         }
     }
 
+    /* Check if append -- if yes, search for previous entry, and allocate memory for both */
+    if( comm == NREAD_APPEND ){
+       old_it = assoc_find(key,nkey);
+
+       if( old_it && (old_it->nbytes)>2 ){ // previous must be more than \r\n
+          old_vlen = old_it->nbytes - 2;
+          vlen += old_vlen;                // append the length of old data
+       } else {
+          comm = NREAD_REPLACE;            // no old entry: treat as replace
+       }
+    }
+
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
 
     /* HANDLE_CAS VALIDATION */
-    if(handle_cas == true)
+    if (handle_cas == true)
     {
       item *itmp=item_get(key, it->nkey);
       /* Release the reference */
@@ -1251,10 +1262,22 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         return;
     }
 
-    c->item_comm = comm;
     c->item = it;
     c->ritem = ITEM_data(it);
     c->rlbytes = it->nbytes;
+
+
+    /* If append, prepend old data before new - adjust item, rlbytes variables too
+     * Now that data has been merged, treat simply as a replace command
+     */
+    if (comm == NREAD_APPEND ){
+       memcpy( c->ritem, ITEM_data(old_it), old_vlen );
+       c->ritem += old_vlen;
+       c->rlbytes -= old_vlen;
+       comm = NREAD_REPLACE;
+    }
+
+    c->item_comm = comm;
     conn_set_state(c, conn_nread);
 }
 
@@ -1487,7 +1510,8 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens == 6 &&
                ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) ||
-                (strcmp(tokens[COMMAND_TOKEN].value, "replace") == 0 && (comm = NREAD_REPLACE)))) {
+                (strcmp(tokens[COMMAND_TOKEN].value, "replace") == 0 && (comm = NREAD_REPLACE)) ||
+                (strcmp(tokens[COMMAND_TOKEN].value, "append") == 0 && (comm = NREAD_APPEND)) )) {
 
         process_update_command(c, tokens, ntokens, comm, false);
 
