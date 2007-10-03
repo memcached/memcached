@@ -1,9 +1,7 @@
 2007-10-03 Paul Lindner <lindner@inuus.com>
 	* Incorporate "cas" operation developed by Dustin
-	  Sallings <dustin@spy.net> and implemented by
-	  Chris Goffinet <goffinet@yahoo-inc.com>.  This
-	  change allows you to do atomic changes to an
-	  existing key.
+	  Sallings <dustin@spy.net> This change allows you
+	  to do atomic changes to an existing key.
 
 	* Fix for stats.evictions not incrementing
 	  when exptime == 0 items are kicked off the cache. 
@@ -13,7 +11,7 @@
 	  an incorrect timestamp.
 	
 	* Switch to unsigned 64-bit increment/decrement counters
-	  from Evan Miller and Dusgtin Sallings.
+	  from Evan Miller and Dustin Sallings.
 
 	* Add append command support written by Filipe Laborde.
 	  Tests/protocol doc updates by Paul Lindner.
