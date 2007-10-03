@@ -218,8 +218,11 @@ static int add_msghdr(conn *c)
     memset(msg, 0, sizeof(struct msghdr));
 
     msg->msg_iov = &c->iov[c->iovused];
-    msg->msg_name = &c->request_addr;
-    msg->msg_namelen = c->request_addr_size;
+
+    if (c->request_addr_size > 0) {
+        msg->msg_name = &c->request_addr;
+        msg->msg_namelen = c->request_addr_size;
+    }
 
     c->msgbytes = 0;
     c->msgused++;

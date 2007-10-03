@@ -19,6 +19,11 @@
 	* The memcached-tool script can now display stats.  Patch
 	  provided by Dan Christian <dchristian@google.com>
 
+	* Fix for Unix Domain sockets on FreeBSD
+	  FreeBSD's sendmsg() requires msg_name in msghdr structure 
+	  to be NULL if not used, setting msg_namelen to 0 isn't enough.
+	  Patch from Maxim Dounin <mdounin@mdounin.ru>
+
 2007-08-21 Paul Lindner <lindner@inuus.com>
 	* Incorporate incrememnt patch from Evan Miller 
 	  <emiller@imvu.com> to define increment overflow
