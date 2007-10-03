@@ -14,7 +14,8 @@
 	  from Evan Miller and Dustin Sallings.
 
 	* Add append command support written by Filipe Laborde.
-	  Tests/protocol doc updates by Paul Lindner.
+	  Thread safe version plus prepend command from Maxim Dounin
+	  <mdounin@mdounin.ru>
 
 	* The memcached-tool script can now display stats.  Patch
 	  provided by Dan Christian <dchristian@google.com>

@@ -719,14 +719,55 @@ int do_store_item(item *it, int comm) {
     item *old_it = do_item_get_notedeleted(key, it->nkey, &delete_locked);
     int stored = 0;
 
+    item *new_it = NULL;
+    int flags;
+
     if (old_it != NULL && comm == NREAD_ADD) {
         /* add only adds a nonexistent item, but promote to head of LRU */
         do_item_update(old_it);
-    } else if (!old_it && comm == NREAD_REPLACE) {
+    } else if (!old_it && (comm == NREAD_REPLACE
+        || comm == NREAD_APPEND || comm == NREAD_PREPEND))
+    {
         /* replace only replaces an existing value; don't store */
-    } else if (delete_locked && (comm == NREAD_REPLACE || comm == NREAD_ADD)) {
+    } else if (delete_locked && (comm == NREAD_REPLACE || comm == NREAD_ADD
+        || comm == NREAD_APPEND || comm == NREAD_PREPEND))
+    {
         /* replace and add can't override delete locks; don't store */
     } else {
+
+        /*
+         * Append - combine new and old record into single one. Here it's
+         * atomic and thread-safe.
+         */
+
+        if (comm == NREAD_APPEND || comm == NREAD_PREPEND) {
+
+            /* we have it and old_it here - alloc memory to hold both */
+            /* flags was already lost - so recover them from ITEM_suffix(it) */
+
+            flags = (int) strtol(ITEM_suffix(it), (char **) NULL, 10);
+
+            new_it = do_item_alloc(key, it->nkey, flags, it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
+
+            if (new_it == NULL) {
+                /* SERVER_ERROR out of memory */
+                return 0;
+            }
+
+            /* copy data from it and old_it to new_it */
+
+            if (comm == NREAD_APPEND) {
+                memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
+                memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(it), it->nbytes);
+            } else {
+                /* NREAD_PREPEND */ 
+                memcpy(ITEM_data(new_it), ITEM_data(it), it->nbytes);
+                memcpy(ITEM_data(new_it) + it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
+            }
+
+            it = new_it;
+        }
+
         /* "set" commands can override the delete lock
            window... in which case we have to find the old hidden item
            that's in the namespace/LRU but wasn't returned by
@@ -742,8 +783,11 @@ int do_store_item(item *it, int comm) {
         stored = 1;
     }
 
-    if (old_it)
+    if (old_it != NULL)
         do_item_remove(old_it);         /* release our reference */
+    if (new_it != NULL)
+        do_item_remove(new_it);
+
     return stored;
 }
 
@@ -1208,18 +1252,6 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         }
     }
 
-    /* Check if append -- if yes, search for previous entry, and allocate memory for both */
-    if( comm == NREAD_APPEND ){
-       old_it = assoc_find(key,nkey);
-
-       if( old_it && (old_it->nbytes)>2 ){ // previous must be more than \r\n
-          old_vlen = old_it->nbytes - 2;
-          vlen += old_vlen;                // append the length of old data
-       } else {
-          comm = NREAD_REPLACE;            // no old entry: treat as replace
-       }
-    }
-
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
 
     /* HANDLE_CAS VALIDATION */
@@ -1268,18 +1300,6 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     c->item = it;
     c->ritem = ITEM_data(it);
     c->rlbytes = it->nbytes;
-
-
-    /* If append, prepend old data before new - adjust item, rlbytes variables too
-     * Now that data has been merged, treat simply as a replace command
-     */
-    if (comm == NREAD_APPEND ){
-       memcpy( c->ritem, ITEM_data(old_it), old_vlen );
-       c->ritem += old_vlen;
-       c->rlbytes -= old_vlen;
-       comm = NREAD_REPLACE;
-    }
-
     c->item_comm = comm;
     conn_set_state(c, conn_nread);
 }
@@ -1514,6 +1534,7 @@ static void process_command(conn *c, char *command) {
                ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "replace") == 0 && (comm = NREAD_REPLACE)) ||
+                (strcmp(tokens[COMMAND_TOKEN].value, "prepend") == 0 && (comm = NREAD_PREPEND)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "append") == 0 && (comm = NREAD_APPEND)) )) {
 
         process_update_command(c, tokens, ntokens, comm, false);
