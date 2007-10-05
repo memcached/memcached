@@ -108,7 +108,7 @@ if ($mode eq 'dump') {
             last if /^END/;
             # return format looks like this
             # ITEM foo [6 b; 1176415152 s]
-            if (/^ITEM (\w+) \[.* (\d+) s\]/) {
+            if (/^ITEM (\S+) \[.* (\d+) s\]/) {
                 $keyexp{$1} = $2;
             }
         }
@@ -117,7 +117,7 @@ if ($mode eq 'dump') {
             my $val;
             print $sock "get $k\r\n";
             my $response = <$sock>;
-            $response =~ /VALUE (\w+) (\d+) (\d+)/;
+            $response =~ /VALUE (\S+) (\d+) (\d+)/;
             my $flags = $2;
             my $len = $3;
             read $sock, $val , $len;
