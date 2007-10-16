@@ -83,6 +83,7 @@ struct settings {
     bool managed;          /* if 1, a tracker manages virtual buckets */
     int evict_to_free;
     char *socketpath;   /* path to unix socket if using local socket */
+    int access;  /* access mask (a la chmod) for unix domain socket */
     double factor;          /* chunk size growth factor */
     int chunk_size;
     int num_threads;        /* number of libevent threads to run */

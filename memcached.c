@@ -164,6 +164,7 @@ static void stats_reset(void) {
 }
 
 static void settings_init(void) {
+    settings.access=0700;
     settings.port = 11211;
     settings.udpport = 0;
     settings.interf.s_addr = htonl(INADDR_ANY);
@@ -760,7 +761,7 @@ int do_store_item(item *it, int comm) {
                 memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
                 memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(it), it->nbytes);
             } else {
-                /* NREAD_PREPEND */ 
+                /* NREAD_PREPEND */
                 memcpy(ITEM_data(new_it), ITEM_data(it), it->nbytes);
                 memcpy(ITEM_data(new_it) + it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
             }
@@ -2278,12 +2279,13 @@ static int new_socket_unix(void) {
     return sfd;
 }
 
-static int server_socket_unix(const char *path) {
+static int server_socket_unix(const char *path, int access_mask) {
     int sfd;
     struct linger ling = {0, 0};
     struct sockaddr_un addr;
     struct stat tstat;
     int flags =1;
+    int old_umask;
 
     if (!path) {
         return -1;
@@ -2313,11 +2315,14 @@ static int server_socket_unix(const char *path) {
 
     addr.sun_family = AF_UNIX;
     strcpy(addr.sun_path, path);
+    old_umask=umask( ~(access_mask&0777));
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
         close(sfd);
+        umask(old_umask);
         return -1;
     }
+    umask(old_umask);
     if (listen(sfd, 1024) == -1) {
         perror("listen()");
         close(sfd);
@@ -2567,8 +2572,13 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "bp:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:")) != -1) {
+    while ((c = getopt(argc, argv, "a:bp:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:")) != -1) {
         switch (c) {
+        case 'a':
+            /* access for unix domain socket, as octal mask (like chmod)*/
+            settings.access= strtol(optarg,NULL,8);
+            break;
+
         case 'U':
             settings.udpport = atoi(optarg);
             break;
@@ -2746,7 +2756,7 @@ int main (int argc, char **argv) {
 
     /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
-        l_socket = server_socket_unix(settings.socketpath);
+        l_socket = server_socket_unix(settings.socketpath,settings.access);
         if (l_socket == -1) {
             fprintf(stderr, "failed to listen\n");
             exit(EXIT_FAILURE);

@@ -23,6 +23,9 @@ is included below.
 .B \-s <file>
 Unix socket path to listen on (disables network support).
 .TP
+.B \-a <perms>
+Permissions (in octal format) for Unix socket created with -s option.
+.TP
 .B \-l <ip_addr>  
 Listen on <ip_addr>; default to INDRR_ANY. This is an important option to 
 consider as there is no other way to secure the installation. Binding to an 

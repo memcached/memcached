@@ -1,3 +1,10 @@
+2007-10-15  Paul Lindner  <lindner@inuus.com>
+
+	* Patch from David Bremner <bremner@unb.ca> that implements
+	  a new option "-a" which takes an octal permission mask
+	  (like chmod) sets the permissions on the unix domain socket 
+	  (specified by "-s").
+
 2007-10-03 Paul Lindner <lindner@inuus.com>
 	* Incorporate "cas" operation developed by Dustin
 	  Sallings <dustin@spy.net> This change allows you
