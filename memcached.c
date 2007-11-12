@@ -1190,9 +1190,14 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     if (settings.verbose > 1)
         fprintf(stderr, ">%d END\n", c->sfd);
-    add_iov(c, "END\r\n", 5);
 
-    if (c->udp && build_udp_headers(c) != 0) {
+    /*
+      If the loop was terminated because of out-of-memory, it is not
+      reliable to add END\r\n to the buffer, because it might not end
+      in \r\n.  So we send SERVER_ERROR instead.
+    */
+    if (key_token->value != NULL || add_iov(c, "END\r\n", 5) != 0
+        || (c->udp && build_udp_headers(c) != 0)) {
         out_string(c, "SERVER_ERROR out of memory");
     }
     else {

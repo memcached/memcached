@@ -1,3 +1,8 @@
+2007-11-12  Steven Grimm  <sgrimm@facebook.com>
+
+	* Patch from Tomash Brechko <tomash.brechko@gmail.com>: Always send
+	  "SERVER_ERROR out of memory" when memory exhausted.
+
 2007-10-15  Paul Lindner  <lindner@inuus.com>
 
 	* Patch from David Bremner <bremner@unb.ca> that implements
