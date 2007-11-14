@@ -54,7 +54,7 @@ std *
 
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
-#if defined(__FreeBSD__)
+#if defined(__FreeBSD__) || MAC_OS_X_VERSION_MAX_ALLOWED >= 1030
 # define IOV_MAX 1024
 #endif
 #endif
