@@ -32,6 +32,8 @@
 #define IOV_LIST_HIGHWAT 600
 #define MSG_LIST_HIGHWAT 100
 
+#define MAX_CAS_ID 0x7ffffffffffffff0
+
 /* Get a consistent bool type */
 #if HAVE_STDBOOL_H
 # include <stdbool.h>
@@ -112,6 +114,7 @@ typedef struct _stritem {
     uint8_t         it_flags;   /* ITEM_* above */
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
+    uint64_t        cas_id;     /* the CAS identifier */
     void * end[];
     /* then null-terminated key */
     /* then " flags length\r\n" (no terminating null) */
@@ -140,6 +143,7 @@ enum conn_states {
 #define NREAD_REPLACE 3
 #define NREAD_APPEND 4
 #define NREAD_PREPEND 5
+#define NREAD_CAS 6
 
 typedef struct {
     int    sfd;

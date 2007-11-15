@@ -17,6 +17,7 @@
 /* Forward Declarations */
 static void item_link_q(item *it);
 static void item_unlink_q(item *it);
+static uint64_t get_cas_id();
 
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned
@@ -37,6 +38,15 @@ void item_init(void) {
         tails[i] = NULL;
         sizes[i] = 0;
     }
+}
+
+/* Get the next CAS id for a new item. */
+uint64_t get_cas_id() {
+    static uint64_t cas_id;
+    if(cas_id >= MAX_CAS_ID) {
+        cas_id = 0;
+    }
+    return ++cas_id;
 }
 
 /* Enable this for reference-count debugging. */
@@ -129,6 +139,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     it->it_flags = 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
+    it->cas_id = get_cas_id();
     strcpy(ITEM_key(it), key);
     it->exptime = exptime;
     memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);

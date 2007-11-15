@@ -689,6 +689,7 @@ static void complete_nread(conn *c) {
 
     item *it = c->item;
     int comm = c->item_comm;
+    int ret;
 
     STATS_LOCK();
     stats.set_cmds++;
@@ -697,11 +698,15 @@ static void complete_nread(conn *c) {
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
-        if (store_item(it, comm)) {
-            out_string(c, "STORED");
-        } else {
-            out_string(c, "NOT_STORED");
-        }
+      ret = store_item(it, comm);
+      if (ret == 1)
+          out_string(c, "STORED");
+      else if(ret == 2)
+          out_string(c, "EXISTS");
+      else if(ret == 3)
+          out_string(c, "NOT FOUND");
+      else
+          out_string(c, "NOT_STORED");
     }
 
     item_remove(c->item);       /* release the c->item reference */
@@ -734,8 +739,25 @@ int do_store_item(item *it, int comm) {
         || comm == NREAD_APPEND || comm == NREAD_PREPEND))
     {
         /* replace and add can't override delete locks; don't store */
-    } else {
+    } else if (comm == NREAD_CAS) {
+        /* validate cas operation */
+        if (delete_locked)
+            old_it = do_item_get_nocheck(key, it->nkey);
 
+        if(old_it == NULL) {
+          // LRU expired
+          stored = 3;
+        }
+        else if(it->cas_id == old_it->cas_id) {
+          // cas validates
+          do_item_replace(old_it, it);
+          stored = 1;
+        }
+        else
+        {
+          stored = 2;
+        }
+    } else {
         /*
          * Append - combine new and old record into single one. Here it's
          * atomic and thread-safe.
@@ -1080,7 +1102,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
     char suffix[255];
-    uint32_t in_memory_ptr;
     assert(c != NULL);
 
     if (settings.managed) {
@@ -1133,8 +1154,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                 if(return_key_ptr == true)
                 {
-                  in_memory_ptr = (uint32_t)item_get(key, nkey);
-                  sprintf(suffix," %d %d %lu\r\n", atoi(ITEM_suffix(it) + 1), it->nbytes - 2, in_memory_ptr);
+                  sprintf(suffix," %d %d %llu\r\n", atoi(ITEM_suffix(it) + 1),
+                      it->nbytes - 2, it->cas_id);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       add_iov(c, suffix, strlen(suffix)) != 0 ||
@@ -1213,7 +1234,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     int flags;
     time_t exptime;
     int vlen, old_vlen;
-    uint32_t req_memory_ptr, in_memory_ptr;
+    uint64_t req_cas_id;
     item *it, *old_it;
 
     assert(c != NULL);
@@ -1231,9 +1252,9 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     vlen = strtol(tokens[4].value, NULL, 10);
 
     // does cas value exist?
-    if(tokens[5].value)
+    if(handle_cas)
     {
-      req_memory_ptr = strtoull(tokens[5].value, NULL, 10);
+      req_cas_id = strtoull(tokens[5].value, NULL, 10);
     }
 
     if(errno == ERANGE || ((flags == 0 || exptime == 0) && errno == EINVAL)) {
@@ -1260,38 +1281,6 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
 
-    /* HANDLE_CAS VALIDATION */
-    if (handle_cas == true)
-    {
-      item *itmp=item_get(key, it->nkey);
-      /* Release the reference */
-      if(itmp) {
-        item_remove(itmp);
-      }
-      in_memory_ptr = (uint32_t)itmp;
-      if(in_memory_ptr == req_memory_ptr)
-      {
-        // validates allow the set
-      }
-      else if(in_memory_ptr)
-      {
-        out_string(c, "EXISTS");
-
-        /* swallow the data line */
-        c->write_and_go = conn_swallow;
-        c->sbytes = vlen + 2;
-        return;
-      }
-      else
-      {
-        out_string(c, "NOT FOUND");
-        /* swallow the data line */
-        c->write_and_go = conn_swallow;
-        c->sbytes = vlen + 2;
-        return;
-      }
-    }
-
     if (it == 0) {
         if (! item_size_ok(nkey, flags, vlen + 2))
             out_string(c, "SERVER_ERROR object too large for cache");
@@ -1302,6 +1291,8 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         c->sbytes = vlen + 2;
         return;
     }
+    if(handle_cas)
+      it->cas_id = req_cas_id;
 
     c->item = it;
     c->ritem = ITEM_data(it);
@@ -1545,7 +1536,7 @@ static void process_command(conn *c, char *command) {
 
         process_update_command(c, tokens, ntokens, comm, false);
 
-    } else if (ntokens == 6 && (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0)) {
+    } else if (ntokens == 6 && (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0 && (comm = NREAD_CAS))) {
 
         process_update_command(c, tokens, ntokens, comm, true);
 
