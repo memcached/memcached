@@ -32,8 +32,6 @@
 #define IOV_LIST_HIGHWAT 600
 #define MSG_LIST_HIGHWAT 100
 
-#define MAX_CAS_ID 0x7ffffffffffffff0
-
 /* Get a consistent bool type */
 #if HAVE_STDBOOL_H
 # include <stdbool.h>

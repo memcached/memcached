@@ -41,5 +41,5 @@ is(scalar <$sock>, "DELETED\r\n", "deleted foo");
 
 # cas missing
 print $sock "cas foo 0 0 6 $result[0]\r\nbarva2\r\n";
-is(scalar <$sock>, "NOT FOUND\r\n", "cas failed, foo does not exist");
+is(scalar <$sock>, "NOT_FOUND\r\n", "cas failed, foo does not exist");
 

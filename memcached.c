@@ -704,7 +704,7 @@ static void complete_nread(conn *c) {
       else if(ret == 2)
           out_string(c, "EXISTS");
       else if(ret == 3)
-          out_string(c, "NOT FOUND");
+          out_string(c, "NOT_FOUND");
       else
           out_string(c, "NOT_STORED");
     }

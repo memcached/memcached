@@ -42,10 +42,7 @@ void item_init(void) {
 
 /* Get the next CAS id for a new item. */
 uint64_t get_cas_id() {
-    static uint64_t cas_id;
-    if(cas_id >= MAX_CAS_ID) {
-        cas_id = 0;
-    }
+    static uint64_t cas_id = 0;
     return ++cas_id;
 }
 
