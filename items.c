@@ -136,7 +136,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     it->it_flags = 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
-    it->cas_id = get_cas_id();
     strcpy(ITEM_key(it), key);
     it->exptime = exptime;
     memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
@@ -223,6 +222,9 @@ int do_item_link(item *it) {
     stats.curr_items += 1;
     stats.total_items += 1;
     STATS_UNLOCK();
+
+    /* Allocate a new CAS ID on link. */
+    it->cas_id = get_cas_id();
 
     item_link_q(it);
 
