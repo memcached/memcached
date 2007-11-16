@@ -824,7 +824,7 @@ typedef struct token_s {
 #define KEY_TOKEN 1
 #define KEY_MAX_LENGTH 250
 
-#define MAX_TOKENS 6
+#define MAX_TOKENS 7
 
 /*
  * Tokenize the command string by replacing whitespace with '\0' and update
@@ -1536,7 +1536,7 @@ static void process_command(conn *c, char *command) {
 
         process_update_command(c, tokens, ntokens, comm, false);
 
-    } else if (ntokens == 6 && (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0 && (comm = NREAD_CAS))) {
+    } else if (ntokens == 7 && (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0 && (comm = NREAD_CAS))) {
 
         process_update_command(c, tokens, ntokens, comm, true);
 
