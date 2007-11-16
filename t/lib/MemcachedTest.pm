@@ -3,9 +3,14 @@ use strict;
 use IO::Socket::INET;
 use IO::Socket::UNIX;
 use Exporter 'import';
-use FindBin qw($Bin);
 use Carp qw(croak);
 use vars qw(@EXPORT);
+
+# Instead of doing the substitution with Autoconf, we assume that
+# cwd == builddir.
+use Cwd;
+my $builddir = getcwd;
+
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats free_port);
 
@@ -131,7 +136,7 @@ sub free_port {
 }
 
 sub supports_udp {
-    my $output = `$Bin/../memcached-debug -h`;
+    my $output = `$builddir/memcached-debug -h`;
     return 0 if $output =~ /^memcached 1\.1\./;
     return 1;
 }
@@ -149,7 +154,7 @@ sub new_memcached {
     }
     my $childpid = fork();
 
-    my $exe = "$Bin/../memcached-debug";
+    my $exe = "$builddir/memcached-debug";
     croak("memcached binary doesn't exist.  Haven't run 'make' ?\n") unless -e $exe;
     croak("memcached binary not executable\n") unless -x _;
 

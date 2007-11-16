@@ -11,7 +11,7 @@ DIST_DIRS = scripts
 EXTRA_DIST = doc scripts TODO t memcached.spec
 
 test:	memcached-debug
-	prove t
+	prove $(srcdir)/t
 
 dist-hook:
 	rm -rf $(distdir)/doc/.svn/
