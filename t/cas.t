@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 8;
+use Test::More tests => 9;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -34,6 +34,10 @@ mem_gets_is($sock,$result[0],"foo","barval");
 # cas success
 print $sock "cas foo 0 0 6 $result[0]\r\nbarva2\r\n";
 is(scalar <$sock>, "STORED\r\n", "cas success, set foo");
+
+# cas failure (reusing the same key)
+print $sock "cas foo 0 0 6 $result[0]\r\nbarva2\r\n";
+is(scalar <$sock>, "EXISTS\r\n", "reusing a CAS ID");
 
 # delete foo
 print $sock "delete foo\r\n";
