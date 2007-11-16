@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 9;
+use Test::More tests => 10;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -46,4 +46,8 @@ is(scalar <$sock>, "DELETED\r\n", "deleted foo");
 # cas missing
 print $sock "cas foo 0 0 6 $result[0]\r\nbarva2\r\n";
 is(scalar <$sock>, "NOT_FOUND\r\n", "cas failed, foo does not exist");
+
+# cas empty
+print $sock "cas foo 0 0 6 \r\nbarva2\r\n";
+is(scalar <$sock>, "ERROR\r\n", "cas empty, throw error");
 
