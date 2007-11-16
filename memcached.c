@@ -768,9 +768,9 @@ int do_store_item(item *it, int comm) {
             /* we have it and old_it here - alloc memory to hold both */
             /* flags was already lost - so recover them from ITEM_suffix(it) */
 
-            flags = (int) strtol(ITEM_suffix(it), (char **) NULL, 10);
+            flags = (int) strtol(ITEM_suffix(old_it), (char **) NULL, 10);
 
-            new_it = do_item_alloc(key, it->nkey, flags, it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
+            new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
             if (new_it == NULL) {
                 /* SERVER_ERROR out of memory */
