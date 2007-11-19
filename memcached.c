@@ -1102,6 +1102,9 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
     char suffix[255];
+    int stats_get_cmds   = 0;
+    int stats_get_hits   = 0;
+    int stats_get_misses = 0;
     assert(c != NULL);
 
     if (settings.managed) {
@@ -1124,13 +1127,16 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             nkey = key_token->length;
 
             if(nkey > KEY_MAX_LENGTH) {
+                STATS_LOCK();
+                stats.get_cmds   += stats_get_cmds;
+                stats.get_hits   += stats_get_hits;
+                stats.get_misses += stats_get_misses;
+                STATS_UNLOCK();
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
 
-            STATS_LOCK();
-            stats.get_cmds++;
-            STATS_UNLOCK();
+            stats_get_cmds++;
             it = item_get(key, nkey);
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, NULL != it);
@@ -1179,17 +1185,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
 
                 /* item_get() has incremented it->refcount for us */
-                STATS_LOCK();
-                stats.get_hits++;
-                STATS_UNLOCK();
+                stats_get_hits++;
                 item_update(it);
                 *(c->ilist + i) = it;
                 i++;
 
             } else {
-                STATS_LOCK();
-                stats.get_misses++;
-                STATS_UNLOCK();
+                stats_get_misses++;
             }
 
             key_token++;
@@ -1225,6 +1227,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         conn_set_state(c, conn_mwrite);
         c->msgcurr = 0;
     }
+
+    STATS_LOCK();
+    stats.get_cmds   += stats_get_cmds;
+    stats.get_hits   += stats_get_hits;
+    stats.get_misses += stats_get_misses;
+    STATS_UNLOCK();
+
     return;
 }
 
