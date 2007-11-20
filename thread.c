@@ -47,6 +47,9 @@ struct conn_queue {
 /* Lock for connection freelist */
 static pthread_mutex_t conn_lock;
 
+/* Lock for alternative item suffix freelist */
+static pthread_mutex_t suffix_lock;
+
 /* Lock for cache operations (item_*, assoc_*) */
 static pthread_mutex_t cache_lock;
 
@@ -244,6 +247,36 @@ bool mt_conn_add_to_freelist(conn *c) {
 
     return result;
 }
+
+/*
+ * Pulls a suffix buffer from the freelist, if one is available.
+ */
+char *mt_suffix_from_freelist() {
+    char *s;
+
+    pthread_mutex_lock(&suffix_lock);
+    s = do_suffix_from_freelist();
+    pthread_mutex_unlock(&suffix_lock);
+
+    return s;
+}
+
+
+/*
+ * Adds a suffix buffer to the freelist.
+ *
+ * Returns 0 on success, 1 if the buffer couldn't be added.
+ */
+bool mt_suffix_add_to_freelist(char *s) {
+    bool result;
+
+    pthread_mutex_lock(&conn_lock);
+    result = do_conn_add_to_freelist(s);
+    pthread_mutex_unlock(&conn_lock);
+
+    return result;
+}
+
 
 /****************************** LIBEVENT THREADS *****************************/
 

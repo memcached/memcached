@@ -16,9 +16,15 @@
 #define UDP_MAX_PAYLOAD_SIZE 1400
 #define UDP_HEADER_SIZE 8
 #define MAX_SENDBUF_SIZE (256 * 1024 * 1024)
+/* I'm told the max legnth of a 64-bit num converted to string is 20 bytes.
+ * Plus one for good luck. */
+#define SUFFIX_SIZE 21
 
 /** Initial size of list of items being returned by "get". */
 #define ITEM_LIST_INITIAL 200
+
+/** Initial size of list of CAS suffixes appended to "gets" lines. */
+#define SUFFIX_LIST_INITIAL 20
 
 /** Initial size of the sendmsg() scatter/gather array. */
 #define IOV_LIST_INITIAL 400
@@ -133,7 +139,8 @@ enum conn_states {
     conn_nread,      /** reading in a fixed number of bytes */
     conn_swallow,    /** swallowing unnecessary bytes w/o storing */
     conn_closing,    /** closing this connection */
-    conn_mwrite      /** writing out many items sequentially */
+    conn_mwrite,     /** writing out many items sequentially */
+    conn_caswrite,   /** writing out many items sequentially with cas value */
 };
 
 #define NREAD_ADD 1
@@ -195,6 +202,11 @@ typedef struct {
     item   **icurr;
     int    ileft;
 
+    char   **suffixlist;
+    int    suffixsize;
+    char   **suffixcurr;
+    int    suffixleft;
+
     /* data for UDP clients */
     bool   udp;       /* is this is a UDP "connection" */
     int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
@@ -225,6 +237,8 @@ extern volatile rel_time_t current_time;
 
 conn *do_conn_from_freelist();
 bool do_conn_add_to_freelist(conn *c);
+char *do_suffix_from_freelist();
+bool do_suffix_add_to_freelist(char *s);
 char *do_defer_delete(item *item, time_t exptime);
 void do_run_deferred_deletes(void);
 char *do_add_delta(item *item, const bool incr, const int64_t delta, char *buf);
@@ -262,6 +276,8 @@ char *mt_add_delta(item *item, const int incr, const int64_t delta, char *buf);
 void mt_assoc_move_next_bucket(void);
 conn *mt_conn_from_freelist(void);
 bool  mt_conn_add_to_freelist(conn *c);
+char *mt_suffix_from_freelist(void);
+bool  mt_suffix_add_to_freelist(char *s);
 char *mt_defer_delete(item *it, time_t exptime);
 int   mt_is_listen_thread(void);
 item *mt_item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
@@ -289,6 +305,8 @@ int   mt_store_item(item *item, int comm);
 # define assoc_move_next_bucket()    mt_assoc_move_next_bucket()
 # define conn_from_freelist()        mt_conn_from_freelist()
 # define conn_add_to_freelist(x)     mt_conn_add_to_freelist(x)
+# define suffix_from_freelist()      mt_suffix_from_freelist()
+# define suffix_add_to_freelist(x)   mt_suffix_add_to_freelist(x)
 # define defer_delete(x,y)           mt_defer_delete(x,y)
 # define is_listen_thread()          mt_is_listen_thread()
 # define item_alloc(x,y,z,a,b)       mt_item_alloc(x,y,z,a,b)
@@ -318,6 +336,8 @@ int   mt_store_item(item *item, int comm);
 # define assoc_move_next_bucket()    do_assoc_move_next_bucket()
 # define conn_from_freelist()        do_conn_from_freelist()
 # define conn_add_to_freelist(x)     do_conn_add_to_freelist(x)
+# define suffix_from_freelist()      do_suffix_from_freelist()
+# define suffix_add_to_freelist(x)   do_suffix_add_to_freelist(x)
 # define defer_delete(x,y)           do_defer_delete(x,y)
 # define dispatch_conn_new(x,y,z,a,b) conn_new(x,y,z,a,b,main_base)
 # define dispatch_event_add(t,c)     event_add(&(c)->event, 0)

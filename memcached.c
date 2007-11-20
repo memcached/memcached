@@ -303,6 +303,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
         }
         c->rbuf = c->wbuf = 0;
         c->ilist = 0;
+        c->suffixlist = 0;
         c->iov = 0;
         c->msglist = 0;
         c->hdrbuf = 0;
@@ -310,6 +311,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
         c->rsize = read_buffer_size;
         c->wsize = DATA_BUFFER_SIZE;
         c->isize = ITEM_LIST_INITIAL;
+        c->suffixsize = SUFFIX_LIST_INITIAL;
         c->iovsize = IOV_LIST_INITIAL;
         c->msgsize = MSG_LIST_INITIAL;
         c->hdrsize = 0;
@@ -317,14 +319,16 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
         c->rbuf = (char *)malloc((size_t)c->rsize);
         c->wbuf = (char *)malloc((size_t)c->wsize);
         c->ilist = (item **)malloc(sizeof(item *) * c->isize);
+        c->suffixlist = (char **)malloc(sizeof(char *) * c->suffixsize);
         c->iov = (struct iovec *)malloc(sizeof(struct iovec) * c->iovsize);
         c->msglist = (struct msghdr *)malloc(sizeof(struct msghdr) * c->msgsize);
 
         if (c->rbuf == 0 || c->wbuf == 0 || c->ilist == 0 || c->iov == 0 ||
-                c->msglist == 0) {
+                c->msglist == 0 || c->suffixlist == 0) {
             if (c->rbuf != 0) free(c->rbuf);
             if (c->wbuf != 0) free(c->wbuf);
             if (c->ilist !=0) free(c->ilist);
+            if (c->suffixlist != 0) free(c->suffixlist);
             if (c->iov != 0) free(c->iov);
             if (c->msglist != 0) free(c->msglist);
             free(c);
@@ -355,7 +359,9 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
     c->rcurr = c->rbuf;
     c->ritem = 0;
     c->icurr = c->ilist;
+    c->suffixcurr = c->suffixlist;
     c->ileft = 0;
+    c->suffixleft = 0;
     c->iovused = 0;
     c->msgcurr = 0;
     c->msgused = 0;
@@ -399,6 +405,12 @@ static void conn_cleanup(conn *c) {
         }
     }
 
+    if (c->suffixleft != 0) {
+        for (; c->suffixleft > 0; c->suffixleft--, c->suffixcurr++) {
+            suffix_add_to_freelist(*(c->suffixcurr));
+        }
+    }
+
     if (c->write_and_free) {
         free(c->write_and_free);
         c->write_and_free = 0;
@@ -420,6 +432,8 @@ void conn_free(conn *c) {
             free(c->wbuf);
         if (c->ilist)
             free(c->ilist);
+        if (c->suffixlist)
+            free(c->suffixlist);
         if (c->iov)
             free(c->iov);
         free(c);
@@ -527,6 +541,66 @@ static void conn_set_state(conn *c, int state) {
     }
 }
 
+/*
+ * Free list management for suffix buffers.
+ */
+
+static char **freesuffix;
+static int freesuffixtotal;
+static int freesuffixcurr;
+
+static void suffix_init(void) {
+    freesuffixtotal = 500;
+    freesuffixcurr  = 0;
+
+    freesuffix = (char **)malloc( sizeof(char *) *
+                                  21 * freesuffixtotal );
+    if (freesuffix == NULL) {
+        perror("malloc()");
+    }
+    return;
+}
+
+/*
+ * Returns a suffix buffer from the freelist, if any. Should call this using
+ * suffix_from_freelist() for thread safety.
+ */
+char *do_suffix_from_freelist() {
+    char *s;
+
+    if (freesuffixcurr > 0) {
+        s = freesuffix[--freesuffixcurr];
+    } else {
+        /* FIXME: global define? */
+        /* If malloc fails, let the logic fall through without spamming
+         * STDERR on the server. */
+        s = malloc( sizeof(char *) * SUFFIX_SIZE );
+    }
+
+    return s;
+}
+
+/*
+ * Adds a connection to the freelist. 0 = success. Should call this using
+ * conn_add_to_freelist() for thread safety.
+ */
+bool do_suffix_add_to_freelist(char *s) {
+    if (freesuffixcurr < freesuffixtotal) {
+        freesuffix[freesuffixcurr++] = s;
+        return false;
+    } else {
+        /* try to enlarge free connections array */
+        char **new_freesuffix = realloc(freesuffix,
+                                        SUFFIX_SIZE * freesuffixtotal * 2);
+        if (new_freesuffix) {
+            freesuffixtotal *= 2;
+            freesuffix = new_freesuffix;
+            freesuffix[freesuffixcurr++] = s;
+            return false;
+        }
+    }
+    return true;
+}
 
 /*
  * Ensures that there is room for another struct iovec in a connection's
@@ -1095,13 +1169,13 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 }
 
 /* ntokens is overwritten here... shrug.. */
-static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_key_ptr) {
+static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
     char *key;
     size_t nkey;
     int i = 0;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
-    char suffix[255];
+    char *suffix;
     int stats_get_cmds   = 0;
     int stats_get_hits   = 0;
     int stats_get_misses = 0;
@@ -1158,12 +1232,33 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                  *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
                  */
 
-                if(return_key_ptr == true)
+                if(return_cas == true)
                 {
-                  sprintf(suffix," %d %d %llu\r\n", atoi(ITEM_suffix(it) + 1),
-                      it->nbytes - 2, it->cas_id);
+                  /* Goofy mid-flight realloc. */
+                  if (i >= c->suffixsize) {
+                    char **new_suffix_list = realloc(c->suffixlist,
+                                           sizeof(char *) * c->suffixsize * 2);
+                    if (new_suffix_list) {
+                      c->suffixsize *= 2;
+                      c->suffixlist  = new_suffix_list;
+                    }
+                  }
+
+                  suffix = suffix_from_freelist();
+                  if (suffix == NULL) {
+                    STATS_LOCK();
+                    stats.get_cmds   += stats_get_cmds;
+                    stats.get_hits   += stats_get_hits;
+                    stats.get_misses += stats_get_misses;
+                    STATS_UNLOCK();
+                    out_string(c, "SERVER_ERROR out of memory");
+                    return;
+                  }
+                  *(c->suffixlist + i) = suffix;
+                  sprintf(suffix, " %llu\r\n", it->cas_id);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
+                      add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
                       add_iov(c, suffix, strlen(suffix)) != 0 ||
                       add_iov(c, ITEM_data(it), it->nbytes) != 0)
                       {
@@ -1210,6 +1305,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     c->icurr = c->ilist;
     c->ileft = i;
+    if (return_cas) {
+        c->suffixcurr = c->suffixlist;
+        c->suffixleft = i;
+    }
 
     if (settings.verbose > 1)
         fprintf(stderr, ">%d END\n", c->sfd);
@@ -1222,6 +1321,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     if (key_token->value != NULL || add_iov(c, "END\r\n", 5) != 0
         || (c->udp && build_udp_headers(c) != 0)) {
         out_string(c, "SERVER_ERROR out of memory");
+    }
+    else if (return_cas) {
+        conn_set_state(c, conn_caswrite);
+        c->msgcurr = 0;
     }
     else {
         conn_set_state(c, conn_mwrite);
@@ -2102,15 +2205,24 @@ static void drive_machine(conn *c) {
             /* fall through... */
 
         case conn_mwrite:
+        case conn_caswrite:
             switch (transmit(c)) {
             case TRANSMIT_COMPLETE:
-                if (c->state == conn_mwrite) {
+                if (c->state == conn_mwrite || c->state == conn_caswrite) {
                     while (c->ileft > 0) {
                         item *it = *(c->icurr);
                         assert((it->it_flags & ITEM_SLABBED) == 0);
                         item_remove(it);
                         c->icurr++;
                         c->ileft--;
+                    }
+                    if (c->state == conn_caswrite) {
+                        while (c->suffixleft > 0) {
+                            char *suffix = *(c->suffixcurr);
+                            suffix_add_to_freelist(suffix);
+                            c->suffixcurr++;
+                            c->suffixleft--;
+                        }
                     }
                     conn_set_state(c, conn_read);
                 } else if (c->state == conn_write) {
@@ -2788,6 +2900,8 @@ int main (int argc, char **argv) {
     stats_init();
     assoc_init();
     conn_init();
+    /* Hacky suffix buffers. */
+    suffix_init();
     slabs_init(settings.maxbytes, settings.factor);
 
     /* managed instance? alloc and zero a bucket array */
