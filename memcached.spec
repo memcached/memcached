@@ -1,6 +1,6 @@
 Name:           memcached
-Version:        1.2.2
-Release:        5%{?dist}
+Version:        1.2.4
+Release:        1%{?dist}
 Summary:        High Performance, Distributed Memory Object Cache
 
 Group:          System Environment/Daemons
