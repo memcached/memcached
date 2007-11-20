@@ -1,3 +1,19 @@
+2007-11-19 [Version 1.2.4-rc1 released]
+
+2007-11-19  Dormando <dormando@rydia.net>
+
+       * Patch series from Tomash Brechko <tomash.brechko@gmail.com>:
+         Minor fixes and optimisations.
+
+       * Patches from Chris, Dustin, and Dormando to fix CAS.
+
+       * Prepping for 1.2.4 release.
+
+2007-11-13  Dormando <dormando@rydia.net>
+
+	* Adjusted patch from js <ebgssth@gmail.com>: Compile on OS X Panther
+	  and earlier.
+
 2007-11-12  Steven Grimm  <sgrimm@facebook.com>
 
 	* Patch from Tomash Brechko <tomash.brechko@gmail.com>: Always send
