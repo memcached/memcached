@@ -17,8 +17,8 @@
 #define UDP_HEADER_SIZE 8
 #define MAX_SENDBUF_SIZE (256 * 1024 * 1024)
 /* I'm told the max legnth of a 64-bit num converted to string is 20 bytes.
- * Plus one for good luck. */
-#define SUFFIX_SIZE 21
+ * Plus a few for spaces, \r\n, \0 */
+#define SUFFIX_SIZE 24
 
 /** Initial size of list of items being returned by "get". */
 #define ITEM_LIST_INITIAL 200

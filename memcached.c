@@ -407,7 +407,9 @@ static void conn_cleanup(conn *c) {
 
     if (c->suffixleft != 0) {
         for (; c->suffixleft > 0; c->suffixleft--, c->suffixcurr++) {
-            suffix_add_to_freelist(*(c->suffixcurr));
+            if(suffix_add_to_freelist(*(c->suffixcurr))) {
+                free(*(c->suffixcurr));
+            }
         }
     }
 
@@ -553,8 +555,7 @@ static void suffix_init(void) {
     freesuffixtotal = 500;
     freesuffixcurr  = 0;
 
-    freesuffix = (char **)malloc( sizeof(char *) *
-                                  21 * freesuffixtotal );
+    freesuffix = (char **)malloc( sizeof(char *) * freesuffixtotal );
     if (freesuffix == NULL) {
         perror("malloc()");
     }
@@ -571,7 +572,6 @@ char *do_suffix_from_freelist() {
     if (freesuffixcurr > 0) {
         s = freesuffix[--freesuffixcurr];
     } else {
-        /* FIXME: global define? */
         /* If malloc fails, let the logic fall through without spamming
          * STDERR on the server. */
         s = malloc( sizeof(char *) * SUFFIX_SIZE );
@@ -590,8 +590,7 @@ bool do_suffix_add_to_freelist(char *s) {
         return false;
     } else {
         /* try to enlarge free connections array */
-        char **new_freesuffix = realloc(freesuffix,
-                                        SUFFIX_SIZE * freesuffixtotal * 2);
+        char **new_freesuffix = realloc(freesuffix, freesuffixtotal * 2);
         if (new_freesuffix) {
             freesuffixtotal *= 2;
             freesuffix = new_freesuffix;
@@ -1241,7 +1240,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     if (new_suffix_list) {
                       c->suffixsize *= 2;
                       c->suffixlist  = new_suffix_list;
-                    }
+                    } else break;
                   }
 
                   suffix = suffix_from_freelist();
@@ -2219,7 +2218,10 @@ static void drive_machine(conn *c) {
                     if (c->state == conn_caswrite) {
                         while (c->suffixleft > 0) {
                             char *suffix = *(c->suffixcurr);
-                            suffix_add_to_freelist(suffix);
+                            if(suffix_add_to_freelist(suffix)) {
+                                /* Failed to add to freelist, don't leak */
+                                free(suffix);
+                            }
                             c->suffixcurr++;
                             c->suffixleft--;
                         }
