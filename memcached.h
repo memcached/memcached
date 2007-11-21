@@ -140,7 +140,6 @@ enum conn_states {
     conn_swallow,    /** swallowing unnecessary bytes w/o storing */
     conn_closing,    /** closing this connection */
     conn_mwrite,     /** writing out many items sequentially */
-    conn_caswrite,   /** writing out many items sequentially with cas value */
 };
 
 #define NREAD_ADD 1

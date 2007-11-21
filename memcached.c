@@ -574,7 +574,7 @@ char *do_suffix_from_freelist() {
     } else {
         /* If malloc fails, let the logic fall through without spamming
          * STDERR on the server. */
-        s = malloc( sizeof(char *) * SUFFIX_SIZE );
+        s = malloc( SUFFIX_SIZE );
     }
 
     return s;
@@ -1320,10 +1320,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     if (key_token->value != NULL || add_iov(c, "END\r\n", 5) != 0
         || (c->udp && build_udp_headers(c) != 0)) {
         out_string(c, "SERVER_ERROR out of memory");
-    }
-    else if (return_cas) {
-        conn_set_state(c, conn_caswrite);
-        c->msgcurr = 0;
     }
     else {
         conn_set_state(c, conn_mwrite);
@@ -2204,10 +2200,9 @@ static void drive_machine(conn *c) {
             /* fall through... */
 
         case conn_mwrite:
-        case conn_caswrite:
             switch (transmit(c)) {
             case TRANSMIT_COMPLETE:
-                if (c->state == conn_mwrite || c->state == conn_caswrite) {
+                if (c->state == conn_mwrite) {
                     while (c->ileft > 0) {
                         item *it = *(c->icurr);
                         assert((it->it_flags & ITEM_SLABBED) == 0);
@@ -2215,16 +2210,14 @@ static void drive_machine(conn *c) {
                         c->icurr++;
                         c->ileft--;
                     }
-                    if (c->state == conn_caswrite) {
-                        while (c->suffixleft > 0) {
-                            char *suffix = *(c->suffixcurr);
-                            if(suffix_add_to_freelist(suffix)) {
-                                /* Failed to add to freelist, don't leak */
-                                free(suffix);
-                            }
-                            c->suffixcurr++;
-                            c->suffixleft--;
+                    while (c->suffixleft > 0) {
+                        char *suffix = *(c->suffixcurr);
+                        if(suffix_add_to_freelist(suffix)) {
+                            /* Failed to add to freelist, don't leak */
+                            free(suffix);
                         }
+                        c->suffixcurr++;
+                        c->suffixleft--;
                     }
                     conn_set_state(c, conn_read);
                 } else if (c->state == conn_write) {
