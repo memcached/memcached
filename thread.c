@@ -270,9 +270,9 @@ char *mt_suffix_from_freelist() {
 bool mt_suffix_add_to_freelist(char *s) {
     bool result;
 
-    pthread_mutex_lock(&conn_lock);
-    result = do_conn_add_to_freelist(s);
-    pthread_mutex_unlock(&conn_lock);
+    pthread_mutex_lock(&suffix_lock);
+    result = do_suffix_add_to_freelist(s);
+    pthread_mutex_unlock(&suffix_lock);
 
     return result;
 }
