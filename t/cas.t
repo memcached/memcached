@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 10;
+use Test::More tests => 31;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -9,7 +9,12 @@ use MemcachedTest;
 
 my $server = new_memcached();
 my $sock = $server->sock;
+my $sock2 = $server->new_sock;
+
 my @result;
+my @result2;
+
+ok($sock != $sock2, "have two different connections open");
 
 # gets foo (should not exist)
 print $sock "gets foo\r\n";
@@ -50,4 +55,58 @@ is(scalar <$sock>, "NOT_FOUND\r\n", "cas failed, foo does not exist");
 # cas empty
 print $sock "cas foo 0 0 6 \r\nbarva2\r\n";
 is(scalar <$sock>, "ERROR\r\n", "cas empty, throw error");
+# cant parse barval2\r\n
+is(scalar <$sock>, "ERROR\r\n", "error out on barval2 parsing");
 
+# set foo1
+print $sock "set foo1 0 0 1\r\n1\r\n";
+is(scalar <$sock>, "STORED\r\n", "set foo1");
+# set foo2
+print $sock "set foo2 0 0 1\r\n2\r\n";
+is(scalar <$sock>, "STORED\r\n", "set foo2");
+
+# gets foo1 check
+print $sock "gets foo1\r\n";
+ok(scalar <$sock> =~ /VALUE foo1 0 1 (\d+)\r\n/, "gets foo1 regexp success");
+my $foo1_cas = $1;
+is(scalar <$sock>, "1\r\n","gets foo1 data is 1");
+is(scalar <$sock>, "END\r\n","gets foo1 END");
+
+# gets foo2 check
+print $sock "gets foo2\r\n";
+ok(scalar <$sock> =~ /VALUE foo2 0 1 (\d+)\r\n/,"gets foo2 regexp success");
+my $foo2_cas = $1;
+is(scalar <$sock>, "2\r\n","gets foo2 data is 2");
+is(scalar <$sock>, "END\r\n","gets foo2 END");
+
+# validate foo1 != foo2
+ok($foo1_cas != $foo2_cas,"foo1 != foo2 single-gets success");
+
+# multi-gets
+print $sock "gets foo1 foo2\r\n";
+ok(scalar <$sock> =~ /VALUE foo1 0 1 (\d+)\r\n/, "validating first set of data is foo1");
+$foo1_cas = $1;
+is(scalar <$sock>, "1\r\n",, "validating foo1 set of data is 1");
+ok(scalar <$sock> =~ /VALUE foo2 0 1 (\d+)\r\n/, "validating second set of data is foo2");
+$foo2_cas = $1;
+is(scalar <$sock>, "2\r\n", "validating foo2 set of data is 2");
+is(scalar <$sock>, "END\r\n","validating foo1,foo2 gets is over - END");
+
+# validate foo1 != foo2
+ok($foo1_cas != $foo2_cas, "foo1 != foo2 multi-gets success");
+
+### simulate race condition with cas
+
+# gets foo1 - success
+@result = mem_gets($sock, "foo1");
+ok($result[0] != "", "sock - gets foo1 is not empty");
+
+# gets foo2 - success
+@result2 = mem_gets($sock2, "foo1");
+ok($result2[0] != "","sock2 - gets foo1 is not empty");
+
+print $sock "cas foo1 0 0 6 $result[0]\r\nbarva2\r\n";
+print $sock2 "cas foo1 0 0 5 $result2[0]\r\napple\r\n";
+
+is(scalar <$sock>, "STORED\r\n", "cas success, set foo1");
+is(scalar <$sock2>, "EXISTS\r\n", "cas failed for foo1");
