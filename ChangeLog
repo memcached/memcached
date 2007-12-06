@@ -1,3 +1,13 @@
+2007-12-06 [Version 1.2.4 released]
+
+2007-12-05
+
+       * Fix compilation on panther (JS and Dormando)
+
+	   * More CAS tests (Chris Goffinet)
+
+	   * Final fixes for all 1.2.4 features are in, -rc2 sent out.
+
 2007-11-19 [Version 1.2.4-rc1 released]
 
 2007-11-19  Dormando <dormando@rydia.net>
