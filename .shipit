@@ -1,4 +1,4 @@
-steps = FindVersion, ChangeVersion, ChangeRPMVersion, CheckChangeLog, DistTest, Commit, Tag, MakeDist, AddToSVNDir
+steps = FindVersion, ChangeVersion, CheckChangeLog, DistTest, Commit, Tag, MakeDist, AddToSVNDir
 
 AddToSVNDir.dir = ../website/dist
 svn.tagpattern = %v
