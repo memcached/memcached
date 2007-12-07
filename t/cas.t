@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 27;
+use Test::More tests => 30;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -94,4 +94,24 @@ is(scalar <$sock>, "END\r\n","validating foo1,foo2 gets is over - END");
 
 # validate foo1 != foo2
 ok($foo1_cas != $foo2_cas, "foo1 != foo2 multi-gets success");
+
+### simulate race condition with cas
+
+# gets foo1 - success
+@result = mem_gets($sock, "foo1");
+ok($result[0] != "", "sock - gets foo1 is not empty");
+
+# gets foo2 - success
+@result2 = mem_gets($sock2, "foo1");
+ok($result2[0] != "","sock2 - gets foo1 is not empty");
+
+print $sock "cas foo1 0 0 6 $result[0]\r\nbarva2\r\n";
+print $sock2 "cas foo1 0 0 5 $result2[0]\r\napple\r\n";
+
+my $res1 = <$sock>;
+my $res2 = <$sock2>;
+
+ok( ( $res1 eq "STORED\r\n" && $res2 eq "EXISTS\r\n") ||
+    ( $res1 eq "EXISTS\r\n" && $res2 eq "STORED\r\n"),
+    "cas on same item from two sockets");
 
