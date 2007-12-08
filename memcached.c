@@ -1745,7 +1745,16 @@ static void process_command(conn *c, char *command) {
             return;
         }
 
-        settings.oldest_live = realtime(exptime) - 1;
+        /*
+          If exptime is zero realtime() would return zero too, and
+          realtime(exptime) - 1 would overflow to the max unsigned
+          value.  So we process exptime == 0 the same way we do when
+          no delay is given at all.
+        */
+        if (exptime > 0)
+            settings.oldest_live = realtime(exptime) - 1;
+        else /* exptime == 0 */
+            settings.oldest_live = current_time - 1;
         item_flush_expired();
         out_string(c, "OK");
         return;
