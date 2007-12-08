@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 10;
+use Test::More tests => 14;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -15,6 +15,15 @@ is(scalar <$sock>, "STORED\r\n", "stored foo");
 
 mem_get_is($sock, "foo", "fooval");
 print $sock "flush_all\r\n";
+is(scalar <$sock>, "OK\r\n", "did flush_all");
+mem_get_is($sock, "foo", undef);
+
+# Test flush_all with zero delay.
+print $sock "set foo 0 0 6\r\nfooval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored foo");
+
+mem_get_is($sock, "foo", "fooval");
+print $sock "flush_all 0\r\n";
 is(scalar <$sock>, "OK\r\n", "did flush_all");
 mem_get_is($sock, "foo", undef);
 
