@@ -31,7 +31,7 @@ struct conn_queue_item {
     int     init_state;
     int     event_flags;
     int     read_buffer_size;
-    int     is_udp;
+    int     protocol;
     CQ_ITEM *next;
 };
 
@@ -342,9 +342,9 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 
     if (NULL != item) {
         conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
-                           item->read_buffer_size, item->is_udp, me->base);
+                           item->read_buffer_size, item->protocol, me->base);
         if (c == NULL) {
-            if (item->is_udp) {
+            if (IS_UDP(item->protocol)) {
                 fprintf(stderr, "Can't listen for events on UDP socket\n");
                 exit(1);
             } else {
@@ -368,7 +368,7 @@ static int last_thread = -1;
  * of an incoming connection.
  */
 void dispatch_conn_new(int sfd, int init_state, int event_flags,
-                       int read_buffer_size, int is_udp) {
+                       int read_buffer_size, int prot) {
     CQ_ITEM *item = cqi_new();
     int thread = (last_thread + 1) % settings.num_threads;
 
@@ -378,7 +378,7 @@ void dispatch_conn_new(int sfd, int init_state, int event_flags,
     item->init_state = init_state;
     item->event_flags = event_flags;
     item->read_buffer_size = read_buffer_size;
-    item->is_udp = is_udp;
+    item->protocol = prot;
 
     cq_push(&threads[thread].new_conn_queue, item);
     if (write(threads[thread].notify_send_fd, "", 1) != 1) {

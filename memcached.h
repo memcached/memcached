@@ -142,6 +142,13 @@ enum conn_states {
     conn_mwrite,     /** writing out many items sequentially */
 };
 
+enum protocols {
+    ascii_prot = 3, /* arbitrary value. */
+    ascii_udp_prot
+};
+
+#define IS_UDP(x) (x == ascii_udp_prot)
+
 #define NREAD_ADD 1
 #define NREAD_SET 2
 #define NREAD_REPLACE 3
@@ -206,8 +213,9 @@ typedef struct {
     char   **suffixcurr;
     int    suffixleft;
 
+    int protocol;   /* which protocol this connection speaks */
+
     /* data for UDP clients */
-    bool   udp;       /* is this is a UDP "connection" */
     int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
     struct sockaddr request_addr; /* Who sent the most recent request */
     socklen_t request_addr_size;
@@ -242,7 +250,7 @@ char *do_defer_delete(item *item, time_t exptime);
 void do_run_deferred_deletes(void);
 char *do_add_delta(item *item, const bool incr, const int64_t delta, char *buf);
 int do_store_item(item *item, int comm);
-conn *conn_new(const int sfd, const int init_state, const int event_flags, const int read_buffer_size, const bool is_udp, struct event_base *base);
+conn *conn_new(const int sfd, const int init_state, const int event_flags, const int read_buffer_size, const int prot, struct event_base *base);
 
 
 #include "stats.h"
@@ -268,7 +276,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags, const
 
 void thread_init(int nthreads, struct event_base *main_base);
 int  dispatch_event_add(int thread, conn *c);
-void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer_size, int is_udp);
+void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer_size, int prot);
 
 /* Lock wrappers for cache functions that are called from main loop. */
 char *mt_add_delta(item *item, const int incr, const int64_t delta, char *buf);

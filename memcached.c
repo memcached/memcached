@@ -63,8 +63,8 @@ std *
  * forward declarations
  */
 static void drive_machine(conn *c);
-static int new_socket(const bool is_udp);
-static int server_socket(const int port, const bool is_udp);
+static int new_socket(const int prot);
+static int server_socket(const int port, const int prot);
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
 static int try_read_udp(conn *c);
@@ -228,7 +228,7 @@ static int add_msghdr(conn *c)
     c->msgbytes = 0;
     c->msgused++;
 
-    if (c->udp) {
+    if (IS_UDP(c->protocol)) {
         /* Leave room for the UDP header, which we'll fill in later. */
         return add_iov(c, NULL, UDP_HEADER_SIZE);
     }
@@ -293,7 +293,7 @@ bool do_conn_add_to_freelist(conn *c) {
 }
 
 conn *conn_new(const int sfd, const int init_state, const int event_flags,
-                const int read_buffer_size, const bool is_udp, struct event_base *base) {
+                const int read_buffer_size, const int prot, struct event_base *base) {
     conn *c = conn_from_freelist();
 
     if (NULL == c) {
@@ -344,14 +344,14 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
     if (settings.verbose > 1) {
         if (init_state == conn_listening)
             fprintf(stderr, "<%d server listening\n", sfd);
-        else if (is_udp)
+        else if (IS_UDP(prot))
             fprintf(stderr, "<%d server listening (udp)\n", sfd);
         else
             fprintf(stderr, "<%d new client connection\n", sfd);
     }
 
     c->sfd = sfd;
-    c->udp = is_udp;
+    c->protocol = prot;
     c->state = init_state;
     c->rlbytes = 0;
     c->rbytes = c->wbytes = 0;
@@ -479,7 +479,7 @@ static void conn_close(conn *c) {
 static void conn_shrink(conn *c) {
     assert(c != NULL);
 
-    if (c->udp)
+    if (IS_UDP(c->protocol))
         return;
 
     if (c->rsize > READ_BUFFER_HIGHWAT && c->rbytes < DATA_BUFFER_SIZE) {
@@ -651,7 +651,7 @@ static int add_iov(conn *c, const void *buf, int len) {
          * Limit UDP packets, and the first payloads of TCP replies, to
          * UDP_MAX_PAYLOAD_SIZE bytes.
          */
-        limit_to_mtu = c->udp || (1 == c->msgused);
+        limit_to_mtu = IS_UDP(c->protocol) || (1 == c->msgused);
 
         /* We may need to start a new msghdr if this one is full. */
         if (m->msg_iovlen == IOV_MAX ||
@@ -1318,7 +1318,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         in \r\n. So we send SERVER_ERROR instead.
     */
     if (key_token->value != NULL || add_iov(c, "END\r\n", 5) != 0
-        || (c->udp && build_udp_headers(c) != 0)) {
+        || (IS_UDP(c->protocol) && build_udp_headers(c) != 0)) {
         out_string(c, "SERVER_ERROR out of memory");
     }
     else {
@@ -2032,7 +2032,7 @@ static int transmit(conn *c) {
         if (settings.verbose > 0)
             perror("Failed to write, and not due to blocking");
 
-        if (c->udp)
+        if (IS_UDP(c->protocol))
             conn_set_state(c, conn_read);
         else
             conn_set_state(c, conn_closing);
@@ -2078,14 +2078,14 @@ static void drive_machine(conn *c) {
                 break;
             }
             dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, false);
+                                     DATA_BUFFER_SIZE, ascii_prot);
             break;
 
         case conn_read:
             if (try_read_command(c) != 0) {
                 continue;
             }
-            if ((c->udp ? try_read_udp(c) : try_read_network(c)) != 0) {
+            if ((IS_UDP(c->protocol) ? try_read_udp(c) : try_read_network(c)) != 0) {
                 continue;
             }
             /* we have no command line and no data to read from network */
@@ -2196,9 +2196,9 @@ static void drive_machine(conn *c) {
              * assemble it into a msgbuf list (this will be a single-entry
              * list for TCP or a two-entry list for UDP).
              */
-            if (c->iovused == 0 || (c->udp && c->iovused == 1)) {
+            if (c->iovused == 0 || (IS_UDP(c->protocol) && c->iovused == 1)) {
                 if (add_iov(c, c->wcurr, c->wbytes) != 0 ||
-                    (c->udp && build_udp_headers(c) != 0)) {
+                    (IS_UDP(c->protocol) && build_udp_headers(c) != 0)) {
                     if (settings.verbose > 0)
                         fprintf(stderr, "Couldn't build response\n");
                     conn_set_state(c, conn_closing);
@@ -2253,7 +2253,7 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_closing:
-            if (c->udp)
+            if (IS_UDP(c->protocol))
                 conn_cleanup(c);
             else
                 conn_close(c);
@@ -2287,11 +2287,11 @@ void event_handler(const int fd, const short which, void *arg) {
     return;
 }
 
-static int new_socket(const bool is_udp) {
+static int new_socket(const int prot) {
     int sfd;
     int flags;
 
-    if ((sfd = socket(AF_INET, is_udp ? SOCK_DGRAM : SOCK_STREAM, 0)) == -1) {
+    if ((sfd = socket(AF_INET, IS_UDP(prot) ? SOCK_DGRAM : SOCK_STREAM, 0)) == -1) {
         perror("socket()");
         return -1;
     }
@@ -2341,18 +2341,18 @@ static void maximize_sndbuf(const int sfd) {
 }
 
 
-static int server_socket(const int port, const bool is_udp) {
+static int server_socket(const int port, const int prot) {
     int sfd;
     struct linger ling = {0, 0};
     struct sockaddr_in addr;
     int flags =1;
 
-    if ((sfd = new_socket(is_udp)) == -1) {
+    if ((sfd = new_socket(prot)) == -1) {
         return -1;
     }
 
     setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
-    if (is_udp) {
+    if (IS_UDP(prot)) {
         maximize_sndbuf(sfd);
     } else {
         setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
@@ -2374,7 +2374,7 @@ static int server_socket(const int port, const bool is_udp) {
         close(sfd);
         return -1;
     }
-    if (!is_udp && listen(sfd, 1024) == -1) {
+    if (!IS_UDP(prot) && listen(sfd, 1024) == -1) {
         perror("listen()");
         close(sfd);
         return -1;
@@ -2966,7 +2966,7 @@ int main (int argc, char **argv) {
         for (c = 0; c < settings.num_threads; c++) {
             /* this is guaranteed to hit all threads because we round-robin */
             dispatch_conn_new(u_socket, conn_read, EV_READ | EV_PERSIST,
-                              UDP_READ_BUFFER_SIZE, 1);
+                              UDP_READ_BUFFER_SIZE, ascii_udp_prot);
         }
     }
     /* enter the event loop */
