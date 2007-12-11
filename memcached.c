@@ -1010,6 +1010,7 @@ static void complete_incr_bin(conn *c) {
 }
 
 static void complete_update_bin(conn *c) {
+    int eno=-1, ret=0;
     assert(c != NULL);
 
     item *it = c->item;
@@ -1023,20 +1024,26 @@ static void complete_update_bin(conn *c) {
     *(ITEM_data(it) + it->nbytes - 2) = '\r';
     *(ITEM_data(it) + it->nbytes - 1) = '\n';
 
-    if (store_item(it, c->item_comm)) {
-        /* Stored */
-        write_bin_response(c, NULL, 0);
-    } else {
-        /* not Stored */
-        int eno=-1;
-        if(c->item_comm == NREAD_ADD) {
-            eno=ERR_EXISTS;
-        } else if(c->item_comm == NREAD_REPLACE) {
-            eno=ERR_NOT_FOUND;
-        } else {
-            eno=ERR_NOT_STORED;
-        }
-        write_bin_error(c, eno, 0);
+    switch (store_item(it, c->item_comm)) {
+        case 1:
+            /* Stored */
+            write_bin_response(c, NULL, 0);
+            break;
+        case 2:
+            write_bin_error(c, ERR_EXISTS, 0);
+            break;
+        case 3:
+            write_bin_error(c, ERR_NOT_FOUND, 0);
+            break;
+        default:
+            if(c->item_comm == NREAD_ADD) {
+                eno=ERR_EXISTS;
+            } else if(c->item_comm == NREAD_REPLACE) {
+                eno=ERR_NOT_FOUND;
+            } else {
+                eno=ERR_NOT_STORED;
+            }
+            write_bin_error(c, eno, 0);
     }
 
     item_remove(c->item);       /* release the c->item reference */
@@ -1058,9 +1065,16 @@ static void process_bin_get(conn *c) {
         *flags=htonl(strtoul(ITEM_suffix(it), NULL, 10));
 
         /* the length has two unnecessary bytes, and then we write four more */
-        add_bin_header(c, 0, it->nbytes - 2 + 4);
-        /* Flags and value */
+        add_bin_header(c, 0, it->nbytes - 2 + 4 + (c->cmd == CMD_GETS?8:0));
+        /* Flags */
         add_iov(c, flags, 4);
+        /* if it's a gets, add the identifier */
+        if(c->cmd == CMD_GETS) {
+            uint64_t* identifier;
+            identifier=(uint64_t*)(c->wbuf + MIN_BIN_PKT_LENGTH + 4);
+            *identifier=swap64((uint32_t)it->cas_id);
+            add_iov(c, identifier, 8);
+        }
         /* bytes minus the CRLF */
         add_iov(c, ITEM_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
@@ -1105,6 +1119,10 @@ static void dispatch_bin_command(conn *c) {
         case CMD_REPLACE:
             bin_read_key(c, bin_reading_set_header, BIN_SET_HDR_LEN);
             break;
+        case CMD_CAS:
+            bin_read_key(c, bin_reading_cas_header, BIN_CAS_HDR_LEN);
+            break;
+        case CMD_GETS:
         case CMD_GETQ:
         case CMD_GET:
             bin_read_key(c, bin_reading_get_key, 0);
@@ -1120,7 +1138,7 @@ static void dispatch_bin_command(conn *c) {
     }
 }
 
-static void process_bin_update(conn *c) {
+static void process_bin_update(conn *c, bool cas) {
     char *key;
     int nkey;
     int vlen;
@@ -1128,16 +1146,21 @@ static void process_bin_update(conn *c) {
     int exptime;
     item *it;
     int comm;
+    int hdrlen=cas ? BIN_CAS_HDR_LEN : BIN_SET_HDR_LEN;
 
     assert(c != NULL);
 
-    key=c->rbuf + BIN_SET_HDR_LEN;
+    key=c->rbuf + hdrlen;
     nkey=c->keylen;
     key[nkey]=0x00;
 
     flags = ntohl(*((int*)(c->rbuf)));
     exptime = ntohl(*((int*)(c->rbuf + 4)));
-    vlen = c->bin_header[2] - (nkey + BIN_SET_HDR_LEN);
+    vlen = c->bin_header[2] - (nkey + hdrlen);
+
+    if(settings.verbose) {
+        fprintf(stderr, "Value len is %d\n", vlen);
+    }
 
     if (settings.detail_enabled) {
         stats_prefix_record_set(key);
@@ -1159,6 +1182,9 @@ static void process_bin_update(conn *c) {
     */
 
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
+    if(cas) {
+        it->cas_id = (uint64_t)swap64(*((int64_t*)(c->rbuf + 8)));
+    }
 
     if (it == 0) {
         if (! item_size_ok(nkey, flags, vlen + 2)) {
@@ -1174,6 +1200,9 @@ static void process_bin_update(conn *c) {
     switch(c->cmd) {
         case CMD_ADD:
             c->item_comm = NREAD_ADD;
+            break;
+        case CMD_CAS:
+            c->item_comm = NREAD_CAS;
             break;
         case CMD_SET:
             c->item_comm = NREAD_SET;
@@ -1291,7 +1320,10 @@ static void complete_nread_binary(conn *c) {
     } else {
         switch(c->substate) {
             case bin_reading_set_header:
-                process_bin_update(c);
+                process_bin_update(c, false);
+                break;
+            case bin_reading_cas_header:
+                process_bin_update(c, true);
                 break;
             case bin_read_set_value:
                 complete_update_bin(c);
@@ -1363,9 +1395,11 @@ int do_store_item(item *it, int comm) {
           // cas validates
           do_item_replace(old_it, it);
           stored = 1;
-        }
-        else
-        {
+        } else {
+          if(settings.verbose > 1) {
+            fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
+				old_it->cas_id, it->cas_id);
+          }
           stored = 2;
         }
     } else {

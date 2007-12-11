@@ -42,6 +42,8 @@
 #define MIN_BIN_PKT_LENGTH 12
 /* flags:32, expiration:32 */
 #define BIN_SET_HDR_LEN 8
+/* Same as set, but with another 64 bits for the CAS identifier */
+#define BIN_CAS_HDR_LEN (BIN_SET_HDR_LEN + 8)
 /* incr:64, initial:64, expiration:32 */
 #define BIN_INCR_HDR_LEN 20
 /* timeout:32 */
@@ -62,6 +64,9 @@
 #define CMD_GETQ 8
 #define CMD_NOOP 9
 #define CMD_VERSION 10
+
+#define CMD_GETS 50
+#define CMD_CAS 51
 
 #define ERR_UNKNOWN_CMD 0x81
 #define ERR_OUT_OF_MEMORY 0x82
@@ -181,6 +186,7 @@ enum conn_states {
 enum bin_substates {
     bin_no_state,
     bin_reading_set_header,
+    bin_reading_cas_header,
     bin_read_set_value,
     bin_reading_get_key,
     bin_reading_del_header,
