@@ -38,6 +38,40 @@
 #define IOV_LIST_HIGHWAT 600
 #define MSG_LIST_HIGHWAT 100
 
+/* Binary protocol stuff */
+#define MIN_BIN_PKT_LENGTH 12
+/* flags:32, expiration:32 */
+#define BIN_SET_HDR_LEN 8
+/* incr:64, initial:64, expiration:32 */
+#define BIN_INCR_HDR_LEN 20
+/* timeout:32 */
+#define BIN_DEL_HDR_LEN 4
+#define BIN_PKT_HDR_WORDS (MIN_BIN_PKT_LENGTH/sizeof(uint32_t))
+
+#define BIN_REQ_MAGIC 0x0f
+#define BIN_RES_MAGIC 0xf0
+
+#define CMD_GET 0
+#define CMD_SET 1
+#define CMD_ADD 2
+#define CMD_REPLACE 3
+#define CMD_DELETE 4
+#define CMD_INCR 5
+#define CMD_QUIT 6
+#define CMD_FLUSH 7
+#define CMD_GETQ 8
+#define CMD_NOOP 9
+#define CMD_VERSION 10
+
+#define ERR_UNKNOWN_CMD 0x81
+#define ERR_OUT_OF_MEMORY 0x82
+
+#define ERR_NOT_FOUND 0x1
+#define ERR_EXISTS 0x2
+#define ERR_TOO_LARGE 0x3
+#define ERR_INVALID_ARGUMENTS 0x4
+#define ERR_NOT_STORED 0x5
+
 /* Get a consistent bool type */
 #if HAVE_STDBOOL_H
 # include <stdbool.h>
@@ -83,6 +117,7 @@ struct settings {
     int maxconns;
     int port;
     int udpport;
+    int binport;           /* Port for binary protocol. */
     struct in_addr interf;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
@@ -140,11 +175,22 @@ enum conn_states {
     conn_swallow,    /** swallowing unnecessary bytes w/o storing */
     conn_closing,    /** closing this connection */
     conn_mwrite,     /** writing out many items sequentially */
+    conn_bin_init,   /** Reinitializing a binary protocol connection */
+};
+
+enum bin_substates {
+    bin_no_state,
+    bin_reading_set_header,
+    bin_read_set_value,
+    bin_reading_get_key,
+    bin_reading_del_header,
+    bin_reading_incr_header,
 };
 
 enum protocols {
     ascii_prot = 3, /* arbitrary value. */
-    ascii_udp_prot
+    ascii_udp_prot,
+    binary_prot
 };
 
 #define IS_UDP(x) (x == ascii_udp_prot)
@@ -159,6 +205,7 @@ enum protocols {
 typedef struct {
     int    sfd;
     int    state;
+    int    substate;
     struct event event;
     short  ev_flags;
     short  which;   /** which events were just triggered */
@@ -226,6 +273,14 @@ typedef struct {
     int    bucket;    /* bucket number for the next command, if running as
                          a managed instance. -1 (_not_ 0) means invalid. */
     int    gen;       /* generation requested for the bucket */
+
+    /* Binary protocol stuff */
+    /* This is where the binary header goes */
+    uint32_t bin_header[MIN_BIN_PKT_LENGTH/sizeof(uint32_t)];
+    short cmd;
+    int opaque;
+    int keylen;
+
 } conn;
 
 /* number of virtual buckets for a managed instance */

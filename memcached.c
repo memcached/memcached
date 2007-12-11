@@ -22,6 +22,7 @@ std *
 #include <sys/signal.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
+#include <ctype.h>
 
 /* some POSIX systems need the following definition
  * to get mlockall flags out of sys/mman.h.  */
@@ -68,6 +69,7 @@ static int server_socket(const int port, const int prot);
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
 static int try_read_udp(conn *c);
+static void conn_set_state(conn *, int);
 
 /* stats */
 static void stats_reset(void);
@@ -106,6 +108,7 @@ static item **todelete = NULL;
 static int delcurr;
 static int deltotal;
 static conn *listen_conn;
+static conn *bin_listen_conn;
 static struct event_base *main_base;
 
 #define TRANSMIT_COMPLETE   0
@@ -293,7 +296,8 @@ bool do_conn_add_to_freelist(conn *c) {
 }
 
 conn *conn_new(const int sfd, const int init_state, const int event_flags,
-                const int read_buffer_size, const int prot, struct event_base *base) {
+                const int read_buffer_size, const int prot,
+                struct event_base *base) {
     conn *c = conn_from_freelist();
 
     if (NULL == c) {
@@ -341,19 +345,36 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
         STATS_UNLOCK();
     }
 
+    /* unix socket mode doesn't need this, so zeroed out.  but why
+     * is this done for every command?  presumably for UDP
+     * mode.  */
+    if (!settings.socketpath) {
+        c->request_addr_size = sizeof(c->request_addr);
+    } else {
+        c->request_addr_size = 0;
+    }
+
     if (settings.verbose > 1) {
-        if (init_state == conn_listening)
+        if (init_state == conn_listening) {
             fprintf(stderr, "<%d server listening\n", sfd);
-        else if (IS_UDP(prot))
+        } else if (IS_UDP(prot)) {
             fprintf(stderr, "<%d server listening (udp)\n", sfd);
-        else
-            fprintf(stderr, "<%d new client connection\n", sfd);
+        } else if (prot == binary_prot) {
+            fprintf(stderr, "<%d new binary client connection\n", sfd);
+        } else if (prot == ascii_prot) {
+            fprintf(stderr, "<%d new ascii client connection\n", sfd);
+        } else {
+            fprintf(stderr, "<%d new unknown (%d) client connection\n",
+                sfd, prot);
+            abort();
+        }
     }
 
     c->sfd = sfd;
     c->protocol = prot;
     c->state = init_state;
     c->rlbytes = 0;
+    c->cmd = -1;
     c->rbytes = c->wbytes = 0;
     c->wcurr = c->wbuf;
     c->rcurr = c->rbuf;
@@ -366,7 +387,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
     c->msgcurr = 0;
     c->msgused = 0;
 
-    c->write_and_go = conn_read;
+    c->write_and_go = init_state;
     c->write_and_free = 0;
     c->item = 0;
     c->bucket = -1;
@@ -467,6 +488,27 @@ static void conn_close(conn *c) {
     return;
 }
 
+static int get_init_state(conn *c) {
+    int rv=0;
+    assert(c != NULL);
+
+    switch(c->protocol) {
+        case binary_prot:
+            rv=conn_bin_init;
+            break;
+        default:
+            rv=conn_read;
+    }
+    return rv;
+}
+
+/* Set the given connection to its initial state.  The initial state will vary
+ * base don protocol type. */
+static void conn_set_init_state(conn *c) {
+    assert(c != NULL);
+
+    conn_set_state(c, get_init_state(c));
+}
 
 /*
  * Shrinks a connection's buffers if they're too big.  This prevents
@@ -748,7 +790,7 @@ static void out_string(conn *c, const char *str) {
     c->wcurr = c->wbuf;
 
     conn_set_state(c, conn_write);
-    c->write_and_go = conn_read;
+    c->write_and_go = get_init_state(c);
     return;
 }
 
@@ -756,8 +798,7 @@ static void out_string(conn *c, const char *str) {
  * we get here after reading the value in set/add/replace commands. The command
  * has been stored in c->item_comm, and the item is ready in c->item.
  */
-
-static void complete_nread(conn *c) {
+static void complete_nread_ascii(conn *c) {
     assert(c != NULL);
 
     item *it = c->item;
@@ -784,6 +825,503 @@ static void complete_nread(conn *c) {
 
     item_remove(c->item);       /* release the c->item reference */
     c->item = 0;
+}
+
+static void add_bin_header(conn *c, int err, int body_len) {
+    int i=0;
+    uint32_t res_header[BIN_PKT_HDR_WORDS];
+
+    assert(c);
+    assert(body_len >= 0);
+
+    c->msgcurr = 0;
+    c->msgused = 0;
+    c->iovused = 0;
+    if (add_msghdr(c) != 0) {
+        /* XXX:  out_string is inappropriate here */
+        out_string(c, "SERVER_ERROR out of memory");
+        return;
+    }
+
+    res_header[0] = BIN_RES_MAGIC << 24;
+    res_header[0] |= ((0xff & c->cmd) << 16);
+    res_header[0] |= (err << 8);
+
+    res_header[1] = c->opaque;
+    res_header[2] = body_len;
+
+    if(settings.verbose > 1) {
+        fprintf(stderr, "Writing bin response:  %08x %08x %08x\n",
+            res_header[0], res_header[1], res_header[2]);
+    }
+
+    for(i=0; i<BIN_PKT_HDR_WORDS; i++) {
+        res_header[i] = htonl(res_header[i]);
+    }
+
+    assert(c->wsize >= MIN_BIN_PKT_LENGTH);
+    memcpy(c->wbuf, &res_header, MIN_BIN_PKT_LENGTH);
+    add_iov(c, c->wbuf, MIN_BIN_PKT_LENGTH);
+}
+
+static void write_bin_error(conn *c, int err, int swallow) {
+    char *errstr="Unknown error";
+    switch(err) {
+        case ERR_UNKNOWN_CMD:
+            errstr="Unknown command";
+            break;
+        case ERR_NOT_FOUND:
+            errstr="Not found";
+            break;
+        case ERR_INVALID_ARGUMENTS:
+            errstr="Invalid arguments";
+            break;
+        case ERR_EXISTS:
+            errstr="Data exists for key.";
+            break;
+        case ERR_TOO_LARGE:
+            errstr="Too large.";
+            break;
+        case ERR_NOT_STORED:
+            errstr="Not stored.";
+            break;
+        default:
+            errstr="UNHANDLED ERROR";
+            fprintf(stderr, "UNHANDLED ERROR:  %d\n", err);
+    }
+    if(settings.verbose > 0) {
+        fprintf(stderr, "Writing an error:  %s\n", errstr);
+    }
+    add_bin_header(c, err, strlen(errstr));
+    add_iov(c, errstr, strlen(errstr));
+
+    conn_set_state(c, conn_mwrite);
+    if(swallow > 0) {
+        c->sbytes=swallow;
+        c->write_and_go = conn_swallow;
+    } else {
+        c->write_and_go = conn_bin_init;
+    }
+}
+
+/* Form and send a response to a command over the binary protocol */
+static void write_bin_response(conn *c, void *d, int dlen) {
+    add_bin_header(c, 0, dlen);
+    if(dlen > 0) {
+        add_iov(c, d, dlen);
+    }
+    conn_set_state(c, conn_mwrite);
+    c->write_and_go = conn_bin_init;
+}
+
+/* Byte swap a 64-bit number */
+static int64_t swap64(int64_t in) {
+#ifdef ENDIAN_LITTLE
+    /* Little endian, flip the bytes around until someone makes a faster/better
+    * way to do this. */
+    int64_t rv=0;
+    int i=0;
+     for(i=0; i<8; i++) {
+        rv = (rv << 8) | (in & 0xff);
+        in >>= 8;
+     }
+    return rv;
+#else
+    /* big-endian machines don't need byte swapping */
+    return in;
+#endif
+}
+
+static void complete_incr_bin(conn *c) {
+    item *it;
+    int64_t delta;
+    uint64_t initial;
+    int32_t exptime;
+    char *key;
+    size_t nkey;
+    int i,res;
+    char *responseBuf = c->wbuf + BIN_INCR_HDR_LEN;
+
+    assert(c != NULL);
+
+    key=c->rbuf + BIN_INCR_HDR_LEN;
+    nkey=c->keylen;
+    key[nkey]=0x00;
+
+    delta = swap64(*((int64_t*)(c->rbuf)));
+    initial = (uint64_t)swap64(*((int64_t*)(c->rbuf + 8)));
+    exptime = ntohl(*((int*)(c->rbuf + 16)));
+
+    if(settings.verbose) {
+        fprintf(stderr, "incr ");
+        for(i=0; i<nkey; i++) {
+            fprintf(stderr, "%c", key[i]);
+        }
+        fprintf(stderr, " %lld, %llu, %d\n", delta, initial, exptime);
+    }
+
+    /* XXX:  Not sure what to do with these yet
+    if (settings.managed) {
+        int bucket = c->bucket;
+        if (bucket == -1) {
+            out_string(c, "CLIENT_ERROR no BG data in managed mode");
+            return;
+        }
+        c->bucket = -1;
+        if (buckets[bucket] != c->gen) {
+            out_string(c, "ERROR_NOT_OWNER");
+            return;
+        }
+    }
+    */
+
+    it = item_get(key, nkey);
+    if (it) {
+        /* Weird magic in add_delta forces me to pad here */
+        memset(responseBuf, ' ', 32);
+        responseBuf[32]=0x00;
+        add_delta(it, true, delta, responseBuf);
+        res = strlen(responseBuf);
+
+        assert(res > 0);
+        write_bin_response(c, responseBuf, res);
+        item_remove(it);         /* release our reference */
+    } else {
+        if(exptime >= 0) {
+            /* Save some room for the response */
+            assert(c->wsize > BIN_INCR_HDR_LEN + 32);
+            snprintf(responseBuf, BIN_INCR_HDR_LEN + 32, "%llu", initial);
+
+            res = strlen(responseBuf);
+            it = item_alloc(key, nkey, 0, realtime(exptime), res + 2);
+
+            memcpy(ITEM_data(it), responseBuf, res);
+
+            if(store_item(it, NREAD_SET)) {
+                write_bin_response(c, responseBuf, res);
+            } else {
+                write_bin_error(c, ERR_NOT_STORED, 0);
+            }
+            item_remove(it);         /* release our reference */
+        } else {
+            write_bin_error(c, ERR_NOT_FOUND, 0);
+        }
+    }
+}
+
+static void complete_update_bin(conn *c) {
+    assert(c != NULL);
+
+    item *it = c->item;
+
+    STATS_LOCK();
+    stats.set_cmds++;
+    STATS_UNLOCK();
+
+    /* We don't actually receive the trailing two characters in the bin
+     * protocol, so we're going to just set them here */
+    *(ITEM_data(it) + it->nbytes - 2) = '\r';
+    *(ITEM_data(it) + it->nbytes - 1) = '\n';
+
+    if (store_item(it, c->item_comm)) {
+        /* Stored */
+        write_bin_response(c, NULL, 0);
+    } else {
+        /* not Stored */
+        int eno=-1;
+        if(c->item_comm == NREAD_ADD) {
+            eno=ERR_EXISTS;
+        } else if(c->item_comm == NREAD_REPLACE) {
+            eno=ERR_NOT_FOUND;
+        } else {
+            eno=ERR_NOT_STORED;
+        }
+        write_bin_error(c, eno, 0);
+    }
+
+    item_remove(c->item);       /* release the c->item reference */
+    c->item = 0;
+}
+
+static void process_bin_get(conn *c) {
+    item *it;
+
+    it = item_get(c->rbuf, c->keylen);
+    if (it) {
+        int *flags;
+
+        assert(c->rsize >= MIN_BIN_PKT_LENGTH + 4);
+
+        /* This is a bit of magic.  I'm using wbuf as the header, so I'll place
+        this is int in far enough to cover the header */
+        flags=(int*)(c->wbuf + MIN_BIN_PKT_LENGTH);
+        *flags=htonl(strtoul(ITEM_suffix(it), NULL, 10));
+
+        /* the length has two unnecessary bytes, and then we write four more */
+        add_bin_header(c, 0, it->nbytes - 2 + 4);
+        /* Flags and value */
+        add_iov(c, flags, 4);
+        /* bytes minus the CRLF */
+        add_iov(c, ITEM_data(it), it->nbytes - 2);
+        conn_set_state(c, conn_mwrite);
+    } else {
+        if(c->cmd == CMD_GETQ) {
+            conn_set_state(c, conn_bin_init);
+        } else {
+            write_bin_error(c, ERR_NOT_FOUND, 0);
+        }
+    }
+}
+
+static void bin_read_key(conn *c, int next_substate, int extra) {
+    assert(c);
+    c->substate = next_substate;
+    c->rlbytes = c->keylen + extra;
+    assert(c->rsize >= c->rlbytes);
+    c->ritem = c->rbuf;
+    conn_set_state(c, conn_nread);
+}
+
+static void dispatch_bin_command(conn *c) {
+    time_t exptime = 0;
+    switch(c->cmd) {
+        case CMD_VERSION:
+            write_bin_response(c, VERSION, strlen(VERSION));
+            break;
+        case CMD_FLUSH:
+            set_current_time();
+
+            settings.oldest_live = current_time - 1;
+            item_flush_expired();
+            write_bin_response(c, NULL, 0);
+            break;
+        case CMD_NOOP:
+            write_bin_response(c, NULL, 0);
+            break;
+        case CMD_SET:
+            /* Fallthrough */
+        case CMD_ADD:
+            /* Fallthrough */
+        case CMD_REPLACE:
+            bin_read_key(c, bin_reading_set_header, BIN_SET_HDR_LEN);
+            break;
+        case CMD_GETQ:
+        case CMD_GET:
+            bin_read_key(c, bin_reading_get_key, 0);
+            break;
+        case CMD_DELETE:
+            bin_read_key(c, bin_reading_del_header, BIN_DEL_HDR_LEN);
+            break;
+        case CMD_INCR:
+            bin_read_key(c, bin_reading_incr_header, BIN_INCR_HDR_LEN);
+            break;
+        default:
+            write_bin_error(c, ERR_UNKNOWN_CMD, c->bin_header[2]);
+    }
+}
+
+static void process_bin_update(conn *c) {
+    char *key;
+    int nkey;
+    int vlen;
+    int flags;
+    int exptime;
+    item *it;
+    int comm;
+
+    assert(c != NULL);
+
+    key=c->rbuf + BIN_SET_HDR_LEN;
+    nkey=c->keylen;
+    key[nkey]=0x00;
+
+    flags = ntohl(*((int*)(c->rbuf)));
+    exptime = ntohl(*((int*)(c->rbuf + 4)));
+    vlen = c->bin_header[2] - (nkey + BIN_SET_HDR_LEN);
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_set(key);
+    }
+
+    /* Not sure what to do with this.
+    if (settings.managed) {
+        int bucket = c->bucket;
+        if (bucket == -1) {
+            out_string(c, "CLIENT_ERROR no BG data in managed mode");
+            return;
+        }
+        c->bucket = -1;
+        if (buckets[bucket] != c->gen) {
+            out_string(c, "ERROR_NOT_OWNER");
+            return;
+        }
+    }
+    */
+
+    it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
+
+    if (it == 0) {
+        if (! item_size_ok(nkey, flags, vlen + 2)) {
+            write_bin_error(c, ERR_TOO_LARGE, vlen);
+        } else {
+            write_bin_error(c, ERR_OUT_OF_MEMORY, vlen);
+        }
+        /* swallow the data line */
+        c->write_and_go = conn_swallow;
+        return;
+    }
+
+    switch(c->cmd) {
+        case CMD_ADD:
+            c->item_comm = NREAD_ADD;
+            break;
+        case CMD_SET:
+            c->item_comm = NREAD_SET;
+            break;
+        case CMD_REPLACE:
+            c->item_comm = NREAD_REPLACE;
+            break;
+        default:
+            assert(0);
+    }
+
+    c->item = it;
+    c->ritem = ITEM_data(it);
+    c->rlbytes = vlen;
+    conn_set_state(c, conn_nread);
+    c->substate = bin_read_set_value;
+}
+
+static void process_bin_delete(conn *c) {
+    char *key;
+    size_t nkey;
+    item *it;
+    time_t exptime = 0;
+
+    assert(c != NULL);
+
+    /* XXX:  I don't know what to do with this yet
+    if (settings.managed) {
+        int bucket = c->bucket;
+        if (bucket == -1) {
+            out_string(c, "CLIENT_ERROR no BG data in managed mode");
+            return;
+        }
+        c->bucket = -1;
+        if (buckets[bucket] != c->gen) {
+            out_string(c, "ERROR_NOT_OWNER");
+            return;
+        }
+    }
+    */
+
+    exptime = ntohl(*((int*)(c->rbuf)));
+    key = c->rbuf + 4;
+    nkey = c->keylen;
+    key[nkey]=0x00;
+
+    if(settings.verbose) {
+        fprintf(stderr, "Deleting %s with a timeout of %d\n", key, exptime);
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_delete(key);
+    }
+
+    it = item_get(key, nkey);
+    if (it) {
+        if (exptime == 0) {
+            item_unlink(it);
+            item_remove(it);      /* release our reference */
+            write_bin_response(c, NULL, 0);
+        } else {
+            /* XXX:  This is really lame, but defer_delete returns a string */
+            char *res=defer_delete(it, exptime);
+            if(res[0] == 'D') {
+                write_bin_response(c, NULL, 0);
+            } else {
+                write_bin_error(c, ERR_OUT_OF_MEMORY, 0);
+            }
+        }
+    } else {
+        write_bin_error(c, ERR_NOT_FOUND, 0);
+    }
+}
+
+static void complete_nread_binary(conn *c) {
+    assert(c != NULL);
+
+    if(c->cmd < 0) {
+        /* No command defined.  Figure out what they're trying to say. */
+        int i=0;
+        /* I did a bit of hard-coding around the packet sizes */
+        assert(BIN_PKT_HDR_WORDS == 3);
+        for(i=0; i<BIN_PKT_HDR_WORDS; i++) {
+            c->bin_header[i] = ntohl(c->bin_header[i]);
+        }
+        if(settings.verbose) {
+            fprintf(stderr, "Read binary protocol data:  %08x %08x %08x\n",
+                c->bin_header[0], c->bin_header[1], c->bin_header[2]);
+        }
+        if((c->bin_header[0] >> 24) != BIN_REQ_MAGIC) {
+            if(settings.verbose) {
+                fprintf(stderr, "Invalid magic:  %x\n", c->bin_header[0] >> 24);
+            }
+            conn_set_state(c, conn_closing);
+            return;
+        }
+
+        c->msgcurr = 0;
+        c->msgused = 0;
+        c->iovused = 0;
+        if (add_msghdr(c) != 0) {
+            out_string(c, "SERVER_ERROR out of memory");
+            return;
+        }
+
+        c->cmd = (c->bin_header[0] >> 16) & 0xff;
+        c->keylen = (c->bin_header[0] >> 8) & 0xff;
+        c->opaque = c->bin_header[1];
+        if(settings.verbose > 1) {
+            fprintf(stderr,
+                "Command: %d, opaque=%08x, keylen=%d, total_len=%d\n", c->cmd,
+                c->opaque, c->keylen, c->bin_header[2]);
+        }
+        dispatch_bin_command(c);
+    } else {
+        switch(c->substate) {
+            case bin_reading_set_header:
+                process_bin_update(c);
+                break;
+            case bin_read_set_value:
+                complete_update_bin(c);
+                break;
+            case bin_reading_get_key:
+                process_bin_get(c);
+                break;
+            case bin_reading_del_header:
+                process_bin_delete(c);
+                break;
+            case bin_reading_incr_header:
+                complete_incr_bin(c);
+                break;
+            default:
+                fprintf(stderr, "Not handling substate %d\n", c->substate);
+                assert(0);
+        }
+    }
+}
+
+static void complete_nread(conn *c) {
+    assert(c != NULL);
+
+    if(c->protocol == ascii_prot) {
+        complete_nread_ascii(c);
+    } else if(c->protocol == binary_prot) {
+        complete_nread_binary(c);
+    } else {
+        assert(0); /* XXX:  Invalid case.  Should probably do more here. */
+    }
 }
 
 /*
@@ -961,7 +1499,7 @@ static void write_and_free(conn *c, char *buf, int bytes) {
         c->wcurr = buf;
         c->wbytes = bytes;
         conn_set_state(c, conn_write);
-        c->write_and_go = conn_read;
+        c->write_and_go = get_init_state(c);
     } else {
         out_string(c, "SERVER_ERROR out of memory");
     }
@@ -1482,8 +2020,10 @@ char *do_add_delta(item *it, const bool incr, const int64_t delta, char *buf) {
     if (incr)
         value += delta;
     else {
-        if (delta >= value) value = 0;
-        else value -= delta;
+        value -= delta;
+    }
+    if(value < 0) {
+        value=0;
     }
     sprintf(buf, "%llu", value);
     res = strlen(buf);
@@ -1717,7 +2257,7 @@ static void process_command(conn *c, char *command) {
                 c->bucket = bucket;
                 c->gen = gen;
             }
-            conn_set_state(c, conn_read);
+            conn_set_init_state(c);
             return;
         } else {
             out_string(c, "CLIENT_ERROR bad format");
@@ -1909,15 +2449,6 @@ static int try_read_network(conn *c) {
             c->rsize *= 2;
         }
 
-        /* unix socket mode doesn't need this, so zeroed out.  but why
-         * is this done for every command?  presumably for UDP
-         * mode.  */
-        if (!settings.socketpath) {
-            c->request_addr_size = sizeof(c->request_addr);
-        } else {
-            c->request_addr_size = 0;
-        }
-
         res = read(c->sfd, c->rbuf + c->rbytes, c->rsize - c->rbytes);
         if (res > 0) {
             STATS_LOCK();
@@ -1973,7 +2504,6 @@ void accept_new_conns(const bool do_accept) {
         }
     }
 }
-
 
 /*
  * Transmit the next chunk of data from our list of msgbuf structures.
@@ -2045,6 +2575,7 @@ static int transmit(conn *c) {
 static void drive_machine(conn *c) {
     bool stop = false;
     int sfd, flags = 1;
+    int init_state; /* initial state for a new connection */
     socklen_t addrlen;
     struct sockaddr addr;
     int res;
@@ -2077,8 +2608,11 @@ static void drive_machine(conn *c) {
                 close(sfd);
                 break;
             }
-            dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, ascii_prot);
+            init_state = get_init_state(c);
+
+            dispatch_conn_new(sfd, init_state, EV_READ | EV_PERSIST,
+                                     DATA_BUFFER_SIZE, c->protocol);
+
             break;
 
         case conn_read:
@@ -2098,8 +2632,20 @@ static void drive_machine(conn *c) {
             stop = true;
             break;
 
+        case conn_bin_init: /* Reinitialize a binary connection */
+            c->rlbytes = MIN_BIN_PKT_LENGTH;
+            c->write_and_go = conn_bin_init;
+            c->cmd = -1;
+            c->substate = bin_no_state;
+            c->rbytes = c->wbytes = 0;
+            c->wcurr = c->wbuf;
+            c->rcurr = c->rbuf;
+            c->ritem = (char*)c->bin_header;
+            conn_set_state(c, conn_nread);
+            conn_shrink(c);
+            break;
+
         case conn_nread:
-            /* we are reading rlbytes into ritem; */
             if (c->rlbytes == 0) {
                 complete_nread(c);
                 break;
@@ -2148,7 +2694,7 @@ static void drive_machine(conn *c) {
         case conn_swallow:
             /* we are reading sbytes and throwing them away */
             if (c->sbytes == 0) {
-                conn_set_state(c, conn_read);
+                conn_set_init_state(c);
                 break;
             }
 
@@ -2228,7 +2774,12 @@ static void drive_machine(conn *c) {
                         c->suffixcurr++;
                         c->suffixleft--;
                     }
-                    conn_set_state(c, conn_read);
+                    /* XXX:  I don't know why this wasn't the general case */
+                    if(c->protocol == binary_prot) {
+                        conn_set_state(c, c->write_and_go);
+                    } else {
+                        conn_set_init_state(c);
+                    }
                 } else if (c->state == conn_write) {
                     if (c->write_and_free) {
                         free(c->write_and_free);
@@ -2454,6 +3005,8 @@ static int server_socket_unix(const char *path, int access_mask) {
 
 /* listening socket */
 static int l_socket = 0;
+/* Listening socket for the binary protocol */
+static int bl_socket = -1;
 
 /* udp socket */
 static int u_socket = -1;
@@ -2462,6 +3015,7 @@ static int u_socket = -1;
 void pre_gdb(void) {
     int i;
     if (l_socket > -1) close(l_socket);
+    if (bl_socket > -1) close(bl_socket);
     if (u_socket > -1) close(u_socket);
     for (i = 3; i <= 500; i++) close(i); /* so lame */
     kill(getpid(), SIGABRT);
@@ -2544,6 +3098,7 @@ static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
     printf("-p <num>      TCP port number to listen on (default: 11211)\n"
            "-U <num>      UDP port number to listen on (default: 0, off)\n"
+           "-B <num>      binary protocol TCP port number to listen on (default: 0, off)\n"
            "-s <file>     unix socket path to listen on (disables network support)\n"
            "-a <mask>     access mask for unix socket, in octal (default 0700)\n"
            "-l <ip_addr>  interface to listen on, default is INDRR_ANY\n"
@@ -2694,7 +3249,7 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "a:bp:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:")) != -1) {
+    while ((c = getopt(argc, argv, "a:bp:B:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:")) != -1) {
         switch (c) {
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
@@ -2709,6 +3264,9 @@ int main (int argc, char **argv) {
             break;
         case 'p':
             settings.port = atoi(optarg);
+            break;
+        case 'B':
+            settings.binport = atoi(optarg);
             break;
         case 's':
             settings.socketpath = optarg;
@@ -2849,6 +3407,14 @@ int main (int argc, char **argv) {
             fprintf(stderr, "failed to listen\n");
             exit(EXIT_FAILURE);
         }
+        /* Try the binary port. */
+        if(settings.binport > 0) {
+            bl_socket = server_socket(settings.binport, 0);
+            if (bl_socket == -1) {
+                 fprintf(stderr, "failed to listen to binary protocol\n");
+                    exit(EXIT_FAILURE);
+            }
+        }
     }
 
     if (settings.udpport > 0 && settings.socketpath == NULL) {
@@ -2941,10 +3507,22 @@ int main (int argc, char **argv) {
     }
     /* create the initial listening connection */
     if (!(listen_conn = conn_new(l_socket, conn_listening,
-                                 EV_READ | EV_PERSIST, 1, false, main_base))) {
+                                 EV_READ | EV_PERSIST, 1, ascii_prot,
+                                 main_base))) {
         fprintf(stderr, "failed to create listening connection");
         exit(EXIT_FAILURE);
     }
+
+    /* Same for binary protocol */
+    if (bl_socket > 0) {
+        if (!(bin_listen_conn = conn_new(bl_socket, conn_listening,
+                                 EV_READ | EV_PERSIST, 1, binary_prot,
+                                 main_base))) {
+            fprintf(stderr, "failed to create listening connection");
+            exit(EXIT_FAILURE);
+        }
+    }
+
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
     /* save the PID in if we're a daemon, do this after thread_init due to
