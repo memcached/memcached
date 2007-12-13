@@ -8,11 +8,11 @@ use Test::More 'no_plan';
 # Based almost 100% off testClient.py which is Copyright (c) 2007  Dustin Sallings <dustin@spy.net>
 
 # Command constants
-# CMD_GET = 0
+use constant CMD_GET => 0;
 use constant CMD_SET => 1;
 # CMD_ADD = 2
 # CMD_REPLACE = 3
-# CMD_DELETE = 4
+use constant CMD_DELETE => 4;
 # CMD_INCR = 5
 # CMD_QUIT = 6
 use constant CMD_FLUSH => 7;
@@ -24,12 +24,12 @@ use constant CMD_VERSION => 10;
 # CMD_CAS = 51
 #
 # Flags, expiration
-use constant SET_PKT_FMT => "Ll";
+use constant SET_PKT_FMT => "NN";
 # flags, expiration, id
 # CAS_PKT_FMT=">IiQ"
 #
 # How long until the deletion takes effect.
-# DEL_PKT_FMT=">i"
+use constant DEL_PKT_FMT => "N";
 #
 # amount, initial value, expiration
 # INCRDECR_PKT_FMT=">qQi"
@@ -37,7 +37,7 @@ use constant SET_PKT_FMT => "Ll";
 use constant REQ_MAGIC_BYTE => 0x0f;
 use constant RES_MAGIC_BYTE => 0xf0;
 #
-use constant PKT_FMT => "CCCxLL";
+use constant PKT_FMT => "CCCxNN";
 #min recv packet size
 use constant MIN_RECV_PACKET => length(pack(PKT_FMT));
 #
@@ -49,35 +49,34 @@ use constant MIN_RECV_PACKET => length(pack(PKT_FMT));
 my $mc = MC::Client->new;
 $mc->flush;
 
-# Test Version
+diag "Test Version";
 {
 	my $v = $mc->version;
 	ok(defined $v && length($v), "Proper version");
 }
 
-# Simple set/get
-{
-	$mc->set('x', 5, 19, "somevalue");
-	my ($flags, $value) = $mc->get("x");
-	is($flags, 19, "Flags is set properly");
-	is($value, "somevalue", "Value is set properly");
-}
+my $set = sub {
+	my ($key, $exp, $orig_flags, $orig_value) = @_;
+	$mc->set($key, $exp, $orig_flags, $orig_value);
+	my ($flags, $value) = $mc->get($key);
+	is($flags, $orig_flags, "Flags is set properly");
+	is($value, $orig_value, "Value is set properly");
+};
+
+diag "Simple set/get";
+$set->('x', 5, 19, "somevalue");
+
+my $delete = sub {
+	my ($key) = @_;
+	$mc->delete($key);
+	my $rv =()= $mc->get($key);
+	is($rv, 0, "Empty array from get means nothing stored here");
+};
+
+diag "Delete";
+$delete->('x');
 
 <<EOT;
-    def assertNotExists(self, key):
-        try:
-            x=self.mc.get(key)
-            self.fail("Expected an exception, got " + `x`)
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_NOT_FOUND, e.status)
-
-    def testDelete(self):
-        """Test a set, get, delete, get sequence."""
-        self.mc.set("x", 5, 19, "somevalue")
-        self.assertEquals((19, "somevalue"), self.mc.get("x"))
-        self.mc.delete("x")
-        self.assertNotExists("x")
-
     def testReservedDelete(self):
         """Test a delete with a reservation timestamp."""
         self.mc.set("x", 5, 19, "somevalue")
@@ -252,7 +251,7 @@ sub new {
 
 sub close {
 	my $self = shift;
-	return $self->close(@_);
+	return $self->{socket}->close(@_);
 }
 
 sub _sendCmd {
@@ -314,6 +313,20 @@ sub _doCmd {
 	return $rv;
 }
 
+sub __parseGet {
+	my $self = shift;
+	my $rv = shift; # currently contains 4 bytes of 'flag' followed by value
+	my $flag = substr $rv, 0, 4, ''; # Now $flag contains flags, $rv contains value
+	return unpack("N", $flag), $rv;
+}
+
+sub get {
+	my $self = shift;
+	my $key = shift;
+	my $parts = $self->_doCmd(::CMD_GET, $key, '');
+	return $self->__parseGet($parts);
+}
+
 sub _mutate {
 	my $self = shift;
 	my ($cmd, $key, $exp, $flags, $val) = @_;
@@ -349,14 +362,6 @@ sub set {
     def replace(self, key, exp, flags, val):
         """Replace a value in the memcached server iff it already exists."""
         self._mutate(memcacheConstants.CMD_REPLACE, key, exp, flags, val)
-
-    def __parseGet(self, data):
-        return struct.unpack(">I", data[:4])[0], data[4:]
-
-    def get(self, key):
-        """Get the value for a given key within the memcached server."""
-        parts=self._doCmd(memcacheConstants.CMD_GET, key, '')
-        return self.__parseGet(parts)
 
     def gets(self, key):
         """Get with an identifier (for cas)."""
@@ -403,6 +408,14 @@ sub set {
             struct.pack(DEL_PKT_FMT, when))
 
 EOT
+
+sub delete {
+	my $self = shift;
+	my ($key, $when) = @_;
+	$when = 0 unless defined $when;
+
+	return $self->_doCmd(::CMD_DELETE, $key, '', pack(::DEL_PKT_FMT, $when));
+}
 
 sub version {
 	my $self = shift;
