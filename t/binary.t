@@ -94,13 +94,6 @@ $mc->flush;
 $empty->('x');
 $empty->('y');
 
-diag "Test increment";
-$mc->flush;
-is($mc->incr("x"), 0, "First incr call is zero");
-is($mc->incr("x"), 1, "Second incr call is one");
-is($mc->incr("x", 211), 212, "Adding 211 gives you 212");
-is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
-
 {
 	diag "Reservation delete";
 	$set->('y', 5, 19, "someothervalue");
@@ -152,6 +145,19 @@ is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
 	is_deeply([2, 'why'], $rv->{wye}, "Y is correct");
 	is(keys(%$rv), 2, "Got only two answers like we expect");
 }
+
+diag "Test increment";
+$mc->flush;
+is($mc->incr("x"), 0, "First incr call is zero");
+is($mc->incr("x"), 1, "Second incr call is one");
+is($mc->incr("x", 211), 212, "Adding 211 gives you 212");
+is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
+
+diag "Test decrement";
+$mc->flush;
+is($mc->incr("x", undef, 5), 5, "Initial value");
+is($mc->decr("x"), 4, "Decrease by one");
+is($mc->decr("x", 211), 0, "Floor is zero");
 
 <<EOT;
     def testIncrDoesntExistNoCreate(self):
