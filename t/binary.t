@@ -8,16 +8,16 @@ use Test::More 'no_plan';
 # Based almost 100% off testClient.py which is Copyright (c) 2007  Dustin Sallings <dustin@spy.net>
 
 # Command constants
-use constant CMD_GET => 0;
-use constant CMD_SET => 1;
+use constant CMD_GET     => 0;
+use constant CMD_SET     => 1;
 # CMD_ADD = 2
 # CMD_REPLACE = 3
-use constant CMD_DELETE => 4;
-# CMD_INCR = 5
+use constant CMD_DELETE  => 4;
+use constant CMD_INCR    => 5;
 # CMD_QUIT = 6
-use constant CMD_FLUSH => 7;
+use constant CMD_FLUSH   => 7;
 # CMD_GETQ = 8
-# CMD_NOOP = 9
+use constant CMD_NOOP    => 9;
 use constant CMD_VERSION => 10;
 #
 # CMD_GETS = 50
@@ -32,7 +32,7 @@ use constant SET_PKT_FMT => "NN";
 use constant DEL_PKT_FMT => "N";
 #
 # amount, initial value, expiration
-# INCRDECR_PKT_FMT=">qQi"
+use constant INCRDECR_PKT_FMT => "xxxxNxxxxNN";
 #
 use constant REQ_MAGIC_BYTE => 0x0f;
 use constant RES_MAGIC_BYTE => 0xf0;
@@ -42,9 +42,6 @@ use constant PKT_FMT => "CCCxNN";
 use constant MIN_RECV_PACKET => length(pack(PKT_FMT));
 #
 #
-#ERR_UNKNOWN_CMD = 0x81
-#ERR_NOT_FOUND = 0x1
-#ERR_EXISTS = 0x2
 
 my $mc = MC::Client->new;
 $mc->flush;
@@ -63,20 +60,63 @@ my $set = sub {
 	is($value, $orig_value, "Value is set properly");
 };
 
+diag "Noop";
+$mc->noop;
+
 diag "Simple set/get";
 $set->('x', 5, 19, "somevalue");
 
 my $delete = sub {
-	my ($key) = @_;
-	$mc->delete($key);
-	my $rv =()= $mc->get($key);
-	is($rv, 0, "Empty array from get means nothing stored here");
+	my ($key, $when) = @_;
+	$mc->delete($key, $when);
+	my $rv =()= eval { $mc->get($key) };
+	is($rv, 0, "Didn't get a result from get");
+	ok($@->not_found, "We got a not found error when we expected one");
 };
 
 diag "Delete";
 $delete->('x');
 
+diag "Test increment";
+{
+	$mc->flush;
+	is($mc->incr("x"), 0, "First incr call is zero");
+	is($mc->incr("x"), 1, "Second incr call is one");
+	is($mc->incr("x", 211), 212, "Adding 211 gives you 212");
+	is($mc->incr("x", 2**33), 858993480, "Blast the 32bit border");
+}
+
+diag "Reservation delete";
+{
+	$set->('y', 5, 19, "someothervalue");
+	$delete->('y', 1);
+	$mc->add('y', 5, 19, "yetanothervalue");
+	sleep 2;
+	$mc->add('y', 5, 19, "wibblevalue");
+}
+
+
 <<EOT;
+    def testIncr(self):
+        """Simple incr test."""
+        val=self.mc.incr("x")
+        self.assertEquals(0, val)
+        val=self.mc.incr("x")
+        self.assertEquals(1, val)
+        val=self.mc.incr("x", 211)
+        self.assertEquals(212, val)
+        val=self.mc.incr("x", 2**33)
+        self.assertEquals(8589934804L, val)
+
+    def testDecr(self):
+        """Simple decr test."""
+        val=self.mc.incr("x", init=5)
+        self.assertEquals(5, val)
+        val=self.mc.decr("x")
+        self.assertEquals(4, val)
+        val=self.mc.decr("x", 211)
+        self.assertEquals(0, val)
+
     def testReservedDelete(self):
         """Test a delete with a reservation timestamp."""
         self.mc.set("x", 5, 19, "somevalue")
@@ -101,9 +141,6 @@ $delete->('x');
         self.assertNotExists("x")
         self.assertNotExists("y")
 
-    def testNoop(self):
-        """Making sure noop is understood."""
-        self.mc.noop()
 
     def testAdd(self):
         """Test add functionality."""
@@ -166,26 +203,6 @@ $delete->('x');
         """Testing decr when a value doesn't exist (and we make a new one)"""
         self.assertNotExists("x")
         self.assertEquals(19, self.mc.decr("x", init=19))
-
-    def testIncr(self):
-        """Simple incr test."""
-        val=self.mc.incr("x")
-        self.assertEquals(0, val)
-        val=self.mc.incr("x")
-        self.assertEquals(1, val)
-        val=self.mc.incr("x", 211)
-        self.assertEquals(212, val)
-        val=self.mc.incr("x", 2**33)
-        self.assertEquals(8589934804L, val)
-
-    def testDecr(self):
-        """Simple decr test."""
-        val=self.mc.incr("x", init=5)
-        self.assertEquals(5, val)
-        val=self.mc.decr("x")
-        self.assertEquals(4, val)
-        val=self.mc.decr("x", 211)
-        self.assertEquals(0, val)
 
     def testCas(self):
         """Test CAS operation."""
@@ -293,7 +310,7 @@ sub _handleSingleResponse {
 	}
 
 	if ($errcode) {
-		die "Memcache error ($errcode): $rv\n";
+		die MC::Error->new($errcode, $rv);
 	}
 
 	return ($opaque, $rv);
@@ -341,11 +358,33 @@ sub set {
 	return $self->_mutate(::CMD_SET, $key, $exp, $flags, $val);
 }
 
-<<EOT;
-    def __incrdecr(self, cmd, key, amt, init, exp):
-        return long(self._doCmd(cmd, key, '',
-            struct.pack(memcacheConstants.INCRDECR_PKT_FMT, amt, init, exp)))
+sub __incrdecr {
+	my $self = shift;
+	my ($cmd, $key, $amt, $init, $exp) = @_;
+	return $self->_doCmd($cmd, $key, '', pack(::INCRDECR_PKT_FMT, $amt, $init, $exp));
+}
 
+sub incr {
+	my $self = shift;
+	my ($key, $amt, $init, $exp) = @_;
+	$amt = 1 unless defined $amt;
+	$init = 0 unless defined $init;
+	$exp = 0 unless defined $exp;
+
+	return $self->__incrdecr(::CMD_INCR, $key, $amt, $init, $exp);
+}
+
+sub decr {
+	my $self = shift;
+	my ($key, $amt, $init, $exp) = @_;
+	$amt = 1 unless defined $amt;
+	$init = 0 unless defined $init;
+	$exp = 0 unless defined $exp;
+
+	return $self->__incrdecr(::CMD_INCR, $key, 0 - $amt, $init, $exp);
+}
+
+<<EOT;
     def incr(self, key, amt=1, init=0, exp=0):
         """Increment or create the named counter."""
         return self.__incrdecr(memcacheConstants.CMD_INCR, key, amt, init, exp)
@@ -398,16 +437,12 @@ sub set {
 
         return rv
 
-    def noop(self):
-        """Send a noop command."""
-        self._doCmd(memcacheConstants.CMD_NOOP, '', '')
-
-    def delete(self, key, when=0):
-        """Delete the value for a given key within the memcached server."""
-        self._doCmd(memcacheConstants.CMD_DELETE, key, '',
-            struct.pack(DEL_PKT_FMT, when))
-
 EOT
+
+sub noop {
+	my $self = shift;
+	return $self->_doCmd(::CMD_NOOP, '', '');
+}
 
 sub delete {
 	my $self = shift;
@@ -427,3 +462,32 @@ sub flush {
 	return $self->_doCmd(::CMD_FLUSH, '', '');
 }
 
+package MC::Error;
+
+use strict;
+use warnings;
+
+use constant ERR_UNKNOWN_CMD => 0x81;
+use constant ERR_NOT_FOUND   => 0x1;
+use constant ERR_EXISTS      => 0x2;
+
+use overload '""' => sub {
+	my $self = shift;
+
+	return "Memcache Error ($self->[0]): $self->[1]";
+};
+
+sub new {
+	my $class = shift;
+	my $error = [@_];
+
+	my $self = bless $error, (ref $class || $class);
+
+	return $self;
+}
+
+sub not_found {
+	my $self = shift;
+
+	return $self->[0] == ERR_NOT_FOUND;
+}
