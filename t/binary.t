@@ -14,15 +14,15 @@ use constant CMD_ADD     => 2;
 use constant CMD_REPLACE => 3;
 use constant CMD_DELETE  => 4;
 use constant CMD_INCR    => 5;
-# CMD_QUIT = 6
+use constant CMD_QUIT    => 6;
 use constant CMD_FLUSH   => 7;
-# CMD_GETQ = 8
+use constant CMD_GETQ    => 8;
 use constant CMD_NOOP    => 9;
 use constant CMD_VERSION => 10;
-#
-# CMD_GETS = 50
-# CMD_CAS = 51
-#
+
+use constant CMD_GETS    => 50;
+use constant CMD_CAS     => 51;
+
 # Flags, expiration
 use constant SET_PKT_FMT => "NN";
 # flags, expiration, id
@@ -33,38 +33,27 @@ use constant DEL_PKT_FMT => "N";
 #
 # amount, initial value, expiration
 use constant INCRDECR_PKT_FMT => "NNNNN";
-#
+
 use constant REQ_MAGIC_BYTE => 0x0f;
 use constant RES_MAGIC_BYTE => 0xf0;
-#
+
 use constant PKT_FMT => "CCCxNN";
 #min recv packet size
 use constant MIN_RECV_PACKET => length(pack(PKT_FMT));
-#
-#
 
 my $mc = MC::Client->new;
-$mc->flush;
-
-diag "Test Version";
-{
-	my $v = $mc->version;
-	ok(defined $v && length($v), "Proper version");
-}
-
-my $set = sub {
-	my ($key, $exp, $orig_flags, $orig_value) = @_;
-	$mc->set($key, $exp, $orig_flags, $orig_value);
+my $check = sub {
+	my ($key, $orig_flags, $orig_value) = @_;
 	my ($flags, $value) = $mc->get($key);
 	is($flags, $orig_flags, "Flags is set properly");
 	is($value, $orig_value, "Value is set properly");
 };
 
-diag "Noop";
-$mc->noop;
-
-diag "Simple set/get";
-$set->('x', 5, 19, "somevalue");
+my $set = sub {
+	my ($key, $exp, $orig_flags, $orig_value) = @_;
+	$mc->set($key, $exp, $orig_flags, $orig_value);
+	$check->($key, $orig_flags, $orig_value);
+};
 
 my $empty = sub {
 	my $key = shift;
@@ -80,29 +69,39 @@ my $delete = sub {
 	$empty->($key);
 };
 
+$mc->flush if 0;
+
+{
+	diag "Test Version";
+	my $v = $mc->version;
+	ok(defined $v && length($v), "Proper version");
+}
+
+diag "Noop";
+$mc->noop;
+
+diag "Simple set/get";
+$set->('x', 5, 19, "somevalue");
+
 diag "Delete";
 $delete->('x');
 
 diag "Flush";
-{
-	$set->('x', 5, 19, "somevaluex");
-	$set->('y', 5, 17, "somevaluey");
-	$mc->flush;
-	$empty->('x');
-	$empty->('y');
-}
+$set->('x', 5, 19, "somevaluex");
+$set->('y', 5, 17, "somevaluey");
+$mc->flush;
+$empty->('x');
+$empty->('y');
 
 diag "Test increment";
-{
-	$mc->flush;
-	is($mc->incr("x"), 0, "First incr call is zero");
-	is($mc->incr("x"), 1, "Second incr call is one");
-	is($mc->incr("x", 211), 212, "Adding 211 gives you 212");
-	is($mc->incr("x", 2**33), 858993480, "Blast the 32bit border");
-}
+$mc->flush;
+is($mc->incr("x"), 0, "First incr call is zero");
+is($mc->incr("x"), 1, "Second incr call is one");
+is($mc->incr("x", 211), 212, "Adding 211 gives you 212");
+is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
 
-diag "Reservation delete";
 {
+	diag "Reservation delete";
 	$set->('y', 5, 19, "someothervalue");
 	$delete->('y', 1);
 	my $rv =()= eval { $mc->add('y', 5, 19, "yetanothervalue") };
@@ -112,33 +111,37 @@ diag "Reservation delete";
 	$mc->add('y', 5, 19, "wibblevalue");
 }
 
+{
+	diag "Add";
+	$empty->('i');
+        $mc->add('i', 5, 19, "ex");
+        $check->('i', 19, "ex");
+
+	my $rv =()= eval { $mc->add('i', 5, 19, "ex2") };
+	is($rv, 0, "Add didn't return anything");
+	ok($@->exists, "Expected exists error received");
+
+	$check->('i', 19, "ex");
+}
+
+{
+	diag "Replace";
+	$empty->('j');
+
+	my $rv =()= eval { $mc->replace('j', 5, 19, "ex") };
+	is($rv, 0, "Replace didn't return anything");
+	ok($@->not_found, "Expected not_found error received");
+
+	$empty->('j');
+
+	$mc->add('j', 5, 14, "ex2");
+	$check->('j', 14, "ex2");
+
+	$mc->replace('j', 5, 24, "ex3");
+	$check->('j', 24, "ex3");
+}
+
 <<EOT;
-
-    def testAdd(self):
-        """Test add functionality."""
-        self.assertNotExists("x")
-        self.mc.add("x", 5, 19, "ex")
-        self.assertEquals((19, "ex"), self.mc.get("x"))
-        try:
-            self.mc.add("x", 5, 19, "ex2")
-            self.fail("Expected failure to add existing key")
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_EXISTS, e.status)
-        self.assertEquals((19, "ex"), self.mc.get("x"))
-
-    def testReplace(self):
-        """Test replace functionality."""
-        self.assertNotExists("x")
-        try:
-            self.mc.replace("x", 5, 19, "ex")
-            self.fail("Expected failure to replace missing key")
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_NOT_FOUND, e.status)
-        self.mc.add("x", 5, 19, "ex")
-        self.assertEquals((19, "ex"), self.mc.get("x"))
-        self.mc.replace("x", 5, 19, "ex2")
-        self.assertEquals((19, "ex2"), self.mc.get("x"))
-
     def testMultiGet(self):
         """Testing multiget functionality"""
         self.mc.add("x", 5, 1, "ex")
@@ -333,7 +336,14 @@ sub set {
 sub __incrdecr {
 	my $self = shift;
 	my ($cmd, $key, $amt, $init, $exp) = @_;
-	return $self->_doCmd($cmd, $key, '', pack(::INCRDECR_PKT_FMT, $amt >> 32, 0xFFFFFFFF & $amt, $init >> 32, 0xFFFFFFFF & $init, $exp));
+
+	my $amt_hi = int($amt / 2 ** 32);
+	my $amt_lo = int($amt % 2 ** 32);
+
+	my $init_hi = int($init / 2 ** 32);
+	my $init_lo = int($init % 2 ** 32);
+
+	return $self->_doCmd($cmd, $key, '', pack(::INCRDECR_PKT_FMT, $amt_hi, $amt_lo, $init_hi, $init_lo, $exp));
 }
 
 sub incr {
@@ -367,13 +377,19 @@ sub replace {
 	return $self->_mutate(::CMD_REPLACE, $key, $exp, $flags, $val);
 }
 
-<<EOT;
-    def gets(self, key):
-        """Get with an identifier (for cas)."""
-        data=self._doCmd(memcacheConstants.CMD_GETS, key, '')
-        parts=struct.unpack(">IQ", data[:12])
-        return parts[0], parts[1], data[12:]
+sub gets {
+	my $self = shift;
+	my $key = shift;
 
+	my $data = $self->_doCmd(::CMD_GETS, $key, '');
+	my $header = substr $data, 0, 12, '';
+	my ($flags, $ident_hi, $ident_lo) = unpack "NNN", $data;
+	my $ident = ($ident_hi * 2 ** 32) + $ident_lo;
+
+	return $flags, $ident, $data;
+}
+
+<<EOT;
     def cas(self, key, exp, flags, oldVal, val):
         """CAS in a new value for the given key and comparison value."""
         self._doCmd(memcacheConstants.CMD_CAS, key, val,
