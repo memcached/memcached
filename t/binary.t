@@ -25,12 +25,13 @@ use constant CMD_CAS     => 51;
 
 # Flags, expiration
 use constant SET_PKT_FMT => "NN";
-# flags, expiration, id
-# CAS_PKT_FMT=">IiQ"
-#
+
+# Flags, expiration, id
+use constant CAS_PKT_FMT => "NNNN";
+
 # How long until the deletion takes effect.
 use constant DEL_PKT_FMT => "N";
-#
+
 # amount, initial value, expiration
 use constant INCRDECR_PKT_FMT => "NNNNN";
 
@@ -38,6 +39,7 @@ use constant REQ_MAGIC_BYTE => 0x0f;
 use constant RES_MAGIC_BYTE => 0xf0;
 
 use constant PKT_FMT => "CCCxNN";
+
 #min recv packet size
 use constant MIN_RECV_PACKET => length(pack(PKT_FMT));
 
@@ -60,7 +62,6 @@ my $empty = sub {
 	my $rv =()= eval { $mc->get($key) };
 	is($rv, 0, "Didn't get a result from get");
 	ok($@->not_found, "We got a not found error when we expected one");
-
 };
 
 my $delete = sub {
@@ -69,7 +70,7 @@ my $delete = sub {
 	$empty->($key);
 };
 
-$mc->flush if 0;
+$mc->flush;
 
 {
 	diag "Test Version";
@@ -141,16 +142,18 @@ is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
 	$check->('j', 24, "ex3");
 }
 
-<<EOT;
-    def testMultiGet(self):
-        """Testing multiget functionality"""
-        self.mc.add("x", 5, 1, "ex")
-        self.mc.add("y", 5, 2, "why")
-        vals=self.mc.getMulti('xyz')
-        self.assertEquals((1, 'ex'), vals['x'])
-        self.assertEquals((2, 'why'), vals['y'])
-        self.assertEquals(2, len(vals))
+{
+	diag "MultiGet";
+	$mc->add('xx', 5, 1, "ex");
+	$mc->add('wye', 5, 2, "why");
+	my $rv = $mc->getMulti(qw(xx wye zed));
 
+	is_deeply([1, 'ex'], $rv->{xx}, "X is correct");
+	is_deeply([2, 'why'], $rv->{wye}, "Y is correct");
+	is(keys(%$rv), 2, "Got only two answers like we expect");
+}
+
+<<EOT;
     def testIncrDoesntExistNoCreate(self):
         """Testing incr when a value doesn't exist (and not creating)."""
         try:
@@ -178,35 +181,43 @@ is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
         """Testing decr when a value doesn't exist (and we make a new one)"""
         self.assertNotExists("x")
         self.assertEquals(19, self.mc.decr("x", init=19))
-
-    def testCas(self):
-        """Test CAS operation."""
-        try:
-            self.mc.cas("x", 5, 19, 0x7fffffffff, "bad value")
-            self.fail("Expected error CASing with no existing value")
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_NOT_FOUND, e.status)
-        self.mc.add("x", 5, 19, "original value")
-        flags, i, val=self.mc.gets("x")
-        self.assertEquals("original value", val)
-        try:
-            self.mc.cas("x", 5, 19, i+1, "broken value")
-            self.fail("Expected error CASing with invalid id")
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_EXISTS, e.status)
-        self.mc.cas("x", 5, 19, i, "new value")
-        newflags, newi, newval=self.mc.gets("x")
-        self.assertEquals("new value", newval)
-
-        # Test a CAS replay
-        try:
-            self.mc.cas("x", 5, 19, i, "crap value")
-            self.fail("Expected error CASing with invalid id")
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_EXISTS, e.status)
-        newflags, newi, newval=self.mc.gets("x")
-        self.assertEquals("new value", newval)
 EOT
+
+{
+	diag "CAS";
+	$mc->flush;
+
+	{
+		my $rv =()= eval { $mc->cas("x", 5, 19, 0x7FFFFFFFFF, "bad value") };
+		is($rv, 0, "Empty return on expected failure");
+		ok($@->not_found, "Error was 'not found' as expected");
+	}
+
+	$mc->add("x", 5, 19, "original value");
+
+	my ($flags, $i, $val) = $mc->gets("x");
+	is($val, "original value", "->gets returned proper value");
+
+	{
+		my $rv =()= eval { $mc->cas("x", 5, 19, $i+1, "broken value") };
+		is($rv, 0, "Empty return on expected failure (1)");
+		ok($@->exists, "Expected error state of 'exists' (1)");
+	}
+
+	$mc->cas("x", 5, 19, $i, "new value");
+
+	my ($newflags, $newi, $newval) = $mc->gets("x");
+	is($newval, "new value", "CAS properly overwrote value");
+
+	{
+		my $rv =()= eval { $mc->cas("x", 5, 19, $i, "replay value") };
+		is($rv, 0, "Empty return on expected failure (2)");
+		ok($@->exists, "Expected error state of 'exists' (2)");
+	}
+
+	(undef, undef, my $newval2) = $mc->gets("x");
+	is($newval2, "new value", "CAS replay didn't overwrite value");
+}
 
 $mc->flush;
 $mc->close;
@@ -377,49 +388,50 @@ sub replace {
 	return $self->_mutate(::CMD_REPLACE, $key, $exp, $flags, $val);
 }
 
+sub getMulti {
+	my $self = shift;
+	my @keys = @_;
+
+	for (my $i = 0; $i < @keys; $i++) {
+		$self->_sendCmd(::CMD_GETQ, $keys[$i], '', $i);
+	}
+
+	my $terminal = @keys + 10;
+	$self->_sendCmd(::CMD_NOOP, '', '', $terminal);
+
+	my %return;
+
+	while (1) {
+		my ($opaque, $data) = $self->_handleSingleResponse;
+		last if $opaque == $terminal;
+
+		$return{$keys[$opaque]} = [$self->__parseGet($data)];
+	}
+	return %return if wantarray;
+	return \%return;
+}
+
 sub gets {
 	my $self = shift;
 	my $key = shift;
 
 	my $data = $self->_doCmd(::CMD_GETS, $key, '');
 	my $header = substr $data, 0, 12, '';
-	my ($flags, $ident_hi, $ident_lo) = unpack "NNN", $data;
+	my ($flags, $ident_hi, $ident_lo) = unpack "NNN", $header;
 	my $ident = ($ident_hi * 2 ** 32) + $ident_lo;
 
 	return $flags, $ident, $data;
 }
 
-<<EOT;
-    def cas(self, key, exp, flags, oldVal, val):
-        """CAS in a new value for the given key and comparison value."""
-        self._doCmd(memcacheConstants.CMD_CAS, key, val,
-            struct.pack(CAS_PKT_FMT, flags, exp, oldVal))
+sub cas {
+	my $self = shift;
+	my ($key, $exp, $flags, $oldVal, $val) = @_;
 
-    def getMulti(self, keys):
-        """Get values for any available keys in the given iterable.
+	my $oldVal_hi = int($oldVal / 2 ** 32);
+	my $oldVal_lo = int($oldVal % 2 ** 32);
 
-        Returns a dict of matched keys to their values."""
-        opaqued=dict(enumerate(keys))
-        terminal=len(opaqued)+10
-        # Send all of the keys in quiet
-        for k,v in opaqued.iteritems():
-            self._sendCmd(memcacheConstants.CMD_GETQ, v, '', k)
-
-        self._sendCmd(memcacheConstants.CMD_NOOP, '', '', terminal)
-
-        # Handle the response
-        rv={}
-        done=False
-        while not done:
-            opaque, data=self._handleSingleResponse(None)
-            if opaque != terminal:
-                rv[opaqued[opaque]]=self.__parseGet(data)
-            else:
-                done=True
-
-        return rv
-
-EOT
+	return $self->_doCmd(::CMD_CAS, $key, $val, pack(::CAS_PKT_FMT, $flags, $exp, $oldVal_hi, $oldVal_lo));
+}
 
 sub noop {
 	my $self = shift;
@@ -479,3 +491,5 @@ sub exists {
 
 	return $self->[0] == ERR_EXISTS;
 }
+
+# vim: filetype=perl
