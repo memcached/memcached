@@ -10,8 +10,8 @@ use Test::More 'no_plan';
 # Command constants
 use constant CMD_GET     => 0;
 use constant CMD_SET     => 1;
-# CMD_ADD = 2
-# CMD_REPLACE = 3
+use constant CMD_ADD     => 2;
+use constant CMD_REPLACE => 3;
 use constant CMD_DELETE  => 4;
 use constant CMD_INCR    => 5;
 # CMD_QUIT = 6
@@ -32,7 +32,7 @@ use constant SET_PKT_FMT => "NN";
 use constant DEL_PKT_FMT => "N";
 #
 # amount, initial value, expiration
-use constant INCRDECR_PKT_FMT => "xxxxNxxxxNN";
+use constant INCRDECR_PKT_FMT => "NNNNN";
 #
 use constant REQ_MAGIC_BYTE => 0x0f;
 use constant RES_MAGIC_BYTE => 0xf0;
@@ -66,16 +66,31 @@ $mc->noop;
 diag "Simple set/get";
 $set->('x', 5, 19, "somevalue");
 
-my $delete = sub {
-	my ($key, $when) = @_;
-	$mc->delete($key, $when);
+my $empty = sub {
+	my $key = shift;
 	my $rv =()= eval { $mc->get($key) };
 	is($rv, 0, "Didn't get a result from get");
 	ok($@->not_found, "We got a not found error when we expected one");
+
+};
+
+my $delete = sub {
+	my ($key, $when) = @_;
+	$mc->delete($key, $when);
+	$empty->($key);
 };
 
 diag "Delete";
 $delete->('x');
+
+diag "Flush";
+{
+	$set->('x', 5, 19, "somevaluex");
+	$set->('y', 5, 17, "somevaluey");
+	$mc->flush;
+	$empty->('x');
+	$empty->('y');
+}
 
 diag "Test increment";
 {
@@ -90,57 +105,14 @@ diag "Reservation delete";
 {
 	$set->('y', 5, 19, "someothervalue");
 	$delete->('y', 1);
-	$mc->add('y', 5, 19, "yetanothervalue");
+	my $rv =()= eval { $mc->add('y', 5, 19, "yetanothervalue") };
+	is($rv, 0, "Add didn't return anything");
+	ok($@->exists, "We got an exists error like we expected");
 	sleep 2;
 	$mc->add('y', 5, 19, "wibblevalue");
 }
 
-
 <<EOT;
-    def testIncr(self):
-        """Simple incr test."""
-        val=self.mc.incr("x")
-        self.assertEquals(0, val)
-        val=self.mc.incr("x")
-        self.assertEquals(1, val)
-        val=self.mc.incr("x", 211)
-        self.assertEquals(212, val)
-        val=self.mc.incr("x", 2**33)
-        self.assertEquals(8589934804L, val)
-
-    def testDecr(self):
-        """Simple decr test."""
-        val=self.mc.incr("x", init=5)
-        self.assertEquals(5, val)
-        val=self.mc.decr("x")
-        self.assertEquals(4, val)
-        val=self.mc.decr("x", 211)
-        self.assertEquals(0, val)
-
-    def testReservedDelete(self):
-        """Test a delete with a reservation timestamp."""
-        self.mc.set("x", 5, 19, "somevalue")
-        self.assertEquals((19, "somevalue"), self.mc.get("x"))
-        self.mc.delete("x", 1)
-        self.assertNotExists("x")
-        try:
-            self.mc.add("x", 5, 19, "ex2")
-            self.fail("Expected failure to add during timed delete")
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_EXISTS, e.status)
-        time.sleep(1.1)
-        self.mc.add("x", 5, 19, "ex2")
-
-    def testFlush(self):
-        """Test flushing."""
-        self.mc.set("x", 5, 19, "somevaluex")
-        self.mc.set("y", 5, 17, "somevaluey")
-        self.assertEquals((19, "somevaluex"), self.mc.get("x"))
-        self.assertEquals((17, "somevaluey"), self.mc.get("y"))
-        self.mc.flush()
-        self.assertNotExists("x")
-        self.assertNotExists("y")
-
 
     def testAdd(self):
         """Test add functionality."""
@@ -361,7 +333,7 @@ sub set {
 sub __incrdecr {
 	my $self = shift;
 	my ($cmd, $key, $amt, $init, $exp) = @_;
-	return $self->_doCmd($cmd, $key, '', pack(::INCRDECR_PKT_FMT, $amt, $init, $exp));
+	return $self->_doCmd($cmd, $key, '', pack(::INCRDECR_PKT_FMT, $amt >> 32, 0xFFFFFFFF & $amt, $init >> 32, 0xFFFFFFFF & $init, $exp));
 }
 
 sub incr {
@@ -384,24 +356,18 @@ sub decr {
 	return $self->__incrdecr(::CMD_INCR, $key, 0 - $amt, $init, $exp);
 }
 
+sub add {
+	my $self = shift;
+	my ($key, $exp, $flags, $val) = @_;
+	return $self->_mutate(::CMD_ADD, $key, $exp, $flags, $val);
+}
+sub replace {
+	my $self = shift;
+	my ($key, $exp, $flags, $val) = @_;
+	return $self->_mutate(::CMD_REPLACE, $key, $exp, $flags, $val);
+}
+
 <<EOT;
-    def incr(self, key, amt=1, init=0, exp=0):
-        """Increment or create the named counter."""
-        return self.__incrdecr(memcacheConstants.CMD_INCR, key, amt, init, exp)
-
-    def decr(self, key, amt=1, init=0, exp=0):
-        """Decrement or create the named counter."""
-        return self.__incrdecr(memcacheConstants.CMD_INCR, key, 0-amt, init,
-            exp)
-
-    def add(self, key, exp, flags, val):
-        """Add a value in the memcached server iff it doesn't already exist."""
-        self._mutate(memcacheConstants.CMD_ADD, key, exp, flags, val)
-
-    def replace(self, key, exp, flags, val):
-        """Replace a value in the memcached server iff it already exists."""
-        self._mutate(memcacheConstants.CMD_REPLACE, key, exp, flags, val)
-
     def gets(self, key):
         """Get with an identifier (for cas)."""
         data=self._doCmd(memcacheConstants.CMD_GETS, key, '')
@@ -490,4 +456,10 @@ sub not_found {
 	my $self = shift;
 
 	return $self->[0] == ERR_NOT_FOUND;
+}
+
+sub exists {
+	my $self = shift;
+
+	return $self->[0] == ERR_EXISTS;
 }
