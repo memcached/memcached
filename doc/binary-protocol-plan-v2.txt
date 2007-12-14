@@ -1,0 +1,392 @@
+
+
+
+Network Working Group                                   Aaron Stone, Ed.
+Internet-Draft                                           Six Apart, Ltd.
+Intended status: Informational                         December 14, 2007
+Expires: June 16, 2008
+
+
+                        Memcache Binary Protocol
+                     draft-stone-memcache-binary-01
+
+Status of this Memo
+
+   This document is an Internet-Draft and is NOT offered in accordance
+   with Section 10 of RFC 2026, and the author does not provide the IETF
+   with any rights other than to publish as an Internet-Draft.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF), its areas, and its working groups.  Note that
+   other groups may also distribute working documents as Internet-
+   Drafts.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   The list of current Internet-Drafts can be accessed at
+   http://www.ietf.org/ietf/1id-abstracts.txt.
+
+   The list of Internet-Draft Shadow Directories can be accessed at
+   http://www.ietf.org/shadow.html.
+
+   This Internet-Draft will expire on June 16, 2008.
+
+Abstract
+
+   This memo explains the memcache binary protocol for informational
+   purposes.
+
+   Memcache is a high performance key-value cache.  It is intentionally
+   a dumb cache, optimized for speed only.  Applications using memcache
+   do not rely on it for data -- a persistent database with guaranteed
+   reliability is strongly recommended -- but applications can run much
+   faster when cached data is available in memcache.
+
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 1]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . . . 3
+     1.1.  Conventions . . . . . . . . . . . . . . . . . . . . . . . . 3
+   2.  Packet formats  . . . . . . . . . . . . . . . . . . . . . . . . 3
+   3.  Magic values  . . . . . . . . . . . . . . . . . . . . . . . . . 4
+   4.  Commands  . . . . . . . . . . . . . . . . . . . . . . . . . . . 5
+     4.1.  get/getq  . . . . . . . . . . . . . . . . . . . . . . . . . 5
+     4.2.  delete  . . . . . . . . . . . . . . . . . . . . . . . . . . 5
+     4.3.  set/add/replace . . . . . . . . . . . . . . . . . . . . . . 6
+     4.4.  noop  . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
+     4.5.  incr/decr . . . . . . . . . . . . . . . . . . . . . . . . . 6
+   5.  Security Considerations . . . . . . . . . . . . . . . . . . . . 6
+   6.  Normative References  . . . . . . . . . . . . . . . . . . . . . 7
+   Appendix A.  Acknowledgments  . . . . . . . . . . . . . . . . . . . 7
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . . . 7
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 2]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+1.  Introduction
+
+   Memcache is a high performance key-value cache.  It is intentionally
+   a dumb cache, optimized for speed only.  Applications using memcache
+   do not rely on it for data -- a persistent database with guaranteed
+   reliability is strongly recommended -- but applications can run much
+   faster when cached data is available in memcache.
+
+   Memcache was originally written to make LiveJournal [LJ] go faster.
+
+1.1.  Conventions
+
+   Bits run across the top.  Period (.) represent the start of each byte
+   (bit 0 in that byte, so to speak).  The characters -, +, | are used
+   for Ascii art.  Number of bits in each field are in parens.  Numbers
+   on the left side are helpful for counting four byte word lines in the
+   packet.  All numbers are in network byte order (big endian).
+
+
+2.  Packet formats
+
+   Request header:
+
+       +.1234567.1234567.1234567.1234567+
+     1 |Mag (8) Cmd (8) Key len (16)    |
+     2 |Len (8) Type(8) Reserved (16)   |
+     3 |Total body length (32)          |
+     4 |Opaque key (32)                 |
+       +.1234567.1234567.1234567.1234567+
+
+   Response header:
+
+       +.1234567.1234567.1234567.1234567+
+     1 |Mag (8) Cmd (8) Stat(8) Resvd(8)| ***FIXME: see below
+     2 |Len (8) Type(8) Reserved(16)    |
+     3 |Total body length (32)          |
+     4 |Opaque key (32)                 |
+       +.1234567.1234567.1234567.1234567+
+
+   The short keywords in the header format expand as follows:
+
+   Mag     Magic number.
+
+   Cmd     Command code.
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 3]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   Key length  Length in bytes of the text key that follows the command
+           extras.
+
+   Stat    Status of the response (non-zero on error).
+
+   Resvd   FIXME: Dustin, please remind me what this is?
+
+   Len     Length in bytes of the command extras.
+
+   Type    Reserved for future use (Sean is using this soon).
+
+   Reserved  Really reserved for future use (up for grabs).
+
+   Total body length  Length in bytes of extra + key + value.
+
+   Opaque key  Will be copied back to you in the response.
+
+   General format of a packet:
+
+       +.1234567.1234567.1234567.1234567+
+     1 |HEADER (16 bytes, per above)    |
+     2 |                                |
+     3 |                                |
+     4 |                                |
+       +.1234567.1234567.1234567.1234567+
+       |Command-specific stuff          |
+       | (note length in byte 5)        |
+       +.1234567.1234567.1234567.1234567+
+       |Key                             |
+       | (note length in bytes 3-4)     |
+       | (never present in responses)   |
+       +.1234567.1234567.1234567.1234567+
+       |Value                           |
+       | (note length of bytes 9-12,    |
+       |  minus extra length,           |
+       |  minus key length)             |
+       +.1234567.1234567.1234567.1234567+
+
+
+3.  Magic values
+
+   Magic byte / version.  For each version of the protocol, we'll use a
+   different request/reponse value pair.  This is useful for protocol
+   analyzers to know what a packet is in isolation from which direction
+   it is moving.
+
+   The version should hopefully correspond only to different meanings of
+   the command byte.  In an ideal world, we will not change the header
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 4]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   format.  As reserved bytes are given defined meaning, the protocol
+   version / magic byte values should be incremented.
+
+   Magic byte values will begin at 0x80 and go up from there.
+
+
+4.  Commands
+
+4.1.  get/getq
+
+   The get command gets a single key.  The getq command is both mum on
+   cache miss and quiet, holding its response until a non-quiet command
+   is issued.
+
+   You're not guaranteed a response to a getq cache hit until you send a
+   non-getq command later, which uncorks the server which bundles up IOs
+   to send to the client in one go.
+
+   Clients should implement multi-get (still important for reducing
+   network roundtrips!) as n pipelined requests, the first n-1 being
+   getq, the last being a regular get. that way you're guaranteed to get
+   a response, and you know when the server's done. you can also do the
+   naive thing and send n pipelined gets, but then you could potentially
+   get back a lot of "NOT_FOUND!" error code packets. alternatively, you
+   can send 'n' getqs, followed by an 'echo' or 'noop' command.
+
+   o  4 byte flags
+
+   o  8 byte CAS ID
+
+   Extra data for get/getq:
+
+       +.1234567.1234567.1234567.1234567+
+     1 |Flags (32)                      |
+     2 |CAS ID (64)                     |
+     3 |                                |
+       +.1234567.1234567.1234567.1234567+
+
+4.2.  delete
+
+   When allows you to 'reserve' a key.  When 'when' is set for, say, ten
+   seconds in the future, all 'set's on that key will fail until ten
+   seconds from now.
+
+   o  4 byte 'when' time
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 5]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   Extra data for delete:
+
+       +.1234567.1234567.1234567.1234567+
+     1 |When (32)                       |
+       +.1234567.1234567.1234567.1234567+
+
+4.3.  set/add/replace
+
+   o  4 byte flags
+
+   o  4 byte expiration time
+
+   o  8 byte CAS ID
+
+   Extra data for set/add/replace:
+
+       +.1234567.1234567.1234567.1234567+
+     1 |Flags (32)                      |
+     2 |Expiration (32)                 |
+     3 |CAS ID (64)                     |
+     4 |                                |
+       +.1234567.1234567.1234567.1234567+
+
+4.4.  noop
+
+   Used as a keep alive.  Flushes outstanding getq's.  Should not have
+   any command extra data.  Must not have a key.
+
+4.5.  incr/decr
+
+   Extra data for incr/decr:
+
+       +.1234567.1234567.1234567.1234567+
+     1 |Amount (64)                     |
+     2 |                                |
+     3 |Initial value (64)              |
+     4 |                                |
+     5 |Expiration (32)                 |
+       +.1234567.1234567.1234567.1234567+
+
+
+5.  Security Considerations
+
+   Memcache has no authentication or security layers and is intended
+   strictly for use on closed, protected, back-end networks within a
+   single data center, within a single cluster of servers, or even on a
+   single host, providing shared caching for multiple applications.
+   Memcache should not ever be made available on a public network.
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 6]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+6.  Normative References
+
+   [LJ]  Danga Interactive, "LJ NEEDS MOAR SPEED", 10 1999.
+
+
+Appendix A.  Acknowledgments
+
+   Thanks to Brad Fitzpatrick, Sean Chittenden, Jonathan Steinert, Brian
+   Aker, Chris Goffinet, Dustin Sailings, and Steven Grimm, for their
+   work on the memcached server and client libraries in a variety of
+   languages.
+
+
+Author's Address
+
+   Aaron Stone (editor)
+   Six Apart, Ltd.
+   548 4th Street
+   San Francisco, CA  94107
+   USA
+
+   Email: astone@sixapart.com
+   URI:   aaron@serendipity.palo-alto.ca.us
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 7]
+

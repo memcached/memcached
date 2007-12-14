@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="US-ASCII"?>
+<!DOCTYPE rfc SYSTEM "rfc2629.dtd">
+<?xml-stylesheet type='text/xsl' href='rfc2629.xslt'?>
+<?rfc toc="yes"?>
+<?rfc strict="yes"?>
+<?rfc symrefs="yes"?>
+<?rfc sortrefs="yes" ?>
+<?rfc compact="yes" ?>
+<?rfc subcompact="no" ?>
+<rfc category="info" docName="draft-stone-memcache-binary-01" ipr="none">
+
+  <front>
+
+    <title> Memcache Binary Protocol </title>
+
+    <author fullname="Aaron Stone" surname="Aaron Stone" role="editor">
+      <organization>Six Apart, Ltd.</organization>
+      <address>
+        <postal>
+          <street>548 4th Street</street>
+          <city>San Francisco</city>
+          <region>CA</region>
+          <code>94107</code>
+          <country>USA</country>
+        </postal>
+        <email>astone@sixapart.com</email>
+        <uri>aaron@serendipity.palo-alto.ca.us</uri>
+      </address>
+    </author>
+
+    <date day="14" month="December" year="2007" />
+
+    <area>Applications</area>
+
+    <!-- workgroup>Memcache Working Group</workgroup-->
+
+    <keyword>memcache memcached cache</keyword>
+
+    <abstract>
+      <t>
+      This memo explains the memcache binary protocol for informational purposes.
+      </t>
+
+      <t>
+      Memcache is a high performance key-value cache. It is intentionally a
+      dumb cache, optimized for speed only. Applications using memcache do
+      not rely on it for data -- a persistent database with guaranteed reliability
+      is strongly recommended -- but applications can run much faster when
+      cached data is available in memcache.
+      </t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section title="Introduction">
+      <t>
+      Memcache is a high performance key-value cache. It is intentionally a
+      dumb cache, optimized for speed only. Applications using memcache do
+      not rely on it for data -- a persistent database with guaranteed reliability
+      is strongly recommended -- but applications can run much faster when
+      cached data is available in memcache.
+      </t>
+      <t>
+      Memcache was originally written to make <xref target="LJ">LiveJournal</xref> go faster.
+      </t>
+      <section title="Conventions">
+        <t>
+        Bits run across the top. Period (.) represent the
+        start of each byte (bit 0 in that byte, so to speak).
+        The characters -, +, | are used for Ascii art.
+        Number of bits in each field are in parens.
+        Numbers on the left side are helpful for counting
+        four byte word lines in the packet.
+        All numbers are in network byte order (big endian).
+        </t>
+      </section>
+    </section>
+
+    <section title="Packet formats">
+      <t>
+      <figure>
+        <preamble>Request header:</preamble>
+          <artwork>
+    +.1234567.1234567.1234567.1234567+
+  1 |Mag (8) Cmd (8) Key len (16)    |
+  2 |Len (8) Type(8) Reserved (16)   |
+  3 |Total body length (32)          |
+  4 |Opaque key (32)                 |
+    +.1234567.1234567.1234567.1234567+
+      </artwork></figure>
+      </t>
+
+      <t>
+      <figure>
+        <preamble>Response header:</preamble>
+          <artwork>
+    +.1234567.1234567.1234567.1234567+
+  1 |Mag (8) Cmd (8) Stat(8) Resvd(8)| ***FIXME: see below
+  2 |Len (8) Type(8) Reserved(16)    |
+  3 |Total body length (32)          |
+  4 |Opaque key (32)                 |
+    +.1234567.1234567.1234567.1234567+
+      </artwork></figure>
+      </t>
+
+      <t>
+        The short keywords in the header format expand as follows:
+
+        <list hangIndent="8" style="hanging">
+          <t hangText="Mag">Magic number.</t>
+          <t hangText="Cmd">Command code.</t>
+          <t hangText="Key length">Length in bytes of the text key that follows the command extras.</t>
+          <t hangText="Stat">Status of the response (non-zero on error).</t>
+          <t hangText="Resvd">FIXME: Dustin, please remind me what this is?</t>
+          <t hangText="Len">Length in bytes of the command extras.</t>
+          <t hangText="Type">Reserved for future use (Sean is using this soon).</t>
+          <t hangText="Reserved">Really reserved for future use (up for grabs).</t>
+          <t hangText="Total body length">Length in bytes of extra + key + value.</t>
+          <t hangText="Opaque key">Will be copied back to you in the response.</t>
+        </list>
+      </t>
+
+      <t>
+      <figure>
+        <preamble>General format of a packet:</preamble>
+          <artwork>
+    +.1234567.1234567.1234567.1234567+
+  1 |HEADER (16 bytes, per above)    |
+  2 |                                |
+  3 |                                |
+  4 |                                |
+    +.1234567.1234567.1234567.1234567+
+    |Command-specific stuff          |
+    | (note length in byte 5)        |
+    +.1234567.1234567.1234567.1234567+
+    |Key                             |
+    | (note length in bytes 3-4)     |
+    | (never present in responses)   |
+    +.1234567.1234567.1234567.1234567+
+    |Value                           |
+    | (note length of bytes 9-12,    |
+    |  minus extra length,           |
+    |  minus key length)             |
+    +.1234567.1234567.1234567.1234567+
+      </artwork></figure>
+      </t>
+    </section>
+
+    <section title="Magic values">
+      <t>
+        Magic byte / version. For each version of the protocol, we'll use
+        a different request/reponse value pair. This is useful for protocol
+        analyzers to know what a packet is in isolation from which direction
+        it is moving.
+      </t>
+
+      <t>
+        The version should hopefully correspond only to different meanings
+        of the command byte. In an ideal world, we will not change the
+        header format. As reserved bytes are given defined meaning, the
+        protocol version / magic byte values should be incremented.
+      </t>
+
+      <t>
+        Magic byte values will begin at 0x80 and go up from there.
+      </t>
+    </section>
+
+    <section title="Commands">
+      <section title="get/getq">
+
+        <t>
+          The get command gets a single key. The getq command is both mum
+          on cache miss and quiet, holding its response until a non-quiet
+          command is issued.
+        </t>
+
+        <t>
+          You're not guaranteed a response to a getq cache hit until
+          you send a non-getq command later, which uncorks the
+          server which bundles up IOs to send to the client in one go.
+        </t>
+
+        <t>
+          Clients should implement multi-get (still important for
+          reducing network roundtrips!) as n pipelined requests, the
+          first n-1 being getq, the last being a regular
+          get.  that way you're guaranteed to get a response, and
+          you know when the server's done.  you can also do the naive
+          thing and send n pipelined gets, but then you could potentially
+          get back a lot of "NOT_FOUND!" error code packets.
+          alternatively, you can send 'n' getqs, followed by an 'echo'
+          or 'noop' command.
+        </t>
+
+        <t>
+        <list style="symbols">
+          <t>4 byte flags</t>
+          <t>8 byte CAS ID</t>
+        </list>
+        </t>
+
+        <t>
+      <figure>
+        <preamble>Extra data for get/getq:</preamble>
+          <artwork>
+    +.1234567.1234567.1234567.1234567+
+  1 |Flags (32)                      |
+  2 |CAS ID (64)                     |
+  3 |                                |
+    +.1234567.1234567.1234567.1234567+
+      </artwork></figure>
+        </t>
+
+      </section>
+
+      <section title="delete">
+        <t>
+          When allows you to 'reserve' a key. When 'when' is set
+          for, say, ten seconds in the future, all 'set's on that
+          key will fail until ten seconds from now.
+        </t>
+
+        <t>
+          <list style="symbols">
+            <t>4 byte 'when' time</t>
+          </list>
+        </t>
+
+        <t>
+      <figure>
+        <preamble>Extra data for delete:</preamble>
+          <artwork>
+    +.1234567.1234567.1234567.1234567+
+  1 |When (32)                       |
+    +.1234567.1234567.1234567.1234567+
+      </artwork></figure>
+        </t>
+      </section>
+
+      <section title="set/add/replace">
+
+        <t>
+          <list style="symbols">
+            <t>4 byte flags</t>
+            <t>4 byte expiration time</t>
+            <t>8 byte CAS ID</t>
+          </list>
+        </t>
+
+        <t>
+        <figure>
+          <preamble>Extra data for set/add/replace:</preamble>
+            <artwork>
+    +.1234567.1234567.1234567.1234567+
+  1 |Flags (32)                      |
+  2 |Expiration (32)                 |
+  3 |CAS ID (64)                     |
+  4 |                                |
+    +.1234567.1234567.1234567.1234567+
+        </artwork></figure>
+        </t>
+      </section>
+
+      <section title="noop">
+        <t>
+        Used as a keep alive. Flushes outstanding getq's.
+        Should not have any command extra data.
+        Must not have a key.
+        </t>
+      </section>
+
+      <section title="incr/decr">
+        <t>
+
+      <figure>
+        <preamble>Extra data for incr/decr:</preamble>
+          <artwork>
+    +.1234567.1234567.1234567.1234567+
+  1 |Amount (64)                     |
+  2 |                                |
+  3 |Initial value (64)              |
+  4 |                                |
+  5 |Expiration (32)                 |
+    +.1234567.1234567.1234567.1234567+
+      </artwork></figure>
+        </t>
+      </section>
+
+    </section>
+
+    <section title="Security Considerations">
+      <t>
+      Memcache has no authentication or security layers and is intended
+      strictly for use on closed, protected, back-end networks within a
+      single data center, within a single cluster of servers, or even on
+      a single host, providing shared caching for multiple applications.
+      Memcache should not ever be made available on a public network.
+      </t>
+    </section>
+
+  </middle>
+
+  <back>
+    <references title="Normative References">
+      <reference anchor="LJ">
+        <front>
+          <title>LJ NEEDS MOAR SPEED</title>
+          <author fullname="Brad Fitzpatrick">
+            <organization>Danga Interactive</organization>
+          </author>
+          <date day="5" month="10" year="1999" />
+          <abstract>
+            <t>http://www.livejournal.com/</t>
+          </abstract>
+        </front>
+      </reference>
+    </references>
+
+    <section anchor="acknowledgments" title="Acknowledgments">
+      <t>
+      Thanks to Brad Fitzpatrick, Sean Chittenden, Jonathan Steinert, Brian Aker,
+      Chris Goffinet, Dustin Sailings, and Steven Grimm, for their work on the memcached
+      server and client libraries in a variety of languages.
+      </t>
+    </section>
+  </back>
+
+</rfc>
+
