@@ -6,7 +6,7 @@
 <?rfc symrefs="yes"?>
 <?rfc sortrefs="yes" ?>
 <?rfc compact="yes" ?>
-<?rfc subcompact="no" ?>
+<?rfc subcompact="yes" ?>
 <rfc category="info" docName="draft-stone-memcache-binary-01" ipr="none">
 
   <front>
@@ -23,16 +23,13 @@
           <code>94107</code>
           <country>USA</country>
         </postal>
-        <email>astone@sixapart.com</email>
-        <uri>aaron@serendipity.palo-alto.ca.us</uri>
+        <email>aaron@serendipity.palo-alto.ca.us</email>
       </address>
     </author>
 
     <date day="14" month="December" year="2007" />
 
     <area>Applications</area>
-
-    <!-- workgroup>Memcache Working Group</workgroup-->
 
     <keyword>memcache memcached cache</keyword>
 
@@ -52,7 +49,7 @@
   </front>
 
   <middle>
-    <section title="Introduction">
+    <section anchor="introduction" title="Introduction">
       <t>
       Memcache is a high performance key-value cache. It is intentionally a
       dumb cache, optimized for speed only. Applications using memcache do
@@ -63,30 +60,58 @@
       <t>
       Memcache was originally written to make <xref target="LJ">LiveJournal</xref> go faster.
       </t>
-      <section title="Conventions">
+      <section anchor="conventions" title="Conventions Used In This Document">
         <t>
-        Bits run across the top. Period (.) represent the
-        start of each byte (bit 0 in that byte, so to speak).
-        The characters -, +, | are used for Ascii art.
-        Number of bits in each field are in parens.
-        Numbers on the left side are helpful for counting
-        four byte word lines in the packet.
-        All numbers are in network byte order (big endian).
+        FIXME: Use RFC 2119 [KEYWORDS] because otherwise we'll never agree on what MUST means.
         </t>
       </section>
     </section>
 
-    <section title="Packet formats">
+    <section anchor="packet" title="Packet Structure">
+      <t>
+      <figure>
+        <preamble>General format of a packet:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0/ HEADER                                                        /
+      /                                                               /
+      /                                                               /
+      /                                                               /
+      +---------------+---------------+---------------+---------------+
+    16/ COMMAND-SPECIFIC EXTRAS (as needed)                           /
+     +/  (note length in th extras length header field)               /
+      +---------------+---------------+---------------+---------------+
+     m/ Key (as needed)                                               /
+     +/  (note length in key length header field)                     /
+      +---------------+---------------+---------------+---------------+
+     n/ Value (as needed)                                             /
+     +/  (note length is total body length header field, minus        /
+     +/   sum of the extras and key length body fields)               /
+      +---------------+---------------+---------------+---------------+
+     Total 16 bytes
+      </artwork></figure>
+      </t>
+
       <t>
       <figure>
         <preamble>Request header:</preamble>
           <artwork>
-    +.1234567.1234567.1234567.1234567+
-  1 |Mag (8) Cmd (8) Key len (16)    |
-  2 |Len (8) Type(8) Reserved (16)   |
-  3 |Total body length (32)          |
-  4 |Opaque key (32)                 |
-    +.1234567.1234567.1234567.1234567+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| Magic         | Opcode        | Key length                    |
+      +---------------+---------------+---------------+---------------+
+     4| Extras length | Data type     | Reserved                      |
+      +---------------+---------------+---------------+---------------+
+     8| Total body length                                             |
+      +---------------+---------------+---------------+---------------+
+    12| Message ID                                                    |
+      +---------------+---------------+---------------+---------------+
+    Total 16 bytes
       </artwork></figure>
       </t>
 
@@ -94,80 +119,150 @@
       <figure>
         <preamble>Response header:</preamble>
           <artwork>
-    +.1234567.1234567.1234567.1234567+
-  1 |Mag (8) Cmd (8) Stat(8) Resvd(8)| ***FIXME: see below
-  2 |Len (8) Type(8) Reserved(16)    |
-  3 |Total body length (32)          |
-  4 |Opaque key (32)                 |
-    +.1234567.1234567.1234567.1234567+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| Magic         | Opcode        | Status                        |
+      +---------------+---------------+---------------+---------------+
+     4| Extras length | Data type     | Reserved                      |
+      +---------------+---------------+---------------+---------------+
+     8| Total body length                                             |
+      +---------------+---------------+---------------+---------------+
+    12| Message ID                                                    |
+      +---------------+---------------+---------------+---------------+
+    Total 16 bytes
       </artwork></figure>
       </t>
 
       <t>
-        The short keywords in the header format expand as follows:
-
-        <list hangIndent="8" style="hanging">
-          <t hangText="Mag">Magic number.</t>
-          <t hangText="Cmd">Command code.</t>
+        Header fields:
+        <list hangIndent="20" style="hanging">
+          <t hangText="Magic">Magic number.</t>
+          <t hangText="Opcode">Command code.</t>
           <t hangText="Key length">Length in bytes of the text key that follows the command extras.</t>
-          <t hangText="Stat">Status of the response (non-zero on error).</t>
-          <t hangText="Resvd">FIXME: Dustin, please remind me what this is?</t>
-          <t hangText="Len">Length in bytes of the command extras.</t>
-          <t hangText="Type">Reserved for future use (Sean is using this soon).</t>
+          <t hangText="Status">Status of the response (non-zero on error).</t>
+          <t hangText="Extras length">Length in bytes of the command extras.</t>
+          <t hangText="Data type">Reserved for future use (Sean is using this soon).</t>
           <t hangText="Reserved">Really reserved for future use (up for grabs).</t>
           <t hangText="Total body length">Length in bytes of extra + key + value.</t>
-          <t hangText="Opaque key">Will be copied back to you in the response.</t>
+          <t hangText="Message ID">Will be copied back to you in the response.
+              FIXME: Can this be used to organize <xref target="UDP"/> packets?</t>
         </list>
-      </t>
-
-      <t>
-      <figure>
-        <preamble>General format of a packet:</preamble>
-          <artwork>
-    +.1234567.1234567.1234567.1234567+
-  1 |HEADER (16 bytes, per above)    |
-  2 |                                |
-  3 |                                |
-  4 |                                |
-    +.1234567.1234567.1234567.1234567+
-    |Command-specific stuff          |
-    | (note length in byte 5)        |
-    +.1234567.1234567.1234567.1234567+
-    |Key                             |
-    | (note length in bytes 3-4)     |
-    | (never present in responses)   |
-    +.1234567.1234567.1234567.1234567+
-    |Value                           |
-    | (note length of bytes 9-12,    |
-    |  minus extra length,           |
-    |  minus key length)             |
-    +.1234567.1234567.1234567.1234567+
-      </artwork></figure>
       </t>
     </section>
 
-    <section title="Magic values">
-      <t>
-        Magic byte / version. For each version of the protocol, we'll use
-        a different request/reponse value pair. This is useful for protocol
-        analyzers to know what a packet is in isolation from which direction
-        it is moving.
-      </t>
+    <section title="Defined Values">
+      <section title="Magic Byte">
+        <t>
+        <list hangIndent="8" style="hanging">
+          <t hangText="0x80">Request packet for this protocol version</t>
+          <t hangText="0x81">Response packet for this protocol version</t>
+        </list>
+        </t>
 
-      <t>
-        The version should hopefully correspond only to different meanings
-        of the command byte. In an ideal world, we will not change the
-        header format. As reserved bytes are given defined meaning, the
-        protocol version / magic byte values should be incremented.
-      </t>
+        <t>
+          Magic byte / version. For each version of the protocol, we'll use a
+          different request/reponse value pair. This is useful for protocol
+          analyzers to know what a packet is in isolation from which direction
+          it is moving. Note that it is common to run a memcached instance on a
+          host that also runs an application server. Such a host will both send
+          and receive memcache packets.
+        </t>
 
-      <t>
-        Magic byte values will begin at 0x80 and go up from there.
-      </t>
+        <t>
+          The version should hopefully correspond only to different meanings of
+          the command byte. In an ideal world, we will not change the header
+          format. As reserved bytes are given defined meaning, the protocol
+          version / magic byte values should be incremented.
+        </t>
+
+        <t>
+          Traffic analysis tools are encouraged to identify memcache packets
+          and provide detailed interpretation if the magic bytes are recognized
+          and otherwise to provide a generic breakdown of the packet. Note that
+          the key and value positions can always be identified even if the magic
+          byte or command opcode are not recognized.
+        </t>
+      </section>
+
+      <section title="Response Status">
+        <t>
+        Possible values of this two-byte field:
+        <list hangIndent="8" style="hanging">
+          <t hangText="0x0000">No error</t>
+          <t hangText="0x0081">Unknown command</t>
+          <t hangText="0x0001">Key not found</t>
+          <t hangText="0x0002">Key exists</t>
+        </list>
+        </t>
+      </section>
+
+      <section title="Command Opcodes">
+        <t>
+        Possible values of the one-byte field:
+        <list hangIndent="8" style="hanging">
+          <t hangText="0x00">Get</t>
+          <t hangText="0x01">Set</t>
+          <t hangText="0x02">Add</t>
+          <t hangText="0x03">Replace</t>
+          <t hangText="0x04">Delete</t>
+          <t hangText="0x05">Increment</t>
+          <t hangText="0x06">Decrement</t>
+          <t hangText="0x07">Quit</t>
+          <t hangText="0x08">Flush</t>
+          <t hangText="0x09">GetQ</t>
+          <t hangText="0x0A">No-op</t>
+          <t hangText="0x0B">Version</t>
+        </list>
+        </t>
+      </section>
+
+      <section title="Data Types">
+        <t>
+        Possible values of the one-byte field:
+        <list hangIndent="8" style="hanging">
+          <t hangText="0x00">Raw bytes</t>
+          <t hangText="0x01">My name is what?</t>
+          <t hangText="0x02">My name is Sean!</t>
+        </list>
+        </t>
+      </section>
     </section>
 
     <section title="Commands">
       <section title="get/getq">
+        <t>
+        <list style="empty">
+          <t>MUST have extras.</t>
+          <t>MUST have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+        <list style="symbols">
+          <t>4 byte flags</t>
+          <t>8 byte data version check</t>
+        </list>
+        </t>
+
+        <t>
+      <figure>
+        <preamble>Extra data for get/getq:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| Flags                                                         |
+      +---------------+---------------+---------------+---------------+
+     4| Data version check                                            |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    Total 12 bytes
+      </artwork></figure>
+        </t>
 
         <t>
           The get command gets a single key. The getq command is both mum
@@ -193,37 +288,20 @@
           or 'noop' command.
         </t>
 
-        <t>
-        <list style="symbols">
-          <t>4 byte flags</t>
-          <t>8 byte CAS ID</t>
-        </list>
-        </t>
-
-        <t>
-      <figure>
-        <preamble>Extra data for get/getq:</preamble>
-          <artwork>
-    +.1234567.1234567.1234567.1234567+
-  1 |Flags (32)                      |
-  2 |CAS ID (64)                     |
-  3 |                                |
-    +.1234567.1234567.1234567.1234567+
-      </artwork></figure>
-        </t>
-
       </section>
 
       <section title="delete">
         <t>
-          When allows you to 'reserve' a key. When 'when' is set
-          for, say, ten seconds in the future, all 'set's on that
-          key will fail until ten seconds from now.
+        <list style="empty">
+          <t>MAY have extras (FIXME: Is it OK to issue a delete without extras?).</t>
+          <t>MUST have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
         </t>
 
         <t>
           <list style="symbols">
-            <t>4 byte 'when' time</t>
+            <t>4 byte expiration time</t>
           </list>
         </t>
 
@@ -231,20 +309,42 @@
       <figure>
         <preamble>Extra data for delete:</preamble>
           <artwork>
-    +.1234567.1234567.1234567.1234567+
-  1 |When (32)                       |
-    +.1234567.1234567.1234567.1234567+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| Expiration                                                    |
+      +---------------+---------------+---------------+---------------+
+    Total 4 bytes
       </artwork></figure>
         </t>
+
+        <t>
+          When allows you to 'reserve' a key. When 'when' is set
+          for, say, ten seconds in the future, the 'add' and 'replace' operations will fail for that key
+          until ten seconds from now.  The 'set' operation will succeed regardless of any reserved deletes.
+          FIXME: Is the reservation also cancelled? Say there's a delete with a 10 second hold. Two seconds
+          later, an 'add' is received. It fails. Two second later, a 'set' is received. Is succeeds unconditionally.
+          What if another 'add' is received two more seconds later (a total of six seconds since the original
+          10 second delete-hold, thus still within its purview).
+        </t>
+
       </section>
 
       <section title="set/add/replace">
+        <t>
+        <list style="empty">
+          <t>MUST have extras.</t>
+          <t>MUST have key.</t>
+          <t>MUST have value.</t>
+        </list>
+        </t>
 
         <t>
           <list style="symbols">
             <t>4 byte flags</t>
             <t>4 byte expiration time</t>
-            <t>8 byte CAS ID</t>
+            <t>8 byte data version check</t>
           </list>
         </t>
 
@@ -252,41 +352,240 @@
         <figure>
           <preamble>Extra data for set/add/replace:</preamble>
             <artwork>
-    +.1234567.1234567.1234567.1234567+
-  1 |Flags (32)                      |
-  2 |Expiration (32)                 |
-  3 |CAS ID (64)                     |
-  4 |                                |
-    +.1234567.1234567.1234567.1234567+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| Flags                                                         |
+      +---------------+---------------+---------------+---------------+
+     4| Expiration                                                    |
+      +---------------+---------------+---------------+---------------+
+     8| Data version check                                            |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    Total 16 bytes
         </artwork></figure>
+        </t>
+
+        <t>
+        If the Data version check is present and nonzero, a set will succeed iff the
+        value exists and has a version identifier identical to the provided value.
         </t>
       </section>
 
       <section title="noop">
         <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
         Used as a keep alive. Flushes outstanding getq's.
-        Should not have any command extra data.
-        Must not have a key.
         </t>
       </section>
 
       <section title="incr/decr">
         <t>
+        <list style="empty">
+          <t>MUST have extras.</t>
+          <t>MUST have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
 
+        <t>
+          <list style="symbols">
+            <t>8 byte value to add / subtract (FIXME: Is this unsigned?)</t>
+            <t>8 byte initial value (unsigned)</t>
+            <t>4 byte expiration time</t>
+          </list>
+        </t>
+
+        <t>
       <figure>
         <preamble>Extra data for incr/decr:</preamble>
           <artwork>
-    +.1234567.1234567.1234567.1234567+
-  1 |Amount (64)                     |
-  2 |                                |
-  3 |Initial value (64)              |
-  4 |                                |
-  5 |Expiration (32)                 |
-    +.1234567.1234567.1234567.1234567+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| Amount to add                                                 |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+     8| Initial value                                                 |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    16| Expiration                                                    |
+      +---------------+---------------+---------------+---------------+
+    Total 20 bytes
       </artwork></figure>
         </t>
-      </section>
 
+        <t>
+          These commands will either add or remove the specified
+          amount to the requested counter.
+
+          If the counter does not exist, one of two things may happen:
+
+          <list style="numbers">
+          <t>If the expiration value is all one-bits (0xffffffff), the
+             operation will fail with NOT_FOUND.</t>
+          <t>For all other expiration values, the operation will succeed
+             by seeding the value for this key with the provided initial
+             value to expire with the provided expiration time.</t>
+          </list>
+        </t>
+
+        <t>
+          Note that in the creation case, flags will be set to zero
+          (FIXME:  Should they be provided here as well?)
+        </t>
+      </section>
+    </section>
+
+    <section title="Example Session">
+      <t>
+      We start up our application, and it asks for the value associated with the 'Hello' key.
+      <figure>
+        <preamble>Get request:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x00          | 5 in big endian (BE)          |
+      +---------------+---------------+---------------+---------------+
+      | 12 in BE      | 0x00          |                               |
+      +---------------+---------------+---------------+---------------+
+      | 17 in BE                                                      |
+      +---------------+---------------+---------------+---------------+
+      | 0xDEADBEEF                                                    |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00000000                                                    |
+      +---------------+---------------+---------------+---------------+
+    24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    28| 'H'             'e'             'l'             'l'           |
+      | 'o'           |
+      +---------------+
+    Total 33 bytes (16 header + 12 get-extras + 5 key)
+      </artwork></figure>
+      </t>
+
+      <t>
+      Since nobody has set this key, it returns not found.
+      <figure>
+        <preamble>Get response:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x00          | 0x0001                        |
+      +---------------+---------------+---------------+---------------+
+      | 0 in BE       | 0x00          |                               |
+      +---------------+---------------+---------------+---------------+
+      | 0 in BE                                                       |
+      +---------------+---------------+---------------+---------------+
+      | 0xDEADBEEF                                                    |
+      +---------------+---------------+---------------+---------------+
+    Total 16 bytes
+      </artwork></figure>
+      </t>
+
+      <t>
+      Well, looks like we need to set the key! Let's set it to expire on
+      December 15, 2007 at 9:51:09 PM.
+      <figure>
+        <preamble>Set request:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x01          | 5 in BE                       |
+      +---------------+---------------+---------------+---------------+
+      | 16 in BE      | 0x00          |                               |
+      +---------------+---------------+---------------+---------------+
+      | 26 in BE                                                      |
+      +---------------+---------------+---------------+---------------+
+      | 0xDA7ABA5E                                                    |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00000000                                                    |
+      +---------------+---------------+---------------+---------------+
+    20| 0xDCCB4674                                                    |
+      +---------------+---------------+---------------+---------------+
+    24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    32| 'H'             'e'             'l'             'l'           |
+      | 'o'           | 'W'             'o'             'r'           |
+      | 'l'             'd'           |
+      +---------------+---------------+
+    Total 42 bytes (16 header + 16 set-extras + 5 key + 5 value)
+      </artwork></figure>
+      </t>
+
+      <t>
+      The set succeeds.
+      <figure>
+        <preamble>Set response:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x01          | 0x0000                        |
+      +---------------+---------------+---------------+---------------+
+      | 16 in BE      | 0x00          |                               |
+      +---------------+---------------+---------------+---------------+
+      | 16 in BE                                                      |
+      +---------------+---------------+---------------+---------------+
+      | 0xDA7ABA5E                                                    |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00000000                                                    |
+      +---------------+---------------+---------------+---------------+
+    20| 0xDCCB4674                                                    |
+      +---------------+---------------+---------------+---------------+
+    24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    Total 32 bytes (16 header + 16 set-extras)
+      </artwork></figure>
+      </t>
+
+      <t>
+      If the original get request is sent again, the key would be found.
+      <figure>
+        <preamble>Get response:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x00          | 0x00          |               |
+      +---------------+---------------+---------------+---------------+
+      | 12 in BE      | 0x00          |                               |
+      +---------------+---------------+---------------+---------------+
+      | 17 in BE                                                      |
+      +---------------+---------------+---------------+---------------+
+      | 0xDEADBEEF                                                    |
+      +---------------+---------------+---------------+---------------+
+    16| 0xDCCB4674                                                    |
+      +---------------+---------------+---------------+---------------+
+    24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    28| 'W'             'o'             'r'             'l'           |
+      | 'd'           |
+      +---------------+
+    Total 33 bytes (16 header + 12 get-extras + 5 value)
+      </artwork></figure>
+      </t>
     </section>
 
     <section title="Security Considerations">
@@ -315,13 +614,28 @@
           </abstract>
         </front>
       </reference>
+      <dwdrfc-ref anchor='UDP' src='http://xml.resource.org/public/rfc/bibxml/reference.RFC.0768.xml'/>
     </references>
 
     <section anchor="acknowledgments" title="Acknowledgments">
       <t>
-      Thanks to Brad Fitzpatrick, Sean Chittenden, Jonathan Steinert, Brian Aker,
-      Chris Goffinet, Dustin Sailings, and Steven Grimm, for their work on the memcached
-      server and client libraries in a variety of languages.
+      Thanks to Brad Fitzpatrick, Anatoly Vorobey, Steven Grimm, and Dustin Sallings,
+      for their work on the memcached server.
+      </t>
+
+      <t>
+      Thanks to Sean Chittenden, Jonathan Steinert, Brian Aker, Evan Martin,
+      Nathan Neulinger, Eric Hodel, Michael Johnson, Paul Querna, Jamie
+      McCarthy, Philip Neustrom, Andrew O'Brien, Josh Rotenberg, Robin H.
+      Johnson, Tim Yardley, Paolo Borelli, Eli Bingham, Jean-Francois
+      Bustarret, Paul G, Paul Lindner, Dormando, Dustin Sallings, Chris
+      Goffinet, Tomash Brechko, and others for their work reporting bugs and
+      maintaining memcached client libraries and bindings in many languages.
+      </t>
+
+      <t>
+      The author takes no credit for the protocol described in this document,
+      though certainly any errors in transcription or in prose are his.
       </t>
     </section>
   </back>

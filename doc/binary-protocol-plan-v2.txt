@@ -59,25 +59,25 @@ Internet-Draft          Memcache Binary Protocol           December 2007
 
 Table of Contents
 
-   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . . . 3
-     1.1.  Conventions . . . . . . . . . . . . . . . . . . . . . . . . 3
-   2.  Packet formats  . . . . . . . . . . . . . . . . . . . . . . . . 3
-   3.  Magic values  . . . . . . . . . . . . . . . . . . . . . . . . . 4
-   4.  Commands  . . . . . . . . . . . . . . . . . . . . . . . . . . . 5
-     4.1.  get/getq  . . . . . . . . . . . . . . . . . . . . . . . . . 5
-     4.2.  delete  . . . . . . . . . . . . . . . . . . . . . . . . . . 5
-     4.3.  set/add/replace . . . . . . . . . . . . . . . . . . . . . . 6
-     4.4.  noop  . . . . . . . . . . . . . . . . . . . . . . . . . . . 6
-     4.5.  incr/decr . . . . . . . . . . . . . . . . . . . . . . . . . 6
-   5.  Security Considerations . . . . . . . . . . . . . . . . . . . . 6
-   6.  Normative References  . . . . . . . . . . . . . . . . . . . . . 7
-   Appendix A.  Acknowledgments  . . . . . . . . . . . . . . . . . . . 7
-   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . . . 7
-
-
-
-
-
+   1.  Introduction . . . . . . . . . . . . . . . . . . . . . . . . .  3
+     1.1.  Conventions Used In This Document  . . . . . . . . . . . .  3
+   2.  Packet Structure . . . . . . . . . . . . . . . . . . . . . . .  3
+   3.  Defined Values . . . . . . . . . . . . . . . . . . . . . . . .  5
+     3.1.  Magic Byte . . . . . . . . . . . . . . . . . . . . . . . .  5
+     3.2.  Response Status  . . . . . . . . . . . . . . . . . . . . .  5
+     3.3.  Command Opcodes  . . . . . . . . . . . . . . . . . . . . .  5
+     3.4.  Data Types . . . . . . . . . . . . . . . . . . . . . . . .  6
+   4.  Commands . . . . . . . . . . . . . . . . . . . . . . . . . . .  6
+     4.1.  get/getq . . . . . . . . . . . . . . . . . . . . . . . . .  6
+     4.2.  delete . . . . . . . . . . . . . . . . . . . . . . . . . .  7
+     4.3.  set/add/replace  . . . . . . . . . . . . . . . . . . . . .  7
+     4.4.  noop . . . . . . . . . . . . . . . . . . . . . . . . . . .  8
+     4.5.  incr/decr  . . . . . . . . . . . . . . . . . . . . . . . .  8
+   5.  Example Session  . . . . . . . . . . . . . . . . . . . . . . .  9
+   6.  Security Considerations  . . . . . . . . . . . . . . . . . . . 13
+   7.  Normative References . . . . . . . . . . . . . . . . . . . . . 13
+   Appendix A.  Acknowledgments . . . . . . . . . . . . . . . . . . . 13
+   Author's Address . . . . . . . . . . . . . . . . . . . . . . . . . 13
 
 
 
@@ -123,40 +123,40 @@ Internet-Draft          Memcache Binary Protocol           December 2007
 
    Memcache was originally written to make LiveJournal [LJ] go faster.
 
-1.1.  Conventions
+1.1.  Conventions Used In This Document
 
-   Bits run across the top.  Period (.) represent the start of each byte
-   (bit 0 in that byte, so to speak).  The characters -, +, | are used
-   for Ascii art.  Number of bits in each field are in parens.  Numbers
-   on the left side are helpful for counting four byte word lines in the
-   packet.  All numbers are in network byte order (big endian).
+   FIXME: Use RFC 2119 [KEYWORDS] because otherwise we'll never agree on
+   what MUST means.
 
 
-2.  Packet formats
+2.  Packet Structure
 
-   Request header:
+   General format of a packet:
 
-       +.1234567.1234567.1234567.1234567+
-     1 |Mag (8) Cmd (8) Key len (16)    |
-     2 |Len (8) Type(8) Reserved (16)   |
-     3 |Total body length (32)          |
-     4 |Opaque key (32)                 |
-       +.1234567.1234567.1234567.1234567+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0/ HEADER                                                        /
+       /                                                               /
+       /                                                               /
+       /                                                               /
+       +---------------+---------------+---------------+---------------+
+     16/ COMMAND-SPECIFIC EXTRAS (as needed)                           /
+      +/  (note length in th extras length header field)               /
+       +---------------+---------------+---------------+---------------+
+      m/ Key (as needed)                                               /
+      +/  (note length in key length header field)                     /
+       +---------------+---------------+---------------+---------------+
+      n/ Value (as needed)                                             /
+      +/  (note length is total body length header field, minus        /
+      +/   sum of the extras and key length body fields)               /
+       +---------------+---------------+---------------+---------------+
+      Total 16 bytes
 
-   Response header:
 
-       +.1234567.1234567.1234567.1234567+
-     1 |Mag (8) Cmd (8) Stat(8) Resvd(8)| ***FIXME: see below
-     2 |Len (8) Type(8) Reserved(16)    |
-     3 |Total body length (32)          |
-     4 |Opaque key (32)                 |
-       +.1234567.1234567.1234567.1234567+
 
-   The short keywords in the header format expand as follows:
 
-   Mag     Magic number.
-
-   Cmd     Command code.
 
 
 
@@ -169,54 +169,54 @@ Aaron Stone               Expires June 16, 2008                 [Page 3]
 Internet-Draft          Memcache Binary Protocol           December 2007
 
 
-   Key length  Length in bytes of the text key that follows the command
-           extras.
+   Request header:
 
-   Stat    Status of the response (non-zero on error).
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Magic         | Opcode        | Key length                    |
+       +---------------+---------------+---------------+---------------+
+      4| Extras length | Data type     | Reserved                      |
+       +---------------+---------------+---------------+---------------+
+      8| Total body length                                             |
+       +---------------+---------------+---------------+---------------+
+     12| Message ID                                                    |
+       +---------------+---------------+---------------+---------------+
+     Total 16 bytes
 
-   Resvd   FIXME: Dustin, please remind me what this is?
+   Response header:
 
-   Len     Length in bytes of the command extras.
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Magic         | Opcode        | Status                        |
+       +---------------+---------------+---------------+---------------+
+      4| Extras length | Data type     | Reserved                      |
+       +---------------+---------------+---------------+---------------+
+      8| Total body length                                             |
+       +---------------+---------------+---------------+---------------+
+     12| Message ID                                                    |
+       +---------------+---------------+---------------+---------------+
+     Total 16 bytes
 
-   Type    Reserved for future use (Sean is using this soon).
-
-   Reserved  Really reserved for future use (up for grabs).
-
-   Total body length  Length in bytes of extra + key + value.
-
-   Opaque key  Will be copied back to you in the response.
-
-   General format of a packet:
-
-       +.1234567.1234567.1234567.1234567+
-     1 |HEADER (16 bytes, per above)    |
-     2 |                                |
-     3 |                                |
-     4 |                                |
-       +.1234567.1234567.1234567.1234567+
-       |Command-specific stuff          |
-       | (note length in byte 5)        |
-       +.1234567.1234567.1234567.1234567+
-       |Key                             |
-       | (note length in bytes 3-4)     |
-       | (never present in responses)   |
-       +.1234567.1234567.1234567.1234567+
-       |Value                           |
-       | (note length of bytes 9-12,    |
-       |  minus extra length,           |
-       |  minus key length)             |
-       +.1234567.1234567.1234567.1234567+
+   Header fields:
+   Magic               Magic number.
+   Opcode              Command code.
+   Key length          Length in bytes of the text key that follows the
+                       command extras.
+   Status              Status of the response (non-zero on error).
+   Extras length       Length in bytes of the command extras.
+   Data type           Reserved for future use (Sean is using this
+                       soon).
+   Reserved            Really reserved for future use (up for grabs).
+   Total body length   Length in bytes of extra + key + value.
+   Message ID          Will be copied back to you in the response.
+                       FIXME: Can this be used to organize [UDP]
+                       packets?
 
 
-3.  Magic values
-
-   Magic byte / version.  For each version of the protocol, we'll use a
-   different request/reponse value pair.  This is useful for protocol
-   analyzers to know what a packet is in isolation from which direction
-   it is moving.
-
-   The version should hopefully correspond only to different meanings of
-   the command byte.  In an ideal world, we will not change the header
 
 
 
@@ -225,15 +225,98 @@ Aaron Stone               Expires June 16, 2008                 [Page 4]
 Internet-Draft          Memcache Binary Protocol           December 2007
 
 
+3.  Defined Values
+
+3.1.  Magic Byte
+
+   0x80    Request packet for this protocol version
+   0x81    Response packet for this protocol version
+
+   Magic byte / version.  For each version of the protocol, we'll use a
+   different request/reponse value pair.  This is useful for protocol
+   analyzers to know what a packet is in isolation from which direction
+   it is moving.  Note that it is common to run a memcached instance on
+   a host that also runs an application server.  Such a host will both
+   send and receive memcache packets.
+
+   The version should hopefully correspond only to different meanings of
+   the command byte.  In an ideal world, we will not change the header
    format.  As reserved bytes are given defined meaning, the protocol
    version / magic byte values should be incremented.
 
-   Magic byte values will begin at 0x80 and go up from there.
+   Traffic analysis tools are encouraged to identify memcache packets
+   and provide detailed interpretation if the magic bytes are recognized
+   and otherwise to provide a generic breakdown of the packet.  Note
+   that the key and value positions can always be identified even if the
+   magic byte or command opcode are not recognized.
+
+3.2.  Response Status
+
+   Possible values of this two-byte field:
+   0x0000  No error
+   0x0081  Unknown command
+   0x0001  Key not found
+   0x0002  Key exists
+
+3.3.  Command Opcodes
+
+   Possible values of the one-byte field:
+   0x00    Get
+   0x01    Set
+   0x02    Add
+   0x03    Replace
+   0x04    Delete
+   0x05    Increment
+   0x06    Decrement
+   0x07    Quit
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 5]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   0x08    Flush
+   0x09    GetQ
+   0x0A    No-op
+   0x0B    Version
+
+3.4.  Data Types
+
+   Possible values of the one-byte field:
+   0x00    Raw bytes
+   0x01    My name is what?
+   0x02    My name is Sean!
 
 
 4.  Commands
 
 4.1.  get/getq
+
+      MUST have extras.
+      MUST have key.
+      MUST NOT have value.
+
+   o  4 byte flags
+   o  8 byte data version check
+
+   Extra data for get/getq:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Flags                                                         |
+       +---------------+---------------+---------------+---------------+
+      4| Data version check                                            |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     Total 12 bytes
 
    The get command gets a single key.  The getq command is both mum on
    cache miss and quiet, holding its response until a non-quiet command
@@ -246,89 +329,6 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    Clients should implement multi-get (still important for reducing
    network roundtrips!) as n pipelined requests, the first n-1 being
    getq, the last being a regular get. that way you're guaranteed to get
-   a response, and you know when the server's done. you can also do the
-   naive thing and send n pipelined gets, but then you could potentially
-   get back a lot of "NOT_FOUND!" error code packets. alternatively, you
-   can send 'n' getqs, followed by an 'echo' or 'noop' command.
-
-   o  4 byte flags
-
-   o  8 byte CAS ID
-
-   Extra data for get/getq:
-
-       +.1234567.1234567.1234567.1234567+
-     1 |Flags (32)                      |
-     2 |CAS ID (64)                     |
-     3 |                                |
-       +.1234567.1234567.1234567.1234567+
-
-4.2.  delete
-
-   When allows you to 'reserve' a key.  When 'when' is set for, say, ten
-   seconds in the future, all 'set's on that key will fail until ten
-   seconds from now.
-
-   o  4 byte 'when' time
-
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                 [Page 5]
-
-Internet-Draft          Memcache Binary Protocol           December 2007
-
-
-   Extra data for delete:
-
-       +.1234567.1234567.1234567.1234567+
-     1 |When (32)                       |
-       +.1234567.1234567.1234567.1234567+
-
-4.3.  set/add/replace
-
-   o  4 byte flags
-
-   o  4 byte expiration time
-
-   o  8 byte CAS ID
-
-   Extra data for set/add/replace:
-
-       +.1234567.1234567.1234567.1234567+
-     1 |Flags (32)                      |
-     2 |Expiration (32)                 |
-     3 |CAS ID (64)                     |
-     4 |                                |
-       +.1234567.1234567.1234567.1234567+
-
-4.4.  noop
-
-   Used as a keep alive.  Flushes outstanding getq's.  Should not have
-   any command extra data.  Must not have a key.
-
-4.5.  incr/decr
-
-   Extra data for incr/decr:
-
-       +.1234567.1234567.1234567.1234567+
-     1 |Amount (64)                     |
-     2 |                                |
-     3 |Initial value (64)              |
-     4 |                                |
-     5 |Expiration (32)                 |
-       +.1234567.1234567.1234567.1234567+
-
-
-5.  Security Considerations
-
-   Memcache has no authentication or security layers and is intended
-   strictly for use on closed, protected, back-end networks within a
-   single data center, within a single cluster of servers, or even on a
-   single host, providing shared caching for multiple applications.
-   Memcache should not ever be made available on a public network.
 
 
 
@@ -337,17 +337,376 @@ Aaron Stone               Expires June 16, 2008                 [Page 6]
 Internet-Draft          Memcache Binary Protocol           December 2007
 
 
-6.  Normative References
+   a response, and you know when the server's done. you can also do the
+   naive thing and send n pipelined gets, but then you could potentially
+   get back a lot of "NOT_FOUND!" error code packets. alternatively, you
+   can send 'n' getqs, followed by an 'echo' or 'noop' command.
 
-   [LJ]  Danga Interactive, "LJ NEEDS MOAR SPEED", 10 1999.
+4.2.  delete
+
+      MAY have extras (FIXME: Is it OK to issue a delete without
+      extras?).
+      MUST have key.
+      MUST NOT have value.
+
+   o  4 byte expiration time
+
+   Extra data for delete:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Expiration                                                    |
+       +---------------+---------------+---------------+---------------+
+     Total 4 bytes
+
+   When allows you to 'reserve' a key.  When 'when' is set for, say, ten
+   seconds in the future, the 'add' and 'replace' operations will fail
+   for that key until ten seconds from now.  The 'set' operation will
+   succeed regardless of any reserved deletes.  FIXME: Is the
+   reservation also cancelled?  Say there's a delete with a 10 second
+   hold.  Two seconds later, an 'add' is received.  It fails.  Two
+   second later, a 'set' is received.  Is succeeds unconditionally.
+   What if another 'add' is received two more seconds later (a total of
+   six seconds since the original 10 second delete-hold, thus still
+   within its purview).
+
+4.3.  set/add/replace
+
+      MUST have extras.
+      MUST have key.
+      MUST have value.
+
+   o  4 byte flags
+   o  4 byte expiration time
+   o  8 byte data version check
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 7]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   Extra data for set/add/replace:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Flags                                                         |
+       +---------------+---------------+---------------+---------------+
+      4| Expiration                                                    |
+       +---------------+---------------+---------------+---------------+
+      8| Data version check                                            |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     Total 16 bytes
+
+   If the Data version check is present and nonzero, a set will succeed
+   iff the value exists and has a version identifier identical to the
+   provided value.
+
+4.4.  noop
+
+      MUST NOT have extras.
+      MUST NOT have key.
+      MUST NOT have value.
+
+   Used as a keep alive.  Flushes outstanding getq's.
+
+4.5.  incr/decr
+
+      MUST have extras.
+      MUST have key.
+      MUST NOT have value.
+
+   o  8 byte value to add / subtract (FIXME: Is this unsigned?)
+   o  8 byte initial value (unsigned)
+   o  4 byte expiration time
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 8]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   Extra data for incr/decr:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Amount to add                                                 |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+      8| Initial value                                                 |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     16| Expiration                                                    |
+       +---------------+---------------+---------------+---------------+
+     Total 20 bytes
+
+   These commands will either add or remove the specified amount to the
+   requested counter.  If the counter does not exist, one of two things
+   may happen:
+   1.  If the expiration value is all one-bits (0xffffffff), the
+       operation will fail with NOT_FOUND.
+   2.  For all other expiration values, the operation will succeed by
+       seeding the value for this key with the provided initial value to
+       expire with the provided expiration time.
+
+   Note that in the creation case, flags will be set to zero (FIXME:
+   Should they be provided here as well?)
+
+
+5.  Example Session
+
+   We start up our application, and it asks for the value associated
+   with the 'Hello' key.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 9]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   Get request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x00          | 5 in big endian (BE)          |
+       +---------------+---------------+---------------+---------------+
+       | 12 in BE      | 0x00          |                               |
+       +---------------+---------------+---------------+---------------+
+       | 17 in BE                                                      |
+       +---------------+---------------+---------------+---------------+
+       | 0xDEADBEEF                                                    |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00000000                                                    |
+       +---------------+---------------+---------------+---------------+
+     24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     28| 'H'             'e'             'l'             'l'           |
+       | 'o'           |
+       +---------------+
+     Total 33 bytes (16 header + 12 get-extras + 5 key)
+
+   Since nobody has set this key, it returns not found.
+
+   Get response:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x00          | 0x0001                        |
+       +---------------+---------------+---------------+---------------+
+       | 0 in BE       | 0x00          |                               |
+       +---------------+---------------+---------------+---------------+
+       | 0 in BE                                                       |
+       +---------------+---------------+---------------+---------------+
+       | 0xDEADBEEF                                                    |
+       +---------------+---------------+---------------+---------------+
+     Total 16 bytes
+
+   Well, looks like we need to set the key!  Let's set it to expire on
+   December 15, 2007 at 9:51:09 PM.
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                [Page 10]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   Set request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x01          | 5 in BE                       |
+       +---------------+---------------+---------------+---------------+
+       | 16 in BE      | 0x00          |                               |
+       +---------------+---------------+---------------+---------------+
+       | 26 in BE                                                      |
+       +---------------+---------------+---------------+---------------+
+       | 0xDA7ABA5E                                                    |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00000000                                                    |
+       +---------------+---------------+---------------+---------------+
+     20| 0xDCCB4674                                                    |
+       +---------------+---------------+---------------+---------------+
+     24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     32| 'H'             'e'             'l'             'l'           |
+       | 'o'           | 'W'             'o'             'r'           |
+       | 'l'             'd'           |
+       +---------------+---------------+
+     Total 42 bytes (16 header + 16 set-extras + 5 key + 5 value)
+
+   The set succeeds.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                [Page 11]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+   Set response:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x01          | 0x0000                        |
+       +---------------+---------------+---------------+---------------+
+       | 16 in BE      | 0x00          |                               |
+       +---------------+---------------+---------------+---------------+
+       | 16 in BE                                                      |
+       +---------------+---------------+---------------+---------------+
+       | 0xDA7ABA5E                                                    |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00000000                                                    |
+       +---------------+---------------+---------------+---------------+
+     20| 0xDCCB4674                                                    |
+       +---------------+---------------+---------------+---------------+
+     24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     Total 32 bytes (16 header + 16 set-extras)
+
+   If the original get request is sent again, the key would be found.
+
+   Get response:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x00          | 0x00          |               |
+       +---------------+---------------+---------------+---------------+
+       | 12 in BE      | 0x00          |                               |
+       +---------------+---------------+---------------+---------------+
+       | 17 in BE                                                      |
+       +---------------+---------------+---------------+---------------+
+       | 0xDEADBEEF                                                    |
+       +---------------+---------------+---------------+---------------+
+     16| 0xDCCB4674                                                    |
+       +---------------+---------------+---------------+---------------+
+     24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     28| 'W'             'o'             'r'             'l'           |
+       | 'd'           |
+       +---------------+
+     Total 33 bytes (16 header + 12 get-extras + 5 value)
+
+
+
+Aaron Stone               Expires June 16, 2008                [Page 12]
+
+Internet-Draft          Memcache Binary Protocol           December 2007
+
+
+6.  Security Considerations
+
+   Memcache has no authentication or security layers and is intended
+   strictly for use on closed, protected, back-end networks within a
+   single data center, within a single cluster of servers, or even on a
+   single host, providing shared caching for multiple applications.
+   Memcache should not ever be made available on a public network.
+
+
+7.  Normative References
+
+   [LJ]   Danga Interactive, "LJ NEEDS MOAR SPEED", 10 1999.
+
+   [UDP]  Postel, J., "User Datagram Protocol", STD 6, RFC 768,
+          August 1980.
 
 
 Appendix A.  Acknowledgments
 
-   Thanks to Brad Fitzpatrick, Sean Chittenden, Jonathan Steinert, Brian
-   Aker, Chris Goffinet, Dustin Sailings, and Steven Grimm, for their
-   work on the memcached server and client libraries in a variety of
+   Thanks to Brad Fitzpatrick, Anatoly Vorobey, Steven Grimm, and Dustin
+   Sallings, for their work on the memcached server.
+
+   Thanks to Sean Chittenden, Jonathan Steinert, Brian Aker, Evan
+   Martin, Nathan Neulinger, Eric Hodel, Michael Johnson, Paul Querna,
+   Jamie McCarthy, Philip Neustrom, Andrew O'Brien, Josh Rotenberg,
+   Robin H. Johnson, Tim Yardley, Paolo Borelli, Eli Bingham, Jean-
+   Francois Bustarret, Paul G, Paul Lindner, Dormando, Dustin Sallings,
+   Chris Goffinet, Tomash Brechko, and others for their work reporting
+   bugs and maintaining memcached client libraries and bindings in many
    languages.
+
+   The author takes no credit for the protocol described in this
+   document, though certainly any errors in transcription or in prose
+   are his.
 
 
 Author's Address
@@ -358,35 +717,12 @@ Author's Address
    San Francisco, CA  94107
    USA
 
-   Email: astone@sixapart.com
-   URI:   aaron@serendipity.palo-alto.ca.us
+   Email: aaron@serendipity.palo-alto.ca.us
 
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                 [Page 7]
+Aaron Stone               Expires June 16, 2008                [Page 13]
 
