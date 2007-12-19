@@ -68,11 +68,11 @@ Table of Contents
      3.3.  Command Opcodes  . . . . . . . . . . . . . . . . . . . . .  5
      3.4.  Data Types . . . . . . . . . . . . . . . . . . . . . . . .  6
    4.  Commands . . . . . . . . . . . . . . . . . . . . . . . . . . .  6
-     4.1.  get/getq . . . . . . . . . . . . . . . . . . . . . . . . .  6
-     4.2.  delete . . . . . . . . . . . . . . . . . . . . . . . . . .  7
-     4.3.  set/add/replace  . . . . . . . . . . . . . . . . . . . . .  7
+     4.1.  Get, Get Quietly . . . . . . . . . . . . . . . . . . . . .  6
+     4.2.  Delete . . . . . . . . . . . . . . . . . . . . . . . . . .  7
+     4.3.  Set, Add, Replace  . . . . . . . . . . . . . . . . . . . .  7
      4.4.  noop . . . . . . . . . . . . . . . . . . . . . . . . . . .  8
-     4.5.  incr/decr  . . . . . . . . . . . . . . . . . . . . . . . .  8
+     4.5.  Increment, Decrement . . . . . . . . . . . . . . . . . . .  8
    5.  Example Session  . . . . . . . . . . . . . . . . . . . . . . .  9
    6.  Security Considerations  . . . . . . . . . . . . . . . . . . . 13
    7.  Normative References . . . . . . . . . . . . . . . . . . . . . 13
@@ -122,11 +122,13 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    faster when cached data is available in memcache.
 
    Memcache was originally written to make LiveJournal [LJ] go faster.
+   It now powers all of the fastest web sites that you love.
 
 1.1.  Conventions Used In This Document
 
-   FIXME: Use RFC 2119 [KEYWORDS] because otherwise we'll never agree on
-   what MUST means.
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+   document are to be interpreted as described in [KEYWORDS].
 
 
 2.  Packet Structure
@@ -153,8 +155,6 @@ Internet-Draft          Memcache Binary Protocol           December 2007
       +/   sum of the extras and key length body fields)               /
        +---------------+---------------+---------------+---------------+
       Total 16 bytes
-
-
 
 
 
@@ -285,18 +285,18 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    0x09    GetQ
    0x0A    No-op
    0x0B    Version
+   0x0C    GetR
+   0x0D    SetR
 
 3.4.  Data Types
 
    Possible values of the one-byte field:
    0x00    Raw bytes
-   0x01    My name is what?
-   0x02    My name is Sean!
 
 
 4.  Commands
 
-4.1.  get/getq
+4.1.  Get, Get Quietly
 
       MUST have extras.
       MUST have key.
@@ -342,7 +342,7 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    get back a lot of "NOT_FOUND!" error code packets. alternatively, you
    can send 'n' getqs, followed by an 'echo' or 'noop' command.
 
-4.2.  delete
+4.2.  Delete
 
       MAY have extras (FIXME: Is it OK to issue a delete without
       extras?).
@@ -372,7 +372,7 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    six seconds since the original 10 second delete-hold, thus still
    within its purview).
 
-4.3.  set/add/replace
+4.3.  Set, Add, Replace
 
       MUST have extras.
       MUST have key.
@@ -408,9 +408,19 @@ Internet-Draft          Memcache Binary Protocol           December 2007
        +---------------+---------------+---------------+---------------+
      Total 16 bytes
 
-   If the Data version check is present and nonzero, a set will succeed
-   iff the value exists and has a version identifier identical to the
-   provided value.
+   If the Data Version Check is present and nonzero, the set MUST
+   succeed if the key exists and has a version identifier identical to
+   the provided value, and MUST NOT succeed if the key does not exist or
+   has a different version identifier.  The set response packet will
+   include the same values in all three fields.
+
+   If the Data Version Check is zero, the set MUST succeed
+   unconditionally.  The set response packet will include idential
+   values for flags and expiration, and a new value for Data Version
+   Check, which the client SHOULD keep track of.
+
+   The key MAY be reserved according to Section 4.2, causing the set to
+   fail.
 
 4.4.  noop
 
@@ -420,7 +430,7 @@ Internet-Draft          Memcache Binary Protocol           December 2007
 
    Used as a keep alive.  Flushes outstanding getq's.
 
-4.5.  incr/decr
+4.5.  Increment, Decrement
 
       MUST have extras.
       MUST have key.
@@ -429,16 +439,6 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    o  8 byte value to add / subtract (FIXME: Is this unsigned?)
    o  8 byte initial value (unsigned)
    o  4 byte expiration time
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -675,19 +675,24 @@ Internet-Draft          Memcache Binary Protocol           December 2007
 
 6.  Security Considerations
 
-   Memcache has no authentication or security layers and is intended
-   strictly for use on closed, protected, back-end networks within a
-   single data center, within a single cluster of servers, or even on a
-   single host, providing shared caching for multiple applications.
-   Memcache should not ever be made available on a public network.
+   Memcache has no authentication or security layers whatsoever.  It is
+   RECOMMENDED that memcache be deployed strictly on closed, protected,
+   back-end networks within a single data center, within a single
+   cluster of servers, or even on a single host, providing shared
+   caching for multiple applications.  Memcache MUST NOT be made
+   available on a public network.
 
 
 7.  Normative References
 
-   [LJ]   Danga Interactive, "LJ NEEDS MOAR SPEED", 10 1999.
+   [KEYWORDS]
+              Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997.
 
-   [UDP]  Postel, J., "User Datagram Protocol", STD 6, RFC 768,
-          August 1980.
+   [LJ]       Danga Interactive, "LJ NEEDS MOAR SPEED", 10 1999.
+
+   [UDP]      Postel, J., "User Datagram Protocol", STD 6, RFC 768,
+              August 1980.
 
 
 Appendix A.  Acknowledgments
@@ -699,14 +704,10 @@ Appendix A.  Acknowledgments
    Martin, Nathan Neulinger, Eric Hodel, Michael Johnson, Paul Querna,
    Jamie McCarthy, Philip Neustrom, Andrew O'Brien, Josh Rotenberg,
    Robin H. Johnson, Tim Yardley, Paolo Borelli, Eli Bingham, Jean-
-   Francois Bustarret, Paul G, Paul Lindner, Dormando, Dustin Sallings,
-   Chris Goffinet, Tomash Brechko, and others for their work reporting
-   bugs and maintaining memcached client libraries and bindings in many
+   Francois Bustarret, Paul G, Paul Lindner, Alan Kasindorf, Chris
+   Goffinet, Tomash Brechko, and others for their work reporting bugs
+   and maintaining memcached client libraries and bindings in many
    languages.
-
-   The author takes no credit for the protocol described in this
-   document, though certainly any errors in transcription or in prose
-   are his.
 
 
 Author's Address
@@ -718,7 +719,6 @@ Author's Address
    USA
 
    Email: aaron@serendipity.palo-alto.ca.us
-
 
 
 

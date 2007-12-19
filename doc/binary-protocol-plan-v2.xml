@@ -59,10 +59,12 @@
       </t>
       <t>
       Memcache was originally written to make <xref target="LJ">LiveJournal</xref> go faster.
+      It now powers all of the fastest web sites that you love.
       </t>
       <section anchor="conventions" title="Conventions Used In This Document">
-        <t>
-        FIXME: Use RFC 2119 [KEYWORDS] because otherwise we'll never agree on what MUST means.
+        <t>The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+        "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+        document are to be interpreted as described in <xref target="KEYWORDS"/>.
         </t>
       </section>
     </section>
@@ -152,8 +154,8 @@
       </t>
     </section>
 
-    <section title="Defined Values">
-      <section title="Magic Byte">
+    <section anchor="values" title="Defined Values">
+      <section anchor="value-magic" title="Magic Byte">
         <t>
         <list hangIndent="8" style="hanging">
           <t hangText="0x80">Request packet for this protocol version</t>
@@ -186,7 +188,7 @@
         </t>
       </section>
 
-      <section title="Response Status">
+      <section anchor="value-status" title="Response Status">
         <t>
         Possible values of this two-byte field:
         <list hangIndent="8" style="hanging">
@@ -198,7 +200,7 @@
         </t>
       </section>
 
-      <section title="Command Opcodes">
+      <section anchor="value-opcodes" title="Command Opcodes">
         <t>
         Possible values of the one-byte field:
         <list hangIndent="8" style="hanging">
@@ -218,20 +220,18 @@
         </t>
       </section>
 
-      <section title="Data Types">
+      <section anchor="value-types" title="Data Types">
         <t>
         Possible values of the one-byte field:
         <list hangIndent="8" style="hanging">
           <t hangText="0x00">Raw bytes</t>
-          <t hangText="0x01">My name is what?</t>
-          <t hangText="0x02">My name is Sean!</t>
         </list>
         </t>
       </section>
     </section>
 
     <section title="Commands">
-      <section title="get/getq">
+      <section anchor="command-get" title="Get, Get Quietly">
         <t>
         <list style="empty">
           <t>MUST have extras.</t>
@@ -290,7 +290,7 @@
 
       </section>
 
-      <section title="delete">
+      <section anchor="command-delete" title="Delete">
         <t>
         <list style="empty">
           <t>MAY have extras (FIXME: Is it OK to issue a delete without extras?).</t>
@@ -331,7 +331,7 @@
 
       </section>
 
-      <section title="set/add/replace">
+      <section anchor="command-set" title="Set, Add, Replace">
         <t>
         <list style="empty">
           <t>MUST have extras.</t>
@@ -368,9 +368,22 @@
         </t>
 
         <t>
-        If the Data version check is present and nonzero, a set will succeed iff the
-        value exists and has a version identifier identical to the provided value.
+        If the Data Version Check is present and nonzero, the set MUST succeed if the
+        key exists and has a version identifier identical to the provided value, and
+	MUST NOT succeed if the key does not exist or has a different version identifier.
+	The set response packet will include the same values in all three fields.
         </t>
+
+        <t>
+        If the Data Version Check is zero, the set MUST succeed unconditionally.
+	The set response packet will include idential values for flags and expiration,
+	and a new value for Data Version Check, which the client SHOULD keep track of.
+        </t>
+
+	<t>
+	The key MAY be reserved according to <xref target="command-delete"/>,
+	causing the set to fail.
+	</t>
       </section>
 
       <section title="noop">
@@ -387,7 +400,7 @@
         </t>
       </section>
 
-      <section title="incr/decr">
+      <section anchor="command-incr" title="Increment, Decrement">
         <t>
         <list style="empty">
           <t>MUST have extras.</t>
@@ -588,13 +601,13 @@
       </t>
     </section>
 
-    <section title="Security Considerations">
+    <section anchor="security" title="Security Considerations">
       <t>
-      Memcache has no authentication or security layers and is intended
-      strictly for use on closed, protected, back-end networks within a
-      single data center, within a single cluster of servers, or even on
-      a single host, providing shared caching for multiple applications.
-      Memcache should not ever be made available on a public network.
+      Memcache has no authentication or security layers whatsoever.  It is
+      RECOMMENDED that memcache be deployed strictly on closed, protected,
+      back-end networks within a single data center, within a single cluster of
+      servers, or even on a single host, providing shared caching for multiple
+      applications. Memcache MUST NOT be made available on a public network.
       </t>
     </section>
 
@@ -615,12 +628,13 @@
         </front>
       </reference>
       <dwdrfc-ref anchor='UDP' src='http://xml.resource.org/public/rfc/bibxml/reference.RFC.0768.xml'/>
+      <dwdrfc-ref anchor='KEYWORDS' src='http://xml.resource.org/public/rfc/bibxml/reference.RFC.2119.xml'/>
     </references>
 
     <section anchor="acknowledgments" title="Acknowledgments">
       <t>
-      Thanks to Brad Fitzpatrick, Anatoly Vorobey, Steven Grimm, and Dustin Sallings,
-      for their work on the memcached server.
+      Thanks to Brad Fitzpatrick, Anatoly Vorobey, Steven Grimm, and Dustin
+      Sallings, for their work on the memcached server.
       </t>
 
       <t>
@@ -628,14 +642,9 @@
       Nathan Neulinger, Eric Hodel, Michael Johnson, Paul Querna, Jamie
       McCarthy, Philip Neustrom, Andrew O'Brien, Josh Rotenberg, Robin H.
       Johnson, Tim Yardley, Paolo Borelli, Eli Bingham, Jean-Francois
-      Bustarret, Paul G, Paul Lindner, Dormando, Dustin Sallings, Chris
-      Goffinet, Tomash Brechko, and others for their work reporting bugs and
-      maintaining memcached client libraries and bindings in many languages.
-      </t>
-
-      <t>
-      The author takes no credit for the protocol described in this document,
-      though certainly any errors in transcription or in prose are his.
+      Bustarret, Paul G, Paul Lindner, Alan Kasindorf, Chris Goffinet, Tomash
+      Brechko, and others for their work reporting bugs and maintaining
+      memcached client libraries and bindings in many languages.
       </t>
     </section>
   </back>
