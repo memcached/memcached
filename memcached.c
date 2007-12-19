@@ -827,7 +827,7 @@ static void complete_nread_ascii(conn *c) {
     c->item = 0;
 }
 
-static void add_bin_header(conn *c, int err, int body_len) {
+static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
     int i=0;
     uint32_t res_header[BIN_PKT_HDR_WORDS];
 
@@ -845,14 +845,16 @@ static void add_bin_header(conn *c, int err, int body_len) {
 
     res_header[0] = BIN_RES_MAGIC << 24;
     res_header[0] |= ((0xff & c->cmd) << 16);
-    res_header[0] |= (err << 8);
+    res_header[0] |= err & 0xffff;
 
-    res_header[1] = c->opaque;
+    res_header[1] = hdr_len << 24;
+    /* TODO:  Support datatype */
     res_header[2] = body_len;
+    res_header[3] = c->opaque;
 
     if(settings.verbose > 1) {
-        fprintf(stderr, "Writing bin response:  %08x %08x %08x\n",
-            res_header[0], res_header[1], res_header[2]);
+        fprintf(stderr, "Writing bin response:  %08x %08x %08x %08x\n",
+            res_header[0], res_header[1], res_header[2], res_header[3]);
     }
 
     for(i=0; i<BIN_PKT_HDR_WORDS; i++) {
@@ -892,7 +894,7 @@ static void write_bin_error(conn *c, int err, int swallow) {
     if(settings.verbose > 0) {
         fprintf(stderr, "Writing an error:  %s\n", errstr);
     }
-    add_bin_header(c, err, strlen(errstr));
+    add_bin_header(c, err, 0, strlen(errstr));
     add_iov(c, errstr, strlen(errstr));
 
     conn_set_state(c, conn_mwrite);
@@ -905,8 +907,8 @@ static void write_bin_error(conn *c, int err, int swallow) {
 }
 
 /* Form and send a response to a command over the binary protocol */
-static void write_bin_response(conn *c, void *d, int dlen) {
-    add_bin_header(c, 0, dlen);
+static void write_bin_response(conn *c, void *d, int hlen, int dlen) {
+    add_bin_header(c, 0, hlen, dlen);
     if(dlen > 0) {
         add_iov(c, d, dlen);
     }
@@ -980,11 +982,11 @@ static void complete_incr_bin(conn *c) {
         /* Weird magic in add_delta forces me to pad here */
         memset(responseBuf, ' ', 32);
         responseBuf[32]=0x00;
-        add_delta(it, true, delta, responseBuf);
+        add_delta(it, c->cmd == CMD_INCR, delta, responseBuf);
         res = strlen(responseBuf);
 
         assert(res > 0);
-        write_bin_response(c, responseBuf, res);
+        write_bin_response(c, responseBuf, BIN_INCR_HDR_LEN, res);
         item_remove(it);         /* release our reference */
     } else {
         if(exptime >= 0) {
@@ -998,7 +1000,7 @@ static void complete_incr_bin(conn *c) {
             memcpy(ITEM_data(it), responseBuf, res);
 
             if(store_item(it, NREAD_SET)) {
-                write_bin_response(c, responseBuf, res);
+                write_bin_response(c, responseBuf, BIN_INCR_HDR_LEN, res);
             } else {
                 write_bin_error(c, ERR_NOT_STORED, 0);
             }
@@ -1027,7 +1029,7 @@ static void complete_update_bin(conn *c) {
     switch (store_item(it, c->item_comm)) {
         case 1:
             /* Stored */
-            write_bin_response(c, NULL, 0);
+            write_bin_response(c, NULL, BIN_SET_HDR_LEN, 0);
             break;
         case 2:
             write_bin_error(c, ERR_EXISTS, 0);
@@ -1056,6 +1058,7 @@ static void process_bin_get(conn *c) {
     it = item_get(c->rbuf, c->keylen);
     if (it) {
         int *flags;
+        uint64_t* identifier;
 
         assert(c->rsize >= MIN_BIN_PKT_LENGTH + 4);
 
@@ -1065,16 +1068,12 @@ static void process_bin_get(conn *c) {
         *flags=htonl(strtoul(ITEM_suffix(it), NULL, 10));
 
         /* the length has two unnecessary bytes, and then we write four more */
-        add_bin_header(c, 0, it->nbytes - 2 + 4 + (c->cmd == CMD_GETS?8:0));
+        add_bin_header(c, 0, GET_RES_HDR_LEN, it->nbytes - 2 + GET_RES_HDR_LEN);
         /* Flags */
         add_iov(c, flags, 4);
-        /* if it's a gets, add the identifier */
-        if(c->cmd == CMD_GETS) {
-            uint64_t* identifier;
-            identifier=(uint64_t*)(c->wbuf + MIN_BIN_PKT_LENGTH + 4);
-            *identifier=swap64((uint32_t)it->cas_id);
-            add_iov(c, identifier, 8);
-        }
+        identifier=(uint64_t*)(c->wbuf + MIN_BIN_PKT_LENGTH + 4);
+        *identifier=swap64((uint32_t)it->cas_id);
+        add_iov(c, identifier, 8);
         /* bytes minus the CRLF */
         add_iov(c, ITEM_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
@@ -1100,17 +1099,17 @@ static void dispatch_bin_command(conn *c) {
     time_t exptime = 0;
     switch(c->cmd) {
         case CMD_VERSION:
-            write_bin_response(c, VERSION, strlen(VERSION));
+            write_bin_response(c, VERSION, 0, strlen(VERSION));
             break;
         case CMD_FLUSH:
             set_current_time();
 
             settings.oldest_live = current_time - 1;
             item_flush_expired();
-            write_bin_response(c, NULL, 0);
+            write_bin_response(c, NULL, 0, 0);
             break;
         case CMD_NOOP:
-            write_bin_response(c, NULL, 0);
+            write_bin_response(c, NULL, 0, 0);
             break;
         case CMD_SET:
             /* Fallthrough */
@@ -1119,10 +1118,6 @@ static void dispatch_bin_command(conn *c) {
         case CMD_REPLACE:
             bin_read_key(c, bin_reading_set_header, BIN_SET_HDR_LEN);
             break;
-        case CMD_CAS:
-            bin_read_key(c, bin_reading_cas_header, BIN_CAS_HDR_LEN);
-            break;
-        case CMD_GETS:
         case CMD_GETQ:
         case CMD_GET:
             bin_read_key(c, bin_reading_get_key, 0);
@@ -1131,6 +1126,7 @@ static void dispatch_bin_command(conn *c) {
             bin_read_key(c, bin_reading_del_header, BIN_DEL_HDR_LEN);
             break;
         case CMD_INCR:
+        case CMD_DECR:
             bin_read_key(c, bin_reading_incr_header, BIN_INCR_HDR_LEN);
             break;
         default:
@@ -1138,7 +1134,7 @@ static void dispatch_bin_command(conn *c) {
     }
 }
 
-static void process_bin_update(conn *c, bool cas) {
+static void process_bin_update(conn *c) {
     char *key;
     int nkey;
     int vlen;
@@ -1146,7 +1142,7 @@ static void process_bin_update(conn *c, bool cas) {
     int exptime;
     item *it;
     int comm;
-    int hdrlen=cas ? BIN_CAS_HDR_LEN : BIN_SET_HDR_LEN;
+    int hdrlen=BIN_SET_HDR_LEN;
 
     assert(c != NULL);
 
@@ -1182,9 +1178,6 @@ static void process_bin_update(conn *c, bool cas) {
     */
 
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
-    if(cas) {
-        it->cas_id = (uint64_t)swap64(*((int64_t*)(c->rbuf + 8)));
-    }
 
     if (it == 0) {
         if (! item_size_ok(nkey, flags, vlen + 2)) {
@@ -1197,12 +1190,11 @@ static void process_bin_update(conn *c, bool cas) {
         return;
     }
 
+    it->cas_id = (uint64_t)swap64(*((int64_t*)(c->rbuf + 8)));
+
     switch(c->cmd) {
         case CMD_ADD:
             c->item_comm = NREAD_ADD;
-            break;
-        case CMD_CAS:
-            c->item_comm = NREAD_CAS;
             break;
         case CMD_SET:
             c->item_comm = NREAD_SET;
@@ -1212,6 +1204,10 @@ static void process_bin_update(conn *c, bool cas) {
             break;
         default:
             assert(0);
+    }
+
+    if(it->cas_id != 0) {
+        c->item_comm = NREAD_CAS;
     }
 
     c->item = it;
@@ -1262,12 +1258,12 @@ static void process_bin_delete(conn *c) {
         if (exptime == 0) {
             item_unlink(it);
             item_remove(it);      /* release our reference */
-            write_bin_response(c, NULL, 0);
+            write_bin_response(c, NULL, 0, 0);
         } else {
             /* XXX:  This is really lame, but defer_delete returns a string */
             char *res=defer_delete(it, exptime);
             if(res[0] == 'D') {
-                write_bin_response(c, NULL, 0);
+                write_bin_response(c, NULL, 0, 0);
             } else {
                 write_bin_error(c, ERR_OUT_OF_MEMORY, 0);
             }
@@ -1289,8 +1285,9 @@ static void complete_nread_binary(conn *c) {
             c->bin_header[i] = ntohl(c->bin_header[i]);
         }
         if(settings.verbose) {
-            fprintf(stderr, "Read binary protocol data:  %08x %08x %08x\n",
-                c->bin_header[0], c->bin_header[1], c->bin_header[2]);
+            fprintf(stderr, "Read binary protocol data:  %08x %08x %08x %08x\n",
+                c->bin_header[0], c->bin_header[1], c->bin_header[2],
+                c->bin_header[3]);
         }
         if((c->bin_header[0] >> 24) != BIN_REQ_MAGIC) {
             if(settings.verbose) {
@@ -1309,8 +1306,8 @@ static void complete_nread_binary(conn *c) {
         }
 
         c->cmd = (c->bin_header[0] >> 16) & 0xff;
-        c->keylen = (c->bin_header[0] >> 8) & 0xff;
-        c->opaque = c->bin_header[1];
+        c->keylen = c->bin_header[0] & 0xffff;
+        c->opaque = c->bin_header[3];
         if(settings.verbose > 1) {
             fprintf(stderr,
                 "Command: %d, opaque=%08x, keylen=%d, total_len=%d\n", c->cmd,
@@ -1320,10 +1317,7 @@ static void complete_nread_binary(conn *c) {
     } else {
         switch(c->substate) {
             case bin_reading_set_header:
-                process_bin_update(c, false);
-                break;
-            case bin_reading_cas_header:
-                process_bin_update(c, true);
+                process_bin_update(c);
                 break;
             case bin_read_set_value:
                 complete_update_bin(c);
@@ -1398,7 +1392,7 @@ int do_store_item(item *it, int comm) {
         } else {
           if(settings.verbose > 1) {
             fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
-				old_it->cas_id, it->cas_id);
+                old_it->cas_id, it->cas_id);
           }
           stored = 2;
         }

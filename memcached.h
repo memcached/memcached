@@ -39,19 +39,19 @@
 #define MSG_LIST_HIGHWAT 100
 
 /* Binary protocol stuff */
-#define MIN_BIN_PKT_LENGTH 12
-/* flags:32, expiration:32 */
-#define BIN_SET_HDR_LEN 8
-/* Same as set, but with another 64 bits for the CAS identifier */
-#define BIN_CAS_HDR_LEN (BIN_SET_HDR_LEN + 8)
+#define MIN_BIN_PKT_LENGTH 16
+/* flags:32, expiration:32, cas:64 */
+#define BIN_SET_HDR_LEN 16
 /* incr:64, initial:64, expiration:32 */
 #define BIN_INCR_HDR_LEN 20
+/* flags:32, cas:64 */
+#define GET_RES_HDR_LEN (4+8)
 /* timeout:32 */
 #define BIN_DEL_HDR_LEN 4
 #define BIN_PKT_HDR_WORDS (MIN_BIN_PKT_LENGTH/sizeof(uint32_t))
 
-#define BIN_REQ_MAGIC 0x0f
-#define BIN_RES_MAGIC 0xf0
+#define BIN_REQ_MAGIC 0x80
+#define BIN_RES_MAGIC 0x80
 
 #define CMD_GET 0
 #define CMD_SET 1
@@ -59,14 +59,12 @@
 #define CMD_REPLACE 3
 #define CMD_DELETE 4
 #define CMD_INCR 5
-#define CMD_QUIT 6
-#define CMD_FLUSH 7
-#define CMD_GETQ 8
-#define CMD_NOOP 9
-#define CMD_VERSION 10
-
-#define CMD_GETS 50
-#define CMD_CAS 51
+#define CMD_DECR 6
+#define CMD_QUIT 7
+#define CMD_FLUSH 8
+#define CMD_GETQ 9
+#define CMD_NOOP 10
+#define CMD_VERSION 11
 
 #define ERR_UNKNOWN_CMD 0x81
 #define ERR_OUT_OF_MEMORY 0x82
