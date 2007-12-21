@@ -194,6 +194,9 @@ item is in a delete queue (see the "delete" command below).
 - "EXISTS\r\n" to indicate that the item you are trying to store with
 a "cas" command has been modified since you last fetched it.
 
+- "NOT_FOUND\r\n" to indicate that the item you are trying to store
+with a "cas" command did not exist or has been deleted.
+
 
 Retrieval command:
 ------------------
