@@ -2553,7 +2553,12 @@ static void usage(void) {
            "-m <num>      max memory to use for items in megabytes, default is 64 MB\n"
            "-M            return error on memory exhausted (rather than removing items)\n"
            "-c <num>      max simultaneous connections, default is 1024\n"
-           "-k            lock down all paged memory\n"
+           "-k            lock down all paged memory.  Note that there is a\n"
+           "              limit on how much memory you may lock.  Trying to\n"
+           "              allocate more than that would fail, so be sure you\n"
+           "              set the limit correctly for the user you started\n"
+           "              the daemon with (not for -u <username> user;\n"
+           "              under sh this is done with 'ulimit -S -l NUM_KB').\n"
            "-v            verbose (print errors/warnings while in event loop)\n"
            "-vv           very verbose (also print client commands/reponses)\n"
            "-h            print this help and exit\n"
@@ -2860,6 +2865,19 @@ int main (int argc, char **argv) {
         }
     }
 
+    /* lock paged memory if needed */
+    if (lock_memory) {
+#ifdef HAVE_MLOCKALL
+        int res = mlockall(MCL_CURRENT | MCL_FUTURE);
+        if (res != 0) {
+            fprintf(stderr, "warning: -k invalid, mlockall() failed: %s\n",
+                    strerror(errno));
+        }
+#else
+        fprintf(stderr, "warning: -k invalid, mlockall() not supported on this platform.  proceeding without.\n");
+#endif
+    }
+
     /* lose root privileges if we have them */
     if (getuid() == 0 || geteuid() == 0) {
         if (username == 0 || *username == '\0') {
@@ -2917,15 +2935,6 @@ int main (int argc, char **argv) {
             exit(EXIT_FAILURE);
         }
         memset(buckets, 0, sizeof(int) * MAX_BUCKETS);
-    }
-
-    /* lock paged memory if needed */
-    if (lock_memory) {
-#ifdef HAVE_MLOCKALL
-        mlockall(MCL_CURRENT | MCL_FUTURE);
-#else
-        fprintf(stderr, "warning: mlockall() not supported on this platform.  proceeding without.\n");
-#endif
     }
 
     /*
