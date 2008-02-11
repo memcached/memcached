@@ -2,6 +2,8 @@
 
        * Make -k option work (Tomash Brechko)
 
+	   * Fix chunk slab alignment (Trond.Norbye@Sun.COM)
+
 2007-12-06 [Version 1.2.4 released]
 
 2007-12-05
