@@ -438,6 +438,21 @@
         </t>
 
         <t>
+      <figure>
+        <preamble>incr/decr response body:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 64-bit unsigned response.                                     |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    Total 8 bytes
+      </artwork></figure>
+        </t>
+
+        <t>
           These commands will either add or remove the specified
           amount to the requested counter.
 

@@ -941,8 +941,8 @@ static void complete_incr_bin(conn *c) {
     int32_t exptime;
     char *key;
     size_t nkey;
-    int i,res;
-    char *responseBuf = c->wbuf + BIN_INCR_HDR_LEN;
+    int i;
+    uint64_t *responseBuf = (uint64_t*) c->wbuf + BIN_INCR_HDR_LEN;
 
     assert(c != NULL);
 
@@ -980,27 +980,27 @@ static void complete_incr_bin(conn *c) {
     it = item_get(key, nkey);
     if (it) {
         /* Weird magic in add_delta forces me to pad here */
-        memset(responseBuf, ' ', 32);
-        responseBuf[32]=0x00;
-        add_delta(it, c->cmd == CMD_INCR, delta, responseBuf);
-        res = strlen(responseBuf);
+        char tmpbuf[INCR_MAX_STORAGE_LEN];
+        uint64_t l=0;
+        memset(tmpbuf, ' ', INCR_MAX_STORAGE_LEN);
+        tmpbuf[INCR_MAX_STORAGE_LEN]=0x00;
+        add_delta(it, c->cmd == CMD_INCR, delta, tmpbuf);
+        *responseBuf=swap64(strtoull(tmpbuf, NULL, 10));
 
-        assert(res > 0);
-        write_bin_response(c, responseBuf, BIN_INCR_HDR_LEN, res);
+        write_bin_response(c, responseBuf, BIN_INCR_HDR_LEN, INCR_RES_LEN);
         item_remove(it);         /* release our reference */
     } else {
         if(exptime >= 0) {
             /* Save some room for the response */
-            assert(c->wsize > BIN_INCR_HDR_LEN + 32);
-            snprintf(responseBuf, BIN_INCR_HDR_LEN + 32, "%llu", initial);
-
-            res = strlen(responseBuf);
-            it = item_alloc(key, nkey, 0, realtime(exptime), res + 2);
-
-            memcpy(ITEM_data(it), responseBuf, res);
+            assert(c->wsize > BIN_INCR_HDR_LEN + BIN_DEL_HDR_LEN);
+            *responseBuf=swap64(initial);
+            it = item_alloc(key, nkey, 0, realtime(exptime),
+                INCR_MAX_STORAGE_LEN);
+            snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu", initial);
 
             if(store_item(it, NREAD_SET)) {
-                write_bin_response(c, responseBuf, BIN_INCR_HDR_LEN, res);
+                write_bin_response(c, responseBuf, BIN_INCR_HDR_LEN,
+                    INCR_RES_LEN);
             } else {
                 write_bin_error(c, ERR_NOT_STORED, 0);
             }

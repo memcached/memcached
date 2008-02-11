@@ -50,6 +50,11 @@
 #define BIN_DEL_HDR_LEN 4
 #define BIN_PKT_HDR_WORDS (MIN_BIN_PKT_LENGTH/sizeof(uint32_t))
 
+/* Body is a single 64-bit int */
+#define INCR_RES_LEN 8
+/* len(18446744073709551616) + 2 (or so) */
+#define INCR_MAX_STORAGE_LEN 24
+
 #define BIN_REQ_MAGIC 0x80
 #define BIN_RES_MAGIC 0x80
 
