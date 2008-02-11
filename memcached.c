@@ -19,7 +19,7 @@ std *
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/signal.h>
+#include <signal.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
 
