@@ -1918,14 +1918,19 @@ static int try_read_network(conn *c) {
             c->request_addr_size = 0;
         }
 
-        res = read(c->sfd, c->rbuf + c->rbytes, c->rsize - c->rbytes);
+        int avail = c->rsize - c->rbytes;
+        res = read(c->sfd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
             STATS_LOCK();
             stats.bytes_read += res;
             STATS_UNLOCK();
             gotdata = 1;
             c->rbytes += res;
-            continue;
+            if (res == avail) {
+                continue;
+            } else {
+                break;
+            }
         }
         if (res == 0) {
             /* connection closed */
