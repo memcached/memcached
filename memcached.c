@@ -2565,7 +2565,10 @@ static struct event clockevent;
 
 /* time-sensitive callers can call it by hand with this, outside the normal ever-1-second timer */
 static void set_current_time(void) {
-    current_time = (rel_time_t) (time(0) - stats.started);
+    struct timeval timer;
+
+    gettimeofday(&timer, NULL);
+    current_time = (rel_time_t) (timer.tv_sec - stats.started);
 }
 
 static void clock_handler(const int fd, const short which, void *arg) {
