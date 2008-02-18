@@ -64,7 +64,7 @@ std *
  */
 static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
-static int server_socket(const int port, const bool is_udp);
+static int *server_socket(const int port, const bool is_udp, int *count);
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
 static int try_read_udp(conn *c);
@@ -94,7 +94,6 @@ static void set_current_time(void);  /* update the global variable holding
                               global 32-bit seconds-since-start time
                               (to avoid 64 bit time_t) */
 
-void pre_gdb(void);
 static void conn_free(conn *c);
 
 /** exported globals **/
@@ -105,7 +104,7 @@ struct settings settings;
 static item **todelete = NULL;
 static int delcurr;
 static int deltotal;
-static conn *listen_conn;
+static conn *listen_conn = NULL;
 static struct event_base *main_base;
 
 #define TRANSMIT_COMPLETE   0
@@ -251,7 +250,7 @@ static void conn_init(void) {
     freetotal = 200;
     freecurr = 0;
     if ((freeconns = (conn **)malloc(sizeof(conn *) * freetotal)) == NULL) {
-        perror("malloc()");
+        fprintf(stderr, "malloc()\n");
     }
     return;
 }
@@ -299,7 +298,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
 
     if (NULL == c) {
         if (!(c = (conn *)malloc(sizeof(conn)))) {
-            perror("malloc()");
+            fprintf(stderr, "malloc()\n");
             return NULL;
         }
         c->rbuf = c->wbuf = 0;
@@ -333,7 +332,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
             if (c->iov != 0) free(c->iov);
             if (c->msglist != 0) free(c->msglist);
             free(c);
-            perror("malloc()");
+            fprintf(stderr, "malloc()\n");
             return NULL;
         }
 
@@ -381,6 +380,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
         if (conn_add_to_freelist(c)) {
             conn_free(c);
         }
+        perror("event_add");
         return NULL;
     }
 
@@ -558,7 +558,7 @@ static void suffix_init(void) {
 
     freesuffix = (char **)malloc( sizeof(char *) * freesuffixtotal );
     if (freesuffix == NULL) {
-        perror("malloc()");
+        fprintf(stderr, "malloc()\n");
     }
     return;
 }
@@ -1964,20 +1964,25 @@ static bool update_event(conn *c, const int new_flags) {
  * Sets whether we are listening for new connections or not.
  */
 void accept_new_conns(const bool do_accept) {
+    conn *next;
+
     if (! is_listen_thread())
         return;
-    if (do_accept) {
-        update_event(listen_conn, EV_READ | EV_PERSIST);
-        if (listen(listen_conn->sfd, 1024) != 0) {
-            perror("listen");
+
+    for (next = listen_conn; next; next = next->next) {
+        if (do_accept) {
+            update_event(next, EV_READ | EV_PERSIST);
+            if (listen(next->sfd, 1024) != 0) {
+                perror("listen");
+            }
         }
-    }
-    else {
-        update_event(listen_conn, 0);
-        if (listen(listen_conn->sfd, 0) != 0) {
-            perror("listen");
+        else {
+            update_event(next, 0);
+            if (listen(next->sfd, 0) != 0) {
+                perror("listen");
+            }
         }
-    }
+  }
 }
 
 
@@ -2347,13 +2352,17 @@ static void maximize_sndbuf(const int sfd) {
 }
 
 
-static int server_socket(const int port, const bool is_udp) {
+static int *server_socket(const int port, const bool is_udp, int *count) {
     int sfd;
+    int *sfd_list;
+    int *sfd_ptr;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
+    struct addrinfo *next;
     struct addrinfo hints;
     char port_buf[NI_MAXSERV];
     int error;
+    int success = 0;
 
     int flags =1;
 
@@ -2382,39 +2391,78 @@ static int server_socket(const int port, const bool is_udp) {
       else
         perror("getaddrinfo()");
 
-      return -1;
+      return NULL;
     }
 
-    if ((sfd = new_socket(ai)) == -1) {
-        freeaddrinfo(ai);
-        return -1;
-    }
+    for (*count= 1, next= ai; next->ai_next; next= next->ai_next, (*count)++);
 
-    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
-    if (is_udp) {
-        maximize_sndbuf(sfd);
-    } else {
-        setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
-        setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
-        setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
+    sfd_list= (int *)calloc(*count, sizeof(int));
+    if (sfd_list == NULL) {
+        fprintf(stderr, "calloc()\n");
+        return NULL;
     }
+    memset(sfd_list, -1, sizeof(int) * (*count));
 
-    if (bind(sfd, ai->ai_addr, ai->ai_addrlen) == -1) {
-        perror("bind()");
-        close(sfd);
-        freeaddrinfo(ai);
-        return -1;
-    }
-    if (!is_udp && listen(sfd, 1024) == -1) {
-        perror("listen()");
-        close(sfd);
-        freeaddrinfo(ai);
-        return -1;
+    for (sfd_ptr= sfd_list, next= ai; next; next= next->ai_next, sfd_ptr++) {
+        if ((sfd = new_socket(next)) == -1) {
+            free(sfd_list);
+            freeaddrinfo(ai);
+            return NULL;
+        }
+
+        setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
+        if (is_udp) {
+            maximize_sndbuf(sfd);
+        } else {
+            setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
+            setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
+            setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
+        }
+
+        if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) {
+            if (errno != EADDRINUSE) {
+                perror("bind()");
+                /* If we are not at the first element, loop back and close all sockets */
+                if (sfd_ptr != sfd_list) {
+                    do {
+                        --sfd_ptr;
+                        close(*sfd_ptr);
+                    } while (sfd_ptr != sfd_list);
+                }
+                close(sfd);
+                freeaddrinfo(ai);
+                free(sfd_list);
+                return NULL;
+            }
+            close(sfd);
+            *sfd_ptr= -1;
+        } else {
+          success++;
+          *sfd_ptr= sfd;
+          if (!is_udp && listen(sfd, 1024) == -1) {
+              perror("listen()");
+                if (sfd_ptr != sfd_list) {
+                    do {
+                        --sfd_ptr;
+                        close(*sfd_ptr);
+                    } while (sfd_ptr != sfd_list);
+                }
+              close(sfd);
+              freeaddrinfo(ai);
+              free(sfd_list);
+              return NULL;
+          }
+      }
     }
 
     freeaddrinfo(ai);
 
-    return sfd;
+    if (success == 0) {
+        free(sfd_list);
+        return NULL;
+    }
+
+    return sfd_list;
 }
 
 static int new_socket_unix(void) {
@@ -2435,8 +2483,9 @@ static int new_socket_unix(void) {
     return sfd;
 }
 
-static int server_socket_unix(const char *path, int access_mask) {
+static int *server_socket_unix(const char *path, int access_mask) {
     int sfd;
+    int *sfd_list;
     struct linger ling = {0, 0};
     struct sockaddr_un addr;
     struct stat tstat;
@@ -2444,12 +2493,23 @@ static int server_socket_unix(const char *path, int access_mask) {
     int old_umask;
 
     if (!path) {
-        return -1;
+        return NULL;
     }
 
     if ((sfd = new_socket_unix()) == -1) {
-        return -1;
+        return NULL;
     }
+
+    /*
+      When UNIX domain sockets get refactored, this will go away.
+      For now we know there is just one socket.
+    */
+    sfd_list= (int *)calloc(1, sizeof(int));
+    if (sfd_list == NULL) {
+        fprintf(stderr, "calloc()\n");
+        return NULL;
+    }
+    memset(sfd_list, -1, sizeof(int) * 1);
 
     /*
      * Clean up a previous socket file if we left it around
@@ -2475,31 +2535,21 @@ static int server_socket_unix(const char *path, int access_mask) {
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
         close(sfd);
+        free(sfd_list);
         umask(old_umask);
-        return -1;
+        return NULL;
     }
     umask(old_umask);
     if (listen(sfd, 1024) == -1) {
         perror("listen()");
         close(sfd);
-        return -1;
+        free(sfd_list);
+        return NULL;
     }
-    return sfd;
-}
 
-/* listening socket */
-static int l_socket = 0;
+    *sfd_list= sfd;
 
-/* udp socket */
-static int u_socket = -1;
-
-/* invoke right before gdb is called, on assert */
-void pre_gdb(void) {
-    int i;
-    if (l_socket > -1) close(l_socket);
-    if (u_socket > -1) close(u_socket);
-    for (i = 3; i <= 500; i++) close(i); /* so lame */
-    kill(getpid(), SIGABRT);
+    return sfd_list;
 }
 
 /*
@@ -2714,6 +2764,7 @@ static void sig_handler(const int sig) {
 
 int main (int argc, char **argv) {
     int c;
+    int x;
     bool lock_memory = false;
     bool daemonize = false;
     int maxcore = 0;
@@ -2722,6 +2773,13 @@ int main (int argc, char **argv) {
     struct passwd *pw;
     struct sigaction sa;
     struct rlimit rlim;
+    /* listening socket */
+    static int *l_socket = NULL;
+    static int l_socket_count = 0;
+
+    /* udp socket */
+    static int *u_socket = NULL;
+    static int u_socket_count = 0;
 
     /* handle SIGINT */
     signal(SIGINT, sig_handler);
@@ -2878,8 +2936,8 @@ int main (int argc, char **argv) {
 
     /* create the listening socket and bind it */
     if (settings.socketpath == NULL) {
-        l_socket = server_socket(settings.port, 0);
-        if (l_socket == -1) {
+        l_socket = server_socket(settings.port, 0, &l_socket_count);
+        if (l_socket == NULL) {
             fprintf(stderr, "failed to listen\n");
             exit(EXIT_FAILURE);
         }
@@ -2887,8 +2945,8 @@ int main (int argc, char **argv) {
 
     if (settings.udpport > 0 && settings.socketpath == NULL) {
         /* create the UDP listening socket and bind it */
-        u_socket = server_socket(settings.udpport, 1);
-        if (u_socket == -1) {
+        u_socket = server_socket(settings.udpport, 1, &u_socket_count);
+        if (u_socket == NULL) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
             exit(EXIT_FAILURE);
         }
@@ -2926,10 +2984,12 @@ int main (int argc, char **argv) {
     /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
         l_socket = server_socket_unix(settings.socketpath,settings.access);
-        if (l_socket == -1) {
-            fprintf(stderr, "failed to listen\n");
-            exit(EXIT_FAILURE);
+        if (l_socket == NULL) {
+          fprintf(stderr, "failed to listen\n");
+          exit(EXIT_FAILURE);
         }
+        /* We only support one of these, so whe know the count */
+        l_socket_count = 1;
     }
 
     /* daemonize if requested */
@@ -2978,10 +3038,23 @@ int main (int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
     /* create the initial listening connection */
-    if (!(listen_conn = conn_new(l_socket, conn_listening,
-                                 EV_READ | EV_PERSIST, 1, false, main_base))) {
-        fprintf(stderr, "failed to create listening connection");
-        exit(EXIT_FAILURE);
+    int *l_socket_ptr;
+    conn *next = NULL;
+    for (l_socket_ptr= l_socket, x = 0; x < l_socket_count; l_socket_ptr++, x++) {
+        conn *listen_conn_add;
+        if (*l_socket_ptr > -1 ) {
+            if (!(listen_conn_add = conn_new(*l_socket_ptr, conn_listening,
+                                             EV_READ | EV_PERSIST, 1, false, main_base))) {
+                fprintf(stderr, "failed to create listening connection\n");
+                exit(EXIT_FAILURE);
+            }
+
+            if (listen_conn == NULL) {
+                next = listen_conn = listen_conn_add;
+            } else {
+                next->next= listen_conn_add;
+            }
+        }
     }
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
@@ -3000,10 +3073,10 @@ int main (int argc, char **argv) {
     }
     delete_handler(0, 0, 0); /* sets up the event */
     /* create the initial listening udp connection, monitored on all threads */
-    if (u_socket > -1) {
+    if (u_socket) {
         for (c = 0; c < settings.num_threads; c++) {
             /* this is guaranteed to hit all threads because we round-robin */
-            dispatch_conn_new(u_socket, conn_read, EV_READ | EV_PERSIST,
+            dispatch_conn_new(*u_socket, conn_read, EV_READ | EV_PERSIST,
                               UDP_READ_BUFFER_SIZE, 1);
         }
     }
@@ -3015,6 +3088,10 @@ int main (int argc, char **argv) {
     /* Clean up strdup() call for bind() address */
     if (settings.inter)
       free(settings.inter);
+    if (l_socket)
+      free(l_socket);
+    if (u_socket)
+      free(u_socket);
 
     return 0;
 }

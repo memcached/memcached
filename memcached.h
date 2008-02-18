@@ -150,7 +150,8 @@ enum conn_states {
 #define NREAD_PREPEND 5
 #define NREAD_CAS 6
 
-typedef struct {
+typedef struct conn conn;
+struct conn {
     int    sfd;
     int    state;
     struct event event;
@@ -219,17 +220,14 @@ typedef struct {
     int    bucket;    /* bucket number for the next command, if running as
                          a managed instance. -1 (_not_ 0) means invalid. */
     int    gen;       /* generation requested for the bucket */
-} conn;
+    conn   *next;     /* Used for generating a list of conn structures */
+};
 
 /* number of virtual buckets for a managed instance */
 #define MAX_BUCKETS 32768
 
 /* current time of day (updated periodically) */
 extern volatile rel_time_t current_time;
-
-/* temporary hack */
-/* #define assert(x) if(!(x)) { printf("assert failure: %s\n", #x); pre_gdb(); }
-   void pre_gdb (); */
 
 /*
  * Functions
