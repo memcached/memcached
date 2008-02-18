@@ -285,8 +285,6 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    0x09    GetQ
    0x0A    No-op
    0x0B    Version
-   0x0C    GetR
-   0x0D    SetR
 
 3.4.  Data Types
 
@@ -329,6 +327,8 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    Clients should implement multi-get (still important for reducing
    network roundtrips!) as n pipelined requests, the first n-1 being
    getq, the last being a regular get. that way you're guaranteed to get
+   a response, and you know when the server's done. you can also do the
+   naive thing and send n pipelined gets, but then you could potentially
 
 
 
@@ -337,8 +337,6 @@ Aaron Stone               Expires June 16, 2008                 [Page 6]
 Internet-Draft          Memcache Binary Protocol           December 2007
 
 
-   a response, and you know when the server's done. you can also do the
-   naive thing and send n pipelined gets, but then you could potentially
    get back a lot of "NOT_FOUND!" error code packets. alternatively, you
    can send 'n' getqs, followed by an 'echo' or 'noop' command.
 
@@ -381,6 +379,8 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    o  4 byte flags
    o  4 byte expiration time
    o  8 byte data version check
+
+
 
 
 
@@ -465,6 +465,17 @@ Internet-Draft          Memcache Binary Protocol           December 2007
        +---------------+---------------+---------------+---------------+
      Total 20 bytes
 
+   incr/decr response body:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 64-bit unsigned response.                                     |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     Total 8 bytes
+
    These commands will either add or remove the specified amount to the
    requested counter.  If the counter does not exist, one of two things
    may happen:
@@ -482,17 +493,6 @@ Internet-Draft          Memcache Binary Protocol           December 2007
 
    We start up our application, and it asks for the value associated
    with the 'Hello' key.
-
-
-
-
-
-
-
-
-
-
-
 
 
 
