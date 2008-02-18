@@ -9,6 +9,23 @@ AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
+AC_ARG_ENABLE(64bit,
+  [AS_HELP_STRING([--enable-64bit],[build 64bit verison])])
+if test "x$enable_64bit" == "xyes"
+then
+    org_cflags=$CFLAGS
+    CFLAGS=-m64
+    AC_RUN_IFELSE(
+      [AC_LANG_PROGRAM([], [dnl
+return sizeof(void*) == 8 ? 0 : 1;
+      ])
+    ],[
+      CFLAGS="-m64 $org_cflags"
+    ],[
+    AC_MSG_ERROR([Don't know how to build a 64-bit object.])
+    ])
+fi
+
 trylibeventdir=""
 AC_ARG_WITH(libevent,
        [  --with-libevent=PATH     Specify path to libevent installation ],
