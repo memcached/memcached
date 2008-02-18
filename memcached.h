@@ -10,6 +10,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <event.h>
+#include <netdb.h>
 
 #define DATA_BUFFER_SIZE 2048
 #define UDP_READ_BUFFER_SIZE 65536
@@ -83,7 +84,7 @@ struct settings {
     int maxconns;
     int port;
     int udpport;
-    struct in_addr interf;
+    char *inter;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
     bool managed;          /* if 1, a tracker manages virtual buckets */

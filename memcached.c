@@ -63,7 +63,7 @@ std *
  * forward declarations
  */
 static void drive_machine(conn *c);
-static int new_socket(const bool is_udp);
+static int new_socket(struct addrinfo *ai);
 static int server_socket(const int port, const bool is_udp);
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
@@ -167,7 +167,8 @@ static void settings_init(void) {
     settings.access=0700;
     settings.port = 11211;
     settings.udpport = 0;
-    settings.interf.s_addr = htonl(INADDR_ANY);
+    /* By default this string should be NULL for getaddrinfo() */
+    settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
@@ -2051,7 +2052,7 @@ static void drive_machine(conn *c) {
     bool stop = false;
     int sfd, flags = 1;
     socklen_t addrlen;
-    struct sockaddr addr;
+    struct sockaddr_storage addr;
     int res;
 
     assert(c != NULL);
@@ -2061,7 +2062,7 @@ static void drive_machine(conn *c) {
         switch(c->state) {
         case conn_listening:
             addrlen = sizeof(addr);
-            if ((sfd = accept(c->sfd, &addr, &addrlen)) == -1) {
+            if ((sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen)) == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     /* these are transient, so don't log anything */
                     stop = true;
@@ -2292,11 +2293,11 @@ void event_handler(const int fd, const short which, void *arg) {
     return;
 }
 
-static int new_socket(const bool is_udp) {
+static int new_socket(struct addrinfo *ai) {
     int sfd;
     int flags;
 
-    if ((sfd = socket(AF_INET, is_udp ? SOCK_DGRAM : SOCK_STREAM, 0)) == -1) {
+    if ((sfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1) {
         perror("socket()");
         return -1;
     }
@@ -2349,10 +2350,43 @@ static void maximize_sndbuf(const int sfd) {
 static int server_socket(const int port, const bool is_udp) {
     int sfd;
     struct linger ling = {0, 0};
-    struct sockaddr_in addr;
+    struct addrinfo *ai;
+    struct addrinfo hints;
+    char port_buf[NI_MAXSERV];
+    int error;
+
     int flags =1;
 
-    if ((sfd = new_socket(is_udp)) == -1) {
+    /*
+     * the memset call clears nonstandard fields in some impementations
+     * that otherwise mess things up.
+     */
+    memset(&hints, 0, sizeof (hints));
+    hints.ai_flags = AI_PASSIVE|AI_ADDRCONFIG;
+    if (is_udp)
+    {
+        hints.ai_protocol = IPPROTO_UDP;
+        hints.ai_socktype = SOCK_DGRAM;
+        hints.ai_family = AF_INET; /* This left here because of issues with OSX 10.5 */
+    } else {
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_protocol = IPPROTO_TCP;
+        hints.ai_socktype = SOCK_STREAM;
+    }
+
+    snprintf(port_buf, NI_MAXSERV, "%d", port);
+    error= getaddrinfo(settings.inter, port_buf, &hints, &ai);
+    if (error != 0) {
+      if (error != EAI_SYSTEM)
+        fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(error));
+      else
+        perror("getaddrinfo()");
+
+      return -1;
+    }
+
+    if ((sfd = new_socket(ai)) == -1) {
+        freeaddrinfo(ai);
         return -1;
     }
 
@@ -2365,25 +2399,21 @@ static int server_socket(const int port, const bool is_udp) {
         setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
     }
 
-    /*
-     * the memset call clears nonstandard fields in some impementations
-     * that otherwise mess things up.
-     */
-    memset(&addr, 0, sizeof(addr));
-
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr = settings.interf;
-    if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+    if (bind(sfd, ai->ai_addr, ai->ai_addrlen) == -1) {
         perror("bind()");
         close(sfd);
+        freeaddrinfo(ai);
         return -1;
     }
     if (!is_udp && listen(sfd, 1024) == -1) {
         perror("listen()");
         close(sfd);
+        freeaddrinfo(ai);
         return -1;
     }
+
+    freeaddrinfo(ai);
+
     return sfd;
 }
 
@@ -2684,7 +2714,6 @@ static void sig_handler(const int sig) {
 
 int main (int argc, char **argv) {
     int c;
-    struct in_addr addr;
     bool lock_memory = false;
     bool daemonize = false;
     int maxcore = 0;
@@ -2745,12 +2774,7 @@ int main (int argc, char **argv) {
             settings.verbose++;
             break;
         case 'l':
-            if (inet_pton(AF_INET, optarg, &addr) <= 0) {
-                fprintf(stderr, "Illegal address: %s\n", optarg);
-                return 1;
-            } else {
-                settings.interf = addr;
-            }
+            settings.inter= strdup(optarg);
             break;
         case 'd':
             daemonize = true;
@@ -2988,5 +3012,9 @@ int main (int argc, char **argv) {
     /* remove the PID file if we're a daemon */
     if (daemonize)
         remove_pidfile(pid_file);
+    /* Clean up strdup() call for bind() address */
+    if (settings.inter)
+      free(settings.inter);
+
     return 0;
 }
