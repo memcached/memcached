@@ -164,6 +164,18 @@ if test "x$enable_threads" == "xyes"; then
   AC_SEARCH_LIBS(pthread_create, pthread)
   if test "x$ac_cv_search_pthread_create" != "xno"; then
     AC_DEFINE([USE_THREADS],,[Define this if you want to use pthreads])
+    dnl Sun compilers need the -mt flag!
+    AC_RUN_IFELSE(
+      [AC_LANG_PROGRAM([], [dnl
+#ifdef __SUNPRO_C
+   return 0;
+#else
+   return 1;
+#endif
+      ])
+    ],[
+      CFLAGS="-mt $CFLAGS"
+    ])
   else
     AC_MSG_ERROR([Can't enable threads without the POSIX thread library.])
   fi
