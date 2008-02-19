@@ -1,3 +1,14 @@
+2008-12-17
+
+       * IPv6 support, and IPv6 multi-interface support (brian@tangent.org)
+
+       * Add compiler options for Sun Studio compilers with --enable-threads
+	     (Trond.Norbye@Sun.COM)
+
+       * Add --enable-64bit for mulitarget platforms (Trond.Norbye@Sun.COM)
+
+       * Use gettimeofday(2) instead of time(2).
+
 2008-02-10
 
        * Make -k option work (Tomash Brechko)
