@@ -736,6 +736,8 @@ static void out_string(conn *c, const char *str) {
     assert(c != NULL);
 
     if (c->noreply) {
+        if (settings.verbose > 1)
+            fprintf(stderr, ">%d NOREPLY %s\n", c->sfd, str);
         c->noreply = false;
         conn_set_state(c, conn_read);
         return;
