@@ -372,6 +372,8 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
     c->bucket = -1;
     c->gen = 0;
 
+    c->noreply = false;
+
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = event_flags;
@@ -733,6 +735,12 @@ static void out_string(conn *c, const char *str) {
 
     assert(c != NULL);
 
+    if (c->noreply) {
+        c->noreply = false;
+        conn_set_state(c, conn_read);
+        return;
+    }
+
     if (settings.verbose > 1)
         fprintf(stderr, ">%d %s\n", c->sfd, str);
 
@@ -898,7 +906,7 @@ typedef struct token_s {
 #define KEY_TOKEN 1
 #define KEY_MAX_LENGTH 250
 
-#define MAX_TOKENS 7
+#define MAX_TOKENS 8
 
 /*
  * Tokenize the command string by replacing whitespace with '\0' and update
@@ -965,6 +973,23 @@ static void write_and_free(conn *c, char *buf, int bytes) {
         c->write_and_go = conn_read;
     } else {
         out_string(c, "SERVER_ERROR out of memory");
+    }
+}
+
+static inline void set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
+{
+    int noreply_index = ntokens - 2;
+
+    /*
+      NOTE: this function is not the first place where we are going to
+      send the reply.  We could send it instead from process_command()
+      if the request line has wrong number of tokens.  However parsing
+      malformed line for "noreply" option is not reliable anyway, so
+      it can't be helped.
+    */
+    if (tokens[noreply_index].value
+        && strcmp(tokens[noreply_index].value, "noreply") == 0) {
+        c->noreply = true;
     }
 }
 
@@ -1347,6 +1372,8 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
     assert(c != NULL);
 
+    set_noreply_maybe(c, tokens, ntokens);
+
     if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
@@ -1417,6 +1444,8 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     size_t nkey;
 
     assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
 
     if(tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
@@ -1514,6 +1543,8 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
 
     assert(c != NULL);
 
+    set_noreply_maybe(c, tokens, ntokens);
+
     if (settings.managed) {
         int bucket = c->bucket;
         if (bucket == -1) {
@@ -1535,7 +1566,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         return;
     }
 
-    if(ntokens == 4) {
+    if(ntokens == (c->noreply ? 5 : 4)) {
         exptime = strtol(tokens[2].value, NULL, 10);
 
         if(errno == ERANGE) {
@@ -1598,6 +1629,8 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
 
     assert(c != NULL);
 
+    set_noreply_maybe(c, tokens, ntokens);
+
     level = strtoul(tokens[1].value, NULL, 10);
     settings.verbose = level > MAX_VERBOSITY_LEVEL ? MAX_VERBOSITY_LEVEL : level;
     out_string(c, "OK");
@@ -1635,7 +1668,7 @@ static void process_command(conn *c, char *command) {
 
         process_get_command(c, tokens, ntokens, false);
 
-    } else if (ntokens == 6 &&
+    } else if ((ntokens == 6 || ntokens == 7) &&
                ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "replace") == 0 && (comm = NREAD_REPLACE)) ||
@@ -1644,11 +1677,11 @@ static void process_command(conn *c, char *command) {
 
         process_update_command(c, tokens, ntokens, comm, false);
 
-    } else if (ntokens == 7 && (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0 && (comm = NREAD_CAS))) {
+    } else if ((ntokens == 7 || ntokens == 8) && (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0 && (comm = NREAD_CAS))) {
 
         process_update_command(c, tokens, ntokens, comm, true);
 
-    } else if (ntokens == 4 && (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0)) {
+    } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0)) {
 
         process_arithmetic_command(c, tokens, ntokens, 1);
 
@@ -1656,11 +1689,11 @@ static void process_command(conn *c, char *command) {
 
         process_get_command(c, tokens, ntokens, true);
 
-    } else if (ntokens == 4 && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
+    } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
         process_arithmetic_command(c, tokens, ntokens, 0);
 
-    } else if (ntokens >= 3 && ntokens <= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
+    } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
 
         process_delete_command(c, tokens, ntokens);
 
@@ -1729,11 +1762,13 @@ static void process_command(conn *c, char *command) {
 
         process_stat(c, tokens, ntokens);
 
-    } else if (ntokens >= 2 && ntokens <= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0)) {
+    } else if (ntokens >= 2 && ntokens <= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0)) {
         time_t exptime = 0;
         set_current_time();
 
-        if(ntokens == 2) {
+        set_noreply_maybe(c, tokens, ntokens);
+
+        if(ntokens == (c->noreply ? 3 : 2)) {
             settings.oldest_live = current_time - 1;
             item_flush_expired();
             out_string(c, "OK");
@@ -1798,7 +1833,7 @@ static void process_command(conn *c, char *command) {
 #else
         out_string(c, "CLIENT_ERROR Slab reassignment not supported");
 #endif
-    } else if (ntokens == 3 && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
+    } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {
         out_string(c, "ERROR");

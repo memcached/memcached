@@ -220,6 +220,7 @@ struct conn {
     int    bucket;    /* bucket number for the next command, if running as
                          a managed instance. -1 (_not_ 0) means invalid. */
     int    gen;       /* generation requested for the bucket */
+    bool   noreply;   /* True if the reply should not be sent. */
     conn   *next;     /* Used for generating a list of conn structures */
 };
 
