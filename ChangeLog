@@ -1,4 +1,4 @@
-2008-12-17
+       * 'noreply' support (Tomash Brechko)
 
        * IPv6 support, and IPv6 multi-interface support (brian@tangent.org)
 
@@ -8,8 +8,6 @@
        * Add --enable-64bit for mulitarget platforms (Trond.Norbye@Sun.COM)
 
        * Use gettimeofday(2) instead of time(2).
-
-2008-02-10
 
        * Make -k option work (Tomash Brechko)
 
