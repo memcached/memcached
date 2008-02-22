@@ -1940,7 +1940,9 @@ static int try_read_network(conn *c) {
         }
         if (res == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            else return 0;
+            /* Should close on unhandled errors. */
+            conn_set_state(c, conn_closing);
+            return 1;
         }
     }
     return gotdata;
