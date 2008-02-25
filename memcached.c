@@ -3562,7 +3562,8 @@ int main (int argc, char **argv) {
 
     if (settings.udpport > 0 && settings.socketpath == NULL) {
         /* create the UDP listening socket and bind it */
-        u_socket = server_socket(settings.udpport, 1, &u_socket_count);
+        u_socket = server_socket(settings.udpport, ascii_udp_prot,
+			&u_socket_count);
         if (u_socket == NULL) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
             exit(EXIT_FAILURE);
