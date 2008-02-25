@@ -3359,7 +3359,6 @@ static void setup_listening_conns(int *l_socket, int count, const int prot) {
     /* create the initial listening connection */
     int x;
     int *l_socket_ptr;
-    conn *next = listen_conn;
     for (l_socket_ptr= l_socket, x = 0; x < count; l_socket_ptr++, x++) {
         conn *listen_conn_add;
         if (*l_socket_ptr > -1 ) {
@@ -3371,9 +3370,10 @@ static void setup_listening_conns(int *l_socket, int count, const int prot) {
             }
 
             if (listen_conn == NULL) {
-                next = listen_conn = listen_conn_add;
+                listen_conn = listen_conn_add;
             } else {
-                next->next= listen_conn_add;
+				listen_conn_add->next = listen_conn->next;
+				listen_conn->next = listen_conn_add;
             }
         }
     }
