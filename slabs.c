@@ -54,10 +54,15 @@ static size_t mem_limit = 0;
 static size_t mem_malloced = 0;
 static int power_largest;
 
+static void *mem_base = NULL;
+static void *mem_current = NULL;
+static size_t mem_avail = 0;
+
 /*
  * Forward Declarations
  */
 static int do_slabs_newslab(const unsigned int id);
+static void *memory_allocate(size_t size);
 
 #ifndef DONT_PREALLOC_SLABS
 /* Preallocate as many slab pages as possible (called from slabs_init)
@@ -92,7 +97,7 @@ unsigned int slabs_clsid(const size_t size) {
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-void slabs_init(const size_t limit, const double factor) {
+void slabs_init(const size_t limit, const double factor, const bool prealloc) {
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
 
@@ -101,6 +106,19 @@ void slabs_init(const size_t limit, const double factor) {
         size = 128;
 
     mem_limit = limit;
+
+    if (prealloc) {
+        /* Allocate everything in a big chunk with malloc */
+        mem_base = malloc(mem_limit);
+        if (mem_base != NULL) {
+            mem_current = mem_base;
+            mem_avail = mem_limit;
+        } else {
+            fprintf(stderr, "Warning: Failed to allocate requested memory in"
+                    " one large chunk.\nWill allocate in smaller chunks\n");
+        }
+    }
+
     memset(slabclass, 0, sizeof(slabclass));
 
     while (++i < POWER_LARGEST && size <= POWER_BLOCK / 2) {
@@ -187,7 +205,7 @@ static int do_slabs_newslab(const unsigned int id) {
 
     if (grow_slab_list(id) == 0) return 0;
 
-    ptr = malloc((size_t)len);
+    ptr = memory_allocate((size_t)len);
     if (ptr == 0) return 0;
 
     memset(ptr, 0, (size_t)len);
@@ -374,3 +392,32 @@ int do_slabs_reassign(unsigned char srcid, unsigned char dstid) {
     return 1;
 }
 #endif
+
+static void *memory_allocate(size_t size) {
+    void *ret;
+
+    if (mem_base == NULL) {
+        /* We are not using a preallocated large memory chunk */
+        ret = malloc(size);
+    } else {
+        ret = mem_current;
+
+        if (size > mem_avail) {
+            return NULL;
+        }
+
+        /* mem_current pointer _must_ be aligned!!! */
+        if (size % CHUNK_ALIGN_BYTES) {
+            size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
+        }
+
+        mem_current += size;
+        if (size < mem_avail) {
+            mem_avail -= size;
+        } else {
+            mem_avail = 0;
+        }
+    }
+
+    return ret;
+}

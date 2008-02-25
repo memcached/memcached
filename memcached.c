@@ -2693,7 +2693,17 @@ static void usage(void) {
            "-b            run a managed instanced (mnemonic: buckets)\n"
            "-P <file>     save PID in <file>, only used with -d option\n"
            "-f <factor>   chunk size growth factor, default 1.25\n"
-           "-n <bytes>    minimum space allocated for key+value+flags, default 48\n");
+           "-n <bytes>    minimum space allocated for key+value+flags, default 48\n"
+
+#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
+           "-L            Try to use large memory pages (if available). Increasing\n"
+           "              the memory page size could reduce the number of TLB misses\n"
+           "              and improve the performance. In order to get large pages\n"
+           "              from the OS, memcached will allocate the total item-cache\n"
+           "              in one large chunk.\n"
+#endif
+           );
+
 #ifdef USE_THREADS
     printf("-t <num>      number of threads to use, default 4\n");
 #endif
@@ -2804,11 +2814,53 @@ static void sig_handler(const int sig) {
     exit(EXIT_SUCCESS);
 }
 
+#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
+/*
+ * On systems that supports multiple page sizes we may reduce the
+ * number of TLB-misses by using the biggest available page size
+ */
+int enable_large_pages(void) {
+    int ret = -1;
+    size_t sizes[32];
+    int avail = getpagesizes(sizes, 32);
+    if (avail != -1) {
+        size_t max = sizes[0];
+        struct memcntl_mha arg = {0};
+        int ii;
+
+        for (ii = 1; ii < avail; ++ii) {
+            if (max < sizes[ii]) {
+                max = sizes[ii];
+            }
+        }
+
+        arg.mha_flags   = 0;
+        arg.mha_pagesize = max;
+        arg.mha_cmd = MHA_MAPSIZE_BSSBRK;
+
+        if (memcntl(0, 0, MC_HAT_ADVISE, (caddr_t)&arg, 0, 0) == -1) {
+            fprintf(stderr, "Failed to set large pages: %s\n",
+                    strerror(errno));
+            fprintf(stderr, "Will use default page size\n");
+        } else {
+            ret = 0;
+        }
+    } else {
+        fprintf(stderr, "Failed to get supported pagesizes: %s\n",
+                strerror(errno));
+        fprintf(stderr, "Will use default page size\n");
+    }
+
+    return ret;
+}
+#endif
+
 int main (int argc, char **argv) {
     int c;
     int x;
     bool lock_memory = false;
     bool daemonize = false;
+    bool preallocate = false;
     int maxcore = 0;
     char *username = NULL;
     char *pid_file = NULL;
@@ -2833,7 +2885,7 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "a:bp:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:")) != -1) {
+    while ((c = getopt(argc, argv, "a:bp:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:L")) != -1) {
         switch (c) {
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
@@ -2917,6 +2969,13 @@ int main (int argc, char **argv) {
             settings.prefix_delimiter = optarg[0];
             settings.detail_enabled = 1;
             break;
+#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
+        case 'L' :
+            if (enable_large_pages() == 0) {
+                preallocate = true;
+            }
+            break;
+#endif
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
@@ -3056,7 +3115,7 @@ int main (int argc, char **argv) {
     conn_init();
     /* Hacky suffix buffers. */
     suffix_init();
-    slabs_init(settings.maxbytes, settings.factor);
+    slabs_init(settings.maxbytes, settings.factor, preallocate);
 
     /* managed instance? alloc and zero a bucket array */
     if (settings.managed) {

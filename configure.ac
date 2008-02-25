@@ -199,6 +199,8 @@ if test "x$enable_threads" == "xyes"; then
 fi
 
 AC_CHECK_FUNCS(mlockall)
+AC_CHECK_FUNCS(getpagesizes)
+AC_CHECK_FUNCS(memcntl)
 
 AC_CONFIG_FILES(Makefile doc/Makefile)
 AC_OUTPUT
