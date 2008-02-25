@@ -294,6 +294,22 @@ bool do_conn_add_to_freelist(conn *c) {
     return true;
 }
 
+static char *prot_text(const int prot) {
+    char *rv="unknown";
+    switch(prot) {
+        case ascii_prot:
+            rv="ascii";
+            break;
+        case binary_prot:
+            rv="binary";
+            break;
+        case ascii_udp_prot:
+            rv="ascii-udp";
+            break;
+    }
+    return rv;
+}
+
 conn *conn_new(const int sfd, const int init_state, const int event_flags,
                 const int read_buffer_size, const int prot,
                 struct event_base *base) {
@@ -355,7 +371,8 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
 
     if (settings.verbose > 1) {
         if (init_state == conn_listening) {
-            fprintf(stderr, "<%d server listening\n", sfd);
+            fprintf(stderr, "<%d server listening (%s)\n", sfd,
+                prot_text(prot));
         } else if (IS_UDP(prot)) {
             fprintf(stderr, "<%d server listening (udp)\n", sfd);
         } else if (prot == binary_prot) {
@@ -3563,7 +3580,7 @@ int main (int argc, char **argv) {
     if (settings.udpport > 0 && settings.socketpath == NULL) {
         /* create the UDP listening socket and bind it */
         u_socket = server_socket(settings.udpport, ascii_udp_prot,
-			&u_socket_count);
+            &u_socket_count);
         if (u_socket == NULL) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
             exit(EXIT_FAILURE);
