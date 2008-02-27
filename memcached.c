@@ -2456,6 +2456,7 @@ static int server_socket(const int port, const bool is_udp) {
                 return 1;
             }
             close(sfd);
+            continue;
         } else {
           success++;
           if (!is_udp && listen(sfd, 1024) == -1) {
@@ -2491,6 +2492,9 @@ static int server_socket(const int port, const bool is_udp) {
     }
 
     freeaddrinfo(ai);
+
+    if (success == 0)
+        return 1;
 
     return 0;
 }
