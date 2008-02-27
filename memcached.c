@@ -64,7 +64,7 @@ std *
  */
 static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
-static int *server_socket(const int port, const bool is_udp, int *count);
+static int server_socket(const int port, const bool is_udp);
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
 static int try_read_udp(conn *c);
@@ -2391,10 +2391,8 @@ static void maximize_sndbuf(const int sfd) {
 }
 
 
-static int *server_socket(const int port, const bool is_udp, int *count) {
+static int server_socket(const int port, const bool is_udp) {
     int sfd;
-    int *sfd_list;
-    int *sfd_ptr;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
     struct addrinfo *next;
@@ -2430,23 +2428,15 @@ static int *server_socket(const int port, const bool is_udp, int *count) {
       else
         perror("getaddrinfo()");
 
-      return NULL;
+      return 1;
     }
 
-    for (*count= 1, next= ai; next->ai_next; next= next->ai_next, (*count)++);
-
-    sfd_list= (int *)calloc(*count, sizeof(int));
-    if (sfd_list == NULL) {
-        fprintf(stderr, "calloc()\n");
-        return NULL;
-    }
-    memset(sfd_list, -1, sizeof(int) * (*count));
-
-    for (sfd_ptr= sfd_list, next= ai; next; next= next->ai_next, sfd_ptr++) {
+    conn *conn_ptr = NULL;
+    for (next= ai; next; next= next->ai_next) {
+        conn *listen_conn_add;
         if ((sfd = new_socket(next)) == -1) {
-            free(sfd_list);
             freeaddrinfo(ai);
-            return NULL;
+            return 1;
         }
 
         setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
@@ -2461,47 +2451,48 @@ static int *server_socket(const int port, const bool is_udp, int *count) {
         if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) {
             if (errno != EADDRINUSE) {
                 perror("bind()");
-                /* If we are not at the first element, loop back and close all sockets */
-                if (sfd_ptr != sfd_list) {
-                    do {
-                        --sfd_ptr;
-                        close(*sfd_ptr);
-                    } while (sfd_ptr != sfd_list);
-                }
                 close(sfd);
                 freeaddrinfo(ai);
-                free(sfd_list);
-                return NULL;
+                return 1;
             }
             close(sfd);
-            *sfd_ptr= -1;
         } else {
           success++;
-          *sfd_ptr= sfd;
           if (!is_udp && listen(sfd, 1024) == -1) {
               perror("listen()");
-                if (sfd_ptr != sfd_list) {
-                    do {
-                        --sfd_ptr;
-                        close(*sfd_ptr);
-                    } while (sfd_ptr != sfd_list);
-                }
               close(sfd);
               freeaddrinfo(ai);
-              free(sfd_list);
-              return NULL;
+              return 1;
           }
+      }
+
+      if (is_udp)
+      {
+        int c;
+
+        for (c = 0; c < settings.num_threads; c++) {
+            /* this is guaranteed to hit all threads because we round-robin */
+            dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
+                              UDP_READ_BUFFER_SIZE, 1);
+        }
+      } else {
+        if (!(listen_conn_add = conn_new(sfd, conn_listening,
+                                         EV_READ | EV_PERSIST, 1, false, main_base))) {
+            fprintf(stderr, "failed to create listening connection\n");
+            exit(EXIT_FAILURE);
+        }
+
+        if (listen_conn == NULL) {
+            conn_ptr = listen_conn = listen_conn_add;
+        } else {
+            conn_ptr->next= listen_conn_add;
+        }
       }
     }
 
     freeaddrinfo(ai);
 
-    if (success == 0) {
-        free(sfd_list);
-        return NULL;
-    }
-
-    return sfd_list;
+    return 0;
 }
 
 static int new_socket_unix(void) {
@@ -2522,9 +2513,8 @@ static int new_socket_unix(void) {
     return sfd;
 }
 
-static int *server_socket_unix(const char *path, int access_mask) {
+static int server_socket_unix(const char *path, int access_mask) {
     int sfd;
-    int *sfd_list;
     struct linger ling = {0, 0};
     struct sockaddr_un addr;
     struct stat tstat;
@@ -2532,23 +2522,12 @@ static int *server_socket_unix(const char *path, int access_mask) {
     int old_umask;
 
     if (!path) {
-        return NULL;
+        return 1;
     }
 
     if ((sfd = new_socket_unix()) == -1) {
-        return NULL;
+        return 1;
     }
-
-    /*
-      When UNIX domain sockets get refactored, this will go away.
-      For now we know there is just one socket.
-    */
-    sfd_list= (int *)calloc(1, sizeof(int));
-    if (sfd_list == NULL) {
-        fprintf(stderr, "calloc()\n");
-        return NULL;
-    }
-    memset(sfd_list, -1, sizeof(int) * 1);
 
     /*
      * Clean up a previous socket file if we left it around
@@ -2574,21 +2553,22 @@ static int *server_socket_unix(const char *path, int access_mask) {
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
         close(sfd);
-        free(sfd_list);
         umask(old_umask);
-        return NULL;
+        return 1;
     }
     umask(old_umask);
     if (listen(sfd, 1024) == -1) {
         perror("listen()");
         close(sfd);
-        free(sfd_list);
-        return NULL;
+        return 1;
+    }
+    if (!(listen_conn = conn_new(sfd, conn_listening,
+                                     EV_READ | EV_PERSIST, 1, false, main_base))) {
+        fprintf(stderr, "failed to create listening connection\n");
+        exit(EXIT_FAILURE);
     }
 
-    *sfd_list= sfd;
-
-    return sfd_list;
+    return 0;
 }
 
 /*
@@ -2869,7 +2849,6 @@ int main (int argc, char **argv) {
     struct rlimit rlim;
     /* listening socket */
     static int *l_socket = NULL;
-    static int l_socket_count = 0;
 
     /* udp socket */
     static int *u_socket = NULL;
@@ -3028,31 +3007,6 @@ int main (int argc, char **argv) {
         }
     }
 
-    /*
-     * initialization order: first create the listening sockets
-     * (may need root on low ports), then drop root if needed,
-     * then daemonise if needed, then init libevent (in some cases
-     * descriptors created by libevent wouldn't survive forking).
-     */
-
-    /* create the listening socket and bind it */
-    if (settings.socketpath == NULL) {
-        l_socket = server_socket(settings.port, 0, &l_socket_count);
-        if (l_socket == NULL) {
-            fprintf(stderr, "failed to listen\n");
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    if (settings.udpport > 0 && settings.socketpath == NULL) {
-        /* create the UDP listening socket and bind it */
-        u_socket = server_socket(settings.udpport, 1, &u_socket_count);
-        if (u_socket == NULL) {
-            fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
-            exit(EXIT_FAILURE);
-        }
-    }
-
     /* lock paged memory if needed */
     if (lock_memory) {
 #ifdef HAVE_MLOCKALL
@@ -3080,17 +3034,6 @@ int main (int argc, char **argv) {
             fprintf(stderr, "failed to assume identity of user %s\n", username);
             return 1;
         }
-    }
-
-    /* create unix mode sockets after dropping privileges */
-    if (settings.socketpath != NULL) {
-        l_socket = server_socket_unix(settings.socketpath,settings.access);
-        if (l_socket == NULL) {
-          fprintf(stderr, "failed to listen\n");
-          exit(EXIT_FAILURE);
-        }
-        /* We only support one of these, so whe know the count */
-        l_socket_count = 1;
     }
 
     /* daemonize if requested */
@@ -3138,25 +3081,6 @@ int main (int argc, char **argv) {
         perror("failed to ignore SIGPIPE; sigaction");
         exit(EXIT_FAILURE);
     }
-    /* create the initial listening connection */
-    int *l_socket_ptr;
-    conn *next = NULL;
-    for (l_socket_ptr= l_socket, x = 0; x < l_socket_count; l_socket_ptr++, x++) {
-        conn *listen_conn_add;
-        if (*l_socket_ptr > -1 ) {
-            if (!(listen_conn_add = conn_new(*l_socket_ptr, conn_listening,
-                                             EV_READ | EV_PERSIST, 1, false, main_base))) {
-                fprintf(stderr, "failed to create listening connection\n");
-                exit(EXIT_FAILURE);
-            }
-
-            if (listen_conn == NULL) {
-                next = listen_conn = listen_conn_add;
-            } else {
-                next->next= listen_conn_add;
-            }
-        }
-    }
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
     /* save the PID in if we're a daemon, do this after thread_init due to
@@ -3173,14 +3097,38 @@ int main (int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
     delete_handler(0, 0, 0); /* sets up the event */
-    /* create the initial listening udp connection, monitored on all threads */
-    if (u_socket) {
-        for (c = 0; c < settings.num_threads; c++) {
-            /* this is guaranteed to hit all threads because we round-robin */
-            dispatch_conn_new(*u_socket, conn_read, EV_READ | EV_PERSIST,
-                              UDP_READ_BUFFER_SIZE, 1);
+
+    /* create unix mode sockets after dropping privileges */
+    if (settings.socketpath != NULL) {
+        if (server_socket_unix(settings.socketpath,settings.access)) {
+          fprintf(stderr, "failed to listen\n");
+          exit(EXIT_FAILURE);
         }
     }
+
+    /* create the listening socket, bind it, and init */
+    if (settings.socketpath == NULL) {
+        int udp_port;
+
+        if (server_socket(settings.port, 0)) {
+            fprintf(stderr, "failed to listen\n");
+            exit(EXIT_FAILURE);
+        }
+        /*
+         * initialization order: first create the listening sockets
+         * (may need root on low ports), then drop root if needed,
+         * then daemonise if needed, then init libevent (in some cases
+         * descriptors created by libevent wouldn't survive forking).
+         */
+        udp_port = settings.udpport ? settings.udpport : settings.port;
+
+        /* create the UDP listening socket and bind it */
+        if (server_socket(udp_port, 1)) {
+            fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
+            exit(EXIT_FAILURE);
+        }
+    }
+
     /* enter the event loop */
     event_base_loop(main_base, 0);
     /* remove the PID file if we're a daemon */
