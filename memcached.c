@@ -2390,7 +2390,6 @@ static void maximize_sndbuf(const int sfd) {
         fprintf(stderr, "<%d send buffer was %d, now %d\n", sfd, old_size, last_good);
 }
 
-
 static int server_socket(const int port, const bool is_udp) {
     int sfd;
     struct linger ling = {0, 0};
@@ -2431,7 +2430,6 @@ static int server_socket(const int port, const bool is_udp) {
       return 1;
     }
 
-    conn *conn_ptr = NULL;
     for (next= ai; next; next= next->ai_next) {
         conn *listen_conn_add;
         if ((sfd = new_socket(next)) == -1) {
@@ -2483,20 +2481,15 @@ static int server_socket(const int port, const bool is_udp) {
             exit(EXIT_FAILURE);
         }
 
-        if (listen_conn == NULL) {
-            conn_ptr = listen_conn = listen_conn_add;
-        } else {
-            conn_ptr->next= listen_conn_add;
-        }
+        listen_conn_add->next = listen_conn;
+        listen_conn = listen_conn_add;
       }
     }
 
     freeaddrinfo(ai);
 
-    if (success == 0)
-        return 1;
-
-    return 0;
+    /* Return zero iff we detected no errors in starting up connections */
+    return success == 0;
 }
 
 static int new_socket_unix(void) {
