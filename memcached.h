@@ -126,7 +126,6 @@ struct settings {
     int maxconns;
     int port;
     int udpport;
-    int binport;           /* Port for binary protocol. */
     char *inter;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */

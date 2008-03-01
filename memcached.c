@@ -3299,7 +3299,6 @@ static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
     printf("-p <num>      TCP port number to listen on (default: 11211)\n"
            "-U <num>      UDP port number to listen on (default: 0, off)\n"
-           "-B <num>      binary protocol TCP port number to listen on (default: 0, off)\n"
            "-s <file>     unix socket path to listen on (disables network support)\n"
            "-a <mask>     access mask for unix socket, in octal (default 0700)\n"
            "-l <ip_addr>  interface to listen on, default is INDRR_ANY\n"
@@ -3552,9 +3551,6 @@ int main (int argc, char **argv) {
         case 'p':
             settings.port = atoi(optarg);
             break;
-        case 'B':
-            settings.binport = atoi(optarg);
-            break;
         case 's':
             settings.socketpath = optarg;
             break;
@@ -3789,13 +3785,6 @@ int main (int argc, char **argv) {
             exit(EXIT_FAILURE);
         }
 
-        /* Try the binary port. */
-        if(settings.binport > 0) {
-            if(server_socket(settings.binport, binary_prot)) {
-                 fprintf(stderr, "failed to listen to binary protocol\n");
-                    exit(EXIT_FAILURE);
-            }
-        }
         /*
          * initialization order: first create the listening sockets
          * (may need root on low ports), then drop root if needed,
