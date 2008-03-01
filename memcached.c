@@ -306,6 +306,9 @@ static char *prot_text(const int prot) {
         case ascii_udp_prot:
             rv="ascii-udp";
             break;
+        case negotiating_prot:
+            rv="auto-negotiate";
+            break;
     }
     return rv;
 }
@@ -379,6 +382,8 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
             fprintf(stderr, "<%d new binary client connection\n", sfd);
         } else if (prot == ascii_prot) {
             fprintf(stderr, "<%d new ascii client connection\n", sfd);
+        } else if (prot == negotiating_prot) {
+            fprintf(stderr, "<%d new auto-negotiating client connection\n", sfd);
         } else {
             fprintf(stderr, "<%d new unknown (%d) client connection\n",
                 sfd, prot);
@@ -514,6 +519,9 @@ static int get_init_state(conn *c) {
     switch(c->protocol) {
         case binary_prot:
             rv=conn_bin_init;
+            break;
+        case negotiating_prot:
+            rv=conn_negotiate;
             break;
         default:
             rv=conn_read;
@@ -1365,6 +1373,48 @@ static void complete_nread_binary(conn *c) {
     }
 }
 
+static void reinit_bin_connection(conn *c) {
+    if (settings.verbose > 0)
+        fprintf(stderr, "*** Reinitializing binary connection.\n");
+    c->rlbytes = MIN_BIN_PKT_LENGTH;
+    c->write_and_go = conn_bin_init;
+    c->cmd = -1;
+    c->substate = bin_no_state;
+    c->rbytes = c->wbytes = 0;
+    c->ritem = (char*)c->bin_header;
+    c->rcurr = c->rbuf;
+    c->wcurr = c->wbuf;
+    conn_shrink(c);
+    conn_set_state(c, conn_nread);
+}
+
+/* These do the initial protocol switch.  At this point, we should've read
+ * exactly one byte, and must treat that byte as the beginning of a command. */
+static void setup_bin_protocol(conn *c) {
+    char *loc = (char*)c->bin_header;
+    if (settings.verbose > 0)
+        fprintf(stderr, "Negotiated protocol as binary.\n");
+
+    c->protocol = binary_prot;
+    reinit_bin_connection(c);
+    /* Emulate a read of the first byte */
+    c->ritem[0] = c->rbuf[0];
+    c->ritem++;
+    c->rlbytes--;
+}
+
+static void setup_ascii_protocol(conn *c) {
+    if (settings.verbose > 0)
+        fprintf(stderr, "Negotiated protocol as ascii.\n");
+    c->protocol = ascii_prot;
+
+    /* We've already got the first letter of the command, so pretend like we
+     * Did a single byte read from try_read_command */
+    c->rcurr=c->rbuf;
+    c->rbytes=1;
+    conn_set_state(c, conn_read);
+}
+
 static void complete_nread(conn *c) {
     assert(c != NULL);
 
@@ -1372,6 +1422,12 @@ static void complete_nread(conn *c) {
         complete_nread_ascii(c);
     } else if(c->protocol == binary_prot) {
         complete_nread_binary(c);
+    } else if(c->protocol == negotiating_prot) {
+        /* The first byte is either BIN_REQ_MAGIC, or we're speaking ascii */
+        if ((c->rbuf[0] & 0xff) == BIN_REQ_MAGIC)
+            setup_bin_protocol(c);
+        else
+            setup_ascii_protocol(c);
     } else {
         assert(0); /* XXX:  Invalid case.  Should probably do more here. */
     }
@@ -2709,6 +2765,16 @@ static void drive_machine(conn *c) {
 
             break;
 
+        case conn_negotiate:
+            if (settings.verbose > 0)
+                fprintf(stderr, "Negotiating protocol for a new connection\n");
+            c->rlbytes = 1;
+            c->ritem = c->rbuf;
+            c->rcurr = c->rbuf;
+            c->wcurr = c->wbuf;
+            conn_set_state(c, conn_nread);
+            break;
+
         case conn_read:
             if (try_read_command(c) != 0) {
                 continue;
@@ -2727,16 +2793,7 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_bin_init: /* Reinitialize a binary connection */
-            c->rlbytes = MIN_BIN_PKT_LENGTH;
-            c->write_and_go = conn_bin_init;
-            c->cmd = -1;
-            c->substate = bin_no_state;
-            c->rbytes = c->wbytes = 0;
-            c->wcurr = c->wbuf;
-            c->rcurr = c->rbuf;
-            c->ritem = (char*)c->bin_header;
-            conn_set_state(c, conn_nread);
-            conn_shrink(c);
+            reinit_bin_connection(c);
             break;
 
         case conn_nread:
@@ -3727,7 +3784,7 @@ int main (int argc, char **argv) {
     if (settings.socketpath == NULL) {
         int udp_port;
 
-        if (server_socket(settings.port, ascii_prot)) {
+        if (server_socket(settings.port, negotiating_prot)) {
             fprintf(stderr, "failed to listen\n");
             exit(EXIT_FAILURE);
         }

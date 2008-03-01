@@ -185,6 +185,7 @@ enum conn_states {
     conn_closing,    /** closing this connection */
     conn_mwrite,     /** writing out many items sequentially */
     conn_bin_init,   /** Reinitializing a binary protocol connection */
+    conn_negotiate,  /** Negotiating a protocol */
 };
 
 enum bin_substates {
@@ -200,7 +201,8 @@ enum bin_substates {
 enum protocols {
     ascii_prot = 3, /* arbitrary value. */
     ascii_udp_prot,
-    binary_prot
+    binary_prot,
+    negotiating_prot, /* Discovering the protocol */
 };
 
 #define IS_UDP(x) (x == ascii_udp_prot)
