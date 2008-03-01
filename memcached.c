@@ -3436,30 +3436,6 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
-static void setup_listening_conns(int *l_socket, int count, const int prot) {
-    /* create the initial listening connection */
-    int x;
-    int *l_socket_ptr;
-    for (l_socket_ptr= l_socket, x = 0; x < count; l_socket_ptr++, x++) {
-        conn *listen_conn_add;
-        if (*l_socket_ptr > -1 ) {
-            if (!(listen_conn_add = conn_new(*l_socket_ptr, conn_listening,
-                                             EV_READ | EV_PERSIST,
-                                             1, prot, main_base))) {
-                fprintf(stderr, "failed to create listening connection\n");
-                exit(EXIT_FAILURE);
-            }
-
-            if (listen_conn == NULL) {
-                listen_conn = listen_conn_add;
-            } else {
-                listen_conn_add->next = listen_conn->next;
-                listen_conn->next = listen_conn_add;
-            }
-        }
-    }
-}
-
 static void sig_handler(const int sig) {
     printf("SIGINT handled.\n");
     exit(EXIT_SUCCESS);
