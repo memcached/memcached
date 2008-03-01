@@ -1392,7 +1392,7 @@ static void reinit_bin_connection(conn *c) {
  * exactly one byte, and must treat that byte as the beginning of a command. */
 static void setup_bin_protocol(conn *c) {
     char *loc = (char*)c->bin_header;
-    if (settings.verbose > 0)
+    if (settings.verbose > 1)
         fprintf(stderr, "Negotiated protocol as binary.\n");
 
     c->protocol = binary_prot;
@@ -1404,7 +1404,7 @@ static void setup_bin_protocol(conn *c) {
 }
 
 static void setup_ascii_protocol(conn *c) {
-    if (settings.verbose > 0)
+    if (settings.verbose > 1)
         fprintf(stderr, "Negotiated protocol as ascii.\n");
     c->protocol = ascii_prot;
 
@@ -2766,7 +2766,7 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_negotiate:
-            if (settings.verbose > 0)
+            if (settings.verbose > 1)
                 fprintf(stderr, "Negotiating protocol for a new connection\n");
             c->rlbytes = 1;
             c->ritem = c->rbuf;
