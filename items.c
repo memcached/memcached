@@ -106,7 +106,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
          * tries
          */
 
-        if (id > LARGEST_ID) return NULL;
         if (tails[id] == 0) return NULL;
 
         for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
