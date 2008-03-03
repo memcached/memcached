@@ -144,16 +144,18 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
 
 void item_free(item *it) {
     size_t ntotal = ITEM_ntotal(it);
+    unsigned int clsid;
     assert((it->it_flags & ITEM_LINKED) == 0);
     assert(it != heads[it->slabs_clsid]);
     assert(it != tails[it->slabs_clsid]);
     assert(it->refcount == 0);
 
     /* so slab size changer can tell later if item is already free or not */
+    clsid = it->slabs_clsid;
     it->slabs_clsid = 0;
     it->it_flags |= ITEM_SLABBED;
     DEBUG_REFCNT(it, 'F');
-    slabs_free(it, ntotal);
+    slabs_free(it, ntotal, clsid);
 }
 
 /**

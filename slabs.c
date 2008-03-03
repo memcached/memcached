@@ -257,8 +257,7 @@ void *do_slabs_alloc(const size_t size, unsigned int id) {
     return NULL;  /* shouldn't ever get here */
 }
 
-void do_slabs_free(void *ptr, const size_t size) {
-    unsigned char id = slabs_clsid(size);
+void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
 
     assert(((item *)ptr)->slabs_clsid == 0);
