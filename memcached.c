@@ -974,7 +974,7 @@ static void write_and_free(conn *c, char *buf, int bytes) {
         conn_set_state(c, conn_write);
         c->write_and_go = conn_read;
     } else {
-        out_string(c, "SERVER_ERROR out of memory");
+        out_string(c, "SERVER_ERROR out of memory writing stats");
     }
 }
 
@@ -1111,7 +1111,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         int res;
 
         if ((wbuf = (char *)malloc(wsize)) == NULL) {
-            out_string(c, "SERVER_ERROR out of memory");
+            out_string(c, "SERVER_ERROR out of memory writing stats maps");
             return;
         }
 
@@ -1278,7 +1278,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     stats.get_hits   += stats_get_hits;
                     stats.get_misses += stats_get_misses;
                     STATS_UNLOCK();
-                    out_string(c, "SERVER_ERROR out of memory");
+                    out_string(c, "SERVER_ERROR out of memory making CAS suffix");
                     return;
                   }
                   *(c->suffixlist + i) = suffix;
@@ -1347,7 +1347,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     */
     if (key_token->value != NULL || add_iov(c, "END\r\n", 5) != 0
         || (c->udp && build_udp_headers(c) != 0)) {
-        out_string(c, "SERVER_ERROR out of memory");
+        out_string(c, "SERVER_ERROR out of memory writing get response");
     }
     else {
         conn_set_state(c, conn_mwrite);
@@ -1422,7 +1422,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         if (! item_size_ok(nkey, flags, vlen + 2))
             out_string(c, "SERVER_ERROR object too large for cache");
         else
-            out_string(c, "SERVER_ERROR out of memory");
+            out_string(c, "SERVER_ERROR out of memory storing object");
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         c->sbytes = vlen + 2;
@@ -1523,7 +1523,7 @@ char *do_add_delta(item *it, const bool incr, const int64_t delta, char *buf) {
         item *new_it;
         new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
         if (new_it == 0) {
-            return "SERVER_ERROR out of memory";
+            return "SERVER_ERROR out of memory in incr/decr";
         }
         memcpy(ITEM_data(new_it), buf, res);
         memcpy(ITEM_data(new_it) + res, "\r\n", 3);
@@ -1614,7 +1614,7 @@ char *do_defer_delete(item *it, time_t exptime)
              * but we ran out of memory for the delete queue
              */
             item_remove(it);    /* release reference */
-            return "SERVER_ERROR out of memory";
+            return "SERVER_ERROR out of memory expanding delete queue";
         }
     }
 
@@ -1659,7 +1659,7 @@ static void process_command(conn *c, char *command) {
     c->msgused = 0;
     c->iovused = 0;
     if (add_msghdr(c) != 0) {
-        out_string(c, "SERVER_ERROR out of memory");
+        out_string(c, "SERVER_ERROR out of memory preparing response");
         return;
     }
 
@@ -1939,7 +1939,7 @@ static int try_read_network(conn *c) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't realloc input buffer\n");
                 c->rbytes = 0; /* ignore what we read */
-                out_string(c, "SERVER_ERROR out of memory");
+                out_string(c, "SERVER_ERROR out of memory reading request");
                 c->write_and_go = conn_closing;
                 return 1;
             }
