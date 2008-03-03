@@ -218,10 +218,9 @@ static int do_slabs_newslab(const unsigned int id) {
 }
 
 /*@null@*/
-void *do_slabs_alloc(const size_t size) {
+void *do_slabs_alloc(const size_t size, unsigned int id) {
     slabclass_t *p;
 
-    unsigned int id = slabs_clsid(size);
     if (id < POWER_SMALLEST || id > power_largest)
         return NULL;
 

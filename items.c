@@ -88,7 +88,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     if (id == 0)
         return 0;
 
-    it = slabs_alloc(ntotal);
+    it = slabs_alloc(ntotal, id);
     if (it == 0) {
         int tries = 50;
         item *search;
@@ -119,7 +119,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
                 break;
             }
         }
-        it = slabs_alloc(ntotal);
+        it = slabs_alloc(ntotal, id);
         if (it == 0) return NULL;
     }
 

@@ -571,11 +571,11 @@ void mt_assoc_move_next_bucket() {
 
 /******************************* SLAB ALLOCATOR ******************************/
 
-void *mt_slabs_alloc(size_t size) {
+void *mt_slabs_alloc(size_t size, unsigned int id) {
     void *ret;
 
     pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_alloc(size);
+    ret = do_slabs_alloc(size, id);
     pthread_mutex_unlock(&slabs_lock);
     return ret;
 }
