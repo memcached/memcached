@@ -1189,7 +1189,7 @@ static void process_bin_update(conn *c) {
     exptime = ntohl(*((int*)(c->rbuf + 4)));
     vlen = c->bin_header[2] - (nkey + hdrlen);
 
-    if(settings.verbose) {
+    if(settings.verbose > 1) {
         fprintf(stderr, "Value len is %d\n", vlen);
     }
 
@@ -1374,7 +1374,7 @@ static void complete_nread_binary(conn *c) {
 }
 
 static void reinit_bin_connection(conn *c) {
-    if (settings.verbose > 0)
+    if (settings.verbose > 1)
         fprintf(stderr, "*** Reinitializing binary connection.\n");
     c->rlbytes = MIN_BIN_PKT_LENGTH;
     c->write_and_go = conn_bin_init;
