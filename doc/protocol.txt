@@ -409,6 +409,102 @@ threads           32u      Number of worker threads requested.
                            (see doc/threads.txt)
 
 
+Item statistics
+---------------
+CAVEAT: This section describes statistics which are subject to change in the
+future.
+
+The "stats" command with the argument of "items" returns information about
+item storage per slab class. The data is returned in the format:
+
+STAT items:<slabclass>:<stat> <value>\r\n
+
+The server terminates this list with the line
+
+END\r\n
+
+The slabclass aligns with class ids used by the "stats slabs" command. Where
+"stats slabs" describes size and memory usage, "stats items" shows higher
+level information.
+
+The following item values are defined as of writing.
+
+Name                   Meaning
+------------------------------
+number                 Number of items presently stored in this class. Expired
+                       items are not automatically excluded.
+age                    Age of the oldest item in the LRU.
+evicted                Number of times an item had to be evicted from the LRU
+                       before it expired.
+outofmemory            Number of times the underlying slab class was unable to
+                       store a new item. This means you are running with -M or
+                       an eviction failed.
+
+Note this will only display information about slabs which exist, so an empty
+cache will return an empty set.
+
+
+Item size statistics
+--------------------
+CAVEAT: This section describes statistics which are subject to change in the
+future.
+
+The "stats" command with the argument of "sizes" returns information about the
+general size and count of all items stored in the cache.
+WARNING: This command WILL lock up your cache! It iterates over *every item*
+and examines the size. While the operation is fast, if you have many items 
+you could prevent memcached from serving requests for several seconds.
+
+The data is returned in the following format:
+
+<size> <count>\r\n
+
+The server terminates this list with the line
+
+END\r\n
+
+'size' is an approximate size of the item, within 32 bytes.
+'count' is the amount of items that exist within that 32-byte range.
+
+This is essentially a display of all of your items if there was a slab class
+for every 32 bytes. You can use this to determine if adjusting the slab growth
+factor would save memory overhead. For example: generating more classes in the 
+lower range could allow items to fit more snugly into their slab classes, if
+most of your items are less than 200 bytes in size.
+
+
+Slab statistics
+---------------
+CAVEAT: This section describes statistics which are subject to change in the
+future.
+
+The "stats" command with the argument of "slabs" returns information about
+each of the slabs created by memcached during runtime. This includes per-slab
+information along with some totals. The data is returned in the format:
+
+STAT <slabclass>:<stat> <value>\r\n
+STAT <stat> <value>\r\n
+
+The server terminates this list with the line
+
+END\r\n
+
+Name                   Meaning
+------------------------------
+chunk_size             The amount of space each chunk uses. One item will use
+                       one chunk of the appropriate size.
+chunks_per_page        How many chunks exist within one page. A page by
+                       default is one megabyte in size. Slabs are allocated per 
+                       page, then broken into chunks.
+total_pages            Total number of pages allocated to the slab class.
+total_chunks           Total number of chunks allocated to the slab class.
+used_chunks            How many chunks have been allocated to items.
+free_chunks            Chunks not yet allocated to items, or freed via delete.
+free_chunks_end        Number of free chunks at the end of the last allocated
+                       page.
+active_slabs           Total number of slab classes allocated.
+total_malloced         Total amount of memory allocated to slab pages.
+
 
 Other commands
 --------------
