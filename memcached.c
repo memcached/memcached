@@ -65,7 +65,7 @@ std *
  */
 static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
-static int server_socket(const int port, const int prot);
+static int server_socket(const int port, enum protocol prot);
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
 static int try_read_udp(conn *c);
@@ -314,7 +314,7 @@ static char *prot_text(const int prot) {
 }
 
 conn *conn_new(const int sfd, const int init_state, const int event_flags,
-                const int read_buffer_size, const int prot,
+                const int read_buffer_size, enum protocol prot,
                 struct event_base *base) {
     conn *c = conn_from_freelist();
 
@@ -3042,7 +3042,7 @@ static void maximize_sndbuf(const int sfd) {
         fprintf(stderr, "<%d send buffer was %d, now %d\n", sfd, old_size, last_good);
 }
 
-static int server_socket(const int port, const int prot) {
+static int server_socket(const int port, enum protocol prot) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
