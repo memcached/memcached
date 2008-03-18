@@ -294,7 +294,7 @@ bool do_conn_add_to_freelist(conn *c) {
     return true;
 }
 
-static char *prot_text(const int prot) {
+static char *prot_text(enum protocol prot) {
     char *rv="unknown";
     switch(prot) {
         case ascii_prot:
