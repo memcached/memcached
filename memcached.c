@@ -998,21 +998,6 @@ static void complete_incr_bin(conn *c) {
         fprintf(stderr, " %lld, %llu, %d\n", delta, initial, exptime);
     }
 
-    /* XXX:  Not sure what to do with these yet
-    if (settings.managed) {
-        int bucket = c->bucket;
-        if (bucket == -1) {
-            out_string(c, "CLIENT_ERROR no BG data in managed mode");
-            return;
-        }
-        c->bucket = -1;
-        if (buckets[bucket] != c->gen) {
-            out_string(c, "ERROR_NOT_OWNER");
-            return;
-        }
-    }
-    */
-
     it = item_get(key, nkey);
     if (it) {
         /* Weird magic in add_delta forces me to pad here */
@@ -1198,21 +1183,6 @@ static void process_bin_update(conn *c) {
         stats_prefix_record_set(key);
     }
 
-    /* Not sure what to do with this.
-    if (settings.managed) {
-        int bucket = c->bucket;
-        if (bucket == -1) {
-            out_string(c, "CLIENT_ERROR no BG data in managed mode");
-            return;
-        }
-        c->bucket = -1;
-        if (buckets[bucket] != c->gen) {
-            out_string(c, "ERROR_NOT_OWNER");
-            return;
-        }
-    }
-    */
-
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
 
     if (it == 0) {
@@ -1260,21 +1230,6 @@ static void process_bin_delete(conn *c) {
     time_t exptime = 0;
 
     assert(c != NULL);
-
-    /* XXX:  I don't know what to do with this yet
-    if (settings.managed) {
-        int bucket = c->bucket;
-        if (bucket == -1) {
-            out_string(c, "CLIENT_ERROR no BG data in managed mode");
-            return;
-        }
-        c->bucket = -1;
-        if (buckets[bucket] != c->gen) {
-            out_string(c, "ERROR_NOT_OWNER");
-            return;
-        }
-    }
-    */
 
     exptime = ntohl(*((int*)(c->rbuf)));
     key = c->rbuf + 4;
