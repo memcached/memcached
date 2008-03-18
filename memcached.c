@@ -865,7 +865,7 @@ static void complete_nread_ascii(conn *c) {
 
 static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
     int i=0;
-    uint32_t res_header[BIN_PKT_HDR_WORDS];
+    uint32_t *res_header;
 
     assert(c);
     assert(body_len >= 0);
@@ -878,6 +878,8 @@ static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
         out_string(c, "SERVER_ERROR out of memory");
         return;
     }
+
+    res_header = (uint32_t *)c->wbuf;
 
     res_header[0] = BIN_RES_MAGIC << 24;
     res_header[0] |= ((0xff & c->cmd) << 16);
@@ -898,7 +900,6 @@ static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
     }
 
     assert(c->wsize >= MIN_BIN_PKT_LENGTH);
-    memcpy(c->wbuf, &res_header, MIN_BIN_PKT_LENGTH);
     add_iov(c, c->wbuf, MIN_BIN_PKT_LENGTH);
 }
 
