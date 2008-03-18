@@ -217,7 +217,7 @@ typedef struct conn conn;
 struct conn {
     int    sfd;
     enum conn_states  state;
-    int    substate;
+    enum bin_substates substate;
     struct event event;
     short  ev_flags;
     short  which;   /** which events were just triggered */

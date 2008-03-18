@@ -1122,7 +1122,7 @@ static void process_bin_get(conn *c) {
     }
 }
 
-static void bin_read_key(conn *c, int next_substate, int extra) {
+static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
     assert(c);
     c->substate = next_substate;
     c->rlbytes = c->keylen + extra;
