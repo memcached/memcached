@@ -979,7 +979,7 @@ static void complete_incr_bin(conn *c) {
     char *key;
     size_t nkey;
     int i;
-    uint64_t *responseBuf = (uint64_t*) c->wbuf + BIN_INCR_HDR_LEN;
+    uint64_t *response_buf = (uint64_t*) c->wbuf + BIN_INCR_HDR_LEN;
 
     assert(c != NULL);
 
@@ -1007,21 +1007,21 @@ static void complete_incr_bin(conn *c) {
         memset(tmpbuf, ' ', INCR_MAX_STORAGE_LEN);
         tmpbuf[INCR_MAX_STORAGE_LEN]=0x00;
         add_delta(it, c->cmd == CMD_INCR, delta, tmpbuf);
-        *responseBuf=swap64(strtoull(tmpbuf, NULL, 10));
+        *response_buf=swap64(strtoull(tmpbuf, NULL, 10));
 
-        write_bin_response(c, responseBuf, BIN_INCR_HDR_LEN, INCR_RES_LEN);
+        write_bin_response(c, response_buf, BIN_INCR_HDR_LEN, INCR_RES_LEN);
         item_remove(it);         /* release our reference */
     } else {
         if(exptime >= 0) {
             /* Save some room for the response */
             assert(c->wsize > BIN_INCR_HDR_LEN + BIN_DEL_HDR_LEN);
-            *responseBuf=swap64(initial);
+            *response_buf=swap64(initial);
             it = item_alloc(key, nkey, 0, realtime(exptime),
                 INCR_MAX_STORAGE_LEN);
             snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu", initial);
 
             if(store_item(it, NREAD_SET)) {
-                write_bin_response(c, responseBuf, BIN_INCR_HDR_LEN,
+                write_bin_response(c, response_buf, BIN_INCR_HDR_LEN,
                     INCR_RES_LEN);
             } else {
                 write_bin_error(c, ERR_NOT_STORED, 0);
