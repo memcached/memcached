@@ -165,7 +165,7 @@ static void stats_reset(void) {
 }
 
 static void settings_init(void) {
-    settings.access=0700;
+    settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 0;
     /* By default this string should be NULL for getaddrinfo() */
@@ -295,19 +295,19 @@ bool do_conn_add_to_freelist(conn *c) {
 }
 
 static char *prot_text(enum protocol prot) {
-    char *rv="unknown";
+    char *rv = "unknown";
     switch(prot) {
         case ascii_prot:
-            rv="ascii";
+            rv = "ascii";
             break;
         case binary_prot:
-            rv="binary";
+            rv = "binary";
             break;
         case ascii_udp_prot:
-            rv="ascii-udp";
+            rv = "ascii-udp";
             break;
         case negotiating_prot:
-            rv="auto-negotiate";
+            rv = "auto-negotiate";
             break;
     }
     return rv;
@@ -350,7 +350,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
                 c->msglist == 0 || c->suffixlist == 0) {
             if (c->rbuf != 0) free(c->rbuf);
             if (c->wbuf != 0) free(c->wbuf);
-            if (c->ilist !=0) free(c->ilist);
+            if (c->ilist != 0) free(c->ilist);
             if (c->suffixlist != 0) free(c->suffixlist);
             if (c->iov != 0) free(c->iov);
             if (c->msglist != 0) free(c->msglist);
@@ -514,18 +514,18 @@ static void conn_close(conn *c) {
 }
 
 static enum conn_states get_init_state(conn *c) {
-    int rv=0;
+    int rv = 0;
     assert(c != NULL);
 
     switch(c->protocol) {
         case binary_prot:
-            rv=conn_bin_init;
+            rv = conn_bin_init;
             break;
         case negotiating_prot:
-            rv=conn_negotiate;
+            rv = conn_negotiate;
             break;
         default:
-            rv=conn_read;
+            rv = conn_read;
     }
     return rv;
 }
@@ -864,7 +864,7 @@ static void complete_nread_ascii(conn *c) {
 }
 
 static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
-    int i=0;
+    int i = 0;
     uint32_t *res_header;
 
     assert(c);
@@ -895,7 +895,7 @@ static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
             res_header[0], res_header[1], res_header[2], res_header[3]);
     }
 
-    for(i=0; i<BIN_PKT_HDR_WORDS; i++) {
+    for(i = 0; i<BIN_PKT_HDR_WORDS; i++) {
         res_header[i] = htonl(res_header[i]);
     }
 
@@ -904,28 +904,28 @@ static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
 }
 
 static void write_bin_error(conn *c, int err, int swallow) {
-    char *errstr="Unknown error";
+    char *errstr = "Unknown error";
     switch(err) {
         case ERR_UNKNOWN_CMD:
-            errstr="Unknown command";
+            errstr = "Unknown command";
             break;
         case ERR_NOT_FOUND:
-            errstr="Not found";
+            errstr = "Not found";
             break;
         case ERR_INVALID_ARGUMENTS:
-            errstr="Invalid arguments";
+            errstr = "Invalid arguments";
             break;
         case ERR_EXISTS:
-            errstr="Data exists for key.";
+            errstr = "Data exists for key.";
             break;
         case ERR_TOO_LARGE:
-            errstr="Too large.";
+            errstr = "Too large.";
             break;
         case ERR_NOT_STORED:
-            errstr="Not stored.";
+            errstr = "Not stored.";
             break;
         default:
-            errstr="UNHANDLED ERROR";
+            errstr = "UNHANDLED ERROR";
             fprintf(stderr, "UNHANDLED ERROR:  %d\n", err);
     }
     if(settings.verbose > 0) {
@@ -936,7 +936,7 @@ static void write_bin_error(conn *c, int err, int swallow) {
 
     conn_set_state(c, conn_mwrite);
     if(swallow > 0) {
-        c->sbytes=swallow;
+        c->sbytes = swallow;
         c->write_and_go = conn_swallow;
     } else {
         c->write_and_go = conn_bin_init;
@@ -958,9 +958,9 @@ static int64_t swap64(int64_t in) {
 #ifdef ENDIAN_LITTLE
     /* Little endian, flip the bytes around until someone makes a faster/better
     * way to do this. */
-    int64_t rv=0;
-    int i=0;
-     for(i=0; i<8; i++) {
+    int64_t rv = 0;
+    int i = 0;
+     for(i = 0; i<8; i++) {
         rv = (rv << 8) | (in & 0xff);
         in >>= 8;
      }
@@ -983,9 +983,9 @@ static void complete_incr_bin(conn *c) {
 
     assert(c != NULL);
 
-    key=c->rbuf + BIN_INCR_HDR_LEN;
-    nkey=c->keylen;
-    key[nkey]=0x00;
+    key = c->rbuf + BIN_INCR_HDR_LEN;
+    nkey = c->keylen;
+    key[nkey] = 0x00;
 
     delta = swap64(*((int64_t*)(c->rbuf)));
     initial = (uint64_t)swap64(*((int64_t*)(c->rbuf + 8)));
@@ -993,7 +993,7 @@ static void complete_incr_bin(conn *c) {
 
     if(settings.verbose) {
         fprintf(stderr, "incr ");
-        for(i=0; i<nkey; i++) {
+        for(i = 0; i<nkey; i++) {
             fprintf(stderr, "%c", key[i]);
         }
         fprintf(stderr, " %lld, %llu, %d\n", delta, initial, exptime);
@@ -1003,11 +1003,11 @@ static void complete_incr_bin(conn *c) {
     if (it) {
         /* Weird magic in add_delta forces me to pad here */
         char tmpbuf[INCR_MAX_STORAGE_LEN];
-        uint64_t l=0;
+        uint64_t l = 0;
         memset(tmpbuf, ' ', INCR_MAX_STORAGE_LEN);
-        tmpbuf[INCR_MAX_STORAGE_LEN]=0x00;
+        tmpbuf[INCR_MAX_STORAGE_LEN] = 0x00;
         add_delta(it, c->cmd == CMD_INCR, delta, tmpbuf);
-        *response_buf=swap64(strtoull(tmpbuf, NULL, 10));
+        *response_buf = swap64(strtoull(tmpbuf, NULL, 10));
 
         write_bin_response(c, response_buf, BIN_INCR_HDR_LEN, INCR_RES_LEN);
         item_remove(it);         /* release our reference */
@@ -1015,7 +1015,7 @@ static void complete_incr_bin(conn *c) {
         if(exptime >= 0) {
             /* Save some room for the response */
             assert(c->wsize > BIN_INCR_HDR_LEN + BIN_DEL_HDR_LEN);
-            *response_buf=swap64(initial);
+            *response_buf = swap64(initial);
             it = item_alloc(key, nkey, 0, realtime(exptime),
                 INCR_MAX_STORAGE_LEN);
             snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu", initial);
@@ -1034,7 +1034,7 @@ static void complete_incr_bin(conn *c) {
 }
 
 static void complete_update_bin(conn *c) {
-    int eno=-1, ret=0;
+    int eno = -1, ret = 0;
     assert(c != NULL);
 
     item *it = c->item;
@@ -1061,11 +1061,11 @@ static void complete_update_bin(conn *c) {
             break;
         default:
             if(c->item_comm == NREAD_ADD) {
-                eno=ERR_EXISTS;
+                eno = ERR_EXISTS;
             } else if(c->item_comm == NREAD_REPLACE) {
-                eno=ERR_NOT_FOUND;
+                eno = ERR_NOT_FOUND;
             } else {
-                eno=ERR_NOT_STORED;
+                eno = ERR_NOT_STORED;
             }
             write_bin_error(c, eno, 0);
     }
@@ -1086,15 +1086,15 @@ static void process_bin_get(conn *c) {
 
         /* This is a bit of magic.  I'm using wbuf as the header, so I'll place
         this is int in far enough to cover the header */
-        flags=(int*)(c->wbuf + MIN_BIN_PKT_LENGTH);
-        *flags=htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        flags = (int*)(c->wbuf + MIN_BIN_PKT_LENGTH);
+        *flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
 
         /* the length has two unnecessary bytes, and then we write four more */
         add_bin_header(c, 0, GET_RES_HDR_LEN, it->nbytes - 2 + GET_RES_HDR_LEN);
         /* Flags */
         add_iov(c, flags, 4);
-        identifier=(uint64_t*)(c->wbuf + MIN_BIN_PKT_LENGTH + 4);
-        *identifier=swap64((uint32_t)it->cas_id);
+        identifier = (uint64_t*)(c->wbuf + MIN_BIN_PKT_LENGTH + 4);
+        *identifier = swap64((uint32_t)it->cas_id);
         add_iov(c, identifier, 8);
         /* bytes minus the CRLF */
         add_iov(c, ITEM_data(it), it->nbytes - 2);
@@ -1164,13 +1164,13 @@ static void process_bin_update(conn *c) {
     int exptime;
     item *it;
     int comm;
-    int hdrlen=BIN_SET_HDR_LEN;
+    int hdrlen = BIN_SET_HDR_LEN;
 
     assert(c != NULL);
 
-    key=c->rbuf + hdrlen;
-    nkey=c->keylen;
-    key[nkey]=0x00;
+    key = c->rbuf + hdrlen;
+    nkey = c->keylen;
+    key[nkey] = 0x00;
 
     flags = ntohl(*((int*)(c->rbuf)));
     exptime = ntohl(*((int*)(c->rbuf + 4)));
@@ -1235,7 +1235,7 @@ static void process_bin_delete(conn *c) {
     exptime = ntohl(*((int*)(c->rbuf)));
     key = c->rbuf + 4;
     nkey = c->keylen;
-    key[nkey]=0x00;
+    key[nkey] = 0x00;
 
     if(settings.verbose) {
         fprintf(stderr, "Deleting %s with a timeout of %d\n", key, exptime);
@@ -1253,7 +1253,7 @@ static void process_bin_delete(conn *c) {
             write_bin_response(c, NULL, 0, 0);
         } else {
             /* XXX:  This is really lame, but defer_delete returns a string */
-            char *res=defer_delete(it, exptime);
+            char *res = defer_delete(it, exptime);
             if(res[0] == 'D') {
                 write_bin_response(c, NULL, 0, 0);
             } else {
@@ -1270,10 +1270,10 @@ static void complete_nread_binary(conn *c) {
 
     if(c->cmd < 0) {
         /* No command defined.  Figure out what they're trying to say. */
-        int i=0;
+        int i = 0;
         /* I did a bit of hard-coding around the packet sizes */
         assert(BIN_PKT_HDR_WORDS == 3);
-        for(i=0; i<BIN_PKT_HDR_WORDS; i++) {
+        for(i = 0; i<BIN_PKT_HDR_WORDS; i++) {
             c->bin_header[i] = ntohl(c->bin_header[i]);
         }
         if(settings.verbose) {
@@ -1367,8 +1367,8 @@ static void setup_ascii_protocol(conn *c) {
 
     /* We've already got the first letter of the command, so pretend like we
      * Did a single byte read from try_read_command */
-    c->rcurr=c->rbuf;
-    c->rbytes=1;
+    c->rcurr = c->rbuf;
+    c->rbytes = 1;
     conn_set_state(c, conn_read);
 }
 
@@ -2112,7 +2112,7 @@ char *do_add_delta(item *it, const bool incr, const int64_t delta, char *buf) {
         value -= delta;
     }
     if(value < 0) {
-        value=0;
+        value = 0;
     }
     sprintf(buf, "%llu", value);
     res = strlen(buf);
@@ -2664,7 +2664,7 @@ static int transmit(conn *c) {
             }
             return TRANSMIT_SOFT_ERROR;
         }
-        /* if res==0 or res==-1 and error is not EAGAIN or EWOULDBLOCK,
+        /* if res == 0 or res == -1 and error is not EAGAIN or EWOULDBLOCK,
            we have a real error, on which we close the connection */
         if (settings.verbose > 0)
             perror("Failed to write, and not due to blocking");
@@ -3154,7 +3154,7 @@ static int server_socket_unix(const char *path, int access_mask) {
 
     addr.sun_family = AF_UNIX;
     strcpy(addr.sun_path, path);
-    old_umask=umask( ~(access_mask&0777));
+    old_umask = umask( ~(access_mask&0777));
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
         close(sfd);
@@ -3674,7 +3674,7 @@ int main (int argc, char **argv) {
     }
 
     /*
-     * ignore SIGPIPE signals; we can use errno==EPIPE if we
+     * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
      */
     sa.sa_handler = SIG_IGN;
