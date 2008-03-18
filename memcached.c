@@ -69,7 +69,7 @@ static int server_socket(const int port, enum protocol prot);
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
 static int try_read_udp(conn *c);
-static void conn_set_state(conn *, int);
+static void conn_set_state(conn *c, enum conn_states state);
 
 /* stats */
 static void stats_reset(void);
@@ -313,7 +313,8 @@ static char *prot_text(enum protocol prot) {
     return rv;
 }
 
-conn *conn_new(const int sfd, const int init_state, const int event_flags,
+conn *conn_new(const int sfd, enum conn_states init_state,
+                const int event_flags,
                 const int read_buffer_size, enum protocol prot,
                 struct event_base *base) {
     conn *c = conn_from_freelist();
@@ -512,7 +513,7 @@ static void conn_close(conn *c) {
     return;
 }
 
-static int get_init_state(conn *c) {
+static enum conn_states get_init_state(conn *c) {
     int rv=0;
     assert(c != NULL);
 
@@ -600,7 +601,7 @@ static void conn_shrink(conn *c) {
  * processing that needs to happen on certain state transitions can
  * happen here.
  */
-static void conn_set_state(conn *c, int state) {
+static void conn_set_state(conn *c, enum conn_states state) {
     assert(c != NULL);
 
     if (state != c->state) {
@@ -2725,7 +2726,7 @@ static int transmit(conn *c) {
 static void drive_machine(conn *c) {
     bool stop = false;
     int sfd, flags = 1;
-    int init_state; /* initial state for a new connection */
+    enum conn_states init_state; /* initial state for a new connection */
     socklen_t addrlen;
     struct sockaddr_storage addr;
     int res;

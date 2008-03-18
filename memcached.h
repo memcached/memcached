@@ -216,7 +216,7 @@ enum protocol {
 typedef struct conn conn;
 struct conn {
     int    sfd;
-    int    state;
+    enum conn_states  state;
     int    substate;
     struct event event;
     short  ev_flags;
@@ -314,7 +314,7 @@ char *do_defer_delete(item *item, time_t exptime);
 void do_run_deferred_deletes(void);
 char *do_add_delta(item *item, const bool incr, const int64_t delta, char *buf);
 int do_store_item(item *item, int comm);
-conn *conn_new(const int sfd, const int init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
+conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
 
 
 #include "stats.h"
@@ -340,7 +340,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags, const
 
 void thread_init(int nthreads, struct event_base *main_base);
 int  dispatch_event_add(int thread, conn *c);
-void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer_size, enum protocol prot);
+void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum protocol prot);
 
 /* Lock wrappers for cache functions that are called from main loop. */
 char *mt_add_delta(item *item, const int incr, const int64_t delta, char *buf);
