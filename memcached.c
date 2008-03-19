@@ -1084,19 +1084,26 @@ static void process_bin_get(conn *c) {
 
         assert(c->rsize >= MIN_BIN_PKT_LENGTH + 4);
 
-        /* This is a bit of magic.  I'm using wbuf as the header, so I'll place
-        this is int in far enough to cover the header */
-        flags = (int*)(c->wbuf + MIN_BIN_PKT_LENGTH);
-        *flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
-
         /* the length has two unnecessary bytes, and then we write four more */
         add_bin_header(c, 0, GET_RES_HDR_LEN, it->nbytes - 2 + GET_RES_HDR_LEN);
-        /* Flags */
-        add_iov(c, flags, 4);
-        identifier = (uint64_t*)(c->wbuf + MIN_BIN_PKT_LENGTH + 4);
-        *identifier = swap64((uint32_t)it->cas_id);
+
+        /* Add the "extras" field: CAS-id followed by flags. The cas is a 64-
+           bit datatype and require alignment to 8-byte boundaries on some
+           architechtures. Verify that the size of the packet header is of
+           the correct size (if not the following code generates SIGBUS on
+           sparc hardware).
+        */
+        assert(MIN_BIN_PKT_LENGTH % 8 == 0);
+        identifier = (uint64_t*)(c->wbuf + MIN_BIN_PKT_LENGTH);
+        *identifier = swap64(it->cas_id);
         add_iov(c, identifier, 8);
-        /* bytes minus the CRLF */
+
+        /* Add the flags */
+        flags = (int*)(c->wbuf + MIN_BIN_PKT_LENGTH + 8);
+        *flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        add_iov(c, flags, 4);
+
+        /* Add the data minus the CRLF */
         add_iov(c, ITEM_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
     } else {
@@ -1172,8 +1179,8 @@ static void process_bin_update(conn *c) {
     nkey = c->keylen;
     key[nkey] = 0x00;
 
-    flags = ntohl(*((int*)(c->rbuf)));
-    exptime = ntohl(*((int*)(c->rbuf + 4)));
+    flags = ntohl(*((int*)(c->rbuf + 8)));
+    exptime = ntohl(*((int*)(c->rbuf + 12)));
     vlen = c->bin_header[2] - (nkey + hdrlen);
 
     if(settings.verbose > 1) {
@@ -1197,7 +1204,7 @@ static void process_bin_update(conn *c) {
         return;
     }
 
-    it->cas_id = (uint64_t)swap64(*((int64_t*)(c->rbuf + 8)));
+    it->cas_id = (uint64_t)swap64(*((int64_t*)(c->rbuf)));
 
     switch(c->cmd) {
         case CMD_ADD:
@@ -1288,7 +1295,7 @@ static void complete_nread_binary(conn *c) {
             conn_set_state(c, conn_closing);
             return;
         }
-    
+
         c->msgcurr = 0;
         c->msgused = 0;
         c->iovused = 0;
@@ -1296,7 +1303,7 @@ static void complete_nread_binary(conn *c) {
             out_string(c, "SERVER_ERROR out of memory");
             return;
         }
-    
+
         c->cmd = (c->bin_header[0] >> 16) & 0xff;
         c->keylen = c->bin_header[0] & 0xffff;
         c->opaque = c->bin_header[3];
