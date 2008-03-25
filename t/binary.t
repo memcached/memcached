@@ -14,11 +14,12 @@ use constant CMD_ADD     => 2;
 use constant CMD_REPLACE => 3;
 use constant CMD_DELETE  => 4;
 use constant CMD_INCR    => 5;
-use constant CMD_QUIT    => 6;
-use constant CMD_FLUSH   => 7;
-use constant CMD_GETQ    => 8;
-use constant CMD_NOOP    => 9;
-use constant CMD_VERSION => 10;
+use constant CMD_DECR    => 6;
+use constant CMD_QUIT    => 7;
+use constant CMD_FLUSH   => 8;
+use constant CMD_GETQ    => 9;
+use constant CMD_NOOP    => 10;
+use constant CMD_VERSION => 11;
 
 use constant CMD_GETS    => 50;
 use constant CMD_CAS     => 51;
@@ -35,10 +36,10 @@ use constant DEL_PKT_FMT => "N";
 # amount, initial value, expiration
 use constant INCRDECR_PKT_FMT => "NNNNN";
 
-use constant REQ_MAGIC_BYTE => 0x0f;
-use constant RES_MAGIC_BYTE => 0xf0;
+use constant REQ_MAGIC_BYTE => 0x80;
+use constant RES_MAGIC_BYTE => 0x80;
 
-use constant PKT_FMT => "CCCxNN";
+use constant PKT_FMT => "CCSCxxxNN";
 
 #min recv packet size
 use constant MIN_RECV_PACKET => length(pack(PKT_FMT));
@@ -70,12 +71,13 @@ my $delete = sub {
 	$empty->($key);
 };
 
+diag "Flushing...";
 $mc->flush;
 
 {
 	diag "Test Version";
 	my $v = $mc->version;
-	ok(defined $v && length($v), "Proper version");
+	ok(defined $v && length($v), "Proper version: $v");
 }
 
 diag "Noop";
@@ -242,7 +244,7 @@ sub new {
 	my $self = shift;
 
 	my $host = shift || '127.0.0.1';
-	my $port = shift || 11212;
+	my $port = shift || 11211;
 
 	my $sock = IO::Socket::INET->new(PeerHost => $host, PeerPort => $port);
 
@@ -274,7 +276,8 @@ sub _sendCmd {
 	my $vallen = length($val);
 	my $extralen = length($extraHeader);
 
-	my $msg = pack(::PKT_FMT, ::REQ_MAGIC_BYTE, $cmd, $keylen, $opaque, $keylen + $vallen + $extralen);
+	my $msg = pack(::PKT_FMT, ::REQ_MAGIC_BYTE, $cmd, $keylen, $extralen,
+                    $keylen + $vallen + $extralen, $opaque);
 	return $self->{socket}->send($msg . $extraHeader . $key . $val);
 }
 
@@ -286,7 +289,8 @@ sub _handleSingleResponse {
 
 	Test::More::is(length($response), ::MIN_RECV_PACKET, "Expected read length");
 
-	my ($magic, $cmd, $errcode, $opaque, $remaining) = unpack(::PKT_FMT, $response);
+	my ($magic, $cmd, $errcode, $extralen, $remaining,
+        $opaque) = unpack(::PKT_FMT, $response);
 
 	Test::More::is($magic, ::RES_MAGIC_BYTE, "Got proper magic");
 
