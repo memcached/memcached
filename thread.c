@@ -367,8 +367,8 @@ static int last_thread = -1;
  * from the main thread, either during initialization (for UDP) or because
  * of an incoming connection.
  */
-void dispatch_conn_new(int sfd, int init_state, int event_flags,
-                       int read_buffer_size, int prot) {
+void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
+                       int read_buffer_size, enum protocol prot) {
     CQ_ITEM *item = cqi_new();
     int thread = (last_thread + 1) % settings.num_threads;
 

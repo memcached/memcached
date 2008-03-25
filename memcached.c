@@ -60,6 +60,10 @@ std *
 #endif
 #endif
 
+#ifndef HAVE_DAEMON
+extern int daemon(int nochdir, int noclose);
+#endif
+
 /*
  * forward declarations
  */
@@ -881,7 +885,7 @@ static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
 
     res_header = (uint32_t *)c->wbuf;
 
-    res_header[0] = BIN_RES_MAGIC << 24;
+    res_header[0] = ((uint32_t)BIN_RES_MAGIC) << 24;
     res_header[0] |= ((0xff & c->cmd) << 16);
     res_header[0] |= err & 0xffff;
 
