@@ -24,8 +24,8 @@ use constant CMD_VERSION => 11;
 use constant CMD_GETS    => 50;
 use constant CMD_CAS     => 51;
 
-# Flags, expiration
-use constant SET_PKT_FMT => "NN";
+# CAS, Flags, expiration
+use constant SET_PKT_FMT => "NNNN";
 
 # Flags, expiration, id
 use constant CAS_PKT_FMT => "NNNN";
@@ -39,7 +39,7 @@ use constant INCRDECR_PKT_FMT => "NNNNN";
 use constant REQ_MAGIC_BYTE => 0x80;
 use constant RES_MAGIC_BYTE => 0x80;
 
-use constant PKT_FMT => "CCSCxxxNN";
+use constant PKT_FMT => "CCnCxxxNN";
 
 #min recv packet size
 use constant MIN_RECV_PACKET => length(pack(PKT_FMT));
@@ -329,6 +329,7 @@ sub _doCmd {
 sub __parseGet {
 	my $self = shift;
 	my $rv = shift; # currently contains 4 bytes of 'flag' followed by value
+    my $cas  = substr $rv, 0, 8, ''; # $cas contains CAS value, $rv has f, v.
 	my $flag = substr $rv, 0, 4, ''; # Now $flag contains flags, $rv contains value
 	return unpack("N", $flag), $rv;
 }
@@ -344,7 +345,7 @@ sub _mutate {
 	my $self = shift;
 	my ($cmd, $key, $exp, $flags, $val) = @_;
 
-	return $self->_doCmd($cmd, $key, $val, pack(::SET_PKT_FMT, $flags, $exp));
+	return $self->_doCmd($cmd, $key, $val, pack(::SET_PKT_FMT, 0, 0, $flags, $exp));
 }
 
 sub set {
