@@ -3175,7 +3175,8 @@ static int server_socket_unix(const char *path, int access_mask) {
         return 1;
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
-                                     EV_READ | EV_PERSIST, 1, false, main_base))) {
+                                 EV_READ | EV_PERSIST, 1,
+                                 negotiating_prot, main_base))) {
         fprintf(stderr, "failed to create listening connection\n");
         exit(EXIT_FAILURE);
     }
