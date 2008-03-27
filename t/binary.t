@@ -365,7 +365,11 @@ sub __incrdecr {
 	my $init_hi = int($init / 2 ** 32);
 	my $init_lo = int($init % 2 ** 32);
 
-	return $self->_doCmd($cmd, $key, '', pack(::INCRDECR_PKT_FMT, $amt_hi, $amt_lo, $init_hi, $init_lo, $exp));
+	my $data = $self->_doCmd($cmd, $key, '', pack(::INCRDECR_PKT_FMT, $amt_hi, $amt_lo, $init_hi, $init_lo, $exp));
+	my $header = substr $data, 0, 12, '';
+	my ($resp_hi, $resp_lo) = unpack "NN", $header;
+	my $resp = ($resp_hi * 2 ** 32) + $resp_lo;
+    return $resp;
 }
 
 sub incr {
@@ -385,7 +389,7 @@ sub decr {
 	$init = 0 unless defined $init;
 	$exp = 0 unless defined $exp;
 
-	return $self->__incrdecr(::CMD_INCR, $key, 0 - $amt, $init, $exp);
+	return $self->__incrdecr(::CMD_DECR, $key, $amt, $init, $exp);
 }
 
 sub add {
