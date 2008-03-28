@@ -21,9 +21,6 @@ use constant CMD_GETQ    => 9;
 use constant CMD_NOOP    => 10;
 use constant CMD_VERSION => 11;
 
-use constant CMD_GETS    => 50;
-use constant CMD_CAS     => 51;
-
 # CAS, Flags, expiration
 use constant SET_PKT_FMT => "NNNN";
 
@@ -196,34 +193,34 @@ EOT
 	$mc->flush;
 
 	{
-		my $rv =()= eval { $mc->cas("x", 5, 19, 0x7FFFFFFFFF, "bad value") };
+		my $rv =()= eval { $mc->set("x", 5, 19, "bad value", 0x7FFFFFFFFF) };
 		is($rv, 0, "Empty return on expected failure");
 		ok($@->not_found, "Error was 'not found' as expected");
 	}
 
 	$mc->add("x", 5, 19, "original value");
 
-	my ($flags, $i, $val) = $mc->gets("x");
+	my ($flags, $val, $i) = $mc->get("x");
 	is($val, "original value", "->gets returned proper value");
 
-	{
-		my $rv =()= eval { $mc->cas("x", 5, 19, $i+1, "broken value") };
+    {
+		my $rv =()= eval { $mc->set("x", 5, 19, "broken value", $i+1) };
 		is($rv, 0, "Empty return on expected failure (1)");
 		ok($@->exists, "Expected error state of 'exists' (1)");
 	}
 
-	$mc->cas("x", 5, 19, $i, "new value");
+	$mc->set("x", 5, 19, "new value", $i);
 
-	my ($newflags, $newi, $newval) = $mc->gets("x");
+	my ($newflags, $newval, $newi) = $mc->get("x");
 	is($newval, "new value", "CAS properly overwrote value");
 
 	{
-		my $rv =()= eval { $mc->cas("x", 5, 19, $i, "replay value") };
+		my $rv =()= eval { $mc->set("x", 5, 19, "replay value", $i) };
 		is($rv, 0, "Empty return on expected failure (2)");
 		ok($@->exists, "Expected error state of 'exists' (2)");
 	}
 
-	(undef, undef, my $newval2) = $mc->gets("x");
+	(undef, my $newval2) = $mc->get("x");
 	is($newval2, "new value", "CAS replay didn't overwrite value");
 }
 
@@ -329,9 +326,11 @@ sub _doCmd {
 sub __parseGet {
 	my $self = shift;
 	my $rv = shift; # currently contains 4 bytes of 'flag' followed by value
-    my $cas  = substr $rv, 0, 8, ''; # $cas contains CAS value, $rv has f, v.
-	my $flag = substr $rv, 0, 4, ''; # Now $flag contains flags, $rv contains value
-	return unpack("N", $flag), $rv;
+	my $header = substr $rv, 0, 12, '';
+	my ($ident_hi, $ident_lo, $flags) = unpack "NNN", $header;
+	my $ident = ($ident_hi * 2 ** 32) + $ident_lo;
+
+	return $flags, $rv, $ident;
 }
 
 sub get {
@@ -343,16 +342,23 @@ sub get {
 
 sub _mutate {
 	my $self = shift;
-	my ($cmd, $key, $exp, $flags, $val) = @_;
+	my ($cmd, $key, $exp, $flags, $val, $ident) = @_;
 
-	return $self->_doCmd($cmd, $key, $val, pack(::SET_PKT_FMT, 0, 0, $flags, $exp));
+    my $ident_hi = 0;
+    my $ident_lo = 0;
+    if ($ident) {
+        $ident_hi = int($ident / 2 ** 32);
+        $ident_lo = int($ident % 2 ** 32);
+    }
+
+	return $self->_doCmd($cmd, $key, $val, pack(::SET_PKT_FMT, $ident_hi, $ident_lo, $flags, $exp));
 }
 
 sub set {
 	my $self = shift;
-	my ($key, $exp, $flags, $val) = @_;
+	my ($key, $exp, $flags, $val, $ident) = @_;
 
-	return $self->_mutate(::CMD_SET, $key, $exp, $flags, $val);
+	return $self->_mutate(::CMD_SET, $key, $exp, $flags, $val, $ident);
 }
 
 sub __incrdecr {
@@ -426,26 +432,16 @@ sub getMulti {
 	return \%return;
 }
 
-sub gets {
+sub old_gets {
 	my $self = shift;
 	my $key = shift;
 
-	my $data = $self->_doCmd(::CMD_GETS, $key, '');
+	my $data = $self->_doCmd(::CMD_GET, $key, '');
 	my $header = substr $data, 0, 12, '';
 	my ($flags, $ident_hi, $ident_lo) = unpack "NNN", $header;
 	my $ident = ($ident_hi * 2 ** 32) + $ident_lo;
 
 	return $flags, $ident, $data;
-}
-
-sub cas {
-	my $self = shift;
-	my ($key, $exp, $flags, $oldVal, $val) = @_;
-
-	my $oldVal_hi = int($oldVal / 2 ** 32);
-	my $oldVal_lo = int($oldVal % 2 ** 32);
-
-	return $self->_doCmd(::CMD_CAS, $key, $val, pack(::CAS_PKT_FMT, $flags, $exp, $oldVal_hi, $oldVal_lo));
 }
 
 sub noop {
