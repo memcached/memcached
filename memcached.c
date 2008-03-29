@@ -1283,7 +1283,7 @@ static void complete_nread_binary(conn *c) {
         /* No command defined.  Figure out what they're trying to say. */
         int i = 0;
         /* I did a bit of hard-coding around the packet sizes */
-        assert(BIN_PKT_HDR_WORDS == 3);
+        assert(BIN_PKT_HDR_WORDS == 4);
         for(i = 0; i<BIN_PKT_HDR_WORDS; i++) {
             c->bin_header[i] = ntohl(c->bin_header[i]);
         }
