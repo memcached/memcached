@@ -2,8 +2,14 @@
 
 use strict;
 use warnings;
-
 use Test::More 'no_plan';
+use FindBin qw($Bin);
+use lib "$Bin/lib";
+use MemcachedTest;
+
+my $server = new_memcached();
+
+ok($server, "started the server");
 
 # Based almost 100% off testClient.py which is Copyright (c) 2007  Dustin Sallings <dustin@spy.net>
 
@@ -213,15 +219,7 @@ use IO::Socket::INET;
 sub new {
 	my $self = shift;
 
-	my $host = shift || '127.0.0.1';
-	my $port = shift || 11211;
-
-	my $sock = IO::Socket::INET->new(PeerHost => $host, PeerPort => $port);
-
-	unless ($sock) {
-		warn "Unable to contact memcached.";
-		return;
-	}
+    my $sock = $server->sock;
 
 	$self = fields::new($self);
 
