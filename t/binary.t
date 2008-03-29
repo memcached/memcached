@@ -140,8 +140,11 @@ $empty->('y');
 	$mc->add('wye', 5, 2, "why");
 	my $rv = $mc->getMulti(qw(xx wye zed));
 
-	is_deeply([1, 'ex'], $rv->{xx}, "X is correct");
-	is_deeply([2, 'why'], $rv->{wye}, "Y is correct");
+    # CAS is returned with all gets.
+    $rv->{xx}->[2]  = 0;
+    $rv->{wye}->[2] = 0;
+	is_deeply($rv->{xx}, [1, 'ex', 0], "X is correct");
+	is_deeply($rv->{wye}, [2, 'why', 0], "Y is correct");
 	is(keys(%$rv), 2, "Got only two answers like we expect");
 }
 
@@ -157,36 +160,6 @@ $mc->flush;
 is($mc->incr("x", undef, 5), 5, "Initial value");
 is($mc->decr("x"), 4, "Decrease by one");
 is($mc->decr("x", 211), 0, "Floor is zero");
-
-<<EOT;
-    def testIncrDoesntExistNoCreate(self):
-        """Testing incr when a value doesn't exist (and not creating)."""
-        try:
-            self.mc.incr("x", exp=-1)
-            self.fail("Expected failure to increment non-existent key")
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_NOT_FOUND, e.status)
-        self.assertNotExists("x")
-
-    def testIncrDoesntExistCreate(self):
-        """Testing incr when a value doesn't exist (and we make a new one)"""
-        self.assertNotExists("x")
-        self.assertEquals(19, self.mc.incr("x", init=19))
-
-    def testDecrDoesntExistNoCreate(self):
-        """Testing decr when a value doesn't exist (and not creating)."""
-        try:
-            self.mc.decr("x", exp=-1)
-            self.fail("Expected failiure to decrement non-existent key.")
-        except MemcachedError, e:
-            self.assertEquals(memcacheConstants.ERR_NOT_FOUND, e.status)
-        self.assertNotExists("x")
-
-    def testDecrDoesntExistCreate(self):
-        """Testing decr when a value doesn't exist (and we make a new one)"""
-        self.assertNotExists("x")
-        self.assertEquals(19, self.mc.decr("x", init=19))
-EOT
 
 {
 	diag "CAS";
@@ -430,18 +403,6 @@ sub getMulti {
 	}
 	return %return if wantarray;
 	return \%return;
-}
-
-sub old_gets {
-	my $self = shift;
-	my $key = shift;
-
-	my $data = $self->_doCmd(::CMD_GET, $key, '');
-	my $header = substr $data, 0, 12, '';
-	my ($flags, $ident_hi, $ident_lo) = unpack "NNN", $header;
-	my $ident = ($ident_hi * 2 ** 32) + $ident_lo;
-
-	return $flags, $ident, $data;
 }
 
 sub noop {
