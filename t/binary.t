@@ -40,7 +40,7 @@ use constant DEL_PKT_FMT => "N";
 use constant INCRDECR_PKT_FMT => "NNNNN";
 
 use constant REQ_MAGIC_BYTE => 0x80;
-use constant RES_MAGIC_BYTE => 0x80;
+use constant RES_MAGIC_BYTE => 0x81;
 
 use constant PKT_FMT => "CCnCxxxNN";
 

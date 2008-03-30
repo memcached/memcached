@@ -57,7 +57,7 @@
 #define INCR_MAX_STORAGE_LEN 24
 
 #define BIN_REQ_MAGIC 0x80
-#define BIN_RES_MAGIC 0x80
+#define BIN_RES_MAGIC 0x81
 
 #define CMD_GET 0
 #define CMD_SET 1
