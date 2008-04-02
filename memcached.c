@@ -298,7 +298,7 @@ bool do_conn_add_to_freelist(conn *c) {
     return true;
 }
 
-static char *prot_text(enum protocol prot) {
+static const char *prot_text(enum protocol prot) {
     char *rv = "unknown";
     switch(prot) {
         case ascii_prot:
@@ -383,12 +383,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
                 prot_text(prot));
         } else if (IS_UDP(prot)) {
             fprintf(stderr, "<%d server listening (udp)\n", sfd);
-        } else if (prot == binary_prot) {
-            fprintf(stderr, "<%d new binary client connection\n", sfd);
-        } else if (prot == ascii_prot) {
-            fprintf(stderr, "<%d new ascii client connection\n", sfd);
         } else if (prot == negotiating_prot) {
-            fprintf(stderr, "<%d new auto-negotiating client connection\n", sfd);
+            fprintf(stderr, "<%d new auto-negotiating client connection\n",
+                    sfd);
         } else {
             fprintf(stderr, "<%d new unknown (%d) client connection\n",
                 sfd, prot);
@@ -517,31 +514,6 @@ static void conn_close(conn *c) {
     return;
 }
 
-static enum conn_states get_init_state(conn *c) {
-    int rv = 0;
-    assert(c != NULL);
-
-    switch(c->protocol) {
-        case binary_prot:
-            rv = conn_bin_init;
-            break;
-        case negotiating_prot:
-            rv = conn_negotiate;
-            break;
-        default:
-            rv = conn_read;
-    }
-    return rv;
-}
-
-/* Set the given connection to its initial state.  The initial state will vary
- * base don protocol type. */
-static void conn_set_init_state(conn *c) {
-    assert(c != NULL);
-
-    conn_set_state(c, get_init_state(c));
-}
-
 /*
  * Shrinks a connection's buffers if they're too big.  This prevents
  * periodic large "get" requests from permanently chewing lots of server
@@ -600,6 +572,23 @@ static void conn_shrink(conn *c) {
     }
 }
 
+/**
+ * Convert a state name to a human readable form.
+ */
+static const char *state_text(enum conn_states state) {
+    const char* const statenames[] = { "conn_listening",
+                                       "conn_new_cmd",
+                                       "conn_waiting",
+                                       "conn_read",
+                                       "conn_parse_cmd",
+                                       "conn_write",
+                                       "conn_nread",
+                                       "conn_swallow",
+                                       "conn_closing",
+                                       "conn_mwrite" };
+    return statenames[state];
+}
+
 /*
  * Sets a connection's current state in the state machine. Any special
  * processing that needs to happen on certain state transitions can
@@ -607,12 +596,15 @@ static void conn_shrink(conn *c) {
  */
 static void conn_set_state(conn *c, enum conn_states state) {
     assert(c != NULL);
+    assert(state >= conn_listening && state < conn_max_state);
 
     if (state != c->state) {
-        if (state == conn_read) {
-            conn_shrink(c);
-            assoc_move_next_bucket();
+        if (settings.verbose > 2) {
+            fprintf(stderr, "%d: going from %s to %s\n",
+                    c->sfd, state_text(c->state),
+                    state_text(state));
         }
+
         c->state = state;
     }
 }
@@ -810,7 +802,7 @@ static void out_string(conn *c, const char *str) {
         if (settings.verbose > 1)
             fprintf(stderr, ">%d NOREPLY %s\n", c->sfd, str);
         c->noreply = false;
-        conn_set_state(c, conn_read);
+        conn_set_state(c, conn_new_cmd);
         return;
     }
 
@@ -830,7 +822,7 @@ static void out_string(conn *c, const char *str) {
     c->wcurr = c->wbuf;
 
     conn_set_state(c, conn_write);
-    c->write_and_go = get_init_state(c);
+    c->write_and_go = conn_new_cmd;
     return;
 }
 
@@ -908,8 +900,11 @@ static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
 }
 
 static void write_bin_error(conn *c, int err, int swallow) {
-    char *errstr = "Unknown error";
+    const char *errstr = "Unknown error";
     switch(err) {
+        case ERR_OUT_OF_MEMORY:
+            errstr = "Out of memory";
+            break;
         case ERR_UNKNOWN_CMD:
             errstr = "Unknown command";
             break;
@@ -943,7 +938,7 @@ static void write_bin_error(conn *c, int err, int swallow) {
         c->sbytes = swallow;
         c->write_and_go = conn_swallow;
     } else {
-        c->write_and_go = conn_bin_init;
+        c->write_and_go = conn_new_cmd;
     }
 }
 
@@ -954,7 +949,7 @@ static void write_bin_response(conn *c, void *d, int hlen, int dlen) {
         add_iov(c, d, dlen);
     }
     conn_set_state(c, conn_mwrite);
-    c->write_and_go = conn_bin_init;
+    c->write_and_go = conn_new_cmd;
 }
 
 /* Byte swap a 64-bit number */
@@ -1112,7 +1107,7 @@ static void process_bin_get(conn *c) {
         conn_set_state(c, conn_mwrite);
     } else {
         if(c->cmd == CMD_GETQ) {
-            conn_set_state(c, conn_bin_init);
+            conn_set_state(c, conn_new_cmd);
         } else {
             write_bin_error(c, ERR_NOT_FOUND, 0);
         }
@@ -1278,126 +1273,49 @@ static void process_bin_delete(conn *c) {
 
 static void complete_nread_binary(conn *c) {
     assert(c != NULL);
+    assert(c->cmd >= 0);
 
-    if(c->cmd < 0) {
-        /* No command defined.  Figure out what they're trying to say. */
-        int i = 0;
-        /* I did a bit of hard-coding around the packet sizes */
-        assert(BIN_PKT_HDR_WORDS == 4);
-        for(i = 0; i<BIN_PKT_HDR_WORDS; i++) {
-            c->bin_header[i] = ntohl(c->bin_header[i]);
-        }
-        if(settings.verbose) {
-            fprintf(stderr, "Read binary protocol data:  %08x %08x %08x %08x\n",
-                c->bin_header[0], c->bin_header[1], c->bin_header[2],
-                c->bin_header[3]);
-        }
-        if((c->bin_header[0] >> 24) != BIN_REQ_MAGIC) {
-            if(settings.verbose) {
-                fprintf(stderr, "Invalid magic:  %x\n", c->bin_header[0] >> 24);
-            }
-            conn_set_state(c, conn_closing);
-            return;
-        }
-
-        c->msgcurr = 0;
-        c->msgused = 0;
-        c->iovused = 0;
-        if (add_msghdr(c) != 0) {
-            out_string(c, "SERVER_ERROR out of memory");
-            return;
-        }
-
-        c->cmd = (c->bin_header[0] >> 16) & 0xff;
-        c->keylen = c->bin_header[0] & 0xffff;
-        c->opaque = c->bin_header[3];
-        if(settings.verbose > 1) {
-            fprintf(stderr,
-                "Command: %d, opaque=%08x, keylen=%d, total_len=%d\n", c->cmd,
-                c->opaque, c->keylen, c->bin_header[2]);
-        }
-        dispatch_bin_command(c);
-    } else {
-        switch(c->substate) {
-            case bin_reading_set_header:
-                process_bin_update(c);
-                break;
-            case bin_read_set_value:
-                complete_update_bin(c);
-                break;
-            case bin_reading_get_key:
-                process_bin_get(c);
-                break;
-            case bin_reading_del_header:
-                process_bin_delete(c);
-                break;
-            case bin_reading_incr_header:
-                complete_incr_bin(c);
-                break;
-            default:
-                fprintf(stderr, "Not handling substate %d\n", c->substate);
-                assert(0);
-        }
+    switch(c->substate) {
+    case bin_reading_set_header:
+        process_bin_update(c);
+        break;
+    case bin_read_set_value:
+        complete_update_bin(c);
+        break;
+    case bin_reading_get_key:
+        process_bin_get(c);
+        break;
+    case bin_reading_del_header:
+        process_bin_delete(c);
+        break;
+    case bin_reading_incr_header:
+        complete_incr_bin(c);
+        break;
+    default:
+        fprintf(stderr, "Not handling substate %d\n", c->substate);
+        assert(0);
     }
 }
 
-static void reinit_bin_connection(conn *c) {
-    if (settings.verbose > 1)
-        fprintf(stderr, "*** Reinitializing binary connection.\n");
-    c->rlbytes = MIN_BIN_PKT_LENGTH;
-    c->write_and_go = conn_bin_init;
+static void reset_cmd_handler(conn *c) {
     c->cmd = -1;
     c->substate = bin_no_state;
-    c->rbytes = c->wbytes = 0;
-    c->ritem = (char*)c->bin_header;
-    c->rcurr = c->rbuf;
-    c->wcurr = c->wbuf;
     conn_shrink(c);
-    conn_set_state(c, conn_nread);
-}
-
-/* These do the initial protocol switch.  At this point, we should've read
- * exactly one byte, and must treat that byte as the beginning of a command. */
-static void setup_bin_protocol(conn *c) {
-    char *loc = (char*)c->bin_header;
-    if (settings.verbose > 1)
-        fprintf(stderr, "Negotiated protocol as binary.\n");
-
-    c->protocol = binary_prot;
-    reinit_bin_connection(c);
-    /* Emulate a read of the first byte */
-    c->ritem[0] = c->rbuf[0];
-    c->ritem++;
-    c->rlbytes--;
-}
-
-static void setup_ascii_protocol(conn *c) {
-    if (settings.verbose > 1)
-        fprintf(stderr, "Negotiated protocol as ascii.\n");
-    c->protocol = ascii_prot;
-
-    /* We've already got the first letter of the command, so pretend like we
-     * Did a single byte read from try_read_command */
-    c->rcurr = c->rbuf;
-    c->rbytes = 1;
-    conn_set_state(c, conn_read);
+    if (c->rbytes > 0) {
+        conn_set_state(c, conn_parse_cmd);
+    } else {
+        conn_set_state(c, conn_waiting);
+    }
 }
 
 static void complete_nread(conn *c) {
     assert(c != NULL);
+    assert(c->protocol == ascii_prot || c->protocol == binary_prot);
 
     if(c->protocol == ascii_prot) {
         complete_nread_ascii(c);
-    } else if(c->protocol == binary_prot) {
+    } else if (c->protocol == binary_prot) {
         complete_nread_binary(c);
-    } else if(c->protocol == negotiating_prot) {
-        /* The first byte is either BIN_REQ_MAGIC, or we're speaking ascii */
-        if ((c->rbuf[0] & 0xff) == BIN_REQ_MAGIC)
-            setup_bin_protocol(c);
-        else
-            setup_ascii_protocol(c);
-    } else {
-        assert(0); /* XXX:  Invalid case.  Should probably do more here. */
     }
 }
 
@@ -1578,7 +1496,7 @@ static void write_and_free(conn *c, char *buf, int bytes) {
         c->wcurr = buf;
         c->wbytes = bytes;
         conn_set_state(c, conn_write);
-        c->write_and_go = get_init_state(c);
+        c->write_and_go = conn_new_cmd;
     } else {
         out_string(c, "SERVER_ERROR out of memory writing stats");
     }
@@ -1865,7 +1783,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                  *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
                  */
 
-                if(return_cas == true)
+                if (return_cas)
                 {
                   /* Goofy mid-flight realloc. */
                   if (i >= c->suffixsize) {
@@ -2361,7 +2279,7 @@ static void process_command(conn *c, char *command) {
                 c->bucket = bucket;
                 c->gen = gen;
             }
-            conn_set_init_state(c);
+            conn_set_state(c, conn_new_cmd);
             return;
         } else {
             out_string(c, "CLIENT_ERROR bad format");
@@ -2455,30 +2373,97 @@ static void process_command(conn *c, char *command) {
  * if we have a complete line in the buffer, process it.
  */
 static int try_read_command(conn *c) {
-    char *el, *cont;
-
     assert(c != NULL);
     assert(c->rcurr <= (c->rbuf + c->rsize));
+    assert(c->rbytes > 0);
 
-    if (c->rbytes == 0)
-        return 0;
-    el = memchr(c->rcurr, '\n', c->rbytes);
-    if (!el)
-        return 0;
-    cont = el + 1;
-    if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
-        el--;
+    if (c->protocol == negotiating_prot)  {
+        if ((c->rbuf[0] & 0xff) == BIN_REQ_MAGIC) {
+            c->protocol = binary_prot;
+        } else {
+            c->protocol = ascii_prot;
+        }
+
+        if (settings.verbose) {
+            fprintf(stderr, "%d: Client using the %s protocol\n", c->sfd,
+                    prot_text(c->protocol));
+        }
     }
-    *el = '\0';
 
-    assert(cont <= (c->rcurr + c->rbytes));
+    if (c->protocol == binary_prot) {
+        /* Do we have the complete packet header? */
+        if (c->rbytes < MIN_BIN_PKT_LENGTH) {
+            /* need more data! */
+            return 0;
+        } else {
+            int i = 0;
+            memcpy(c->bin_header, c->rcurr, sizeof(c->bin_header));
+            assert(BIN_PKT_HDR_WORDS == 4);
+            for (i = 0; i<BIN_PKT_HDR_WORDS; i++) {
+                c->bin_header[i] = ntohl(c->bin_header[i]);
+            }
 
-    process_command(c, c->rcurr);
+            if (settings.verbose) {
+                fprintf(stderr,
+                        "Read binary protocol data:  %08x %08x %08x %08x\n",
+                        c->bin_header[0], c->bin_header[1], c->bin_header[2],
+                        c->bin_header[3]);
+            }
 
-    c->rbytes -= (cont - c->rcurr);
-    c->rcurr = cont;
+            if ((c->bin_header[0] >> 24) != BIN_REQ_MAGIC) {
+                if (settings.verbose) {
+                    fprintf(stderr, "Invalid magic:  %x\n",
+                            c->bin_header[0] >> 24);
+                }
+                conn_set_state(c, conn_closing);
+                return 0;
+            }
 
-    assert(c->rcurr <= (c->rbuf + c->rsize));
+            c->msgcurr = 0;
+            c->msgused = 0;
+            c->iovused = 0;
+            if (add_msghdr(c) != 0) {
+                out_string(c, "SERVER_ERROR out of memory");
+                return 0;
+            }
+
+            c->cmd = (c->bin_header[0] >> 16) & 0xff;
+            c->keylen = c->bin_header[0] & 0xffff;
+            c->opaque = c->bin_header[3];
+            if (settings.verbose > 1) {
+                fprintf(stderr,
+                        "Command: %d, opaque=%08x, keylen=%d, total_len=%d\n",
+                        c->cmd, c->opaque, c->keylen, c->bin_header[2]);
+            }
+
+            dispatch_bin_command(c);
+
+            c->rbytes -= MIN_BIN_PKT_LENGTH;
+            c->rcurr += MIN_BIN_PKT_LENGTH;
+        }
+    } else {
+        char *el, *cont;
+
+        if (c->rbytes == 0)
+            return 0;
+        el = memchr(c->rcurr, '\n', c->rbytes);
+        if (!el)
+            return 0;
+        cont = el + 1;
+        if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
+            el--;
+        }
+        *el = '\0';
+
+        assert(cont <= (c->rcurr + c->rbytes));
+
+        process_command(c, c->rcurr);
+
+        c->rbytes -= (cont - c->rcurr);
+        c->rcurr = cont;
+
+        assert(c->rcurr <= (c->rbuf + c->rsize));
+    }
 
     return 1;
 }
@@ -2526,7 +2511,10 @@ static int try_read_udp(conn *c) {
  * close.
  * before reading, move the remaining incomplete fragment of a command
  * (if any) to the beginning of the buffer.
- * return 0 if there's nothing to read on the first read.
+ * @return 1 data received
+ *         0 no data received
+ *        -1 an error occured (on the socket) (or client closed connection)
+ *        -2 memory error (failed to allocate more memory)
  */
 static int try_read_network(conn *c) {
     int gotdata = 0;
@@ -2549,7 +2537,7 @@ static int try_read_network(conn *c) {
                 c->rbytes = 0; /* ignore what we read */
                 out_string(c, "SERVER_ERROR out of memory reading request");
                 c->write_and_go = conn_closing;
-                return 1;
+                return -2;
             }
             c->rcurr = c->rbuf = new_rbuf;
             c->rsize *= 2;
@@ -2570,15 +2558,13 @@ static int try_read_network(conn *c) {
             }
         }
         if (res == 0) {
-            /* connection closed */
-            conn_set_state(c, conn_closing);
-            return 1;
+            return -1;
         }
         if (res == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            /* Should close on unhandled errors. */
-            conn_set_state(c, conn_closing);
-            return 1;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            return -1;
         }
     }
     return gotdata;
@@ -2693,7 +2679,6 @@ static int transmit(conn *c) {
 static void drive_machine(conn *c) {
     bool stop = false;
     int sfd, flags = 1;
-    enum conn_states init_state; /* initial state for a new connection */
     socklen_t addrlen;
     struct sockaddr_storage addr;
     int res;
@@ -2726,42 +2711,53 @@ static void drive_machine(conn *c) {
                 close(sfd);
                 break;
             }
-            init_state = get_init_state(c);
 
-            dispatch_conn_new(sfd, init_state, EV_READ | EV_PERSIST,
+            dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
                                      DATA_BUFFER_SIZE, c->protocol);
-
+            stop = true;
             break;
 
-        case conn_negotiate:
-            if (settings.verbose > 1)
-                fprintf(stderr, "Negotiating protocol for a new connection\n");
-            c->rlbytes = 1;
-            c->ritem = c->rbuf;
-            c->rcurr = c->rbuf;
-            c->wcurr = c->wbuf;
-            conn_set_state(c, conn_nread);
-            break;
-
-        case conn_read:
-            if (try_read_command(c) != 0) {
-                continue;
-            }
-            if ((IS_UDP(c->protocol) ? try_read_udp(c) : try_read_network(c)) != 0) {
-                continue;
-            }
-            /* we have no command line and no data to read from network */
+        case conn_waiting:
             if (!update_event(c, EV_READ | EV_PERSIST)) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
                 conn_set_state(c, conn_closing);
                 break;
             }
+
+            conn_set_state(c, conn_read);
             stop = true;
             break;
 
-        case conn_bin_init: /* Reinitialize a binary connection */
-            reinit_bin_connection(c);
+        case conn_read:
+            res = IS_UDP(c->protocol) ? try_read_udp(c) : try_read_network(c);
+            switch (res) {
+            case 0 :
+                conn_set_state(c, conn_waiting);
+                break;
+            case 1:
+                conn_set_state(c, conn_parse_cmd);
+                break;
+            case -1:
+                conn_set_state(c, conn_closing);
+                break;
+            case -2: /* Failed to allocate more memory */
+                /* State already set by try_read_network */
+                break;
+            }
+            break;
+
+        case conn_parse_cmd :
+            if (try_read_command(c) == 0) {
+                /* wee need more data! */
+                conn_set_state(c, conn_waiting);
+            }
+
+            break;
+
+        case conn_new_cmd:
+            reset_cmd_handler(c);
+            assoc_move_next_bucket();
             break;
 
         case conn_nread:
@@ -2772,12 +2768,14 @@ static void drive_machine(conn *c) {
             /* first check if we have leftovers in the conn_read buffer */
             if (c->rbytes > 0) {
                 int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
-                memcpy(c->ritem, c->rcurr, tocopy);
+                memmove(c->ritem, c->rcurr, tocopy);
                 c->ritem += tocopy;
                 c->rlbytes -= tocopy;
                 c->rcurr += tocopy;
                 c->rbytes -= tocopy;
-                break;
+                if (c->rlbytes == 0) {
+                    break;
+                }
             }
 
             /*  now try reading from the socket */
@@ -2813,7 +2811,7 @@ static void drive_machine(conn *c) {
         case conn_swallow:
             /* we are reading sbytes and throwing them away */
             if (c->sbytes == 0) {
-                conn_set_init_state(c);
+                conn_set_state(c, conn_new_cmd);
                 break;
             }
 
@@ -2897,7 +2895,7 @@ static void drive_machine(conn *c) {
                     if(c->protocol == binary_prot) {
                         conn_set_state(c, c->write_and_go);
                     } else {
-                        conn_set_init_state(c);
+                        conn_set_state(c, conn_new_cmd);
                     }
                 } else if (c->state == conn_write) {
                     if (c->write_and_free) {
@@ -3285,6 +3283,7 @@ static void usage(void) {
            "              under sh this is done with 'ulimit -S -l NUM_KB').\n"
            "-v            verbose (print errors/warnings while in event loop)\n"
            "-vv           very verbose (also print client commands/reponses)\n"
+           "-vvv          extremely verbose (also print internal state transitions)\n"
            "-h            print this help and exit\n"
            "-i            print memcached and libevent license\n"
            "-b            run a managed instanced (mnemonic: buckets)\n"
@@ -3480,7 +3479,7 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "a:bp:B:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:")) != -1) {
+    while ((c = getopt(argc, argv, "a:bp:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:L")) != -1) {
         switch (c) {
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
@@ -3564,13 +3563,13 @@ int main (int argc, char **argv) {
             settings.prefix_delimiter = optarg[0];
             settings.detail_enabled = 1;
             break;
-#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
         case 'L' :
+#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
             if (enable_large_pages() == 0) {
                 preallocate = true;
             }
-            break;
 #endif
+            break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
