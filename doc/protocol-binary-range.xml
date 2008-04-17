@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="US-ASCII"?>
-<!DOCTYPE rfc SYSTEM "rfc2629.dtd">
-<?xml-stylesheet type='text/xsl' href='rfc2629.xslt'?>
+<!DOCTYPE rfc SYSTEM "xml2rfc/rfc2629.dtd">
+<?xml-stylesheet type='text/xsl' href='xml2rfc/rfc2629.xslt'?>
 <?rfc toc="yes"?>
 <?rfc strict="yes"?>
 <?rfc symrefs="yes"?>
