@@ -1,0 +1,165 @@
+<!-- rfc2629-xhtml.ent
+
+     Character entity set for RFC-2629 source xml documents.
+     There is no need to invoke this directly from
+     the source document itself; just invoke the DTD.
+
+     These are known to (X)HTML, so any converter to these
+     formats can just leave them as is without having
+     to invoke this file from the output file.
+
+     Conversion to txt or nroff format will replace
+     these entities by the parenthesized text.
+
+     Typical invocation:
+       <!ENTITY % rfc2629-xhtml
+                PUBLIC "-//IETF//ENTITIES XHTML subset for RFC 2629//EN"
+                       "http://xml.resource.org/authoring/rfc2629-xhtml.ent">
+       %rfc2629-xhtml;
+-->
+
+<!-- All of ISO Latin 1 -->
+<!ENTITY nbsp    "&#160;"><!-- U+00A0 NO-BREAK SPACE                             (special " ")        -->
+<!ENTITY iexcl   "&#161;"><!-- U+00A1 INVERTED EXCLAMATION MARK                  ("!")                -->
+<!ENTITY cent    "&#162;"><!-- U+00A2 CENT SIGN                                  ("[cents]")          -->
+<!ENTITY pound   "&#163;"><!-- U+00A3 POUND SIGN                                 ("GBP")              -->
+<!ENTITY curren  "&#164;"><!-- U+00A4 CURRENCY SIGN                              ("[currency units]") -->
+<!ENTITY yen     "&#165;"><!-- U+00A5 YEN SIGN                                   ("JPY")              -->
+<!ENTITY brvbar  "&#166;"><!-- U+00A6 BROKEN BAR                                 ("|")                -->
+<!ENTITY sect    "&#167;"><!-- U+00A7 SECTION SIGN                               ("S.")               -->
+<!ENTITY uml     "&#168;"><!-- U+00A8 DIAERESIS                                  ('"')                -->
+<!ENTITY copy    "&#169;"><!-- U+00A9 COPYRIGHT SIGN                             ("(C)")              -->
+<!ENTITY ordf    "&#170;"><!-- U+00AA FEMININE ORDINAL INDICATOR                 ("a")                -->
+<!ENTITY laquo   "&#171;"><!-- U+00AB LEFT-POINTING DOUBLE ANGLE QUOTATION MARK  ("<<")               -->
+<!ENTITY not     "&#172;"><!-- U+00AC NOT SIGN                                   ("[not]")            -->
+<!ENTITY shy     "&#173;"><!-- U+00AD SOFT HYPHEN                                (ignored "")         -->
+<!ENTITY reg     "&#174;"><!-- U+00AE REGISTERED SIGN                            ("(R)")              -->
+<!ENTITY macr    "&#175;"><!-- U+00AF MACRON                                     ("_")                -->
+<!ENTITY deg     "&#176;"><!-- U+00B0 DEGREE SIGN                                ("o")                -->
+<!ENTITY plusmn  "&#177;"><!-- U+00B1 PLUS-MINUS SIGN                            ("+/-")              -->
+<!ENTITY sup2    "&#178;"><!-- U+00B2 SUPERSCRIPT TWO                            ("^2")               -->
+<!ENTITY sup3    "&#179;"><!-- U+00B3 SUPERSCRIPT THREE                          ("^3")               -->
+<!ENTITY acute   "&#180;"><!-- U+00B4 ACUTE ACCENT                               ("'")                -->
+<!ENTITY micro   "&#181;"><!-- U+00B5 MICRO SIGN                                 ("[micro]")          -->
+<!ENTITY para    "&#182;"><!-- U+00B6 PILCROW SIGN                               ("P.")               -->
+<!ENTITY middot  "&#183;"><!-- U+00B7 MIDDLE DOT                                 (".")                -->
+<!ENTITY cedil   "&#184;"><!-- U+00B8 CEDILLA                                    (",")                -->
+<!ENTITY sup1    "&#185;"><!-- U+00B9 SUPERSCRIPT ONE                            ("^1")               -->
+<!ENTITY ordm    "&#186;"><!-- U+00BA MASCULINE ORDINAL INDICATOR                ("o")                -->
+<!ENTITY raquo   "&#187;"><!-- U+00BB RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK (">>")               -->
+<!ENTITY frac14  "&#188;"><!-- U+00BC VULGAR FRACTION ONE QUARTER                ("1/4")              -->
+<!ENTITY frac12  "&#189;"><!-- U+00BD VULGAR FRACTION ONE HALF                   ("1/2")              -->
+<!ENTITY frac34  "&#190;"><!-- U+00BE VULGAR FRACTION THREE QUARTERS             ("3/4")              -->
+<!ENTITY iquest  "&#191;"><!-- U+00BF INVERTED QUESTION MARK                     ("?")                -->
+<!ENTITY Agrave  "&#192;"><!-- U+00C0 LATIN CAPITAL LETTER A WITH GRAVE          ("A")                -->
+<!ENTITY Aacute  "&#193;"><!-- U+00C1 LATIN CAPITAL LETTER A WITH ACUTE          ("A")                -->
+<!ENTITY Acirc   "&#194;"><!-- U+00C2 LATIN CAPITAL LETTER A WITH CIRCUMFLEX     ("A")                -->
+<!ENTITY Atilde  "&#195;"><!-- U+00C3 LATIN CAPITAL LETTER A WITH TILDE          ("A")                -->
+<!ENTITY Auml    "&#196;"><!-- U+00C4 LATIN CAPITAL LETTER A WITH DIAERESIS      ("Ae")               -->
+<!ENTITY Aring   "&#197;"><!-- U+00C5 LATIN CAPITAL LETTER A WITH RING ABOVE     ("Ae")               -->
+<!ENTITY AElig   "&#198;"><!-- U+00C6 LATIN CAPITAL LETTER AE                    ("AE")               -->
+<!ENTITY Ccedil  "&#199;"><!-- U+00C7 LATIN CAPITAL LETTER C WITH CEDILLA        ("C")                -->
+<!ENTITY Egrave  "&#200;"><!-- U+00C8 LATIN CAPITAL LETTER E WITH GRAVE          ("E")                -->
+<!ENTITY Eacute  "&#201;"><!-- U+00C9 LATIN CAPITAL LETTER E WITH ACUTE          ("E")                -->
+<!ENTITY Ecirc   "&#202;"><!-- U+00CA LATIN CAPITAL LETTER E WITH CIRCUMFLEX     ("E")                -->
+<!ENTITY Euml    "&#203;"><!-- U+00CB LATIN CAPITAL LETTER E WITH DIAERESIS      ("E")                -->
+<!ENTITY Igrave  "&#204;"><!-- U+00CC LATIN CAPITAL LETTER I WITH GRAVE          ("I")                -->
+<!ENTITY Iacute  "&#205;"><!-- U+00CD LATIN CAPITAL LETTER I WITH ACUTE          ("I")                -->
+<!ENTITY Icirc   "&#206;"><!-- U+00CE LATIN CAPITAL LETTER I WITH CIRCUMFLEX     ("I")                -->
+<!ENTITY Iuml    "&#207;"><!-- U+00CF LATIN CAPITAL LETTER I WITH DIAERESIS      ("I")                -->
+<!ENTITY ETH     "&#208;"><!-- U+00D0 LATIN CAPITAL LETTER ETH                   ("[ETH]")            -->
+<!ENTITY Ntilde  "&#209;"><!-- U+00D1 LATIN CAPITAL LETTER N WITH TILDE          ("N")                -->
+<!ENTITY Ograve  "&#210;"><!-- U+00D2 LATIN CAPITAL LETTER O WITH GRAVE          ("O")                -->
+<!ENTITY Oacute  "&#211;"><!-- U+00D3 LATIN CAPITAL LETTER O WITH ACUTE          ("O")                -->
+<!ENTITY Ocirc   "&#212;"><!-- U+00D4 LATIN CAPITAL LETTER O WITH CIRCUMFLEX     ("O")                -->
+<!ENTITY Otilde  "&#213;"><!-- U+00D5 LATIN CAPITAL LETTER O WITH TILDE          ("O")                -->
+<!ENTITY Ouml    "&#214;"><!-- U+00D6 LATIN CAPITAL LETTER O WITH DIAERESIS      ("Oe")               -->
+<!ENTITY times   "&#215;"><!-- U+00D7 MULTIPLICATION SIGN                        ("x")                -->
+<!ENTITY Oslash  "&#216;"><!-- U+00D8 LATIN CAPITAL LETTER O WITH STROKE         ("Oe")               -->
+<!ENTITY Ugrave  "&#217;"><!-- U+00D9 LATIN CAPITAL LETTER U WITH GRAVE          ("U")                -->
+<!ENTITY Uacute  "&#218;"><!-- U+00DA LATIN CAPITAL LETTER U WITH ACUTE          ("U")                -->
+<!ENTITY Ucirc   "&#219;"><!-- U+00DB LATIN CAPITAL LETTER U WITH CIRCUMFLEX     ("U")                -->
+<!ENTITY Uuml    "&#220;"><!-- U+00DC LATIN CAPITAL LETTER U WITH DIAERESIS      ("Ue")               -->
+<!ENTITY Yacute  "&#221;"><!-- U+00DD LATIN CAPITAL LETTER Y WITH ACUTE          ("Y")                -->
+<!ENTITY THORN   "&#222;"><!-- U+00DE LATIN CAPITAL LETTER THORN                 ("[THORN]")          -->
+<!ENTITY szlig   "&#223;"><!-- U+00DF LATIN SMALL LETTER SHARP S                 ("ss")               -->
+<!ENTITY agrave  "&#224;"><!-- U+00E0 LATIN SMALL LETTER A WITH GRAVE            ("a")                -->
+<!ENTITY aacute  "&#225;"><!-- U+00E1 LATIN SMALL LETTER A WITH ACUTE            ("a")                -->
+<!ENTITY acirc   "&#226;"><!-- U+00E2 LATIN SMALL LETTER A WITH CIRCUMFLEX       ("a")                -->
+<!ENTITY atilde  "&#227;"><!-- U+00E3 LATIN SMALL LETTER A WITH TILDE            ("a")                -->
+<!ENTITY auml    "&#228;"><!-- U+00E4 LATIN SMALL LETTER A WITH DIAERESIS        ("ae")               -->
+<!ENTITY aring   "&#229;"><!-- U+00E5 LATIN SMALL LETTER A WITH RING ABOVE       ("ae")               -->
+<!ENTITY aelig   "&#230;"><!-- U+00E6 LATIN SMALL LETTER AE                      ("ae")               -->
+<!ENTITY ccedil  "&#231;"><!-- U+00E7 LATIN SMALL LETTER C WITH CEDILLA          ("c")                -->
+<!ENTITY egrave  "&#232;"><!-- U+00E8 LATIN SMALL LETTER E WITH GRAVE            ("e")                -->
+<!ENTITY eacute  "&#233;"><!-- U+00E9 LATIN SMALL LETTER E WITH ACUTE            ("e")                -->
+<!ENTITY ecirc   "&#234;"><!-- U+00EA LATIN SMALL LETTER E WITH CIRCUMFLEX       ("e")                -->
+<!ENTITY euml    "&#235;"><!-- U+00EB LATIN SMALL LETTER E WITH DIAERESIS        ("e")                -->
+<!ENTITY igrave  "&#236;"><!-- U+00EC LATIN SMALL LETTER I WITH GRAVE            ("i")                -->
+<!ENTITY iacute  "&#237;"><!-- U+00ED LATIN SMALL LETTER I WITH ACUTE            ("i")                -->
+<!ENTITY icirc   "&#238;"><!-- U+00EE LATIN SMALL LETTER I WITH CIRCUMFLEX       ("i")                -->
+<!ENTITY iuml    "&#239;"><!-- U+00EF LATIN SMALL LETTER I WITH DIAERESIS        ("i")                -->
+<!ENTITY eth     "&#240;"><!-- U+00F0 LATIN SMALL LETTER ETH                     ("[eth]")            -->
+<!ENTITY ntilde  "&#241;"><!-- U+00F1 LATIN SMALL LETTER N WITH TILDE            ("n")                -->
+<!ENTITY ograve  "&#242;"><!-- U+00F2 LATIN SMALL LETTER O WITH GRAVE            ("o")                -->
+<!ENTITY oacute  "&#243;"><!-- U+00F3 LATIN SMALL LETTER O WITH ACUTE            ("o")                -->
+<!ENTITY ocirc   "&#244;"><!-- U+00F4 LATIN SMALL LETTER O WITH CIRCUMFLEX       ("o")                -->
+<!ENTITY otilde  "&#245;"><!-- U+00F5 LATIN SMALL LETTER O WITH TILDE            ("o")                -->
+<!ENTITY ouml    "&#246;"><!-- U+00F6 LATIN SMALL LETTER O WITH DIAERESIS        ("oe")               -->
+<!ENTITY divide  "&#247;"><!-- U+00F7 DIVISION SIGN                              ("/")                -->
+<!ENTITY oslash  "&#248;"><!-- U+00F8 LATIN SMALL LETTER O WITH STROKE           ("oe")               -->
+<!ENTITY ugrave  "&#249;"><!-- U+00F9 LATIN SMALL LETTER U WITH GRAVE            ("u")                -->
+<!ENTITY uacute  "&#250;"><!-- U+00FA LATIN SMALL LETTER U WITH ACUTE            ("u")                -->
+<!ENTITY ucirc   "&#251;"><!-- U+00FB LATIN SMALL LETTER U WITH CIRCUMFLEX       ("u")                -->
+<!ENTITY uuml    "&#252;"><!-- U+00FC LATIN SMALL LETTER U WITH DIAERESIS        ("ue")               -->
+<!ENTITY yacute  "&#253;"><!-- U+00FD LATIN SMALL LETTER Y WITH ACUTE            ("y")                -->
+<!ENTITY thorn   "&#254;"><!-- U+00FE LATIN SMALL LETTER THORN                   ("[thorn]")          -->
+<!ENTITY yuml    "&#255;"><!-- U+00FF LATIN SMALL LETTER Y WITH DIAERESIS        ("y")                -->
+
+<!-- Some of ISO Latin 9 and 10 -->
+<!ENTITY OElig   "&#338;"><!-- U+0152 LATIN CAPITAL LIGATURE OE                  ("OE")               -->
+<!ENTITY oelig   "&#339;"><!-- U+0153 LATIN SMALL LIGATURE OE                    ("oe")               -->
+<!ENTITY Scaron  "&#352;"><!-- U+0160 LATIN CAPITAL LETTER S WITH CARON          ("S")                -->
+<!ENTITY scaron  "&#353;"><!-- U+0161 LATIN SMALL LETTER S WITH CARON            ("s")                -->
+<!ENTITY Yuml    "&#376;"><!-- U+0178 LATIN CAPITAL LETTER Y WITH DIAERESIS      ("Y")                -->
+
+<!-- Other Unicode (including some characters from the windows-1252 repertoire) -->
+<!ENTITY fnof    "&#402;"><!-- U+0192 LATIN SMALL LETTER F WITH HOOK             ("f")                -->
+<!ENTITY tilde   "&#732;"><!-- U+02DC SMALL TILDE                                ("~")                -->
+<!ENTITY ensp   "&#8194;"><!-- U+2002 EN SPACE                                   (" ")                -->
+<!ENTITY emsp   "&#8195;"><!-- U+2003 EM SPACE                                   (" ")                -->
+<!ENTITY thinsp "&#8201;"><!-- U+2009 THIN SPACE                                 (" ")                -->
+<!ENTITY ndash  "&#8211;"><!-- U+2013 EN DASH                                    ("-")                -->
+<!ENTITY mdash  "&#8212;"><!-- U+2014 EM DASH                                    ("-\u002D")          -->
+<!ENTITY lsquo  "&#8216;"><!-- U+2018 LEFT SINGLE QUOTATION MARK                 ("'")                -->
+<!ENTITY rsquo  "&#8217;"><!-- U+2019 RIGHT SINGLE QUOTATION MARK                ("'")                -->
+<!ENTITY sbquo  "&#8218;"><!-- U+201A SINGLE LOW-9 QUOTATION MARK                ("'")                -->
+<!ENTITY ldquo  "&#8220;"><!-- U+201C LEFT DOUBLE QUOTATION MARK                 ('"')                -->
+<!ENTITY rdquo  "&#8221;"><!-- U+201D RIGHT DOUBLE QUOTATION MARK                ('"')                -->
+<!ENTITY bdquo  "&#8222;"><!-- U+201E DOUBLE LOW-9 QUOTATION MARK                ('"')                -->
+<!ENTITY dagger "&#8224;"><!-- U+2020 DAGGER                                     ("*!*")              -->
+<!ENTITY Dagger "&#8225;"><!-- U+2021 DOUBLE DAGGER                              ("*!!*")             -->
+<!ENTITY bull   "&#8226;"><!-- U+2022 BULLET                                     ("o")                -->
+<!ENTITY hellip "&#8230;"><!-- U+2026 HORIZONTAL ELLIPSIS                        ("...")              -->
+<!ENTITY permil "&#8242;"><!-- U+2030 PER MILLE SIGN                             ("[/1000]")          -->
+<!ENTITY prime  "&#8242;"><!-- U+2032 PRIME                                      ("'")                -->
+<!ENTITY Prime  "&#8243;"><!-- U+2033 DOUBLE PRIME                               ('"')                -->
+<!ENTITY lsaquo "&#8249;"><!-- U+2039 SINGLE LEFT-POINTING ANGLE QUOTATION MARK  ("<")                -->
+<!ENTITY rsaquo "&#8250;"><!-- U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK (">")                -->
+<!ENTITY frasl  "&#8260;"><!-- U+2044 FRACTION SLASH                             ("/")                -->
+<!ENTITY euro   "&#8364;"><!-- U+20AC EURO SIGN                                  ("EUR")              -->
+<!ENTITY trade  "&#8482;"><!-- U+2122 TRADE MARK SIGN                            ("[TM]")             -->
+<!ENTITY larr   "&#8592;"><!-- U+2190 LEFTWARDS ARROW                            ("<-\u002D")         -->
+<!ENTITY rarr   "&#8594;"><!-- U+2192 RIGHTWARDS ARROW                           ("\u002D->")         -->
+<!ENTITY harr   "&#8596;"><!-- U+2194 LEFT RIGHT ARROW                           ("<->")              -->
+<!ENTITY lArr   "&#8656;"><!-- U+21D0 LEFTWARDS DOUBLE ARROW                     ("<==")              -->
+<!ENTITY rArr   "&#8658;"><!-- U+21D2 RIGHTWARDS DOUBLE ARROW                    ("==>")              -->
+<!ENTITY hArr   "&#8660;"><!-- U+21D4 LEFT RIGHT DOUBLE ARROW                    ("<=>")              -->
+<!ENTITY minus  "&#8722;"><!-- U+2212 MINUS SIGN                                 ("-")                -->
+<!ENTITY lowast "&#8727;"><!-- U+2217 ASTERISK OPERATOR                          ("*")                -->
+<!ENTITY le     "&#8804;"><!-- U+2264 LESS-THAN OR EQUAL TO                      ("<=")               -->
+<!ENTITY ge     "&#8805;"><!-- U+2265 GREATER-THAN OR EQUAL TO                   (">=")               -->
+<!ENTITY lang   "&#9001;"><!-- U+2329 LEFT-POINTING ANGLE BRACKET                ("<")                -->
+<!ENTITY rang   "&#9002;"><!-- U+232A RIGHT-POINTING ANGLE BRACKET               (">")                -->
+
+<!-- EOF -->

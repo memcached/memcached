@@ -1,0 +1,61 @@
+<!-- rfc2629-other.ent
+
+     Character entity set for RFC-2629 source xml documents.
+     There is no need to invoke this directly from
+     the source document itself; just invoke the DTD.
+
+     These are unknown to (X)HTML, so any converter to these
+     formats must either substitute these entities
+     or invoke this file from the output file.
+
+     Conversion to txt or nroff format will replace
+     these entities by the parenthesized text.
+
+     Typical invocation:
+       <!ENTITY % rfc2629-other
+                PUBLIC "-//IETF//ENTITIES Other for RFC 2629//EN"
+                       "http://xml.resource.org/authoring/rfc2629-other.ent">
+       %rfc2629-other;
+-->
+
+<!-- Magical -->
+<!--     rfc.number            (automatically expanded to content
+                                of number="..." attribute
+                                of <rfc> element, or to "XXXX")                       -->
+
+<!-- ASCII -->
+<!ENTITY excl     "&#33;"><!-- U+0021 EXCLAMATION MARK                  ("!")         -->
+<!ENTITY num      "&#35;"><!-- U+0023 NUMBER SIGN                       ("#")         -->
+<!ENTITY dollar   "&#36;"><!-- U+0024 DOLLAR SIGN                       ("$")         -->
+<!ENTITY percnt   "&#37;"><!-- U+0025 PERCENT SIGN                      ("%")         -->
+<!ENTITY lpar     "&#40;"><!-- U+0028 LEFT PARENTHESIS                  ("(")         -->
+<!ENTITY rpar     "&#41;"><!-- U+0029 RIGHT PARENTHESIS                 (")")         -->
+<!ENTITY ast      "&#42;"><!-- U+002A ASTERISK                          ("*")         -->
+<!ENTITY plus     "&#43;"><!-- U+002B PLUS SIGN                         ("+")         -->
+<!ENTITY comma    "&#44;"><!-- U+002C COMMA                             (",")         -->
+<!ENTITY hyphen   "&#45;"><!-- U+002D HYPHEN-MINUS                      ("-")         -->
+<!ENTITY period   "&#46;"><!-- U+002E FULL STOP                         (".")         -->
+<!ENTITY sol      "&#47;"><!-- U+002F SOLIDUS                           ("/")         -->
+<!ENTITY colon    "&#58;"><!-- U+003A COLON                             (":")         -->
+<!ENTITY semi     "&#59;"><!-- U+003B SEMICOLON                         (";")         -->
+<!ENTITY equals   "&#61;"><!-- U+003D EQUALS SIGN                       ("=")         -->
+<!ENTITY quest    "&#63;"><!-- U+003F QUESTION MARK                     ("?")         -->
+<!ENTITY commat   "&#64;"><!-- U+0040 COMMERCIAL AT                     ("@")         -->
+<!ENTITY lsqb     "&#91;"><!-- U+005B LEFT SQUARE BRACKET               ("[")         -->
+<!ENTITY bsol     "&#92;"><!-- U+005C REVERSE SOLIDUS                   ("\\")        -->
+<!ENTITY rsqb     "&#93;"><!-- U+005D RIGHT SQUARE BRACKET              ("]")         -->
+<!ENTITY circ     "&#94;"><!-- U+005E CIRCUMFLEX ACCENT                 ("^")         -->
+<!ENTITY lowbar   "&#95;"><!-- U+005F LOW LINE                          ("_")         -->
+<!ENTITY grave    "&#96;"><!-- U+0060 GRAVE ACCENT                      ("`")         -->
+<!ENTITY lcub    "&#123;"><!-- U+007B LEFT CURLY BRACKET                ("{")         -->
+<!ENTITY verbar  "&#124;"><!-- U+007C VERTICAL LINE                     ("|")         -->
+<!ENTITY rcub    "&#125;"><!-- U+007D RIGHT CURLY BRACKET               ("}")         -->
+
+<!-- Useful Unicode -->
+<!ENTITY Zcaron  "&#381;"><!-- U+017D LATIN CAPITAL LETTER Z WITH CARON ("Z")         -->
+<!ENTITY zcaron  "&#382;"><!-- U+017E LATIN SMALL LETTER Z WITH CARON   ("z")         -->
+<!ENTITY dash   "&#8208;"><!-- U+2010 HYPHEN                            ("-")         -->
+<!ENTITY nbhy   "&#8209;"><!-- U+2011 NON-BREAKING HYPHEN               (special "-") -->
+<!ENTITY wj     "&#8288;"><!-- U+2060 WORD JOINER                       (special "")  -->
+
+<!-- EOF -->

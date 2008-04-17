@@ -1,0 +1,304 @@
+<!--
+  revised DTD for the RFC document series, draft of 2007-03-29
+  -->
+
+
+<!--
+  Typical invocation:
+      <!DOCTYPE rfc PUBLIC "-//IETF//DTD RFC 2629//EN"
+                           "http://xml.resource.org/authoring/rfc2629.dtd" [
+        ... dtd subset ...
+      ]>
+    or
+      <!DOCTYPE rfc SYSTEM "rfc2629.dtd" [
+        ... dtd subset ...
+      ]>
+  -->
+
+
+<!--
+  Contents
+
+    Character entities
+
+    DTD data types
+
+    The top-level
+
+    Front matter
+
+    The Body
+
+    Back matter
+  -->
+
+
+<!--
+  Character entities
+  -->
+
+
+<!ENTITY % rfc2629-xhtml
+         PUBLIC "-//IETF//ENTITIES XHTML subset for RFC 2629//EN"
+                "rfc2629-xhtml.ent">
+%rfc2629-xhtml;
+
+<!ENTITY % rfc2629-other
+         PUBLIC "-//IETF//ENTITIES Other for RFC 2629//EN"
+                "rfc2629-other.ent">
+%rfc2629-other;
+
+
+<!--
+  DTD data types:
+
+        entity        description
+        ======        ===============================================
+        NUMBER        [0-9]+
+        NUMBERS       a comma-separated list of NUMBER
+
+        DAY           the day of the month, e.g., "1"
+        MONTH         the month of the year, e.g., "January"
+        YEAR          a four-digit year, e.g., "1999"
+
+        URI           e.g., "http://invisible.net/"
+
+        ATEXT/CTEXT   printable ASCII text (no line-terminators)
+
+        TEXT          character data
+  -->
+
+
+<!ENTITY % NUMBER     "CDATA">
+<!ENTITY % NUMBERS    "CDATA">
+
+<!ENTITY % DAY        "CDATA">
+<!ENTITY % MONTH      "CDATA">
+<!ENTITY % YEAR       "CDATA">
+
+<!ENTITY % URI        "CDATA">
+
+<!ENTITY % ATEXT      "CDATA">
+<!ENTITY % CTEXT      "#PCDATA">
+
+<!ENTITY % TEXT       "#PCDATA">
+
+<!ENTITY   rfc.number "XXXX">
+
+
+<!--
+  The top-level
+  -->
+
+
+<!--
+  attributes for the "rfc" element are supplied by the RFC
+  editor. when preparing drafts, authors should leave them blank.
+
+  the "seriesNo" attribute is used if the category is, e.g., BCP.
+  -->
+<!ELEMENT rfc         (front,middle,back?)>
+<!ATTLIST rfc
+          number      %NUMBER;           #IMPLIED
+          obsoletes   %NUMBERS;          ""
+          updates     %NUMBERS;          ""
+          category    (std|bcp|info|exp|historic)
+                                         #IMPLIED
+          seriesNo    %NUMBER;           #IMPLIED
+          ipr         (full2026|noDerivativeWorks2026|none
+                      |full3667|noModification3667|noDerivatives3667
+                      |full3978|noModification3978|noDerivatives3978)
+                                         #IMPLIED
+          iprExtract  IDREF              #IMPLIED
+          submissionType
+                      (IETF|independent) "IETF"
+          docName     %ATEXT;            #IMPLIED
+          xml:lang    %ATEXT;            "en">
+
+
+<!--
+  Front matter
+  -->
+
+
+<!ELEMENT front       (title,author+,date,area*,workgroup*,keyword*,
+                       abstract?,note*)>
+
+<!-- the "abbrev" attribute is used for headers, etc. -->
+<!ELEMENT title       (%CTEXT;)>
+<!ATTLIST title
+          abbrev      %ATEXT;            #IMPLIED>
+
+<!ELEMENT author      (organization,address?)>
+<!ATTLIST author
+          initials    %ATEXT;            #IMPLIED
+          surname     %ATEXT;            #IMPLIED
+          fullname    %ATEXT;            #IMPLIED
+          role        (editor)           #IMPLIED>
+
+<!ELEMENT organization
+                      (%CTEXT;)>
+<!ATTLIST organization
+          abbrev      %ATEXT;            #IMPLIED>
+
+<!ELEMENT address     (postal?,phone?,facsimile?,email?,uri?)>
+
+<!-- this content model should be more strict:
+     at most one of each the city, region, code, and country
+     elements may be present -->
+<!ELEMENT postal      (street+,(city|region|code|country)*)>
+<!ELEMENT street      (%CTEXT;)>
+<!ELEMENT city        (%CTEXT;)>
+<!ELEMENT region      (%CTEXT;)>
+<!ELEMENT code        (%CTEXT;)>
+<!ELEMENT country     (%CTEXT;)>
+<!ELEMENT phone       (%CTEXT;)>
+<!ELEMENT facsimile   (%CTEXT;)>
+<!ELEMENT email       (%CTEXT;)>
+<!ELEMENT uri         (%CTEXT;)>
+
+<!ELEMENT date        EMPTY>
+<!ATTLIST date
+          day         %DAY;              #IMPLIED
+          month       %MONTH;            #IMPLIED
+          year        %YEAR;             #IMPLIED>
+
+<!-- meta-data... -->
+<!ELEMENT area        (%CTEXT;)>
+<!ELEMENT workgroup   (%CTEXT;)>
+<!ELEMENT keyword     (%CTEXT;)>
+
+<!ELEMENT abstract    (t)+>
+<!ELEMENT note        (t)+>
+<!ATTLIST note
+          title       %ATEXT;            #REQUIRED>
+
+
+<!--
+  The body
+  -->
+
+
+<!-- later on, may be (section+,appendix*,section*) -->
+<!ELEMENT middle      (section+)>
+
+<!ELEMENT section     ((t|figure|texttable|iref)*,section*)>
+<!ATTLIST section
+          anchor      ID                 #IMPLIED
+          title       %ATEXT;            #REQUIRED
+          toc         (include|exclude|default)
+                                         "default">
+
+<!--
+<!ELEMENT appendix    ((t|figure|texttable|iref)*,appendix*)>
+<!ATTLIST appendix
+          anchor      ID                 #IMPLIED
+          title       %ATEXT;            #REQUIRED
+          toc         (include|exclude|default)
+                                         "default">
+  -->
+
+<!-- use of <figure/> is deprecated... -->
+<!ELEMENT t           (%TEXT;|list|figure|xref|eref|iref|cref|spanx|vspace)*>
+<!ATTLIST t
+          anchor      ID                 #IMPLIED
+          hangText    %ATEXT;            #IMPLIED>
+
+<!-- the value of the style attribute is inherited from the closest
+     parent -->
+<!ELEMENT list        (t+)>
+<!ATTLIST list
+          style       %ATEXT;            #IMPLIED
+          hangIndent  %NUMBER;           #IMPLIED
+          counter     %ATEXT;            #IMPLIED>
+
+<!ELEMENT xref        (%CTEXT;)>
+<!ATTLIST xref
+          target      IDREF              #REQUIRED
+          pageno      (true|false)       "false"
+          format      (counter|title|none|default)
+                                         "default">
+
+<!ELEMENT eref        (%CTEXT;)>
+<!ATTLIST eref
+          target      %URI;              #REQUIRED>
+
+<!ELEMENT iref        EMPTY>
+<!ATTLIST iref
+          item        %ATEXT;            #REQUIRED
+          subitem     %ATEXT;            ""
+          primary    (true|false)       "false">
+
+<!ELEMENT cref        (%CTEXT;)>
+<!ATTLIST cref
+          anchor      ID                 #IMPLIED
+          source      %ATEXT;            #IMPLIED>
+
+<!ELEMENT spanx       (%CTEXT;)>
+<!ATTLIST spanx
+          style       %ATEXT;            "emph">
+
+<!ELEMENT vspace      EMPTY>
+<!ATTLIST vspace
+          blankLines  %NUMBER;           "0">
+
+<!ELEMENT figure      (iref*,preamble?,artwork,postamble?)>
+<!ATTLIST figure
+          anchor      ID                 #IMPLIED
+          title       %ATEXT;            ""
+          src         %URI;              #IMPLIED
+          align       (left|center|right) "left"
+          alt         %ATEXT;            ""
+          width       %ATEXT;            ""
+          height      %ATEXT;            "">
+
+<!ELEMENT preamble    (%TEXT;|xref|eref|iref|cref|spanx)*>
+<!ELEMENT artwork     (%TEXT;)*>
+<!ATTLIST artwork
+          xml:space   (default|preserve) "preserve"
+          name        %ATEXT;            ""
+          type        %ATEXT;            ""
+          src         %URI;              #IMPLIED
+          align       (left|center|right) "left"
+          alt         %ATEXT;            ""
+          width       %ATEXT;            ""
+          height      %ATEXT;            "">
+
+<!ELEMENT postamble   (%TEXT;|xref|eref|iref|cref|spanx)*>
+
+<!ELEMENT texttable   (preamble?,ttcol+,c*,postamble?)>
+<!ATTLIST texttable
+          anchor      ID                 #IMPLIED
+          title       %ATEXT;            "">
+<!ELEMENT ttcol       (%CTEXT;)>
+<!ATTLIST ttcol
+          width       %ATEXT;           #IMPLIED
+          align       (left|center|right) "left">
+<!ELEMENT c           (%TEXT;|xref|eref|iref|cref|spanx)*>
+
+
+<!--
+  Back matter
+  -->
+
+
+<!-- sections, if present, are appendices -->
+<!ELEMENT back        (references*,section*)>
+
+<!ELEMENT references  (reference+)>
+<!ATTLIST references
+          title       %ATEXT;            "References">
+<!ELEMENT reference   (front,seriesInfo*,format*,annotation*)>
+<!ATTLIST reference
+          anchor      ID                 #IMPLIED
+          target      %URI;              #IMPLIED>
+<!ELEMENT seriesInfo  EMPTY>
+<!ATTLIST seriesInfo
+          name        %ATEXT;            #REQUIRED
+          value       %ATEXT;            #REQUIRED>
+<!ELEMENT format      EMPTY>
+<!ATTLIST format
+          target      %URI;              #IMPLIED
+          type        %ATEXT;            #REQUIRED
+          octets      %NUMBER;           #IMPLIED>
+<!ELEMENT annotation  (%TEXT;|xref|eref|iref|cref|spanx)*>

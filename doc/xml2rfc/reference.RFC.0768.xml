@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<reference anchor='RFC0768'>
+
+<front>
+<title>User Datagram Protocol</title>
+<author initials='J.' surname='Postel' fullname='J. Postel'>
+<organization>University of Southern California (USC)/Information Sciences Institute</organization>
+<address>
+<postal>
+<street>4676 Admiralty Way</street>
+<city>Marina del Rey</city>
+<region>CA</region>
+<code>90291</code>
+<country>US</country></postal>
+<phone>+1 213 822 1511</phone></address></author>
+<date year='1980' day='28' month='August' /></front>
+
+<seriesInfo name='STD' value='6' />
+<seriesInfo name='RFC' value='768' />
+<format type='TXT' octets='5896' target='ftp://ftp.isi.edu/in-notes/rfc768.txt' />
+</reference>

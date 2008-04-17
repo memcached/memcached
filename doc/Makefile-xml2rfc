@@ -1,0 +1,8 @@
+%.txt: %.full
+	xml2rfc $< $@
+
+%.chk: %.xml xml2rfc/rfc2629-refchk.xsl
+	xsltproc xml2rfc/rfc2629-refchk.xsl $< >$@
+
+%.full: %.xml xml2rfc/rfc2629-noinc.xsl
+	xsltproc xml2rfc/rfc2629-noinc.xsl $< >$@
