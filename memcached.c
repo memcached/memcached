@@ -1157,6 +1157,10 @@ static void dispatch_bin_command(conn *c) {
         case CMD_DECR:
             bin_read_key(c, bin_reading_incr_header, BIN_INCR_HDR_LEN);
             break;
+        case CMD_QUIT:
+            write_bin_response(c, NULL, 0, 0);
+            c->write_and_go = conn_closing;
+            break;
         default:
             write_bin_error(c, ERR_UNKNOWN_CMD, c->bin_header[2]);
     }
