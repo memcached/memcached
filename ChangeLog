@@ -1,3 +1,18 @@
+       * 'noreply' support (Tomash Brechko)
+
+       * IPv6 support, and IPv6 multi-interface support (brian@tangent.org)
+
+       * Add compiler options for Sun Studio compilers with --enable-threads
+	     (Trond.Norbye@Sun.COM)
+
+       * Add --enable-64bit for mulitarget platforms (Trond.Norbye@Sun.COM)
+
+       * Use gettimeofday(2) instead of time(2).
+
+       * Make -k option work (Tomash Brechko)
+
+	   * Fix chunk slab alignment (Trond.Norbye@Sun.COM)
+
 2007-12-06 [Version 1.2.4 released]
 
 2007-12-05

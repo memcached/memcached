@@ -19,7 +19,7 @@ std *
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/signal.h>
+#include <signal.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
 #include <ctype.h>
@@ -64,8 +64,8 @@ std *
  * forward declarations
  */
 static void drive_machine(conn *c);
-static int new_socket(const int prot);
-static int server_socket(const int port, const int prot);
+static int new_socket(struct addrinfo *ai);
+static int *server_socket(const int port, const int prot, int *count);
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
 static int try_read_udp(conn *c);
@@ -96,7 +96,6 @@ static void set_current_time(void);  /* update the global variable holding
                               global 32-bit seconds-since-start time
                               (to avoid 64 bit time_t) */
 
-void pre_gdb(void);
 static void conn_free(conn *c);
 
 /** exported globals **/
@@ -107,8 +106,7 @@ struct settings settings;
 static item **todelete = NULL;
 static int delcurr;
 static int deltotal;
-static conn *listen_conn;
-static conn *bin_listen_conn;
+static conn *listen_conn = NULL;
 static struct event_base *main_base;
 
 #define TRANSMIT_COMPLETE   0
@@ -170,7 +168,8 @@ static void settings_init(void) {
     settings.access=0700;
     settings.port = 11211;
     settings.udpport = 0;
-    settings.interf.s_addr = htonl(INADDR_ANY);
+    /* By default this string should be NULL for getaddrinfo() */
+    settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
@@ -253,7 +252,7 @@ static void conn_init(void) {
     freetotal = 200;
     freecurr = 0;
     if ((freeconns = (conn **)malloc(sizeof(conn *) * freetotal)) == NULL) {
-        perror("malloc()");
+        fprintf(stderr, "malloc()\n");
     }
     return;
 }
@@ -302,7 +301,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
 
     if (NULL == c) {
         if (!(c = (conn *)malloc(sizeof(conn)))) {
-            perror("malloc()");
+            fprintf(stderr, "malloc()\n");
             return NULL;
         }
         c->rbuf = c->wbuf = 0;
@@ -336,7 +335,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
             if (c->iov != 0) free(c->iov);
             if (c->msglist != 0) free(c->msglist);
             free(c);
-            perror("malloc()");
+            fprintf(stderr, "malloc()\n");
             return NULL;
         }
 
@@ -401,6 +400,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
         if (conn_add_to_freelist(c)) {
             conn_free(c);
         }
+        perror("event_add");
         return NULL;
     }
 
@@ -599,7 +599,7 @@ static void suffix_init(void) {
 
     freesuffix = (char **)malloc( sizeof(char *) * freesuffixtotal );
     if (freesuffix == NULL) {
-        perror("malloc()");
+        fprintf(stderr, "malloc()\n");
     }
     return;
 }
@@ -1296,7 +1296,7 @@ static void complete_nread_binary(conn *c) {
             conn_set_state(c, conn_closing);
             return;
         }
-
+    
         c->msgcurr = 0;
         c->msgused = 0;
         c->iovused = 0;
@@ -1304,7 +1304,7 @@ static void complete_nread_binary(conn *c) {
             out_string(c, "SERVER_ERROR out of memory");
             return;
         }
-
+    
         c->cmd = (c->bin_header[0] >> 16) & 0xff;
         c->keylen = c->bin_header[0] & 0xffff;
         c->opaque = c->bin_header[3];
@@ -2477,14 +2477,19 @@ static int try_read_network(conn *c) {
             c->rsize *= 2;
         }
 
-        res = read(c->sfd, c->rbuf + c->rbytes, c->rsize - c->rbytes);
+        int avail = c->rsize - c->rbytes;
+        res = read(c->sfd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
             STATS_LOCK();
             stats.bytes_read += res;
             STATS_UNLOCK();
             gotdata = 1;
             c->rbytes += res;
-            continue;
+            if (res == avail) {
+                continue;
+            } else {
+                break;
+            }
         }
         if (res == 0) {
             /* connection closed */
@@ -2517,20 +2522,25 @@ static bool update_event(conn *c, const int new_flags) {
  * Sets whether we are listening for new connections or not.
  */
 void accept_new_conns(const bool do_accept) {
+    conn *next;
+
     if (! is_listen_thread())
         return;
-    if (do_accept) {
-        update_event(listen_conn, EV_READ | EV_PERSIST);
-        if (listen(listen_conn->sfd, 1024) != 0) {
-            perror("listen");
+
+    for (next = listen_conn; next; next = next->next) {
+        if (do_accept) {
+            update_event(next, EV_READ | EV_PERSIST);
+            if (listen(next->sfd, 1024) != 0) {
+                perror("listen");
+            }
         }
-    }
-    else {
-        update_event(listen_conn, 0);
-        if (listen(listen_conn->sfd, 0) != 0) {
-            perror("listen");
+        else {
+            update_event(next, 0);
+            if (listen(next->sfd, 0) != 0) {
+                perror("listen");
+            }
         }
-    }
+  }
 }
 
 /*
@@ -2605,7 +2615,7 @@ static void drive_machine(conn *c) {
     int sfd, flags = 1;
     int init_state; /* initial state for a new connection */
     socklen_t addrlen;
-    struct sockaddr addr;
+    struct sockaddr_storage addr;
     int res;
 
     assert(c != NULL);
@@ -2615,7 +2625,7 @@ static void drive_machine(conn *c) {
         switch(c->state) {
         case conn_listening:
             addrlen = sizeof(addr);
-            if ((sfd = accept(c->sfd, &addr, &addrlen)) == -1) {
+            if ((sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen)) == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     /* these are transient, so don't log anything */
                     stop = true;
@@ -2866,11 +2876,11 @@ void event_handler(const int fd, const short which, void *arg) {
     return;
 }
 
-static int new_socket(const int prot) {
+static int new_socket(struct addrinfo *ai) {
     int sfd;
     int flags;
 
-    if ((sfd = socket(AF_INET, IS_UDP(prot) ? SOCK_DGRAM : SOCK_STREAM, 0)) == -1) {
+    if ((sfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1) {
         perror("socket()");
         return -1;
     }
@@ -2920,45 +2930,117 @@ static void maximize_sndbuf(const int sfd) {
 }
 
 
-static int server_socket(const int port, const int prot) {
+static int *server_socket(const int port, const int prot, int *count) {
     int sfd;
+    int *sfd_list;
+    int *sfd_ptr;
     struct linger ling = {0, 0};
-    struct sockaddr_in addr;
+    struct addrinfo *ai;
+    struct addrinfo *next;
+    struct addrinfo hints;
+    char port_buf[NI_MAXSERV];
+    int error;
+    int success = 0;
+
     int flags =1;
-
-    if ((sfd = new_socket(prot)) == -1) {
-        return -1;
-    }
-
-    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
-    if (IS_UDP(prot)) {
-        maximize_sndbuf(sfd);
-    } else {
-        setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
-        setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
-        setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
-    }
 
     /*
      * the memset call clears nonstandard fields in some impementations
      * that otherwise mess things up.
      */
-    memset(&addr, 0, sizeof(addr));
+    memset(&hints, 0, sizeof (hints));
+    hints.ai_flags = AI_PASSIVE|AI_ADDRCONFIG;
+    if (IS_UDP(prot))
+    {
+        hints.ai_protocol = IPPROTO_UDP;
+        hints.ai_socktype = SOCK_DGRAM;
+        hints.ai_family = AF_INET; /* This left here because of issues with OSX 10.5 */
+    } else {
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_protocol = IPPROTO_TCP;
+        hints.ai_socktype = SOCK_STREAM;
+    }
 
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr = settings.interf;
-    if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        perror("bind()");
-        close(sfd);
-        return -1;
+    snprintf(port_buf, NI_MAXSERV, "%d", port);
+    error= getaddrinfo(settings.inter, port_buf, &hints, &ai);
+    if (error != 0) {
+      if (error != EAI_SYSTEM)
+        fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(error));
+      else
+        perror("getaddrinfo()");
+
+      return NULL;
     }
-    if (!IS_UDP(prot) && listen(sfd, 1024) == -1) {
-        perror("listen()");
-        close(sfd);
-        return -1;
+
+    for (*count= 1, next= ai; next->ai_next; next= next->ai_next, (*count)++);
+
+    sfd_list= (int *)calloc(*count, sizeof(int));
+    if (sfd_list == NULL) {
+        fprintf(stderr, "calloc()\n");
+        return NULL;
     }
-    return sfd;
+    memset(sfd_list, -1, sizeof(int) * (*count));
+
+    for (sfd_ptr= sfd_list, next= ai; next; next= next->ai_next, sfd_ptr++) {
+        if ((sfd = new_socket(next)) == -1) {
+            free(sfd_list);
+            freeaddrinfo(ai);
+            return NULL;
+        }
+
+        setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
+        if (IS_UDP(prot)) {
+            maximize_sndbuf(sfd);
+        } else {
+            setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
+            setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
+            setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
+        }
+
+        if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) {
+            if (errno != EADDRINUSE) {
+                perror("bind()");
+                /* If we are not at the first element, loop back and close all sockets */
+                if (sfd_ptr != sfd_list) {
+                    do {
+                        --sfd_ptr;
+                        close(*sfd_ptr);
+                    } while (sfd_ptr != sfd_list);
+                }
+                close(sfd);
+                freeaddrinfo(ai);
+                free(sfd_list);
+                return NULL;
+            }
+            close(sfd);
+            *sfd_ptr= -1;
+        } else {
+          success++;
+          *sfd_ptr= sfd;
+          if (!IS_UDP(prot) && listen(sfd, 1024) == -1) {
+              perror("listen()");
+                if (sfd_ptr != sfd_list) {
+                    do {
+                        --sfd_ptr;
+                        close(*sfd_ptr);
+                    } while (sfd_ptr != sfd_list);
+                }
+              close(sfd);
+              freeaddrinfo(ai);
+              free(sfd_list);
+              return NULL;
+          }
+      }
+    }
+
+    freeaddrinfo(ai);
+
+    if (success == 0) {
+        free(sfd_list);
+        return NULL;
+    }
+
+    return sfd_list;
 }
 
 static int new_socket_unix(void) {
@@ -2979,8 +3061,9 @@ static int new_socket_unix(void) {
     return sfd;
 }
 
-static int server_socket_unix(const char *path, int access_mask) {
+static int *server_socket_unix(const char *path, int access_mask) {
     int sfd;
+    int *sfd_list;
     struct linger ling = {0, 0};
     struct sockaddr_un addr;
     struct stat tstat;
@@ -2988,12 +3071,23 @@ static int server_socket_unix(const char *path, int access_mask) {
     int old_umask;
 
     if (!path) {
-        return -1;
+        return NULL;
     }
 
     if ((sfd = new_socket_unix()) == -1) {
-        return -1;
+        return NULL;
     }
+
+    /*
+      When UNIX domain sockets get refactored, this will go away.
+      For now we know there is just one socket.
+    */
+    sfd_list= (int *)calloc(1, sizeof(int));
+    if (sfd_list == NULL) {
+        fprintf(stderr, "calloc()\n");
+        return NULL;
+    }
+    memset(sfd_list, -1, sizeof(int) * 1);
 
     /*
      * Clean up a previous socket file if we left it around
@@ -3019,34 +3113,21 @@ static int server_socket_unix(const char *path, int access_mask) {
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
         close(sfd);
+        free(sfd_list);
         umask(old_umask);
-        return -1;
+        return NULL;
     }
     umask(old_umask);
     if (listen(sfd, 1024) == -1) {
         perror("listen()");
         close(sfd);
-        return -1;
+        free(sfd_list);
+        return NULL;
     }
-    return sfd;
-}
 
-/* listening socket */
-static int l_socket = 0;
-/* Listening socket for the binary protocol */
-static int bl_socket = -1;
+    *sfd_list= sfd;
 
-/* udp socket */
-static int u_socket = -1;
-
-/* invoke right before gdb is called, on assert */
-void pre_gdb(void) {
-    int i;
-    if (l_socket > -1) close(l_socket);
-    if (bl_socket > -1) close(bl_socket);
-    if (u_socket > -1) close(u_socket);
-    for (i = 3; i <= 500; i++) close(i); /* so lame */
-    kill(getpid(), SIGABRT);
+    return sfd_list;
 }
 
 /*
@@ -3062,7 +3143,10 @@ static struct event clockevent;
 
 /* time-sensitive callers can call it by hand with this, outside the normal ever-1-second timer */
 static void set_current_time(void) {
-    current_time = (rel_time_t) (time(0) - stats.started);
+    struct timeval timer;
+
+    gettimeofday(&timer, NULL);
+    current_time = (rel_time_t) (timer.tv_sec - stats.started);
 }
 
 static void clock_handler(const int fd, const short which, void *arg) {
@@ -3136,7 +3220,12 @@ static void usage(void) {
            "-m <num>      max memory to use for items in megabytes, default is 64 MB\n"
            "-M            return error on memory exhausted (rather than removing items)\n"
            "-c <num>      max simultaneous connections, default is 1024\n"
-           "-k            lock down all paged memory\n"
+           "-k            lock down all paged memory.  Note that there is a\n"
+           "              limit on how much memory you may lock.  Trying to\n"
+           "              allocate more than that would fail, so be sure you\n"
+           "              set the limit correctly for the user you started\n"
+           "              the daemon with (not for -u <username> user;\n"
+           "              under sh this is done with 'ulimit -S -l NUM_KB').\n"
            "-v            verbose (print errors/warnings while in event loop)\n"
            "-vv           very verbose (also print client commands/reponses)\n"
            "-h            print this help and exit\n"
@@ -3249,6 +3338,29 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
+static void setup_listening_conns(int *l_socket, int count, const int prot) {
+    /* create the initial listening connection */
+    int x;
+    int *l_socket_ptr;
+    conn *next = listen_conn;
+    for (l_socket_ptr= l_socket, x = 0; x < count; l_socket_ptr++, x++) {
+        conn *listen_conn_add;
+        if (*l_socket_ptr > -1 ) {
+            if (!(listen_conn_add = conn_new(*l_socket_ptr, conn_listening,
+                                             EV_READ | EV_PERSIST,
+                                             1, prot, main_base))) {
+                fprintf(stderr, "failed to create listening connection\n");
+                exit(EXIT_FAILURE);
+            }
+
+            if (listen_conn == NULL) {
+                next = listen_conn = listen_conn_add;
+            } else {
+                next->next= listen_conn_add;
+            }
+        }
+    }
+}
 
 static void sig_handler(const int sig) {
     printf("SIGINT handled.\n");
@@ -3257,7 +3369,6 @@ static void sig_handler(const int sig) {
 
 int main (int argc, char **argv) {
     int c;
-    struct in_addr addr;
     bool lock_memory = false;
     bool daemonize = false;
     int maxcore = 0;
@@ -3266,6 +3377,15 @@ int main (int argc, char **argv) {
     struct passwd *pw;
     struct sigaction sa;
     struct rlimit rlim;
+    /* listening sockets */
+    static int *l_socket = NULL;
+    static int *bl_socket = NULL;
+    static int l_socket_count = 0;
+    static int bl_socket_count = 0;
+
+    /* udp socket */
+    static int *u_socket = NULL;
+    static int u_socket_count = 0;
 
     /* handle SIGINT */
     signal(SIGINT, sig_handler);
@@ -3321,12 +3441,7 @@ int main (int argc, char **argv) {
             settings.verbose++;
             break;
         case 'l':
-            if (inet_pton(AF_INET, optarg, &addr) <= 0) {
-                fprintf(stderr, "Illegal address: %s\n", optarg);
-                return 1;
-            } else {
-                settings.interf = addr;
-            }
+            settings.inter= strdup(optarg);
             break;
         case 'd':
             daemonize = true;
@@ -3430,15 +3545,15 @@ int main (int argc, char **argv) {
 
     /* create the listening socket and bind it */
     if (settings.socketpath == NULL) {
-        l_socket = server_socket(settings.port, 0);
-        if (l_socket == -1) {
+        l_socket = server_socket(settings.port, 0, &l_socket_count);
+        if (l_socket == NULL) {
             fprintf(stderr, "failed to listen\n");
             exit(EXIT_FAILURE);
         }
         /* Try the binary port. */
         if(settings.binport > 0) {
-            bl_socket = server_socket(settings.binport, 0);
-            if (bl_socket == -1) {
+            bl_socket = server_socket(settings.binport, 0, &bl_socket_count);
+            if (bl_socket == NULL) {
                  fprintf(stderr, "failed to listen to binary protocol\n");
                     exit(EXIT_FAILURE);
             }
@@ -3447,11 +3562,24 @@ int main (int argc, char **argv) {
 
     if (settings.udpport > 0 && settings.socketpath == NULL) {
         /* create the UDP listening socket and bind it */
-        u_socket = server_socket(settings.udpport, 1);
-        if (u_socket == -1) {
+        u_socket = server_socket(settings.udpport, 1, &u_socket_count);
+        if (u_socket == NULL) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
             exit(EXIT_FAILURE);
         }
+    }
+
+    /* lock paged memory if needed */
+    if (lock_memory) {
+#ifdef HAVE_MLOCKALL
+        int res = mlockall(MCL_CURRENT | MCL_FUTURE);
+        if (res != 0) {
+            fprintf(stderr, "warning: -k invalid, mlockall() failed: %s\n",
+                    strerror(errno));
+        }
+#else
+        fprintf(stderr, "warning: -k invalid, mlockall() not supported on this platform.  proceeding without.\n");
+#endif
     }
 
     /* lose root privileges if we have them */
@@ -3473,10 +3601,12 @@ int main (int argc, char **argv) {
     /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
         l_socket = server_socket_unix(settings.socketpath,settings.access);
-        if (l_socket == -1) {
-            fprintf(stderr, "failed to listen\n");
-            exit(EXIT_FAILURE);
+        if (l_socket == NULL) {
+          fprintf(stderr, "failed to listen\n");
+          exit(EXIT_FAILURE);
         }
+        /* We only support one of these, so whe know the count */
+        l_socket_count = 1;
     }
 
     /* daemonize if requested */
@@ -3513,15 +3643,6 @@ int main (int argc, char **argv) {
         memset(buckets, 0, sizeof(int) * MAX_BUCKETS);
     }
 
-    /* lock paged memory if needed */
-    if (lock_memory) {
-#ifdef HAVE_MLOCKALL
-        mlockall(MCL_CURRENT | MCL_FUTURE);
-#else
-        fprintf(stderr, "warning: mlockall() not supported on this platform.  proceeding without.\n");
-#endif
-    }
-
     /*
      * ignore SIGPIPE signals; we can use errno==EPIPE if we
      * need that information
@@ -3533,23 +3654,9 @@ int main (int argc, char **argv) {
         perror("failed to ignore SIGPIPE; sigaction");
         exit(EXIT_FAILURE);
     }
-    /* create the initial listening connection */
-    if (!(listen_conn = conn_new(l_socket, conn_listening,
-                                 EV_READ | EV_PERSIST, 1, ascii_prot,
-                                 main_base))) {
-        fprintf(stderr, "failed to create listening connection");
-        exit(EXIT_FAILURE);
-    }
-
-    /* Same for binary protocol */
-    if (bl_socket > 0) {
-        if (!(bin_listen_conn = conn_new(bl_socket, conn_listening,
-                                 EV_READ | EV_PERSIST, 1, binary_prot,
-                                 main_base))) {
-            fprintf(stderr, "failed to create listening connection");
-            exit(EXIT_FAILURE);
-        }
-    }
+    /* Set up all of the listening connections */
+    setup_listening_conns(l_socket, l_socket_count, ascii_prot);
+    setup_listening_conns(bl_socket, bl_socket_count, binary_prot);
 
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
@@ -3568,10 +3675,10 @@ int main (int argc, char **argv) {
     }
     delete_handler(0, 0, 0); /* sets up the event */
     /* create the initial listening udp connection, monitored on all threads */
-    if (u_socket > -1) {
+    if (u_socket) {
         for (c = 0; c < settings.num_threads; c++) {
             /* this is guaranteed to hit all threads because we round-robin */
-            dispatch_conn_new(u_socket, conn_read, EV_READ | EV_PERSIST,
+            dispatch_conn_new(*u_socket, conn_read, EV_READ | EV_PERSIST,
                               UDP_READ_BUFFER_SIZE, ascii_udp_prot);
         }
     }
@@ -3580,5 +3687,13 @@ int main (int argc, char **argv) {
     /* remove the PID file if we're a daemon */
     if (daemonize)
         remove_pidfile(pid_file);
+    /* Clean up strdup() call for bind() address */
+    if (settings.inter)
+      free(settings.inter);
+    if (l_socket)
+      free(l_socket);
+    if (u_socket)
+      free(u_socket);
+
     return 0;
 }

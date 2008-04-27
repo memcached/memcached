@@ -10,6 +10,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <event.h>
+#include <netdb.h>
 
 #define DATA_BUFFER_SIZE 2048
 #define UDP_READ_BUFFER_SIZE 65536
@@ -126,7 +127,7 @@ struct settings {
     int port;
     int udpport;
     int binport;           /* Port for binary protocol. */
-    struct in_addr interf;
+    char *inter;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
     bool managed;          /* if 1, a tracker manages virtual buckets */
@@ -211,7 +212,8 @@ enum protocols {
 #define NREAD_PREPEND 5
 #define NREAD_CAS 6
 
-typedef struct {
+typedef struct conn conn;
+struct conn {
     int    sfd;
     int    state;
     int    substate;
@@ -289,18 +291,15 @@ typedef struct {
     short cmd;
     int opaque;
     int keylen;
+    conn   *next;     /* Used for generating a list of conn structures */
+};
 
-} conn;
 
 /* number of virtual buckets for a managed instance */
 #define MAX_BUCKETS 32768
 
 /* current time of day (updated periodically) */
 extern volatile rel_time_t current_time;
-
-/* temporary hack */
-/* #define assert(x) if(!(x)) { printf("assert failure: %s\n", #x); pre_gdb(); }
-   void pre_gdb (); */
 
 /*
  * Functions

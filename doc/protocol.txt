@@ -126,9 +126,10 @@ Storage commands
 
 First, the client sends a command line which looks like this:
 
-<command name> <key> <flags> <exptime> <bytes> [<cas unqiue>]\r\n
+<command name> <key> <flags> <exptime> <bytes> [noreply]\r\n
+cas <key> <flags> <exptime> <bytes> <cas unqiue> [noreply]\r\n
 
-- <command name> is "set", "add", "replace", "append", "prepend", or "cas"
+- <command name> is "set", "add", "replace", "append" or "prepend"
 
   "set" means "store this data".  
 
@@ -174,6 +175,12 @@ First, the client sends a command line which looks like this:
   Clients should use the value returned from the "gets" command
   when issuing "cas" updates.
 
+- "noreply" optional parameter instructs the server to not send the
+  reply.  NOTE: if the request line is malformed, the server can't
+  parse "noreply" option reliably.  In this case it may send the error
+  to the client, and not reading it on the client side will break
+  things.  Client should construct only valid requests.
+
 After this line, the client sends the data block:
 
 <data block>\r\n
@@ -193,6 +200,9 @@ item is in a delete queue (see the "delete" command below).
 
 - "EXISTS\r\n" to indicate that the item you are trying to store with
 a "cas" command has been modified since you last fetched it.
+
+- "NOT_FOUND\r\n" to indicate that the item you are trying to store
+with a "cas" command did not exist or has been deleted.
 
 
 Retrieval command:
@@ -242,7 +252,7 @@ Deletion
 
 The command "delete" allows for explicit deletion of items:
 
-delete <key> <time>\r\n
+delete <key> [<time>] [noreply]\r\n
 
 - <key> is the key of the item the client wishes the server to delete
 
@@ -257,6 +267,10 @@ delete <key> <time>\r\n
   The parameter <time> is optional, and, if absent, defaults to 0
   (which means that the item will be deleted immediately and further
   storage commands with this key will succeed).
+
+- "noreply" optional parameter instructs the server to not send the
+  reply.  See the note in Storage commands regarding malformed
+  requests.
 
 The response line to this command can be one of:
 
@@ -282,16 +296,20 @@ non-existent key exists with value 0; instead, they will fail.
 
 The client sends the command line:
 
-incr <key> <value>\r\n
+incr <key> <value> [noreply]\r\n
 
 or
 
-decr <key> <value>\r\n
+decr <key> <value> [noreply]\r\n
 
 - <key> is the key of the item the client wishes to change
 
 - <value> is the amount by which the client wants to increase/decrease
 the item. It is a decimal representation of a 64-bit unsigned integer.
+
+- "noreply" optional parameter instructs the server to not send the
+  reply.  See the note in Storage commands regarding malformed
+  requests.
 
 The response will be one of:
 
@@ -396,16 +414,17 @@ Other commands
 --------------
 
 "flush_all" is a command with an optional numeric argument. It always
-succeeds, and the server sends "OK\r\n" in response. Its effect is to
-invalidate all existing items immediately (by default) or after the
-expiration specified.  After invalidation none of the items will be returned
-in response to a retrieval command (unless it's stored again under the
-same key *after* flush_all has invalidated the items). flush_all doesn't
-actually free all the memory taken up by existing items; that will
-happen gradually as new items are stored. The most precise definition
-of what flush_all does is the following: it causes all items whose
-update time is earlier than the time at which flush_all was set to be
-executed to be ignored for retrieval purposes.
+succeeds, and the server sends "OK\r\n" in response (unless "noreply"
+is given as the last parameter). Its effect is to invalidate all
+existing items immediately (by default) or after the expiration
+specified.  After invalidation none of the items will be returned in
+response to a retrieval command (unless it's stored again under the
+same key *after* flush_all has invalidated the items). flush_all
+doesn't actually free all the memory taken up by existing items; that
+will happen gradually as new items are stored. The most precise
+definition of what flush_all does is the following: it causes all
+items whose update time is earlier than the time at which flush_all
+was set to be executed to be ignored for retrieval purposes.
 
 The intent of flush_all with a delay, was that in a setting where you
 have a pool of memcached servers, and you need to flush all content,
@@ -428,9 +447,10 @@ In response, the server sends
 "VERSION <version>\r\n", where <version> is the version string for the
 server.
 
-"verbosity" is a command with a numeric argument. It always                                                  
-succeeds, and the server sends "OK\r\n" in response. Its effect is to                                        
-set the verbosity level of the logging output.                                                               
+"verbosity" is a command with a numeric argument. It always succeeds,
+and the server sends "OK\r\n" in response (unless "noreply" is given
+as the last parameter). Its effect is to set the verbosity level of
+the logging output.
 
 "quit" is a command with no arguments:
 
