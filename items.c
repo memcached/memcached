@@ -27,12 +27,19 @@ static uint64_t get_cas_id();
 #define ITEM_UPDATE_INTERVAL 60
 
 #define LARGEST_ID 255
+typedef struct {
+    unsigned int evicted;
+    unsigned int outofmemory;
+} itemstats_t;
+
 static item *heads[LARGEST_ID];
 static item *tails[LARGEST_ID];
+static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
 
 void item_init(void) {
     int i;
+    memset(itemstats, 0, sizeof(itemstats_t) * LARGEST_ID);
     for(i = 0; i < LARGEST_ID; i++) {
         heads[i] = NULL;
         tails[i] = NULL;
@@ -88,7 +95,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     if (id == 0)
         return 0;
 
-    it = slabs_alloc(ntotal);
+    it = slabs_alloc(ntotal, id);
     if (it == 0) {
         int tries = 50;
         item *search;
@@ -97,7 +104,10 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
          * we're out of luck at this point...
          */
 
-        if (settings.evict_to_free == 0) return NULL;
+        if (settings.evict_to_free == 0) {
+            itemstats[id].outofmemory++;
+            return NULL;
+        }
 
         /*
          * try to get one off the right LRU
@@ -106,22 +116,28 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
          * tries
          */
 
-        if (id > LARGEST_ID) return NULL;
-        if (tails[id] == 0) return NULL;
+        if (tails[id] == 0) {
+            itemstats[id].outofmemory++;
+            return NULL;
+        }
 
         for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
             if (search->refcount == 0) {
-               if (search->exptime == 0 || search->exptime > current_time) {
-                       STATS_LOCK();
-                       stats.evictions++;
-                       STATS_UNLOCK();
+                if (search->exptime == 0 || search->exptime > current_time) {
+                    itemstats[id].evicted++;
+                    STATS_LOCK();
+                    stats.evictions++;
+                    STATS_UNLOCK();
                 }
                 do_item_unlink(search);
                 break;
             }
         }
-        it = slabs_alloc(ntotal);
-        if (it == 0) return NULL;
+        it = slabs_alloc(ntotal, id);
+        if (it == 0) {
+            itemstats[id].outofmemory++;
+            return NULL;
+        }
     }
 
     assert(it->slabs_clsid == 0);
@@ -145,16 +161,18 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
 
 void item_free(item *it) {
     size_t ntotal = ITEM_ntotal(it);
+    unsigned int clsid;
     assert((it->it_flags & ITEM_LINKED) == 0);
     assert(it != heads[it->slabs_clsid]);
     assert(it != tails[it->slabs_clsid]);
     assert(it->refcount == 0);
 
     /* so slab size changer can tell later if item is already free or not */
+    clsid = it->slabs_clsid;
     it->slabs_clsid = 0;
     it->it_flags |= ITEM_SLABBED;
     DEBUG_REFCNT(it, 'F');
-    slabs_free(it, ntotal);
+    slabs_free(it, ntotal, clsid);
 }
 
 /**
@@ -310,7 +328,7 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
 }
 
 char *do_item_stats(int *bytes) {
-    size_t bufleft = (size_t) LARGEST_ID * 80;
+    size_t bufleft = (size_t) LARGEST_ID * 160;
     char *buffer = malloc(bufleft);
     char *bufcurr = buffer;
     rel_time_t now = current_time;
@@ -323,8 +341,13 @@ char *do_item_stats(int *bytes) {
 
     for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i] != NULL) {
-            linelen = snprintf(bufcurr, bufleft, "STAT items:%d:number %u\r\nSTAT items:%d:age %u\r\n",
-                               i, sizes[i], i, now - tails[i]->time);
+            linelen = snprintf(bufcurr, bufleft,
+                "STAT items:%d:number %u\r\n"
+                "STAT items:%d:age %u\r\n"
+                "STAT items:%d:evicted %u\r\n"
+                "STAT items:%d:outofmemory %u\r\n",
+                    i, sizes[i], i, now - tails[i]->time, i,
+                    itemstats[i].evicted, i, itemstats[i].outofmemory);
             if (linelen + sizeof("END\r\n") < bufleft) {
                 bufcurr += linelen;
                 bufleft -= linelen;

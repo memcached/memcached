@@ -1,5 +1,5 @@
 Name:           memcached
-Version:        1.2.4
+Version:        1.2.5
 Release:        1%{?dist}
 Summary:        High Performance, Distributed Memory Object Cache
 

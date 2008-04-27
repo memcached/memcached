@@ -17,10 +17,10 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc);
 unsigned int slabs_clsid(const size_t size);
 
 /** Allocate object of given length. 0 on error */ /*@null@*/
-void *do_slabs_alloc(const size_t size);
+void *do_slabs_alloc(const size_t size, unsigned int id);
 
 /** Free previously allocated object */
-void do_slabs_free(void *ptr, size_t size);
+void do_slabs_free(void *ptr, size_t size, unsigned int id);
 
 /** Fill buffer with stats */ /*@null@*/
 char* do_slabs_stats(int *buflen);
