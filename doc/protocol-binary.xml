@@ -83,7 +83,7 @@
       /                                                               /
       /                                                               /
       +---------------+---------------+---------------+---------------+
-    16/ COMMAND-SPECIFIC EXTRAS (as needed)                           /
+    24/ COMMAND-SPECIFIC EXTRAS (as needed)                           /
      +/  (note length in th extras length header field)               /
       +---------------+---------------+---------------+---------------+
      m/ Key (as needed)                                               /
@@ -93,7 +93,7 @@
      +/  (note length is total body length header field, minus        /
      +/   sum of the extras and key length body fields)               /
       +---------------+---------------+---------------+---------------+
-     Total 16 bytes
+     Total 24 bytes
       </artwork></figure>
       </t>
 
@@ -111,9 +111,12 @@
       +---------------+---------------+---------------+---------------+
      8| Total body length                                             |
       +---------------+---------------+---------------+---------------+
-    12| Message ID                                                    |
+    12| Opaque                                                        |
       +---------------+---------------+---------------+---------------+
-    Total 16 bytes
+    16| CAS                                                           |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    Total 24 bytes
       </artwork></figure>
       </t>
 
@@ -125,15 +128,18 @@
        /              |               |               |               |
       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
       +---------------+---------------+---------------+---------------+
-     0| Magic         | Opcode        | Status                        |
+     0| Magic         | Opcode        | Key Length                    |
       +---------------+---------------+---------------+---------------+
-     4| Extras length | Data type     | Reserved                      |
+     4| Extras length | Data type     | Status                        |
       +---------------+---------------+---------------+---------------+
      8| Total body length                                             |
       +---------------+---------------+---------------+---------------+
-    12| Message ID                                                    |
+    12| Opaque                                                        |
       +---------------+---------------+---------------+---------------+
-    Total 16 bytes
+    16| CAS                                                           |
+      |                                                               |
+      +---------------+---------------+---------------+---------------+
+    Total 24 bytes
       </artwork></figure>
       </t>
 
@@ -148,8 +154,9 @@
           <t hangText="Data type">Reserved for future use (Sean is using this soon).</t>
           <t hangText="Reserved">Really reserved for future use (up for grabs).</t>
           <t hangText="Total body length">Length in bytes of extra + key + value.</t>
-          <t hangText="Message ID">Will be copied back to you in the response.
+          <t hangText="Opaque">Will be copied back to you in the response.
               FIXME: Can this be used to organize <xref target="UDP"/> packets?</t>
+          <t hangText="CAS">Data version check</t>
         </list>
       </t>
     </section>
@@ -193,9 +200,13 @@
         Possible values of this two-byte field:
         <list hangIndent="8" style="hanging">
           <t hangText="0x0000">No error</t>
-          <t hangText="0x0081">Unknown command</t>
           <t hangText="0x0001">Key not found</t>
           <t hangText="0x0002">Key exists</t>
+          <t hangText="0x0003">Value too big</t>
+          <t hangText="0x0004">Invalid arguments</t>
+          <t hangText="0x0005">Item not stored</t>
+          <t hangText="0x0081">Unknown command</t>
+          <t hangText="0x0082">Out of memory</t>
         </list>
         </t>
       </section>
@@ -216,6 +227,10 @@
           <t hangText="0x09">GetQ</t>
           <t hangText="0x0A">No-op</t>
           <t hangText="0x0B">Version</t>
+          <t hangText="0x0C">GetK</t>
+          <t hangText="0x0D">GetKQ</t>
+          <t hangText="0x0E">Append</t>
+          <t hangText="0x0F">Prepend</t>
         </list>
         </t>
       </section>
@@ -231,10 +246,13 @@
     </section>
 
     <section title="Commands">
-      <section anchor="command-get" title="Get, Get Quietly">
+      <section anchor="command-get" title="Get, Get Quietly, Get Key, Get Key Quietly">
+        <t>
+            Request:
+        </t>
         <t>
         <list style="empty">
-          <t>MUST have extras.</t>
+          <t>MUST NOT have extras.</t>
           <t>MUST have key.</t>
           <t>MUST NOT have value.</t>
         </list>
@@ -243,48 +261,62 @@
         <t>
         <list style="symbols">
           <t>4 byte flags</t>
-          <t>8 byte data version check</t>
+        </list>
+        </t>
+
+        <t>
+            Response (if found):
+        </t>
+        <t>
+        <list style="empty">
+          <t>MUST have extras.</t>
+          <t>MAY have key.</t>
+          <t>MAY have value.</t>
+        </list>
+        </t>
+
+        <t>
+        <list style="symbols">
+          <t>4 byte flags</t>
         </list>
         </t>
 
         <t>
       <figure>
-        <preamble>Extra data for get/getq:</preamble>
+        <preamble>Extra data for the get commands:</preamble>
           <artwork>
     Byte/     0       |       1       |       2       |       3       |
        /              |               |               |               |
       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
       +---------------+---------------+---------------+---------------+
-     0| Data version check                                            |
-      |                                                               |
+     0| Flags                                                         |
       +---------------+---------------+---------------+---------------+
-     8| Flags                                                         |
-      +---------------+---------------+---------------+---------------+
-    Total 12 bytes
+    Total 4 bytes
       </artwork></figure>
         </t>
 
         <t>
           The get command gets a single key. The getq command is both mum
           on cache miss and quiet, holding its response until a non-quiet
-          command is issued.
+          command is issued. Getk and getkq differs from get and getq by
+          adding the key into the resonse packet.
         </t>
 
         <t>
-          You're not guaranteed a response to a getq cache hit until
-          you send a non-getq command later, which uncorks the
+          You're not guaranteed a response to a getq/getkq cache hit until
+          you send a non-getq/getkq command later, which uncorks the
           server which bundles up IOs to send to the client in one go.
         </t>
 
         <t>
           Clients should implement multi-get (still important for
           reducing network roundtrips!) as n pipelined requests, the
-          first n-1 being getq, the last being a regular
-          get.  that way you're guaranteed to get a response, and
+          first n-1 being getq/getkq, the last being a regular
+          get/getk.  that way you're guaranteed to get a response, and
           you know when the server's done.  you can also do the naive
-          thing and send n pipelined gets, but then you could potentially
+          thing and send n pipelined get/getks, but then you could potentially
           get back a lot of "NOT_FOUND!" error code packets.
-          alternatively, you can send 'n' getqs, followed by an 'echo'
+          alternatively, you can send 'n' getq/getkqs, followed by an 'echo'
           or 'noop' command.
         </t>
 
@@ -293,7 +325,7 @@
       <section anchor="command-delete" title="Delete">
         <t>
         <list style="empty">
-          <t>MAY have extras (FIXME: Is it OK to issue a delete without extras?).</t>
+          <t>MAY have extras</t>
           <t>MUST have key.</t>
           <t>MUST NOT have value.</t>
         </list>
@@ -331,6 +363,44 @@
 
       </section>
 
+      <section anchor="command-flush" title="Flush">
+        <t>
+        <list style="empty">
+          <t>MAY have extras</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+          <list style="symbols">
+            <t>4 byte expiration time</t>
+          </list>
+        </t>
+
+        <t>
+      <figure>
+        <preamble>Extra data for flush:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| Expiration                                                    |
+      +---------------+---------------+---------------+---------------+
+    Total 4 bytes
+      </artwork></figure>
+        </t>
+
+        <t>
+            Flush the items in the cache now or sometime in the future
+            specified by the expiration field. See the documentation of the
+            textual protocol for the full description on how to specify the
+            expiration time.
+        </t>
+
+      </section>
+
       <section anchor="command-set" title="Set, Add, Replace">
         <t>
         <list style="empty">
@@ -344,7 +414,6 @@
           <list style="symbols">
             <t>4 byte flags</t>
             <t>4 byte expiration time</t>
-            <t>8 byte data version check</t>
           </list>
         </t>
 
@@ -356,14 +425,11 @@
        /              |               |               |               |
       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
       +---------------+---------------+---------------+---------------+
-     0| Data version check                                            |
-      |                                                               |
+     0| Flags                                                         |
       +---------------+---------------+---------------+---------------+
-     8| Flags                                                         |
+     4| Expiration                                                    |
       +---------------+---------------+---------------+---------------+
-    12| Expiration                                                    |
-      +---------------+---------------+---------------+---------------+
-    Total 16 bytes
+    Total 8 bytes
         </artwork></figure>
         </t>
 
@@ -375,7 +441,7 @@
         </t>
 
         <t>
-        If the Data Version Check is zero, the set MUST succeed unconditionally.
+        If the CAS field in the header is zero, the set MUST succeed unconditionally.
 	The set response packet will include idential values for flags and expiration,
 	and a new value for Data Version Check, which the client SHOULD keep track of.
         </t>
@@ -386,7 +452,7 @@
 	</t>
       </section>
 
-      <section title="noop">
+      <section anchor="command-noop" title="noop">
         <t>
         <list style="empty">
           <t>MUST NOT have extras.</t>
@@ -396,7 +462,7 @@
         </t>
 
         <t>
-        Used as a keep alive. Flushes outstanding getq's.
+        Used as a keep alive. Flushes outstanding getq/getkq's.
         </t>
       </section>
 
@@ -472,147 +538,1210 @@
           (FIXME:  Should they be provided here as well?)
         </t>
       </section>
+
+      <section anchor="command-quit" title="quit">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+        Close the connection to the server.
+        </t>
+      </section>
+
+      <section anchor="command-append" title="Append, Prepend">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST have key.</t>
+          <t>MUST have value.</t>
+        </list>
+        </t>
+
+        <t>
+          These commands will either append or prepend the specified
+          value to the requested key.
+        </t>
+        <t>
+          Please note that the CAS field in the header must match the
+          CAS version of the requested item.
+        </t>
+      </section>
     </section>
 
     <section title="Example Session">
-      <t>
-      We start up our application, and it asks for the value associated with the 'Hello' key.
+    <t>
+        We start up our application, and asks for the value associated
+        with the 'Hello' key. To send the get request, the following values
+        must be inserted in the header (in network byte order):
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x00
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000005
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key          (24-29): The textual string: "Hello"
+Value               : None
+
+The packet looks like:
+
       <figure>
         <preamble>Get request:</preamble>
           <artwork>
+
     Byte/     0       |       1       |       2       |       3       |
        /              |               |               |               |
       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
       +---------------+---------------+---------------+---------------+
-     0| 0x80          | 0x00          | 5 in big endian (BE)          |
+     0| 0x80          | 0x00          | 0x00          | 0x05          |
       +---------------+---------------+---------------+---------------+
-      | 12 in BE      | 0x00          |                               |
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-      | 17 in BE                                                      |
+     8| 0x00          | 0x00          | 0x00          | 0x05          |
       +---------------+---------------+---------------+---------------+
-      | 0xDEADBEEF                                                    |
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    16| 0x00000000                                                    |
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
-      |                                                               |
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    28| 'H'             'e'             'l'             'l'           |
-      | 'o'           |
+    24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+      +---------------+---------------+---------------+---------------+
+    28| 0x6f ('o')    |
       +---------------+
-    Total 33 bytes (16 header + 12 get-extras + 5 key)
+
+      Total 29 bytes (24 byte header, and 5 bytes key)
       </artwork></figure>
       </t>
 
       <t>
-      Since nobody has set this key, it returns not found.
+          Since nobody has set this key yet, it returns "Not found".
+
       <figure>
         <preamble>Get response:</preamble>
           <artwork>
+
     Byte/     0       |       1       |       2       |       3       |
        /              |               |               |               |
       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
       +---------------+---------------+---------------+---------------+
-     0| 0x81          | 0x00          | 0x0001                        |
+     0| 0x81          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-      | 0 in BE       | 0x00          |                               |
+     4| 0x00          | 0x00          | 0x00          | 0x01          |
       +---------------+---------------+---------------+---------------+
-      | 0 in BE                                                       |
+     8| 0x00          | 0x00          | 0x00          | 0x09          |
       +---------------+---------------+---------------+---------------+
-      | 0xDEADBEEF                                                    |
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    Total 16 bytes
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x4e ('N')    | 0x6f ('o')    | 0x74 ('t')    | 0x20 (' ')    |
+      +---------------+---------------+---------------+---------------+
+    28| 0x66 ('f')    | 0x6f ('o')    | 0x75 ('u')    | 0x6e ('n')    |
+      +---------------+---------------+---------------+---------------+
+    32| 0x64 ('d')    |
+      +---------------+
+
+      Total 33 bytes (24 byte header, and 9 bytes value)
       </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x00
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0001
+Total body   (8-11) : 0x00000009
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value        (24-32): The textual string "Not found"
       </t>
 
       <t>
-      Well, looks like we need to set the key! Let's set it to expire on
-      December 15, 2007 at 9:51:09 PM.
+      Well, looks like we need to add the key! Let's set it to "World" with
+      0xdeadbeef as flags and to expire in two hours. The following values
+      should be inserted into the header:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x02
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x08
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000012
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              :
+  Flags      (24-27): 0xdeadbeef
+  Expiry     (28-31): 0x00000e10
+Key          (32-36): The textual string "Hello"
+Value        (37-41): The textual string "World"
+
+The packet looks like:
+
       <figure>
-        <preamble>Set request:</preamble>
+        <preamble>Add request:</preamble>
           <artwork>
+
     Byte/     0       |       1       |       2       |       3       |
        /              |               |               |               |
       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
       +---------------+---------------+---------------+---------------+
-     0| 0x80          | 0x01          | 5 in BE                       |
+     0| 0x80          | 0x02          | 0x00          | 0x05          |
       +---------------+---------------+---------------+---------------+
-      | 16 in BE      | 0x00          |                               |
+     4| 0x08          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-      | 26 in BE                                                      |
+     8| 0x00          | 0x00          | 0x00          | 0x12          |
       +---------------+---------------+---------------+---------------+
-      | 0xDA7ABA5E                                                    |
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    16| 0x00000000                                                    |
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    20| 0xDCCB4674                                                    |
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
-      |                                                               |
+    24| 0xde          | 0xad          | 0xbe          | 0xef          |
       +---------------+---------------+---------------+---------------+
-    32| 'H'             'e'             'l'             'l'           |
-      | 'o'           | 'W'             'o'             'r'           |
-      | 'l'             'd'           |
+    28| 0x00          | 0x00          | 0x0e          | 0x10          |
+      +---------------+---------------+---------------+---------------+
+    32| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+      +---------------+---------------+---------------+---------------+
+    36| 0x6f ('o')    | 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    |
+      +---------------+---------------+---------------+---------------+
+    40| 0x6c ('l')    | 0x64 ('d')    |
       +---------------+---------------+
-    Total 42 bytes (16 header + 16 set-extras + 5 key + 5 value)
+
+      Total 42 bytes (24 byte header, 8 byte extras, 5 byte key and 5 byte value)
       </artwork></figure>
       </t>
 
       <t>
-      The set succeeds.
+      The add succeeds and the following packet is returned:
       <figure>
-        <preamble>Set response:</preamble>
+        <preamble>Add response:</preamble>
           <artwork>
+
     Byte/     0       |       1       |       2       |       3       |
        /              |               |               |               |
       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
       +---------------+---------------+---------------+---------------+
-     0| 0x81          | 0x01          | 0x0000                        |
+     0| 0x81          | 0x02          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-      | 16 in BE      | 0x00          |                               |
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-      | 16 in BE                                                      |
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-      | 0xDA7ABA5E                                                    |
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    16| 0x00000000                                                    |
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    20| 0xDCCB4674                                                    |
+    20| 0x00          | 0x00          | 0x00          | 0x01          |
       +---------------+---------------+---------------+---------------+
-    24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
-      |                                                               |
-      +---------------+---------------+---------------+---------------+
-    Total 32 bytes (16 header + 16 set-extras)
-      </artwork></figure>
-      </t>
 
-      <t>
-      If the original get request is sent again, the key would be found.
+      Total 24 bytes
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x02
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000001
+Extras              : None
+Key                 : None
+Value               : None
+
+    </t>
+
+    <t>
+      If the original get request is sent again, the key would be found and
+      the following packet is returned.
+
       <figure>
         <preamble>Get response:</preamble>
           <artwork>
+
     Byte/     0       |       1       |       2       |       3       |
        /              |               |               |               |
       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
       +---------------+---------------+---------------+---------------+
-     0| 0x81          | 0x00          | 0x00          |               |
+     0| 0x81          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-      | 12 in BE      | 0x00          |                               |
+     4| 0x04          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-      | 17 in BE                                                      |
+     8| 0x00          | 0x00          | 0x00          | 0x09          |
       +---------------+---------------+---------------+---------------+
-      | 0xDEADBEEF                                                    |
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    16| 0xDCCB4674                                                    |
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
       +---------------+---------------+---------------+---------------+
-    24| 0xDECAF 0x15 0xBAD 0xC0FFEE                                   |
-      |                                                               |
+    20| 0x00          | 0x00          | 0x00          | 0x01          |
       +---------------+---------------+---------------+---------------+
-    28| 'W'             'o'             'r'             'l'           |
-      | 'd'           |
+    24| 0xde          | 0xad          | 0xbe          | 0xef          |
+      +---------------+---------------+---------------+---------------+
+    28| 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    | 0x6c ('l')    |
+      +---------------+---------------+---------------+---------------+
+    32| 0x64 ('d')    |
       +---------------+
-    Total 33 bytes (16 header + 12 get-extras + 5 value)
+
+      Total 33 bytes (24 byte header, 4 byte extras and 5 byte value)
       </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x00
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x04
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000009
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000001
+Extras              : None
+  Flags      (24-27): 0xdeadbeef
+Key                 : None
+Value        (28-32): The textual string "World"
+
+    </t>
+    <t>
+        If we send the add request one more time the add will fail, and the
+        following packet is returned:
+
+      <figure>
+        <preamble>Get response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x02          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x02          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x14          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x44 ('D')    | 0x61 ('a')    | 0x74 ('t')    | 0x61 ('a')    |
+      +---------------+---------------+---------------+---------------+
+    28| 0x20 (' ')    | 0x65 ('e')    | 0x78 ('x')    | 0x69 ('i')    |
+      +---------------+---------------+---------------+---------------+
+    32| 0x73 ('s')    | 0x74 ('t')    | 0x73 ('s')    | 0x20 (' ')    |
+      +---------------+---------------+---------------+---------------+
+    36| 0x66 ('f')    | 0x6f ('o')    | 0x72 ('r')    | 0x20 (' ')    |
+      +---------------+---------------+---------------+---------------+
+    40| 0x6b ('k')    | 0x65 ('e')    | 0x79 ('y')    | 0x2e ('.')    |
+      +---------------+---------------+---------------+---------------+
+
+      Total 44 bytes (24 byte header, 24 byte value)
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x02
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0002
+Total body   (8-11) : 0x00000014
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value        (24-43): The textual string "Data exists for key."
+    </t>
+    <t>
+        To send a "noop" command, insert the following values in the request:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x0a
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+
+The packet looks like:
+
+      <figure>
+        <preamble>Noop request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x0a          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure>
+      </t>
+      <t>
+        The server will respond with the following packet:
+
+      <figure>
+        <preamble>Noop response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x0a          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x0a
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+        </t>
+        <t>
+            So lets go ahead and append '!' to the 'Hello' key. To do so,
+            insert the following in the packet:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x0e
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000006
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key          (24-28): The textual string "Hello"
+Value        (29)   : None
+
+The packet looks like:
+
+      <figure>
+        <preamble>Append request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x0e          | 0x00          | 0x05          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x06          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+      +---------------+---------------+---------------+---------------+
+    28| 0x6f ('o')    | 0x21 ('!')    |
+      +---------------+---------------+
+
+      Total 30 bytes (24 byte header, 5 byte key, 1 byte value)
+      </artwork></figure>
+      </t>
+      <t>
+          The server will respond with the following packet
+      <figure>
+        <preamble>Append response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x0e          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x02          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x0e
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000002
+Extras              : None
+Key                 : None
+Value               : None
+
+    </t>
+    <t>
+        Lets prepend '!' to the 'Hello' key. To do so, insert the following in
+        the packet:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x0f
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000006
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000002
+Extras              : None
+Key          (24-28): The textual string "Hello"
+Value        (29)   : The textual string "!"
+
+The packet looks like:
+
+      <figure>
+        <preamble>Prepend request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x0f          | 0x00          | 0x05          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x06          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x02          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+      +---------------+---------------+---------------+---------------+
+    28| 0x6f ('o')    | 0x21 ('!')    |
+      +---------------+---------------+
+
+      Total 30 bytes (24 bytes header, 5 byte key, 1 byte value)
+      </artwork></figure>
+      </t>
+      <t>
+        The server will respond with the following packet:
+
+      <figure>
+        <preamble>Prepend response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x0f          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x03          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x0f
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000003
+Extras              : None
+Key                 : None
+Value               : None
+
+    </t>
+    <t>
+        Let's just replace the content of the 'Hello' key with 'World'
+        (with 0xdeadbeef as flags, 2 hour expiry time). The packet should
+        have the following content:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x03
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x08
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000012
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              :
+  Flags      (24-27): 0xdeadbeef
+  Expiry     (28-31): 0x00000e10
+Key          (32-36): The textual string "Hello"
+Value        (37-41): The textual string "World"
+
+The packet looks like:
+
+      <figure>
+        <preamble>Replace request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x03          | 0x00          | 0x05          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x08          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x12          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    24| 0xde          | 0xad          | 0xbe          | 0xef          |
+      +---------------+---------------+---------------+---------------+
+    28| 0x00          | 0x00          | 0x0e          | 0x10          |
+      +---------------+---------------+---------------+---------------+
+    32| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+      +---------------+---------------+---------------+---------------+
+    36| 0x6f ('o')    | 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    |
+      +---------------+---------------+---------------+---------------+
+    40| 0x6c ('l')    | 0x64 ('d')    |
+      +---------------+---------------+
+
+      Total 42 byes (24 byte header, 8 byte extras, 5 byte key and 5 byte value)
+      </artwork></figure></t>
+
+      <t>
+         The server will respond with the following packet
+
+      <figure>
+        <preamble>Replace response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x03          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x04          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x03
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000004
+Extras              : None
+Key                 : None
+Value               : None
+
+     </t>
+     <t>
+        To delete the "Hello" key, set the following fields in the request:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x04
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000005
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : The textual string "Hello"
+Value               : None
+
+The packet looks like:
+
+      <figure>
+        <preamble>Delete request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x04          | 0x00          | 0x05          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x05          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+      +---------------+---------------+---------------+---------------+
+    28| 0x6f ('o')    |
+      +---------------+
+
+      Total 29 bytes (24 byte header, 5 byte value)
+      </artwork></figure>
+      </t>
+      <t>
+      The server will respond with the following package:
+      <figure>
+        <preamble>Delete response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x04          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x04
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+    </t>
+
+    <t>
+        To flush the cache (delete all items), the set the following values
+        in the request:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x08
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+
+The packet looks like:
+
+      <figure>
+        <preamble>Flush request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x08          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure></t>
+
+      <t>
+          The server responds with:
+      <figure>
+        <preamble>Flush response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x08          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x08
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+      </t>
+
+      <t>
+        Lets use the increment function to increment a 64-bit variable stored
+        as the key "counter". We specify 0 as the initial value, and set it to
+        expire after 2 hours. To do so, the following values must be set in
+        the request:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x05
+Key length   (2,3)  : 0x0007
+Extra length (4)    : 0x14
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x0000001b
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              :
+  delta      (24-31): 0x0000000000000001
+  initial    (32-39): 0x0000000000000000
+  exipration (40-43): 0x00000e10
+Key                 : Textual string "counter"
+Value               : None
+
+The packet looks like:
+
+      <figure>
+        <preamble>Increment request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x05          | 0x00          | 0x07          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x14          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x1b          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    28| 0x00          | 0x00          | 0x00          | 0x01          |
+      +---------------+---------------+---------------+---------------+
+    32| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    36| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    40| 0x00          | 0x00          | 0x0e          | 0x10          |
+      +---------------+---------------+---------------+---------------+
+    44| 0x63 ('c')    | 0x6f ('o')    | 0x75 ('u')    | 0x6e ('n')    |
+      +---------------+---------------+---------------+---------------+
+    48| 0x74 ('t')    | 0x65 ('e')    | 0x72 ('r')    |
+      +---------------+---------------+---------------+
+
+      Total 51 bytes (24 byte header, 20 byte extras, 7 byte key)
+      </artwork></figure></t>
+
+      <t>
+          Since the key doesn't exist, the server will respond with the
+          initial value:
+
+      <figure>
+        <preamble>Increment response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x05          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x08          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x05          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    28| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 32 bytes (24 byte header, 8 byte value)
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x05
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000008
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000005
+Extras              : None
+Key                 : None
+Value               : 0x0000000000000000
+      </t>
+
+      <t>
+        Lets use the decrement function to decrement a 64-bit variable stored
+        as the key "counter". We specify 0 as the initial value, and set it to
+        expire after 2 hours. To do so, the following values must be set in
+        the request:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x06
+Key length   (2,3)  : 0x0007
+Extra length (4)    : 0x14
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x0000001b
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              :
+  delta      (24-31): 0x0000000000000001
+  initial    (32-39): 0x0000000000000000
+  exipration (40-43): 0x00000e10
+Key                 : Textual string "counter"
+Value               : None
+
+The packet looks like:
+
+      <figure>
+        <preamble>Decrement request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x06          | 0x00          | 0x07          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x14          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x1b          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    28| 0x00          | 0x00          | 0x00          | 0x01          |
+      +---------------+---------------+---------------+---------------+
+    32| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    36| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    40| 0x00          | 0x00          | 0x0e          | 0x10          |
+      +---------------+---------------+---------------+---------------+
+    44| 0x63 ('c')    | 0x6f ('o')    | 0x75 ('u')    | 0x6e ('n')    |
+      +---------------+---------------+---------------+---------------+
+    48| 0x74 ('t')    | 0x65 ('e')    | 0x72 ('r')    |
+      +---------------+---------------+---------------+
+
+      Total 51 bytes (24 byte header, 20 byte extras, 7 byte key)
+      </artwork></figure></t>
+
+      <t>
+          The server will decrement the counter and return the following packet:
+
+      <figure>
+        <preamble>Decrement response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x06          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x08          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    24| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    28| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total: 32 bytes (24 byte header, 8 byte value)
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x06
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000008
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : 0x0000000000000000
+
+       You might be wondering why 0 is returned and not -1 (since the key
+       exists with the value 0), but the decr-function will never return a
+       negative number.
+      </t>
+
+      <t>
+          To end the session to the server, set the following values in the
+          header:
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x07
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+
+The packet looks like:
+
+      <figure>
+        <preamble>Quit request:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x80          | 0x07          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure></t>
+
+      <t>
+      The server will respond with the following packet:
+
+      <figure>
+        <preamble>Quit response:</preamble>
+          <artwork>
+
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| 0x81          | 0x07          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     4| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+     8| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    12| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    16| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+    20| 0x00          | 0x00          | 0x00          | 0x00          |
+      +---------------+---------------+---------------+---------------+
+
+      Total 24 bytes
+      </artwork></figure>
+
+      The above packet is interpreted as:
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x07
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
       </t>
     </section>
 
