@@ -284,7 +284,7 @@ struct conn {
     int    bucket;    /* bucket number for the next command, if running as
                          a managed instance. -1 (_not_ 0) means invalid. */
     int    gen;       /* generation requested for the bucket */
-
+    bool   noreply;   /* True if the reply should not be sent. */
     /* Binary protocol stuff */
     /* This is where the binary header goes */
     uint32_t bin_header[MIN_BIN_PKT_LENGTH/sizeof(uint32_t)];
@@ -436,4 +436,10 @@ int   mt_store_item(item *item, int comm);
 
 #endif /* !USE_THREADS */
 
+/* If supported, give compiler hints for branch prediction. */
+#if !defined(__GNUC__) || (__GNUC__ == 2 && __GNUC_MINOR__ < 96)
+#define __builtin_expect(x, expected_value) (x)
+#endif
 
+#define likely(x)       __builtin_expect((x),1)
+#define unlikely(x)     __builtin_expect((x),0)

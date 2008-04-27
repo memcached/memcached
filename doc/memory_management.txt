@@ -1,3 +1,14 @@
+Date: Tue, 20 Feb 2008
+From: Trond Norbye <trond.norbye@sun.com>
+
+When started with -L memcached will try to enable large memory
+pages, and preallocate all memory up front. By using large memory
+pages memcached could reduce the number of TLB misses (depending
+on the access pattern), and hence improve performance. 
+
+See http://en.wikipedia.org/wiki/Translation_lookaside_buffer for
+a description of TLB.
+
 Date: Fri, 5 Sep 2003 20:31:03 +0300
 From: Anatoly Vorobey <mellon@pobox.com>
 To: memcached@lists.danga.com
@@ -44,7 +55,8 @@ high percentage of memory is wasted. The most efficient way to reduce
 the waste is to use a list of size classes that closely matches (if 
 that's at all possible) common sizes of objects that the clients
 of this particular installation of memcached are likely to store.
-For example, if your installation is going to store hundreds of                                                                  thousands of objects of the size exactly 120 bytes, you'd be much better
+For example, if your installation is going to store hundreds of
+thousands of objects of the size exactly 120 bytes, you'd be much better
 off changing, in the "naive" list of sizes outlined above, the class
 of 128 bytes to something a bit higher (because the overhead of 
 storing an item, while not large, will push those 120-bytes objects over 
