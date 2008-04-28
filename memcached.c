@@ -183,11 +183,7 @@ static void settings_init(void) {
     settings.managed = false;
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
-#ifdef USE_THREADS
-    settings.num_threads = 4;
-#else
-    settings.num_threads = 1;
-#endif
+    settings.num_threads = 4;         /* default number of worker threads */
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
 }
@@ -3304,9 +3300,7 @@ static void usage(void) {
 #endif
            );
 
-#ifdef USE_THREADS
     printf("-t <num>      number of threads to use, default 4\n");
-#endif
     return;
 }
 
