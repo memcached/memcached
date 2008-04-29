@@ -94,6 +94,7 @@ static int transmit(conn *c);
 static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
 static int add_msghdr(conn *c);
+static uint64_t swap64(uint64_t in);
 
 /* time handling */
 static void set_current_time(void);  /* update the global variable holding
@@ -840,7 +841,7 @@ static void complete_nread_ascii(conn *c) {
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
-      ret = store_item(it, comm);
+      ret = store_item(it, comm, c);
       if (ret == 1)
           out_string(c, "STORED");
       else if(ret == 2)
@@ -855,9 +856,25 @@ static void complete_nread_ascii(conn *c) {
     c->item = 0;
 }
 
-static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
-    int i = 0;
-    uint32_t *res_header;
+/**
+ * get a pointer to the start of the request struct for the current command
+ */
+static void* binary_get_request(conn *c) {
+    char *ret = c->rcurr;
+    ret -= (sizeof(c->binary_header) + c->binary_header.request.keylen +
+            c->binary_header.request.extlen);
+    return ret;
+}
+
+/**
+ * get a pointer to the key in this request
+ */
+static char* binary_get_key(conn *c) {
+    return c->rcurr - (c->binary_header.request.keylen);
+}
+
+static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_len, uint32_t body_len) {
+    protocol_binary_response_header* header;
 
     assert(c);
     assert(body_len >= 0);
@@ -871,64 +888,76 @@ static void add_bin_header(conn *c, int err, int hdr_len, int body_len) {
         return;
     }
 
-    res_header = (uint32_t *)c->wbuf;
+    header = (protocol_binary_response_header *)c->wbuf;
 
-    res_header[0] = ((uint32_t)BIN_RES_MAGIC) << 24;
-    res_header[0] |= ((0xff & c->cmd) << 16);
-    res_header[0] |= err & 0xffff;
+    header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
+    header->response.opcode = c->cmd;
+    header->response.keylen = (uint16_t)htons(key_len);
 
-    res_header[1] = hdr_len << 24;
-    /* TODO:  Support datatype */
-    res_header[2] = body_len;
-    res_header[3] = c->opaque;
+    header->response.extlen = (uint8_t)hdr_len;
+    header->response.datatype = (uint8_t)PROTOCOL_BINARY_RAW_BYTES;
+    header->response.status = (uint16_t)htons(err);
 
-    if(settings.verbose > 1) {
-        fprintf(stderr, "Writing bin response:  %08x %08x %08x %08x\n",
-            res_header[0], res_header[1], res_header[2], res_header[3]);
+    header->response.bodylen = htonl(body_len);
+    header->response.opaque = c->opaque;
+    header->response.cas = swap64(c->cas);
+
+    if (settings.verbose > 1) {
+        int ii;
+        fprintf(stderr, ">%d Writing bin response:", c->sfd);
+        for (ii = 0; ii < sizeof(header->bytes); ++ii) {
+            if (ii % 4 == 0) {
+                fprintf(stderr, "\n>%d  ", c->sfd);
+            }
+            fprintf(stderr, " 0x%02x", header->bytes[ii]);
+        }
+        fprintf(stderr, "\n");
     }
 
-    for(i = 0; i<BIN_PKT_HDR_WORDS; i++) {
-        res_header[i] = htonl(res_header[i]);
-    }
-
-    assert(c->wsize >= MIN_BIN_PKT_LENGTH);
-    add_iov(c, c->wbuf, MIN_BIN_PKT_LENGTH);
+    add_iov(c, c->wbuf, sizeof(header->response));
 }
 
-static void write_bin_error(conn *c, int err, int swallow) {
+static void write_bin_error(conn *c, protocol_binary_response_status err, int swallow) {
     const char *errstr = "Unknown error";
-    switch(err) {
-        case ERR_OUT_OF_MEMORY:
+    size_t len;
+
+    switch (err) {
+        case PROTOCOL_BINARY_RESPONSE_ENOMEM:
             errstr = "Out of memory";
             break;
-        case ERR_UNKNOWN_CMD:
+        case PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND:
             errstr = "Unknown command";
             break;
-        case ERR_NOT_FOUND:
+        case PROTOCOL_BINARY_RESPONSE_KEY_ENOENT:
             errstr = "Not found";
             break;
-        case ERR_INVALID_ARGUMENTS:
+        case PROTOCOL_BINARY_RESPONSE_EINVAL:
             errstr = "Invalid arguments";
             break;
-        case ERR_EXISTS:
+        case PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS:
             errstr = "Data exists for key.";
             break;
-        case ERR_TOO_LARGE:
+        case PROTOCOL_BINARY_RESPONSE_E2BIG:
             errstr = "Too large.";
             break;
-        case ERR_NOT_STORED:
+        case PROTOCOL_BINARY_RESPONSE_NOT_STORED:
             errstr = "Not stored.";
             break;
         default:
+            assert(false);
             errstr = "UNHANDLED ERROR";
-            fprintf(stderr, "UNHANDLED ERROR:  %d\n", err);
+            fprintf(stderr, ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
     }
-    if(settings.verbose > 0) {
-        fprintf(stderr, "Writing an error:  %s\n", errstr);
-    }
-    add_bin_header(c, err, 0, strlen(errstr));
-    add_iov(c, errstr, strlen(errstr));
 
+    if (settings.verbose > 0) {
+        fprintf(stderr, ">%d Writing an error: %s\n", c->sfd, errstr);
+    }
+
+    len = strlen(errstr);
+    add_bin_header(c, err, 0, 0, len);
+    if (len > 0) {
+        add_iov(c, errstr, len);
+    }
     conn_set_state(c, conn_mwrite);
     if(swallow > 0) {
         c->sbytes = swallow;
@@ -939,8 +968,8 @@ static void write_bin_error(conn *c, int err, int swallow) {
 }
 
 /* Form and send a response to a command over the binary protocol */
-static void write_bin_response(conn *c, void *d, int hlen, int dlen) {
-    add_bin_header(c, 0, hlen, dlen);
+static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen) {
+    add_bin_header(c, 0, hlen, keylen, dlen);
     if(dlen > 0) {
         add_iov(c, d, dlen);
     }
@@ -949,7 +978,7 @@ static void write_bin_response(conn *c, void *d, int hlen, int dlen) {
 }
 
 /* Byte swap a 64-bit number */
-static int64_t swap64(int64_t in) {
+static uint64_t swap64(uint64_t in) {
 #ifdef ENDIAN_LITTLE
     /* Little endian, flip the bytes around until someone makes a faster/better
     * way to do this. */
@@ -968,64 +997,73 @@ static int64_t swap64(int64_t in) {
 
 static void complete_incr_bin(conn *c) {
     item *it;
-    int64_t delta;
-    uint64_t initial;
-    int32_t exptime;
     char *key;
     size_t nkey;
-    int i;
-    uint64_t *response_buf = (uint64_t*) c->wbuf + BIN_INCR_HDR_LEN;
+#define INCR_MAX_STORAGE_LEN 24
+
+    protocol_binary_response_incr* rsp = (protocol_binary_response_incr*)c->wbuf;
+    protocol_binary_request_incr* req = binary_get_request(c);
 
     assert(c != NULL);
+    assert(c->rbytes >= sizeof(*req));
+    assert(c->wsize >= sizeof(*rsp));
 
-    key = c->rbuf + BIN_INCR_HDR_LEN;
-    nkey = c->keylen;
-    key[nkey] = 0x00;
+    /* fix byteorder in the request */
+    req->message.body.delta = swap64(req->message.body.delta);
+    req->message.body.initial = swap64(req->message.body.initial);
+    req->message.body.expiration = ntohl(req->message.body.expiration);
+    key = binary_get_key(c);
+    nkey = c->binary_header.request.keylen;
 
-    delta = swap64(*((int64_t*)(c->rbuf)));
-    initial = (uint64_t)swap64(*((int64_t*)(c->rbuf + 8)));
-    exptime = ntohl(*((int*)(c->rbuf + 16)));
-
-    if(settings.verbose) {
+    if (settings.verbose) {
+        int i;
         fprintf(stderr, "incr ");
-        for(i = 0; i<nkey; i++) {
+
+        for (i = 0; i < nkey; i++) {
             fprintf(stderr, "%c", key[i]);
         }
-        fprintf(stderr, " %lld, %llu, %d\n", delta, initial, exptime);
+        fprintf(stderr, " %lld, %llu, %d\n", req->message.body.delta,
+                req->message.body.initial, req->message.body.expiration);
     }
 
     it = item_get(key, nkey);
-    if (it) {
+    if (it && (c->binary_header.request.cas == 0 || c->binary_header.request.cas == it->cas_id)) {
         /* Weird magic in add_delta forces me to pad here */
         char tmpbuf[INCR_MAX_STORAGE_LEN];
         uint64_t l = 0;
-        memset(tmpbuf, ' ', INCR_MAX_STORAGE_LEN);
-        tmpbuf[INCR_MAX_STORAGE_LEN] = 0x00;
-        add_delta(it, c->cmd == CMD_INCR, delta, tmpbuf);
-        *response_buf = swap64(strtoull(tmpbuf, NULL, 10));
-
-        write_bin_response(c, response_buf, BIN_INCR_HDR_LEN, INCR_RES_LEN);
+        add_delta(it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
+                  req->message.body.delta, tmpbuf);
+        rsp->message.body.value = swap64(strtoull(tmpbuf, NULL, 10));
+        write_bin_response(c, &rsp->message.body, 0, 0,
+                           sizeof(rsp->message.body.value));
         item_remove(it);         /* release our reference */
-    } else {
-        if(exptime >= 0) {
-            /* Save some room for the response */
-            assert(c->wsize > BIN_INCR_HDR_LEN + BIN_DEL_HDR_LEN);
-            *response_buf = swap64(initial);
-            it = item_alloc(key, nkey, 0, realtime(exptime),
-                INCR_MAX_STORAGE_LEN);
-            snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu", initial);
+    } else if (!it && req->message.body.expiration != 0xffffffff) {
+        /* Save some room for the response */
+        rsp->message.body.value = swap64(req->message.body.initial);
+        it = item_alloc(key, nkey, 0, realtime(req->message.body.expiration),
+                        INCR_MAX_STORAGE_LEN);
 
-            if(store_item(it, NREAD_SET)) {
-                write_bin_response(c, response_buf, BIN_INCR_HDR_LEN,
-                    INCR_RES_LEN);
+        if (it != NULL) {
+            snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu",
+                    req->message.body.initial);
+
+            if (store_item(it, NREAD_SET, c)) {
+                write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
             } else {
-                write_bin_error(c, ERR_NOT_STORED, 0);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED, 0);
             }
             item_remove(it);         /* release our reference */
         } else {
-            write_bin_error(c, ERR_NOT_FOUND, 0);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
         }
+    } else if (it) {
+        /* incorrect CAS */
+        item_remove(it);         /* release our reference */
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
+    } else {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
     }
+#undef INCR_MAX_STORAGE_LEN
 }
 
 static void complete_update_bin(conn *c) {
@@ -1043,24 +1081,24 @@ static void complete_update_bin(conn *c) {
     *(ITEM_data(it) + it->nbytes - 2) = '\r';
     *(ITEM_data(it) + it->nbytes - 1) = '\n';
 
-    switch (store_item(it, c->item_comm)) {
+    switch (store_item(it, c->item_comm, c)) {
         case 1:
             /* Stored */
-            write_bin_response(c, NULL, BIN_SET_HDR_LEN, 0);
+            write_bin_response(c, NULL, 0, 0, 0);
             break;
         case 2:
-            write_bin_error(c, ERR_EXISTS, 0);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
             break;
         case 3:
-            write_bin_error(c, ERR_NOT_FOUND, 0);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
             break;
         default:
-            if(c->item_comm == NREAD_ADD) {
-                eno = ERR_EXISTS;
+            if (c->item_comm == NREAD_ADD) {
+                eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
             } else if(c->item_comm == NREAD_REPLACE) {
-                eno = ERR_NOT_FOUND;
+                eno = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
             } else {
-                eno = ERR_NOT_STORED;
+                eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
             }
             write_bin_error(c, eno, 0);
     }
@@ -1072,40 +1110,61 @@ static void complete_update_bin(conn *c) {
 static void process_bin_get(conn *c) {
     item *it;
 
-    it = item_get(c->rbuf, c->keylen);
+    protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
+    protocol_binary_request_get* req = binary_get_request(c);
+    char* key = binary_get_key(c);
+    size_t nkey = c->binary_header.request.keylen;
+
+    if (settings.verbose) {
+        int ii;
+        fprintf(stderr, "<%d GET ", c->sfd);
+        for (ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        fprintf(stderr, "\n");
+    }
+
+    it = item_get(key, nkey);
     if (it) {
-        int *flags;
-        uint64_t* identifier;
+        /* the length has two unnecessary bytes ("\r\n") */
+        uint16_t keylen = 0;
+        uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
-        assert(c->rsize >= MIN_BIN_PKT_LENGTH + 4);
+        if (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
+                c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
+            bodylen += nkey;
+            keylen = nkey;
+        }
+        add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
+        rsp->message.header.response.cas = swap64(it->cas_id);
 
-        /* the length has two unnecessary bytes, and then we write four more */
-        add_bin_header(c, 0, GET_RES_HDR_LEN, it->nbytes - 2 + GET_RES_HDR_LEN);
+        // add the flags
+        rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
-        /* Add the "extras" field: CAS-id followed by flags. The cas is a 64-
-           bit datatype and require alignment to 8-byte boundaries on some
-           architechtures. Verify that the size of the packet header is of
-           the correct size (if not the following code generates SIGBUS on
-           sparc hardware).
-        */
-        assert(MIN_BIN_PKT_LENGTH % 8 == 0);
-        identifier = (uint64_t*)(c->wbuf + MIN_BIN_PKT_LENGTH);
-        *identifier = swap64(it->cas_id);
-        add_iov(c, identifier, 8);
-
-        /* Add the flags */
-        flags = (int*)(c->wbuf + MIN_BIN_PKT_LENGTH + 8);
-        *flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
-        add_iov(c, flags, 4);
+        if (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
+                c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
+            add_iov(c, ITEM_key(it), nkey);
+        }
 
         /* Add the data minus the CRLF */
         add_iov(c, ITEM_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
     } else {
-        if(c->cmd == CMD_GETQ) {
+        if (c->cmd == PROTOCOL_BINARY_CMD_GETQ ||
+                c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
             conn_set_state(c, conn_new_cmd);
         } else {
-            write_bin_error(c, ERR_NOT_FOUND, 0);
+            if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
+                char *ofs = c->wbuf + sizeof(protocol_binary_response_header);
+                add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
+                        0, nkey, nkey);
+                memcpy(ofs, key, nkey);
+                add_iov(c, ofs, nkey);
+                conn_set_state(c, conn_mwrite);
+            } else {
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            }
         }
     }
 }
@@ -1115,50 +1174,99 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
     c->substate = next_substate;
     c->rlbytes = c->keylen + extra;
     assert(c->rsize >= c->rlbytes);
-    c->ritem = c->rbuf;
+    /* preserve the header in the buffer.. */
+    c->ritem = c->rcurr + sizeof(protocol_binary_request_header);
     conn_set_state(c, conn_nread);
 }
 
 static void dispatch_bin_command(conn *c) {
     time_t exptime = 0;
-    switch(c->cmd) {
-        case CMD_VERSION:
-            write_bin_response(c, VERSION, 0, strlen(VERSION));
-            break;
-        case CMD_FLUSH:
-            set_current_time();
+    int protocol_error = 0;
 
-            settings.oldest_live = current_time - 1;
-            item_flush_expired();
-            write_bin_response(c, NULL, 0, 0);
+    int extlen = c->binary_header.request.extlen;
+    int keylen = c->binary_header.request.keylen;
+    uint32_t bodylen = c->binary_header.request.bodylen;
+
+    switch(c->cmd) {
+        case PROTOCOL_BINARY_CMD_VERSION:
+            if (extlen == 0 && keylen == 0 && bodylen == 0) {
+                write_bin_response(c, VERSION, 0, 0, strlen(VERSION));
+            } else {
+                protocol_error = 1;
+            }
             break;
-        case CMD_NOOP:
-            write_bin_response(c, NULL, 0, 0);
+        case PROTOCOL_BINARY_CMD_FLUSH:
+            if (keylen == 0 && bodylen == extlen && (extlen == 0 || extlen == 4)) {
+                bin_read_key(c, bin_read_flush_exptime, extlen);
+            } else {
+                protocol_error = 1;
+            }
             break;
-        case CMD_SET:
-            /* Fallthrough */
-        case CMD_ADD:
-            /* Fallthrough */
-        case CMD_REPLACE:
-            bin_read_key(c, bin_reading_set_header, BIN_SET_HDR_LEN);
+        case PROTOCOL_BINARY_CMD_NOOP:
+            if (extlen == 0 && keylen == 0 && bodylen == 0) {
+                write_bin_response(c, NULL, 0, 0, 0);
+            } else {
+                protocol_error = 1;
+            }
             break;
-        case CMD_GETQ:
-        case CMD_GET:
-            bin_read_key(c, bin_reading_get_key, 0);
+        case PROTOCOL_BINARY_CMD_SET: /* FALLTHROUGH */
+        case PROTOCOL_BINARY_CMD_ADD: /* FALLTHROUGH */
+        case PROTOCOL_BINARY_CMD_REPLACE:
+            if (extlen == 8 && keylen != 0 && bodylen >= (keylen + 8)) {
+                bin_read_key(c, bin_reading_set_header, 8);
+            } else {
+                protocol_error = 1;
+            }
             break;
-        case CMD_DELETE:
-            bin_read_key(c, bin_reading_del_header, BIN_DEL_HDR_LEN);
+        case PROTOCOL_BINARY_CMD_GETQ:  /* FALLTHROUGH */
+        case PROTOCOL_BINARY_CMD_GET:   /* FALLTHROUGH */
+        case PROTOCOL_BINARY_CMD_GETKQ: /* FALLTHROUGH */
+        case PROTOCOL_BINARY_CMD_GETK:
+            if (extlen == 0 && bodylen == keylen && keylen > 0) {
+                bin_read_key(c, bin_reading_get_key, 0);
+            } else {
+                protocol_error = 1;
+            }
             break;
-        case CMD_INCR:
-        case CMD_DECR:
-            bin_read_key(c, bin_reading_incr_header, BIN_INCR_HDR_LEN);
+        case PROTOCOL_BINARY_CMD_DELETE:
+            if (keylen > 0 && (extlen == 0 || extlen == 4) && bodylen == (keylen + extlen)) {
+                bin_read_key(c, bin_reading_del_header, extlen);
+            } else {
+                protocol_error = 1;
+            }
             break;
-        case CMD_QUIT:
-            write_bin_response(c, NULL, 0, 0);
-            c->write_and_go = conn_closing;
+        case PROTOCOL_BINARY_CMD_INCREMENT:
+        case PROTOCOL_BINARY_CMD_DECREMENT:
+            if (keylen > 0 && extlen == 20 && bodylen == (keylen + extlen)) {
+                bin_read_key(c, bin_reading_incr_header, 20);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_APPEND:
+        case PROTOCOL_BINARY_CMD_PREPEND:
+            if (keylen > 0 && extlen == 0) {
+                bin_read_key(c, bin_reading_set_header, 0);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_QUIT:
+            if (keylen == 0 && extlen == 0 && bodylen == 0) {
+                write_bin_response(c, NULL, 0, 0, 0);
+                c->write_and_go = conn_closing;
+            } else {
+                protocol_error = 1;
+            }
             break;
         default:
-            write_bin_error(c, ERR_UNKNOWN_CMD, c->bin_header[2]);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, bodylen);
+    }
+
+    if (protocol_error) {
+        /* Just write an error message and disconnect the client */
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
+        c->write_and_go = conn_closing;
     }
 }
 
@@ -1166,53 +1274,68 @@ static void process_bin_update(conn *c) {
     char *key;
     int nkey;
     int vlen;
-    int flags;
-    int exptime;
     item *it;
-    int comm;
-    int hdrlen = BIN_SET_HDR_LEN;
+    protocol_binary_request_set* req = binary_get_request(c);
 
     assert(c != NULL);
+    assert(c->rbytes >= sizeof(*req));
 
-    key = c->rbuf + hdrlen;
-    nkey = c->keylen;
-    key[nkey] = 0x00;
+    key = binary_get_key(c);
+    nkey = c->binary_header.request.keylen;
 
-    flags = ntohl(*((int*)(c->rbuf + 8)));
-    exptime = ntohl(*((int*)(c->rbuf + 12)));
-    vlen = c->bin_header[2] - (nkey + hdrlen);
+    /* fix byteorder in the request */
+    req->message.body.flags = ntohl(req->message.body.flags);
+    req->message.body.expiration = ntohl(req->message.body.expiration);
 
-    if(settings.verbose > 1) {
-        fprintf(stderr, "Value len is %d\n", vlen);
+    vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
+
+    if (settings.verbose) {
+        int ii;
+        if (c->cmd == PROTOCOL_BINARY_CMD_ADD) {
+            fprintf(stderr, "<%d ADD ", c->sfd);
+        } else if (c->cmd == PROTOCOL_BINARY_CMD_SET) {
+            fprintf(stderr, "<%d SET ", c->sfd);
+        } else {
+            fprintf(stderr, "<%d REPLACE ", c->sfd);
+        }
+        for (ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+
+        if (settings.verbose > 1) {
+            fprintf(stderr, " Value len is %d", vlen);
+        }
+        fprintf(stderr, "\n");
     }
 
     if (settings.detail_enabled) {
         stats_prefix_record_set(key);
     }
 
-    it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
+    it = item_alloc(key, nkey, req->message.body.flags,
+            realtime(req->message.body.expiration), vlen+2);
 
     if (it == 0) {
-        if (! item_size_ok(nkey, flags, vlen + 2)) {
-            write_bin_error(c, ERR_TOO_LARGE, vlen);
+        if (! item_size_ok(nkey, req->message.body.flags, vlen + 2)) {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
         } else {
-            write_bin_error(c, ERR_OUT_OF_MEMORY, vlen);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
         }
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         return;
     }
 
-    it->cas_id = (uint64_t)swap64(*((int64_t*)(c->rbuf)));
+    it->cas_id = c->binary_header.request.cas;
 
-    switch(c->cmd) {
-        case CMD_ADD:
+    switch (c->cmd) {
+        case PROTOCOL_BINARY_CMD_ADD:
             c->item_comm = NREAD_ADD;
             break;
-        case CMD_SET:
+        case PROTOCOL_BINARY_CMD_SET:
             c->item_comm = NREAD_SET;
             break;
-        case CMD_REPLACE:
+        case PROTOCOL_BINARY_CMD_REPLACE:
             c->item_comm = NREAD_REPLACE;
             break;
         default:
@@ -1230,19 +1353,101 @@ static void process_bin_update(conn *c) {
     c->substate = bin_read_set_value;
 }
 
-static void process_bin_delete(conn *c) {
+static void process_bin_append_prepend(conn *c) {
     char *key;
-    size_t nkey;
+    int nkey;
+    int vlen;
+    item *it;
+    protocol_binary_request_append* req = binary_get_request(c);
+
+    assert(c != NULL);
+    assert(c->rbytes >= sizeof(*req));
+
+    key = binary_get_key(c);
+    nkey = c->binary_header.request.keylen;
+    vlen = c->binary_header.request.bodylen - nkey;
+
+    if (settings.verbose > 1) {
+        fprintf(stderr, "Value len is %d\n", vlen);
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_set(key);
+    }
+
+    it = item_alloc(key, nkey, 0, 0, vlen+2);
+
+    if (it == 0) {
+        if (! item_size_ok(nkey, 0, vlen + 2)) {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
+        } else {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
+        }
+        /* swallow the data line */
+        c->write_and_go = conn_swallow;
+        return;
+    }
+
+    it->cas_id = c->binary_header.request.cas;
+
+    switch (c->cmd) {
+        case PROTOCOL_BINARY_CMD_APPEND:
+            c->item_comm = NREAD_APPEND;
+            break;
+        case PROTOCOL_BINARY_CMD_PREPEND:
+            c->item_comm = NREAD_PREPEND;
+            break;
+        default:
+            assert(0);
+    }
+
+    c->item = it;
+    c->ritem = ITEM_data(it);
+    c->rlbytes = vlen;
+    conn_set_state(c, conn_nread);
+    c->substate = bin_read_set_value;
+}
+
+static void process_bin_flush(conn *c) {
+    time_t exptime = 0;
+    protocol_binary_request_flush* req = binary_get_request(c);
+
+    if (c->binary_header.request.extlen == sizeof(req->message.body)) {
+        exptime = ntohl(req->message.body.expiration);
+    }
+
+    set_current_time();
+
+    settings.oldest_live = current_time - 1;
+
+    if (exptime != 0) {
+        settings.oldest_live = realtime(exptime) - 1;
+    } else {
+        settings.oldest_live = current_time - 1;
+    }
+    item_flush_expired();
+
+    write_bin_response(c, NULL, 0, 0, 0);
+}
+
+static void process_bin_delete(conn *c) {
     item *it;
     time_t exptime = 0;
 
+    protocol_binary_response_delete* rsp = (protocol_binary_response_delete*)c->wbuf;
+    protocol_binary_request_delete* req = binary_get_request(c);
+
+    char* key = binary_get_key(c);
+    size_t nkey = c->binary_header.request.keylen;
+
     assert(c != NULL);
+    assert(c->rbytes >= sizeof(*req));
+    assert(c->wsize >= sizeof(*rsp));
 
-    exptime = ntohl(*((int*)(c->rbuf)));
-    key = c->rbuf + 4;
-    nkey = c->keylen;
-    key[nkey] = 0x00;
-
+    if (c->binary_header.request.extlen == sizeof(req->message.body)) {
+        /* fix byteorder in the request */
+        exptime = ntohl(req->message.body.expiration);
+    }
     if(settings.verbose) {
         fprintf(stderr, "Deleting %s with a timeout of %d\n", key, exptime);
     }
@@ -1256,18 +1461,16 @@ static void process_bin_delete(conn *c) {
         if (exptime == 0) {
             item_unlink(it);
             item_remove(it);      /* release our reference */
-            write_bin_response(c, NULL, 0, 0);
+            write_bin_response(c, NULL, 0, 0, 0);
         } else {
-            /* XXX:  This is really lame, but defer_delete returns a string */
-            char *res = defer_delete(it, exptime);
-            if(res[0] == 'D') {
-                write_bin_response(c, NULL, 0, 0);
+            if (defer_delete(it, exptime) != -1) {
+                write_bin_response(c, NULL, 0, 0, 0);
             } else {
-                write_bin_error(c, ERR_OUT_OF_MEMORY, 0);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
             }
         }
     } else {
-        write_bin_error(c, ERR_NOT_FOUND, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
     }
 }
 
@@ -1277,7 +1480,12 @@ static void complete_nread_binary(conn *c) {
 
     switch(c->substate) {
     case bin_reading_set_header:
-        process_bin_update(c);
+        if (c->cmd == PROTOCOL_BINARY_CMD_APPEND ||
+                c->cmd == PROTOCOL_BINARY_CMD_PREPEND) {
+            process_bin_append_prepend(c);
+        } else {
+            process_bin_update(c);
+        }
         break;
     case bin_read_set_value:
         complete_update_bin(c);
@@ -1290,6 +1498,9 @@ static void complete_nread_binary(conn *c) {
         break;
     case bin_reading_incr_header:
         complete_incr_bin(c);
+        break;
+    case bin_read_flush_exptime:
+        process_bin_flush(c);
         break;
     default:
         fprintf(stderr, "Not handling substate %d\n", c->substate);
@@ -1325,7 +1536,7 @@ static void complete_nread(conn *c) {
  *
  * Returns true if the item was stored.
  */
-int do_store_item(item *it, int comm) {
+int do_store_item(item *it, int comm, conn *c) {
     char *key = ITEM_key(it);
     bool delete_locked = false;
     item *old_it = do_item_get_notedeleted(key, it->nkey, &delete_locked);
@@ -1370,48 +1581,62 @@ int do_store_item(item *it, int comm) {
          * Append - combine new and old record into single one. Here it's
          * atomic and thread-safe.
          */
-
         if (comm == NREAD_APPEND || comm == NREAD_PREPEND) {
-
-            /* we have it and old_it here - alloc memory to hold both */
-            /* flags was already lost - so recover them from ITEM_suffix(it) */
-
-            flags = (int) strtol(ITEM_suffix(old_it), (char **) NULL, 10);
-
-            new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
-
-            if (new_it == NULL) {
-                /* SERVER_ERROR out of memory */
-                return 0;
+            /*
+             * Validate CAS
+             */
+            if (it->cas_id != 0) {
+                // CAS much be equal
+                if (it->cas_id != old_it->cas_id) {
+                    stored = 2;
+                }
             }
 
-            /* copy data from it and old_it to new_it */
+            if (stored == 0) {
+                /* we have it and old_it here - alloc memory to hold both */
+                /* flags was already lost - so recover them from ITEM_suffix(it) */
 
-            if (comm == NREAD_APPEND) {
-                memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
-                memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(it), it->nbytes);
-            } else {
-                /* NREAD_PREPEND */
-                memcpy(ITEM_data(new_it), ITEM_data(it), it->nbytes);
-                memcpy(ITEM_data(new_it) + it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
+                flags = (int) strtol(ITEM_suffix(old_it), (char **) NULL, 10);
+
+                new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
+
+                if (new_it == NULL) {
+                    /* SERVER_ERROR out of memory */
+                    return 0;
+                }
+
+                /* copy data from it and old_it to new_it */
+
+                if (comm == NREAD_APPEND) {
+                    memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
+                    memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(it), it->nbytes);
+                } else {
+                    /* NREAD_PREPEND */
+                    memcpy(ITEM_data(new_it), ITEM_data(it), it->nbytes);
+                    memcpy(ITEM_data(new_it) + it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
+                }
+
+                it = new_it;
             }
-
-            it = new_it;
         }
 
-        /* "set" commands can override the delete lock
-           window... in which case we have to find the old hidden item
-           that's in the namespace/LRU but wasn't returned by
-           item_get.... because we need to replace it */
-        if (delete_locked)
-            old_it = do_item_get_nocheck(key, it->nkey);
+        if (stored == 0) {
+            /* "set" commands can override the delete lock
+               window... in which case we have to find the old hidden item
+               that's in the namespace/LRU but wasn't returned by
+               item_get.... because we need to replace it */
+            if (delete_locked)
+                old_it = do_item_get_nocheck(key, it->nkey);
 
-        if (old_it != NULL)
-            do_item_replace(old_it, it);
-        else
-            do_item_link(it);
+            if (old_it != NULL)
+                do_item_replace(old_it, it);
+            else
+                do_item_link(it);
 
-        stored = 1;
+            c->cas = it->cas_id;
+
+            stored = 1;
+        }
     }
 
     if (old_it != NULL)
@@ -2115,7 +2340,11 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
             out_string(c, "DELETED");
         } else {
             /* our reference will be transfered to the delete queue */
-            out_string(c, defer_delete(it, exptime));
+            if (defer_delete(it, exptime) == -1) {
+                out_string(c, "SERVER_ERROR out of memory expanding delete queue");
+            } else {
+                out_string(c, "DELETED");
+            }
         }
     } else {
         out_string(c, "NOT_FOUND");
@@ -2127,7 +2356,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
  *
  * Returns the result to send to the client.
  */
-char *do_defer_delete(item *it, time_t exptime)
+int do_defer_delete(item *it, time_t exptime)
 {
     if (delcurr >= deltotal) {
         item **new_delete = realloc(todelete, sizeof(item *) * deltotal * 2);
@@ -2140,7 +2369,7 @@ char *do_defer_delete(item *it, time_t exptime)
              * but we ran out of memory for the delete queue
              */
             item_remove(it);    /* release reference */
-            return "SERVER_ERROR out of memory expanding delete queue";
+            return -1;
         }
     }
 
@@ -2149,7 +2378,7 @@ char *do_defer_delete(item *it, time_t exptime)
     it->it_flags |= ITEM_DELETED;
     todelete[delcurr++] = it;
 
-    return "DELETED";
+    return 0;
 }
 
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -2378,7 +2607,7 @@ static int try_read_command(conn *c) {
     assert(c->rbytes > 0);
 
     if (c->protocol == negotiating_prot)  {
-        if ((c->rbuf[0] & 0xff) == BIN_REQ_MAGIC) {
+        if ((unsigned char)c->rbuf[0] == (unsigned char)PROTOCOL_BINARY_REQ) {
             c->protocol = binary_prot;
         } else {
             c->protocol = ascii_prot;
@@ -2392,28 +2621,35 @@ static int try_read_command(conn *c) {
 
     if (c->protocol == binary_prot) {
         /* Do we have the complete packet header? */
-        if (c->rbytes < MIN_BIN_PKT_LENGTH) {
+        if (c->rbytes < sizeof(c->binary_header)) {
             /* need more data! */
             return 0;
         } else {
-            int i = 0;
-            memcpy(c->bin_header, c->rcurr, sizeof(c->bin_header));
-            assert(BIN_PKT_HDR_WORDS == 4);
-            for (i = 0; i<BIN_PKT_HDR_WORDS; i++) {
-                c->bin_header[i] = ntohl(c->bin_header[i]);
+            protocol_binary_request_header* req;
+            req = (protocol_binary_request_header*)c->rcurr;
+
+            if (settings.verbose > 1) {
+                /* Dump the packet before we convert it to host order */
+                int ii;
+                fprintf(stderr, "<%d Read binary protocol data:", c->sfd);
+                for (ii = 0; ii < sizeof(req->bytes); ++ii) {
+                    if (ii % 4 == 0) {
+                        fprintf(stderr, "\n<%d   ", c->sfd);
+                    }
+                    fprintf(stderr, " 0x%02x", req->bytes[ii]);
+                }
+                fprintf(stderr, "\n");
             }
 
-            if (settings.verbose) {
-                fprintf(stderr,
-                        "Read binary protocol data:  %08x %08x %08x %08x\n",
-                        c->bin_header[0], c->bin_header[1], c->bin_header[2],
-                        c->bin_header[3]);
-            }
+            c->binary_header = *req;
+            c->binary_header.request.keylen = ntohs(req->request.keylen);
+            c->binary_header.request.bodylen = ntohl(req->request.bodylen);
+            c->binary_header.request.cas = swap64(req->request.cas);
 
-            if ((c->bin_header[0] >> 24) != BIN_REQ_MAGIC) {
+            if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
                 if (settings.verbose) {
                     fprintf(stderr, "Invalid magic:  %x\n",
-                            c->bin_header[0] >> 24);
+                            c->binary_header.request.magic);
                 }
                 conn_set_state(c, conn_closing);
                 return 0;
@@ -2427,19 +2663,16 @@ static int try_read_command(conn *c) {
                 return 0;
             }
 
-            c->cmd = (c->bin_header[0] >> 16) & 0xff;
-            c->keylen = c->bin_header[0] & 0xffff;
-            c->opaque = c->bin_header[3];
-            if (settings.verbose > 1) {
-                fprintf(stderr,
-                        "Command: %d, opaque=%08x, keylen=%d, total_len=%d\n",
-                        c->cmd, c->opaque, c->keylen, c->bin_header[2]);
-            }
+            c->cmd = c->binary_header.request.opcode;
+            c->keylen = c->binary_header.request.keylen;
+            c->opaque = c->binary_header.request.opaque;
+            /* clear the returned cas value */
+            c->cas = 0;
 
             dispatch_bin_command(c);
 
-            c->rbytes -= MIN_BIN_PKT_LENGTH;
-            c->rcurr += MIN_BIN_PKT_LENGTH;
+            c->rbytes -= sizeof(c->binary_header);
+            c->rcurr += sizeof(c->binary_header);
         }
     } else {
         char *el, *cont;
@@ -2768,7 +3001,9 @@ static void drive_machine(conn *c) {
             /* first check if we have leftovers in the conn_read buffer */
             if (c->rbytes > 0) {
                 int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
-                memmove(c->ritem, c->rcurr, tocopy);
+                if (c->ritem != c->rcurr) {
+                    memmove(c->ritem, c->rcurr, tocopy);
+                }
                 c->ritem += tocopy;
                 c->rlbytes -= tocopy;
                 c->rcurr += tocopy;

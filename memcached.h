@@ -12,6 +12,8 @@
 #include <event.h>
 #include <netdb.h>
 
+#include "protocol_binary.h"
+
 #define DATA_BUFFER_SIZE 2048
 #define UDP_READ_BUFFER_SIZE 65536
 #define UDP_MAX_PAYLOAD_SIZE 1400
@@ -41,45 +43,7 @@
 
 /* Binary protocol stuff */
 #define MIN_BIN_PKT_LENGTH 16
-/* flags:32, expiration:32, cas:64 */
-#define BIN_SET_HDR_LEN 16
-/* incr:64, initial:64, expiration:32 */
-#define BIN_INCR_HDR_LEN 20
-/* flags:32, cas:64 */
-#define GET_RES_HDR_LEN (4+8)
-/* timeout:32 */
-#define BIN_DEL_HDR_LEN 4
 #define BIN_PKT_HDR_WORDS (MIN_BIN_PKT_LENGTH/sizeof(uint32_t))
-
-/* Body is a single 64-bit int */
-#define INCR_RES_LEN 8
-/* len(18446744073709551616) + 2 (or so) */
-#define INCR_MAX_STORAGE_LEN 24
-
-#define BIN_REQ_MAGIC 0x80
-#define BIN_RES_MAGIC 0x81
-
-#define CMD_GET 0
-#define CMD_SET 1
-#define CMD_ADD 2
-#define CMD_REPLACE 3
-#define CMD_DELETE 4
-#define CMD_INCR 5
-#define CMD_DECR 6
-#define CMD_QUIT 7
-#define CMD_FLUSH 8
-#define CMD_GETQ 9
-#define CMD_NOOP 10
-#define CMD_VERSION 11
-
-#define ERR_UNKNOWN_CMD 0x81
-#define ERR_OUT_OF_MEMORY 0x82
-
-#define ERR_NOT_FOUND 0x1
-#define ERR_EXISTS 0x2
-#define ERR_TOO_LARGE 0x3
-#define ERR_INVALID_ARGUMENTS 0x4
-#define ERR_NOT_STORED 0x5
 
 /* Get a consistent bool type */
 #if HAVE_STDBOOL_H
@@ -200,6 +164,7 @@ enum bin_substates {
     bin_reading_get_key,
     bin_reading_del_header,
     bin_reading_incr_header,
+    bin_read_flush_exptime
 };
 
 enum protocol {
@@ -293,7 +258,8 @@ struct conn {
     bool   noreply;   /* True if the reply should not be sent. */
     /* Binary protocol stuff */
     /* This is where the binary header goes */
-    uint32_t bin_header[MIN_BIN_PKT_LENGTH/sizeof(uint32_t)];
+    protocol_binary_request_header binary_header;
+    uint64_t cas; /* the cas to return */
     short cmd;
     int opaque;
     int keylen;
@@ -315,10 +281,10 @@ conn *do_conn_from_freelist();
 bool do_conn_add_to_freelist(conn *c);
 char *do_suffix_from_freelist();
 bool do_suffix_add_to_freelist(char *s);
-char *do_defer_delete(item *item, time_t exptime);
+int do_defer_delete(item *item, time_t exptime);
 void do_run_deferred_deletes(void);
 char *do_add_delta(item *item, const bool incr, const int64_t delta, char *buf);
-int do_store_item(item *item, int comm);
+int do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
 
 
@@ -346,7 +312,7 @@ conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 char *suffix_from_freelist(void);
 bool  suffix_add_to_freelist(char *s);
-char *defer_delete(item *it, time_t exptime);
+int defer_delete(item *it, time_t exptime);
 int   is_listen_thread(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
@@ -366,7 +332,7 @@ int   slabs_reassign(unsigned char srcid, unsigned char dstid);
 char *slabs_stats(int *buflen);
 void  STATS_LOCK(void);
 void  STATS_UNLOCK(void);
-int   store_item(item *item, int comm);
+int   store_item(item *item, int comm, conn *c);
 
 /* If supported, give compiler hints for branch prediction. */
 #if !defined(__GNUC__) || (__GNUC__ == 2 && __GNUC_MINOR__ < 96)

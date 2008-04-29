@@ -482,8 +482,8 @@ void item_update(item *item) {
 /*
  * Adds an item to the deferred-delete list so it can be reaped later.
  */
-char *defer_delete(item *item, time_t exptime) {
-    char *ret;
+int defer_delete(item *item, time_t exptime) {
+    int ret;
 
     pthread_mutex_lock(&cache_lock);
     ret = do_defer_delete(item, exptime);
@@ -506,11 +506,11 @@ char *add_delta(item *item, int incr, const int64_t delta, char *buf) {
 /*
  * Stores an item in the cache (high level, obeys set/add/replace semantics)
  */
-int store_item(item *item, int comm) {
+int store_item(item *item, int comm, conn* c) {
     int ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_store_item(item, comm);
+    ret = do_store_item(item, comm, c);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }
