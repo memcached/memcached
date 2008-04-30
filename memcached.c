@@ -1456,16 +1456,21 @@ static void process_bin_delete(conn *c) {
 
     it = item_get(key, nkey);
     if (it) {
-        if (exptime == 0) {
-            item_unlink(it);
-            item_remove(it);      /* release our reference */
-            write_bin_response(c, NULL, 0, 0, 0);
-        } else {
-            if (defer_delete(it, exptime) != -1) {
+        uint64_t cas=swap64(req->message.header.request.cas);
+        if (cas == 0 || cas == it->cas_id) {
+            if (exptime == 0) {
+                item_unlink(it);
+                item_remove(it);      /* release our reference */
                 write_bin_response(c, NULL, 0, 0, 0);
             } else {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                if (defer_delete(it, exptime) != -1) {
+                    write_bin_response(c, NULL, 0, 0, 0);
+                } else {
+                    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                }
             }
+        } else {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
         }
     } else {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
