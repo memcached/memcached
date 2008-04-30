@@ -1418,9 +1418,7 @@ static void process_bin_flush(conn *c) {
 
     set_current_time();
 
-    settings.oldest_live = current_time - 1;
-
-    if (exptime != 0) {
+    if (exptime > 0) {
         settings.oldest_live = realtime(exptime) - 1;
     } else {
         settings.oldest_live = current_time - 1;
