@@ -1034,6 +1034,7 @@ static void complete_incr_bin(conn *c) {
         add_delta(it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
                   req->message.body.delta, tmpbuf);
         rsp->message.body.value = swap64(strtoull(tmpbuf, NULL, 10));
+        c->cas = it->cas_id;
         write_bin_response(c, &rsp->message.body, 0, 0,
                            sizeof(rsp->message.body.value));
         item_remove(it);         /* release our reference */
@@ -1048,6 +1049,7 @@ static void complete_incr_bin(conn *c) {
                     req->message.body.initial);
 
             if (store_item(it, NREAD_SET, c)) {
+                c->cas = it->cas_id;
                 write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
             } else {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED, 0);
