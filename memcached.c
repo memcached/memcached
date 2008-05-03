@@ -2123,7 +2123,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     int flags;
     time_t exptime;
     int vlen, old_vlen;
-    uint64_t req_cas_id;
+    uint64_t req_cas_id=0;
     item *it, *old_it;
 
     assert(c != NULL);
@@ -2143,8 +2143,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     vlen = strtol(tokens[4].value, NULL, 10);
 
     // does cas value exist?
-    if(handle_cas)
-    {
+    if(handle_cas) {
       req_cas_id = strtoull(tokens[5].value, NULL, 10);
     }
 
@@ -2182,8 +2181,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         c->sbytes = vlen + 2;
         return;
     }
-    if(handle_cas)
-      it->cas_id = req_cas_id;
+    it->cas_id = req_cas_id;
 
     c->item = it;
     c->ritem = ITEM_data(it);
