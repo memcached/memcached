@@ -152,7 +152,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     it->it_flags = 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
-    strcpy(ITEM_key(it), key);
+    memcpy(ITEM_key(it), key, nkey);
     it->exptime = exptime;
     memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
     it->nsuffix = nsuffix;
