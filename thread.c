@@ -451,14 +451,11 @@ void item_remove(item *item) {
 
 /*
  * Replaces one item with another in the hashtable.
+ * Unprotected by a mutex lock since the core server does not require 
+ * it to be thread-safe.
  */
-int item_replace(item *old, item *new) {
-    int ret;
-
-    pthread_mutex_lock(&cache_lock);
-    ret = do_item_replace(old, new);
-    pthread_mutex_unlock(&cache_lock);
-    return ret;
+int item_replace(item *old_it, item *new_it) {
+    return do_item_replace(old_it, new_it);
 }
 
 /*

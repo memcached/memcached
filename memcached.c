@@ -1572,7 +1572,7 @@ int do_store_item(item *it, int comm, conn *c) {
         }
         else if(it->cas_id == old_it->cas_id) {
           // cas validates
-          do_item_replace(old_it, it);
+          item_replace(old_it, it);
           stored = 1;
         } else {
           if(settings.verbose > 1) {
@@ -1634,7 +1634,7 @@ int do_store_item(item *it, int comm, conn *c) {
                 old_it = do_item_get_nocheck(key, it->nkey);
 
             if (old_it != NULL)
-                do_item_replace(old_it, it);
+                item_replace(old_it, it);
             else
                 do_item_link(it);
 
@@ -2281,7 +2281,7 @@ char *do_add_delta(item *it, const bool incr, const int64_t delta, char *buf) {
         }
         memcpy(ITEM_data(new_it), buf, res);
         memcpy(ITEM_data(new_it) + res, "\r\n", 3);
-        do_item_replace(it, new_it);
+        item_replace(it, new_it);
         do_item_remove(new_it);       /* release our reference */
     } else { /* replace in-place */
         memcpy(ITEM_data(it), buf, res);
