@@ -3004,6 +3004,17 @@ int main (int argc, char **argv) {
         }
     }
 
+    /* daemonize if requested */
+    /* if we want to ensure our ability to dump core, don't chdir to / */
+    if (daemonize) {
+        int res;
+        res = daemon(maxcore, settings.verbose);
+        if (res == -1) {
+            fprintf(stderr, "failed to daemon() in order to daemonize\n");
+            return 1;
+        }
+    }
+
     /* lock paged memory if needed */
     if (lock_memory) {
 #ifdef HAVE_MLOCKALL
@@ -3032,18 +3043,6 @@ int main (int argc, char **argv) {
             return 1;
         }
     }
-
-    /* daemonize if requested */
-    /* if we want to ensure our ability to dump core, don't chdir to / */
-    if (daemonize) {
-        int res;
-        res = daemon(maxcore, settings.verbose);
-        if (res == -1) {
-            fprintf(stderr, "failed to daemon() in order to daemonize\n");
-            return 1;
-        }
-    }
-
 
     /* initialize main thread libevent instance */
     main_base = event_init();
