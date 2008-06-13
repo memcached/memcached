@@ -593,7 +593,8 @@ bool do_suffix_add_to_freelist(char *s) {
         return false;
     } else {
         /* try to enlarge free connections array */
-        char **new_freesuffix = realloc(freesuffix, freesuffixtotal * 2);
+        char **new_freesuffix = realloc(freesuffix,
+            sizeof(char *) * freesuffixtotal * 2);
         if (new_freesuffix) {
             freesuffixtotal *= 2;
             freesuffix = new_freesuffix;
