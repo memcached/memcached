@@ -476,13 +476,11 @@ static bool expanding = false;
 static unsigned int expand_bucket = 0;
 
 void assoc_init(void) {
-    unsigned int hash_size = hashsize(hashpower) * sizeof(void*);
-    primary_hashtable = malloc(hash_size);
+    primary_hashtable = calloc(hashsize(hashpower), sizeof(void *));
     if (! primary_hashtable) {
         fprintf(stderr, "Failed to init hashtable.\n");
         exit(EXIT_FAILURE);
     }
-    memset(primary_hashtable, 0, hash_size);
 }
 
 item *assoc_find(const char *key, const size_t nkey) {

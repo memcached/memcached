@@ -321,8 +321,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     conn *c = conn_from_freelist();
 
     if (NULL == c) {
-        if (!(c = (conn *)malloc(sizeof(conn)))) {
-            fprintf(stderr, "malloc()\n");
+        if (!(c = (conn *)calloc(1, sizeof(conn)))) {
+            fprintf(stderr, "calloc()\n");
             return NULL;
         }
         c->rbuf = c->wbuf = 0;
@@ -2281,7 +2281,7 @@ char *do_add_delta(item *it, const bool incr, const int64_t delta, char *buf) {
             return "SERVER_ERROR out of memory in incr/decr";
         }
         memcpy(ITEM_data(new_it), buf, res);
-        memcpy(ITEM_data(new_it) + res, "\r\n", 3);
+        memcpy(ITEM_data(new_it) + res, "\r\n", 2);
         item_replace(it, new_it);
         do_item_remove(new_it);       /* release our reference */
     } else { /* replace in-place */
