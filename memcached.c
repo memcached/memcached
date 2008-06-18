@@ -1527,7 +1527,7 @@ char *do_add_delta(item *it, const bool incr, const int64_t delta, char *buf) {
             return "SERVER_ERROR out of memory in incr/decr";
         }
         memcpy(ITEM_data(new_it), buf, res);
-        memcpy(ITEM_data(new_it) + res, "\r\n", 3);
+        memcpy(ITEM_data(new_it) + res, "\r\n", 2);
         do_item_replace(it, new_it);
         do_item_remove(new_it);       /* release our reference */
     } else { /* replace in-place */
