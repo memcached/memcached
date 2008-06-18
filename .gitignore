@@ -19,3 +19,6 @@ memcached
 memcached-debug
 missing
 stamp-h1
+tags
+cscope.out
+*~
