@@ -297,8 +297,8 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
     conn *c = conn_from_freelist();
 
     if (NULL == c) {
-        if (!(c = (conn *)malloc(sizeof(conn)))) {
-            fprintf(stderr, "malloc()\n");
+        if (!(c = (conn *)calloc(1, sizeof(conn)))) {
+            fprintf(stderr, "calloc()\n");
             return NULL;
         }
         c->rbuf = c->wbuf = 0;
