@@ -859,6 +859,9 @@ int do_store_item(item *it, int comm) {
 
             if (new_it == NULL) {
                 /* SERVER_ERROR out of memory */
+                if (old_it != NULL)
+                    do_item_remove(old_it);
+
                 return 0;
             }
 
