@@ -2170,7 +2170,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     if (new_list) {
                         c->isize *= 2;
                         c->ilist = new_list;
-                    } else break;
+                    } else  {
+                        item_remove(it);
+                        break;
+                    }
                 }
 
                 /*
@@ -2192,7 +2195,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     if (new_suffix_list) {
                       c->suffixsize *= 2;
                       c->suffixlist  = new_suffix_list;
-                    } else break;
+                    } else {
+                        item_remove(it);
+                        break;
+                    }
                   }
 
                   suffix = suffix_from_freelist();
@@ -2203,6 +2209,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     stats.get_misses += stats_get_misses;
                     STATS_UNLOCK();
                     out_string(c, "SERVER_ERROR out of memory making CAS suffix");
+                    item_remove(it);
                     return;
                   }
                   *(c->suffixlist + i) = suffix;
@@ -2213,6 +2220,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       add_iov(c, suffix, strlen(suffix)) != 0 ||
                       add_iov(c, ITEM_data(it), it->nbytes) != 0)
                       {
+                          item_remove(it);
                           break;
                       }
                 }
@@ -2224,6 +2232,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
                       {
+                          item_remove(it);
                           break;
                       }
                 }
