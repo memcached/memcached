@@ -2365,6 +2365,17 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         c->sbytes = vlen + 2;
+
+        /* Avoid stale data persisting in cache because we failed alloc.
+         * Unacceptable for SET. Anywhere else too? */
+        if (comm == NREAD_SET) {
+            it = item_get(key, nkey);
+            if (it) {
+                item_unlink(it);
+                item_remove(it);
+            }
+        }
+
         return;
     }
     it->cas_id = req_cas_id;
