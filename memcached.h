@@ -162,6 +162,7 @@ enum bin_substates {
     bin_reading_cas_header,
     bin_read_set_value,
     bin_reading_get_key,
+    bin_reading_stat,
     bin_reading_del_header,
     bin_reading_incr_header,
     bin_read_flush_exptime

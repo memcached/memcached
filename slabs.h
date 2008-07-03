@@ -22,6 +22,9 @@ void *do_slabs_alloc(const size_t size, unsigned int id);
 /** Free previously allocated object */
 void do_slabs_free(void *ptr, size_t size, unsigned int id);
 
+/** Fill and return the requested stats */
+char *get_stats(const char *stat_type);
+
 /** Fill buffer with stats */ /*@null@*/
 char* do_slabs_stats(int *buflen);
 

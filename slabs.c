@@ -285,6 +285,29 @@ void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     return;
 }
 
+char *get_stats(const char *stat_type) {
+    char *buf, *pos;
+    int bytes;
+
+    /* for general stats with no subcommand */
+    if(!stat_type) {
+        buf = calloc(1, 512);
+        pos = buf;
+        pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
+        pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
+        pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
+        pos += sprintf(pos, "STAT evictions %llu\r\n", stats.evictions);
+        pos += sprintf(pos, "END");
+        return buf;
+    } else if(strcmp(stat_type, "slabs") == 0) {
+        return slabs_stats(&bytes);
+    } else if(strcmp(stat_type, "items") == 0) {
+        return item_stats(&bytes);
+    } else if(strcmp(stat_type, "sizes") == 0) {
+        return item_stats_sizes(&bytes);
+    } 
+}
+
 /*@null@*/
 char* do_slabs_stats(int *buflen) {
     int i, total;

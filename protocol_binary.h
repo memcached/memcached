@@ -91,6 +91,7 @@ extern "C"
     PROTOCOL_BINARY_CMD_GETKQ = 0x0d,
     PROTOCOL_BINARY_CMD_APPEND = 0x0e,
     PROTOCOL_BINARY_CMD_PREPEND = 0x0f,
+    PROTOCOL_BINARY_CMD_STAT    = 0x10,
   } protocol_binary_command;
 
   /**
@@ -167,6 +168,12 @@ extern "C"
   typedef protocol_binary_request_no_extras protocol_binary_request_getq;
   typedef protocol_binary_request_no_extras protocol_binary_request_getk;
   typedef protocol_binary_request_no_extras protocol_binary_request_getkq;
+
+  /**
+   * Definition of the packet used by the stats command.
+   * See section <undecided yet>
+   */
+  typedef protocol_binary_request_no_extras protocol_binary_request_stats;
 
   /**
    * Definition of the packet returned from a successful get, getq, getk and

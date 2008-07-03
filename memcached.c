@@ -78,6 +78,7 @@ static void conn_set_state(conn *c, enum conn_states state);
 /* stats */
 static void stats_reset(void);
 static void stats_init(void);
+static char *server_stats(void);
 
 /* defaults */
 static void settings_init(void);
@@ -1172,6 +1173,140 @@ static void process_bin_get(conn *c) {
     }
 }
 
+static void append_bin_stats(conn *c, char *buf, const char *key, const char *val,
+                              const uint16_t klen, const uint32_t vlen) {
+
+    protocol_binary_response_header *header;
+    char *ptr = buf;
+    uint32_t bodylen = klen + vlen;
+    header = (protocol_binary_response_header *)ptr;
+
+    assert(c != NULL);
+
+    /* firstly, pack the response header into the return buffer */
+    header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
+    header->response.opcode = c->cmd;
+    header->response.keylen = (uint16_t)htons(klen);
+    header->response.extlen = (uint8_t)0;
+    header->response.datatype = (uint8_t)PROTOCOL_BINARY_RAW_BYTES;
+    header->response.status = (uint16_t)htons(0);
+    header->response.bodylen = htonl(bodylen);
+    header->response.opaque = c->opaque;
+    header->response.cas = swap64(c->cas); /* this can be anything... */
+    ptr += sizeof(header->response);
+
+    /* copy the data into the return buffer. klen and vlen can be 0 since 
+       this means that the packet is a termination packet for stats. */
+    if(klen > 0) {
+        memcpy(ptr, key, klen);
+        ptr += klen;
+
+        /* a value can only exist, only if a key exists */
+        if(vlen > 0) {
+            memcpy(ptr, val, vlen);
+            ptr += vlen;
+        }
+    } 
+}
+
+static void process_bin_stat(conn *c) {
+    /* inherit the response packet of a get command */
+    protocol_binary_response_get *rsp = (protocol_binary_response_get*)c->wbuf;
+    protocol_binary_request_stats *req = binary_get_request(c);
+    protocol_binary_response_header *header;
+
+    char retbuf[2048];
+    char *subcommand = binary_get_key(c);
+    size_t nkey = c->binary_header.request.keylen;
+    uint32_t total_bodylen = 0;
+
+    memset(retbuf, 0, 2048);
+
+    if (settings.verbose) {
+        int ii;
+        fprintf(stderr, "<%d STATS ", c->sfd);
+        for (ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", subcommand[ii]);
+        }
+        fprintf(stderr, "\n");
+    }
+
+    if(!nkey) {
+        char *server_stats_buf = server_stats();
+        char *engine_stats_buf = get_stats(NULL);
+        char *pos, *end_attr, *end_row, *end_stats;
+        char *retbuf_ptr = retbuf;
+        char key[1024];
+        char val[1024];
+        uint32_t bodylen = 0;
+
+        pos = server_stats_buf;
+        end_stats = strchr(pos, '\0');
+
+        /* process server specific stats first. */
+        while(pos < end_stats) {
+            memset(key, 0, 1024);
+            memset(val, 0, 1024);
+
+            end_row = strchr(pos, '\n');
+            pos += strlen("STATS");       
+
+            /* get key */
+            for (end_attr = pos; isgraph(*end_attr); end_attr++);
+            memcpy(key, pos, (size_t)(end_attr - pos));
+     
+            /* get val */
+            pos = end_attr + 1;
+            for (end_attr = pos; !(isspace(*end_attr)); end_attr++);
+            memcpy(val, pos, (size_t)(end_attr - pos));
+
+            /* increment pointer to next row */
+            pos = end_row + 1;
+            append_bin_stats(c, retbuf_ptr, key, val, strlen(key), strlen(val)); 
+            total_bodylen += strlen(key) + strlen(val) + sizeof(header->response);
+            retbuf_ptr    += strlen(key) + strlen(val) + sizeof(header->response);
+        }
+
+        /* followed by engine specific general stats */
+        if(engine_stats_buf != NULL) {
+            pos = engine_stats_buf;
+            end_stats = strchr(pos, '\0');
+
+            while(pos < end_stats) {
+                memset(key, 0, 1024);
+                memset(val, 0, 1024);
+
+                /* check if we've hit E of END */
+                if(*pos == 'E') break;
+
+                end_row = strchr(pos, '\n');
+                pos += strlen("STATS");       
+
+                /* get key */
+                for (end_attr = pos; isgraph(*end_attr); end_attr++);
+                memcpy(key, pos, (size_t)(end_attr - pos));
+     
+                /* get val */
+                pos = end_attr + 1;
+                for (end_attr = pos; !(isspace(*end_attr)); end_attr++);
+                memcpy(val, pos, (size_t)(end_attr - pos));
+
+                /* increment pointer to next row */
+                pos = end_row + 1;
+                append_bin_stats(c, retbuf_ptr, key, val, strlen(key), strlen(val)); 
+                total_bodylen += strlen(key) + strlen(val) + sizeof(header->response);
+                retbuf_ptr    += strlen(key) + strlen(val) + sizeof(header->response);
+            }
+            free(engine_stats_buf);
+        }
+
+        write_bin_response(c, retbuf, 0, 0, total_bodylen);
+
+        if(server_stats_buf != NULL)
+            free(server_stats_buf);
+    }
+}
+
 static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
     assert(c);
     c->substate = next_substate;
@@ -1250,6 +1385,13 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_PREPEND:
             if (keylen > 0 && extlen == 0) {
                 bin_read_key(c, bin_reading_set_header, 0);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_STAT:
+            if(extlen == 0) {
+                bin_read_key(c, bin_reading_stat, 0);
             } else {
                 protocol_error = 1;
             }
@@ -1498,6 +1640,9 @@ static void complete_nread_binary(conn *c) {
         break;
     case bin_reading_get_key:
         process_bin_get(c);
+        break;
+    case bin_reading_stat:
+        process_bin_stat(c);
         break;
     case bin_reading_del_header:
         process_bin_delete(c);
@@ -1771,6 +1916,49 @@ inline static void process_stats_detail(conn *c, const char *command) {
     }
 }
 
+/* return server specific stats only */
+static char *server_stats() {
+    char *temp = calloc(1, 1024);
+    pid_t pid = getpid();
+    char *pos = temp;
+    rel_time_t now = current_time;
+
+#ifndef WIN32
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+#endif /* !WIN32 */
+
+    STATS_LOCK();
+    pos += sprintf(pos, "STAT pid %u\r\n", pid);
+    pos += sprintf(pos, "STAT uptime %u\r\n", now);
+    pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
+    pos += sprintf(pos, "STAT version " VERSION "\r\n");
+    pos += sprintf(pos, "STAT pointer_size %d\r\n", 8 * sizeof(void *));
+#ifndef WIN32
+    pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
+    pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
+#endif /* !WIN32 */
+    pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
+    pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
+    pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
+    pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
+    pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
+    pos += sprintf(pos, "STAT connection_structures %u\r\n", stats.conn_structs);
+    pos += sprintf(pos, "STAT cmd_get %llu\r\n", stats.get_cmds);
+    pos += sprintf(pos, "STAT cmd_set %llu\r\n", stats.set_cmds);
+    pos += sprintf(pos, "STAT get_hits %llu\r\n", stats.get_hits);
+    pos += sprintf(pos, "STAT get_misses %llu\r\n", stats.get_misses);
+    pos += sprintf(pos, "STAT evictions %llu\r\n", stats.evictions);
+    pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
+    pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
+    pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (uint64_t) settings.maxbytes);
+    pos += sprintf(pos, "STAT threads %u\r\n", settings.num_threads);
+    /* "END" removed since the storage related stats is appended to this output */
+    STATS_UNLOCK();
+
+    return temp;
+}
+
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     rel_time_t now = current_time;
     char *command;
@@ -1786,43 +1974,29 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     command = tokens[COMMAND_TOKEN].value;
 
     if (ntokens == 2 && strcmp(command, "stats") == 0) {
-        char temp[1024];
-        pid_t pid = getpid();
-        char *pos = temp;
+        char *serverbuf = server_stats();    /* calloc'd */
+        char *storagebuf = get_stats(NULL);  /* calloc'd */
 
-#ifndef WIN32
-        struct rusage usage;
-        getrusage(RUSAGE_SELF, &usage);
-#endif /* !WIN32 */
+        if(!storagebuf)
+            storagebuf = strdup("END");
 
-        STATS_LOCK();
-        pos += sprintf(pos, "STAT pid %u\r\n", pid);
-        pos += sprintf(pos, "STAT uptime %u\r\n", now);
-        pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
-        pos += sprintf(pos, "STAT version " VERSION "\r\n");
-        pos += sprintf(pos, "STAT pointer_size %d\r\n", 8 * sizeof(void *));
-#ifndef WIN32
-        pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
-        pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
-#endif /* !WIN32 */
-        pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
-        pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
-        pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
-        pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
-        pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
-        pos += sprintf(pos, "STAT connection_structures %u\r\n", stats.conn_structs);
-        pos += sprintf(pos, "STAT cmd_get %llu\r\n", stats.get_cmds);
-        pos += sprintf(pos, "STAT cmd_set %llu\r\n", stats.set_cmds);
-        pos += sprintf(pos, "STAT get_hits %llu\r\n", stats.get_hits);
-        pos += sprintf(pos, "STAT get_misses %llu\r\n", stats.get_misses);
-        pos += sprintf(pos, "STAT evictions %llu\r\n", stats.evictions);
-        pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
-        pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
-        pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (uint64_t) settings.maxbytes);
-        pos += sprintf(pos, "STAT threads %u\r\n", settings.num_threads);
-        pos += sprintf(pos, "END");
-        STATS_UNLOCK();
-        out_string(c, temp);
+        uint32_t required_size = strlen(serverbuf) + strlen(storagebuf);
+        char *retbuf = calloc(1, required_size);
+        char *pos = retbuf;
+
+        memcpy(pos, serverbuf, strlen(serverbuf));
+        pos += strlen(serverbuf);
+        memcpy(pos, storagebuf, strlen(storagebuf));
+        pos += strlen(storagebuf);
+
+        /* free calloc'd region */
+        if(serverbuf != NULL)
+            free(serverbuf);  
+        if(storagebuf != NULL)
+            free(storagebuf);
+
+        out_string(c, retbuf);
+        free(retbuf);
         return;
     }
 
