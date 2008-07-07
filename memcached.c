@@ -1407,7 +1407,8 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
       req_cas_id = strtoull(tokens[5].value, NULL, 10);
     }
 
-    if(errno == ERANGE || ((flags == 0 || exptime == 0) && errno == EINVAL)) {
+    if(errno == ERANGE || ((flags == 0 || exptime == 0) && errno == EINVAL)
+       || vlen < 0) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
