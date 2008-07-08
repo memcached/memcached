@@ -22,8 +22,11 @@ void *do_slabs_alloc(const size_t size, unsigned int id);
 /** Free previously allocated object */
 void do_slabs_free(void *ptr, size_t size, unsigned int id);
 
-/** Fill and return the requested stats */
-char *get_stats(const char *stat_type);
+/** Return a datum for stats in binary protocol */
+char *get_stats(const bool bin_prot, const char *stat_type, 
+                uint32_t (*callback)(char *buf, const char *key, 
+                const char *val, const uint16_t klen, const uint32_t vlen), 
+                int *buflen);
 
 /** Fill buffer with stats */ /*@null@*/
 char* do_slabs_stats(int *buflen);

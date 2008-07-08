@@ -285,27 +285,60 @@ void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     return;
 }
 
-char *get_stats(const char *stat_type) {
-    char *buf, *pos;
-    int bytes;
+char *get_stats(const bool bin_prot, const char *stat_type, 
+                uint32_t (*add_stats)(char *buf, const char *key, 
+                const char *val, const uint16_t klen, const uint32_t vlen), 
+                int *buflen) {
 
-    /* for general stats with no subcommand */
+    char *buf, *pos;
+    char val[128];
+    int size = 0;
+    *buflen = 0;
+
     if(!stat_type) {
-        buf = calloc(1, 512);
+        if((buf = malloc(512)) == NULL)
+            return NULL;
         pos = buf;
-        pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
-        pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
-        pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
-        pos += sprintf(pos, "STAT evictions %llu\r\n", stats.evictions);
-        pos += sprintf(pos, "END");
-        return buf;
-    } else if(strcmp(stat_type, "slabs") == 0) {
-        return slabs_stats(&bytes);
-    } else if(strcmp(stat_type, "items") == 0) {
-        return item_stats(&bytes);
-    } else if(strcmp(stat_type, "sizes") == 0) {
-        return item_stats_sizes(&bytes);
+
+        if(bin_prot) {
+            if(add_stats == NULL) {
+                free(buf);
+                return NULL;
+            }
+            sprintf(val, "%llu", stats.curr_bytes);
+            size = add_stats(pos, "bytes", val, strlen("bytes"), strlen(val));
+            *buflen += size;
+            pos += size; 
+
+            sprintf(val, "%u", stats.curr_items);
+            size = add_stats(pos, "curr_items", val, strlen("curr_items"), 
+                             strlen(val));
+            *buflen += size;
+            pos += size; 
+
+            sprintf(val, "%u", stats.total_items);
+            size = add_stats(pos, "total_items", val, strlen("total_items"), 
+                             strlen(val));
+            *buflen += size;
+            pos += size; 
+
+            sprintf(val, "%llu", stats.evictions);
+            size = add_stats(pos, "evictions_items", val, 
+                             strlen("evictions_items"), strlen(val));
+            *buflen += size;
+            pos += size; 
+            return buf;
+        } else {
+            pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
+            pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
+            pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
+            pos += sprintf(pos, "STAT evictions %llu\r\n", stats.evictions);
+            pos += sprintf(pos, "END\r\n");
+            *buflen = strlen(buf);
+            return buf;
+        }
     } 
+    return NULL;
 }
 
 /*@null@*/

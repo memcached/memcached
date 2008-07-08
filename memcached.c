@@ -78,7 +78,7 @@ static void conn_set_state(conn *c, enum conn_states state);
 /* stats */
 static void stats_reset(void);
 static void stats_init(void);
-static char *server_stats(void);
+static char *server_stats(bool binprot, int *size);
 
 /* defaults */
 static void settings_init(void);
@@ -91,6 +91,7 @@ static void accept_new_conns(const bool do_accept);
 static bool update_event(conn *c, const int new_flags);
 static void complete_nread(conn *c);
 static void process_command(conn *c, char *command);
+static void write_and_free(conn *c, char *buf, int bytes);
 static int transmit(conn *c);
 static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
@@ -1173,54 +1174,41 @@ static void process_bin_get(conn *c) {
     }
 }
 
-static void append_bin_stats(conn *c, char *buf, const char *key, const char *val,
-                              const uint16_t klen, const uint32_t vlen) {
-
+uint32_t append_bin_stats(char *buf, const char *key, const char *val,
+                          const uint16_t klen, const uint32_t vlen) {
     protocol_binary_response_header *header;
     char *ptr = buf;
     uint32_t bodylen = klen + vlen;
     header = (protocol_binary_response_header *)ptr;
 
-    assert(c != NULL);
-
-    /* firstly, pack the response header into the return buffer */
     header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
-    header->response.opcode = c->cmd;
+    header->response.opcode = PROTOCOL_BINARY_CMD_STAT;
     header->response.keylen = (uint16_t)htons(klen);
     header->response.extlen = (uint8_t)0;
     header->response.datatype = (uint8_t)PROTOCOL_BINARY_RAW_BYTES;
     header->response.status = (uint16_t)htons(0);
     header->response.bodylen = htonl(bodylen);
-    header->response.opaque = c->opaque;
-    header->response.cas = swap64(c->cas); /* this can be anything... */
+    header->response.opaque = htonl(0);
+    header->response.cas = swap64(0); /* this can be anything... */
     ptr += sizeof(header->response);
 
-    /* copy the data into the return buffer. klen and vlen can be 0 since 
-       this means that the packet is a termination packet for stats. */
     if(klen > 0) {
         memcpy(ptr, key, klen);
         ptr += klen;
 
-        /* a value can only exist, only if a key exists */
         if(vlen > 0) {
             memcpy(ptr, val, vlen);
             ptr += vlen;
         }
     } 
+
+    return sizeof(header->response) + klen + vlen;
 }
 
 static void process_bin_stat(conn *c) {
-    /* inherit the response packet of a get command */
-    protocol_binary_response_get *rsp = (protocol_binary_response_get*)c->wbuf;
-    protocol_binary_request_stats *req = binary_get_request(c);
     protocol_binary_response_header *header;
-
-    char retbuf[2048];
     char *subcommand = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
-    uint32_t total_bodylen = 0;
-
-    memset(retbuf, 0, 2048);
 
     if (settings.verbose) {
         int ii;
@@ -1231,79 +1219,43 @@ static void process_bin_stat(conn *c) {
         fprintf(stderr, "\n");
     }
 
-    if(!nkey) {
-        char *server_stats_buf = server_stats();
-        char *engine_stats_buf = get_stats(NULL);
-        char *pos, *end_attr, *end_row, *end_stats;
-        char *retbuf_ptr = retbuf;
-        char key[1024];
-        char val[1024];
-        uint32_t bodylen = 0;
+    if(nkey == 0) {
+        int server_statlen, engine_statlen;
+        char *buf, *ptr, *server_statbuf, *engine_statbuf;
 
-        pos = server_stats_buf;
-        end_stats = strchr(pos, '\0');
-
-        /* process server specific stats first. */
-        while(pos < end_stats) {
-            memset(key, 0, 1024);
-            memset(val, 0, 1024);
-
-            end_row = strchr(pos, '\n');
-            pos += strlen("STATS");       
-
-            /* get key */
-            for (end_attr = pos; isgraph(*end_attr); end_attr++);
-            memcpy(key, pos, (size_t)(end_attr - pos));
-     
-            /* get val */
-            pos = end_attr + 1;
-            for (end_attr = pos; !(isspace(*end_attr)); end_attr++);
-            memcpy(val, pos, (size_t)(end_attr - pos));
-
-            /* increment pointer to next row */
-            pos = end_row + 1;
-            append_bin_stats(c, retbuf_ptr, key, val, strlen(key), strlen(val)); 
-            total_bodylen += strlen(key) + strlen(val) + sizeof(header->response);
-            retbuf_ptr    += strlen(key) + strlen(val) + sizeof(header->response);
+        if((server_statbuf = server_stats(true, &server_statlen)) == NULL) {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+            return;
         }
 
-        /* followed by engine specific general stats */
-        if(engine_stats_buf != NULL) {
-            pos = engine_stats_buf;
-            end_stats = strchr(pos, '\0');
-
-            while(pos < end_stats) {
-                memset(key, 0, 1024);
-                memset(val, 0, 1024);
-
-                /* check if we've hit E of END */
-                if(*pos == 'E') break;
-
-                end_row = strchr(pos, '\n');
-                pos += strlen("STATS");       
-
-                /* get key */
-                for (end_attr = pos; isgraph(*end_attr); end_attr++);
-                memcpy(key, pos, (size_t)(end_attr - pos));
-     
-                /* get val */
-                pos = end_attr + 1;
-                for (end_attr = pos; !(isspace(*end_attr)); end_attr++);
-                memcpy(val, pos, (size_t)(end_attr - pos));
-
-                /* increment pointer to next row */
-                pos = end_row + 1;
-                append_bin_stats(c, retbuf_ptr, key, val, strlen(key), strlen(val)); 
-                total_bodylen += strlen(key) + strlen(val) + sizeof(header->response);
-                retbuf_ptr    += strlen(key) + strlen(val) + sizeof(header->response);
-            }
-            free(engine_stats_buf);
+        if((engine_statbuf = get_stats(true, NULL, &append_bin_stats, 
+                                       &engine_statlen)) == NULL) {
+            free(server_statbuf);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+            return;
         }
 
-        write_bin_response(c, retbuf, 0, 0, total_bodylen);
+        buf = malloc(server_statlen + engine_statlen + sizeof(header->response));
 
-        if(server_stats_buf != NULL)
-            free(server_stats_buf);
+        if(buf == NULL) {
+            free(server_statbuf);
+            free(engine_statbuf);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+            return;
+        }
+
+        ptr = buf;
+
+        memcpy(ptr, server_statbuf, server_statlen);
+        ptr += server_statlen;
+        memcpy(ptr, engine_statbuf, engine_statlen);
+        ptr += engine_statlen;
+        
+        append_bin_stats(ptr, NULL, NULL, 0, 0); /* append termination packet */
+    
+        free(server_statbuf);
+        free(engine_statbuf);
+        write_and_free(c, buf, server_statlen + engine_statlen + sizeof(header->response));
     }
 }
 
@@ -1917,11 +1869,13 @@ inline static void process_stats_detail(conn *c, const char *command) {
 }
 
 /* return server specific stats only */
-static char *server_stats() {
-    char *temp = calloc(1, 1024);
+static char *server_stats(bool binprot, int *buflen) {
+    char temp[1024];
+    char *buf;
     pid_t pid = getpid();
     char *pos = temp;
     rel_time_t now = current_time;
+    *buflen = 0;
 
 #ifndef WIN32
     struct rusage usage;
@@ -1956,7 +1910,50 @@ static char *server_stats() {
     /* "END" removed since the storage related stats is appended to this output */
     STATS_UNLOCK();
 
-    return temp;
+    /* our work is done for ascii protocol */
+    if(!binprot) {
+        if((buf = malloc(strlen(temp))) == NULL) 
+            return NULL;
+        
+        *buflen = strlen(temp);
+        memcpy(buf, temp, strlen(temp));
+        return buf;
+    } 
+
+    /* from here on is for the binary protocol */
+    if((buf = malloc(1024)) == NULL) 
+        return NULL;
+
+    char *end_attr, *end_row, *end_stats;
+    char *bufptr = buf;
+    char key[128];
+    char val[256];
+    uint32_t bodylen;
+
+    pos = temp;
+    end_stats = strchr(pos, '\0');
+
+    while(pos < end_stats) {
+        memset(key, 0, 128);
+        memset(val, 0, 256);
+
+        end_row = strchr(pos, '\n');
+        pos += strlen("STATS");       
+
+        for (end_attr = pos; isgraph(*end_attr); end_attr++);
+        memcpy(key, pos, (size_t)(end_attr - pos));
+ 
+        pos = end_attr + 1;
+        for (end_attr = pos; !(isspace(*end_attr)); end_attr++);
+        memcpy(val, pos, (size_t)(end_attr - pos));
+
+        pos = end_row + 1; /* increment pointer to next row */
+        bodylen = append_bin_stats(bufptr, key, val, strlen(key), strlen(val)); 
+        bufptr += bodylen;
+        *buflen += bodylen;
+    }
+
+    return buf;
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -1974,29 +1971,33 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     command = tokens[COMMAND_TOKEN].value;
 
     if (ntokens == 2 && strcmp(command, "stats") == 0) {
-        char *serverbuf = server_stats();    /* calloc'd */
-        char *storagebuf = get_stats(NULL);  /* calloc'd */
+        int server_statlen, engine_statlen;
+        char *buf, *ptr, *server_statbuf, *engine_statbuf;
 
-        if(!storagebuf)
-            storagebuf = strdup("END");
+        if((server_statbuf = server_stats(false, &server_statlen)) == NULL) {
+            out_string(c, "SERVER_ERROR out of memory writing stats");
+            return;
+        }
 
-        uint32_t required_size = strlen(serverbuf) + strlen(storagebuf);
-        char *retbuf = calloc(1, required_size);
-        char *pos = retbuf;
+        if((engine_statbuf = get_stats(false, NULL, &append_bin_stats, 
+                                       &engine_statlen)) == NULL) {
+            free(server_statbuf);
+            out_string(c, "SERVER_ERROR out of memory writing stats");
+            return;
+        }
 
-        memcpy(pos, serverbuf, strlen(serverbuf));
-        pos += strlen(serverbuf);
-        memcpy(pos, storagebuf, strlen(storagebuf));
-        pos += strlen(storagebuf);
+        buf = malloc(server_statlen + engine_statlen);
+        ptr = buf;
 
-        /* free calloc'd region */
-        if(serverbuf != NULL)
-            free(serverbuf);  
-        if(storagebuf != NULL)
-            free(storagebuf);
+        memcpy(ptr, server_statbuf, server_statlen);
+        ptr += server_statlen;
+        memcpy(ptr, engine_statbuf, engine_statlen);
+        ptr += engine_statlen;
 
-        out_string(c, retbuf);
-        free(retbuf);
+        free(server_statbuf);  
+        free(engine_statbuf);
+
+        write_and_free(c, buf, server_statlen + engine_statlen);
         return;
     }
 
