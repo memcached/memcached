@@ -281,7 +281,8 @@ conn *do_conn_from_freelist();
 bool do_conn_add_to_freelist(conn *c);
 char *do_suffix_from_freelist();
 bool do_suffix_add_to_freelist(char *s);
-char *do_add_delta(item *item, const bool incr, const int64_t delta, char *buf);
+char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
+                   char *buf);
 int do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
 
@@ -290,6 +291,7 @@ conn *conn_new(const int sfd, const enum conn_states init_state, const int event
 #include "slabs.h"
 #include "assoc.h"
 #include "items.h"
+#include "memcached_dtrace.h"
 
 
 /*
@@ -304,7 +306,8 @@ int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum protocol prot);
 
 /* Lock wrappers for cache functions that are called from main loop. */
-char *add_delta(item *item, const int incr, const int64_t delta, char *buf);
+char *add_delta(conn *c, item *item, const int incr, const int64_t delta,
+                char *buf);
 void assoc_move_next_bucket(void);
 conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);

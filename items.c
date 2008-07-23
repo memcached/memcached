@@ -228,6 +228,7 @@ static void item_unlink_q(item *it) {
 }
 
 int do_item_link(item *it) {
+    MEMCACHED_ITEM_LINK(ITEM_key(it), it->nbytes);
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     assert(it->nbytes < (1024 * 1024));  /* 1MB max size */
     it->it_flags |= ITEM_LINKED;
@@ -249,6 +250,7 @@ int do_item_link(item *it) {
 }
 
 void do_item_unlink(item *it) {
+    MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nbytes);
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
         STATS_LOCK();
@@ -262,6 +264,7 @@ void do_item_unlink(item *it) {
 }
 
 void do_item_remove(item *it) {
+    MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);
     if (it->refcount != 0) {
         it->refcount--;
@@ -274,6 +277,7 @@ void do_item_remove(item *it) {
 }
 
 void do_item_update(item *it) {
+    MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
 
@@ -286,6 +290,8 @@ void do_item_update(item *it) {
 }
 
 int do_item_replace(item *it, item *new_it) {
+    MEMCACHED_ITEM_REPLACE(ITEM_key(it), it->nbytes,
+                           ITEM_key(new_it), new_it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);
 
     do_item_unlink(it);

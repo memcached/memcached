@@ -496,14 +496,18 @@ item *assoc_find(const char *key, const size_t nkey) {
         it = primary_hashtable[hv & hashmask(hashpower)];
     }
 
+    item *ret = NULL;
+    int depth = 0;
     while (it) {
-        if ((nkey == it->nkey) &&
-            (memcmp(key, ITEM_key(it), nkey) == 0)) {
-            return it;
+        if ((nkey == it->nkey) && (memcmp(key, ITEM_key(it), nkey) == 0)) {
+            ret = it;
+            break;
         }
         it = it->h_next;
+        ++depth;
     }
-    return 0;
+    MEMCACHED_ASSOC_FIND(key, depth);
+    return ret;
 }
 
 /* returns the address of the item pointer before the key.  if *item == 0,
@@ -595,6 +599,7 @@ int assoc_insert(item *it) {
         assoc_expand();
     }
 
+    MEMCACHED_ASSOC_INSERT(ITEM_key(it), hash_items);
     return 1;
 }
 
@@ -602,10 +607,15 @@ void assoc_delete(const char *key, const size_t nkey) {
     item **before = _hashitem_before(key, nkey);
 
     if (*before) {
-        item *nxt = (*before)->h_next;
+        item *nxt;
+        hash_items--;
+        /* The DTrace probe cannot be triggered as the last instruction
+         * due to possible tail-optimization by the compiler
+         */
+        MEMCACHED_ASSOC_DELETE(key, hash_items);
+        nxt = (*before)->h_next;
         (*before)->h_next = 0;   /* probably pointless, but whatever. */
         *before = nxt;
-        hash_items--;
         return;
     }
     /* Note:  we never actually get here.  the callers don't delete things
