@@ -381,6 +381,8 @@ void dispatch_conn_new(int sfd, int init_state, int event_flags,
     item->is_udp = is_udp;
 
     cq_push(&threads[thread].new_conn_queue, item);
+
+    MEMCACHED_CONN_DISPATCH(sfd, threads[thread].thread_id);
     if (write(threads[thread].notify_send_fd, "", 1) != 1) {
         perror("Writing to thread notify pipe");
     }
@@ -495,11 +497,12 @@ char *mt_defer_delete(item *item, time_t exptime) {
 /*
  * Does arithmetic on a numeric item value.
  */
-char *mt_add_delta(item *item, int incr, const int64_t delta, char *buf) {
+char *mt_add_delta(conn *c, item *item, int incr, const int64_t delta,
+                   char *buf) {
     char *ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_add_delta(item, incr, delta, buf);
+    ret = do_add_delta(c, item, incr, delta, buf);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }

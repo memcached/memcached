@@ -240,7 +240,8 @@ char *do_suffix_from_freelist();
 bool do_suffix_add_to_freelist(char *s);
 char *do_defer_delete(item *item, time_t exptime);
 void do_run_deferred_deletes(void);
-char *do_add_delta(item *item, const bool incr, const int64_t delta, char *buf);
+char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
+                   char *buf);
 int do_store_item(item *item, int comm);
 conn *conn_new(const int sfd, const int init_state, const int event_flags, const int read_buffer_size, const bool is_udp, struct event_base *base);
 
@@ -249,7 +250,7 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags, const
 #include "slabs.h"
 #include "assoc.h"
 #include "items.h"
-
+#include "memcached_dtrace.h"
 
 /*
  * In multithreaded mode, we wrap certain functions with lock management and
@@ -271,7 +272,8 @@ int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer_size, int is_udp);
 
 /* Lock wrappers for cache functions that are called from main loop. */
-char *mt_add_delta(item *item, const int incr, const int64_t delta, char *buf);
+char *mt_add_delta(conn *c, item *item, const int incr, const int64_t delta,
+                   char *buf);
 void mt_assoc_move_next_bucket(void);
 conn *mt_conn_from_freelist(void);
 bool  mt_conn_add_to_freelist(conn *c);
@@ -300,7 +302,7 @@ void  mt_stats_unlock(void);
 int   mt_store_item(item *item, int comm);
 
 
-# define add_delta(x,y,z,a)          mt_add_delta(x,y,z,a)
+# define add_delta(c,x,y,z,a)        mt_add_delta(c,x,y,z,a)
 # define assoc_move_next_bucket()    mt_assoc_move_next_bucket()
 # define conn_from_freelist()        mt_conn_from_freelist()
 # define conn_add_to_freelist(x)     mt_conn_add_to_freelist(x)
@@ -331,7 +333,7 @@ int   mt_store_item(item *item, int comm);
 
 #else /* !USE_THREADS */
 
-# define add_delta(x,y,z,a)          do_add_delta(x,y,z,a)
+# define add_delta(c,x,y,z,a)          do_add_delta(c,x,y,z,a)
 # define assoc_move_next_bucket()    do_assoc_move_next_bucket()
 # define conn_from_freelist()        do_conn_from_freelist()
 # define conn_add_to_freelist(x)     do_conn_add_to_freelist(x)

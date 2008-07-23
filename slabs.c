@@ -200,13 +200,13 @@ static int do_slabs_newslab(const unsigned int id) {
 #endif
     char *ptr;
 
-    if (mem_limit && mem_malloced + len > mem_limit && p->slabs > 0)
+    if ((mem_limit && mem_malloced + len > mem_limit && p->slabs > 0) ||
+        (grow_slab_list(id) == 0) ||
+        ((ptr = memory_allocate((size_t)len)) == 0)) {
+
+        MEMCACHED_SLABS_SLABCLASS_ALLOCATE_FAILED(id);
         return 0;
-
-    if (grow_slab_list(id) == 0) return 0;
-
-    ptr = memory_allocate((size_t)len);
-    if (ptr == 0) return 0;
+    }
 
     memset(ptr, 0, (size_t)len);
     p->end_page_ptr = ptr;
@@ -214,47 +214,62 @@ static int do_slabs_newslab(const unsigned int id) {
 
     p->slab_list[p->slabs++] = ptr;
     mem_malloced += len;
+
+    MEMCACHED_SLABS_SLABCLASS_ALLOCATE(id);
     return 1;
 }
 
 /*@null@*/
 void *do_slabs_alloc(const size_t size, unsigned int id) {
     slabclass_t *p;
+    void *ret = NULL;
 
-    if (id < POWER_SMALLEST || id > power_largest)
+    if (id < POWER_SMALLEST || id > power_largest) {
+        MEMCACHED_SLABS_ALLOCATE_FAILED(size, 0);
         return NULL;
+    }
 
     p = &slabclass[id];
     assert(p->sl_curr == 0 || ((item *)p->slots[p->sl_curr - 1])->slabs_clsid == 0);
 
 #ifdef USE_SYSTEM_MALLOC
-    if (mem_limit && mem_malloced + size > mem_limit)
+    if (mem_limit && mem_malloced + size > mem_limit) {
+        MEMCACHED_SLABS_ALLOCATE_FAILED(size, id);
         return 0;
+    }
     mem_malloced += size;
-    return malloc(size);
+    ret = malloc(size);
+    MEMCACHED_SLABS_ALLOCATE(size, id, 0, ret);
+    return ret;
 #endif
 
     /* fail unless we have space at the end of a recently allocated page,
        we have something on our freelist, or we could allocate a new page */
-    if (! (p->end_page_ptr != 0 || p->sl_curr != 0 || do_slabs_newslab(id) != 0))
-        return 0;
-
-    /* return off our freelist, if we have one */
-    if (p->sl_curr != 0)
-        return p->slots[--p->sl_curr];
-
-    /* if we recently allocated a whole page, return from that */
-    if (p->end_page_ptr) {
-        void *ptr = p->end_page_ptr;
+    if (! (p->end_page_ptr != 0 || p->sl_curr != 0 ||
+           do_slabs_newslab(id) != 0)) {
+        /* We don't have more memory available */
+        ret = NULL;
+    } else if (p->sl_curr != 0) {
+        /* return off our freelist */
+        ret = p->slots[--p->sl_curr];
+    } else {
+        /* if we recently allocated a whole page, return from that */
+        assert(p->end_page_ptr != NULL);
+        ret = p->end_page_ptr;
         if (--p->end_page_free != 0) {
             p->end_page_ptr += p->size;
         } else {
             p->end_page_ptr = 0;
         }
-        return ptr;
     }
 
-    return NULL;  /* shouldn't ever get here */
+    if (ret) {
+        MEMCACHED_SLABS_ALLOCATE(size, id, p->size, ret);
+    } else {
+        MEMCACHED_SLABS_ALLOCATE_FAILED(size, id);
+    }
+
+    return ret;
 }
 
 void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
@@ -265,6 +280,7 @@ void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     if (id < POWER_SMALLEST || id > power_largest)
         return;
 
+    MEMCACHED_SLABS_FREE(size, id, ptr);
     p = &slabclass[id];
 
 #ifdef USE_SYSTEM_MALLOC

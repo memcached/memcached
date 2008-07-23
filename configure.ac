@@ -9,6 +9,25 @@ AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
+AC_ARG_ENABLE(dtrace,
+  [AS_HELP_STRING([--enable-dtrace],[Enable dtrace probes])])
+if test "x$enable_dtrace" == "xyes"; then
+  AC_PATH_PROG([DTRACE], [dtrace], "no", [/usr/sbin:$PATH])
+  if test "x$DTRACE" != "xno"; then
+    AC_DEFINE([ENABLE_DTRACE],1,[Set to nonzero if you want to include DTRACE])
+    DTRACE_OBJ=memcached_dtrace.o
+    DTRACE_DEBUG_OBJ=memcached_debug_dtrace.o
+  else
+    AC_MSG_ERROR([Need dtrace binary and OS support.])
+  fi
+else
+    AC_DEFINE([ENABLE_DTRACE],0,[Set to nonzero if you want to include DTRACE])
+fi
+AC_SUBST(DTRACE)
+AC_SUBST(DTRACE_OBJ)
+AC_SUBST(DTRACE_DEBUG_OBJ)
+AC_SUBST(DTRACEFLAGS)
+
 AC_ARG_ENABLE(64bit,
   [AS_HELP_STRING([--enable-64bit],[build 64bit verison])])
 if test "x$enable_64bit" == "xyes"
@@ -113,7 +132,8 @@ AC_SEARCH_LIBS(socket, socket)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(mallinfo, malloc)
 
-AC_CHECK_FUNC(daemon,AC_DEFINE([HAVE_DAEMON],,[Define this if you have daemon()]),[AC_LIBOBJ(daemon)])
+AC_CHECK_FUNC(daemon,AC_DEFINE([HAVE_DAEMON],,[Define this if you have daemon()]),[DAEMON_OBJ=daemon.o])
+AC_SUBST(DAEMON_OBJ)
 
 AC_HEADER_STDBOOL
 AC_C_CONST
