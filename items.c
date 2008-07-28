@@ -59,8 +59,7 @@ uint64_t get_cas_id() {
                 fprintf(stderr, "item %x refcnt(%c) %d %c%c%c\n", \
                         it, op, it->refcount, \
                         (it->it_flags & ITEM_LINKED) ? 'L' : ' ', \
-                        (it->it_flags & ITEM_SLABBED) ? 'S' : ' ', \
-                        (it->it_flags & ITEM_DELETED) ? 'D' : ' ')
+                        (it->it_flags & ITEM_SLABBED) ? 'S' : ' ')
 #else
 # define DEBUG_REFCNT(it,op) while(0)
 #endif
@@ -268,7 +267,7 @@ void do_item_remove(item *it) {
         it->refcount--;
         DEBUG_REFCNT(it, '-');
     }
-    assert((it->it_flags & ITEM_DELETED) == 0 || it->refcount != 0);
+    assert(it->refcount != 0);
     if (it->refcount == 0 && (it->it_flags & ITEM_LINKED) == 0) {
         item_free(it);
     }
@@ -404,26 +403,9 @@ char* do_item_stats_sizes(int *bytes) {
     return buf;
 }
 
-/** returns true if a deleted item's delete-locked-time is over, and it
-    should be removed from the namespace */
-bool item_delete_lock_over (item *it) {
-    assert(it->it_flags & ITEM_DELETED);
-    return (current_time >= it->exptime);
-}
-
-/** wrapper around assoc_find which does the lazy expiration/deletion logic */
-item *do_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked) {
+/** wrapper around assoc_find which does the lazy expiration logic */
+item *do_item_get(const char *key, const size_t nkey) {
     item *it = assoc_find(key, nkey);
-    if (delete_locked) *delete_locked = false;
-    if (it != NULL && (it->it_flags & ITEM_DELETED)) {
-        /* it's flagged as delete-locked.  let's see if that condition
-           is past due, and the 5-second delete_timer just hasn't
-           gotten to it yet... */
-        if (!item_delete_lock_over(it)) {
-            if (delete_locked) *delete_locked = true;
-            it = NULL;
-        }
-    }
     if (it != NULL && settings.oldest_live != 0 && settings.oldest_live <= current_time &&
         it->time <= settings.oldest_live) {
         do_item_unlink(it);           /* MTSAFE - cache_lock held */
@@ -441,11 +423,7 @@ item *do_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_l
     return it;
 }
 
-item *item_get(const char *key, const size_t nkey) {
-    return item_get_notedeleted(key, nkey, 0);
-}
-
-/** returns an item whether or not it's delete-locked or expired. */
+/** returns an item whether or not it's expired. */
 item *do_item_get_nocheck(const char *key, const size_t nkey) {
     item *it = assoc_find(key, nkey);
     if (it) {

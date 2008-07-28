@@ -108,7 +108,6 @@ extern struct stats stats;
 extern struct settings settings;
 
 #define ITEM_LINKED 1
-#define ITEM_DELETED 2
 
 /* temp */
 #define ITEM_SLABBED 4
@@ -282,8 +281,6 @@ conn *do_conn_from_freelist();
 bool do_conn_add_to_freelist(conn *c);
 char *do_suffix_from_freelist();
 bool do_suffix_add_to_freelist(char *s);
-int do_defer_delete(item *item, time_t exptime);
-void do_run_deferred_deletes(void);
 char *do_add_delta(item *item, const bool incr, const int64_t delta, char *buf);
 int do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
@@ -313,12 +310,11 @@ conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 char *suffix_from_freelist(void);
 bool  suffix_add_to_freelist(char *s);
-int defer_delete(item *it, time_t exptime);
 int   is_listen_thread(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
 void  item_flush_expired(void);
-item *item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked);
+item *item_get(const char *key, const size_t nkey);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it);
@@ -326,7 +322,6 @@ char *item_stats(int *bytes);
 char *item_stats_sizes(int *bytes);
 void  item_unlink(item *it);
 void  item_update(item *it);
-void  run_deferred_deletes(void);
 void *slabs_alloc(size_t size, unsigned int id);
 void  slabs_free(void *ptr, size_t size, unsigned int id);
 int   slabs_reassign(unsigned char srcid, unsigned char dstid);

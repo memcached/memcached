@@ -194,15 +194,14 @@ the reply, which may be:
 - "STORED\r\n", to indicate success.
 
 - "NOT_STORED\r\n" to indicate the data was not stored, but not
-because of an error. This normally means that either that the
-condition for an "add" or a "replace" command wasn't met, or that the
-item is in a delete queue (see the "delete" command below).
+because of an error. This normally means that the
+condition for an "add" or a "replace" command wasn't met.
 
 - "EXISTS\r\n" to indicate that the item you are trying to store with
 a "cas" command has been modified since you last fetched it.
 
 - "NOT_FOUND\r\n" to indicate that the item you are trying to store
-with a "cas" command did not exist or has been deleted.
+with a "cas" command did not exist.
 
 
 Retrieval command:
@@ -252,21 +251,9 @@ Deletion
 
 The command "delete" allows for explicit deletion of items:
 
-delete <key> [<time>] [noreply]\r\n
+delete <key> [noreply]\r\n
 
 - <key> is the key of the item the client wishes the server to delete
-
-- <time> is the amount of time in seconds (or Unix time until which)
-  the client wishes the server to refuse "add" and "replace" commands
-  with this key. For this amount of item, the item is put into a
-  delete queue, which means that it won't possible to retrieve it by
-  the "get" command, but "add" and "replace" command with this key
-  will also fail (the "set" command will succeed, however). After the
-  time passes, the item is finally deleted from server memory.
-
-  The parameter <time> is optional, and, if absent, defaults to 0
-  (which means that the item will be deleted immediately and further
-  storage commands with this key will succeed).
 
 - "noreply" optional parameter instructs the server to not send the
   reply.  See the note in Storage commands regarding malformed

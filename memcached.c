@@ -110,9 +110,6 @@ struct stats stats;
 struct settings settings;
 
 /** file scope variables **/
-static item **todelete = NULL;
-static int delcurr;
-static int deltotal;
 static conn *listen_conn = NULL;
 static struct event_base *main_base;
 
@@ -189,13 +186,6 @@ static void settings_init(void) {
     settings.num_threads = 4;         /* default number of worker threads */
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
-}
-
-/* returns true if a deleted item's delete-locked-time is over, and it
-   should be removed from the namespace */
-static bool item_delete_lock_over (item *it) {
-    assert(it->it_flags & ITEM_DELETED);
-    return (current_time >= it->exptime);
 }
 
 /*
@@ -1319,7 +1309,7 @@ static void dispatch_bin_command(conn *c) {
             }
             break;
         case PROTOCOL_BINARY_CMD_DELETE:
-            if (keylen > 0 && (extlen == 0 || extlen == 4) && bodylen == (keylen + extlen)) {
+            if (keylen > 0 && extlen == 0 && bodylen == keylen) {
                 bin_read_key(c, bin_reading_del_header, extlen);
             } else {
                 protocol_error = 1;
@@ -1527,7 +1517,6 @@ static void process_bin_flush(conn *c) {
 
 static void process_bin_delete(conn *c) {
     item *it;
-    time_t exptime = 0;
 
     protocol_binary_response_delete* rsp = (protocol_binary_response_delete*)c->wbuf;
     protocol_binary_request_delete* req = binary_get_request(c);
@@ -1539,12 +1528,8 @@ static void process_bin_delete(conn *c) {
     assert(c->rbytes >= sizeof(*req));
     assert(c->wsize >= sizeof(*rsp));
 
-    if (c->binary_header.request.extlen == sizeof(req->message.body)) {
-        /* fix byteorder in the request */
-        exptime = ntohl(req->message.body.expiration);
-    }
     if(settings.verbose) {
-        fprintf(stderr, "Deleting %s with a timeout of %d\n", key, exptime);
+        fprintf(stderr, "Deleting %s\n", key);
     }
 
     if (settings.detail_enabled) {
@@ -1555,20 +1540,12 @@ static void process_bin_delete(conn *c) {
     if (it) {
         uint64_t cas=swap64(req->message.header.request.cas);
         if (cas == 0 || cas == it->cas_id) {
-            if (exptime == 0) {
-                item_unlink(it);
-                item_remove(it);      /* release our reference */
-                write_bin_response(c, NULL, 0, 0, 0);
-            } else {
-                if (defer_delete(it, exptime) != -1) {
-                    write_bin_response(c, NULL, 0, 0, 0);
-                } else {
-                    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
-                }
-            }
+            item_unlink(it);
+            write_bin_response(c, NULL, 0, 0, 0);
         } else {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
         }
+        item_remove(it);      /* release our reference */
     } else {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
     }
@@ -1641,8 +1618,7 @@ static void complete_nread(conn *c) {
  */
 int do_store_item(item *it, int comm, conn *c) {
     char *key = ITEM_key(it);
-    bool delete_locked = false;
-    item *old_it = do_item_get_notedeleted(key, it->nkey, &delete_locked);
+    item *old_it = do_item_get(key, it->nkey);
     int stored = 0;
 
     item *new_it = NULL;
@@ -1655,15 +1631,8 @@ int do_store_item(item *it, int comm, conn *c) {
         || comm == NREAD_APPEND || comm == NREAD_PREPEND))
     {
         /* replace only replaces an existing value; don't store */
-    } else if (delete_locked && (comm == NREAD_REPLACE || comm == NREAD_ADD
-        || comm == NREAD_APPEND || comm == NREAD_PREPEND))
-    {
-        /* replace and add can't override delete locks; don't store */
     } else if (comm == NREAD_CAS) {
         /* validate cas operation */
-        if (delete_locked)
-            old_it = do_item_get_nocheck(key, it->nkey);
-
         if(old_it == NULL) {
           // LRU expired
           stored = 3;
@@ -1724,13 +1693,6 @@ int do_store_item(item *it, int comm, conn *c) {
         }
 
         if (stored == 0) {
-            /* "set" commands can override the delete lock
-               window... in which case we have to find the old hidden item
-               that's in the namespace/LRU but wasn't returned by
-               item_get.... because we need to replace it */
-            if (delete_locked)
-                old_it = do_item_get_nocheck(key, it->nkey);
-
             if (old_it != NULL)
                 item_replace(old_it, it);
             else
@@ -2471,7 +2433,6 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     char *key;
     size_t nkey;
     item *it;
-    time_t exptime = 0;
 
     assert(c != NULL);
 
@@ -2498,66 +2459,18 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         return;
     }
 
-    if(ntokens == (c->noreply ? 5 : 4)) {
-        exptime = strtol(tokens[2].value, NULL, 10);
-
-        if(errno == ERANGE) {
-            out_string(c, "CLIENT_ERROR bad command line format");
-            return;
-        }
-    }
-
     if (settings.detail_enabled) {
         stats_prefix_record_delete(key);
     }
 
     it = item_get(key, nkey);
     if (it) {
-        if (exptime == 0) {
-            item_unlink(it);
-            item_remove(it);      /* release our reference */
-            out_string(c, "DELETED");
-        } else {
-            /* our reference will be transfered to the delete queue */
-            if (defer_delete(it, exptime) == -1) {
-                out_string(c, "SERVER_ERROR out of memory expanding delete queue");
-            } else {
-                out_string(c, "DELETED");
-            }
-        }
+        item_unlink(it);
+        item_remove(it);      /* release our reference */
+        out_string(c, "DELETED");
     } else {
         out_string(c, "NOT_FOUND");
     }
-}
-
-/*
- * Adds an item to the deferred-delete list so it can be reaped later.
- *
- * Returns the result to send to the client.
- */
-int do_defer_delete(item *it, time_t exptime)
-{
-    if (delcurr >= deltotal) {
-        item **new_delete = realloc(todelete, sizeof(item *) * deltotal * 2);
-        if (new_delete) {
-            todelete = new_delete;
-            deltotal *= 2;
-        } else {
-            /*
-             * can't delete it immediately, user wants a delay,
-             * but we ran out of memory for the delete queue
-             */
-            item_remove(it);    /* release reference */
-            return -1;
-        }
-    }
-
-    /* use its expiration time as its deletion time now */
-    it->exptime = realtime(exptime);
-    it->it_flags |= ITEM_DELETED;
-    todelete[delcurr++] = it;
-
-    return 0;
 }
 
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -2629,7 +2542,7 @@ static void process_command(conn *c, char *command) {
 
         process_arithmetic_command(c, tokens, ntokens, 0);
 
-    } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
+    } else if (ntokens >= 3 && ntokens <= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
 
         process_delete_command(c, tokens, ntokens);
 
@@ -3637,45 +3550,6 @@ static void clock_handler(const int fd, const short which, void *arg) {
     set_current_time();
 }
 
-static struct event deleteevent;
-
-static void delete_handler(const int fd, const short which, void *arg) {
-    struct timeval t = {.tv_sec = 5, .tv_usec = 0};
-    static bool initialized = false;
-
-    if (initialized) {
-        /* some versions of libevent don't like deleting events that don't exist,
-           so only delete once we know this event has been added. */
-        evtimer_del(&deleteevent);
-    } else {
-        initialized = true;
-    }
-
-    evtimer_set(&deleteevent, delete_handler, 0);
-    event_base_set(main_base, &deleteevent);
-    evtimer_add(&deleteevent, &t);
-    run_deferred_deletes();
-}
-
-/* Call run_deferred_deletes instead of this. */
-void do_run_deferred_deletes(void)
-{
-    int i, j = 0;
-
-    for (i = 0; i < delcurr; i++) {
-        item *it = todelete[i];
-        if (item_delete_lock_over(it)) {
-            assert(it->refcount > 0);
-            it->it_flags &= ~ITEM_DELETED;
-            do_item_unlink(it);
-            do_item_remove(it);
-        } else {
-            todelete[j++] = it;
-        }
-    }
-    delcurr = j;
-}
-
 static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
     printf("-p <num>      TCP port number to listen on (default: 11211)\n"
@@ -4115,14 +3989,6 @@ int main (int argc, char **argv) {
         save_pid(getpid(), pid_file);
     /* initialise clock event */
     clock_handler(0, 0, 0);
-    /* initialise deletion array and timer event */
-    deltotal = 200;
-    delcurr = 0;
-    if ((todelete = malloc(sizeof(item *) * deltotal)) == NULL) {
-        perror("failed to allocate memory for deletion array");
-        exit(EXIT_FAILURE);
-    }
-    delete_handler(0, 0, 0); /* sets up the event */
 
     /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {

@@ -395,16 +395,6 @@ int is_listen_thread() {
 /********************************* ITEM ACCESS *******************************/
 
 /*
- * Walks through the list of deletes that have been deferred because the items
- * were locked down at the tmie.
- */
-void run_deferred_deletes() {
-    pthread_mutex_lock(&cache_lock);
-    do_run_deferred_deletes();
-    pthread_mutex_unlock(&cache_lock);
-}
-
-/*
  * Allocates a new item.
  */
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes) {
@@ -416,13 +406,13 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
 }
 
 /*
- * Returns an item if it hasn't been marked as expired or deleted,
+ * Returns an item if it hasn't been marked as expired,
  * lazy-expiring as needed.
  */
-item *item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked) {
+item *item_get(const char *key, const size_t nkey) {
     item *it;
     pthread_mutex_lock(&cache_lock);
-    it = do_item_get_notedeleted(key, nkey, delete_locked);
+    it = do_item_get(key, nkey);
     pthread_mutex_unlock(&cache_lock);
     return it;
 }
@@ -474,18 +464,6 @@ void item_update(item *item) {
     pthread_mutex_lock(&cache_lock);
     do_item_update(item);
     pthread_mutex_unlock(&cache_lock);
-}
-
-/*
- * Adds an item to the deferred-delete list so it can be reaped later.
- */
-int defer_delete(item *item, time_t exptime) {
-    int ret;
-
-    pthread_mutex_lock(&cache_lock);
-    ret = do_defer_delete(item, exptime);
-    pthread_mutex_unlock(&cache_lock);
-    return ret;
 }
 
 /*

@@ -35,6 +35,8 @@
 #ifndef PROTOCOL_BINARY_H
 #define PROTOCOL_BINARY_H
 
+#include <stdint.h>
+
 /**
  * This file contains definitions of the constants and packet formats
  * defined in the binary specification. Please note that you _MUST_ remember
@@ -162,7 +164,7 @@ extern "C"
 
   /**
    * Definition of the packet used by the get, getq, getk and getkq command.
-   * See section 4.1
+   * See section 4
    */
   typedef protocol_binary_request_no_extras protocol_binary_request_get;
   typedef protocol_binary_request_no_extras protocol_binary_request_getq;
@@ -170,21 +172,15 @@ extern "C"
   typedef protocol_binary_request_no_extras protocol_binary_request_getkq;
 
   /**
-   * Definition of the packet used by the stats command.
-   * See section <undecided yet>
-   */
-  typedef protocol_binary_request_no_extras protocol_binary_request_stats;
-
-  /**
    * Definition of the packet returned from a successful get, getq, getk and
    * getkq.
-   * See section 4.1
+   * See section 4
    */
   typedef union {
     struct {
       protocol_binary_response_header header;
       struct {
-    uint32_t flags;
+        uint32_t flags;
       } body;
     } message;
     uint8_t bytes[sizeof(protocol_binary_response_header) + 4];
@@ -196,29 +192,19 @@ extern "C"
 
   /**
    * Definition of the packet used by the delete command
-   * See section 4.2
-   * Please note that the expiration field is optional, so remember to see
-   * check the header.bodysize to see if it is present.
+   * See section 4
    */
-  typedef union {
-    struct {
-      protocol_binary_request_header header;
-      struct {
-    uint32_t expiration;
-      } body;
-    } message;
-    uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
-  } protocol_binary_request_delete;
+  typedef protocol_binary_request_no_extras protocol_binary_request_delete;
 
   /**
    * Definition of the packet returned by the delete command
-   * See section 4.2
+   * See section 4
    */
   typedef protocol_binary_response_no_extras protocol_binary_response_delete;
 
   /**
    * Definition of the packet used by the flush command
-   * See section 4.3
+   * See section 4
    * Please note that the expiration field is optional, so remember to see
    * check the header.bodysize to see if it is present.
    */
@@ -226,7 +212,7 @@ extern "C"
     struct {
       protocol_binary_request_header header;
       struct {
-    uint32_t expiration;
+        uint32_t expiration;
       } body;
     } message;
     uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
@@ -234,20 +220,20 @@ extern "C"
 
   /**
    * Definition of the packet returned by the flush command
-   * See section 4.3
+   * See section 4
    */
   typedef protocol_binary_response_no_extras protocol_binary_response_flush;
 
   /**
    * Definition of the packet used by set, add and replace
-   * See section 4.4
+   * See section 4
    */
   typedef union {
     struct {
       protocol_binary_request_header header;
       struct {
-    uint32_t flags;
-    uint32_t expiration;
+        uint32_t flags;
+        uint32_t expiration;
       } body;
     } message;
     uint8_t bytes[sizeof(protocol_binary_request_header) + 8];
@@ -257,7 +243,7 @@ extern "C"
 
   /**
    * Definition of the packet returned by set, add and replace
-   * See section 4.4
+   * See section 4
    */
   typedef protocol_binary_response_no_extras protocol_binary_response_set;
   typedef protocol_binary_response_no_extras protocol_binary_response_add;
@@ -265,28 +251,28 @@ extern "C"
 
   /**
    * Definition of the noop packet
-   * See section 4.5
+   * See section 4
    */
   typedef protocol_binary_request_no_extras protocol_binary_request_noop;
 
   /**
    * Definition of the packet returned by the noop command
-   * See section 4.5
+   * See section 4
    */
   typedef protocol_binary_response_no_extras protocol_binary_response_nnoop;
 
   /**
    * Definition of the structure used by the increment and decrement
    * command.
-   * See section 4.6
+   * See section 4
    */
   typedef union {
     struct {
       protocol_binary_request_header header;
       struct {
-    uint64_t delta;
-    uint64_t initial;
-    uint32_t expiration;
+        uint64_t delta;
+        uint64_t initial;
+        uint32_t expiration;
       } body;
     } message;
     uint8_t bytes[sizeof(protocol_binary_request_header) + 20];
@@ -296,13 +282,13 @@ extern "C"
   /**
    * Definition of the response from an incr or decr command
    * command.
-   * See section 4.6
+   * See section 4
    */
   typedef union {
     struct {
       protocol_binary_response_header header;
       struct {
-    uint64_t value;
+        uint64_t value;
       } body;
     } message;
     uint8_t bytes[sizeof(protocol_binary_response_header) + 8];
@@ -311,30 +297,54 @@ extern "C"
 
   /**
    * Definition of the quit
-   * See section 4.7
+   * See section 4
    */
   typedef protocol_binary_request_no_extras protocol_binary_request_quit;
 
   /**
    * Definition of the packet returned by the quit command
-   * See section 4.7
+   * See section 4
    */
   typedef protocol_binary_response_no_extras protocol_binary_response_quit;
 
   /**
    * Definition of the packet used by append and prepend command
-   * See section 4.8
+   * See section 4
    */
   typedef protocol_binary_request_no_extras protocol_binary_request_append;
   typedef protocol_binary_request_no_extras protocol_binary_request_prepend;
 
   /**
    * Definition of the packet returned from a successful append or prepend
-   * See section 4.8
+   * See section 4
    */
   typedef protocol_binary_response_no_extras protocol_binary_response_append;
   typedef protocol_binary_response_no_extras protocol_binary_response_prepend;
 
+  /**
+   * Definition of the packet used by the version command
+   * See section 4
+   */
+  typedef protocol_binary_request_no_extras protocol_binary_request_version;
+
+  /**
+   * Definition of the packet returned from a successful version command
+   * See section 4
+   */
+  typedef protocol_binary_response_no_extras protocol_binary_response_version;
+
+
+  /**
+   * Definition of the packet used by the stats command.
+   * See section 4
+   */
+  typedef protocol_binary_request_no_extras protocol_binary_request_stats;
+
+  /**
+   * Definition of the packet returned from a successful stats command
+   * See section 4
+   */
+  typedef protocol_binary_response_no_extras protocol_binary_response_stats;
 #ifdef __cplusplus
 }
 #endif

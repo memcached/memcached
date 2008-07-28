@@ -26,8 +26,20 @@
         <email>aaron@serendipity.palo-alto.ca.us</email>
       </address>
     </author>
+    <author fullname="Trond Norbye" surname="Norbye" givenname="Trond" role="editor">
+      <organization>Sun Microsystems, INC</organization>
+      <address>
+        <postal>
+          <street>Haakon VII g. 7B</street>
+          <city>Trondheim</city>
+          <code>NO-7485 Trondheim</code>
+          <country>Norway</country>
+        </postal>
+        <email>trond.norbye@sun.com</email>
+      </address>
+    </author>
 
-    <date day="14" month="December" year="2007" />
+    <date day="19" month="July" year="2008" />
 
     <area>Applications</area>
 
@@ -231,6 +243,7 @@
           <t hangText="0x0D">GetKQ</t>
           <t hangText="0x0E">Append</t>
           <t hangText="0x0F">Prepend</t>
+	  <t hangText="0x10">Stat</t>
         </list>
         </t>
       </section>
@@ -322,85 +335,6 @@
 
       </section>
 
-      <section anchor="command-delete" title="Delete">
-        <t>
-        <list style="empty">
-          <t>MAY have extras</t>
-          <t>MUST have key.</t>
-          <t>MUST NOT have value.</t>
-        </list>
-        </t>
-
-        <t>
-          <list style="symbols">
-            <t>4 byte expiration time</t>
-          </list>
-        </t>
-
-        <t>
-      <figure>
-        <preamble>Extra data for delete:</preamble>
-          <artwork>
-    Byte/     0       |       1       |       2       |       3       |
-       /              |               |               |               |
-      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-      +---------------+---------------+---------------+---------------+
-     0| Expiration                                                    |
-      +---------------+---------------+---------------+---------------+
-    Total 4 bytes
-      </artwork></figure>
-        </t>
-
-        <t>
-          When allows you to 'reserve' a key. When 'when' is set
-          for, say, ten seconds in the future, the 'add' and 'replace' operations will fail for that key
-          until ten seconds from now.  The 'set' operation will succeed regardless of any reserved deletes.
-          FIXME: Is the reservation also cancelled? Say there's a delete with a 10 second hold. Two seconds
-          later, an 'add' is received. It fails. Two second later, a 'set' is received. Is succeeds unconditionally.
-          What if another 'add' is received two more seconds later (a total of six seconds since the original
-          10 second delete-hold, thus still within its purview).
-        </t>
-
-      </section>
-
-      <section anchor="command-flush" title="Flush">
-        <t>
-        <list style="empty">
-          <t>MAY have extras</t>
-          <t>MUST NOT have key.</t>
-          <t>MUST NOT have value.</t>
-        </list>
-        </t>
-
-        <t>
-          <list style="symbols">
-            <t>4 byte expiration time</t>
-          </list>
-        </t>
-
-        <t>
-      <figure>
-        <preamble>Extra data for flush:</preamble>
-          <artwork>
-    Byte/     0       |       1       |       2       |       3       |
-       /              |               |               |               |
-      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-      +---------------+---------------+---------------+---------------+
-     0| Expiration                                                    |
-      +---------------+---------------+---------------+---------------+
-    Total 4 bytes
-      </artwork></figure>
-        </t>
-
-        <t>
-            Flush the items in the cache now or sometime in the future
-            specified by the expiration field. See the documentation of the
-            textual protocol for the full description on how to specify the
-            expiration time.
-        </t>
-
-      </section>
-
       <section anchor="command-set" title="Set, Add, Replace">
         <t>
         <list style="empty">
@@ -452,17 +386,18 @@
 	</t>
       </section>
 
-      <section anchor="command-noop" title="noop">
+      <section anchor="command-delete" title="Delete">
         <t>
         <list style="empty">
-          <t>MUST NOT have extras.</t>
-          <t>MUST NOT have key.</t>
+          <t>MUST NOT have extras</t>
+          <t>MUST have key.</t>
           <t>MUST NOT have value.</t>
         </list>
         </t>
 
+
         <t>
-        Used as a keep alive. Flushes outstanding getq/getkq's.
+	  Delete the item with the specific key.
         </t>
       </section>
 
@@ -553,6 +488,76 @@
         </t>
       </section>
 
+      <section anchor="command-flush" title="Flush">
+        <t>
+        <list style="empty">
+          <t>MAY have extras</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+          <list style="symbols">
+            <t>4 byte expiration time</t>
+          </list>
+        </t>
+
+        <t>
+      <figure>
+        <preamble>Extra data for flush:</preamble>
+          <artwork>
+    Byte/     0       |       1       |       2       |       3       |
+       /              |               |               |               |
+      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+      +---------------+---------------+---------------+---------------+
+     0| Expiration                                                    |
+      +---------------+---------------+---------------+---------------+
+    Total 4 bytes
+      </artwork></figure>
+        </t>
+
+        <t>
+            Flush the items in the cache now or sometime in the future
+            specified by the expiration field. See the documentation of the
+            textual protocol for the full description on how to specify the
+            expiration time.
+        </t>
+
+      </section>
+
+      <section anchor="command-noop" title="noop">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+        Used as a keep alive. Flushes outstanding getq/getkq's.
+        </t>
+      </section>
+
+      <section anchor="command-version" title="version">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+          Requst the server version.
+        </t>
+        <t>
+	  The server respond with a packet containing the version string
+	  in the body with the following format: "x.y.z"
+        </t>
+      </section>
+
       <section anchor="command-append" title="Append, Prepend">
         <t>
         <list style="empty">
@@ -571,6 +576,26 @@
           CAS version of the requested item.
         </t>
       </section>
+
+      <section anchor="command-stat" title="Stat">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MAY have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+	  Request server statistics. Without a key specified the server will respond 
+	  with a "default" set of statistics information. Each piece of statistical
+	  information is returned in it's own packet (key contains the 
+	  name of the statistical item and the body contains the value in
+	  ASCII format). The sequence of return packet is terminated with a packet
+	  with no key and no value.
+        </t>
+      </section>
+
     </section>
 
     <section title="Example Session">

@@ -1,4 +1,5 @@
 bin_PROGRAMS = memcached memcached-debug
+pkginclude_HEADERS = protocol_binary.h
 
 memcached_SOURCES = memcached.c slabs.c slabs.h items.c items.h assoc.c assoc.h memcached.h thread.c stats.c stats.h
 memcached_debug_SOURCES = $(memcached_SOURCES)
