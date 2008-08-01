@@ -2170,7 +2170,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     if (new_list) {
                         c->isize *= 2;
                         c->ilist = new_list;
-                    } else  {
+                    } else {
                         item_remove(it);
                         break;
                     }
@@ -2193,8 +2193,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     char **new_suffix_list = realloc(c->suffixlist,
                                            sizeof(char *) * c->suffixsize * 2);
                     if (new_suffix_list) {
-                      c->suffixsize *= 2;
-                      c->suffixlist  = new_suffix_list;
+                        c->suffixsize *= 2;
+                        c->suffixlist  = new_suffix_list;
                     } else {
                         item_remove(it);
                         break;
