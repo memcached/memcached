@@ -1025,7 +1025,6 @@ static void complete_incr_bin(conn *c) {
     protocol_binary_request_incr* req = binary_get_request(c);
 
     assert(c != NULL);
-    assert(c->rbytes >= sizeof(*req));
     assert(c->wsize >= sizeof(*rsp));
 
     /* fix byteorder in the request */
@@ -1392,7 +1391,6 @@ static void process_bin_update(conn *c) {
     protocol_binary_request_set* req = binary_get_request(c);
 
     assert(c != NULL);
-    assert(c->rbytes >= sizeof(*req));
 
     key = binary_get_key(c);
     nkey = c->binary_header.request.keylen;
@@ -1475,7 +1473,6 @@ static void process_bin_append_prepend(conn *c) {
     protocol_binary_request_append* req = binary_get_request(c);
 
     assert(c != NULL);
-    assert(c->rbytes >= sizeof(*req));
 
     key = binary_get_key(c);
     nkey = c->binary_header.request.keylen;
@@ -1552,7 +1549,6 @@ static void process_bin_delete(conn *c) {
     size_t nkey = c->binary_header.request.keylen;
 
     assert(c != NULL);
-    assert(c->rbytes >= sizeof(*req));
     assert(c->wsize >= sizeof(*rsp));
 
     if(settings.verbose) {

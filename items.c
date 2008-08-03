@@ -270,7 +270,6 @@ void do_item_remove(item *it) {
         it->refcount--;
         DEBUG_REFCNT(it, '-');
     }
-    assert(it->refcount != 0);
     if (it->refcount == 0 && (it->it_flags & ITEM_LINKED) == 0) {
         item_free(it);
     }
