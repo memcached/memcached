@@ -1216,7 +1216,7 @@ uint32_t append_bin_stats(char *buf, const char *key, const char *val,
             memcpy(ptr, val, vlen);
             ptr += vlen;
         }
-    } 
+    }
 
     return sizeof(header->response) + klen + vlen;
 }
@@ -1244,7 +1244,7 @@ static void process_bin_stat(conn *c) {
             return;
         }
 
-        if((engine_statbuf = get_stats(true, NULL, &append_bin_stats, 
+        if((engine_statbuf = get_stats(true, NULL, &append_bin_stats,
                                        &engine_statlen)) == NULL) {
             free(server_statbuf);
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
@@ -1266,9 +1266,9 @@ static void process_bin_stat(conn *c) {
         ptr += server_statlen;
         memcpy(ptr, engine_statbuf, engine_statlen);
         ptr += engine_statlen;
-        
+
         append_bin_stats(ptr, NULL, NULL, 0, 0); /* append termination packet */
-    
+
         free(server_statbuf);
         free(engine_statbuf);
         write_and_free(c, buf, server_statlen + engine_statlen + sizeof(header->response));
@@ -1900,16 +1900,16 @@ static char *server_stats(bool binprot, int *buflen) {
 
     /* our work is done for ascii protocol */
     if(!binprot) {
-        if((buf = malloc(strlen(temp))) == NULL) 
+        if((buf = malloc(strlen(temp))) == NULL)
             return NULL;
-        
+
         *buflen = strlen(temp);
         memcpy(buf, temp, strlen(temp));
         return buf;
-    } 
+    }
 
     /* from here on is for the binary protocol */
-    if((buf = malloc(1024)) == NULL) 
+    if((buf = malloc(1024)) == NULL)
         return NULL;
 
     char *end_attr, *end_row, *end_stats;
@@ -1926,17 +1926,17 @@ static char *server_stats(bool binprot, int *buflen) {
         memset(val, 0, 256);
 
         end_row = strchr(pos, '\n');
-        pos += strlen("STATS");       
+        pos += strlen("STATS");
 
         for (end_attr = pos; isgraph(*end_attr); end_attr++);
         memcpy(key, pos, (size_t)(end_attr - pos));
- 
+
         pos = end_attr + 1;
         for (end_attr = pos; !(isspace(*end_attr)); end_attr++);
         memcpy(val, pos, (size_t)(end_attr - pos));
 
         pos = end_row + 1; /* increment pointer to next row */
-        bodylen = append_bin_stats(bufptr, key, val, strlen(key), strlen(val)); 
+        bodylen = append_bin_stats(bufptr, key, val, strlen(key), strlen(val));
         bufptr += bodylen;
         *buflen += bodylen;
     }
@@ -1967,7 +1967,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        if((engine_statbuf = get_stats(false, NULL, &append_bin_stats, 
+        if((engine_statbuf = get_stats(false, NULL, &append_bin_stats,
                                        &engine_statlen)) == NULL) {
             free(server_statbuf);
             out_string(c, "SERVER_ERROR out of memory writing stats");
@@ -1982,7 +1982,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         memcpy(ptr, engine_statbuf, engine_statlen);
         ptr += engine_statlen;
 
-        free(server_statbuf);  
+        free(server_statbuf);
         free(engine_statbuf);
 
         write_and_free(c, buf, server_statlen + engine_statlen);

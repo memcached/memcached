@@ -443,7 +443,7 @@ void item_remove(item *item) {
 
 /*
  * Replaces one item with another in the hashtable.
- * Unprotected by a mutex lock since the core server does not require 
+ * Unprotected by a mutex lock since the core server does not require
  * it to be thread-safe.
  */
 int item_replace(item *old_it, item *new_it) {

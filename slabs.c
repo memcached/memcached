@@ -301,9 +301,9 @@ void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     return;
 }
 
-char *get_stats(const bool bin_prot, const char *stat_type, 
-                uint32_t (*add_stats)(char *buf, const char *key, 
-                const char *val, const uint16_t klen, const uint32_t vlen), 
+char *get_stats(const bool bin_prot, const char *stat_type,
+                uint32_t (*add_stats)(char *buf, const char *key,
+                const char *val, const uint16_t klen, const uint32_t vlen),
                 int *buflen) {
 
     char *buf, *pos;
@@ -324,25 +324,25 @@ char *get_stats(const bool bin_prot, const char *stat_type,
             sprintf(val, "%llu", stats.curr_bytes);
             size = add_stats(pos, "bytes", val, strlen("bytes"), strlen(val));
             *buflen += size;
-            pos += size; 
+            pos += size;
 
             sprintf(val, "%u", stats.curr_items);
-            size = add_stats(pos, "curr_items", val, strlen("curr_items"), 
+            size = add_stats(pos, "curr_items", val, strlen("curr_items"),
                              strlen(val));
             *buflen += size;
-            pos += size; 
+            pos += size;
 
             sprintf(val, "%u", stats.total_items);
-            size = add_stats(pos, "total_items", val, strlen("total_items"), 
+            size = add_stats(pos, "total_items", val, strlen("total_items"),
                              strlen(val));
             *buflen += size;
-            pos += size; 
+            pos += size;
 
             sprintf(val, "%llu", stats.evictions);
-            size = add_stats(pos, "evictions_items", val, 
+            size = add_stats(pos, "evictions_items", val,
                              strlen("evictions_items"), strlen(val));
             *buflen += size;
-            pos += size; 
+            pos += size;
             return buf;
         } else {
             pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
@@ -353,7 +353,7 @@ char *get_stats(const bool bin_prot, const char *stat_type,
             *buflen = strlen(buf);
             return buf;
         }
-    } 
+    }
     return NULL;
 }
 
