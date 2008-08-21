@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 10;
+use Test::More tests => 9;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -45,9 +45,3 @@ mem_get_is($sock, "noreply:foo", "7");
 print $sock "delete noreply:foo noreply\r\n";
 mem_get_is($sock, "noreply:foo");
 
-# Test that delete accepts both <time> and 'noreply'.
-print $sock "add noreply:foo 0 0 1 noreply\r\n1\r\n";
-print $sock "delete noreply:foo 10 noreply\r\n";
-print $sock "add noreply:foo 0 0 1 noreply\r\n1\r\n";
-# undef result means we couldn't add an entry because the key is locked.
-mem_get_is($sock, "noreply:foo");
