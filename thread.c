@@ -5,6 +5,7 @@
  *  $Id$
  */
 #include "memcached.h"
+#include <assert.h>
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -360,7 +361,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 }
 
 /* Which thread we assigned a connection to most recently. */
-static int last_thread = -1;
+static int last_thread = 0;
 
 /*
  * Dispatches a new connection to another thread. This is only ever called
@@ -370,9 +371,14 @@ static int last_thread = -1;
 void dispatch_conn_new(int sfd, int init_state, int event_flags,
                        int read_buffer_size, int is_udp) {
     CQ_ITEM *item = cqi_new();
-    int thread = (last_thread + 1) % settings.num_threads;
 
-    last_thread = thread;
+    int tid = last_thread % (settings.num_threads - 1);
+
+    /* Skip the dispatch thread (0) */
+    tid++;
+    LIBEVENT_THREAD *thread = threads + tid;
+
+    last_thread = tid;
 
     item->sfd = sfd;
     item->init_state = init_state;
@@ -380,10 +386,10 @@ void dispatch_conn_new(int sfd, int init_state, int event_flags,
     item->read_buffer_size = read_buffer_size;
     item->is_udp = is_udp;
 
-    cq_push(&threads[thread].new_conn_queue, item);
+    cq_push(&thread->new_conn_queue, item);
 
     MEMCACHED_CONN_DISPATCH(sfd, threads[thread].thread_id);
-    if (write(threads[thread].notify_send_fd, "", 1) != 1) {
+    if (write(thread->notify_send_fd, "", 1) != 1) {
         perror("Writing to thread notify pipe");
     }
 }
