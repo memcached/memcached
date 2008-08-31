@@ -2754,10 +2754,10 @@ static void usage(void) {
 
 #ifdef USE_THREADS
     printf("-t <num>      number of threads to use, default 4\n");
+#endif
     printf("-R            Maximum number of requests per event\n"
            "              limits the number of requests process for a given con nection\n"
            "              to prevent starvation.  default 20\n");
-#endif
     return;
 }
 
