@@ -645,7 +645,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
     pthread_mutex_init(&cqi_freelist_lock, NULL);
     cqi_freelist = NULL;
 
-    threads = malloc(sizeof(LIBEVENT_THREAD) * nthreads);
+    threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
     if (! threads) {
         perror("Can't allocate thread descriptors");
         exit(1);
