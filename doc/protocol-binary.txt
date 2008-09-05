@@ -1,10 +1,11 @@
 
 
 
-Network Working Group                                   Aaron Stone, Ed.
+Network Working Group                                         Stone, Ed.
 Internet-Draft                                           Six Apart, Ltd.
-Intended status: Informational                         December 14, 2007
-Expires: June 16, 2008
+Intended status: Informational                               Norbye, Ed.
+Expires: March 1, 2009                             Sun Microsystems, INC
+                                                         August 28, 2008
 
 
                         Memcache Binary Protocol
@@ -32,7 +33,7 @@ Status of this Memo
    The list of Internet-Draft Shadow Directories can be accessed at
    http://www.ietf.org/shadow.html.
 
-   This Internet-Draft will expire on June 16, 2008.
+   This Internet-Draft will expire on March 1, 2009.
 
 Abstract
 
@@ -51,36 +52,48 @@ Abstract
 
 
 
-
-Aaron Stone               Expires June 16, 2008                 [Page 1]
+Stone & Norbye            Expires March 1, 2009                 [Page 1]
 
-Internet-Draft          Memcache Binary Protocol           December 2007
+Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 Table of Contents
 
-   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . intro
-     1.1.  Conventions Used In This Document . . . . . . . . . . . conve
-   2.  Packet Structure  . . . . . . . . . . . . . . . . . . . . . packe
-   3.  Defined Values  . . . . . . . . . . . . . . . . . . . . . . value
-     3.1.  Magic Byte  . . . . . . . . . . . . . . . . . . . . . . value
-     3.2.  Response Status . . . . . . . . . . . . . . . . . . . . value
-     3.3.  Command Opcodes . . . . . . . . . . . . . . . . . . . . value
-     3.4.  Data Types  . . . . . . . . . . . . . . . . . . . . . . value
-   4.  Commands  . . . . . . . . . . . . . . . . . . . . . . . . . ancho
-     4.1.  Get, Get Quietly, Get Key, Get Key Quietly  . . . . . . comma
-     4.2.  Delete  . . . . . . . . . . . . . . . . . . . . . . . . comma
-     4.3.  Flush . . . . . . . . . . . . . . . . . . . . . . . . . comma
-     4.4.  Set, Add, Replace . . . . . . . . . . . . . . . . . . . comma
-     4.5.  noop  . . . . . . . . . . . . . . . . . . . . . . . . . comma
-     4.6.  Increment, Decrement  . . . . . . . . . . . . . . . . . comma
-     4.7.  quit  . . . . . . . . . . . . . . . . . . . . . . . . . comma
-     4.8.  Append, Prepend . . . . . . . . . . . . . . . . . . . . comma
-   5.  Example Session . . . . . . . . . . . . . . . . . . . . . . ancho
-   6.  Security Considerations . . . . . . . . . . . . . . . . . . secur
-   7.  Normative References  . . . . . . . . . . . . . . . . . . . ancho
-   Appendix A.  Acknowledgments  . . . . . . . . . . . . . . . . . ackno
-   Author's Address  . . . . . . . . . . . . . . . . . . . . . . .     0
+   1.  Introduction . . . . . . . . . . . . . . . . . . . . . . . . .  3
+     1.1.  Conventions Used In This Document  . . . . . . . . . . . .  3
+   2.  Packet Structure . . . . . . . . . . . . . . . . . . . . . . .  3
+   3.  Defined Values . . . . . . . . . . . . . . . . . . . . . . . .  5
+     3.1.  Magic Byte . . . . . . . . . . . . . . . . . . . . . . . .  5
+     3.2.  Response Status  . . . . . . . . . . . . . . . . . . . . .  5
+     3.3.  Command Opcodes  . . . . . . . . . . . . . . . . . . . . .  6
+     3.4.  Data Types . . . . . . . . . . . . . . . . . . . . . . . .  6
+   4.  Commands . . . . . . . . . . . . . . . . . . . . . . . . . . .  6
+     4.1.  Introduction . . . . . . . . . . . . . . . . . . . . . . .  6
+       4.1.1.  Example  . . . . . . . . . . . . . . . . . . . . . . .  6
+     4.2.  Get, Get Quietly, Get Key, Get Key Quietly . . . . . . . .  7
+       4.2.1.  Example  . . . . . . . . . . . . . . . . . . . . . . .  8
+     4.3.  Set, Add, Replace  . . . . . . . . . . . . . . . . . . . . 12
+       4.3.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 12
+     4.4.  Delete . . . . . . . . . . . . . . . . . . . . . . . . . . 14
+       4.4.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 15
+     4.5.  Increment, Decrement . . . . . . . . . . . . . . . . . . . 16
+       4.5.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 17
+     4.6.  quit . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
+       4.6.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 20
+     4.7.  Flush  . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+       4.7.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 21
+     4.8.  noop . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
+       4.8.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 23
+     4.9.  version  . . . . . . . . . . . . . . . . . . . . . . . . . 23
+       4.9.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 24
+     4.10. Append, Prepend  . . . . . . . . . . . . . . . . . . . . . 25
+       4.10.1. Example  . . . . . . . . . . . . . . . . . . . . . . . 26
+     4.11. Stat . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+       4.11.1. Example  . . . . . . . . . . . . . . . . . . . . . . . 27
+   5.  Security Considerations  . . . . . . . . . . . . . . . . . . . 29
+   6.  Normative References . . . . . . . . . . . . . . . . . . . . . 30
+   Appendix A.  Acknowledgments . . . . . . . . . . . . . . . . . . . 30
+   Authors' Addresses . . . . . . . . . . . . . . . . . . . . . . . . 30
 
 
 
@@ -95,22 +108,9 @@ Table of Contents
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                 [Page 2]
+Stone & Norbye            Expires March 1, 2009                 [Page 2]
 
-Internet-Draft          Memcache Binary Protocol           December 2007
+Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 1.  Introduction
@@ -154,7 +154,7 @@ Internet-Draft          Memcache Binary Protocol           December 2007
       +/  (note length is total body length header field, minus        /
       +/   sum of the extras and key length body fields)               /
        +---------------+---------------+---------------+---------------+
-      Total 24 bytes
+       Total 24 bytes
 
 
 
@@ -164,9 +164,9 @@ Internet-Draft          Memcache Binary Protocol           December 2007
 
 
 
-Aaron Stone               Expires June 16, 2008                 [Page 3]
+Stone & Norbye            Expires March 1, 2009                 [Page 3]
 
-Internet-Draft          Memcache Binary Protocol           December 2007
+Internet-Draft          Memcache Binary Protocol             August 2008
 
 
    Request header:
@@ -186,7 +186,7 @@ Internet-Draft          Memcache Binary Protocol           December 2007
      16| CAS                                                           |
        |                                                               |
        +---------------+---------------+---------------+---------------+
-     Total 24 bytes
+       Total 24 bytes
 
    Response header:
 
@@ -205,7 +205,7 @@ Internet-Draft          Memcache Binary Protocol           December 2007
      16| CAS                                                           |
        |                                                               |
        +---------------+---------------+---------------+---------------+
-     Total 24 bytes
+       Total 24 bytes
 
    Header fields:
    Magic               Magic number.
@@ -220,9 +220,9 @@ Internet-Draft          Memcache Binary Protocol           December 2007
 
 
 
-Aaron Stone               Expires June 16, 2008                 [Page 4]
+Stone & Norbye            Expires March 1, 2009                 [Page 4]
 
-Internet-Draft          Memcache Binary Protocol           December 2007
+Internet-Draft          Memcache Binary Protocol             August 2008
 
 
    Extras length       Length in bytes of the command extras.
@@ -231,8 +231,6 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    Reserved            Really reserved for future use (up for grabs).
    Total body length   Length in bytes of extra + key + value.
    Opaque              Will be copied back to you in the response.
-                       FIXME: Can this be used to organize [UDP]
-                       packets?
    CAS                 Data version check
 
 
@@ -244,7 +242,7 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    0x81    Response packet for this protocol version
 
    Magic byte / version.  For each version of the protocol, we'll use a
-   different request/reponse value pair.  This is useful for protocol
+   different request/response value pair.  This is useful for protocol
    analyzers to know what a packet is in isolation from which direction
    it is moving.  Note that it is common to run a memcached instance on
    a host that also runs an application server.  Such a host will both
@@ -269,20 +267,20 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    0x0002  Key exists
    0x0003  Value too big
    0x0004  Invalid arguments
-
-
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                 [Page 5]
-
-Internet-Draft          Memcache Binary Protocol           December 2007
-
-
    0x0005  Item not stored
    0x0081  Unknown command
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                 [Page 5]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
    0x0082  Out of memory
 
 3.3.  Command Opcodes
@@ -304,6 +302,7 @@ Internet-Draft          Memcache Binary Protocol           December 2007
    0x0D    GetKQ
    0x0E    Append
    0x0F    Prepend
+   0x10    Stat
 
 3.4.  Data Types
 
@@ -313,367 +312,32 @@ Internet-Draft          Memcache Binary Protocol           December 2007
 
 4.  Commands
 
-4.1.  Get, Get Quietly, Get Key, Get Key Quietly
+4.1.  Introduction
 
-   Request:
+   All communication is initiated by a request from the client, and the
+   server will respond to each request with zero or multiple packets
+   from each request.  If the server respond with a message with a non-
+   nil status code, the body of the packet contains a textual error
+   message.  If the status code is nil, the command opcode will define
+   the layout of the body of the message.
 
-      MUST NOT have extras.
-      MUST have key.
-      MUST NOT have value.
+4.1.1.  Example
 
-   o  4 byte flags
-
-   Response (if found):
-
-      MUST have extras.
-      MAY have key.
-
+   The following figure illustrates the packet layout for a packet with
+   an error message.
 
 
 
 
-Aaron Stone               Expires June 16, 2008                 [Page 6]
+
+
+
+Stone & Norbye            Expires March 1, 2009                 [Page 6]
 
-Internet-Draft          Memcache Binary Protocol           December 2007
+Internet-Draft          Memcache Binary Protocol             August 2008
 
 
-      MAY have value.
-
-   o  4 byte flags
-
-   Extra data for the get commands:
-
-     Byte/     0       |       1       |       2       |       3       |
-        /              |               |               |               |
-       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-       +---------------+---------------+---------------+---------------+
-      0| Flags                                                         |
-       +---------------+---------------+---------------+---------------+
-     Total 4 bytes
-
-   The get command gets a single key.  The getq command is both mum on
-   cache miss and quiet, holding its response until a non-quiet command
-   is issued.  Getk and getkq differs from get and getq by adding the
-   key into the resonse packet.
-
-   You're not guaranteed a response to a getq/getkq cache hit until you
-   send a non-getq/getkq command later, which uncorks the server which
-   bundles up IOs to send to the client in one go.
-
-   Clients should implement multi-get (still important for reducing
-   network roundtrips!) as n pipelined requests, the first n-1 being
-   getq/getkq, the last being a regular get/getk. that way you're
-   guaranteed to get a response, and you know when the server's done.
-   you can also do the naive thing and send n pipelined get/getks, but
-   then you could potentially get back a lot of "NOT_FOUND!" error code
-   packets. alternatively, you can send 'n' getq/getkqs, followed by an
-   'echo' or 'noop' command.
-
-4.2.  Delete
-
-      MAY have extras
-      MUST have key.
-      MUST NOT have value.
-
-   o  4 byte expiration time
-
-
-
-
-
-
-
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                 [Page 7]
-
-Internet-Draft          Memcache Binary Protocol           December 2007
-
-
-   Extra data for delete:
-
-     Byte/     0       |       1       |       2       |       3       |
-        /              |               |               |               |
-       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-       +---------------+---------------+---------------+---------------+
-      0| Expiration                                                    |
-       +---------------+---------------+---------------+---------------+
-     Total 4 bytes
-
-   When allows you to 'reserve' a key.  When 'when' is set for, say, ten
-   seconds in the future, the 'add' and 'replace' operations will fail
-   for that key until ten seconds from now.  The 'set' operation will
-   succeed regardless of any reserved deletes.  FIXME: Is the
-   reservation also cancelled?  Say there's a delete with a 10 second
-   hold.  Two seconds later, an 'add' is received.  It fails.  Two
-   second later, a 'set' is received.  Is succeeds unconditionally.
-   What if another 'add' is received two more seconds later (a total of
-   six seconds since the original 10 second delete-hold, thus still
-   within its purview).
-
-4.3.  Flush
-
-      MAY have extras
-      MUST NOT have key.
-      MUST NOT have value.
-
-   o  4 byte expiration time
-
-   Extra data for flush:
-
-     Byte/     0       |       1       |       2       |       3       |
-        /              |               |               |               |
-       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-       +---------------+---------------+---------------+---------------+
-      0| Expiration                                                    |
-       +---------------+---------------+---------------+---------------+
-     Total 4 bytes
-
-   Flush the items in the cache now or sometime in the future specified
-   by the expiration field.  See the documentation of the textual
-   protocol for the full description on how to specify the expiration
-   time.
-
-4.4.  Set, Add, Replace
-
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                 [Page 8]
-
-Internet-Draft          Memcache Binary Protocol           December 2007
-
-
-      MUST have extras.
-      MUST have key.
-      MUST have value.
-
-   o  4 byte flags
-   o  4 byte expiration time
-
-   Extra data for set/add/replace:
-
-     Byte/     0       |       1       |       2       |       3       |
-        /              |               |               |               |
-       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-       +---------------+---------------+---------------+---------------+
-      0| Flags                                                         |
-       +---------------+---------------+---------------+---------------+
-      4| Expiration                                                    |
-       +---------------+---------------+---------------+---------------+
-     Total 8 bytes
-
-   If the Data Version Check is present and nonzero, the set MUST
-   succeed if the key exists and has a version identifier identical to
-   the provided value, and MUST NOT succeed if the key does not exist or
-   has a different version identifier.  The set response packet will
-   include the same values in all three fields.
-
-   If the CAS field in the header is zero, the set MUST succeed
-   unconditionally.  The set response packet will include idential
-   values for flags and expiration, and a new value for Data Version
-   Check, which the client SHOULD keep track of.
-
-   The key MAY be reserved according to Section 4.2, causing the set to
-   fail.
-
-4.5.  noop
-
-      MUST NOT have extras.
-      MUST NOT have key.
-      MUST NOT have value.
-
-   Used as a keep alive.  Flushes outstanding getq/getkq's.
-
-4.6.  Increment, Decrement
-
-      MUST have extras.
-      MUST have key.
-      MUST NOT have value.
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                 [Page 9]
-
-Internet-Draft          Memcache Binary Protocol           December 2007
-
-
-   o  8 byte value to add / subtract (FIXME: Is this unsigned?)
-   o  8 byte initial value (unsigned)
-   o  4 byte expiration time
-
-   Extra data for incr/decr:
-
-     Byte/     0       |       1       |       2       |       3       |
-        /              |               |               |               |
-       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-       +---------------+---------------+---------------+---------------+
-      0| Amount to add                                                 |
-       |                                                               |
-       +---------------+---------------+---------------+---------------+
-      8| Initial value                                                 |
-       |                                                               |
-       +---------------+---------------+---------------+---------------+
-     16| Expiration                                                    |
-       +---------------+---------------+---------------+---------------+
-     Total 20 bytes
-
-   incr/decr response body:
-
-     Byte/     0       |       1       |       2       |       3       |
-        /              |               |               |               |
-       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-       +---------------+---------------+---------------+---------------+
-      0| 64-bit unsigned response.                                     |
-       |                                                               |
-       +---------------+---------------+---------------+---------------+
-     Total 8 bytes
-
-   These commands will either add or remove the specified amount to the
-   requested counter.  If the counter does not exist, one of two things
-   may happen:
-   1.  If the expiration value is all one-bits (0xffffffff), the
-       operation will fail with NOT_FOUND.
-   2.  For all other expiration values, the operation will succeed by
-       seeding the value for this key with the provided initial value to
-       expire with the provided expiration time.
-
-   Note that in the creation case, flags will be set to zero (FIXME:
-   Should they be provided here as well?)
-
-4.7.  quit
-
-      MUST NOT have extras.
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                [Page 10]
-
-Internet-Draft          Memcache Binary Protocol           December 2007
-
-
-      MUST NOT have key.
-      MUST NOT have value.
-
-   Close the connection to the server.
-
-4.8.  Append, Prepend
-
-      MUST NOT have extras.
-      MUST have key.
-      MUST have value.
-
-   These commands will either append or prepend the specified value to
-   the requested key.
-
-   Please note that the CAS field in the header must match the CAS
-   version of the requested item.
-
-
-5.  Example Session
-
-   We start up our application, and asks for the value associated with
-   the 'Hello' key.  To send the get request, the following values must
-   be inserted in the header (in network byte order): Field (offset)
-   (value) Magic (0) : 0x80 Opcode (1) : 0x00 Key length (2,3) : 0x0005
-   Extra length (4) : 0x00 Data type (5) : 0x00 Reserved (6,7) : 0x0000
-   Total body (8-11) : 0x00000005 Opaque (12-15): 0x00000000 CAS
-   (16-23): 0x0000000000000000 Extras : None Key (24-29): The textual
-   string: "Hello" Value : None The packet looks like:
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                [Page 11]
-
-Internet-Draft          Memcache Binary Protocol           December 2007
-
-
-   Get request:
-
-
-     Byte/     0       |       1       |       2       |       3       |
-        /              |               |               |               |
-       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-       +---------------+---------------+---------------+---------------+
-      0| 0x80          | 0x00          | 0x00          | 0x05          |
-       +---------------+---------------+---------------+---------------+
-      4| 0x00          | 0x00          | 0x00          | 0x00          |
-       +---------------+---------------+---------------+---------------+
-      8| 0x00          | 0x00          | 0x00          | 0x05          |
-       +---------------+---------------+---------------+---------------+
-     12| 0x00          | 0x00          | 0x00          | 0x00          |
-       +---------------+---------------+---------------+---------------+
-     16| 0x00          | 0x00          | 0x00          | 0x00          |
-       +---------------+---------------+---------------+---------------+
-     20| 0x00          | 0x00          | 0x00          | 0x00          |
-       +---------------+---------------+---------------+---------------+
-     24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
-       +---------------+---------------+---------------+---------------+
-     28| 0x6f ('o')    |
-       +---------------+
-
-       Total 29 bytes (24 byte header, and 5 bytes key)
-
-   Since nobody has set this key yet, it returns "Not found".
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Aaron Stone               Expires June 16, 2008                [Page 12]
-
-Internet-Draft          Memcache Binary Protocol           December 2007
-
-
-   Get response:
+   Packet layout:
 
 
      Byte/     0       |       1       |       2       |       3       |
@@ -698,65 +362,1319 @@ Internet-Draft          Memcache Binary Protocol           December 2007
        +---------------+---------------+---------------+---------------+
      32| 0x64 ('d')    |
        +---------------+
-
        Total 33 bytes (24 byte header, and 9 bytes value)
 
-   The above packet is interpreted as: Field (offset) (value) Magic (0)
-   : 0x81 Opcode (1) : 0x00 Key length (2,3) : 0x0000 Extra length (4) :
-   0x00 Data type (5) : 0x00 Status (6,7) : 0x0001 Total body (8-11) :
-   0x00000009 Opaque (12-15): 0x00000000 CAS (16-23): 0x0000000000000000
-   Extras : None Key : None Value (24-32): The textual string "Not
-   found"
+   Field        (offset) (value)
+   Magic        (0)    : 0x81
+   Opcode       (1)    : 0x00
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Status       (6,7)  : 0x0001
+   Total body   (8-11) : 0x00000009
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+   Key                 : None
+   Value        (24-32): The textual string "Not found"
 
-   Well, looks like we need to add the key!  Let's set it to "World"
-   with 0xdeadbeef as flags and to expire in two hours.  The following
-   values should be inserted into the header: Field (offset) (value)
-   Magic (0) : 0x80 Opcode (1) : 0x02 Key length (2,3) : 0x0005 Extra
-   length (4) : 0x08 Data type (5) : 0x00 Reserved (6,7) : 0x0000 Total
-   body (8-11) : 0x00000012 Opaque (12-15): 0x00000000 CAS (16-23):
-   0x0000000000000000 Extras : Flags (24-27): 0xdeadbeef Expiry (28-31):
-   0x00000e10 Key (32-36): The textual string "Hello" Value (37-41): The
-   textual string "World" The packet looks like:
+4.2.  Get, Get Quietly, Get Key, Get Key Quietly
 
+   Request:
 
-
-
-
+      MUST NOT have extras.
 
 
-Aaron Stone               Expires June 16, 2008                [Page 13]
+
+
+
+Stone & Norbye            Expires March 1, 2009                 [Page 7]
 
-Internet-Draft          Memcache Binary Protocol           December 2007
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+      MUST have key.
+      MUST NOT have value.
+
+   o  4 byte flags
+
+   Response (if found):
+
+      MUST have extras.
+      MAY have key.
+      MAY have value.
+
+   o  4 byte flags
+
+   Extra data for the get commands:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Flags                                                         |
+       +---------------+---------------+---------------+---------------+
+
+       Total 4 bytes
+
+   The get command gets a single key.  The getq command is both mum on
+   cache miss and quiet, holding its response until a non-quiet command
+   is issued.  Getk and getkq differs from get and getq by adding the
+   key into the response packet.
+
+   You're not guaranteed a response to a getq/getkq cache hit until you
+   send a non-getq/getkq command later, which uncorks the server which
+   bundles up IOs to send to the client in one go.
+
+   Clients should implement multi-get (still important for reducing
+   network roundtrips!) as n pipelined requests, the first n-1 being
+   getq/getkq, the last being a regular get/getk. that way you're
+   guaranteed to get a response, and you know when the server's done.
+   you can also do the naive thing and send n pipelined get/getks, but
+   then you could potentially get back a lot of "NOT_FOUND" error code
+   packets. alternatively, you can send 'n' getq/getkqs, followed by a
+   'noop' command.
+
+4.2.1.  Example
+
+   To request the data associated with the key "Hello" the following
+   fields must be specified in the packet.
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                 [Page 8]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   get request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x00          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+       +---------------+---------------+---------------+---------------+
+     28| 0x6f ('o')    |
+       +---------------+
+
+       Total 29 bytes (24 byte header, and 5 bytes key)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x00
+   Key length   (2,3)  : 0x0005
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000005
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+   Key          (24-29): The textual string: "Hello"
+   Value               : None
+
+   If the item exist on the server the following packet is returned,
+   otherwise a packet with status code != 0 will be returned (see
+   Introduction (Section 4.1))
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                 [Page 9]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   get/getq response:
+
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x04          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x09          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x01          |
+       +---------------+---------------+---------------+---------------+
+     24| 0xde          | 0xad          | 0xbe          | 0xef          |
+       +---------------+---------------+---------------+---------------+
+     28| 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    | 0x6c ('l')    |
+       +---------------+---------------+---------------+---------------+
+     32| 0x64 ('d')    |
+       +---------------+
+
+       Total 33 bytes (24 byte header, 4 byte extras and 5 byte value)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x81
+   Opcode       (1)    : 0x00
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x04
+   Data type    (5)    : 0x00
+   Status       (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000009
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000001
+   Extras              :
+     Flags      (24-27): 0xdeadbeef
+   Key                 : None
+   Value        (28-32): The textual string "World"
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 10]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   getk/getkq response:
+
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x00          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x04          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x09          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x01          |
+       +---------------+---------------+---------------+---------------+
+     24| 0xde          | 0xad          | 0xbe          | 0xef          |
+       +---------------+---------------+---------------+---------------+
+     28| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+       +---------------+---------------+---------------+---------------+
+     32| 0x6f ('o')    | 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    |
+       +---------------+---------------+---------------+---------------+
+     36| 0x6c ('l')    | 0x64 ('d')    |
+       +---------------+---------------+
+
+       Total 38 bytes (24 byte header, 4 byte extras, 5 byte key
+                       and 5 byte value)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x81
+   Opcode       (1)    : 0x00
+   Key length   (2,3)  : 0x0005
+   Extra length (4)    : 0x04
+   Data type    (5)    : 0x00
+   Status       (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000009
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000001
+   Extras              :
+     Flags      (24-27): 0xdeadbeef
+   Key          (28-32): The textual string: "Hello"
+   Value        (33-37): The textual string "World"
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 11]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+4.3.  Set, Add, Replace
+
+      MUST have extras.
+      MUST have key.
+      MUST have value.
+
+   o  4 byte flags
+   o  4 byte expiration time
+
+   Extra data for set/add/replace:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Flags                                                         |
+       +---------------+---------------+---------------+---------------+
+      4| Expiration                                                    |
+       +---------------+---------------+---------------+---------------+
+       Total 8 bytes
+
+   If the Data Version Check (CAS) is nonzero, the requested operation
+   MUST only succeed if the item exists and has a CAS value identical to
+   the provided value.
+
+   Add MUST fail if the item already exist.
+
+   Replace MUST fail if the item doesn't exist.
+
+   Set should store the data unconditionally if the item exists or not..
+
+4.3.1.  Example
+
+   The following figure shows an add-command for
+      Key: "Hello"
+      Value: "World"
+      Flags: 0xdeadbeef
+      Expiry: in two hours
+
+
+
+
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 12]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
 
 
    Add request:
 
 
-    Byte/     0       |       1       |       2       |       3       |
-       /              |               |               |               |
-      |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
-      +---------------+---------------+---------------+---------------+
-     0| 0x80          | 0x02          | 0x00          | 0x05          |
-      +---------------+---------------+---------------+---------------+
-     4| 0x08          | 0x00          | 0x00          | 0x00          |
-      +---------------+---------------+---------------+---------------+
-     8| 0x00          | 0x00          | 0x00          | 0x12          |
-      +---------------+---------------+---------------+---------------+
-    12| 0x00          | 0x00          | 0x00          | 0x00          |
-      +---------------+---------------+---------------+---------------+
-    16| 0x00          | 0x00          | 0x00          | 0x00          |
-      +---------------+---------------+---------------+---------------+
-    20| 0x00          | 0x00          | 0x00          | 0x00          |
-      +---------------+---------------+---------------+---------------+
-    24| 0xde          | 0xad          | 0xbe          | 0xef          |
-      +---------------+---------------+---------------+---------------+
-    28| 0x00          | 0x00          | 0x0e          | 0x10          |
-      +---------------+---------------+---------------+---------------+
-    32| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
-      +---------------+---------------+---------------+---------------+
-    36| 0x6f ('o')    | 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    |
-      +---------------+---------------+---------------+---------------+
-    40| 0x6c ('l')    | 0x64 ('d')    |
-      +---------------+---------------+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x02          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x08          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x12          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     24| 0xde          | 0xad          | 0xbe          | 0xef          |
+       +---------------+---------------+---------------+---------------+
+     28| 0x00          | 0x00          | 0x0e          | 0x10          |
+       +---------------+---------------+---------------+---------------+
+     32| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+       +---------------+---------------+---------------+---------------+
+     36| 0x6f ('o')    | 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    |
+       +---------------+---------------+---------------+---------------+
+     40| 0x6c ('l')    | 0x64 ('d')    |
+       +---------------+---------------+
 
-      Total 42 bytes (24 byte header, 8 byte extras, 5 byte key and 5 byte value)
+       Total 42 bytes (24 byte header, 8 byte extras, 5 byte key and
+                       5 byte value)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x02
+   Key length   (2,3)  : 0x0005
+   Extra length (4)    : 0x08
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000012
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              :
+     Flags      (24-27): 0xdeadbeef
+     Expiry     (28-31): 0x00000e10
+   Key          (32-36): The textual string "Hello"
+   Value        (37-41): The textual string "World"
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 13]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   The response-packet contains no extra data, and the result of
+   operation is signaled through the status code.  If the command
+   succeed, the CAS value for the item is returned in the CAS-field of
+   the packet.
+
+   Successful add response:
+
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x02          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x01          |
+       +---------------+---------------+---------------+---------------+
+
+       Total 24 bytes
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x81
+   Opcode       (1)    : 0x02
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Status       (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000000
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000001
+   Extras              : None
+   Key                 : None
+   Value               : None
+
+4.4.  Delete
+
+      MUST NOT have extras
+      MUST have key.
+      MUST NOT have value.
+
+   Delete the item with the specific key.
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 14]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+4.4.1.  Example
+
+   The following figure shows a delete message for the item "Hello"
+
+   Delete request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x04          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+       +---------------+---------------+---------------+---------------+
+     28| 0x6f ('o')    |
+       +---------------+
+
+       Total 29 bytes (24 byte header, 5 byte value)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x04
+   Key length   (2,3)  : 0x0005
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000005
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+   Key                 : The textual string "Hello"
+   Value               : None
+
+   The response-packet contains no extra data, and the result of
+   operation is signaled through the status code.
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 15]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+4.5.  Increment, Decrement
+
+      MUST have extras.
+      MUST have key.
+      MUST NOT have value.
+
+   o  8 byte value to add / subtract
+   o  8 byte initial value (unsigned)
+   o  4 byte expiration time
+
+   Extra data for incr/decr:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Amount to add                                                 |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+      8| Initial value                                                 |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+     16| Expiration                                                    |
+       +---------------+---------------+---------------+---------------+
+       Total 20 bytes
+
+   These commands will either add or remove the specified amount to the
+   requested counter.
+
+   If the counter does not exist, one of two things may happen:
+
+   1.  If the expiration value is all one-bits (0xffffffff), the
+       operation will fail with NOT_FOUND.
+   2.  For all other expiration values, the operation will succeed by
+       seeding the value for this key with the provided initial value to
+       expire with the provided expiration time.  The flags will be set
+       to zero.
+
+   incr/decr response body:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 64-bit unsigned response.                                     |
+       |                                                               |
+       +---------------+---------------+---------------+---------------+
+       Total 8 bytes
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 16]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+4.5.1.  Example
+
+   The following figure shows an incr-command for
+      Key: "counter"
+      Delta: 0x01
+      Initial: 0x00
+      Expiry: in two hours
+
+   Increment request:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 17]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x05          | 0x00          | 0x07          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x14          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x1b          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     24| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     28| 0x00          | 0x00          | 0x00          | 0x01          |
+       +---------------+---------------+---------------+---------------+
+     32| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     36| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     40| 0x00          | 0x00          | 0x0e          | 0x10          |
+       +---------------+---------------+---------------+---------------+
+     44| 0x63 ('c')    | 0x6f ('o')    | 0x75 ('u')    | 0x6e ('n')    |
+       +---------------+---------------+---------------+---------------+
+     48| 0x74 ('t')    | 0x65 ('e')    | 0x72 ('r')    |
+       +---------------+---------------+---------------+
+       Total 51 bytes (24 byte header, 20 byte extras, 7 byte key)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x05
+   Key length   (2,3)  : 0x0007
+   Extra length (4)    : 0x14
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x0000001b
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              :
+     delta      (24-31): 0x0000000000000001
+     initial    (32-39): 0x0000000000000000
+     exipration (40-43): 0x00000e10
+   Key                 : Textual string "counter"
+   Value               : None
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 18]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   If the key doesn't exist, the server will respond with the initial
+   value.  If not the incremented value will be returned.  Let's assume
+   that the key didn't exist, so the initial value is returned.
+
+   Increment response:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x05          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x08          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+     24| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     28| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+       Total 32 bytes (24 byte header, 8 byte value)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x81
+   Opcode       (1)    : 0x05
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Status       (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000008
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000005
+   Extras              : None
+   Key                 : None
+   Value               : 0x0000000000000000
+
+4.6.  quit
+
+      MUST NOT have extras.
+      MUST NOT have key.
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 19]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+      MUST NOT have value.
+
+   Close the connection to the server.
+
+4.6.1.  Example
+
+   Quit request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x07          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+       Total 24 bytes
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x07
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000000
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+   Key                 : None
+   Value               : None
+
+   The response-packet contains no extra data, and the result of
+   operation is signaled through the status code.  The server will then
+   close the connection.
+
+4.7.  Flush
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 20]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+      MAY have extras
+      MUST NOT have key.
+      MUST NOT have value.
+
+   o  4 byte expiration time
+
+   Extra data for flush:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| Expiration                                                    |
+       +---------------+---------------+---------------+---------------+
+     Total 4 bytes
+
+   Flush the items in the cache now or sometime in the future specified
+   by the expiration field.  See the documentation of the textual
+   protocol for the full description on how to specify the expiration
+   time.
+
+4.7.1.  Example
+
+   To flush the cache (delete all items) in two hours, the set the
+   following values in the request
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 21]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   Flush request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x08          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x04          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x04          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     24| 0x00          | 0x00          | 0x0e          | 0x10          |
+       +---------------+---------------+---------------+---------------+
+       Total 28 bytes (24 byte header, 4 byte body)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x08
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x04
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000004
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              :
+      Expiry    (24-27): 0x000e10
+   Key                 : None
+   Value               : None
+
+   The response-packet contains no extra data, and the result of
+   operation is signaled through the status code.
+
+4.8.  noop
+
+      MUST NOT have extras.
+      MUST NOT have key.
+      MUST NOT have value.
+
+   Used as a keep alive.  Flushes outstanding getq/getkq's.
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 22]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+4.8.1.  Example
+
+   Noop request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x0a          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+       Total 24 bytes
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x0a
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000000
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+   Key                 : None
+   Value               : None
+
+   The response-packet contains no extra data, and the result of
+   operation is signaled through the status code.
+
+4.9.  version
+
+      MUST NOT have extras.
+      MUST NOT have key.
+      MUST NOT have value.
+
+   Request the server version.
+
+   The server respond with a packet containing the version string in the
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 23]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   body with the following format: "x.y.z"
+
+4.9.1.  Example
+
+   Version request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x0b          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+       Total 24 bytes
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x0b
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000000
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 24]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   Version response:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x0b          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     24| 0x31 ('1')    | 0x2e ('.')    | 0x33 ('3')    | 0x2e ('.')    |
+       +---------------+---------------+---------------+---------------+
+     28| 0x31 ('1')    |
+       +---------------+
+       Total 29 bytes (24 byte header, 5 byte body)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x81
+   Opcode       (1)    : 0x0b
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Status       (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000005
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+   Key                 : None
+   Value               : Textual string "1.3.1"
+
+4.10.  Append, Prepend
+
+      MUST NOT have extras.
+      MUST have key.
+      MUST have value.
+
+   These commands will either append or prepend the specified value to
+   the requested key.
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 25]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+4.10.1.  Example
+
+   The following example appends '!' to the 'Hello' key.
+
+   Append request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x0e          | 0x00          | 0x05          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x06          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+       +---------------+---------------+---------------+---------------+
+     28| 0x6f ('o')    | 0x21 ('!')    |
+       +---------------+---------------+
+       Total 30 bytes (24 byte header, 5 byte key, 1 byte value)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x0e
+   Key length   (2,3)  : 0x0005
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000006
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+   Key          (24-28): The textual string "Hello"
+   Value        (29)   : "!"
+
+   The response-packet contains no extra data, and the result of
+   operation is signaled through the status code.
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 26]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+4.11.  Stat
+
+      MUST NOT have extras.
+      MAY have key.
+      MUST NOT have value.
+
+   Request server statistics.  Without a key specified the server will
+   respond with a "default" set of statistics information.  Each piece
+   of statistical information is returned in it's own packet (key
+   contains the name of the statistical item and the body contains the
+   value in ASCII format).  The sequence of return packet is terminated
+   with a packet with no key and no value.
+
+4.11.1.  Example
+
+   The following example requests all statistics from the server
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 27]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   Stat request:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x80          | 0x10          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+       Total 24 bytes
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x80
+   Opcode       (1)    : 0x10
+   Key length   (2,3)  : 0x0000
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Reserved     (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000000
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Extras              : None
+   Key                 : None
+   Value               : None
+
+   The server will send send each value in a separate packet with an
+   "empty" packet (no key / no value) to terminate the sequence.  Each
+   of the response packets look like the following example:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 28]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+   Stat response:
+
+     Byte/     0       |       1       |       2       |       3       |
+        /              |               |               |               |
+       |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+       +---------------+---------------+---------------+---------------+
+      0| 0x81          | 0x10          | 0x00          | 0x03          |
+       +---------------+---------------+---------------+---------------+
+      4| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+      8| 0x00          | 0x00          | 0x00          | 0x07          |
+       +---------------+---------------+---------------+---------------+
+     12| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     16| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     20| 0x00          | 0x00          | 0x00          | 0x00          |
+       +---------------+---------------+---------------+---------------+
+     24| 0x70 ('p')    | 0x69 ('i')    | 0x64 ('d')    | 0x33 ('3')    |
+       +---------------+---------------+---------------+---------------+
+     28| 0x30 ('0')    | 0x37 ('7')    | 0x38 ('8')    |
+       +---------------+---------------+---------------+
+       Total 31 bytes (24 byte header, 3 byte key, 4 byte body)
+
+   Field        (offset) (value)
+   Magic        (0)    : 0x81
+   Opcode       (1)    : 0x10
+   Key length   (2,3)  : 0x0003
+   Extra length (4)    : 0x00
+   Data type    (5)    : 0x00
+   Status       (6,7)  : 0x0000
+   Total body   (8-11) : 0x00000007
+   Opaque       (12-15): 0x00000000
+   CAS          (16-23): 0x0000000000000000
+   Exstras             : None
+   Key                 : The textual string "pid"
+   Value               : The textual string "3078"
+
+
+5.  Security Considerations
+
+   Memcache has no authentication or security layers whatsoever.  It is
+   RECOMMENDED that memcache be deployed strictly on closed, protected,
+   back-end networks within a single data center, within a single
+   cluster of servers, or even on a single host, providing shared
+   caching for multiple applications.  Memcache MUST NOT be made
+   available on a public network.
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 29]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
+
+6.  Normative References
+
+   [KEYWORDS]
+              Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997.
+
+   [LJ]       Danga Interactive, "LJ NEEDS MOAR SPEED", 10 1999.
+
+
+Appendix A.  Acknowledgments
+
+   Thanks to Brad Fitzpatrick, Anatoly Vorobey, Steven Grimm, and Dustin
+   Sallings, for their work on the memcached server.
+
+   Thanks to Sean Chittenden, Jonathan Steinert, Brian Aker, Evan
+   Martin, Nathan Neulinger, Eric Hodel, Michael Johnson, Paul Querna,
+   Jamie McCarthy, Philip Neustrom, Andrew O'Brien, Josh Rotenberg,
+   Robin H. Johnson, Tim Yardley, Paolo Borelli, Eli Bingham, Jean-
+   Francois Bustarret, Paul G, Paul Lindner, Alan Kasindorf, Chris
+   Goffinet, Tomash Brechko, and others for their work reporting bugs
+   and maintaining memcached client libraries and bindings in many
+   languages.
+
+
+Authors' Addresses
+
+   Aaron Stone (editor)
+   Six Apart, Ltd.
+   548 4th Street
+   San Francisco, CA  94107
+   USA
+
+   Email: aaron@serendipity.palo-alto.ca.us
+
+
+   Trond Norbye (editor)
+   Sun Microsystems, INC
+   Haakon VII g. 7B
+   Trondheim  NO-7485 Trondheim
+   Norway
+
+   Email: trond.norbye@sun.com
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                [Page 30]
+
