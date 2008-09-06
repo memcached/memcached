@@ -3062,16 +3062,22 @@ int main (int argc, char **argv) {
 
     /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
+        errno = 0;
         if (server_socket_unix(settings.socketpath,settings.access)) {
           fprintf(stderr, "failed to listen on UNIX socket: %s\n", settings.socketpath);
+          if (errno != 0)
+              perror("socket listen");
           exit(EXIT_FAILURE);
         }
     }
 
     /* create the listening socket, bind it, and init */
     if (settings.socketpath == NULL) {
+        errno = 0;
         if (settings.port && server_socket(settings.port, 0)) {
             fprintf(stderr, "failed to listen on TCP port %d\n", settings.port);
+            if (errno != 0)
+                perror("tcp listen");
             exit(EXIT_FAILURE);
         }
         /*
@@ -3082,8 +3088,11 @@ int main (int argc, char **argv) {
          */
 
         /* create the UDP listening socket and bind it */
+        errno = 0;
         if (settings.udpport && server_socket(settings.udpport, 1)) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
+            if (errno != 0)
+                perror("udp listen");
             exit(EXIT_FAILURE);
         }
     }
