@@ -2481,12 +2481,10 @@ static int server_socket(const int port, const bool is_udp) {
     hints.ai_flags = AI_PASSIVE|AI_ADDRCONFIG;
     if (is_udp)
     {
-        hints.ai_protocol = IPPROTO_UDP;
         hints.ai_socktype = SOCK_DGRAM;
         hints.ai_family = AF_INET; /* This left here because of issues with OSX 10.5 */
     } else {
         hints.ai_family = AF_UNSPEC;
-        hints.ai_protocol = IPPROTO_TCP;
         hints.ai_socktype = SOCK_STREAM;
     }
 
@@ -2507,6 +2505,17 @@ static int server_socket(const int port, const bool is_udp) {
             freeaddrinfo(ai);
             return 1;
         }
+
+#ifdef IPV6_V6ONLY
+        if (next->ai_family == AF_INET6) {
+            error = setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &flags, sizeof(flags));
+            if (error != 0) {
+                perror("setsockopt");
+                close(sfd);
+                continue;
+            }
+        }
+#endif
 
         setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
         if (is_udp) {
