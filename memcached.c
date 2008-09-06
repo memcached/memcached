@@ -2493,12 +2493,12 @@ static int server_socket(const int port, const bool is_udp) {
     snprintf(port_buf, NI_MAXSERV, "%d", port);
     error= getaddrinfo(settings.inter, port_buf, &hints, &ai);
     if (error != 0) {
-      if (error != EAI_SYSTEM)
-        fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(error));
-      else
-        perror("getaddrinfo()");
+        if (error != EAI_SYSTEM)
+            fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(error));
+        else
+            perror("getaddrinfo()");
 
-      return 1;
+        return 1;
     }
 
     for (next= ai; next; next= next->ai_next) {
@@ -2527,34 +2527,34 @@ static int server_socket(const int port, const bool is_udp) {
             close(sfd);
             continue;
         } else {
-          success++;
-          if (!is_udp && listen(sfd, 1024) == -1) {
-              perror("listen()");
-              close(sfd);
-              freeaddrinfo(ai);
-              return 1;
+            success++;
+            if (!is_udp && listen(sfd, 1024) == -1) {
+                perror("listen()");
+                close(sfd);
+                freeaddrinfo(ai);
+                return 1;
+            }
+        }
+
+        if (is_udp)
+        {
+          int c;
+
+          for (c = 1; c < settings.num_threads; c++) {
+              /* this is guaranteed to hit all threads because we round-robin */
+              dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
+                                UDP_READ_BUFFER_SIZE, is_udp);
           }
-      }
+        } else {
+          if (!(listen_conn_add = conn_new(sfd, conn_listening,
+                                           EV_READ | EV_PERSIST, 1, false, main_base))) {
+              fprintf(stderr, "failed to create listening connection\n");
+              exit(EXIT_FAILURE);
+          }
 
-      if (is_udp)
-      {
-        int c;
-
-        for (c = 1; c < settings.num_threads; c++) {
-            /* this is guaranteed to hit all threads because we round-robin */
-            dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
-                              UDP_READ_BUFFER_SIZE, is_udp);
+          listen_conn_add->next = listen_conn;
+          listen_conn = listen_conn_add;
         }
-      } else {
-        if (!(listen_conn_add = conn_new(sfd, conn_listening,
-                                         EV_READ | EV_PERSIST, 1, false, main_base))) {
-            fprintf(stderr, "failed to create listening connection\n");
-            exit(EXIT_FAILURE);
-        }
-
-        listen_conn_add->next = listen_conn;
-        listen_conn = listen_conn_add;
-      }
     }
 
     freeaddrinfo(ai);
@@ -3178,17 +3178,15 @@ int main (int argc, char **argv) {
     /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
         if (server_socket_unix(settings.socketpath,settings.access)) {
-          fprintf(stderr, "failed to listen\n");
+          fprintf(stderr, "failed to listen on UNIX socket: %s\n", settings.socketpath);
           exit(EXIT_FAILURE);
         }
     }
 
     /* create the listening socket, bind it, and init */
     if (settings.socketpath == NULL) {
-        int udp_port;
-
         if (settings.port && server_socket(settings.port, 0)) {
-            fprintf(stderr, "failed to listen\n");
+            fprintf(stderr, "failed to listen on TCP port %d\n", settings.port);
             exit(EXIT_FAILURE);
         }
         /*
