@@ -112,8 +112,6 @@ static struct event_base *main_base;
 #define TRANSMIT_SOFT_ERROR 2
 #define TRANSMIT_HARD_ERROR 3
 
-static int *buckets = 0; /* bucket->generation array for a managed instance */
-
 #define REALTIME_MAXDELTA 60*60*24*30
 /*
  * given time value that's either unix time or delta from current unix time, return
@@ -174,7 +172,6 @@ static void settings_init(void) {
     settings.oldest_live = 0;
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
     settings.socketpath = NULL;       /* by default, not using a unix socket */
-    settings.managed = false;
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
 #ifdef USE_THREADS
@@ -366,8 +363,6 @@ conn *conn_new(const int sfd, const int init_state, const int event_flags,
     c->write_and_go = conn_read;
     c->write_and_free = 0;
     c->item = 0;
-    c->bucket = -1;
-    c->gen = 0;
 
     c->noreply = false;
 
@@ -1240,19 +1235,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     int stats_get_misses = 0;
     assert(c != NULL);
 
-    if (settings.managed) {
-        int bucket = c->bucket;
-        if (bucket == -1) {
-            out_string(c, "CLIENT_ERROR no BG data in managed mode");
-            return;
-        }
-        c->bucket = -1;
-        if (buckets[bucket] != c->gen) {
-            out_string(c, "ERROR_NOT_OWNER");
-            return;
-        }
-    }
-
     do {
         while(key_token->length != 0) {
 
@@ -1454,19 +1436,6 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         stats_prefix_record_set(key);
     }
 
-    if (settings.managed) {
-        int bucket = c->bucket;
-        if (bucket == -1) {
-            out_string(c, "CLIENT_ERROR no BG data in managed mode");
-            return;
-        }
-        c->bucket = -1;
-        if (buckets[bucket] != c->gen) {
-            out_string(c, "ERROR_NOT_OWNER");
-            return;
-        }
-    }
-
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
 
     if (it == 0) {
@@ -1518,19 +1487,6 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
-
-    if (settings.managed) {
-        int bucket = c->bucket;
-        if (bucket == -1) {
-            out_string(c, "CLIENT_ERROR no BG data in managed mode");
-            return;
-        }
-        c->bucket = -1;
-        if (buckets[bucket] != c->gen) {
-            out_string(c, "ERROR_NOT_OWNER");
-            return;
-        }
-    }
 
     delta = strtoll(tokens[2].value, NULL, 10);
 
@@ -1611,19 +1567,6 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     assert(c != NULL);
 
     set_noreply_maybe(c, tokens, ntokens);
-
-    if (settings.managed) {
-        int bucket = c->bucket;
-        if (bucket == -1) {
-            out_string(c, "CLIENT_ERROR no BG data in managed mode");
-            return;
-        }
-        c->bucket = -1;
-        if (buckets[bucket] != c->gen) {
-            out_string(c, "ERROR_NOT_OWNER");
-            return;
-        }
-    }
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
@@ -1766,67 +1709,6 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
 
         process_delete_command(c, tokens, ntokens);
-
-    } else if (ntokens == 3 && strcmp(tokens[COMMAND_TOKEN].value, "own") == 0) {
-        unsigned int bucket, gen;
-        if (!settings.managed) {
-            out_string(c, "CLIENT_ERROR not a managed instance");
-            return;
-        }
-
-        if (sscanf(tokens[1].value, "%u:%u", &bucket,&gen) == 2) {
-            if ((bucket < 0) || (bucket >= MAX_BUCKETS)) {
-                out_string(c, "CLIENT_ERROR bucket number out of range");
-                return;
-            }
-            buckets[bucket] = gen;
-            out_string(c, "OWNED");
-            return;
-        } else {
-            out_string(c, "CLIENT_ERROR bad format");
-            return;
-        }
-
-    } else if (ntokens == 3 && (strcmp(tokens[COMMAND_TOKEN].value, "disown")) == 0) {
-
-        int bucket;
-        if (!settings.managed) {
-            out_string(c, "CLIENT_ERROR not a managed instance");
-            return;
-        }
-        if (sscanf(tokens[1].value, "%u", &bucket) == 1) {
-            if ((bucket < 0) || (bucket >= MAX_BUCKETS)) {
-                out_string(c, "CLIENT_ERROR bucket number out of range");
-                return;
-            }
-            buckets[bucket] = 0;
-            out_string(c, "DISOWNED");
-            return;
-        } else {
-            out_string(c, "CLIENT_ERROR bad format");
-            return;
-        }
-
-    } else if (ntokens == 3 && (strcmp(tokens[COMMAND_TOKEN].value, "bg")) == 0) {
-        int bucket, gen;
-        if (!settings.managed) {
-            out_string(c, "CLIENT_ERROR not a managed instance");
-            return;
-        }
-        if (sscanf(tokens[1].value, "%u:%u", &bucket, &gen) == 2) {
-            /* we never write anything back, even if input's wrong */
-            if ((bucket < 0) || (bucket >= MAX_BUCKETS) || (gen <= 0)) {
-                /* do nothing, bad input */
-            } else {
-                c->bucket = bucket;
-                c->gen = gen;
-            }
-            conn_set_state(c, conn_read);
-            return;
-        } else {
-            out_string(c, "CLIENT_ERROR bad format");
-            return;
-        }
 
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0)) {
 
@@ -2755,7 +2637,6 @@ static void usage(void) {
            "-vv           very verbose (also print client commands/reponses)\n"
            "-h            print this help and exit\n"
            "-i            print memcached and libevent license\n"
-           "-b            run a managed instanced (mnemonic: buckets)\n"
            "-P <file>     save PID in <file>, only used with -d option\n"
            "-f <factor>   chunk size growth factor, default 1.25\n"
            "-n <bytes>    minimum space allocated for key+value+flags, default 48\n"
@@ -2952,7 +2833,7 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "a:bp:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:LR:")) != -1) {
+    while ((c = getopt(argc, argv, "a:p:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:LR:")) != -1) {
         switch (c) {
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
@@ -2961,9 +2842,6 @@ int main (int argc, char **argv) {
 
         case 'U':
             settings.udpport = atoi(optarg);
-            break;
-        case 'b':
-            settings.managed = true;
             break;
         case 'p':
             settings.port = atoi(optarg);
@@ -3153,16 +3031,6 @@ int main (int argc, char **argv) {
     /* Hacky suffix buffers. */
     suffix_init();
     slabs_init(settings.maxbytes, settings.factor, preallocate);
-
-    /* managed instance? alloc and zero a bucket array */
-    if (settings.managed) {
-        buckets = malloc(sizeof(int) * MAX_BUCKETS);
-        if (buckets == 0) {
-            fprintf(stderr, "failed to allocate the bucket array");
-            exit(EXIT_FAILURE);
-        }
-        memset(buckets, 0, sizeof(int) * MAX_BUCKETS);
-    }
 
     /*
      * ignore SIGPIPE signals; we can use errno==EPIPE if we

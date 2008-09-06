@@ -1,3 +1,9 @@
+2008-09-06
+
+       * Remove managed instance code. Incomplete/etc. (Dormando)
+
+2008-07-29 [Version 1.2.6 released]
+
 2008-07-24 [Version 1.2.6-rc1 released]
 
        * Add support for newer automake (Facebook)
