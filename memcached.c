@@ -165,7 +165,7 @@ static void stats_reset(void) {
 static void settings_init(void) {
     settings.access=0700;
     settings.port = 11211;
-    settings.udpport = 0;
+    settings.udpport = 11211;
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -2718,7 +2718,7 @@ void do_run_deferred_deletes(void)
 static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
     printf("-p <num>      TCP port number to listen on (default: 11211)\n"
-           "-U <num>      UDP port number to listen on (default: 0, off)\n"
+           "-U <num>      UDP port number to listen on (default: 11211, 0 is off)\n"
            "-s <file>     unix socket path to listen on (disables network support)\n"
            "-a <mask>     access mask for unix socket, in octal (default 0700)\n"
            "-l <ip_addr>  interface to listen on, default is INDRR_ANY\n"
@@ -3187,7 +3187,7 @@ int main (int argc, char **argv) {
     if (settings.socketpath == NULL) {
         int udp_port;
 
-        if (server_socket(settings.port, 0)) {
+        if (settings.port && server_socket(settings.port, 0)) {
             fprintf(stderr, "failed to listen\n");
             exit(EXIT_FAILURE);
         }
@@ -3197,10 +3197,9 @@ int main (int argc, char **argv) {
          * then daemonise if needed, then init libevent (in some cases
          * descriptors created by libevent wouldn't survive forking).
          */
-        udp_port = settings.udpport ? settings.udpport : settings.port;
 
         /* create the UDP listening socket and bind it */
-        if (server_socket(udp_port, 1)) {
+        if (settings.udpport && server_socket(settings.udpport, 1)) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
             exit(EXIT_FAILURE);
         }
