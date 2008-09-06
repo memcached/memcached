@@ -2512,9 +2512,17 @@ static int server_socket(const int port, const bool is_udp) {
         if (is_udp) {
             maximize_sndbuf(sfd);
         } else {
-            setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
-            setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
-            setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
+            error = setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
+            if (error != 0)
+                perror("setsockopt");
+
+            error = setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
+            if (error != 0)
+                perror("setsockopt");
+
+            error = setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
+            if (error != 0)
+                perror("setsockopt");
         }
 
         if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) {
