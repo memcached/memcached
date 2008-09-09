@@ -565,11 +565,13 @@ void slabs_free(void *ptr, size_t size, unsigned int id) {
     pthread_mutex_unlock(&slabs_lock);
 }
 
-char *slabs_stats(int *buflen) {
+char *slabs_stats(int *buflen, uint32_t (*add_stats)(char *buf,
+                  const char *key, const char *val, const uint16_t klen,
+                  const uint32_t vlen), bool bin_prot) {
     char *ret;
 
     pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_stats(buflen);
+    ret = do_slabs_stats(buflen, add_stats, bin_prot);
     pthread_mutex_unlock(&slabs_lock);
     return ret;
 }

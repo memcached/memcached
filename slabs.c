@@ -357,42 +357,129 @@ char *get_stats(const bool bin_prot, const char *stat_type,
         buf = item_stats(&size, add_stats, bin_prot);
         *buflen = size;
         return buf;
+    } else if (strcmp(stat_type, "slabs") == 0) {
+        buf = slabs_stats(&size, add_stats, bin_prot);
+        *buflen = size;
+        return buf;
     }
 
     return NULL;
 }
 
 /*@null@*/
-char* do_slabs_stats(int *buflen) {
-    int i, total;
+char *do_slabs_stats(int *buflen, uint32_t (*add_stats)(char *buf,
+                     const char *key, const char *val, const uint16_t klen,
+                     const uint32_t vlen), bool bin_prot) {
+    int i, total, linelen;
     char *buf = (char *)malloc(power_largest * 200 + 100);
     char *bufcurr = buf;
 
     *buflen = 0;
+    linelen = 0;
+
     if (buf == NULL) return NULL;
 
     total = 0;
     for(i = POWER_SMALLEST; i <= power_largest; i++) {
         slabclass_t *p = &slabclass[i];
         if (p->slabs != 0) {
-            unsigned int perslab, slabs;
-
+            uint32_t perslab, slabs;
             slabs = p->slabs;
             perslab = p->perslab;
 
-            bufcurr += sprintf(bufcurr, "STAT %d:chunk_size %u\r\n", i, p->size);
-            bufcurr += sprintf(bufcurr, "STAT %d:chunks_per_page %u\r\n", i, perslab);
-            bufcurr += sprintf(bufcurr, "STAT %d:total_pages %u\r\n", i, slabs);
-            bufcurr += sprintf(bufcurr, "STAT %d:total_chunks %u\r\n", i, slabs*perslab);
-            bufcurr += sprintf(bufcurr, "STAT %d:used_chunks %u\r\n", i, slabs*perslab - p->sl_curr);
-            bufcurr += sprintf(bufcurr, "STAT %d:free_chunks %u\r\n", i, p->sl_curr);
-            bufcurr += sprintf(bufcurr, "STAT %d:free_chunks_end %u\r\n", i, p->end_page_free);
+            if (bin_prot) {
+                char key[128];
+                char val[128];
+                uint32_t nbytes = 0;
+
+                sprintf(key, "%d:chunk_size", i);
+                sprintf(val, "%u", p->size);
+                nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                bufcurr += nbytes;
+
+                sprintf(key, "%d:chunks_per_page", i);
+                sprintf(val, "%u", perslab);
+                nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                bufcurr += nbytes;
+
+                sprintf(key, "%d:total_page", i);
+                sprintf(val, "%u", slabs);
+                nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                bufcurr += nbytes;
+
+                sprintf(key, "%d:total_chunks", i);
+                sprintf(val, "%u", slabs*perslab);
+                nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                bufcurr += nbytes;
+
+                sprintf(key, "%d:used_chunks", i);
+                sprintf(val, "%u", ((slabs*perslab) - p->sl_curr));
+                nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                bufcurr += nbytes;
+
+                sprintf(key, "%d:free_chunks", i);
+                sprintf(val, "%u", p->sl_curr);
+                nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                bufcurr += nbytes;
+
+                sprintf(key, "%d:free_chunks_end", i);
+                sprintf(val, "%u", p->end_page_free);
+                nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                bufcurr += nbytes;
+            } else {
+                bufcurr += sprintf(bufcurr, "STAT %d:chunk_size %u\r\n", i,
+                                   p->size);
+                bufcurr += sprintf(bufcurr, "STAT %d:chunks_per_page %u\r\n",
+                                   i, perslab);
+                bufcurr += sprintf(bufcurr, "STAT %d:total_pages %u\r\n", i,
+                                   slabs);
+                bufcurr += sprintf(bufcurr, "STAT %d:total_chunks %u\r\n", i,
+                                   slabs*perslab);
+                bufcurr += sprintf(bufcurr, "STAT %d:used_chunks %u\r\n", i,
+                                   slabs*perslab - p->sl_curr);
+                bufcurr += sprintf(bufcurr, "STAT %d:free_chunks %u\r\n", i,
+                                   p->sl_curr);
+                bufcurr += sprintf(bufcurr, "STAT %d:free_chunks_end %u\r\n",
+                                   i, p->end_page_free);
+            }
             total++;
         }
     }
-    bufcurr += sprintf(bufcurr, "STAT active_slabs %d\r\nSTAT total_malloced %llu\r\n", total, (unsigned long long)mem_malloced);
-    bufcurr += sprintf(bufcurr, "END\r\n");
-    *buflen = bufcurr - buf;
+
+    /* add overall slab stats and append terminator */
+    if (bin_prot) {
+        protocol_binary_response_header *header;
+        uint32_t nbytes = 0;
+        char key[128];
+        char val[128];
+
+        sprintf(key, "active_slabs");
+        sprintf(val, "%d", total);
+        nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+        linelen += nbytes;
+        bufcurr += nbytes;
+
+        sprintf(key, "total_malloced");
+        sprintf(val, "%llu", (uint64_t)mem_malloced);
+        nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+        linelen += nbytes;
+        bufcurr += nbytes;
+
+        bufcurr += append_bin_stats(bufcurr, NULL, NULL, 0, 0);
+        *buflen = linelen + sizeof(header->response);
+    } else {
+        bufcurr += sprintf(bufcurr, "STAT active_slabs %d\r\nSTAT total_malloced %llu\r\n",
+                           total, (unsigned long long)mem_malloced);
+        bufcurr += sprintf(bufcurr, "END\r\n");
+        *buflen = bufcurr - buf;
+    }
     return buf;
 }
 

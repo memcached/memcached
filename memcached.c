@@ -2091,7 +2091,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
     if (strcmp(subcommand, "slabs") == 0) {
         int bytes = 0;
-        char *buf = slabs_stats(&bytes);
+        char *buf = get_stats(false, "slabs", &append_bin_stats, &bytes);
         write_and_free(c, buf, bytes);
         return;
     }
