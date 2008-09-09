@@ -1208,11 +1208,11 @@ uint32_t append_bin_stats(char *buf, const char *key, const char *val,
     header->response.cas = swap64(0); /* this can be anything... */
     ptr += sizeof(header->response);
 
-    if(klen > 0) {
+    if (klen > 0) {
         memcpy(ptr, key, klen);
         ptr += klen;
 
-        if(vlen > 0) {
+        if (vlen > 0) {
             memcpy(ptr, val, vlen);
             ptr += vlen;
         }
@@ -1235,16 +1235,16 @@ static void process_bin_stat(conn *c) {
         fprintf(stderr, "\n");
     }
 
-    if(nkey == 0) {
+    if (nkey == 0) {
         int server_statlen, engine_statlen;
         char *buf, *ptr, *server_statbuf, *engine_statbuf;
 
-        if((server_statbuf = server_stats(true, &server_statlen)) == NULL) {
+        if ((server_statbuf = server_stats(true, &server_statlen)) == NULL) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
             return;
         }
 
-        if((engine_statbuf = get_stats(true, NULL, &append_bin_stats,
+        if ((engine_statbuf = get_stats(true, NULL, &append_bin_stats,
                                        &engine_statlen)) == NULL) {
             free(server_statbuf);
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
@@ -1253,7 +1253,7 @@ static void process_bin_stat(conn *c) {
 
         buf = malloc(server_statlen + engine_statlen + sizeof(header->response));
 
-        if(buf == NULL) {
+        if (buf == NULL) {
             free(server_statbuf);
             free(engine_statbuf);
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
@@ -1272,6 +1272,14 @@ static void process_bin_stat(conn *c) {
         free(server_statbuf);
         free(engine_statbuf);
         write_and_free(c, buf, server_statlen + engine_statlen + sizeof(header->response));
+    } else {
+        int len = 0;
+        char *statbuf = get_stats(true, subcommand, &append_bin_stats, &len);
+
+        if (statbuf == NULL)
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+
+        write_and_free(c, statbuf, len);
     }
 }
 
@@ -1358,7 +1366,7 @@ static void dispatch_bin_command(conn *c) {
             }
             break;
         case PROTOCOL_BINARY_CMD_STAT:
-            if(extlen == 0) {
+            if (extlen == 0) {
                 bin_read_key(c, bin_reading_stat, 0);
             } else {
                 protocol_error = 1;
@@ -1454,7 +1462,7 @@ static void process_bin_update(conn *c) {
             assert(0);
     }
 
-    if(it->cas_id != 0) {
+    if (it->cas_id != 0) {
         c->item_comm = NREAD_CAS;
     }
 
@@ -1551,7 +1559,7 @@ static void process_bin_delete(conn *c) {
     assert(c != NULL);
     assert(c->wsize >= sizeof(*rsp));
 
-    if(settings.verbose) {
+    if (settings.verbose) {
         fprintf(stderr, "Deleting %s\n", key);
     }
 
@@ -1626,7 +1634,7 @@ static void complete_nread(conn *c) {
     assert(c != NULL);
     assert(c->protocol == ascii_prot || c->protocol == binary_prot);
 
-    if(c->protocol == ascii_prot) {
+    if (c->protocol == ascii_prot) {
         complete_nread_ascii(c);
     } else if (c->protocol == binary_prot) {
         complete_nread_binary(c);
@@ -1962,12 +1970,12 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         int server_statlen, engine_statlen;
         char *buf, *ptr, *server_statbuf, *engine_statbuf;
 
-        if((server_statbuf = server_stats(false, &server_statlen)) == NULL) {
+        if ((server_statbuf = server_stats(false, &server_statlen)) == NULL) {
             out_string(c, "SERVER_ERROR out of memory writing stats");
             return;
         }
 
-        if((engine_statbuf = get_stats(false, NULL, &append_bin_stats,
+        if ((engine_statbuf = get_stats(false, NULL, &append_bin_stats,
                                        &engine_statlen)) == NULL) {
             free(server_statbuf);
             out_string(c, "SERVER_ERROR out of memory writing stats");
@@ -2063,7 +2071,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         char *buf;
         unsigned int bytes, id, limit = 0;
 
-        if(ntokens < 5) {
+        if (ntokens < 5) {
             out_string(c, "CLIENT_ERROR bad command line");
             return;
         }
@@ -2090,7 +2098,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
     if (strcmp(subcommand, "items") == 0) {
         int bytes = 0;
-        char *buf = item_stats(&bytes);
+        char *buf = get_stats(false, "items", &append_bin_stats, &bytes);
         write_and_free(c, buf, bytes);
         return;
     }

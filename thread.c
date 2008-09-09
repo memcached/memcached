@@ -517,11 +517,13 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
 /*
  * Dumps statistics about slab classes
  */
-char *item_stats(int *bytes) {
+char *item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
+                 const char *key, const char *val, const uint16_t klen,
+                 const uint32_t vlen), bool bin_prot) {
     char *ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_item_stats(bytes);
+    ret = do_item_stats(bytes, add_stats, bin_prot);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }

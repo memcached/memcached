@@ -321,7 +321,9 @@ item *item_get(const char *key, const size_t nkey);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it);
-char *item_stats(int *bytes);
+char *item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
+                 const char *key, const char *val, const uint16_t klen,
+                 const uint32_t vlen), bool bin_prot);
 char *item_stats_sizes(int *bytes);
 void  item_unlink(item *it);
 void  item_update(item *it);

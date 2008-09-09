@@ -311,13 +311,13 @@ char *get_stats(const bool bin_prot, const char *stat_type,
     int size = 0;
     *buflen = 0;
 
-    if(!stat_type) {
-        if((buf = malloc(512)) == NULL)
+    if (!stat_type) {
+        if ((buf = malloc(512)) == NULL)
             return NULL;
         pos = buf;
 
-        if(bin_prot) {
-            if(add_stats == NULL) {
+        if (bin_prot) {
+            if (add_stats == NULL) {
                 free(buf);
                 return NULL;
             }
@@ -353,7 +353,12 @@ char *get_stats(const bool bin_prot, const char *stat_type,
             *buflen = strlen(buf);
             return buf;
         }
+    } else if (strcmp(stat_type, "items") == 0) {
+        buf = item_stats(&size, add_stats, bin_prot);
+        *buflen = size;
+        return buf;
     }
+
     return NULL;
 }
 
