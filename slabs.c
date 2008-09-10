@@ -363,6 +363,102 @@ char *get_stats(const bool bin_prot, const char *stat_type,
         return buf;
     }
 
+#ifdef HAVE_MALLOC_H
+#ifdef HAVE_STRUCT_MALLINFO
+    else if (strcmp(stat_type, "malloc") == 0) {
+        char *buf = malloc(1024);
+        char *pos = buf;
+        struct mallinfo info;
+        uint32_t linelen = 0;
+
+        if (buf == NULL) return NULL;
+        info = mallinfo();
+
+        if (bin_prot) {
+            char val[128];
+            uint32_t nbytes = 0;
+
+            sprintf(val, "%d", info.arena);
+            nbytes = add_stats(pos, "arena_size", val, strlen("arena_size"),
+                               strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.ordblks);
+            nbytes = add_stats(pos, "free_chunks", val, strlen("free_chunks"),
+                               strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.smblks);
+            nbytes = add_stats(pos, "fastbin_blocks", val,
+                               strlen("fastbin_blocks"), strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.hblks);
+            nbytes = add_stats(pos, "mmapped_regions", val,
+                               strlen("mmapped_regions"), strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.hblkhd);
+            nbytes = add_stats(pos, "mmapped_space", val,
+                               strlen("mmapped_space"), strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.usmblks);
+            nbytes = add_stats(pos, "max_total_alloc", val,
+                               strlen("max_total_alloc"), strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.fsmblks);
+            nbytes = add_stats(pos, "fastbin_space", val,
+                               strlen("fastbin_space"), strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.uordblks);
+            nbytes = add_stats(pos, "total_alloc", val,
+                               strlen("total_alloc"), strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.fordblks);
+            nbytes = add_stats(pos, "total_free", val,
+                               strlen("total_free"), strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            sprintf(val, "%d", info.keepcost);
+            nbytes = add_stats(pos, "releasable_space", val,
+                               strlen("releasable_space"), strlen(val));
+            linelen += nbytes;
+            pos += nbytes;
+
+            linelen += append_bin_stats(pos, NULL, NULL, 0, 0);
+            *buflen = linelen;
+        } else {
+            pos += sprintf(pos, "STAT arena_size %d\r\n", info.arena);
+            pos += sprintf(pos, "STAT free_chunks %d\r\n", info.ordblks);
+            pos += sprintf(pos, "STAT fastbin_blocks %d\r\n", info.smblks);
+            pos += sprintf(pos, "STAT mmapped_regions %d\r\n", info.hblks);
+            pos += sprintf(pos, "STAT mmapped_space %d\r\n", info.hblkhd);
+            pos += sprintf(pos, "STAT max_total_alloc %d\r\n", info.usmblks);
+            pos += sprintf(pos, "STAT fastbin_space %d\r\n", info.fsmblks);
+            pos += sprintf(pos, "STAT total_alloc %d\r\n", info.uordblks);
+            pos += sprintf(pos, "STAT total_free %d\r\n", info.fordblks);
+            pos += sprintf(pos, "STAT releasable_space %d\r\nEND", info.keepcost);
+
+            *buflen = pos - buf;
+        }
+        return buf;
+    }
+#endif /* HAVE_STRUCT_MALLINFO */
+#endif /* HAVE_MALLOC_H */
+
     return NULL;
 }
 
