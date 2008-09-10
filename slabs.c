@@ -6,7 +6,7 @@
  * a multiplier factor from there, up to half the maximum slab size. The last
  * slab size is always 1MB, since that's the maximum item size allowed by the
  * memcached protocol.
- *
+*
  * $Id$
  */
 #include "memcached.h"
@@ -21,6 +21,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+
+#ifdef HAVE_MALLOC_H
+/* OpenBSD has a malloc.h, but warns to use stdlib.h instead */
+#ifndef __OpenBSD__
+#include <malloc.h>
+#endif
+#endif
 
 #define POWER_SMALLEST 1
 #define POWER_LARGEST  200
