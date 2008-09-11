@@ -373,7 +373,7 @@ char *get_stats(const bool bin_prot, const char *stat_type,
 #ifdef HAVE_MALLOC_H
 #ifdef HAVE_STRUCT_MALLINFO
     else if (strcmp(stat_type, "malloc") == 0) {
-        char *buf = malloc(1024);
+        buf = malloc(1024);
         char *pos = buf;
         struct mallinfo info;
         uint32_t linelen = 0;
@@ -457,7 +457,8 @@ char *get_stats(const bool bin_prot, const char *stat_type,
             pos += sprintf(pos, "STAT fastbin_space %d\r\n", info.fsmblks);
             pos += sprintf(pos, "STAT total_alloc %d\r\n", info.uordblks);
             pos += sprintf(pos, "STAT total_free %d\r\n", info.fordblks);
-            pos += sprintf(pos, "STAT releasable_space %d\r\nEND", info.keepcost);
+            pos += sprintf(pos, "STAT releasable_space %d\r\nEND\r\n",
+                           info.keepcost);
 
             *buflen = pos - buf;
         }

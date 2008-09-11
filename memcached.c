@@ -1217,6 +1217,7 @@ uint32_t append_bin_stats(char *buf, const char *key, const char *val,
 static void process_bin_stat(conn *c) {
     protocol_binary_response_header *header;
     char *subcommand = binary_get_key(c);
+    char *buf;
     size_t nkey = c->binary_header.request.keylen;
 
     if (settings.verbose) {
@@ -1230,7 +1231,7 @@ static void process_bin_stat(conn *c) {
 
     if (nkey == 0) {
         int server_statlen, engine_statlen;
-        char *buf, *ptr, *server_statbuf, *engine_statbuf;
+        char *ptr, *server_statbuf, *engine_statbuf;
 
         if ((server_statbuf = server_stats(true, &server_statlen)) == NULL) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
@@ -1265,14 +1266,23 @@ static void process_bin_stat(conn *c) {
         free(server_statbuf);
         free(engine_statbuf);
         write_and_free(c, buf, server_statlen + engine_statlen + sizeof(header->response));
-    } else {
-        int len = 0;
-        char *statbuf = get_stats(true, subcommand, &append_bin_stats, &len);
-
-        if (statbuf == NULL)
+    } else if (strcmp(subcommand, "reset") == 0) {
+        buf = malloc(sizeof(header->response));
+        if (buf == NULL)
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
 
-        write_and_free(c, statbuf, len);
+        stats_reset();
+
+        append_bin_stats(buf, NULL, NULL, 0, 0);
+        write_and_free(c, buf, sizeof(header->response));
+    } else {
+        int len = 0;
+        buf = get_stats(true, subcommand, &append_bin_stats, &len);
+
+        if (buf == NULL)
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+
+        write_and_free(c, buf, len);
     }
 }
 
