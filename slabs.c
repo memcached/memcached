@@ -368,6 +368,10 @@ char *get_stats(const bool bin_prot, const char *stat_type,
         buf = slabs_stats(&size, add_stats, bin_prot);
         *buflen = size;
         return buf;
+    } else if (strcmp(stat_type, "sizes") == 0) {
+        buf = item_stats_sizes(&size, add_stats, bin_prot);
+        *buflen = size;
+        return buf;
     }
 
 #ifdef HAVE_MALLOC_H

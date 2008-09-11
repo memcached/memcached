@@ -531,11 +531,13 @@ char *item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
 /*
  * Dumps a list of objects of each size in 32-byte increments
  */
-char *item_stats_sizes(int *bytes) {
+char *item_stats_sizes(int *bytes, uint32_t (*add_stats)(char *buf,
+                       const char *key, const char *val, const uint16_t klen,
+                       const uint32_t vlen), bool bin_prot) {
     char *ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_item_stats_sizes(bytes);
+    ret = do_item_stats_sizes(bytes, add_stats, bin_prot);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }

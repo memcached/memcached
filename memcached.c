@@ -2103,7 +2103,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
     if (strcmp(subcommand, "sizes") == 0) {
         int bytes = 0;
-        char *buf = item_stats_sizes(&bytes);
+        char *buf = get_stats(false, "sizes", &append_bin_stats, &bytes);
         write_and_free(c, buf, bytes);
         return;
     }

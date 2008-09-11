@@ -17,7 +17,10 @@ char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
                     const char *key, const char *val, const uint16_t klen,
                     const uint32_t vlen), bool bin_prot);
 /*@null@*/
-char *do_item_stats_sizes(int *bytes);
+char *do_item_stats_sizes(int *bytes, uint32_t (*add_stats)(char *buf,
+                          const char *key, const char *val, const uint16_t klen,
+                          const uint32_t vlen), bool bin_prot);
+
 void do_item_flush_expired(void);
 
 item *do_item_get(const char *key, const size_t nkey);

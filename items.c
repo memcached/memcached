@@ -420,7 +420,10 @@ char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
 
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
-char* do_item_stats_sizes(int *bytes) {
+char *do_item_stats_sizes(int *bytes, uint32_t (*add_stats)(char *buf,
+                          const char *key, const char *val, const uint16_t klen,
+                          const uint32_t vlen), bool bin_prot) {
+
     const int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
     unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
     char *buf = (char *)malloc(2 * 1024 * 1024); /* 2MB max response size */
@@ -447,12 +450,35 @@ char* do_item_stats_sizes(int *bytes) {
 
     /* write the buffer */
     *bytes = 0;
+
+    /* binary protocol variables */
+    uint32_t nbytes, linelen = 0;
+    char *ptr = buf;
+    char key[128];
+    char val[128];
+
     for (i = 0; i < num_buckets; i++) {
         if (histogram[i] != 0) {
-            *bytes += sprintf(&buf[*bytes], "%d %u\r\n", i * 32, histogram[i]);
+            if (bin_prot) {
+                sprintf(key, "%d", i * 32);
+                sprintf(val, "%u", histogram[i]);
+                nbytes = add_stats(ptr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                ptr += nbytes;
+            } else {
+                *bytes += sprintf(&buf[*bytes], "%d %u\r\n", i * 32,
+                                  histogram[i]);
+            }
         }
     }
-    *bytes += sprintf(&buf[*bytes], "END\r\n");
+
+    if (bin_prot) {
+        nbytes = add_stats(ptr, NULL, NULL, 0, 0);
+        *bytes = linelen + nbytes;
+    } else {
+        *bytes += sprintf(&buf[*bytes], "END\r\n");
+    }
+
     free(histogram);
     return buf;
 }
