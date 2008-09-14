@@ -1268,6 +1268,7 @@ static void process_bin_stat(conn *c) {
         write_and_free(c, buf, server_statlen + engine_statlen + sizeof(header->response));
     } else if (strcmp(subcommand, "reset") == 0) {
         buf = malloc(sizeof(header->response));
+
         if (buf == NULL)
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
 
@@ -1278,11 +1279,15 @@ static void process_bin_stat(conn *c) {
     } else {
         int len = 0;
         buf = get_stats(true, subcommand, &append_bin_stats, &len);
+        memset(subcommand, 0, strlen(subcommand));
 
-        if (buf == NULL)
+        /* len is set to -1 in get_stats if memory couldn't be allocated */
+        if (len < 0)
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
-
-        write_and_free(c, buf, len);
+        else if (buf == NULL)
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        else
+            write_and_free(c, buf, len);
     }
 }
 

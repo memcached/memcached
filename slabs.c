@@ -319,8 +319,11 @@ char *get_stats(const bool bin_prot, const char *stat_type,
     *buflen = 0;
 
     if (!stat_type) {
-        if ((buf = malloc(512)) == NULL)
+        if ((buf = malloc(512)) == NULL) {
+            *buflen = -1;
             return NULL;
+        }
+
         pos = buf;
 
         if (bin_prot) {
@@ -382,7 +385,11 @@ char *get_stats(const bool bin_prot, const char *stat_type,
         struct mallinfo info;
         uint32_t linelen = 0;
 
-        if (buf == NULL) return NULL;
+        if (buf == NULL) {
+            *buflen = -1;
+            return NULL;
+        }
+
         info = mallinfo();
 
         if (bin_prot) {
@@ -485,7 +492,10 @@ char *do_slabs_stats(int *buflen, uint32_t (*add_stats)(char *buf,
     *buflen = 0;
     linelen = 0;
 
-    if (buf == NULL) return NULL;
+    if (buf == NULL) {
+        *buf = -1;
+        return NULL;
+    }
 
     total = 0;
     for(i = POWER_SMALLEST; i <= power_largest; i++) {

@@ -344,6 +344,7 @@ char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
     int i, linelen = 0;
 
     if (buffer == NULL) {
+        *bytes = -1;
         return NULL;
     }
 
@@ -432,6 +433,7 @@ char *do_item_stats_sizes(int *bytes, uint32_t (*add_stats)(char *buf,
     if (histogram == 0 || buf == 0) {
         if (histogram) free(histogram);
         if (buf) free(buf);
+        *bytes = -1;
         return NULL;
     }
 
