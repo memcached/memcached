@@ -1144,6 +1144,11 @@ static void process_bin_get(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
+        STATS_LOCK();
+        stats.get_cmds++;
+        stats.get_hits++;
+        STATS_UNLOCK();
+
         if (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
                 c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
             bodylen += nkey;
@@ -1165,6 +1170,11 @@ static void process_bin_get(conn *c) {
         add_iov(c, ITEM_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
     } else {
+        STATS_LOCK();
+        stats.get_cmds++;
+        stats.get_misses++;
+        STATS_UNLOCK();
+
         if (c->cmd == PROTOCOL_BINARY_CMD_GETQ ||
                 c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
             conn_set_state(c, conn_new_cmd);
