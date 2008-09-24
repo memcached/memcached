@@ -1906,9 +1906,6 @@ static char *server_stats(bool binprot, int *buflen) {
     pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
     pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
 #endif /* !WIN32 */
-    pos += sprintf(pos, "STAT curr_items %u\r\n", stats.curr_items);
-    pos += sprintf(pos, "STAT total_items %u\r\n", stats.total_items);
-    pos += sprintf(pos, "STAT bytes %llu\r\n", stats.curr_bytes);
     pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
     pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
     pos += sprintf(pos, "STAT connection_structures %u\r\n", stats.conn_structs);
@@ -1916,7 +1913,6 @@ static char *server_stats(bool binprot, int *buflen) {
     pos += sprintf(pos, "STAT cmd_set %llu\r\n", stats.set_cmds);
     pos += sprintf(pos, "STAT get_hits %llu\r\n", stats.get_hits);
     pos += sprintf(pos, "STAT get_misses %llu\r\n", stats.get_misses);
-    pos += sprintf(pos, "STAT evictions %llu\r\n", stats.evictions);
     pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
     pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
     pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (uint64_t) settings.maxbytes);
