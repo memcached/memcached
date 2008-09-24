@@ -2067,6 +2067,16 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 #endif
 
+    /* NOTE: how to tackle detail with binary? */
+    if (strcmp(subcommand, "detail") == 0) {
+        if (ntokens < 4)
+            process_stats_detail(c, "");  /* outputs the error message */
+        else
+            process_stats_detail(c, tokens[2].value);
+        return;
+    }
+
+
     if (strcmp(subcommand, "cachedump") == 0) {
 
         char *buf;
@@ -2090,31 +2100,13 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         return;
     }
 
-    if (strcmp(subcommand, "slabs") == 0) {
-        int bytes = 0;
-        char *buf = get_stats(false, "slabs", &append_bin_stats, &bytes);
-        write_and_free(c, buf, bytes);
-        return;
-    }
 
-    if (strcmp(subcommand, "items") == 0) {
-        int bytes = 0;
-        char *buf = get_stats(false, "items", &append_bin_stats, &bytes);
-        write_and_free(c, buf, bytes);
-        return;
-    }
+    /* getting here means that the subcommand is either engine specific or
+       is invalid. query the engine and see. */
+    int bytes = 0;
+    char *buf = get_stats(false, subcommand, &append_bin_stats, &bytes);
 
-    if (strcmp(subcommand, "detail") == 0) {
-        if (ntokens < 4)
-            process_stats_detail(c, "");  /* outputs the error message */
-        else
-            process_stats_detail(c, tokens[2].value);
-        return;
-    }
-
-    if (strcmp(subcommand, "sizes") == 0) {
-        int bytes = 0;
-        char *buf = get_stats(false, "sizes", &append_bin_stats, &bytes);
+    if (buf && bytes > 0) {
         write_and_free(c, buf, bytes);
         return;
     }
