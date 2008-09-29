@@ -1,3 +1,22 @@
+2008-07-24 [Version 1.2.6-rc1 released]
+
+       * Add support for newer automake (Facebook)
+
+       * DTrace support for Solaris/etc (Trond Norbye)
+
+       * LRU tests (Steve Yen)
+
+       * Handle negative length items properly (Dormando)
+
+       * Don't leave stale data after failed set attempts (Dormando)
+
+       * Fix refcount leaks, which would result in OOM's on all sets
+	       (Dormando)
+
+       * Fix buffer overruns (Dustin Sallings, Tomash Brechko)
+
+       * Fix memory corruption with CAS (Dustin Sallings)
+
 2008-06-11
 
        * Fix -k to work with -d. (reported by Gary Zhu)
