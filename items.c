@@ -29,6 +29,7 @@ static uint64_t get_cas_id();
 #define LARGEST_ID 255
 typedef struct {
     unsigned int evicted;
+    rel_time_t evicted_time;
     unsigned int outofmemory;
 } itemstats_t;
 
@@ -124,6 +125,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             if (search->refcount == 0) {
                 if (search->exptime == 0 || search->exptime > current_time) {
                     itemstats[id].evicted++;
+                    itemstats[id].evicted_time = current_time - search->time;
                     STATS_LOCK();
                     stats.evictions++;
                     STATS_UNLOCK();
@@ -335,7 +337,7 @@ char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
                     const char *key, const char *val, const uint16_t klen,
                     const uint32_t vlen), bool bin_prot) {
 
-    size_t bufleft = (size_t) LARGEST_ID * 160;
+    size_t bufleft = (size_t) LARGEST_ID * 240;
     char *buffer = malloc(bufleft);
     char *bufcurr = buffer;
     rel_time_t now = current_time;
@@ -373,6 +375,12 @@ char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
                 linelen += nbytes;
                 bufcurr += nbytes;
 
+                sprintf(key, "%d:evicted_time", i);
+                sprintf(val, "%u", itemstats[i].evicted_time);
+                nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
+                linelen += nbytes;
+                bufcurr += nbytes;
+
                 sprintf(key, "%d:outofmemory", i);
                 sprintf(val, "%u", itemstats[i].outofmemory);
                 nbytes = add_stats(bufcurr, key, val, strlen(key), strlen(val));
@@ -391,9 +399,12 @@ char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
                     "STAT items:%d:number %u\r\n"
                     "STAT items:%d:age %u\r\n"
                     "STAT items:%d:evicted %u\r\n"
+                    "STAT items:%d:evicted_time %u\r\n"
                     "STAT items:%d:outofmemory %u\r\n",
-                    i, sizes[i], i, now - tails[i]->time, i,
-                    itemstats[i].evicted, i, itemstats[i].outofmemory);
+                    i, sizes[i], i, now - tails[i]->time,
+                    i, itemstats[i].evicted,
+                    i, itemstats[i].evicted_time,
+                    i, itemstats[i].outofmemory);
 
                 if (linelen + sizeof("END\r\n") < bufleft) {
                     bufcurr += linelen;
