@@ -1448,7 +1448,7 @@ static void process_bin_update(conn *c) {
     }
 
     if (settings.detail_enabled) {
-        stats_prefix_record_set(key);
+        stats_prefix_record_set(key, nkey);
     }
 
     it = item_alloc(key, nkey, req->message.body.flags,
@@ -1510,7 +1510,7 @@ static void process_bin_append_prepend(conn *c) {
     }
 
     if (settings.detail_enabled) {
-        stats_prefix_record_set(key);
+        stats_prefix_record_set(key, nkey);
     }
 
     it = item_alloc(key, nkey, 0, 0, vlen+2);
@@ -1583,7 +1583,7 @@ static void process_bin_delete(conn *c) {
     }
 
     if (settings.detail_enabled) {
-        stats_prefix_record_delete(key);
+        stats_prefix_record_delete(key, nkey);
     }
 
     it = item_get(key, nkey);
@@ -2160,7 +2160,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             stats_get_cmds++;
             it = item_get(key, nkey);
             if (settings.detail_enabled) {
-                stats_prefix_record_get(key, NULL != it);
+                stats_prefix_record_get(key, nkey, NULL != it);
             }
             if (it) {
                 if (i >= c->isize) {
@@ -2338,7 +2338,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     }
 
     if (settings.detail_enabled) {
-        stats_prefix_record_set(key);
+        stats_prefix_record_set(key, nkey);
     }
 
     if (settings.managed) {
@@ -2521,7 +2521,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     }
 
     if (settings.detail_enabled) {
-        stats_prefix_record_delete(key);
+        stats_prefix_record_delete(key, nkey);
     }
 
     it = item_get(key, nkey);

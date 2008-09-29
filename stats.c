@@ -66,14 +66,14 @@ void stats_prefix_clear() {
  * in the list.
  */
 /*@null@*/
-static PREFIX_STATS *stats_prefix_find(const char *key) {
+static PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
     uint32_t hashval;
     size_t length;
 
     assert(key != NULL);
 
-    for (length = 0; key[length] != '\0'; length++)
+    for (length = 0; key[length] != '\0' && length < nkey; length++)
         if (key[length] == settings.prefix_delimiter)
             break;
 
@@ -113,11 +113,11 @@ static PREFIX_STATS *stats_prefix_find(const char *key) {
 /*
  * Records a "get" of a key.
  */
-void stats_prefix_record_get(const char *key, const bool is_hit) {
+void stats_prefix_record_get(const char *key, const size_t nkey, const bool is_hit) {
     PREFIX_STATS *pfs;
 
     STATS_LOCK();
-    pfs = stats_prefix_find(key);
+    pfs = stats_prefix_find(key, nkey);
     if (NULL != pfs) {
         pfs->num_gets++;
         if (is_hit) {
@@ -130,11 +130,11 @@ void stats_prefix_record_get(const char *key, const bool is_hit) {
 /*
  * Records a "delete" of a key.
  */
-void stats_prefix_record_delete(const char *key) {
+void stats_prefix_record_delete(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
 
     STATS_LOCK();
-    pfs = stats_prefix_find(key);
+    pfs = stats_prefix_find(key, nkey);
     if (NULL != pfs) {
         pfs->num_deletes++;
     }
@@ -144,11 +144,11 @@ void stats_prefix_record_delete(const char *key) {
 /*
  * Records a "set" of a key.
  */
-void stats_prefix_record_set(const char *key) {
+void stats_prefix_record_set(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
 
     STATS_LOCK();
-    pfs = stats_prefix_find(key);
+    pfs = stats_prefix_find(key, nkey);
     if (NULL != pfs) {
         pfs->num_sets++;
     }
