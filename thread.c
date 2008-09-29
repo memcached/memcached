@@ -386,7 +386,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 
     cq_push(&thread->new_conn_queue, item);
 
-    MEMCACHED_CONN_DISPATCH(sfd, threads[thread].thread_id);
+    MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
     if (write(thread->notify_send_fd, "", 1) != 1) {
         perror("Writing to thread notify pipe");
     }
@@ -624,7 +624,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
     pthread_mutex_init(&cqi_freelist_lock, NULL);
     cqi_freelist = NULL;
 
-    threads = malloc(sizeof(LIBEVENT_THREAD) * nthreads);
+    threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
     if (! threads) {
         perror("Can't allocate thread descriptors");
         exit(1);

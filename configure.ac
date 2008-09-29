@@ -29,7 +29,7 @@ AC_SUBST(DTRACE_DEBUG_OBJ)
 AC_SUBST(DTRACEFLAGS)
 
 AC_ARG_ENABLE(64bit,
-  [AS_HELP_STRING([--enable-64bit],[build 64bit verison])])
+  [AS_HELP_STRING([--enable-64bit],[build 64bit version])])
 if test "x$enable_64bit" == "xyes"
 then
     org_cflags=$CFLAGS
