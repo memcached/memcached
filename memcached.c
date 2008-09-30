@@ -3424,12 +3424,10 @@ static int server_socket(const int port, enum protocol prot) {
     hints.ai_flags = AI_PASSIVE|AI_ADDRCONFIG;
     if (IS_UDP(prot))
     {
-        hints.ai_protocol = IPPROTO_UDP;
         hints.ai_socktype = SOCK_DGRAM;
         hints.ai_family = AF_INET; /* This left here because of issues with OSX 10.5 */
     } else {
         hints.ai_family = AF_UNSPEC;
-        hints.ai_protocol = IPPROTO_TCP;
         hints.ai_socktype = SOCK_STREAM;
     }
 
@@ -3451,13 +3449,32 @@ static int server_socket(const int port, enum protocol prot) {
             return 1;
         }
 
+#ifdef IPV6_V6ONLY
+        if (next->ai_family == AF_INET6) {
+            error = setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &flags, sizeof(flags));
+            if (error != 0) {
+                perror("setsockopt");
+                close(sfd);
+                continue;
+            }
+        }
+#endif
+
         setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
         if (IS_UDP(prot)) {
             maximize_sndbuf(sfd);
         } else {
-            setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
-            setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
-            setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
+            error = setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
+            if (error != 0)
+                perror("setsockopt");
+
+            error = setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
+            if (error != 0)
+                perror("setsockopt");
+
+            error = setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
+            if (error != 0)
+                perror("setsockopt");
         }
 
         if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) {
