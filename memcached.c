@@ -164,7 +164,7 @@ static void stats_reset(void) {
 static void settings_init(void) {
     settings.access = 0700;
     settings.port = 11211;
-    settings.udpport = 0;
+    settings.udpport = 11211;
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -3622,7 +3622,7 @@ static void clock_handler(const int fd, const short which, void *arg) {
 static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
     printf("-p <num>      TCP port number to listen on (default: 11211)\n"
-           "-U <num>      UDP port number to listen on (default: 0, off)\n"
+           "-U <num>      UDP port number to listen on (default: 11211, 0 is off)\n"
            "-s <file>     unix socket path to listen on (disables network support)\n"
            "-a <mask>     access mask for unix socket, in octal (default 0700)\n"
            "-l <ip_addr>  interface to listen on, default is INDRR_ANY\n"
@@ -4081,7 +4081,7 @@ int main (int argc, char **argv) {
     if (settings.socketpath == NULL) {
         int udp_port;
 
-        if (server_socket(settings.port, negotiating_prot)) {
+        if (settings.port && server_socket(settings.port, negotiating_prot)) {
             fprintf(stderr, "failed to listen\n");
             exit(EXIT_FAILURE);
         }
@@ -4095,7 +4095,7 @@ int main (int argc, char **argv) {
         udp_port = settings.udpport ? settings.udpport : settings.port;
 
         /* create the UDP listening socket and bind it */
-        if (server_socket(udp_port, ascii_udp_prot)) {
+        if (settings.udpport && server_socket(settings.udpport, ascii_udp_prot)) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
             exit(EXIT_FAILURE);
         }
