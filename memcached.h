@@ -93,7 +93,6 @@ struct settings {
     char *inter;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
-    bool managed;          /* if 1, a tracker manages virtual buckets */
     int evict_to_free;
     char *socketpath;   /* path to unix socket if using local socket */
     int access;  /* access mask (a la chmod) for unix domain socket */
@@ -254,9 +253,6 @@ struct conn {
     int    hdrsize;   /* number of headers' worth of space is allocated */
 
     int    binary;    /* are we in binary mode */
-    int    bucket;    /* bucket number for the next command, if running as
-                         a managed instance. -1 (_not_ 0) means invalid. */
-    int    gen;       /* generation requested for the bucket */
     bool   noreply;   /* True if the reply should not be sent. */
     /* Binary protocol stuff */
     /* This is where the binary header goes */
@@ -268,9 +264,6 @@ struct conn {
     conn   *next;     /* Used for generating a list of conn structures */
 };
 
-
-/* number of virtual buckets for a managed instance */
-#define MAX_BUCKETS 32768
 
 /* current time of day (updated periodically) */
 extern volatile rel_time_t current_time;
