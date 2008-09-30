@@ -1,6 +1,25 @@
 2008-09-06
+       * Display error status on listen failures (Dormando)
 
        * Remove managed instance code. Incomplete/etc. (Dormando)
+
+          * Handle broken IPV6 stacks better (Brian Aker)
+
+          * Generate warnings on setsockopt() failures (Brian Aker)
+
+          * Fix some indentation issues (Brian Aker)
+
+          * UDP/TCP can be disabled by setting their port to zero (Brian Aker)
+
+          * Zero out libevent thread structures before use (Ricky Zhou)
+
+          * New stat: Last accessed time for last evicted item per slab class.
+            (Dormando)
+
+          * Use a dedicated socket accept thread (Facebook)
+
+          * Add -R option. Limit the number of requests processed by a connection
+            at once. Prevents starving other threads if bulk loading. (Facebook)
 
 2008-07-29 [Version 1.2.6 released]
 
