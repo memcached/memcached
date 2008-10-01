@@ -523,7 +523,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
  * Dumps statistics about slab classes
  */
 char *item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
-                 const char *key, const char *val, const uint16_t klen,
+                 const char *key, const uint16_t klen, const char *val,
                  const uint32_t vlen), bool bin_prot) {
     char *ret;
 
@@ -537,7 +537,7 @@ char *item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
  * Dumps a list of objects of each size in 32-byte increments
  */
 char *item_stats_sizes(int *bytes, uint32_t (*add_stats)(char *buf,
-                       const char *key, const char *val, const uint16_t klen,
+                       const char *key, const uint16_t klen, const char *val,
                        const uint32_t vlen), bool bin_prot) {
     char *ret;
 
@@ -573,7 +573,7 @@ void slabs_free(void *ptr, size_t size, unsigned int id) {
 }
 
 char *slabs_stats(int *buflen, uint32_t (*add_stats)(char *buf,
-                  const char *key, const char *val, const uint16_t klen,
+                  const char *key, const uint16_t klen, const char *val,
                   const uint32_t vlen), bool bin_prot) {
     char *ret;
 

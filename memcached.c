@@ -1189,8 +1189,8 @@ static void process_bin_get(conn *c) {
     }
 }
 
-uint32_t append_bin_stats(char *buf, const char *key, const char *val,
-                          const uint16_t klen, const uint32_t vlen) {
+uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
+                          const char *val, const uint32_t vlen) {
     protocol_binary_response_header *header;
     char *ptr = buf;
     uint32_t bodylen = klen + vlen;
@@ -1267,7 +1267,7 @@ static void process_bin_stat(conn *c) {
         memcpy(ptr, engine_statbuf, engine_statlen);
         ptr += engine_statlen;
 
-        append_bin_stats(ptr, NULL, NULL, 0, 0); /* append termination packet */
+        append_bin_stats(ptr, NULL, 0, NULL, 0); /* append termination packet */
 
         free(server_statbuf);
         free(engine_statbuf);
@@ -1280,7 +1280,7 @@ static void process_bin_stat(conn *c) {
 
         stats_reset();
 
-        append_bin_stats(buf, NULL, NULL, 0, 0);
+        append_bin_stats(buf, NULL, 0, NULL, 0);
         write_and_free(c, buf, sizeof(header->response));
     } else {
         int len = 0;
@@ -1954,7 +1954,7 @@ static char *server_stats(bool binprot, int *buflen) {
         memcpy(val, pos, (size_t)(end_attr - pos));
 
         pos = end_row + 1; /* increment pointer to next row */
-        bodylen = append_bin_stats(bufptr, key, val, strlen(key), strlen(val));
+        bodylen = append_bin_stats(bufptr, key, strlen(key), val, strlen(val));
         bufptr += bodylen;
         *buflen += bodylen;
     }
