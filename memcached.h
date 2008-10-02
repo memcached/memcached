@@ -286,7 +286,7 @@ conn *conn_new(const int sfd, const enum conn_states init_state, const int event
 #include "slabs.h"
 #include "assoc.h"
 #include "items.h"
-#include "memcached_dtrace.h"
+#include "trace.h"
 
 
 /*

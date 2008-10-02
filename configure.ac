@@ -15,15 +15,23 @@ if test "x$enable_dtrace" == "xyes"; then
   AC_PATH_PROG([DTRACE], [dtrace], "no", [/usr/sbin:$PATH])
   if test "x$DTRACE" != "xno"; then
     AC_DEFINE([ENABLE_DTRACE],1,[Set to nonzero if you want to include DTRACE])
-    DTRACE_OBJ=memcached_dtrace.o
-    DTRACE_DEBUG_OBJ=memcached_debug_dtrace.o
+    DTRACE_HEADER=memcached_dtrace.h
+
+    # DTrace on MacOSX does not use -G option
+    dtrace -G -o conftest.$$ -s memcached_dtrace.d 2>/dev/zero
+    if test $? -eq 0
+    then
+        DTRACE_OBJ=memcached_dtrace.o
+        DTRACE_DEBUG_OBJ=memcached_debug_dtrace.o
+        rm conftest.$$
+     fi
   else
     AC_MSG_ERROR([Need dtrace binary and OS support.])
   fi
-else
-    AC_DEFINE([ENABLE_DTRACE],0,[Set to nonzero if you want to include DTRACE])
 fi
+
 AC_SUBST(DTRACE)
+AC_SUBST(DTRACE_HEADER)
 AC_SUBST(DTRACE_OBJ)
 AC_SUBST(DTRACE_DEBUG_OBJ)
 AC_SUBST(DTRACEFLAGS)
