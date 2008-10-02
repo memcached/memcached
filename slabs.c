@@ -350,8 +350,8 @@ char *get_stats(const bool bin_prot, const char *stat_type,
         pos += size;
 
         sprintf(val, "%llu", stats.evictions);
-        size = add_stats(pos, "evictions_items", strlen("evictions_items"),
-                         val, strlen(val));
+        size = add_stats(pos, "evictions", strlen("evictions"), val,
+                         strlen(val));
         *buflen += size;
         pos += size;
 
