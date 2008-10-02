@@ -102,62 +102,72 @@ provider memcached {
     * wasting cpu capacity.
     *
     * @param key the key searched for
+    * @param keylen lenght of the key
     * @param depth the depth in the list of hash table
     */
-   probe assoc__find(const char *key, int depth);
+   probe assoc__find(const char *key, int keylen, int depth);
 
    /**
     * Fired when a new item has been inserted.
     * @param key the key just inserted
+    * @param keylen lenght of the key
     * @param nokeys the total number of keys currently being stored,
     *               including the key for which insert was called.
     */
-   probe assoc__insert(const char *key, int nokeys);
+   probe assoc__insert(const char *key, int keylen, int nokeys);
 
    /**
     * Fired when a new item has been removed.
     * @param key the key just deleted
+    * @param keylen lenght of the key
     * @param nokeys the total number of keys currently being stored,
     *               excluding the key for which delete was called.
     */
-   probe assoc__delete(const char *key, int nokeys);
+   probe assoc__delete(const char *key, int keylen, int nokeys);
 
    /**
     * Fired when an item is being linked in the cache
     * @param key the items key
+    * @param keylen lenght of the key
     * @param size the size of the data
     */
-   probe item__link(const char *key, int size);
+   probe item__link(const char *key, int keylen, int size);
 
    /**
     * Fired when an item is being deleted
     * @param key the items key
+    * @param keylen lenght of the key
     * @param size the size of the data
     */
-   probe item__unlink(const char *key, int size);
+   probe item__unlink(const char *key, int keylen, int size);
 
    /**
     * Fired when the refcount for an item is reduced
     * @param key the items key
+    * @param keylen lenght of the key
     * @param size the size of the data
     */
-   probe item__remove(const char *key, int size);
+   probe item__remove(const char *key, int keylen, int size);
 
    /**
     * Fired when the "last refenced" time is updated
     * @param key the items key
+    * @param keylen lenght of the key
     * @param size the size of the data
     */
-   probe item__update(const char *key, int size);
+   probe item__update(const char *key, int keylen, int size);
 
    /**
     * Fired when an item is bein replaced with another item
     * @param oldkey the key of the item to replace
+    * @param oldkeylen the length of the old key
     * @param oldsize the size of the old item
     * @param newkey the key of the new item
+    * @param newkeylen the length of the new key
     * @param newsize the size of the new item
     */
-   probe item__replace(const char *oldkey, int oldsize, const char *newkey, int newsize);
+   probe item__replace(const char *oldkey, int oldkeylen, int oldsize,
+                       const char *newkey, int newkeylen, int newsize);
 
    /**
     * Fired when the processing of a command starts
@@ -179,91 +189,97 @@ provider memcached {
     * Fired for a get-command
     * @param connid connection id
     * @param key requested key
-    * @param size size of the key's data (or -1 if not found)
-    */
-   probe command__get(int connid, const char *key, int size);
-
-   /**
-    * Fired for a gets command
-    * @param connid connection id
-    * @param key requested key
+    * @param keylen lenght of the key
     * @param size size of the key's data (or -1 if not found)
     * @param casid the casid for the item
     */
-   probe command__gets(int connid, const char *key, int size, int64_t casid);
+   probe command__get(int connid, const char *key, int keylen, int size, int64_t casid);
 
    /**
     * Fired for a add-command
     * @param connid connection id
     * @param key requested key
+    * @param keylen lenght of the key
     * @param size the new size of the key's data (or -1 if not found)
+    * @param casid the casid for the item
     */
-   probe command__add(int connid, const char *key, int size);
+   probe command__add(int connid, const char *key, int keylen, int size, int64_t casid);
 
    /**
     * Fired for a set-command
     * @param connid connection id
     * @param key requested key
+    * @param keylen lenght of the key
     * @param size the new size of the key's data (or -1 if not found)
+    * @param casid the casid for the item
     */
-   probe command__set(int connid, const char *key, int size);
+   probe command__set(int connid, const char *key, int keylen, int size, int64_t casid);
 
    /**
     * Fired for a replace-command
     * @param connid connection id
     * @param key requested key
+    * @param keylen lenght of the key
     * @param size the new size of the key's data (or -1 if not found)
+    * @param casid the casid for the item
     */
-   probe command__replace(int connid, const char *key, int size);
+   probe command__replace(int connid, const char *key, int keylen, int size, int64_t casid);
 
    /**
     * Fired for a prepend-command
     * @param connid connection id
     * @param key requested key
+    * @param keylen lenght of the key
     * @param size the new size of the key's data (or -1 if not found)
+    * @param casid the casid for the item
     */
-   probe command__prepend(int connid, const char *key, int size);
+   probe command__prepend(int connid, const char *key, int keylen, int size, int64_t casid);
 
    /**
     * Fired for a append-command
     * @param connid connection id
     * @param key requested key
+    * @param keylen lenght of the key
     * @param size the new size of the key's data (or -1 if not found)
+    * @param casid the casid for the item
     */
-   probe command__append(int connid, const char *key, int size);
+   probe command__append(int connid, const char *key, int keylen, int size, int64_t casid);
 
    /**
     * Fired for a cas-command
     * @param connid connection id
     * @param key requested key
+    * @param keylen lenght of the key
     * @param size size of the key's data (or -1 if not found)
     * @param casid the cas id requested
     */
-   probe command__cas(int connid, const char *key, int size, int64_t casid);
+   probe command__cas(int connid, const char *key, int keylen, int size, int64_t casid);
 
    /**
     * Fired for incr command
     * @param connid connection id
     * @param key the requested key
+    * @param keylen lenght of the key
     * @param val the new value
     */
-   probe command__incr(int connid, const char *key, int64_t val);
+   probe command__incr(int connid, const char *key, int keylen, int64_t val);
 
    /**
     * Fired for decr command
     * @param connid connection id
     * @param key the requested key
+    * @param keylen lenght of the key
     * @param val the new value
     */
-   probe command__decr(int connid, const char *key, int64_t val);
+   probe command__decr(int connid, const char *key, int keylen, int64_t val);
 
    /**
     * Fired for a delete command
     * @param connid connection id
     * @param key the requested key
-    * @param exptime the expiry time
+    * @param keylen lenght of the key
     */
-   probe command__delete(int connid, const char *key, long exptime);
+   probe command__delete(int connid, const char *key, int keylen);
 
 };
 

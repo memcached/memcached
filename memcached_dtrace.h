@@ -12,224 +12,486 @@ extern "C" {
 
 #if ENABLE_DTRACE
 
-#define MEMCACHED_ASSOC_DELETE(arg0, arg1) \
- __dtrace_memcached___assoc__delete(arg0, arg1)
+#define MEMCACHED_ASSOC_DELETE(arg0, arg1, arg2) \
+ __dtrace_memcached___assoc__delete(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_ASSOC_DELETE_ENABLED() \
  __dtraceenabled_memcached___assoc__delete()
-#define MEMCACHED_ASSOC_FIND(arg0, arg1) \
- __dtrace_memcached___assoc__find(arg0, arg1)
+#else
+#define MEMCACHED_ASSOC_DELETE_ENABLED() \
+ __dtraceenabled_memcached___assoc__delete(0)
+#endif
+#define MEMCACHED_ASSOC_FIND(arg0, arg1, arg2) \
+ __dtrace_memcached___assoc__find(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_ASSOC_FIND_ENABLED() \
  __dtraceenabled_memcached___assoc__find()
-#define MEMCACHED_ASSOC_INSERT(arg0, arg1) \
- __dtrace_memcached___assoc__insert(arg0, arg1)
+#else
+#define MEMCACHED_ASSOC_FIND_ENABLED() \
+ __dtraceenabled_memcached___assoc__find(0)
+#endif
+#define MEMCACHED_ASSOC_INSERT(arg0, arg1, arg2) \
+ __dtrace_memcached___assoc__insert(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_ASSOC_INSERT_ENABLED() \
  __dtraceenabled_memcached___assoc__insert()
-#define MEMCACHED_COMMAND_ADD(arg0, arg1, arg2) \
- __dtrace_memcached___command__add(arg0, arg1, arg2)
+#else
+#define MEMCACHED_ASSOC_INSERT_ENABLED() \
+ __dtraceenabled_memcached___assoc__insert(0)
+#endif
+#define MEMCACHED_COMMAND_ADD(arg0, arg1, arg2, arg3, arg4) \
+ __dtrace_memcached___command__add(arg0, arg1, arg2, arg3, arg4)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_ADD_ENABLED() \
  __dtraceenabled_memcached___command__add()
-#define MEMCACHED_COMMAND_APPEND(arg0, arg1, arg2) \
- __dtrace_memcached___command__append(arg0, arg1, arg2)
+#else
+#define MEMCACHED_COMMAND_ADD_ENABLED() \
+ __dtraceenabled_memcached___command__add(0)
+#endif
+#define MEMCACHED_COMMAND_APPEND(arg0, arg1, arg2, arg3, arg4) \
+ __dtrace_memcached___command__append(arg0, arg1, arg2, arg3, arg4)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_APPEND_ENABLED() \
  __dtraceenabled_memcached___command__append()
-#define MEMCACHED_COMMAND_CAS(arg0, arg1, arg2, arg3) \
- __dtrace_memcached___command__cas(arg0, arg1, arg2, arg3)
+#else
+#define MEMCACHED_COMMAND_APPEND_ENABLED() \
+ __dtraceenabled_memcached___command__append(0)
+#endif
+#define MEMCACHED_COMMAND_CAS(arg0, arg1, arg2, arg3, arg4) \
+ __dtrace_memcached___command__cas(arg0, arg1, arg2, arg3, arg4)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_CAS_ENABLED() \
  __dtraceenabled_memcached___command__cas()
-#define MEMCACHED_COMMAND_DECR(arg0, arg1, arg2) \
- __dtrace_memcached___command__decr(arg0, arg1, arg2)
+#else
+#define MEMCACHED_COMMAND_CAS_ENABLED() \
+ __dtraceenabled_memcached___command__cas(0)
+#endif
+#define MEMCACHED_COMMAND_DECR(arg0, arg1, arg2, arg3) \
+ __dtrace_memcached___command__decr(arg0, arg1, arg2, arg3)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_DECR_ENABLED() \
  __dtraceenabled_memcached___command__decr()
+#else
+#define MEMCACHED_COMMAND_DECR_ENABLED() \
+ __dtraceenabled_memcached___command__decr(0)
+#endif
 #define MEMCACHED_COMMAND_DELETE(arg0, arg1, arg2) \
  __dtrace_memcached___command__delete(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_DELETE_ENABLED() \
  __dtraceenabled_memcached___command__delete()
-#define MEMCACHED_COMMAND_GET(arg0, arg1, arg2) \
- __dtrace_memcached___command__get(arg0, arg1, arg2)
+#else
+#define MEMCACHED_COMMAND_DELETE_ENABLED() \
+ __dtraceenabled_memcached___command__delete(0)
+#endif
+#define MEMCACHED_COMMAND_GET(arg0, arg1, arg2, arg3, arg4) \
+ __dtrace_memcached___command__get(arg0, arg1, arg2, arg3, arg4)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_GET_ENABLED() \
  __dtraceenabled_memcached___command__get()
-#define MEMCACHED_COMMAND_GETS(arg0, arg1, arg2, arg3) \
- __dtrace_memcached___command__gets(arg0, arg1, arg2, arg3)
-#define MEMCACHED_COMMAND_GETS_ENABLED() \
- __dtraceenabled_memcached___command__gets()
-#define MEMCACHED_COMMAND_INCR(arg0, arg1, arg2) \
- __dtrace_memcached___command__incr(arg0, arg1, arg2)
+#else
+#define MEMCACHED_COMMAND_GET_ENABLED() \
+ __dtraceenabled_memcached___command__get(0)
+#endif
+#define MEMCACHED_COMMAND_INCR(arg0, arg1, arg2, arg3) \
+ __dtrace_memcached___command__incr(arg0, arg1, arg2, arg3)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_INCR_ENABLED() \
  __dtraceenabled_memcached___command__incr()
-#define MEMCACHED_COMMAND_PREPEND(arg0, arg1, arg2) \
- __dtrace_memcached___command__prepend(arg0, arg1, arg2)
+#else
+#define MEMCACHED_COMMAND_INCR_ENABLED() \
+ __dtraceenabled_memcached___command__incr(0)
+#endif
+#define MEMCACHED_COMMAND_PREPEND(arg0, arg1, arg2, arg3, arg4) \
+ __dtrace_memcached___command__prepend(arg0, arg1, arg2, arg3, arg4)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_PREPEND_ENABLED() \
  __dtraceenabled_memcached___command__prepend()
-#define MEMCACHED_COMMAND_REPLACE(arg0, arg1, arg2) \
- __dtrace_memcached___command__replace(arg0, arg1, arg2)
+#else
+#define MEMCACHED_COMMAND_PREPEND_ENABLED() \
+ __dtraceenabled_memcached___command__prepend(0)
+#endif
+#define MEMCACHED_COMMAND_REPLACE(arg0, arg1, arg2, arg3, arg4) \
+ __dtrace_memcached___command__replace(arg0, arg1, arg2, arg3, arg4)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_REPLACE_ENABLED() \
  __dtraceenabled_memcached___command__replace()
-#define MEMCACHED_COMMAND_SET(arg0, arg1, arg2) \
- __dtrace_memcached___command__set(arg0, arg1, arg2)
+#else
+#define MEMCACHED_COMMAND_REPLACE_ENABLED() \
+ __dtraceenabled_memcached___command__replace(0)
+#endif
+#define MEMCACHED_COMMAND_SET(arg0, arg1, arg2, arg3, arg4) \
+ __dtrace_memcached___command__set(arg0, arg1, arg2, arg3, arg4)
+#ifndef __sparc
 #define MEMCACHED_COMMAND_SET_ENABLED() \
  __dtraceenabled_memcached___command__set()
+#else
+#define MEMCACHED_COMMAND_SET_ENABLED() \
+ __dtraceenabled_memcached___command__set(0)
+#endif
 #define MEMCACHED_CONN_ALLOCATE(arg0) \
  __dtrace_memcached___conn__allocate(arg0)
+#ifndef __sparc
 #define MEMCACHED_CONN_ALLOCATE_ENABLED() \
  __dtraceenabled_memcached___conn__allocate()
+#else
+#define MEMCACHED_CONN_ALLOCATE_ENABLED() \
+ __dtraceenabled_memcached___conn__allocate(0)
+#endif
 #define MEMCACHED_CONN_CREATE(arg0) \
  __dtrace_memcached___conn__create(arg0)
+#ifndef __sparc
 #define MEMCACHED_CONN_CREATE_ENABLED() \
  __dtraceenabled_memcached___conn__create()
+#else
+#define MEMCACHED_CONN_CREATE_ENABLED() \
+ __dtraceenabled_memcached___conn__create(0)
+#endif
 #define MEMCACHED_CONN_DESTROY(arg0) \
  __dtrace_memcached___conn__destroy(arg0)
+#ifndef __sparc
 #define MEMCACHED_CONN_DESTROY_ENABLED() \
  __dtraceenabled_memcached___conn__destroy()
+#else
+#define MEMCACHED_CONN_DESTROY_ENABLED() \
+ __dtraceenabled_memcached___conn__destroy(0)
+#endif
 #define MEMCACHED_CONN_DISPATCH(arg0, arg1) \
  __dtrace_memcached___conn__dispatch(arg0, arg1)
+#ifndef __sparc
 #define MEMCACHED_CONN_DISPATCH_ENABLED() \
  __dtraceenabled_memcached___conn__dispatch()
+#else
+#define MEMCACHED_CONN_DISPATCH_ENABLED() \
+ __dtraceenabled_memcached___conn__dispatch(0)
+#endif
 #define MEMCACHED_CONN_RELEASE(arg0) \
  __dtrace_memcached___conn__release(arg0)
+#ifndef __sparc
 #define MEMCACHED_CONN_RELEASE_ENABLED() \
  __dtraceenabled_memcached___conn__release()
-#define MEMCACHED_ITEM_LINK(arg0, arg1) \
- __dtrace_memcached___item__link(arg0, arg1)
+#else
+#define MEMCACHED_CONN_RELEASE_ENABLED() \
+ __dtraceenabled_memcached___conn__release(0)
+#endif
+#define MEMCACHED_ITEM_LINK(arg0, arg1, arg2) \
+ __dtrace_memcached___item__link(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_ITEM_LINK_ENABLED() \
  __dtraceenabled_memcached___item__link()
-#define MEMCACHED_ITEM_REMOVE(arg0, arg1) \
- __dtrace_memcached___item__remove(arg0, arg1)
+#else
+#define MEMCACHED_ITEM_LINK_ENABLED() \
+ __dtraceenabled_memcached___item__link(0)
+#endif
+#define MEMCACHED_ITEM_REMOVE(arg0, arg1, arg2) \
+ __dtrace_memcached___item__remove(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_ITEM_REMOVE_ENABLED() \
  __dtraceenabled_memcached___item__remove()
-#define MEMCACHED_ITEM_REPLACE(arg0, arg1, arg2, arg3) \
- __dtrace_memcached___item__replace(arg0, arg1, arg2, arg3)
+#else
+#define MEMCACHED_ITEM_REMOVE_ENABLED() \
+ __dtraceenabled_memcached___item__remove(0)
+#endif
+#define MEMCACHED_ITEM_REPLACE(arg0, arg1, arg2, arg3, arg4, arg5) \
+ __dtrace_memcached___item__replace(arg0, arg1, arg2, arg3, arg4, arg5)
+#ifndef __sparc
 #define MEMCACHED_ITEM_REPLACE_ENABLED() \
  __dtraceenabled_memcached___item__replace()
-#define MEMCACHED_ITEM_UNLINK(arg0, arg1) \
- __dtrace_memcached___item__unlink(arg0, arg1)
+#else
+#define MEMCACHED_ITEM_REPLACE_ENABLED() \
+ __dtraceenabled_memcached___item__replace(0)
+#endif
+#define MEMCACHED_ITEM_UNLINK(arg0, arg1, arg2) \
+ __dtrace_memcached___item__unlink(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_ITEM_UNLINK_ENABLED() \
  __dtraceenabled_memcached___item__unlink()
-#define MEMCACHED_ITEM_UPDATE(arg0, arg1) \
- __dtrace_memcached___item__update(arg0, arg1)
+#else
+#define MEMCACHED_ITEM_UNLINK_ENABLED() \
+ __dtraceenabled_memcached___item__unlink(0)
+#endif
+#define MEMCACHED_ITEM_UPDATE(arg0, arg1, arg2) \
+ __dtrace_memcached___item__update(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_ITEM_UPDATE_ENABLED() \
  __dtraceenabled_memcached___item__update()
+#else
+#define MEMCACHED_ITEM_UPDATE_ENABLED() \
+ __dtraceenabled_memcached___item__update(0)
+#endif
 #define MEMCACHED_PROCESS_COMMAND_END(arg0, arg1, arg2) \
  __dtrace_memcached___process__command__end(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_PROCESS_COMMAND_END_ENABLED() \
  __dtraceenabled_memcached___process__command__end()
+#else
+#define MEMCACHED_PROCESS_COMMAND_END_ENABLED() \
+ __dtraceenabled_memcached___process__command__end(0)
+#endif
 #define MEMCACHED_PROCESS_COMMAND_START(arg0, arg1, arg2) \
  __dtrace_memcached___process__command__start(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_PROCESS_COMMAND_START_ENABLED() \
  __dtraceenabled_memcached___process__command__start()
+#else
+#define MEMCACHED_PROCESS_COMMAND_START_ENABLED() \
+ __dtraceenabled_memcached___process__command__start(0)
+#endif
 #define MEMCACHED_SLABS_ALLOCATE(arg0, arg1, arg2, arg3) \
  __dtrace_memcached___slabs__allocate(arg0, arg1, arg2, arg3)
+#ifndef __sparc
 #define MEMCACHED_SLABS_ALLOCATE_ENABLED() \
  __dtraceenabled_memcached___slabs__allocate()
+#else
+#define MEMCACHED_SLABS_ALLOCATE_ENABLED() \
+ __dtraceenabled_memcached___slabs__allocate(0)
+#endif
 #define MEMCACHED_SLABS_ALLOCATE_FAILED(arg0, arg1) \
  __dtrace_memcached___slabs__allocate__failed(arg0, arg1)
+#ifndef __sparc
 #define MEMCACHED_SLABS_ALLOCATE_FAILED_ENABLED() \
  __dtraceenabled_memcached___slabs__allocate__failed()
+#else
+#define MEMCACHED_SLABS_ALLOCATE_FAILED_ENABLED() \
+ __dtraceenabled_memcached___slabs__allocate__failed(0)
+#endif
 #define MEMCACHED_SLABS_FREE(arg0, arg1, arg2) \
  __dtrace_memcached___slabs__free(arg0, arg1, arg2)
+#ifndef __sparc
 #define MEMCACHED_SLABS_FREE_ENABLED() \
  __dtraceenabled_memcached___slabs__free()
+#else
+#define MEMCACHED_SLABS_FREE_ENABLED() \
+ __dtraceenabled_memcached___slabs__free(0)
+#endif
 #define MEMCACHED_SLABS_SLABCLASS_ALLOCATE(arg0) \
  __dtrace_memcached___slabs__slabclass__allocate(arg0)
+#ifndef __sparc
 #define MEMCACHED_SLABS_SLABCLASS_ALLOCATE_ENABLED() \
  __dtraceenabled_memcached___slabs__slabclass__allocate()
+#else
+#define MEMCACHED_SLABS_SLABCLASS_ALLOCATE_ENABLED() \
+ __dtraceenabled_memcached___slabs__slabclass__allocate(0)
+#endif
 #define MEMCACHED_SLABS_SLABCLASS_ALLOCATE_FAILED(arg0) \
  __dtrace_memcached___slabs__slabclass__allocate__failed(arg0)
+#ifndef __sparc
 #define MEMCACHED_SLABS_SLABCLASS_ALLOCATE_FAILED_ENABLED() \
  __dtraceenabled_memcached___slabs__slabclass__allocate__failed()
+#else
+#define MEMCACHED_SLABS_SLABCLASS_ALLOCATE_FAILED_ENABLED() \
+ __dtraceenabled_memcached___slabs__slabclass__allocate__failed(0)
+#endif
 
 
-extern void __dtrace_memcached___assoc__delete(char *, int);
+extern void __dtrace_memcached___assoc__delete(const char *, int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___assoc__delete(void);
-extern void __dtrace_memcached___assoc__find(char *, int);
+#else
+extern int __dtraceenabled_memcached___assoc__delete(long);
+#endif
+extern void __dtrace_memcached___assoc__find(const char *, int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___assoc__find(void);
-extern void __dtrace_memcached___assoc__insert(char *, int);
+#else
+extern int __dtraceenabled_memcached___assoc__find(long);
+#endif
+extern void __dtrace_memcached___assoc__insert(const char *, int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___assoc__insert(void);
-extern void __dtrace_memcached___command__add(int, char *, int);
+#else
+extern int __dtraceenabled_memcached___assoc__insert(long);
+#endif
+extern void __dtrace_memcached___command__add(int, const char *, int, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__add(void);
-extern void __dtrace_memcached___command__append(int, char *, int);
+#else
+extern int __dtraceenabled_memcached___command__add(long);
+#endif
+extern void __dtrace_memcached___command__append(int, const char *, int, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__append(void);
-extern void __dtrace_memcached___command__cas(int, char *, int, int64_t);
+#else
+extern int __dtraceenabled_memcached___command__append(long);
+#endif
+extern void __dtrace_memcached___command__cas(int, const char *, int, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__cas(void);
-extern void __dtrace_memcached___command__decr(int, char *, int64_t);
+#else
+extern int __dtraceenabled_memcached___command__cas(long);
+#endif
+extern void __dtrace_memcached___command__decr(int, const char *, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__decr(void);
-extern void __dtrace_memcached___command__delete(int, char *, long);
+#else
+extern int __dtraceenabled_memcached___command__decr(long);
+#endif
+extern void __dtrace_memcached___command__delete(int, const char *, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__delete(void);
-extern void __dtrace_memcached___command__get(int, char *, int);
+#else
+extern int __dtraceenabled_memcached___command__delete(long);
+#endif
+extern void __dtrace_memcached___command__get(int, const char *, int, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__get(void);
-extern void __dtrace_memcached___command__gets(int, char *, int, int64_t);
-extern int __dtraceenabled_memcached___command__gets(void);
-extern void __dtrace_memcached___command__incr(int, char *, int64_t);
+#else
+extern int __dtraceenabled_memcached___command__get(long);
+#endif
+extern void __dtrace_memcached___command__incr(int, const char *, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__incr(void);
-extern void __dtrace_memcached___command__prepend(int, char *, int);
+#else
+extern int __dtraceenabled_memcached___command__incr(long);
+#endif
+extern void __dtrace_memcached___command__prepend(int, const char *, int, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__prepend(void);
-extern void __dtrace_memcached___command__replace(int, char *, int);
+#else
+extern int __dtraceenabled_memcached___command__prepend(long);
+#endif
+extern void __dtrace_memcached___command__replace(int, const char *, int, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__replace(void);
-extern void __dtrace_memcached___command__set(int, char *, int);
+#else
+extern int __dtraceenabled_memcached___command__replace(long);
+#endif
+extern void __dtrace_memcached___command__set(int, const char *, int, int, int64_t);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___command__set(void);
+#else
+extern int __dtraceenabled_memcached___command__set(long);
+#endif
 extern void __dtrace_memcached___conn__allocate(int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___conn__allocate(void);
-extern void __dtrace_memcached___conn__create(void *);
+#else
+extern int __dtraceenabled_memcached___conn__allocate(long);
+#endif
+extern void __dtrace_memcached___conn__create(const void *);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___conn__create(void);
-extern void __dtrace_memcached___conn__destroy(void *);
+#else
+extern int __dtraceenabled_memcached___conn__create(long);
+#endif
+extern void __dtrace_memcached___conn__destroy(const void *);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___conn__destroy(void);
+#else
+extern int __dtraceenabled_memcached___conn__destroy(long);
+#endif
 extern void __dtrace_memcached___conn__dispatch(int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___conn__dispatch(void);
+#else
+extern int __dtraceenabled_memcached___conn__dispatch(long);
+#endif
 extern void __dtrace_memcached___conn__release(int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___conn__release(void);
-extern void __dtrace_memcached___item__link(char *, int);
+#else
+extern int __dtraceenabled_memcached___conn__release(long);
+#endif
+extern void __dtrace_memcached___item__link(const char *, int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___item__link(void);
-extern void __dtrace_memcached___item__remove(char *, int);
+#else
+extern int __dtraceenabled_memcached___item__link(long);
+#endif
+extern void __dtrace_memcached___item__remove(const char *, int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___item__remove(void);
-extern void __dtrace_memcached___item__replace(char *, int, char *, int);
+#else
+extern int __dtraceenabled_memcached___item__remove(long);
+#endif
+extern void __dtrace_memcached___item__replace(const char *, int, int, const char *, int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___item__replace(void);
-extern void __dtrace_memcached___item__unlink(char *, int);
+#else
+extern int __dtraceenabled_memcached___item__replace(long);
+#endif
+extern void __dtrace_memcached___item__unlink(const char *, int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___item__unlink(void);
-extern void __dtrace_memcached___item__update(char *, int);
+#else
+extern int __dtraceenabled_memcached___item__unlink(long);
+#endif
+extern void __dtrace_memcached___item__update(const char *, int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___item__update(void);
-extern void __dtrace_memcached___process__command__end(int, void *, int);
+#else
+extern int __dtraceenabled_memcached___item__update(long);
+#endif
+extern void __dtrace_memcached___process__command__end(int, const void *, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___process__command__end(void);
-extern void __dtrace_memcached___process__command__start(int, void *, int);
+#else
+extern int __dtraceenabled_memcached___process__command__end(long);
+#endif
+extern void __dtrace_memcached___process__command__start(int, const void *, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___process__command__start(void);
-extern void __dtrace_memcached___slabs__allocate(int, int, int, void *);
+#else
+extern int __dtraceenabled_memcached___process__command__start(long);
+#endif
+extern void __dtrace_memcached___slabs__allocate(int, int, int, const void *);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___slabs__allocate(void);
+#else
+extern int __dtraceenabled_memcached___slabs__allocate(long);
+#endif
 extern void __dtrace_memcached___slabs__allocate__failed(int, int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___slabs__allocate__failed(void);
-extern void __dtrace_memcached___slabs__free(int, int, void *);
+#else
+extern int __dtraceenabled_memcached___slabs__allocate__failed(long);
+#endif
+extern void __dtrace_memcached___slabs__free(int, int, const void *);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___slabs__free(void);
+#else
+extern int __dtraceenabled_memcached___slabs__free(long);
+#endif
 extern void __dtrace_memcached___slabs__slabclass__allocate(int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___slabs__slabclass__allocate(void);
+#else
+extern int __dtraceenabled_memcached___slabs__slabclass__allocate(long);
+#endif
 extern void __dtrace_memcached___slabs__slabclass__allocate__failed(int);
+#ifndef __sparc
 extern int __dtraceenabled_memcached___slabs__slabclass__allocate__failed(void);
+#else
+extern int __dtraceenabled_memcached___slabs__slabclass__allocate__failed(long);
+#endif
 
 #else
 
-#define MEMCACHED_ASSOC_DELETE(arg0, arg1)
+#define MEMCACHED_ASSOC_DELETE(arg0, arg1, arg2)
 #define MEMCACHED_ASSOC_DELETE_ENABLED() (0)
-#define MEMCACHED_ASSOC_FIND(arg0, arg1)
+#define MEMCACHED_ASSOC_FIND(arg0, arg1, arg2)
 #define MEMCACHED_ASSOC_FIND_ENABLED() (0)
-#define MEMCACHED_ASSOC_INSERT(arg0, arg1)
+#define MEMCACHED_ASSOC_INSERT(arg0, arg1, arg2)
 #define MEMCACHED_ASSOC_INSERT_ENABLED() (0)
-#define MEMCACHED_COMMAND_ADD(arg0, arg1, arg2)
+#define MEMCACHED_COMMAND_ADD(arg0, arg1, arg2, arg3, arg4)
 #define MEMCACHED_COMMAND_ADD_ENABLED() (0)
-#define MEMCACHED_COMMAND_APPEND(arg0, arg1, arg2)
+#define MEMCACHED_COMMAND_APPEND(arg0, arg1, arg2, arg3, arg4)
 #define MEMCACHED_COMMAND_APPEND_ENABLED() (0)
-#define MEMCACHED_COMMAND_CAS(arg0, arg1, arg2, arg3)
+#define MEMCACHED_COMMAND_CAS(arg0, arg1, arg2, arg3, arg4)
 #define MEMCACHED_COMMAND_CAS_ENABLED() (0)
-#define MEMCACHED_COMMAND_DECR(arg0, arg1, arg2)
+#define MEMCACHED_COMMAND_DECR(arg0, arg1, arg2, arg3)
 #define MEMCACHED_COMMAND_DECR_ENABLED() (0)
 #define MEMCACHED_COMMAND_DELETE(arg0, arg1, arg2)
 #define MEMCACHED_COMMAND_DELETE_ENABLED() (0)
-#define MEMCACHED_COMMAND_GET(arg0, arg1, arg2)
+#define MEMCACHED_COMMAND_GET(arg0, arg1, arg2, arg3, arg4)
 #define MEMCACHED_COMMAND_GET_ENABLED() (0)
-#define MEMCACHED_COMMAND_GETS(arg0, arg1, arg2, arg3)
-#define MEMCACHED_COMMAND_GETS_ENABLED() (0)
-#define MEMCACHED_COMMAND_INCR(arg0, arg1, arg2)
+#define MEMCACHED_COMMAND_INCR(arg0, arg1, arg2, arg3)
 #define MEMCACHED_COMMAND_INCR_ENABLED() (0)
-#define MEMCACHED_COMMAND_PREPEND(arg0, arg1, arg2)
+#define MEMCACHED_COMMAND_PREPEND(arg0, arg1, arg2, arg3, arg4)
 #define MEMCACHED_COMMAND_PREPEND_ENABLED() (0)
-#define MEMCACHED_COMMAND_REPLACE(arg0, arg1, arg2)
+#define MEMCACHED_COMMAND_REPLACE(arg0, arg1, arg2, arg3, arg4)
 #define MEMCACHED_COMMAND_REPLACE_ENABLED() (0)
-#define MEMCACHED_COMMAND_SET(arg0, arg1, arg2)
+#define MEMCACHED_COMMAND_SET(arg0, arg1, arg2, arg3, arg4)
 #define MEMCACHED_COMMAND_SET_ENABLED() (0)
 #define MEMCACHED_CONN_ALLOCATE(arg0)
 #define MEMCACHED_CONN_ALLOCATE_ENABLED() (0)
@@ -241,15 +503,15 @@ extern int __dtraceenabled_memcached___slabs__slabclass__allocate__failed(void);
 #define MEMCACHED_CONN_DISPATCH_ENABLED() (0)
 #define MEMCACHED_CONN_RELEASE(arg0)
 #define MEMCACHED_CONN_RELEASE_ENABLED() (0)
-#define MEMCACHED_ITEM_LINK(arg0, arg1)
+#define MEMCACHED_ITEM_LINK(arg0, arg1, arg2)
 #define MEMCACHED_ITEM_LINK_ENABLED() (0)
-#define MEMCACHED_ITEM_REMOVE(arg0, arg1)
+#define MEMCACHED_ITEM_REMOVE(arg0, arg1, arg2)
 #define MEMCACHED_ITEM_REMOVE_ENABLED() (0)
-#define MEMCACHED_ITEM_REPLACE(arg0, arg1, arg2, arg3)
+#define MEMCACHED_ITEM_REPLACE(arg0, arg1, arg2, arg3, arg4, arg5)
 #define MEMCACHED_ITEM_REPLACE_ENABLED() (0)
-#define MEMCACHED_ITEM_UNLINK(arg0, arg1)
+#define MEMCACHED_ITEM_UNLINK(arg0, arg1, arg2)
 #define MEMCACHED_ITEM_UNLINK_ENABLED() (0)
-#define MEMCACHED_ITEM_UPDATE(arg0, arg1)
+#define MEMCACHED_ITEM_UPDATE(arg0, arg1, arg2)
 #define MEMCACHED_ITEM_UPDATE_ENABLED() (0)
 #define MEMCACHED_PROCESS_COMMAND_END(arg0, arg1, arg2)
 #define MEMCACHED_PROCESS_COMMAND_END_ENABLED() (0)

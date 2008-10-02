@@ -12,7 +12,9 @@ memcached_debug_DEPENDENCIES = @DTRACE_DEBUG_OBJ@ @DAEMON_OBJ@
 memcached_dtrace.h:
 	${DTRACE} -h -s memcached_dtrace.d 
 	sed -e s,_DTRACE_VERSION,ENABLE_DTRACE,g memcached_dtrace.h | \
-            tr '\t' ' ' | grep -v unistd.h > memcached_dtrace.tmp
+            tr '\t' ' ' | sed -e 's,char \*,const char \*,g' | \
+            sed -e 's,void \*,const void \*,g' | \
+            grep -v unistd.h > memcached_dtrace.tmp
 	mv memcached_dtrace.tmp memcached_dtrace.h
 
 memcached_dtrace.o: $(memcached_OBJECTS)

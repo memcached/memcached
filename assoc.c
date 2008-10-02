@@ -506,7 +506,7 @@ item *assoc_find(const char *key, const size_t nkey) {
         it = it->h_next;
         ++depth;
     }
-    MEMCACHED_ASSOC_FIND(key, depth);
+    MEMCACHED_ASSOC_FIND(key, nkey, depth);
     return ret;
 }
 
@@ -599,7 +599,7 @@ int assoc_insert(item *it) {
         assoc_expand();
     }
 
-    MEMCACHED_ASSOC_INSERT(ITEM_key(it), hash_items);
+    MEMCACHED_ASSOC_INSERT(ITEM_key(it), it->nkey, hash_items);
     return 1;
 }
 
@@ -612,7 +612,7 @@ void assoc_delete(const char *key, const size_t nkey) {
         /* The DTrace probe cannot be triggered as the last instruction
          * due to possible tail-optimization by the compiler
          */
-        MEMCACHED_ASSOC_DELETE(key, hash_items);
+        MEMCACHED_ASSOC_DELETE(key, nkey, hash_items);
         nxt = (*before)->h_next;
         (*before)->h_next = 0;   /* probably pointless, but whatever. */
         *before = nxt;

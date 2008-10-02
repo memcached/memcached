@@ -585,7 +585,7 @@ static void conn_set_state(conn *c, enum conn_states state) {
 
         c->state = state;
 
-        if (state == conn_write) {
+        if (state == conn_write || state == conn_mwrite) {
             MEMCACHED_PROCESS_COMMAND_END(c->sfd, c->wbuf, c->wbytes);
         }
     }
@@ -828,32 +828,39 @@ static void complete_nread_ascii(conn *c) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
       ret = store_item(it, comm, c);
-      if (ret == 1) {
-          out_string(c, "STORED");
-#ifdef HAVE_DTRACE
-          switch (comm) {
-          case NREAD_ADD:
-              MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nbytes);
-              break;
-          case NREAD_REPLACE:
-              MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nbytes);
-              break;
-          case NREAD_APPEND:
-              MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nbytes);
-              break;
-          case NREAD_PREPEND:
-              MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nbytes);
-              break;
-          case NREAD_SET:
-              MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nbytes);
-              break;
-          case NREAD_CAS:
-              MEMCACHED_COMMAND_CAS(c->sfd, ITEM_key(it), it->nbytes,
-                                    it->cas_id);
-              break;
-          }
+
+#ifdef ENABLE_DTRACE
+      switch (c->item_comm) {
+      case NREAD_ADD:
+          MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
+                                (ret == 1) ? it->nbytes : -1, it->cas_id);
+          break;
+      case NREAD_REPLACE:
+          MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
+                                    (ret == 1) ? it->nbytes : -1, it->cas_id);
+          break;
+      case NREAD_APPEND:
+          MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
+                                   (ret == 1) ? it->nbytes : -1, it->cas_id);
+          break;
+      case NREAD_PREPEND:
+          MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
+                                    (ret == 1) ? it->nbytes : -1, it->cas_id);
+          break;
+      case NREAD_SET:
+          MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
+                                (ret == 1) ? it->nbytes : -1, it->cas_id);
+          break;
+      case NREAD_CAS:
+          MEMCACHED_COMMAND_CAS(c->sfd, ITEM_key(it), it->nkey, it->nbytes,
+                                it->cas_id);
+          break;
+      }
 #endif
-      } else if(ret == 2)
+
+      if (ret == 1)
+          out_string(c, "STORED");
+      else if(ret == 2)
           out_string(c, "EXISTS");
       else if(ret == 3)
           out_string(c, "NOT_FOUND");
@@ -1091,7 +1098,34 @@ static void complete_update_bin(conn *c) {
     *(ITEM_data(it) + it->nbytes - 2) = '\r';
     *(ITEM_data(it) + it->nbytes - 1) = '\n';
 
-    switch (store_item(it, c->item_comm, c)) {
+    ret = store_item(it, c->item_comm, c);
+
+#ifdef ENABLE_DTRACE
+    switch (c->item_comm) {
+    case NREAD_ADD:
+        MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
+                              (ret == 1) ? it->nbytes : -1, it->cas_id);
+        break;
+    case NREAD_REPLACE:
+        MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
+                                  (ret == 1) ? it->nbytes : -1, it->cas_id);
+        break;
+    case NREAD_APPEND:
+        MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
+                                 (ret == 1) ? it->nbytes : -1, it->cas_id);
+        break;
+    case NREAD_PREPEND:
+        MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
+                                 (ret == 1) ? it->nbytes : -1, it->cas_id);
+        break;
+    case NREAD_SET:
+        MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
+                              (ret == 1) ? it->nbytes : -1, it->cas_id);
+        break;
+    }
+#endif
+
+    switch (ret) {
         case 1:
             /* Stored */
             write_bin_response(c, NULL, 0, 0, 0);
@@ -1144,6 +1178,8 @@ static void process_bin_get(conn *c) {
         stats.get_cmds++;
         stats.get_hits++;
         STATS_UNLOCK();
+        MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                              it->nbytes, it->cas_id);
 
         if (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
                 c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
@@ -1170,6 +1206,7 @@ static void process_bin_get(conn *c) {
         stats.get_cmds++;
         stats.get_misses++;
         STATS_UNLOCK();
+        MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
 
         if (c->cmd == PROTOCOL_BINARY_CMD_GETQ ||
                 c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
@@ -1186,6 +1223,10 @@ static void process_bin_get(conn *c) {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
             }
         }
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_get(key, nkey, NULL != it);
     }
 }
 
@@ -1314,6 +1355,8 @@ static void dispatch_bin_command(conn *c) {
     int extlen = c->binary_header.request.extlen;
     int keylen = c->binary_header.request.keylen;
     uint32_t bodylen = c->binary_header.request.bodylen;
+
+    MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
 
     switch(c->cmd) {
         case PROTOCOL_BINARY_CMD_VERSION:
@@ -1585,6 +1628,7 @@ static void process_bin_delete(conn *c) {
     if (it) {
         uint64_t cas=swap64(req->message.header.request.cas);
         if (cas == 0 || cas == it->cas_id) {
+            MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
             item_unlink(it);
             write_bin_response(c, NULL, 0, 0, 0);
         } else {
@@ -2187,8 +2231,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                 if (return_cas)
                 {
-                  MEMCACHED_COMMAND_GETS(c->sfd, ITEM_key(it), it->nbytes,
-                                         it->cas_id);
+                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                                        it->nbytes, it->cas_id);
                   /* Goofy mid-flight realloc. */
                   if (i >= c->suffixsize) {
                     char **new_suffix_list = realloc(c->suffixlist,
@@ -2227,8 +2271,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 }
                 else
                 {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nbytes);
-
+                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                                        it->nbytes, it->cas_id);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
@@ -2250,11 +2294,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
             } else {
                 stats_get_misses++;
-                if (return_cas) {
-                    MEMCACHED_COMMAND_GETS(c->sfd, key, -1, 0);
-                } else {
-                    MEMCACHED_COMMAND_GET(c->sfd, key, -1);
-                }
+                MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
             }
 
             key_token++;
@@ -2439,13 +2479,13 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
 
     if (incr) {
         value += delta;
-        MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), value);
+        MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
     } else {
         value -= delta;
         if(value < 0) {
             value = 0;
         }
-        MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), value);
+        MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
     }
     sprintf(buf, "%llu", value);
     res = strlen(buf);
@@ -2490,7 +2530,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
 
     it = item_get(key, nkey);
     if (it) {
-        MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
+        MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
         item_unlink(it);
         item_remove(it);      /* release our reference */
         out_string(c, "DELETED");
