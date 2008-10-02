@@ -352,80 +352,53 @@ char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
 
     for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i] != NULL) {
-            if (bin_prot) {
-                char key[128];
-                char val[128];
-                uint32_t nbytes = 0;
+            char key[128];
+            char val[256];
+            uint32_t nbytes = 0;
 
-                sprintf(key, "%d:number", i);
-                sprintf(val, "%u", sizes[i]);
-                nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
-                linelen += nbytes;
-                bufcurr += nbytes;
+            sprintf(key, "items:%d:number", i);
+            sprintf(val, "%u", sizes[i]);
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            linelen += nbytes;
+            bufcurr += nbytes;
 
-                sprintf(key, "%d:age", i);
-                sprintf(val, "%u", now - tails[i]->time);
-                nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
-                linelen += nbytes;
-                bufcurr += nbytes;
+            sprintf(key, "items:%d:age", i);
+            sprintf(val, "%u", now - tails[i]->time);
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            linelen += nbytes;
+            bufcurr += nbytes;
 
-                sprintf(key, "%d:evicted", i);
-                sprintf(val, "%u", itemstats[i].evicted);
-                nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
-                linelen += nbytes;
-                bufcurr += nbytes;
+            sprintf(key, "items:%d:evicted", i);
+            sprintf(val, "%u", itemstats[i].evicted);
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            linelen += nbytes;
+            bufcurr += nbytes;
 
-                sprintf(key, "%d:evicted_time", i);
-                sprintf(val, "%u", itemstats[i].evicted_time);
-                nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
-                linelen += nbytes;
-                bufcurr += nbytes;
+            sprintf(key, "items:%d:evicted_time", i);
+            sprintf(val, "%u", itemstats[i].evicted_time);
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            linelen += nbytes;
+            bufcurr += nbytes;
 
-                sprintf(key, "%d:outofmemory", i);
-                sprintf(val, "%u", itemstats[i].outofmemory);
-                nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
-                linelen += nbytes;
-                bufcurr += nbytes;
+            sprintf(key, "items:%d:outofmemory", i);
+            sprintf(val, "%u", itemstats[i].outofmemory);
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            linelen += nbytes;
+            bufcurr += nbytes;
 
-                /* check if we have enough space for termination packet */
-                if (linelen + hdrsiz < bufleft) {
-                    bufleft -= linelen;
-                } else {
-                    free(buffer);
-                    return NULL;
-                }
+            /* check whether binary protocol terminator will fit */
+            if (linelen + hdrsiz < bufleft) {
+                bufleft -= linelen;
             } else {
-                linelen = snprintf(bufcurr, bufleft,
-                    "STAT items:%d:number %u\r\n"
-                    "STAT items:%d:age %u\r\n"
-                    "STAT items:%d:evicted %u\r\n"
-                    "STAT items:%d:evicted_time %u\r\n"
-                    "STAT items:%d:outofmemory %u\r\n",
-                    i, sizes[i], i, now - tails[i]->time,
-                    i, itemstats[i].evicted,
-                    i, itemstats[i].evicted_time,
-                    i, itemstats[i].outofmemory);
-
-                if (linelen + sizeof("END\r\n") < bufleft) {
-                    bufcurr += linelen;
-                    bufleft -= linelen;
-                } else {
-                    /* The caller didn't allocate enough buffer space. */
-                    break;
-                }
+                free(buffer);
+                return NULL;
             }
         }
     }
 
-    /* append message terminator */
-    if (bin_prot) {
-        bufcurr += add_stats(bufcurr, NULL, 0, NULL, 0);
-        *bytes = linelen + hdrsiz;
-    } else {
-        memcpy(bufcurr, "END\r\n", 6);
-        bufcurr += 5;
-        *bytes = bufcurr - buffer;
-    }
+    /* getting here means both ascii and binary terminators fit */
+    linelen += add_stats(bufcurr, NULL, 0, NULL, 0);
+    *bytes = linelen;
 
     return buffer;
 }
@@ -439,6 +412,8 @@ char *do_item_stats_sizes(int *bytes, uint32_t (*add_stats)(char *buf,
     const int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
     unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
     char *buf = (char *)malloc(2 * 1024 * 1024); /* 2MB max response size */
+    char *ptr = buf;
+    uint32_t nbytes, linelen = 0;
     int i;
 
     if (histogram == 0 || buf == 0) {
@@ -463,34 +438,21 @@ char *do_item_stats_sizes(int *bytes, uint32_t (*add_stats)(char *buf,
 
     /* write the buffer */
     *bytes = 0;
-
-    /* binary protocol variables */
-    uint32_t nbytes, linelen = 0;
-    char *ptr = buf;
     char key[128];
     char val[128];
 
     for (i = 0; i < num_buckets; i++) {
         if (histogram[i] != 0) {
-            if (bin_prot) {
-                sprintf(key, "%d", i * 32);
-                sprintf(val, "%u", histogram[i]);
-                nbytes = add_stats(ptr, key, strlen(key), val, strlen(val));
-                linelen += nbytes;
-                ptr += nbytes;
-            } else {
-                *bytes += sprintf(&buf[*bytes], "%d %u\r\n", i * 32,
-                                  histogram[i]);
-            }
+            sprintf(key, "%d", i * 32);
+            sprintf(val, "%u", histogram[i]);
+            nbytes = add_stats(ptr, key, strlen(key), val, strlen(val));
+            linelen += nbytes;
+            ptr += nbytes;
         }
     }
 
-    if (bin_prot) {
-        nbytes = add_stats(ptr, NULL, 0, NULL, 0);
-        *bytes = linelen + nbytes;
-    } else {
-        *bytes += sprintf(&buf[*bytes], "END\r\n");
-    }
+    nbytes = add_stats(ptr, NULL, 0, NULL, 0);
+    *bytes = linelen + nbytes;
 
     free(histogram);
     return buf;

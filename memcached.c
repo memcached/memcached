@@ -1962,6 +1962,24 @@ static char *server_stats(bool binprot, int *buflen) {
     return buf;
 }
 
+uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
+                            const char *val, const uint32_t vlen) {
+    char *pos = buf;
+    uint32_t nbytes = 0;
+
+    /* value without a key is invalid */
+    if (buf == NULL || (klen == 0 && vlen > 0)) return 0;
+
+    if (klen == 0 && vlen == 0)
+        nbytes = sprintf(pos, "END\r\n");
+    else if (vlen == 0)
+        nbytes = sprintf(pos, "STAT %s\r\n", key);
+    else
+        nbytes = sprintf(pos, "STAT %s %s\r\n", key, val);
+
+    return nbytes;
+}
+
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     rel_time_t now = current_time;
     char *command;
@@ -1985,8 +2003,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        if ((engine_statbuf = get_stats(false, NULL, &append_bin_stats,
-                                       &engine_statlen)) == NULL) {
+        if ((engine_statbuf = get_stats(false, NULL, &append_ascii_stats,
+                                        &engine_statlen)) == NULL) {
             free(server_statbuf);
             out_string(c, "SERVER_ERROR out of memory writing stats");
             return;
@@ -1999,6 +2017,9 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         ptr += server_statlen;
         memcpy(ptr, engine_statbuf, engine_statlen);
         ptr += engine_statlen;
+
+        /* append terminator */
+        engine_statlen += append_ascii_stats(ptr, NULL, 0, NULL, 0);
 
         free(server_statbuf);
         free(engine_statbuf);
@@ -2019,7 +2040,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 #ifdef HAVE_STRUCT_MALLINFO
     if (strcmp(subcommand, "malloc") == 0) {
         int len = 0;
-        char *buf = get_stats(false, "malloc", &append_bin_stats, &len);
+        char *buf = get_stats(false, "malloc", &append_ascii_stats, &len);
         write_and_free(c, buf, len);
         return;
     }
@@ -2100,7 +2121,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     /* getting here means that the subcommand is either engine specific or
        is invalid. query the engine and see. */
     int bytes = 0;
-    char *buf = get_stats(false, subcommand, &append_bin_stats, &bytes);
+    char *buf = get_stats(false, subcommand, &append_ascii_stats, &bytes);
 
     if (buf && bytes > 0) {
         write_and_free(c, buf, bytes);
