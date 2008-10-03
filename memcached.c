@@ -2054,7 +2054,16 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        buf = malloc(server_statlen + engine_statlen);
+        /* 6 is: strlen("END\r\n") + strlen("\0") */
+        buf = calloc(1, server_statlen + engine_statlen + 6);
+
+        if (buf == NULL) {
+            free(server_statbuf);
+            free(engine_statbuf);
+            out_string(c, "SERVER_ERROR out of memory writing stats");
+            return;
+        }
+
         ptr = buf;
 
         memcpy(ptr, server_statbuf, server_statlen);
