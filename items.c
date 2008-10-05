@@ -333,9 +333,9 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     return buffer;
 }
 
-char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
+char *do_item_stats(uint32_t (*add_stats)(char *buf,
                     const char *key, const uint16_t klen, const char *val,
-                    const uint32_t vlen), bool bin_prot) {
+                    const uint32_t vlen), int *bytes) {
 
     size_t bufleft = (size_t) LARGEST_ID * 240;
     char *buffer = malloc(bufleft);
@@ -405,9 +405,9 @@ char *do_item_stats(int *bytes, uint32_t (*add_stats)(char *buf,
 
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
-char *do_item_stats_sizes(int *bytes, uint32_t (*add_stats)(char *buf,
-                          const char *key, const uint16_t klen, const char *val,
-                          const uint32_t vlen), bool bin_prot) {
+char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf, const char *key,
+                          const uint16_t klen, const char *val,
+                          const uint32_t vlen), int *bytes) {
 
     const int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
     unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
