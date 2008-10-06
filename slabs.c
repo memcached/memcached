@@ -385,61 +385,61 @@ char *get_stats(const char *stat_type, uint32_t (*add_stats)(char *buf,
         char val[128];
         uint32_t nbytes = 0;
 
-        sprintf(val, "%ld", info.arena);
+        sprintf(val, "%ld", (long)info.arena);
         nbytes = add_stats(pos, "arena_size", strlen("arena_size"), val,
                            strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.ordblks);
+        sprintf(val, "%ld", (long)info.ordblks);
         nbytes = add_stats(pos, "free_chunks", strlen("free_chunks"), val,
                            strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.smblks);
+        sprintf(val, "%ld", (long)info.smblks);
         nbytes = add_stats(pos, "fastbin_blocks", strlen("fastbin_blocks"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.hblks);
+        sprintf(val, "%ld", (long)info.hblks);
         nbytes = add_stats(pos, "mmapped_regions", strlen("mmapped_regions"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.hblkhd);
+        sprintf(val, "%ld", (long)info.hblkhd);
         nbytes = add_stats(pos, "mmapped_space", strlen("mmapped_space"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.usmblks);
+        sprintf(val, "%ld", (long)info.usmblks);
         nbytes = add_stats(pos, "max_total_alloc", strlen("max_total_alloc"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.fsmblks);
+        sprintf(val, "%ld", (long)info.fsmblks);
         nbytes = add_stats(pos, "fastbin_space", strlen("fastbin_space"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.uordblks);
+        sprintf(val, "%ld", (long)info.uordblks);
         nbytes = add_stats(pos, "total_alloc", strlen("total_alloc"), val,
                            strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.fordblks);
+        sprintf(val, "%ld", (long)info.fordblks);
         nbytes = add_stats(pos, "total_free", strlen("total_free"), val,
                             strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%ld", info.keepcost);
+        sprintf(val, "%ld", (long)info.keepcost);
         nbytes = add_stats(pos, "releasable_space",
                            strlen("releasable_space"), val, strlen(val));
         linelen += nbytes;
