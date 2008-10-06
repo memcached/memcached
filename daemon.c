@@ -38,6 +38,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "memcached.h"
+
 int daemon(int nochdir, int noclose)
 {
     int fd;

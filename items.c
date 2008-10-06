@@ -17,7 +17,7 @@
 /* Forward Declarations */
 static void item_link_q(item *it);
 static void item_unlink_q(item *it);
-static uint64_t get_cas_id();
+static uint64_t get_cas_id(void);
 
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned
@@ -49,7 +49,7 @@ void item_init(void) {
 }
 
 /* Get the next CAS id for a new item. */
-uint64_t get_cas_id() {
+uint64_t get_cas_id(void) {
     static uint64_t cas_id = 0;
     return ++cas_id;
 }

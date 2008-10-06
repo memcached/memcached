@@ -6,6 +6,7 @@ AM_INIT_AUTOMAKE(AC_PACKAGE_NAME, AC_PACKAGE_VERSION)
 AM_CONFIG_HEADER(config.h)
 
 AC_PROG_CC
+AC_PROG_CC_C99
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
@@ -216,6 +217,7 @@ if test "x$ac_cv_search_pthread_create" != "xno"; then
     ])
   ],[
     CFLAGS="-mt $CFLAGS"
+    SUNSTUDIO=true
   ])
 else
   AC_MSG_ERROR([Can't enable threads without the POSIX thread library.])
@@ -224,6 +226,18 @@ fi
 AC_CHECK_FUNCS(mlockall)
 AC_CHECK_FUNCS(getpagesizes)
 AC_CHECK_FUNCS(memcntl)
+
+dnl Let the compiler be a bit more picky. Please note that you cannot
+dnl specify these flags to the compiler before AC_CHECK_FUNCS, because
+dnl the test program will generate a compilation warning and hence fail
+dnl to detect the function ;-)
+if test "$GCC" = "yes"
+then
+  CFLAGS="$CFLAGS -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+elif test "$SUNSTUDIO" = "true"
+then
+  CFLAGS="$CFLAGS -errfmt=error -errwarn -errshort=tags"
+fi
 
 AC_CONFIG_FILES(Makefile doc/Makefile)
 AC_OUTPUT

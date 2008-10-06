@@ -54,7 +54,7 @@ extern "C"
    */
   typedef enum {
     PROTOCOL_BINARY_REQ = 0x80,
-    PROTOCOL_BINARY_RES = 0x81,
+    PROTOCOL_BINARY_RES = 0x81
   } protocol_binary_magic;
 
   /**
@@ -69,7 +69,7 @@ extern "C"
     PROTOCOL_BINARY_RESPONSE_EINVAL = 0x04,
     PROTOCOL_BINARY_RESPONSE_NOT_STORED = 0x05,
     PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND = 0x81,
-    PROTOCOL_BINARY_RESPONSE_ENOMEM = 0x82,
+    PROTOCOL_BINARY_RESPONSE_ENOMEM = 0x82
   } protocol_binary_response_status;
 
   /**
@@ -93,7 +93,7 @@ extern "C"
     PROTOCOL_BINARY_CMD_GETKQ = 0x0d,
     PROTOCOL_BINARY_CMD_APPEND = 0x0e,
     PROTOCOL_BINARY_CMD_PREPEND = 0x0f,
-    PROTOCOL_BINARY_CMD_STAT    = 0x10,
+    PROTOCOL_BINARY_CMD_STAT = 0x10
   } protocol_binary_command;
 
   /**
@@ -101,7 +101,7 @@ extern "C"
    * See section 3.4 Data Types
    */
   typedef enum {
-    PROTOCOL_BINARY_RAW_BYTES = 0x00,
+    PROTOCOL_BINARY_RAW_BYTES = 0x00
   } protocol_binary_datatypes;
 
   /**

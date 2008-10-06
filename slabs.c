@@ -264,7 +264,7 @@ void *do_slabs_alloc(const size_t size, unsigned int id) {
         assert(p->end_page_ptr != NULL);
         ret = p->end_page_ptr;
         if (--p->end_page_free != 0) {
-            p->end_page_ptr += p->size;
+            p->end_page_ptr = ((caddr_t)p->end_page_ptr) + p->size;
         } else {
             p->end_page_ptr = 0;
         }
@@ -329,7 +329,7 @@ char *get_stats(const char *stat_type, uint32_t (*add_stats)(char *buf,
         pos = buf;
 
         /* prepare general statistics for the engine */
-        sprintf(val, "%llu", stats.curr_bytes);
+        sprintf(val, "%llu", (unsigned long long)stats.curr_bytes);
         size = add_stats(pos, "bytes", strlen("bytes"), val, strlen(val));
         *buflen += size;
         pos += size;
@@ -346,7 +346,7 @@ char *get_stats(const char *stat_type, uint32_t (*add_stats)(char *buf,
         *buflen += size;
         pos += size;
 
-        sprintf(val, "%llu", stats.evictions);
+        sprintf(val, "%llu", (unsigned long long)stats.evictions);
         size = add_stats(pos, "evictions", strlen("evictions"), val,
                          strlen(val));
         *buflen += size;
@@ -385,61 +385,61 @@ char *get_stats(const char *stat_type, uint32_t (*add_stats)(char *buf,
         char val[128];
         uint32_t nbytes = 0;
 
-        sprintf(val, "%d", info.arena);
+        sprintf(val, "%ld", info.arena);
         nbytes = add_stats(pos, "arena_size", strlen("arena_size"), val,
                            strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.ordblks);
+        sprintf(val, "%ld", info.ordblks);
         nbytes = add_stats(pos, "free_chunks", strlen("free_chunks"), val,
                            strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.smblks);
+        sprintf(val, "%ld", info.smblks);
         nbytes = add_stats(pos, "fastbin_blocks", strlen("fastbin_blocks"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.hblks);
+        sprintf(val, "%ld", info.hblks);
         nbytes = add_stats(pos, "mmapped_regions", strlen("mmapped_regions"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.hblkhd);
+        sprintf(val, "%ld", info.hblkhd);
         nbytes = add_stats(pos, "mmapped_space", strlen("mmapped_space"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.usmblks);
+        sprintf(val, "%ld", info.usmblks);
         nbytes = add_stats(pos, "max_total_alloc", strlen("max_total_alloc"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.fsmblks);
+        sprintf(val, "%ld", info.fsmblks);
         nbytes = add_stats(pos, "fastbin_space", strlen("fastbin_space"),
                            val, strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.uordblks);
+        sprintf(val, "%ld", info.uordblks);
         nbytes = add_stats(pos, "total_alloc", strlen("total_alloc"), val,
                            strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.fordblks);
+        sprintf(val, "%ld", info.fordblks);
         nbytes = add_stats(pos, "total_free", strlen("total_free"), val,
                             strlen(val));
         linelen += nbytes;
         pos += nbytes;
 
-        sprintf(val, "%d", info.keepcost);
+        sprintf(val, "%ld", info.keepcost);
         nbytes = add_stats(pos, "releasable_space",
                            strlen("releasable_space"), val, strlen(val));
         linelen += nbytes;
@@ -542,7 +542,7 @@ char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
     bufcurr += nbytes;
 
     sprintf(key, "total_malloced");
-    sprintf(val, "%llu", (uint64_t)mem_malloced);
+    sprintf(val, "%llu", (unsigned long long)mem_malloced);
     nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
     linelen += nbytes;
     bufcurr += nbytes;
@@ -643,7 +643,7 @@ static void *memory_allocate(size_t size) {
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
         }
 
-        mem_current += size;
+        mem_current = ((char*)mem_current) + size;
         if (size < mem_avail) {
             mem_avail -= size;
         } else {

@@ -155,7 +155,7 @@ static void cq_push(CQ *cq, CQ_ITEM *item) {
 /*
  * Returns a fresh connection queue item.
  */
-static CQ_ITEM *cqi_new() {
+static CQ_ITEM *cqi_new(void) {
     CQ_ITEM *item = NULL;
     pthread_mutex_lock(&cqi_freelist_lock);
     if (cqi_freelist) {
@@ -321,7 +321,8 @@ static void *worker_libevent(void *arg) {
     pthread_cond_signal(&init_cond);
     pthread_mutex_unlock(&init_lock);
 
-    return (void*) event_base_loop(me->base, 0);
+    event_base_loop(me->base, 0);
+    return NULL;
 }
 
 

@@ -272,15 +272,22 @@ extern volatile rel_time_t current_time;
  * Functions
  */
 
-conn *do_conn_from_freelist();
+conn *do_conn_from_freelist(void);
 bool do_conn_add_to_freelist(conn *c);
-char *do_suffix_from_freelist();
+char *do_suffix_from_freelist(void);
 bool do_suffix_add_to_freelist(char *s);
 char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
                    char *buf);
 int do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
+uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
+                          const char *val, const uint32_t vlen);
+uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
+                            const char *val, const uint32_t vlen);
 
+#ifndef HAVE_DAEMON
+extern int daemon(int nochdir, int noclose);
+#endif
 
 #include "stats.h"
 #include "slabs.h"

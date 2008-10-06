@@ -53,10 +53,6 @@ std *
 #endif
 #endif
 
-#ifndef HAVE_DAEMON
-extern int daemon(int nochdir, int noclose);
-#endif
-
 /*
  * forward declarations
  */
@@ -759,7 +755,7 @@ static int build_udp_headers(conn *c) {
 
     hdr = c->hdrbuf;
     for (i = 0; i < c->msgused; i++) {
-        c->msglist[i].msg_iov[0].iov_base = hdr;
+        c->msglist[i].msg_iov[0].iov_base = (void*)hdr;
         c->msglist[i].msg_iov[0].iov_len = UDP_HEADER_SIZE;
         *hdr++ = c->request_id / 256;
         *hdr++ = c->request_id % 256;
@@ -769,7 +765,7 @@ static int build_udp_headers(conn *c) {
         *hdr++ = c->msgused % 256;
         *hdr++ = 0;
         *hdr++ = 0;
-        assert((void *) hdr == (void *)c->msglist[i].msg_iov[0].iov_base + UDP_HEADER_SIZE);
+        assert((void *) hdr == (caddr_t)c->msglist[i].msg_iov[0].iov_base + UDP_HEADER_SIZE);
     }
 
     return 0;
@@ -1045,7 +1041,6 @@ static void complete_incr_bin(conn *c) {
     if (it && (c->binary_header.request.cas == 0 || c->binary_header.request.cas == it->cas_id)) {
         /* Weird magic in add_delta forces me to pad here */
         char tmpbuf[INCR_MAX_STORAGE_LEN];
-        uint64_t l = 0;
         add_delta(c, it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
                   req->message.body.delta, tmpbuf);
         rsp->message.body.value = swap64(strtoull(tmpbuf, NULL, 10));
@@ -1155,7 +1150,6 @@ static void process_bin_get(conn *c) {
     item *it;
 
     protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
-    protocol_binary_request_get* req = binary_get_request(c);
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
 
@@ -1349,7 +1343,6 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
 }
 
 static void dispatch_bin_command(conn *c) {
-    time_t exptime = 0;
     int protocol_error = 0;
 
     int extlen = c->binary_header.request.extlen;
@@ -1535,7 +1528,6 @@ static void process_bin_append_prepend(conn *c) {
     int nkey;
     int vlen;
     item *it;
-    protocol_binary_request_append* req = binary_get_request(c);
 
     assert(c != NULL);
 
@@ -1607,14 +1599,12 @@ static void process_bin_flush(conn *c) {
 static void process_bin_delete(conn *c) {
     item *it;
 
-    protocol_binary_response_delete* rsp = (protocol_binary_response_delete*)c->wbuf;
     protocol_binary_request_delete* req = binary_get_request(c);
 
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
 
     assert(c != NULL);
-    assert(c->wsize >= sizeof(*rsp));
 
     if (settings.verbose) {
         fprintf(stderr, "Deleting %s\n", key);
@@ -1937,7 +1927,7 @@ static char *server_stats(bool binprot, int *buflen) {
 #endif /* !WIN32 */
 
     STATS_LOCK();
-    pos += sprintf(pos, "STAT pid %u\r\n", pid);
+    pos += sprintf(pos, "STAT pid %lu\r\n", (long)pid);
     pos += sprintf(pos, "STAT uptime %u\r\n", now);
     pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
     pos += sprintf(pos, "STAT version " VERSION "\r\n");
@@ -2025,7 +2015,6 @@ uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
-    rel_time_t now = current_time;
     char *command;
     char *subcommand;
 
@@ -2358,9 +2347,9 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     size_t nkey;
     int flags;
     time_t exptime;
-    int vlen, old_vlen;
+    int vlen;
     uint64_t req_cas_id=0;
-    item *it, *old_it;
+    item *it;
 
     assert(c != NULL);
 
@@ -2988,7 +2977,7 @@ static int transmit(conn *c) {
             /* Might have written just part of the last iovec entry;
                adjust it so the next write will do the rest. */
             if (res > 0) {
-                m->msg_iov->iov_base += res;
+                m->msg_iov->iov_base = (caddr_t)m->msg_iov->iov_base + res;
                 m->msg_iov->iov_len -= res;
             }
             return TRANSMIT_INCOMPLETE;
@@ -3274,6 +3263,10 @@ static void drive_machine(conn *c) {
             else
                 conn_close(c);
             stop = true;
+            break;
+
+        case conn_max_state:
+            assert(false);
             break;
         }
     }
@@ -3740,7 +3733,7 @@ static void sig_handler(const int sig) {
  * On systems that supports multiple page sizes we may reduce the
  * number of TLB-misses by using the biggest available page size
  */
-int enable_large_pages(void) {
+static int enable_large_pages(void) {
     int ret = -1;
     size_t sizes[32];
     int avail = getpagesizes(sizes, 32);
@@ -3789,11 +3782,9 @@ int main (int argc, char **argv) {
     struct rlimit rlim;
     /* listening sockets */
     static int *l_socket = NULL;
-    static int *bl_socket = NULL;
 
     /* udp socket */
     static int *u_socket = NULL;
-    static int u_socket_count = 0;
 
     /* handle SIGINT */
     signal(SIGINT, sig_handler);

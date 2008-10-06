@@ -21,4 +21,5 @@ missing
 stamp-h1
 tags
 cscope.out
+memcached_dtrace.h
 *~
