@@ -1033,8 +1033,10 @@ static void complete_incr_bin(conn *c) {
         for (i = 0; i < nkey; i++) {
             fprintf(stderr, "%c", key[i]);
         }
-        fprintf(stderr, " %lld, %llu, %d\n", req->message.body.delta,
-                req->message.body.initial, req->message.body.expiration);
+        fprintf(stderr, " %lld, %llu, %d\n",
+                (long long)req->message.body.delta,
+                (long long)req->message.body.initial,
+                req->message.body.expiration);
     }
 
     it = item_get(key, nkey);
@@ -1056,7 +1058,7 @@ static void complete_incr_bin(conn *c) {
 
         if (it != NULL) {
             snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu",
-                    req->message.body.initial);
+                     (unsigned long long)req->message.body.initial);
 
             if (store_item(it, NREAD_SET, c)) {
                 c->cas = it->cas_id;
@@ -1723,7 +1725,8 @@ int do_store_item(item *it, int comm, conn *c) {
         } else {
           if(settings.verbose > 1) {
             fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
-                old_it->cas_id, it->cas_id);
+                    (unsigned long long)old_it->cas_id,
+                    (unsigned long long)it->cas_id);
           }
           stored = 2;
         }
@@ -1931,7 +1934,7 @@ static char *server_stats(bool binprot, int *buflen) {
     pos += sprintf(pos, "STAT uptime %u\r\n", now);
     pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
     pos += sprintf(pos, "STAT version " VERSION "\r\n");
-    pos += sprintf(pos, "STAT pointer_size %d\r\n", 8 * sizeof(void *));
+    pos += sprintf(pos, "STAT pointer_size %d\r\n", (int)(8 * sizeof(void *)));
 #ifndef WIN32
     pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
     pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
@@ -1939,13 +1942,20 @@ static char *server_stats(bool binprot, int *buflen) {
     pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
     pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
     pos += sprintf(pos, "STAT connection_structures %u\r\n", stats.conn_structs);
-    pos += sprintf(pos, "STAT cmd_get %llu\r\n", stats.get_cmds);
-    pos += sprintf(pos, "STAT cmd_set %llu\r\n", stats.set_cmds);
-    pos += sprintf(pos, "STAT get_hits %llu\r\n", stats.get_hits);
-    pos += sprintf(pos, "STAT get_misses %llu\r\n", stats.get_misses);
-    pos += sprintf(pos, "STAT bytes_read %llu\r\n", stats.bytes_read);
-    pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
-    pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (uint64_t) settings.maxbytes);
+    pos += sprintf(pos, "STAT cmd_get %llu\r\n",
+                   (unsigned long long)stats.get_cmds);
+    pos += sprintf(pos, "STAT cmd_set %llu\r\n",
+                   (unsigned long long)stats.set_cmds);
+    pos += sprintf(pos, "STAT get_hits %llu\r\n",
+                   (unsigned long long)stats.get_hits);
+    pos += sprintf(pos, "STAT get_misses %llu\r\n",
+                   (unsigned long long)stats.get_misses);
+    pos += sprintf(pos, "STAT bytes_read %llu\r\n",
+                   (unsigned long long)stats.bytes_read);
+    pos += sprintf(pos, "STAT bytes_written %llu\r\n",
+                   (unsigned long long)stats.bytes_written);
+    pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n",
+                   (unsigned long long)settings.maxbytes);
     pos += sprintf(pos, "STAT threads %u\r\n", settings.num_threads);
     /* "END" removed since the storage related stats is appended to this output */
     STATS_UNLOCK();
@@ -2256,7 +2266,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     return;
                   }
                   *(c->suffixlist + i) = suffix;
-                  sprintf(suffix, " %llu\r\n", it->cas_id);
+                  sprintf(suffix, " %llu\r\n", (unsigned long long)it->cas_id);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
@@ -2485,7 +2495,7 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
         }
         MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
     }
-    sprintf(buf, "%llu", value);
+    sprintf(buf, "%llu", (unsigned long long)value);
     res = strlen(buf);
     if (res + 2 > it->nbytes) { /* need to realloc */
         item *new_it;

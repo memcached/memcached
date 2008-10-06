@@ -233,7 +233,7 @@ dnl the test program will generate a compilation warning and hence fail
 dnl to detect the function ;-)
 if test "$GCC" = "yes"
 then
-  CFLAGS="$CFLAGS -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
 elif test "$SUNSTUDIO" = "true"
 then
   CFLAGS="$CFLAGS -errfmt=error -errwarn -errshort=tags"

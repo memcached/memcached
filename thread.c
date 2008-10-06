@@ -98,6 +98,7 @@ static void cq_init(CQ *cq) {
     cq->tail = NULL;
 }
 
+#if 0
 /*
  * Waits for work on a connection queue.
  */
@@ -115,6 +116,7 @@ static CQ_ITEM *cq_pop(CQ *cq) {
 
     return item;
 }
+#endif
 
 /*
  * Looks for an item on a connection queue, but doesn't block if there isn't
