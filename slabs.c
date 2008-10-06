@@ -317,10 +317,8 @@ char *get_stats(const char *stat_type, uint32_t (*add_stats)(char *buf,
     int size = 0;
     *buflen = 0;
 
-    if (add_stats == NULL) {
-        free(buf);
+    if (add_stats == NULL)
         return NULL;
-    }
 
     if (!stat_type) {
         if ((buf = malloc(512)) == NULL) {
