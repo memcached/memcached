@@ -40,7 +40,7 @@
 
 #include "memcached.h"
 
-int daemon(int nochdir, int noclose)
+int daemonize(int nochdir, int noclose)
 {
     int fd;
 

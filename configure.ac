@@ -141,9 +141,6 @@ AC_SEARCH_LIBS(socket, socket)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(mallinfo, malloc)
 
-AC_CHECK_FUNC(daemon,AC_DEFINE([HAVE_DAEMON],,[Define this if you have daemon()]),[DAEMON_OBJ=daemon.o])
-AC_SUBST(DAEMON_OBJ)
-
 AC_HEADER_STDBOOL
 AC_C_CONST
 AC_CHECK_HEADER(malloc.h, AC_DEFINE(HAVE_MALLOC_H,,[do we have malloc.h?]))

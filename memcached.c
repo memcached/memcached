@@ -1936,8 +1936,8 @@ static char *server_stats(bool binprot, int *buflen) {
     pos += sprintf(pos, "STAT version " VERSION "\r\n");
     pos += sprintf(pos, "STAT pointer_size %d\r\n", (int)(8 * sizeof(void *)));
 #ifndef WIN32
-    pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", usage.ru_utime.tv_sec, usage.ru_utime.tv_usec);
-    pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", usage.ru_stime.tv_sec, usage.ru_stime.tv_usec);
+    pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", (long)usage.ru_utime.tv_sec, (long)usage.ru_utime.tv_usec);
+    pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", (long)usage.ru_stime.tv_sec, (long)usage.ru_stime.tv_usec);
 #endif /* !WIN32 */
     pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
     pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
@@ -3782,7 +3782,7 @@ static int enable_large_pages(void) {
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
-    bool daemonize = false;
+    bool do_daemonize = false;
     bool preallocate = false;
     int maxcore = 0;
     char *username = NULL;
@@ -3847,7 +3847,7 @@ int main (int argc, char **argv) {
             settings.inter= strdup(optarg);
             break;
         case 'd':
-            daemonize = true;
+            do_daemonize = true;
             break;
         case 'r':
             maxcore = 1;
@@ -3955,9 +3955,9 @@ int main (int argc, char **argv) {
 
     /* daemonize if requested */
     /* if we want to ensure our ability to dump core, don't chdir to / */
-    if (daemonize) {
+    if (do_daemonize) {
         int res;
-        res = daemon(maxcore, settings.verbose);
+        res = daemonize(maxcore, settings.verbose);
         if (res == -1) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
             return 1;
@@ -4020,7 +4020,7 @@ int main (int argc, char **argv) {
     thread_init(settings.num_threads, main_base);
     /* save the PID in if we're a daemon, do this after thread_init due to
        a file descriptor handling bug somewhere in libevent */
-    if (daemonize)
+    if (do_daemonize)
         save_pid(getpid(), pid_file);
     /* initialise clock event */
     clock_handler(0, 0, 0);
@@ -4069,7 +4069,7 @@ int main (int argc, char **argv) {
     /* enter the event loop */
     event_base_loop(main_base, 0);
     /* remove the PID file if we're a daemon */
-    if (daemonize)
+    if (do_daemonize)
         remove_pidfile(pid_file);
     /* Clean up strdup() call for bind() address */
     if (settings.inter)

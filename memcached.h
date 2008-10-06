@@ -284,10 +284,8 @@ uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
                           const char *val, const uint32_t vlen);
 uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
                             const char *val, const uint32_t vlen);
+extern int daemonize(int nochdir, int noclose);
 
-#ifndef HAVE_DAEMON
-extern int daemon(int nochdir, int noclose);
-#endif
 
 #include "stats.h"
 #include "slabs.h"

@@ -3,13 +3,13 @@ pkginclude_HEADERS = protocol_binary.h
 
 BUILT_SOURCES= @DTRACE_HEADER@
 
-memcached_SOURCES = memcached.c slabs.c slabs.h items.c items.h assoc.c assoc.h memcached.h thread.c stats.c stats.h
+memcached_SOURCES = memcached.c slabs.c slabs.h items.c items.h assoc.c assoc.h memcached.h thread.c stats.c stats.h daemon.c
 memcached_debug_SOURCES = $(memcached_SOURCES)
 memcached_CPPFLAGS = -DNDEBUG
-memcached_LDADD = @DTRACE_OBJ@ @DAEMON_OBJ@ 
-memcached_debug_LDADD = @DTRACE_DEBUG_OBJ@ @DAEMON_OBJ@
-memcached_DEPENDENCIES = @DTRACE_OBJ@ @DAEMON_OBJ@
-memcached_debug_DEPENDENCIES = @DTRACE_DEBUG_OBJ@ @DAEMON_OBJ@
+memcached_LDADD = @DTRACE_OBJ@
+memcached_debug_LDADD = @DTRACE_DEBUG_OBJ@
+memcached_DEPENDENCIES = @DTRACE_OBJ@
+memcached_debug_DEPENDENCIES = @DTRACE_DEBUG_OBJ@
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d 
@@ -25,7 +25,7 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 
 SUBDIRS = doc
 DIST_DIRS = scripts
-EXTRA_DIST = doc scripts TODO t memcached.spec daemon.c memcached_dtrace.d
+EXTRA_DIST = doc scripts TODO t memcached.spec memcached_dtrace.d
 
 test:	memcached-debug
 	prove $(srcdir)/t
