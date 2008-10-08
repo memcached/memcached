@@ -1312,13 +1312,69 @@ static void process_bin_stat(conn *c) {
     } else if (strcmp(subcommand, "reset") == 0) {
         buf = malloc(sizeof(header->response));
 
-        if (buf == NULL)
+        if (buf == NULL) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+            return;
+        }
 
         stats_reset();
 
         append_bin_stats(buf, NULL, 0, NULL, 0);
         write_and_free(c, buf, sizeof(header->response));
+    } else if (strncmp(subcommand, "detail", 6) == 0) {
+        char *subcmd_pos = subcommand + 6;
+        char *bufpos;
+        int len = 0;
+
+        if (strncmp(subcmd_pos, " dump", 5) == 0) {
+            char *dump_buf = stats_prefix_dump(&len);
+            int nbytes = 0;
+
+            if (dump_buf == NULL || len <= 0) {
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                return;
+            }
+
+            buf = malloc((sizeof(header->response) * 2) + len);
+
+            if (buf == NULL) {
+                free(dump_buf);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                return;
+            }
+
+            bufpos = buf;
+
+            nbytes = append_bin_stats(bufpos, "detailed", strlen("detailed"),
+                                      dump_buf, len);
+            bufpos += nbytes;
+            nbytes += append_bin_stats(bufpos, NULL, 0, NULL, 0);
+            free(dump_buf);
+
+            write_and_free(c, buf, nbytes);
+            return;
+        }
+
+        if ((buf = malloc(sizeof(header->response))) == NULL) {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+            return;
+        }
+
+        bufpos = buf;
+
+        if (strncmp(subcmd_pos, " on", 3) == 0) {
+            settings.detail_enabled = 1;
+        } else if (strncmp(subcmd_pos, " off", 4) == 0) {
+            settings.detail_enabled = 0;
+        } else {
+            free(buf);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            return;
+        }
+
+        len = append_bin_stats(bufpos, NULL, 0, NULL, 0);
+        write_and_free(c, buf, len);
+        return;
     } else {
         int len = 0;
         buf = get_stats(subcommand, &append_bin_stats, &len);
@@ -2053,7 +2109,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        /* 6 is: strlen("END\r\n") + strlen("\0") */
+        /* 6 is: strlen("END\r\n") + sizeof("\0") */
         buf = calloc(1, server_statlen + engine_statlen + 6);
 
         if (buf == NULL) {
