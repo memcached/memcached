@@ -19,7 +19,7 @@ if test "x$enable_dtrace" == "xyes"; then
     DTRACE_HEADER=memcached_dtrace.h
 
     # DTrace on MacOSX does not use -G option
-    dtrace -G -o conftest.$$ -s memcached_dtrace.d 2>/dev/zero
+    $DTRACE -G -o conftest.$$ -s memcached_dtrace.d 2>/dev/zero
     if test $? -eq 0
     then
         DTRACE_OBJ=memcached_dtrace.o
