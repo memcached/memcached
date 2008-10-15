@@ -98,32 +98,12 @@ static void cq_init(CQ *cq) {
     cq->tail = NULL;
 }
 
-#if 0
-/*
- * Waits for work on a connection queue.
- */
-static CQ_ITEM *cq_pop(CQ *cq) {
-    CQ_ITEM *item;
-
-    pthread_mutex_lock(&cq->lock);
-    while (NULL == cq->head)
-        pthread_cond_wait(&cq->cond, &cq->lock);
-    item = cq->head;
-    cq->head = item->next;
-    if (NULL == cq->head)
-        cq->tail = NULL;
-    pthread_mutex_unlock(&cq->lock);
-
-    return item;
-}
-#endif
-
 /*
  * Looks for an item on a connection queue, but doesn't block if there isn't
  * one.
  * Returns the item, or NULL if no item is available
  */
-static CQ_ITEM *cq_peek(CQ *cq) {
+static CQ_ITEM *cq_pop(CQ *cq) {
     CQ_ITEM *item;
 
     pthread_mutex_lock(&cq->lock);
@@ -341,7 +321,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         if (settings.verbose > 0)
             fprintf(stderr, "Can't read from libevent pipe\n");
 
-    item = cq_peek(&me->new_conn_queue);
+    item = cq_pop(&me->new_conn_queue);
 
     if (NULL != item) {
         conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
