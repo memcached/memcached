@@ -17,8 +17,8 @@ bool safe_strtoull(const char *str, unsigned long long *out) {
     return false;
   if (isspace(*endptr) || (*endptr == '\0' && endptr != str)) {
     if ((long long) ull < 0) {
-      // only check for negative signs in the uncommon case when the unsigned
-      // number is so big that it's negative as a signed number.
+      /* only check for negative signs in the uncommon case when the unsigned
+       * number is so big that it's negative as a signed number. */
       if (strchr(str, '-') != NULL) {
         return false;
       }
