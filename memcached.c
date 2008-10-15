@@ -2622,12 +2622,12 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     vlen = strtol(tokens[4].value, NULL, 10);
 
     // does cas value exist?
-    if(handle_cas) {
-      req_cas_id = strtoull(tokens[5].value, NULL, 10);
+    if (handle_cas) {
+        req_cas_id = strtoull(tokens[5].value, NULL, 10);
     }
 
-    if(errno == ERANGE || ((flags == 0 || exptime == 0) && errno == EINVAL)
-       || vlen < 0) {
+    if (errno == ERANGE || ((flags == 0 || exptime == 0) && errno == EINVAL)
+        || vlen < 0) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -2679,7 +2679,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 
     set_noreply_maybe(c, tokens, ntokens);
 
-    if(tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -2687,10 +2687,8 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    delta = strtoll(tokens[2].value, NULL, 10);
-
-    if(errno == ERANGE) {
-        out_string(c, "CLIENT_ERROR bad command line format");
+    if (!safe_strtoll(tokens[2].value, &delta)) {
+        out_string(c, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
 
@@ -2729,11 +2727,8 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
     int res;
 
     ptr = ITEM_data(it);
-    while ((*ptr != '\0') && (*ptr < '0' && *ptr > '9')) ptr++;    // BUG: can't be true
 
-    value = strtoull(ptr, NULL, 10);
-
-    if(errno == ERANGE) {
+    if (!safe_strtoull(ptr, &value)) {
         return "CLIENT_ERROR cannot increment or decrement non-numeric value";
     }
 
