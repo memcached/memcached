@@ -15,11 +15,11 @@ int  do_item_replace(item *it, item *new_it);
 char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
 char *do_item_stats(uint32_t (*add_stats)(char *buf, const char *key,
                     const uint16_t klen, const char *val,
-                    const uint32_t vlen), int *bytes);
+                    const uint32_t vlen, void *cookie), void *c, int *bytes);
 /*@null@*/
-char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf, const char *key,
-                          const uint16_t klen, const char *val,
-                          const uint32_t vlen), int *bytes);
+char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf,
+                          const char *key, const uint16_t klen, const char *val,
+                          const uint32_t vlen, void *cookie), void *c, int *bytes);
 
 void do_item_flush_expired(void);
 

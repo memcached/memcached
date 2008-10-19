@@ -67,7 +67,10 @@ static void conn_set_state(conn *c, enum conn_states state);
 /* stats */
 static void stats_reset(void);
 static void stats_init(void);
-static char *server_stats(bool binprot, int *size);
+static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
+                          const uint16_t klen, const char *val,
+                          const uint32_t vlen, void *cookie), conn *c,
+                          int *buflen);
 
 /* defaults */
 static void settings_init(void);
@@ -1227,11 +1230,12 @@ static void process_bin_get(conn *c) {
 }
 
 uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
-                          const char *val, const uint32_t vlen) {
+                          const char *val, const uint32_t vlen, void *cookie) {
     protocol_binary_response_header *header;
     char *ptr = buf;
     uint32_t bodylen = klen + vlen;
     header = (protocol_binary_response_header *)ptr;
+    conn *c = (conn *)cookie;
 
     header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
     header->response.opcode = PROTOCOL_BINARY_CMD_STAT;
@@ -1240,8 +1244,8 @@ uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
     header->response.datatype = (uint8_t)PROTOCOL_BINARY_RAW_BYTES;
     header->response.status = (uint16_t)htons(0);
     header->response.bodylen = htonl(bodylen);
-    header->response.opaque = htonl(0);
-    header->response.cas = swap64(0); /* this can be anything... */
+    header->response.opaque = c->opaque;
+    header->response.cas = swap64(0);
     ptr += sizeof(header->response);
 
     if (klen > 0) {
@@ -1276,12 +1280,13 @@ static void process_bin_stat(conn *c) {
         int server_statlen, engine_statlen;
         char *ptr, *server_statbuf, *engine_statbuf;
 
-        if ((server_statbuf = server_stats(true, &server_statlen)) == NULL) {
+        if ((server_statbuf = server_stats(&append_bin_stats, (void *)c,
+                                           &server_statlen)) == NULL) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
             return;
         }
 
-        if ((engine_statbuf = get_stats(NULL, &append_bin_stats,
+        if ((engine_statbuf = get_stats(NULL, &append_bin_stats, (void *)c,
                                         &engine_statlen)) == NULL) {
             free(server_statbuf);
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
@@ -1304,7 +1309,8 @@ static void process_bin_stat(conn *c) {
         memcpy(ptr, engine_statbuf, engine_statlen);
         ptr += engine_statlen;
 
-        append_bin_stats(ptr, NULL, 0, NULL, 0); /* append termination packet */
+        /* append termination packet */
+        append_bin_stats(ptr, NULL, 0, NULL, 0, (void *)c);
 
         free(server_statbuf);
         free(engine_statbuf);
@@ -1319,7 +1325,7 @@ static void process_bin_stat(conn *c) {
 
         stats_reset();
 
-        append_bin_stats(buf, NULL, 0, NULL, 0);
+        append_bin_stats(buf, NULL, 0, NULL, 0, (void *)c);
         write_and_free(c, buf, sizeof(header->response));
     } else if (strncmp(subcommand, "detail", 6) == 0) {
         char *subcmd_pos = subcommand + 6;
@@ -1346,9 +1352,9 @@ static void process_bin_stat(conn *c) {
             bufpos = buf;
 
             nbytes = append_bin_stats(bufpos, "detailed", strlen("detailed"),
-                                      dump_buf, len);
+                                      dump_buf, len, (void *)c);
             bufpos += nbytes;
-            nbytes += append_bin_stats(bufpos, NULL, 0, NULL, 0);
+            nbytes += append_bin_stats(bufpos, NULL, 0, NULL, 0, (void *)c);
             free(dump_buf);
 
             write_and_free(c, buf, nbytes);
@@ -1372,12 +1378,12 @@ static void process_bin_stat(conn *c) {
             return;
         }
 
-        len = append_bin_stats(bufpos, NULL, 0, NULL, 0);
+        len = append_bin_stats(bufpos, NULL, 0, NULL, 0, (void *)c);
         write_and_free(c, buf, len);
         return;
     } else {
         int len = 0;
-        buf = get_stats(subcommand, &append_bin_stats, &len);
+        buf = get_stats(subcommand, &append_bin_stats, (void *)c, &len);
         memset(subcommand, 0, strlen(subcommand));
 
         /* len is set to -1 in get_stats if memory couldn't be allocated */
@@ -1972,11 +1978,17 @@ inline static void process_stats_detail(conn *c, const char *command) {
 }
 
 /* return server specific stats only */
-static char *server_stats(bool binprot, int *buflen) {
+static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
+                          const uint16_t klen, const char *val,
+                          const uint32_t vlen, void *cookie), conn *c,
+                          int *buflen) {
     char temp[1024];
-    char *buf;
-    pid_t pid = getpid();
+    char val[128];
+    char *buf = NULL;
     char *pos = temp;
+    size_t nbytes;
+    int vlen = 0;
+    pid_t pid = getpid();
     rel_time_t now = current_time;
     *buflen = 0;
 
@@ -1986,84 +1998,126 @@ static char *server_stats(bool binprot, int *buflen) {
 #endif /* !WIN32 */
 
     STATS_LOCK();
-    pos += sprintf(pos, "STAT pid %lu\r\n", (long)pid);
-    pos += sprintf(pos, "STAT uptime %u\r\n", now);
-    pos += sprintf(pos, "STAT time %ld\r\n", now + stats.started);
-    pos += sprintf(pos, "STAT version " VERSION "\r\n");
-    pos += sprintf(pos, "STAT pointer_size %d\r\n", (int)(8 * sizeof(void *)));
+    memset(val, 0, 128);
+
+    vlen = sprintf(val, "%lu", (long)pid);
+    nbytes = add_stats(pos, "pid", strlen("pid"), val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%u", now);
+    nbytes = add_stats(pos, "uptime", strlen("uptime"), val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%ld", now + stats.started);
+    nbytes = add_stats(pos, "time", strlen("time"), val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    nbytes = add_stats(pos, "version", strlen("version"), VERSION,
+                       strlen(VERSION), (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%d", (int)(8 * sizeof(void *)));
+    nbytes = add_stats(pos, "pointer_size", strlen("pointer_size"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
 #ifndef WIN32
-    pos += sprintf(pos, "STAT rusage_user %ld.%06ld\r\n", (long)usage.ru_utime.tv_sec, (long)usage.ru_utime.tv_usec);
-    pos += sprintf(pos, "STAT rusage_system %ld.%06ld\r\n", (long)usage.ru_stime.tv_sec, (long)usage.ru_stime.tv_usec);
+    vlen = sprintf(val, "%ld.%06ld", (long)usage.ru_utime.tv_sec,
+                   (long)usage.ru_utime.tv_usec);
+    nbytes = add_stats(pos, "rusage_user", strlen("rusage_user"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%ld.%06ld", (long)usage.ru_stime.tv_sec,
+                   (long)usage.ru_stime.tv_usec);
+    nbytes = add_stats(pos, "rusage_system", strlen("rusage_system"), val,
+                       vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
 #endif /* !WIN32 */
-    pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
-    pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
-    pos += sprintf(pos, "STAT connection_structures %u\r\n", stats.conn_structs);
-    pos += sprintf(pos, "STAT cmd_get %llu\r\n",
-                   (unsigned long long)stats.get_cmds);
-    pos += sprintf(pos, "STAT cmd_set %llu\r\n",
-                   (unsigned long long)stats.set_cmds);
-    pos += sprintf(pos, "STAT get_hits %llu\r\n",
-                   (unsigned long long)stats.get_hits);
-    pos += sprintf(pos, "STAT get_misses %llu\r\n",
-                   (unsigned long long)stats.get_misses);
-    pos += sprintf(pos, "STAT bytes_read %llu\r\n",
-                   (unsigned long long)stats.bytes_read);
-    pos += sprintf(pos, "STAT bytes_written %llu\r\n",
-                   (unsigned long long)stats.bytes_written);
-    pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n",
-                   (unsigned long long)settings.maxbytes);
-    pos += sprintf(pos, "STAT threads %u\r\n", settings.num_threads);
-    /* "END" removed since the storage related stats is appended to this output */
-    STATS_UNLOCK();
 
-    /* our work is done for ascii protocol */
-    if(!binprot) {
-        if((buf = malloc(strlen(temp))) == NULL)
-            return NULL;
+    vlen = sprintf(val, "%u", stats.curr_conns - 1); /* ignore listening conn */
+    nbytes = add_stats(pos, "curr_connections", strlen("curr_connections"),
+                       val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
 
-        *buflen = strlen(temp);
-        memcpy(buf, temp, strlen(temp));
-        return buf;
-    }
+    vlen = sprintf(val, "%u", stats.total_conns);
+    nbytes = add_stats(pos, "total_connections", strlen("total_connections"),
+                       val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
 
-    /* from here on is for the binary protocol */
-    if((buf = malloc(1024)) == NULL)
+    vlen = sprintf(val, "%u", stats.conn_structs);
+    nbytes = add_stats(pos, "connection_structures",
+                       strlen("connection_structures"), val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)stats.get_cmds);
+    nbytes = add_stats(pos, "cmd_get", strlen("cmd_get"), val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)stats.set_cmds);
+    nbytes = add_stats(pos, "cmd_set", strlen("cmd_set"), val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)stats.get_hits);
+    nbytes = add_stats(pos, "get_hits", strlen("get_hits"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)stats.get_misses);
+    nbytes = add_stats(pos, "get_misses", strlen("get_misses"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)stats.bytes_read);
+    nbytes = add_stats(pos, "bytes_read", strlen("bytes_read"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)stats.bytes_written);
+    nbytes = add_stats(pos, "bytes_written", strlen("bytes_written"), val,
+                       vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)settings.maxbytes);
+    nbytes = add_stats(pos, "limit_maxbytes", strlen("limit_maxbytes"), val,
+                       vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%u", settings.num_threads);
+    nbytes = add_stats(pos, "threads", strlen("threads"), val, vlen, (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    if(*buflen > 0 && (buf = malloc(*buflen)) == NULL) {
+        STATS_UNLOCK();
         return NULL;
-
-    char *end_attr, *end_row, *end_stats;
-    char *bufptr = buf;
-    char key[128];
-    char val[256];
-    uint32_t bodylen;
-
-    pos = temp;
-    end_stats = strchr(pos, '\0');
-
-    while(pos < end_stats) {
-        memset(key, 0, 128);
-        memset(val, 0, 256);
-
-        end_row = strchr(pos, '\n');
-        pos += strlen("STATS");
-
-        for (end_attr = pos; isgraph(*end_attr); end_attr++);
-        memcpy(key, pos, (size_t)(end_attr - pos));
-
-        pos = end_attr + 1;
-        for (end_attr = pos; !(isspace(*end_attr)); end_attr++);
-        memcpy(val, pos, (size_t)(end_attr - pos));
-
-        pos = end_row + 1; /* increment pointer to next row */
-        bodylen = append_bin_stats(bufptr, key, strlen(key), val, strlen(val));
-        bufptr += bodylen;
-        *buflen += bodylen;
     }
+
+    memcpy(buf, temp, *buflen);
+    STATS_UNLOCK();
 
     return buf;
 }
 
 uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
-                            const char *val, const uint32_t vlen) {
+                            const char *val, const uint32_t vlen, void *cookie) {
     char *pos = buf;
     uint32_t nbytes = 0;
 
@@ -2094,23 +2148,24 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     command = tokens[COMMAND_TOKEN].value;
 
     if (ntokens == 2 && strcmp(command, "stats") == 0) {
-        int server_statlen, engine_statlen;
+        int server_len, engine_len;
         char *buf, *ptr, *server_statbuf, *engine_statbuf;
 
-        if ((server_statbuf = server_stats(false, &server_statlen)) == NULL) {
+        if ((server_statbuf = server_stats(&append_ascii_stats, c,
+                                           &server_len)) == NULL) {
             out_string(c, "SERVER_ERROR out of memory writing stats");
             return;
         }
 
-        if ((engine_statbuf = get_stats(NULL, &append_ascii_stats,
-                                        &engine_statlen)) == NULL) {
+        if ((engine_statbuf = get_stats(NULL, &append_ascii_stats, (void *)c,
+                                        &engine_len)) == NULL) {
             free(server_statbuf);
             out_string(c, "SERVER_ERROR out of memory writing stats");
             return;
         }
 
         /* 6 is: strlen("END\r\n") + sizeof("\0") */
-        buf = calloc(1, server_statlen + engine_statlen + 6);
+        buf = calloc(1, server_len + engine_len + 6);
 
         if (buf == NULL) {
             free(server_statbuf);
@@ -2121,18 +2176,18 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
         ptr = buf;
 
-        memcpy(ptr, server_statbuf, server_statlen);
-        ptr += server_statlen;
-        memcpy(ptr, engine_statbuf, engine_statlen);
-        ptr += engine_statlen;
+        memcpy(ptr, server_statbuf, server_len);
+        ptr += server_len;
+        memcpy(ptr, engine_statbuf, engine_len);
+        ptr += engine_len;
 
         /* append terminator */
-        engine_statlen += append_ascii_stats(ptr, NULL, 0, NULL, 0);
+        engine_len += append_ascii_stats(ptr, NULL, 0, NULL, 0, (void *)c);
 
         free(server_statbuf);
         free(engine_statbuf);
 
-        write_and_free(c, buf, server_statlen + engine_statlen);
+        write_and_free(c, buf, server_len + engine_len);
         return;
     }
 
@@ -2148,7 +2203,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 #ifdef HAVE_STRUCT_MALLINFO
     if (strcmp(subcommand, "malloc") == 0) {
         int len = 0;
-        char *buf = get_stats("malloc", &append_ascii_stats, &len);
+        char *buf = get_stats("malloc", &append_ascii_stats, (void *)c, &len);
         write_and_free(c, buf, len);
         return;
     }
@@ -2229,7 +2284,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     /* getting here means that the subcommand is either engine specific or
        is invalid. query the engine and see. */
     int bytes = 0;
-    char *buf = get_stats(subcommand, &append_ascii_stats, &bytes);
+    char *buf = get_stats(subcommand, &append_ascii_stats, (void *)c, &bytes);
 
     if (buf && bytes > 0) {
         write_and_free(c, buf, bytes);

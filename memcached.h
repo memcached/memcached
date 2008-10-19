@@ -281,9 +281,9 @@ char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
 int do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
 uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
-                          const char *val, const uint32_t vlen);
+                          const char *val, const uint32_t vlen, void *cookie);
 uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
-                            const char *val, const uint32_t vlen);
+                            const char *val, const uint32_t vlen, void *cookie);
 extern int daemonize(int nochdir, int noclose);
 
 
@@ -323,10 +323,10 @@ void  item_remove(item *it);
 int   item_replace(item *it, item *new_it);
 char *item_stats(uint32_t (*add_stats)(char *buf, const char *key,
                  const uint16_t klen, const char *val,
-                 const uint32_t vlen), int *bytes);
-char *item_stats_sizes(uint32_t (*add_stats)(char *buf, const char *key,
-                       const uint16_t klen, const char *val,
-                       const uint32_t vlen), int *bytes);
+                 const uint32_t vlen, void *cookie), void *c, int *bytes);
+char *item_stats_sizes(uint32_t (*add_stats)(char *buf,
+                       const char *key, const uint16_t klen, const char *val,
+                       const uint32_t vlen, void *cookie), void *c, int *bytes);
 void  item_unlink(item *it);
 void  item_update(item *it);
 void *slabs_alloc(size_t size, unsigned int id);
@@ -334,7 +334,7 @@ void  slabs_free(void *ptr, size_t size, unsigned int id);
 int   slabs_reassign(unsigned char srcid, unsigned char dstid);
 char *slabs_stats(uint32_t (*add_stats)(char *buf,
                   const char *key, const uint16_t klen, const char *val,
-                  const uint32_t vlen), int *buflen);
+                  const uint32_t vlen, void *cookie), void *c, int *buflen);
 void  STATS_LOCK(void);
 void  STATS_UNLOCK(void);
 int   store_item(item *item, int comm, conn *c);

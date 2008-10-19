@@ -335,7 +335,7 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
 
 char *do_item_stats(uint32_t (*add_stats)(char *buf,
                     const char *key, const uint16_t klen, const char *val,
-                    const uint32_t vlen), int *bytes) {
+                    const uint32_t vlen, void *cookie), void *c, int *bytes) {
 
     size_t bufleft = (size_t) LARGEST_ID * 240;
     char *buffer = malloc(bufleft);
@@ -358,31 +358,31 @@ char *do_item_stats(uint32_t (*add_stats)(char *buf,
 
             sprintf(key, "items:%d:number", i);
             sprintf(val, "%u", sizes[i]);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
             bufcurr += nbytes;
 
             sprintf(key, "items:%d:age", i);
             sprintf(val, "%u", now - tails[i]->time);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
             bufcurr += nbytes;
 
             sprintf(key, "items:%d:evicted", i);
             sprintf(val, "%u", itemstats[i].evicted);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
             bufcurr += nbytes;
 
             sprintf(key, "items:%d:evicted_time", i);
             sprintf(val, "%u", itemstats[i].evicted_time);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
             bufcurr += nbytes;
 
             sprintf(key, "items:%d:outofmemory", i);
             sprintf(val, "%u", itemstats[i].outofmemory);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val));
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
             bufcurr += nbytes;
 
@@ -397,7 +397,7 @@ char *do_item_stats(uint32_t (*add_stats)(char *buf,
     }
 
     /* getting here means both ascii and binary terminators fit */
-    linelen += add_stats(bufcurr, NULL, 0, NULL, 0);
+    linelen += add_stats(bufcurr, NULL, 0, NULL, 0, c);
     *bytes = linelen;
 
     return buffer;
@@ -405,9 +405,9 @@ char *do_item_stats(uint32_t (*add_stats)(char *buf,
 
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
-char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf, const char *key,
-                          const uint16_t klen, const char *val,
-                          const uint32_t vlen), int *bytes) {
+char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf,
+                          const char *key, const uint16_t klen, const char *val,
+                          const uint32_t vlen, void *cookie), void *c, int *bytes) {
 
     const int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
     unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
@@ -445,13 +445,13 @@ char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf, const char *key,
         if (histogram[i] != 0) {
             sprintf(key, "%d", i * 32);
             sprintf(val, "%u", histogram[i]);
-            nbytes = add_stats(ptr, key, strlen(key), val, strlen(val));
+            nbytes = add_stats(ptr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
             ptr += nbytes;
         }
     }
 
-    nbytes = add_stats(ptr, NULL, 0, NULL, 0);
+    nbytes = add_stats(ptr, NULL, 0, NULL, 0, c);
     *bytes = linelen + nbytes;
 
     free(histogram);

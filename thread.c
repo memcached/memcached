@@ -506,12 +506,12 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
  * Dumps statistics about slab classes
  */
 char *item_stats(uint32_t (*add_stats)(char *buf, const char *key,
-                 const uint16_t klen, const char *val, const uint32_t vlen),
-                 int *bytes) {
+                 const uint16_t klen, const char *val, const uint32_t vlen,
+                 void *cookie), void *c, int *bytes) {
     char *ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_item_stats(add_stats, bytes);
+    ret = do_item_stats(add_stats, c, bytes);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }
@@ -519,13 +519,13 @@ char *item_stats(uint32_t (*add_stats)(char *buf, const char *key,
 /*
  * Dumps a list of objects of each size in 32-byte increments
  */
-char *item_stats_sizes(uint32_t (*add_stats)(char *buf, const char *key,
-                       const uint16_t klen, const char *val,
-                       const uint32_t vlen), int *bytes) {
+char *item_stats_sizes(uint32_t (*add_stats)(char *buf,
+                       const char *key, const uint16_t klen, const char *val,
+                       const uint32_t vlen, void *cookie), void *c, int *bytes) {
     char *ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_item_stats_sizes(add_stats, bytes);
+    ret = do_item_stats_sizes(add_stats, c, bytes);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }
@@ -555,13 +555,13 @@ void slabs_free(void *ptr, size_t size, unsigned int id) {
     pthread_mutex_unlock(&slabs_lock);
 }
 
-char *slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
-                  const uint16_t klen, const char *val,
-                  const uint32_t vlen), int *buflen) {
+char *slabs_stats(uint32_t (*add_stats)(char *buf,
+                  const char *key, const uint16_t klen, const char *val,
+                  const uint32_t vlen, void *cookie), void *c, int *buflen) {
     char *ret;
 
     pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_stats(add_stats, buflen);
+    ret = do_slabs_stats(add_stats, c, buflen);
     pthread_mutex_unlock(&slabs_lock);
     return ret;
 }

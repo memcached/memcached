@@ -257,7 +257,7 @@ sub _do_command {
     $extra_header = '' unless defined $extra_header;
     my $opaque = int(rand(2**32));
     $self->send_command($cmd, $key, $val, $opaque, $extra_header, $cas);
-    (undef, my $rv, my $rcas) = $self->_handle_single_response($opaque);
+    my (undef, $rv, $rcas) = $self->_handle_single_response($opaque);
     return ($rv, $rcas);
 }
 
