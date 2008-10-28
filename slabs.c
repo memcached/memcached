@@ -308,7 +308,13 @@ void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     return;
 }
 
-char *get_stats(const char *stat_type, uint32_t (*add_stats)(char *buf,
+static int nz_strcmp(int nzlength, const char *nz, const char *z) {
+    int zlength=strlen(z);
+    return (zlength == nzlength) && (strncmp(nz, z, zlength) == 0) ? 0 : -1;
+}
+
+char *get_stats(const char *stat_type, int nkey,
+                uint32_t (*add_stats)(char *buf,
                 const char *key, const uint16_t klen, const char *val,
                 const uint32_t vlen, void *cookie), void *c, int *buflen) {
     char *buf, *pos;
@@ -350,15 +356,15 @@ char *get_stats(const char *stat_type, uint32_t (*add_stats)(char *buf,
         pos += size;
 
         return buf;
-    } else if (strcmp(stat_type, "items") == 0) {
+    } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
         buf = item_stats(add_stats, c, &size);
         *buflen = size;
         return buf;
-    } else if (strcmp(stat_type, "slabs") == 0) {
+    } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
         buf = slabs_stats(add_stats, c, &size);
         *buflen = size;
         return buf;
-    } else if (strcmp(stat_type, "sizes") == 0) {
+    } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
         buf = item_stats_sizes(add_stats, c, &size);
         *buflen = size;
         return buf;

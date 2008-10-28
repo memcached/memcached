@@ -1286,7 +1286,7 @@ static void process_bin_stat(conn *c) {
             return;
         }
 
-        if ((engine_statbuf = get_stats(NULL, &append_bin_stats, (void *)c,
+        if ((engine_statbuf = get_stats(NULL, 0, &append_bin_stats, (void *)c,
                                         &engine_statlen)) == NULL) {
             free(server_statbuf);
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
@@ -1383,7 +1383,7 @@ static void process_bin_stat(conn *c) {
         return;
     } else {
         int len = 0;
-        buf = get_stats(subcommand, &append_bin_stats, (void *)c, &len);
+        buf = get_stats(subcommand, nkey, &append_bin_stats, (void *)c, &len);
         memset(subcommand, 0, strlen(subcommand));
 
         /* len is set to -1 in get_stats if memory couldn't be allocated */
@@ -2157,7 +2157,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        if ((engine_statbuf = get_stats(NULL, &append_ascii_stats, (void *)c,
+        if ((engine_statbuf = get_stats(NULL, 0, &append_ascii_stats, (void *)c,
                                         &engine_len)) == NULL) {
             free(server_statbuf);
             out_string(c, "SERVER_ERROR out of memory writing stats");
@@ -2203,7 +2203,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 #ifdef HAVE_STRUCT_MALLINFO
     if (strcmp(subcommand, "malloc") == 0) {
         int len = 0;
-        char *buf = get_stats("malloc", &append_ascii_stats, (void *)c, &len);
+        char *buf = get_stats("malloc", strlen("malloc"),
+            &append_ascii_stats, (void *)c, &len);
         write_and_free(c, buf, len);
         return;
     }
@@ -2284,7 +2285,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     /* getting here means that the subcommand is either engine specific or
        is invalid. query the engine and see. */
     int bytes = 0;
-    char *buf = get_stats(subcommand, &append_ascii_stats, (void *)c, &bytes);
+    char *buf = get_stats(subcommand, strlen(subcommand),
+        &append_ascii_stats, (void *)c, &bytes);
 
     if (buf && bytes > 0) {
         write_and_free(c, buf, bytes);
