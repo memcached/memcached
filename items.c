@@ -90,6 +90,9 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     item *it;
     char suffix[40];
     size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
+    if (settings.use_cas) {
+        ntotal += sizeof(uint64_t);
+    }
 
     unsigned int id = slabs_clsid(ntotal);
     if (id == 0)
@@ -150,7 +153,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     it->next = it->prev = it->h_next = 0;
     it->refcount = 1;     /* the caller will have a reference */
     DEBUG_REFCNT(it, '*');
-    it->it_flags = 0;
+    it->it_flags = settings.use_cas ? ITEM_CAS : 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
     memcpy(ITEM_key(it), key, nkey);
@@ -244,7 +247,7 @@ int do_item_link(item *it) {
     STATS_UNLOCK();
 
     /* Allocate a new CAS ID on link. */
-    it->cas_id = get_cas_id();
+    ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
 
     item_link_q(it);
 

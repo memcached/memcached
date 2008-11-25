@@ -103,12 +103,14 @@ struct settings {
     int detail_enabled;     /* nonzero if we're collecting detailed stats */
     int reqs_per_event;     /* Maximum number of io to process on each
                                io-event. */
+    bool use_cas;
 };
 
 extern struct stats stats;
 extern struct settings settings;
 
 #define ITEM_LINKED 1
+#define ITEM_CAS 2
 
 /* temp */
 #define ITEM_SLABBED 4
@@ -125,18 +127,29 @@ typedef struct _stritem {
     uint8_t         it_flags;   /* ITEM_* above */
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
-    uint64_t        cas_id;     /* the CAS identifier */
     void * end[];
+    /* if it_flags & ITEM_CAS we have 8 bytes CAS */
     /* then null-terminated key */
     /* then " flags length\r\n" (no terminating null) */
     /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
 
-#define ITEM_key(item) ((char*)&((item)->end[0]))
-
 /* warning: don't use these macros with a function, as it evals its arg twice */
-#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey + 1)
-#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 + (item)->nsuffix)
+#define ITEM_get_cas(i) ((uint64_t)(((i)->it_flags & ITEM_CAS) ? \
+                                    *(uint64_t*)&((i)->end[0]) : 0x0))
+#define ITEM_set_cas(i,v) { if ((i)->it_flags & ITEM_CAS) { \
+                          *(uint64_t*)&((i)->end[0]) = v; } }
+
+#define ITEM_key(item) (((char*)&((item)->end[0])) \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
+#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
+#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
+         + (item)->nsuffix \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 + (item)->nsuffix + (item)->nbytes)
 
 /**

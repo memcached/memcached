@@ -111,6 +111,7 @@ static struct event_base *main_base;
 #define TRANSMIT_HARD_ERROR 3
 
 #define REALTIME_MAXDELTA 60*60*24*30
+
 /*
  * given time value that's either unix time or delta from current unix time, return
  * unix time. Use the fact that delta can't exceed one month (and real time value can't
@@ -159,6 +160,7 @@ static void stats_reset(void) {
 }
 
 static void settings_init(void) {
+    settings.use_cas = true;
     settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 11211;
@@ -829,30 +831,31 @@ static void complete_nread_ascii(conn *c) {
       ret = store_item(it, comm, c);
 
 #ifdef ENABLE_DTRACE
+      uint64_t cas = ITEM_get_cas(it);
       switch (c->item_comm) {
       case NREAD_ADD:
           MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
-                                (ret == 1) ? it->nbytes : -1, it->cas_id);
+                                (ret == 1) ? it->nbytes : -1, cas);
           break;
       case NREAD_REPLACE:
           MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
-                                    (ret == 1) ? it->nbytes : -1, it->cas_id);
+                                    (ret == 1) ? it->nbytes : -1, cas);
           break;
       case NREAD_APPEND:
           MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
-                                   (ret == 1) ? it->nbytes : -1, it->cas_id);
+                                   (ret == 1) ? it->nbytes : -1, cas);
           break;
       case NREAD_PREPEND:
           MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
-                                    (ret == 1) ? it->nbytes : -1, it->cas_id);
+                                    (ret == 1) ? it->nbytes : -1, cas);
           break;
       case NREAD_SET:
           MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
-                                (ret == 1) ? it->nbytes : -1, it->cas_id);
+                                (ret == 1) ? it->nbytes : -1, cas);
           break;
       case NREAD_CAS:
           MEMCACHED_COMMAND_CAS(c->sfd, ITEM_key(it), it->nkey, it->nbytes,
-                                it->cas_id);
+                                cas);
           break;
       }
 #endif
@@ -1043,13 +1046,14 @@ static void complete_incr_bin(conn *c) {
     }
 
     it = item_get(key, nkey);
-    if (it && (c->binary_header.request.cas == 0 || c->binary_header.request.cas == it->cas_id)) {
+    if (it && (c->binary_header.request.cas == 0 ||
+               c->binary_header.request.cas == ITEM_get_cas(it))) {
         /* Weird magic in add_delta forces me to pad here */
         char tmpbuf[INCR_MAX_STORAGE_LEN];
         add_delta(c, it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
                   req->message.body.delta, tmpbuf);
         rsp->message.body.value = swap64(strtoull(tmpbuf, NULL, 10));
-        c->cas = it->cas_id;
+        c->cas = ITEM_get_cas(it);
         write_bin_response(c, &rsp->message.body, 0, 0,
                            sizeof(rsp->message.body.value));
         item_remove(it);         /* release our reference */
@@ -1064,7 +1068,7 @@ static void complete_incr_bin(conn *c) {
                      (unsigned long long)req->message.body.initial);
 
             if (store_item(it, NREAD_SET, c)) {
-                c->cas = it->cas_id;
+                c->cas = ITEM_get_cas(it);
                 write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
             } else {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED, 0);
@@ -1101,26 +1105,27 @@ static void complete_update_bin(conn *c) {
     ret = store_item(it, c->item_comm, c);
 
 #ifdef ENABLE_DTRACE
+    uint64_t cas = ITEM_get_cas(it);
     switch (c->item_comm) {
     case NREAD_ADD:
         MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
-                              (ret == 1) ? it->nbytes : -1, it->cas_id);
+                              (ret == 1) ? it->nbytes : -1, cas);
         break;
     case NREAD_REPLACE:
         MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
-                                  (ret == 1) ? it->nbytes : -1, it->cas_id);
+                                  (ret == 1) ? it->nbytes : -1, cas);
         break;
     case NREAD_APPEND:
         MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
-                                 (ret == 1) ? it->nbytes : -1, it->cas_id);
+                                 (ret == 1) ? it->nbytes : -1, cas);
         break;
     case NREAD_PREPEND:
         MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
-                                 (ret == 1) ? it->nbytes : -1, it->cas_id);
+                                 (ret == 1) ? it->nbytes : -1, cas);
         break;
     case NREAD_SET:
         MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
-                              (ret == 1) ? it->nbytes : -1, it->cas_id);
+                              (ret == 1) ? it->nbytes : -1, cas);
         break;
     }
 #endif
@@ -1178,7 +1183,7 @@ static void process_bin_get(conn *c) {
         stats.get_hits++;
         STATS_UNLOCK();
         MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                              it->nbytes, it->cas_id);
+                              it->nbytes, ITEM_get_cas(it));
 
         if (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
                 c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
@@ -1186,7 +1191,7 @@ static void process_bin_get(conn *c) {
             keylen = nkey;
         }
         add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
-        rsp->message.header.response.cas = swap64(it->cas_id);
+        rsp->message.header.response.cas = swap64(ITEM_get_cas(it));
 
         // add the flags
         rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
@@ -1560,7 +1565,7 @@ static void process_bin_update(conn *c) {
         return;
     }
 
-    it->cas_id = c->binary_header.request.cas;
+    ITEM_set_cas(it, c->binary_header.request.cas);
 
     switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_ADD:
@@ -1576,7 +1581,7 @@ static void process_bin_update(conn *c) {
             assert(0);
     }
 
-    if (it->cas_id != 0) {
+    if (ITEM_get_cas(it) != 0) {
         c->item_comm = NREAD_CAS;
     }
 
@@ -1620,7 +1625,7 @@ static void process_bin_append_prepend(conn *c) {
         return;
     }
 
-    it->cas_id = c->binary_header.request.cas;
+    ITEM_set_cas(it, c->binary_header.request.cas);
 
     switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_APPEND:
@@ -1681,7 +1686,7 @@ static void process_bin_delete(conn *c) {
     it = item_get(key, nkey);
     if (it) {
         uint64_t cas=swap64(req->message.header.request.cas);
-        if (cas == 0 || cas == it->cas_id) {
+        if (cas == 0 || cas == ITEM_get_cas(it)) {
             MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
             item_unlink(it);
             write_bin_response(c, NULL, 0, 0, 0);
@@ -1780,15 +1785,15 @@ int do_store_item(item *it, int comm, conn *c) {
           // LRU expired
           stored = 3;
         }
-        else if(it->cas_id == old_it->cas_id) {
+        else if (ITEM_get_cas(it) == ITEM_get_cas(old_it)) {
           // cas validates
           item_replace(old_it, it);
           stored = 1;
         } else {
           if(settings.verbose > 1) {
             fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
-                    (unsigned long long)old_it->cas_id,
-                    (unsigned long long)it->cas_id);
+                    (unsigned long long)ITEM_get_cas(old_it),
+                    (unsigned long long)ITEM_get_cas(it));
           }
           stored = 2;
         }
@@ -1801,9 +1806,9 @@ int do_store_item(item *it, int comm, conn *c) {
             /*
              * Validate CAS
              */
-            if (it->cas_id != 0) {
+            if (ITEM_get_cas(it) != 0) {
                 // CAS much be equal
-                if (it->cas_id != old_it->cas_id) {
+                if (ITEM_get_cas(it) != ITEM_get_cas(old_it)) {
                     stored = 2;
                 }
             }
@@ -1845,7 +1850,7 @@ int do_store_item(item *it, int comm, conn *c) {
             else
                 do_item_link(it);
 
-            c->cas = it->cas_id;
+            c->cas = ITEM_get_cas(it);
 
             stored = 1;
         }
@@ -2353,7 +2358,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 if (return_cas)
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                                        it->nbytes, it->cas_id);
+                                        it->nbytes, ITEM_get_cas(it));
                   /* Goofy mid-flight realloc. */
                   if (i >= c->suffixsize) {
                     char **new_suffix_list = realloc(c->suffixlist,
@@ -2379,7 +2384,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     return;
                   }
                   *(c->suffixlist + i) = suffix;
-                  sprintf(suffix, " %llu\r\n", (unsigned long long)it->cas_id);
+                  sprintf(suffix, " %llu\r\n", ITEM_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
@@ -2393,7 +2398,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 else
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                                        it->nbytes, it->cas_id);
+                                        it->nbytes, ITEM_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
@@ -2528,7 +2533,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
         return;
     }
-    it->cas_id = req_cas_id;
+    ITEM_set_cas(it, req_cas_id);
 
     c->item = it;
     c->ritem = ITEM_data(it);
@@ -3745,6 +3750,7 @@ static void usage(void) {
     printf("-R            Maximum number of requests per event\n"
            "              limits the number of requests process for a given con nection\n"
            "              to prevent starvation.  default 20\n");
+    printf("-C            Disable use of CAS\n");
     return;
 }
 
@@ -3919,7 +3925,7 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "a:p:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:LR:")) != -1) {
+    while ((c = getopt(argc, argv, "a:p:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:LR:C")) != -1) {
         switch (c) {
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
@@ -4013,6 +4019,9 @@ int main (int argc, char **argv) {
                 preallocate = true;
             }
 #endif
+            break;
+        case 'C' :
+            settings.use_cas = false;
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
