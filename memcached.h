@@ -150,7 +150,9 @@ typedef struct _stritem {
          + (item)->nsuffix \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
-#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 + (item)->nsuffix + (item)->nbytes)
+#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
+         + (item)->nsuffix + (item)->nbytes \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 /**
  * NOTE: If you modify this table you _MUST_ update the function state_text
