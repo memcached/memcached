@@ -259,7 +259,7 @@ extern "C"
    * Definition of the packet returned by the noop command
    * See section 4
    */
-  typedef protocol_binary_response_no_extras protocol_binary_response_nnoop;
+  typedef protocol_binary_response_no_extras protocol_binary_response_noop;
 
   /**
    * Definition of the structure used by the increment and decrement
