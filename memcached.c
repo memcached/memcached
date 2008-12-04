@@ -881,6 +881,8 @@ static void* binary_get_request(conn *c) {
     char *ret = c->rcurr;
     ret -= (sizeof(c->binary_header) + c->binary_header.request.keylen +
             c->binary_header.request.extlen);
+
+    assert(ret >= c->rbuf);
     return ret;
 }
 
@@ -2850,6 +2852,16 @@ static int try_read_command(conn *c) {
             /* need more data! */
             return 0;
         } else {
+#ifdef NEED_ALIGN
+            if (((long)(c->rcurr)) % 8 != 0) {
+                /* must realign input buffer */
+                memmove(c->rbuf, c->rcurr, c->rbytes);
+                c->rcurr = c->rbuf;
+                if (settings.verbose) {
+                    fprintf(stderr, "%d: Realign input buffer\n", c->sfd);
+                }
+            }
+#endif
             protocol_binary_request_header* req;
             req = (protocol_binary_request_header*)c->rcurr;
 
@@ -3249,6 +3261,9 @@ static void drive_machine(conn *c) {
                 STATS_LOCK();
                 stats.bytes_read += res;
                 STATS_UNLOCK();
+                if (c->rcurr == c->ritem) {
+                    c->rcurr += res;
+                }
                 c->ritem += res;
                 c->rlbytes -= res;
                 break;

@@ -224,6 +224,32 @@ AC_CHECK_FUNCS(mlockall)
 AC_CHECK_FUNCS(getpagesizes)
 AC_CHECK_FUNCS(memcntl)
 
+AC_DEFUN([AC_C_ALIGNMENT],
+[AC_CACHE_CHECK(for alignment, ac_cv_c_alignment,
+[
+  AC_RUN_IFELSE(
+    [AC_LANG_PROGRAM([
+#include <stdlib.h>
+#include <inttypes.h>
+    ], [
+       char *buf = malloc(32);
+       uint64_t *ptr = (uint64_t*)(buf+2);
+       *ptr = 0x1;
+       return 0;
+    ])
+  ],[
+    ac_cv_c_alignment=none
+  ],[
+    ac_cv_c_endian=need
+  ])
+])
+if test $ac_cv_c_endian = need; then
+  AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])
+fi
+])
+
+AC_C_ALIGNMENT
+
 dnl Let the compiler be a bit more picky. Please note that you cannot
 dnl specify these flags to the compiler before AC_CHECK_FUNCS, because
 dnl the test program will generate a compilation warning and hence fail
