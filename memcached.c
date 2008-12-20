@@ -3730,7 +3730,7 @@ static void usage(void) {
            "-U <num>      UDP port number to listen on (default: 11211, 0 is off)\n"
            "-s <file>     unix socket path to listen on (disables network support)\n"
            "-a <mask>     access mask for unix socket, in octal (default 0700)\n"
-           "-l <ip_addr>  interface to listen on, default is INDRR_ANY\n"
+           "-l <ip_addr>  interface to listen on, default is INADDR_ANY\n"
            "-d            run as a daemon\n"
            "-r            maximize core file limit\n"
            "-u <username> assume identity of <username> (only when run as root)\n"
