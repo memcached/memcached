@@ -2386,7 +2386,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     return;
                   }
                   *(c->suffixlist + i) = suffix;
-                  sprintf(suffix, " %llu\r\n", ITEM_get_cas(it));
+                  sprintf(suffix, " %llu\r\n", (unsigned long long)ITEM_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
