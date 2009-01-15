@@ -144,7 +144,7 @@ AC_HEADER_STDBOOL
 AC_C_CONST
 
 # We don't want to enable mallinfo on Solaris, because that will enable
-# libmalloc and from the manpage: These routines are space-efficient but 
+# libmalloc and from the manpage: These routines are space-efficient but
 # have lower performance. Their usage can result in serious performance
 # degradation.
 case "$target_os" in
