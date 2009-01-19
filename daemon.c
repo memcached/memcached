@@ -35,6 +35,7 @@
 #endif
 
 #include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -54,15 +55,33 @@ int daemon(int nochdir, int noclose)
     if (setsid() == -1)
         return (-1);
 
-    if (nochdir == 0)
-        (void)chdir("/");
+    if (nochdir == 0) {
+        if(chdir("/") != 0) {
+            perror("chdir");
+            return (-1);
+        }
+    }
 
     if (noclose == 0 && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
-        (void)dup2(fd, STDIN_FILENO);
-        (void)dup2(fd, STDOUT_FILENO);
-        (void)dup2(fd, STDERR_FILENO);
-        if (fd > STDERR_FILENO)
-            (void)close(fd);
+        if(dup2(fd, STDIN_FILENO) < 0) {
+            perror("dup2 stdin");
+            return (-1);
+        }
+        if(dup2(fd, STDOUT_FILENO) < 0) {
+            perror("dup2 stdout");
+            return (-1);
+        }
+        if(dup2(fd, STDERR_FILENO) < 0) {
+            perror("dup2 stderr");
+            return (-1);
+        }
+
+        if (fd > STDERR_FILENO) {
+            if(close(fd) < 0) {
+                perror("close");
+                return (-1);
+            }
+        }
     }
     return (0);
 }
