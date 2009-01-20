@@ -971,11 +971,11 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
             errstr = "UNHANDLED ERROR";
             fprintf(stderr, ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
         }
-        
+
         if (settings.verbose > 0) {
             fprintf(stderr, ">%d Writing an error: %s\n", c->sfd, errstr);
         }
-        
+
         len = strlen(errstr);
         add_bin_header(c, err, 0, 0, len);
         if (len > 0) {
