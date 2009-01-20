@@ -237,8 +237,24 @@
           <t hangText="0x0E">Append</t>
           <t hangText="0x0F">Prepend</t>
 	  <t hangText="0x10">Stat</t>
+          <t hangText="0x11">SetQ</t>
+          <t hangText="0x12">AddQ</t>
+          <t hangText="0x13">ReplaceQ</t>
+          <t hangText="0x14">DeleteQ</t>
+          <t hangText="0x15">IncrementQ</t>
+          <t hangText="0x16">DecrementQ</t>
+          <t hangText="0x17">QuitQ</t>
+          <t hangText="0x18">FlushQ</t>
+          <t hangText="0x19">AppendQ</t>
+          <t hangText="0x1A">PrependQ</t>
         </list>
         </t>
+	<t>
+	  As a convention all of the commands ending with "Q" for Quiet.
+	  A quiet version of a command will not send back a response, except
+	  for GetQ and GetKQ. See the description of the 
+	  <xref target="command-get">Get commands</xref> for a full description.
+	</t>
       </section>
 
       <section anchor="value-types" title="Data Types">

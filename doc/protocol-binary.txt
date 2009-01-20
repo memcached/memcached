@@ -68,32 +68,32 @@ Table of Contents
      3.3.  Command Opcodes  . . . . . . . . . . . . . . . . . . . . .  6
      3.4.  Data Types . . . . . . . . . . . . . . . . . . . . . . . .  6
    4.  Commands . . . . . . . . . . . . . . . . . . . . . . . . . . .  6
-     4.1.  Introduction . . . . . . . . . . . . . . . . . . . . . . .  6
-       4.1.1.  Example  . . . . . . . . . . . . . . . . . . . . . . .  6
-     4.2.  Get, Get Quietly, Get Key, Get Key Quietly . . . . . . . .  7
-       4.2.1.  Example  . . . . . . . . . . . . . . . . . . . . . . .  8
-     4.3.  Set, Add, Replace  . . . . . . . . . . . . . . . . . . . . 12
-       4.3.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 12
-     4.4.  Delete . . . . . . . . . . . . . . . . . . . . . . . . . . 14
-       4.4.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 15
-     4.5.  Increment, Decrement . . . . . . . . . . . . . . . . . . . 16
-       4.5.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 17
-     4.6.  quit . . . . . . . . . . . . . . . . . . . . . . . . . . . 19
-       4.6.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 20
-     4.7.  Flush  . . . . . . . . . . . . . . . . . . . . . . . . . . 20
-       4.7.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 21
-     4.8.  noop . . . . . . . . . . . . . . . . . . . . . . . . . . . 22
-       4.8.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 23
-     4.9.  version  . . . . . . . . . . . . . . . . . . . . . . . . . 23
-       4.9.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 24
-     4.10. Append, Prepend  . . . . . . . . . . . . . . . . . . . . . 25
-       4.10.1. Example  . . . . . . . . . . . . . . . . . . . . . . . 26
-     4.11. Stat . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
-       4.11.1. Example  . . . . . . . . . . . . . . . . . . . . . . . 27
-   5.  Security Considerations  . . . . . . . . . . . . . . . . . . . 29
-   6.  Normative References . . . . . . . . . . . . . . . . . . . . . 30
-   Appendix A.  Acknowledgments . . . . . . . . . . . . . . . . . . . 30
-   Authors' Addresses . . . . . . . . . . . . . . . . . . . . . . . . 30
+     4.1.  Introduction . . . . . . . . . . . . . . . . . . . . . . .  7
+       4.1.1.  Example  . . . . . . . . . . . . . . . . . . . . . . .  7
+     4.2.  Get, Get Quietly, Get Key, Get Key Quietly . . . . . . . .  8
+       4.2.1.  Example  . . . . . . . . . . . . . . . . . . . . . . .  9
+     4.3.  Set, Add, Replace  . . . . . . . . . . . . . . . . . . . . 13
+       4.3.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 13
+     4.4.  Delete . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+       4.4.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 16
+     4.5.  Increment, Decrement . . . . . . . . . . . . . . . . . . . 17
+       4.5.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 18
+     4.6.  quit . . . . . . . . . . . . . . . . . . . . . . . . . . . 20
+       4.6.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 21
+     4.7.  Flush  . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+       4.7.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 22
+     4.8.  noop . . . . . . . . . . . . . . . . . . . . . . . . . . . 23
+       4.8.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 24
+     4.9.  version  . . . . . . . . . . . . . . . . . . . . . . . . . 24
+       4.9.1.  Example  . . . . . . . . . . . . . . . . . . . . . . . 25
+     4.10. Append, Prepend  . . . . . . . . . . . . . . . . . . . . . 26
+       4.10.1. Example  . . . . . . . . . . . . . . . . . . . . . . . 27
+     4.11. Stat . . . . . . . . . . . . . . . . . . . . . . . . . . . 28
+       4.11.1. Example  . . . . . . . . . . . . . . . . . . . . . . . 28
+   5.  Security Considerations  . . . . . . . . . . . . . . . . . . . 30
+   6.  Normative References . . . . . . . . . . . . . . . . . . . . . 31
+   Appendix A.  Acknowledgments . . . . . . . . . . . . . . . . . . . 31
+   Authors' Addresses . . . . . . . . . . . . . . . . . . . . . . . . 31
 
 
 
@@ -303,6 +303,21 @@ Internet-Draft          Memcache Binary Protocol             August 2008
    0x0E    Append
    0x0F    Prepend
    0x10    Stat
+   0x11    SetQ
+   0x12    AddQ
+   0x13    ReplaceQ
+   0x14    DeleteQ
+   0x15    IncrementQ
+   0x16    DecrementQ
+   0x17    QuitQ
+   0x18    FlushQ
+   0x19    AppendQ
+   0x1A    PrependQ
+
+   As a convention all of the commands ending with "Q" for Quiet.  A
+   quiet version of a command will not send back a response, except for
+   GetQ and GetKQ.  See the description of the Get commands
+   (Section 4.2) for a full description.
 
 3.4.  Data Types
 
@@ -311,6 +326,16 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 4.  Commands
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                 [Page 6]
+
+Internet-Draft          Memcache Binary Protocol             August 2008
+
 
 4.1.  Introduction
 
@@ -332,7 +357,38 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                 [Page 6]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Stone & Norbye            Expires March 1, 2009                 [Page 7]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -388,7 +444,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                 [Page 7]
+Stone & Norbye            Expires March 1, 2009                 [Page 8]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -444,7 +500,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                 [Page 8]
+Stone & Norbye            Expires March 1, 2009                 [Page 9]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -500,7 +556,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                 [Page 9]
+Stone & Norbye            Expires March 1, 2009                [Page 10]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -556,7 +612,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 10]
+Stone & Norbye            Expires March 1, 2009                [Page 11]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -612,7 +668,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 11]
+Stone & Norbye            Expires March 1, 2009                [Page 12]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -668,7 +724,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 12]
+Stone & Norbye            Expires March 1, 2009                [Page 13]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -724,7 +780,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 13]
+Stone & Norbye            Expires March 1, 2009                [Page 14]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -780,7 +836,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 14]
+Stone & Norbye            Expires March 1, 2009                [Page 15]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -836,7 +892,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 15]
+Stone & Norbye            Expires March 1, 2009                [Page 16]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -892,7 +948,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 16]
+Stone & Norbye            Expires March 1, 2009                [Page 17]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -948,7 +1004,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 17]
+Stone & Norbye            Expires March 1, 2009                [Page 18]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1004,7 +1060,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 18]
+Stone & Norbye            Expires March 1, 2009                [Page 19]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1060,7 +1116,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 19]
+Stone & Norbye            Expires March 1, 2009                [Page 20]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1116,7 +1172,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 20]
+Stone & Norbye            Expires March 1, 2009                [Page 21]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1172,7 +1228,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 21]
+Stone & Norbye            Expires March 1, 2009                [Page 22]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1228,7 +1284,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 22]
+Stone & Norbye            Expires March 1, 2009                [Page 23]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1284,7 +1340,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 23]
+Stone & Norbye            Expires March 1, 2009                [Page 24]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1340,7 +1396,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 24]
+Stone & Norbye            Expires March 1, 2009                [Page 25]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1396,7 +1452,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 25]
+Stone & Norbye            Expires March 1, 2009                [Page 26]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1452,7 +1508,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 26]
+Stone & Norbye            Expires March 1, 2009                [Page 27]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1508,7 +1564,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 27]
+Stone & Norbye            Expires March 1, 2009                [Page 28]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1564,7 +1620,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 28]
+Stone & Norbye            Expires March 1, 2009                [Page 29]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1620,7 +1676,7 @@ Internet-Draft          Memcache Binary Protocol             August 2008
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 29]
+Stone & Norbye            Expires March 1, 2009                [Page 30]
 
 Internet-Draft          Memcache Binary Protocol             August 2008
 
@@ -1676,5 +1732,5 @@ Authors' Addresses
 
 
 
-Stone & Norbye            Expires March 1, 2009                [Page 30]
+Stone & Norbye            Expires March 1, 2009                [Page 31]
 

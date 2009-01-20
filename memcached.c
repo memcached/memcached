@@ -911,7 +911,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     header = (protocol_binary_response_header *)c->wbuf;
 
     header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
-    header->response.opcode = c->cmd;
+    header->response.opcode = c->binary_header.request.opcode;
     header->response.keylen = (uint16_t)htons(key_len);
 
     header->response.extlen = (uint8_t)hdr_len;
@@ -938,10 +938,13 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
 }
 
 static void write_bin_error(conn *c, protocol_binary_response_status err, int swallow) {
-    const char *errstr = "Unknown error";
-    size_t len;
+    if (c->noreply) {
+        conn_set_state(c, conn_new_cmd);
+    } else {
+        const char *errstr = "Unknown error";
+        size_t len;
 
-    switch (err) {
+        switch (err) {
         case PROTOCOL_BINARY_RESPONSE_ENOMEM:
             errstr = "Out of memory";
             break;
@@ -967,34 +970,40 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
             assert(false);
             errstr = "UNHANDLED ERROR";
             fprintf(stderr, ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
-    }
-
-    if (settings.verbose > 0) {
-        fprintf(stderr, ">%d Writing an error: %s\n", c->sfd, errstr);
-    }
-
-    len = strlen(errstr);
-    add_bin_header(c, err, 0, 0, len);
-    if (len > 0) {
-        add_iov(c, errstr, len);
-    }
-    conn_set_state(c, conn_mwrite);
-    if(swallow > 0) {
-        c->sbytes = swallow;
-        c->write_and_go = conn_swallow;
-    } else {
-        c->write_and_go = conn_new_cmd;
+        }
+        
+        if (settings.verbose > 0) {
+            fprintf(stderr, ">%d Writing an error: %s\n", c->sfd, errstr);
+        }
+        
+        len = strlen(errstr);
+        add_bin_header(c, err, 0, 0, len);
+        if (len > 0) {
+            add_iov(c, errstr, len);
+        }
+        conn_set_state(c, conn_mwrite);
+        if(swallow > 0) {
+            c->sbytes = swallow;
+            c->write_and_go = conn_swallow;
+        } else {
+            c->write_and_go = conn_new_cmd;
+        }
     }
 }
 
 /* Form and send a response to a command over the binary protocol */
 static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen) {
-    add_bin_header(c, 0, hlen, keylen, dlen);
-    if(dlen > 0) {
-        add_iov(c, d, dlen);
+    if (!c->noreply || c->cmd == PROTOCOL_BINARY_CMD_GET ||
+        c->cmd == PROTOCOL_BINARY_CMD_GETK) {
+        add_bin_header(c, 0, hlen, keylen, dlen);
+        if(dlen > 0) {
+            add_iov(c, d, dlen);
+        }
+        conn_set_state(c, conn_mwrite);
+        c->write_and_go = conn_new_cmd;
+    } else {
+        conn_set_state(c, conn_new_cmd);
     }
-    conn_set_state(c, conn_mwrite);
-    c->write_and_go = conn_new_cmd;
 }
 
 /* Byte swap a 64-bit number */
@@ -1187,8 +1196,7 @@ static void process_bin_get(conn *c) {
         MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                               it->nbytes, ITEM_get_cas(it));
 
-        if (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
-                c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
+        if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
             bodylen += nkey;
             keylen = nkey;
         }
@@ -1199,8 +1207,7 @@ static void process_bin_get(conn *c) {
         rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
-        if (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
-                c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
+        if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
             add_iov(c, ITEM_key(it), nkey);
         }
 
@@ -1214,8 +1221,7 @@ static void process_bin_get(conn *c) {
         STATS_UNLOCK();
         MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
 
-        if (c->cmd == PROTOCOL_BINARY_CMD_GETQ ||
-                c->cmd == PROTOCOL_BINARY_CMD_GETKQ) {
+        if (c->noreply) {
             conn_set_state(c, conn_new_cmd);
         } else {
             if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
@@ -1421,8 +1427,49 @@ static void dispatch_bin_command(conn *c) {
     uint32_t bodylen = c->binary_header.request.bodylen;
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
+    c->noreply = true;
+    switch (c->cmd) {
+    case PROTOCOL_BINARY_CMD_SETQ:
+        c->cmd = PROTOCOL_BINARY_CMD_SET;
+        break;
+    case PROTOCOL_BINARY_CMD_ADDQ:
+        c->cmd = PROTOCOL_BINARY_CMD_ADD;
+        break;
+    case PROTOCOL_BINARY_CMD_REPLACEQ:
+        c->cmd = PROTOCOL_BINARY_CMD_REPLACE;
+        break;
+    case PROTOCOL_BINARY_CMD_DELETEQ:
+        c->cmd = PROTOCOL_BINARY_CMD_DELETE;
+        break;
+    case PROTOCOL_BINARY_CMD_INCREMENTQ:
+        c->cmd = PROTOCOL_BINARY_CMD_INCREMENT;
+        break;
+    case PROTOCOL_BINARY_CMD_DECREMENTQ:
+        c->cmd = PROTOCOL_BINARY_CMD_DECREMENT;
+        break;
+    case PROTOCOL_BINARY_CMD_QUITQ:
+        c->cmd = PROTOCOL_BINARY_CMD_QUIT;
+        break;
+    case PROTOCOL_BINARY_CMD_FLUSHQ:
+        c->cmd = PROTOCOL_BINARY_CMD_FLUSH;
+        break;
+    case PROTOCOL_BINARY_CMD_APPENDQ:
+        c->cmd = PROTOCOL_BINARY_CMD_APPEND;
+        break;
+    case PROTOCOL_BINARY_CMD_PREPENDQ:
+        c->cmd = PROTOCOL_BINARY_CMD_PREPEND;
+        break;
+    case PROTOCOL_BINARY_CMD_GETQ:
+        c->cmd = PROTOCOL_BINARY_CMD_GET;
+        break;
+    case PROTOCOL_BINARY_CMD_GETKQ:
+        c->cmd = PROTOCOL_BINARY_CMD_GETK;
+        break;
+    default:
+        c->noreply = false;
+    }
 
-    switch(c->cmd) {
+    switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_VERSION:
             if (extlen == 0 && keylen == 0 && bodylen == 0) {
                 write_bin_response(c, VERSION, 0, 0, strlen(VERSION));
