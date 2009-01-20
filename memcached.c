@@ -2017,7 +2017,7 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%ld", now + stats.started);
+    vlen = sprintf(val, "%ld", now + (long)stats.started);
     nbytes = add_stats(pos, "time", strlen("time"), val, vlen, (void *)c);
     pos += nbytes;
     *buflen += nbytes;
