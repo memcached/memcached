@@ -1562,6 +1562,17 @@ static void process_bin_update(conn *c) {
         } else {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
         }
+
+        /* Avoid stale data persisting in cache because we failed alloc.
+         * Unacceptable for SET. Anywhere else too? */
+        if (c->cmd == PROTOCOL_BINARY_CMD_SET) {
+            it = item_get(key, nkey);
+            if (it) {
+                item_unlink(it);
+                item_remove(it);
+            }
+        }
+
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         return;

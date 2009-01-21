@@ -103,6 +103,18 @@ $empty->('y');
 }
 
 {
+    diag "Too big.";
+    $empty->('toobig');
+    $mc->set('toobig', 'not too big', 10, 10);
+    eval {
+        my $bigval = ("x" x (1024*1024)) . "x";
+        $mc->set('toobig', $bigval, 10, 10);
+    };
+    ok($@->too_big, "Was too big");
+    $empty->('toobig');
+}
+
+{
     diag "Replace";
     $empty->('j');
 
@@ -393,6 +405,7 @@ use warnings;
 use constant ERR_UNKNOWN_CMD => 0x81;
 use constant ERR_NOT_FOUND   => 0x1;
 use constant ERR_EXISTS      => 0x2;
+use constant ERR_TOO_BIG     => 0x3;
 
 use overload '""' => sub {
     my $self = shift;
@@ -415,6 +428,11 @@ sub not_found {
 sub exists {
     my $self = shift;
     return $self->[0] == ERR_EXISTS;
+}
+
+sub too_big {
+    my $self = shift;
+    return $self->[0] == ERR_TOO_BIG;
 }
 
 # vim: filetype=perl
