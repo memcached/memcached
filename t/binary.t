@@ -227,7 +227,7 @@ sub send_command {
                    $datatype, $reserved, $totallen, $opaque, $ident_hi,
                    $ident_lo);
 
-	  return $self->{socket}->send($msg . $extra_header . $key . $val);
+    return $self->{socket}->send($msg . $extra_header . $key . $val);
 }
 
 sub _handle_single_response {
@@ -315,7 +315,7 @@ sub get_multi {
     }
 
     my $terminal = @keys + 10;
-	  $self->send_command(::CMD_NOOP, '', '', $terminal);
+    $self->send_command(::CMD_NOOP, '', '', $terminal);
 
     my %return;
     while (1) {
