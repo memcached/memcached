@@ -14,22 +14,33 @@ ok($server, "started the server");
 # Copyright (c) 2007  Dustin Sallings <dustin@spy.net>
 
 # Command constants
-use constant CMD_GET     => 0x00;
-use constant CMD_SET     => 0x01;
-use constant CMD_ADD     => 0x02;
-use constant CMD_REPLACE => 0x03;
-use constant CMD_DELETE  => 0x04;
-use constant CMD_INCR    => 0x05;
-use constant CMD_DECR    => 0x06;
-use constant CMD_QUIT    => 0x07;
-use constant CMD_FLUSH   => 0x08;
-use constant CMD_GETQ    => 0x09;
-use constant CMD_NOOP    => 0x0A;
-use constant CMD_VERSION => 0x0B;
-use constant CMD_GETK    => 0x0C;
-use constant CMD_GETKQ   => 0x0D;
-use constant CMD_APPEND  => 0x0E;
-use constant CMD_PREPEND => 0x0F;
+use constant CMD_GET        => 0x00;
+use constant CMD_SET        => 0x01;
+use constant CMD_ADD        => 0x02;
+use constant CMD_REPLACE    => 0x03;
+use constant CMD_DELETE     => 0x04;
+use constant CMD_INCR       => 0x05;
+use constant CMD_DECR       => 0x06;
+use constant CMD_QUIT       => 0x07;
+use constant CMD_FLUSH      => 0x08;
+use constant CMD_GETQ       => 0x09;
+use constant CMD_NOOP       => 0x0A;
+use constant CMD_VERSION    => 0x0B;
+use constant CMD_GETK       => 0x0C;
+use constant CMD_GETKQ      => 0x0D;
+use constant CMD_APPEND     => 0x0E;
+use constant CMD_PREPEND    => 0x0F;
+use constant CMD_STAT       => 0x10;
+use constant CMD_SETQ       => 0x11;
+use constant CMD_ADDQ       => 0x12;
+use constant CMD_REPLACEQ   => 0x13;
+use constant CMD_DELETEQ    => 0x14;
+use constant CMD_INCREMENTQ => 0x15;
+use constant CMD_DECREMENTQ => 0x16;
+use constant CMD_QUITQ      => 0x17;
+use constant CMD_FLUSHQ     => 0x18;
+use constant CMD_APPENDQ    => 0x19;
+use constant CMD_PREPENDQ   => 0x1A;
 
 # REQ and RES formats are divided even though they currently share
 # the same format, since they _could_ differ in the future.
@@ -188,6 +199,72 @@ is($mc->decr("x", 211), 0, "Floor is zero");
     }
 }
 
+diag "Silent set.";
+$mc->silent_mutation(::CMD_SETQ, 'silentset', 'silentsetval');
+
+diag "Silent add.";
+$mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
+
+diag "TODO:  Silent replace.";
+# XXX:  This test does not pass.
+# {
+#     my $key = "silentreplace";
+#     my $val = $key . "val";
+#     $empty->($key);
+#     $mc->set($key, "wrongval", 11, 0);
+#     $mc->silent_mutation(::CMD_REPLACEQ, $key, $val);
+# }
+
+diag "Silent delete";
+{
+    my $key = "silentdelete";
+    $empty->($key);
+    $mc->set($key, "some val", 19, 0);
+    $mc->send_silent(::CMD_DELETEQ, $key, '', 772);
+    $empty->($key);
+}
+
+diag "Silent increment";
+{
+    my $key = "silentincr";
+    my $opaque = 98428747;
+    $empty->($key);
+    $mc->silent_incrdecr(::CMD_INCREMENTQ, $key, 0, 0, 0);
+    $check->($key, 0, '0');
+
+    $mc->silent_incrdecr(::CMD_INCREMENTQ, $key, 8, 0, 0);
+    $check->($key, 0, '8');
+}
+
+diag "Silent decrement";
+{
+    my $key = "silentdecr";
+    my $opaque = 98428147;
+    $empty->($key);
+    $mc->silent_incrdecr(::CMD_DECREMENTQ, $key, 0, 185, 0);
+    $check->($key, 0, '185');
+
+    $mc->silent_incrdecr(::CMD_DECREMENTQ, $key, 8, 0, 0);
+    $check->($key, 0, '177');
+}
+
+diag "Silent flush";
+{
+    $set->('x', 5, 19, "somevaluex");
+    $set->('y', 5, 17, "somevaluey");
+    $mc->send_silent(::CMD_FLUSHQ, '', '', 2775256);
+    $empty->('x');
+    $empty->('y');
+}
+
+diag "TODO:  Append";
+
+diag "TODO:  Prepend";
+
+diag "TODO:  Silent append";
+
+diag "TODO:  Silent prepend";
+
 package MC::Client;
 
 use strict;
@@ -228,6 +305,29 @@ sub send_command {
                    $ident_lo);
 
     return $self->{socket}->send($msg . $extra_header . $key . $val);
+}
+
+# Send a silent command and ensure it doesn't respond.
+sub send_silent {
+    my $self = shift;
+    die "Not enough args to send_silent" unless @_ >= 4;
+    my ($cmd, $key, $val, $opaque, $extra_header, $cas) = @_;
+
+    $self->send_command($cmd, $key, $val, $opaque, $extra_header, $cas);
+    $self->send_command(::CMD_NOOP, '', '', $opaque + 1);
+
+    my ($ropaque, $data) = $self->_handle_single_response;
+    Test::More::is($ropaque, $opaque + 1);
+}
+
+sub silent_mutation {
+    my $self = shift;
+    my ($cmd, $key, $value) = @_;
+
+    $empty->($key);
+    my $extra = pack "NN", 82, 0;
+    $mc->send_silent($cmd, $key, $value, 7278552, $extra, 0);
+    $check->($key, 82, $value);
 }
 
 sub _handle_single_response {
@@ -273,9 +373,9 @@ sub _do_command {
     return ($rv, $rcas);
 }
 
-sub _incrdecr {
+sub _incrdecr_header {
     my $self = shift;
-    my ($cmd, $key, $amt, $init, $exp) = @_;
+    my ($amt, $init, $exp) = @_;
 
     my $amt_hi = int($amt / 2 ** 32);
     my $amt_lo = int($amt % 2 ** 32);
@@ -286,13 +386,30 @@ sub _incrdecr {
     my $extra_header = pack(::INCRDECR_PKT_FMT, $amt_hi, $amt_lo, $init_hi,
                             $init_lo, $exp);
 
-    my ($data, undef) = $self->_do_command($cmd, $key, '', $extra_header);
+    return $extra_header;
+}
+
+sub _incrdecr {
+    my $self = shift;
+    my ($cmd, $key, $amt, $init, $exp) = @_;
+
+    my ($data, undef) = $self->_do_command($cmd, $key, '',
+                                           $self->_incrdecr_header($amt, $init, $exp));
 
     my $header = substr $data, 0, 8, '';
     my ($resp_hi, $resp_lo) = unpack "NN", $header;
     my $resp = ($resp_hi * 2 ** 32) + $resp_lo;
 
     return $resp;
+}
+
+sub silent_incrdecr {
+    my $self = shift;
+    my ($cmd, $key, $amt, $init, $exp) = @_;
+    my $opaque = 8275753;
+
+    $mc->send_silent(::CMD_INCREMENTQ, $key, '', $opaque,
+                     $mc->_incrdecr_header($amt, $init, $exp));
 }
 
 sub get {
