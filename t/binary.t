@@ -206,14 +206,19 @@ diag "Silent add.";
 $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
 
 diag "TODO:  Silent replace.";
-# XXX:  This test does not pass.
-# {
-#     my $key = "silentreplace";
-#     my $val = $key . "val";
-#     $empty->($key);
-#     $mc->set($key, "wrongval", 11, 0);
-#     $mc->silent_mutation(::CMD_REPLACEQ, $key, $val);
-# }
+{
+    my $key = "silentreplace";
+    my $extra = pack "NN", 829, 0;
+    $empty->($key);
+    $mc->send_silent(::CMD_REPLACEQ, $key, 'somevalue', 7278552, $extra, 0);
+    $empty->($key);
+
+    $mc->add($key, "xval", 831, 0);
+    $check->($key, 831, 'xval');
+
+    $mc->send_silent(::CMD_REPLACEQ, $key, 'somevalue', 7278552, $extra, 0);
+    $check->($key, 829, 'somevalue');
+}
 
 diag "Silent delete";
 {
