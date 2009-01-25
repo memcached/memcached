@@ -205,7 +205,7 @@ $mc->silent_mutation(::CMD_SETQ, 'silentset', 'silentsetval');
 diag "Silent add.";
 $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
 
-diag "TODO:  Silent replace.";
+diag "Silent replace.";
 {
     my $key = "silentreplace";
     my $extra = pack "NN", 829, 0;
