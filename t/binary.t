@@ -57,6 +57,7 @@ my $check = sub {
     my ($key, $orig_flags, $orig_val) = @_;
     my ($flags, $val, $cas) = $mc->get($key);
     is($flags, $orig_flags, "Flags is set properly");
+    ok($val eq $orig_val || $val == $orig_val, $val . " = " . $orig_val);
 };
 
 my $set = sub {
