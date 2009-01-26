@@ -236,10 +236,10 @@ diag "Silent increment";
     my $opaque = 98428747;
     $empty->($key);
     $mc->silent_incrdecr(::CMD_INCREMENTQ, $key, 0, 0, 0);
-    $check->($key, 0, '0');
+    is($mc->incr($key, 0), 0, "First call is 0");
 
     $mc->silent_incrdecr(::CMD_INCREMENTQ, $key, 8, 0, 0);
-    $check->($key, 0, '8');
+    is($mc->incr($key, 0), 8);
 }
 
 diag "Silent decrement";
@@ -248,10 +248,10 @@ diag "Silent decrement";
     my $opaque = 98428147;
     $empty->($key);
     $mc->silent_incrdecr(::CMD_DECREMENTQ, $key, 0, 185, 0);
-    $check->($key, 0, '185');
+    is($mc->incr($key, 0), 185);
 
     $mc->silent_incrdecr(::CMD_DECREMENTQ, $key, 8, 0, 0);
-    $check->($key, 0, '177');
+    is($mc->incr($key, 0), 177);
 }
 
 diag "Silent flush";
