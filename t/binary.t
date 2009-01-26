@@ -281,9 +281,23 @@ diag "Prepend";
     $check->($key, 19, "prefixed " . $value);
 }
 
-diag "TODO:  Silent append";
+diag "Silent append";
+{
+    my $key = "appendqkey";
+    my $value = "some value";
+    $set->($key, 8, 19, $value);
+    $mc->send_silent(::CMD_APPENDQ, $key, " more", 7284492);
+    $check->($key, 19, $value . " more");
+}
 
-diag "TODO:  Silent prepend";
+diag "Silent prepend";
+{
+    my $key = "prependqkey";
+    my $value = "some value";
+    $set->($key, 8, 19, $value);
+    $mc->send_silent(::CMD_PREPENDQ, $key, "prefixed ", 7284492);
+    $check->($key, 19, "prefixed " . $value);
+}
 
 package MC::Client;
 
