@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More 'no_plan';
+use Test::More tests => 384;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -79,23 +79,23 @@ my $delete = sub {
     $empty->($key);
 };
 
-diag "Test Version";
+# diag "Test Version";
 my $v = $mc->version;
 ok(defined $v && length($v), "Proper version: $v");
 
-diag "Flushing...";
+# diag "Flushing...";
 $mc->flush;
 
-diag "Noop";
+# diag "Noop";
 $mc->noop;
 
-diag "Simple set/get";
+# diag "Simple set/get";
 $set->('x', 5, 19, "somevalue");
 
-diag "Delete";
+# diag "Delete";
 $delete->('x');
 
-diag "Flush";
+# diag "Flush";
 $set->('x', 5, 19, "somevaluex");
 $set->('y', 5, 17, "somevaluey");
 $mc->flush;
@@ -103,7 +103,7 @@ $empty->('x');
 $empty->('y');
 
 {
-    diag "Add";
+    # diag "Add";
     $empty->('i');
     $mc->add('i', 'ex', 5, 10);
     $check->('i', 5, "ex");
@@ -115,7 +115,7 @@ $empty->('y');
 }
 
 {
-    diag "Too big.";
+    # diag "Too big.";
     $empty->('toobig');
     $mc->set('toobig', 'not too big', 10, 10);
     eval {
@@ -127,7 +127,7 @@ $empty->('y');
 }
 
 {
-    diag "Replace";
+    # diag "Replace";
     $empty->('j');
 
     my $rv =()= eval { $mc->replace('j', "ex", 19, 5) };
@@ -141,7 +141,7 @@ $empty->('y');
 }
 
 {
-    diag "MultiGet";
+    # diag "MultiGet";
     $mc->add('xx', "ex", 1, 5);
     $mc->add('wye', "why", 2, 5);
     my $rv = $mc->get_multi(qw(xx wye zed));
@@ -154,21 +154,21 @@ $empty->('y');
     is(keys(%$rv), 2, "Got only two answers like we expect");
 }
 
-diag "Test increment";
+# diag "Test increment";
 $mc->flush;
 is($mc->incr("x"), 0, "First incr call is zero");
 is($mc->incr("x"), 1, "Second incr call is one");
 is($mc->incr("x", 211), 212, "Adding 211 gives you 212");
 is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
 
-diag "Test decrement";
+# diag "Test decrement";
 $mc->flush;
 is($mc->incr("x", undef, 5), 5, "Initial value");
 is($mc->decr("x"), 4, "Decrease by one");
 is($mc->decr("x", 211), 0, "Floor is zero");
 
 {
-    diag "CAS";
+    # diag "CAS";
     $mc->flush;
 
     {
@@ -200,13 +200,13 @@ is($mc->decr("x", 211), 0, "Floor is zero");
     }
 }
 
-diag "Silent set.";
+# diag "Silent set.";
 $mc->silent_mutation(::CMD_SETQ, 'silentset', 'silentsetval');
 
-diag "Silent add.";
+# diag "Silent add.";
 $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
 
-diag "Silent replace.";
+# diag "Silent replace.";
 {
     my $key = "silentreplace";
     my $extra = pack "NN", 829, 0;
@@ -221,7 +221,7 @@ diag "Silent replace.";
     $check->($key, 829, 'somevalue');
 }
 
-diag "Silent delete";
+# diag "Silent delete";
 {
     my $key = "silentdelete";
     $empty->($key);
@@ -230,7 +230,7 @@ diag "Silent delete";
     $empty->($key);
 }
 
-diag "Silent increment";
+# diag "Silent increment";
 {
     my $key = "silentincr";
     my $opaque = 98428747;
@@ -242,7 +242,7 @@ diag "Silent increment";
     is($mc->incr($key, 0), 8);
 }
 
-diag "Silent decrement";
+# diag "Silent decrement";
 {
     my $key = "silentdecr";
     my $opaque = 98428147;
@@ -254,7 +254,7 @@ diag "Silent decrement";
     is($mc->incr($key, 0), 177);
 }
 
-diag "Silent flush";
+# diag "Silent flush";
 {
     $set->('x', 5, 19, "somevaluex");
     $set->('y', 5, 17, "somevaluey");
@@ -263,7 +263,7 @@ diag "Silent flush";
     $empty->('y');
 }
 
-diag "Append";
+# diag "Append";
 {
     my $key = "appendkey";
     my $value = "some value";
@@ -272,7 +272,7 @@ diag "Append";
     $check->($key, 19, $value . " more");
 }
 
-diag "Prepend";
+# diag "Prepend";
 {
     my $key = "prependkey";
     my $value = "some value";
@@ -281,7 +281,7 @@ diag "Prepend";
     $check->($key, 19, "prefixed " . $value);
 }
 
-diag "Silent append";
+# diag "Silent append";
 {
     my $key = "appendqkey";
     my $value = "some value";
@@ -290,7 +290,7 @@ diag "Silent append";
     $check->($key, 19, $value . " more");
 }
 
-diag "Silent prepend";
+# diag "Silent prepend";
 {
     my $key = "prependqkey";
     my $value = "some value";
