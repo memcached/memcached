@@ -263,7 +263,14 @@ diag "Silent flush";
     $empty->('y');
 }
 
-diag "TODO:  Append";
+diag "Append";
+{
+    my $key = "appendkey";
+    my $value = "some value";
+    $set->($key, 8, 19, $value);
+    $mc->_append_prepend(::CMD_APPEND, $key, " more");
+    $check->($key, 19, $value . " more");
+}
 
 diag "TODO:  Prepend";
 
@@ -478,6 +485,12 @@ sub set {
     my ($key, $val, $flags, $expire, $cas) = @_;
     my $extra_header = pack "NN", $flags, $expire;
     return $self->_do_command(::CMD_SET, $key, $val, $extra_header, $cas);
+}
+
+sub _append_prepend {
+    my $self = shift;
+    my ($cmd, $key, $val, $cas) = @_;
+    return $self->_do_command($cmd, $key, $val, '', $cas);
 }
 
 sub replace {
