@@ -442,7 +442,7 @@ sub silent_incrdecr {
     my ($cmd, $key, $amt, $init, $exp) = @_;
     my $opaque = 8275753;
 
-    $mc->send_silent(::CMD_INCREMENTQ, $key, '', $opaque,
+    $mc->send_silent($cmd, $key, '', $opaque,
                      $mc->_incrdecr_header($amt, $init, $exp));
 }
 
