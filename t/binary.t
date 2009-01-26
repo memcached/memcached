@@ -272,7 +272,14 @@ diag "Append";
     $check->($key, 19, $value . " more");
 }
 
-diag "TODO:  Prepend";
+diag "Prepend";
+{
+    my $key = "prependkey";
+    my $value = "some value";
+    $set->($key, 8, 19, $value);
+    $mc->_append_prepend(::CMD_PREPEND, $key, "prefixed ");
+    $check->($key, 19, "prefixed " . $value);
+}
 
 diag "TODO:  Silent append";
 
