@@ -51,7 +51,7 @@ static pthread_mutex_t conn_lock;
 static pthread_mutex_t suffix_lock;
 
 /* Lock for cache operations (item_*, assoc_*) */
-static pthread_mutex_t cache_lock;
+pthread_mutex_t cache_lock;
 
 /* Lock for slab allocator operations */
 static pthread_mutex_t slabs_lock;
@@ -530,14 +530,6 @@ char *item_stats_sizes(uint32_t (*add_stats)(char *buf,
     return ret;
 }
 
-/****************************** HASHTABLE MODULE *****************************/
-
-void assoc_move_next_bucket() {
-    pthread_mutex_lock(&cache_lock);
-    do_assoc_move_next_bucket();
-    pthread_mutex_unlock(&cache_lock);
-}
-
 /******************************* SLAB ALLOCATOR ******************************/
 
 void *slabs_alloc(size_t size, unsigned int id) {
@@ -580,11 +572,11 @@ int slabs_reassign(unsigned char srcid, unsigned char dstid) {
 /******************************* GLOBAL STATS ******************************/
 
 void STATS_LOCK() {
-    pthread_mutex_lock(&stats_lock);
+    /*    pthread_mutex_lock(&stats_lock); */
 }
 
 void STATS_UNLOCK() {
-    pthread_mutex_unlock(&stats_lock);
+    /*     pthread_mutex_unlock(&stats_lock); */
 }
 
 /*

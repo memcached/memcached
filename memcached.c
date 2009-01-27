@@ -3290,7 +3290,6 @@ static void drive_machine(conn *c) {
 
         case conn_new_cmd:
             reset_cmd_handler(c);
-            assoc_move_next_bucket();
             break;
 
         case conn_nread:
@@ -4215,6 +4214,11 @@ int main (int argc, char **argv) {
     thread_init(settings.num_threads, main_base);
     /* save the PID in if we're a daemon, do this after thread_init due to
        a file descriptor handling bug somewhere in libevent */
+
+    if (start_assoc_maintenance_thread() == -1) {
+        exit(EXIT_FAILURE);
+    }
+
     if (do_daemonize)
         save_pid(getpid(), pid_file);
     /* initialise clock event */
@@ -4263,6 +4267,9 @@ int main (int argc, char **argv) {
 
     /* enter the event loop */
     event_base_loop(main_base, 0);
+
+    stop_assoc_maintenance_thread();
+
     /* remove the PID file if we're a daemon */
     if (do_daemonize)
         remove_pidfile(pid_file);

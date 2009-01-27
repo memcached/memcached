@@ -323,7 +323,6 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, in
 /* Lock wrappers for cache functions that are called from main loop. */
 char *add_delta(conn *c, item *item, const int incr, const int64_t delta,
                 char *buf);
-void assoc_move_next_bucket(void);
 conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 char *suffix_from_freelist(void);
