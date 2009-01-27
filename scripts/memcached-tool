@@ -107,7 +107,7 @@ if ($mode eq 'dump') {
 
     foreach my $bucket (sort(keys(%items))) {
         print STDERR "Dumping bucket $bucket - " . $items{$bucket} . " total items\n";
-        print $sock "stats cachedump $bucket $items{$bucket} 1\r\n";
+        print $sock "stats cachedump $bucket $items{$bucket}\r\n";
         my %keyexp;
         while (<$sock>) {
             last if /^END/;
