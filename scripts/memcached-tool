@@ -77,6 +77,9 @@ if ($mode eq "move") {
 
 	    print "Page busy, retrying...\n";
 	    sleep 1;
+	} elsif ($res =~ "CLIENT_ERROR") {
+	    print "Error: CLIENT_ERROR; perhaps slab reassignment is not enabled.\n";
+        exit;
 	}
     }
 
