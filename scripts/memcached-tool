@@ -41,10 +41,12 @@ die
        memcached-tool 10.0.0.5:11211 display    # shows slabs
        memcached-tool 10.0.0.5:11211            # same.  (default is display)
        memcached-tool 10.0.0.5:11211 stats      # shows general stats
+       memcached-tool 10.0.0.5:11211 dump       # dumps keys and values
        memcached-tool 10.0.0.5:11211 move 7 9   # takes 1MB slab from class #7
                                                 # to class #9.
 
-You can only move slabs around once memory is totally allocated, and only
+You can only move slabs around on a server that supports 'slabs reassign'
+messages and only once slab memory is totally allocated, and only
 once the target class is full.  (So you can't move from #6 to #9 and #7
 to #9 at the same itme, since you'd have to wait for #9 to fill from
 the first reassigned page)
