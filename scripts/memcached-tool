@@ -119,17 +119,18 @@ if ($mode eq 'dump') {
         }
 
         foreach my $k (keys(%keyexp)) {
-            my $val;
             print $sock "get $k\r\n";
             my $response = <$sock>;
-            $response =~ /VALUE (\S+) (\d+) (\d+)/;
-            my $flags = $2;
-            my $len = $3;
-            read $sock, $val , $len;
-            # get the END
-            $_ = <$sock>;
-            $_ = <$sock>;
-            print "add $k $flags $keyexp{$k} $len\r\n$val\r\n";
+            if ($response =~ /VALUE (\S+) (\d+) (\d+)/) {
+                my $flags = $2;
+                my $len = $3;
+                my $val;
+                read $sock, $val, $len;
+                print "add $k $flags $keyexp{$k} $len\r\n$val\r\n";
+                # get the END
+                $_ = <$sock>;
+                $_ = <$sock>;
+            }
         }
     }
     exit;
