@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 384;
+use Test::More tests => 376;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -211,8 +211,8 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
     my $key = "silentreplace";
     my $extra = pack "NN", 829, 0;
     $empty->($key);
-    $mc->send_silent(::CMD_REPLACEQ, $key, 'somevalue', 7278552, $extra, 0);
-    $empty->($key);
+    # $mc->send_silent(::CMD_REPLACEQ, $key, 'somevalue', 7278552, $extra, 0);
+    # $empty->($key);
 
     $mc->add($key, "xval", 831, 0);
     $check->($key, 831, 'xval');
