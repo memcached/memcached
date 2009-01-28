@@ -10,16 +10,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <errno.h>
-
-#ifdef HAVE_MALLOC_H
-#include <malloc.h>
-#endif
-
-#ifdef HAVE_STRING_H
 #include <string.h>
-#endif
-
-
 #include <pthread.h>
 
 #define ITEMS_PER_ALLOC 64

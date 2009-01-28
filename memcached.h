@@ -11,6 +11,8 @@
 #include <netinet/in.h>
 #include <event.h>
 #include <netdb.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #include "protocol_binary.h"
 
@@ -44,19 +46,6 @@
 /* Binary protocol stuff */
 #define MIN_BIN_PKT_LENGTH 16
 #define BIN_PKT_HDR_WORDS (MIN_BIN_PKT_LENGTH/sizeof(uint32_t))
-
-/* Get a consistent bool type */
-#if HAVE_STDBOOL_H
-# include <stdbool.h>
-#else
-  typedef enum {false = 0, true = 1} bool;
-#endif
-
-#if HAVE_STDINT_H
-# include <stdint.h>
-#else
- typedef unsigned char             uint8_t;
-#endif
 
 /* unistd.h is here */
 #if HAVE_UNISTD_H
