@@ -2260,55 +2260,6 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         return;
     }
 
-#ifdef HAVE_MALLOC_H
-#ifdef HAVE_STRUCT_MALLINFO
-    if (strcmp(subcommand, "malloc") == 0) {
-        int len = 0;
-        char *buf = get_stats("malloc", strlen("malloc"),
-            &append_ascii_stats, (void *)c, &len);
-        write_and_free(c, buf, len);
-        return;
-    }
-#endif /* HAVE_STRUCT_MALLINFO */
-#endif /* HAVE_MALLOC_H */
-
-#if !defined(WIN32) || !defined(__APPLE__)
-    if (strcmp(subcommand, "maps") == 0) {
-        char *wbuf;
-        int wsize = 8192; /* should be enough */
-        int fd;
-        int res;
-
-        if ((wbuf = (char *)malloc(wsize)) == NULL) {
-            out_string(c, "SERVER_ERROR out of memory writing stats maps");
-            return;
-        }
-
-        fd = open("/proc/self/maps", O_RDONLY);
-        if (fd == -1) {
-            out_string(c, "SERVER_ERROR cannot open the maps file");
-            free(wbuf);
-            return;
-        }
-
-        res = read(fd, wbuf, wsize - 6);  /* 6 = END\r\n\0 */
-        if (res == wsize - 6) {
-            out_string(c, "SERVER_ERROR buffer overflow");
-            free(wbuf); close(fd);
-            return;
-        }
-        if (res == 0 || res == -1) {
-            out_string(c, "SERVER_ERROR can't read the maps file");
-            free(wbuf); close(fd);
-            return;
-        }
-        memcpy(wbuf + res, "END\r\n", 5);
-        write_and_free(c, wbuf, res + 5);
-        close(fd);
-        return;
-    }
-#endif
-
     /* NOTE: how to tackle detail with binary? */
     if (strcmp(subcommand, "detail") == 0) {
         if (ntokens < 4)

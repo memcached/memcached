@@ -22,13 +22,6 @@
 #include <string.h>
 #include <assert.h>
 
-#ifdef HAVE_MALLOC_H
-/* OpenBSD has a malloc.h, but warns to use stdlib.h instead */
-#ifndef __OpenBSD__
-#include <malloc.h>
-#endif
-#endif
-
 #define POWER_SMALLEST 1
 #define POWER_LARGEST  200
 #define POWER_BLOCK 1048576
@@ -369,92 +362,6 @@ char *get_stats(const char *stat_type, int nkey,
         *buflen = size;
         return buf;
     }
-
-#ifdef HAVE_MALLOC_H
-#ifdef HAVE_STRUCT_MALLINFO
-    else if (strcmp(stat_type, "malloc") == 0) {
-        buf = malloc(1024);
-        char *pos = buf;
-        struct mallinfo info;
-        uint32_t linelen = 0;
-
-        if (buf == NULL) {
-            *buflen = -1;
-            return NULL;
-        }
-
-        info = mallinfo();
-
-        char val[128];
-        uint32_t nbytes = 0;
-
-        vlen = sprintf(val, "%ld", (long)info.arena);
-        nbytes = add_stats(pos, "arena_size", strlen("arena_size"), val,
-                           vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.ordblks);
-        nbytes = add_stats(pos, "free_chunks", strlen("free_chunks"), val,
-                           vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.smblks);
-        nbytes = add_stats(pos, "fastbin_blocks", strlen("fastbin_blocks"),
-                           val, vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.hblks);
-        nbytes = add_stats(pos, "mmapped_regions", strlen("mmapped_regions"),
-                           val, vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.hblkhd);
-        nbytes = add_stats(pos, "mmapped_space", strlen("mmapped_space"),
-                           val, vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.usmblks);
-        nbytes = add_stats(pos, "max_total_alloc", strlen("max_total_alloc"),
-                           val, vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.fsmblks);
-        nbytes = add_stats(pos, "fastbin_space", strlen("fastbin_space"),
-                           val, vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.uordblks);
-        nbytes = add_stats(pos, "total_alloc", strlen("total_alloc"), val,
-                           vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.fordblks);
-        nbytes = add_stats(pos, "total_free", strlen("total_free"), val,
-                           vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        vlen = sprintf(val, "%ld", (long)info.keepcost);
-        nbytes = add_stats(pos, "releasable_space", strlen("releasable_space"),
-                           val, vlen, c);
-        linelen += nbytes;
-        pos += nbytes;
-
-        linelen += add_stats(pos, NULL, 0, NULL, 0, c);
-        *buflen = linelen;
-
-        return buf;
-    }
-#endif /* HAVE_STRUCT_MALLINFO */
-#endif /* HAVE_MALLOC_H */
 
     return NULL;
 }

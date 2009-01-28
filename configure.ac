@@ -143,24 +143,6 @@ AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_HEADER_STDBOOL
 AC_C_CONST
 
-# We don't want to enable mallinfo on Solaris, because that will enable
-# libmalloc and from the manpage: These routines are space-efficient but
-# have lower performance. Their usage can result in serious performance
-# degradation.
-case "$target_os" in
-  *solaris*)
-  ;;
-  *)
-    AC_CHECK_HEADER(malloc.h, AC_DEFINE(HAVE_MALLOC_H,,[do we have malloc.h?]))
-    AC_CHECK_MEMBER([struct mallinfo.arena], [
-        AC_DEFINE(HAVE_STRUCT_MALLINFO,,[do we have stuct mallinfo?])
-    ], ,[
-#include <malloc.h>
-    ])
-    AC_SEARCH_LIBS(mallinfo, malloc)
-    ;;
-esac
-
 dnl From licq: Copyright (c) 2000 Dirk Mueller
 dnl Check if the type socklen_t is defined anywhere
 AC_DEFUN([AC_C_SOCKLEN_T],
