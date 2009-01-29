@@ -10,6 +10,7 @@ memcached_LDADD = @DTRACE_OBJ@
 memcached_debug_LDADD = @DTRACE_DEBUG_OBJ@
 memcached_DEPENDENCIES = @DTRACE_OBJ@
 memcached_debug_DEPENDENCIES = @DTRACE_DEBUG_OBJ@
+memcached_debug_CFLAGS = @PROFILER_FLAGS@
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d 
@@ -29,6 +30,26 @@ EXTRA_DIST = doc scripts TODO t memcached.spec memcached_dtrace.d
 
 test:	memcached-debug
 	prove $(srcdir)/t
+	@if test `basename $(PROFILER)` = "gcov"; then \
+	  for file in memcached_debug-*.gc??; do \
+	    mv -f $$file `echo $$file | sed 's/memcached_debug-//'`; \
+	  done && \
+	  for file in *.gcda; do \
+	    srcfile=`echo $$file | sed 's/.gcda/.c/'`; \
+	    if test -n "`echo $(memcached_debug_SOURCES) | grep $$srcfile`"; then \
+	      echo `$(PROFILER) $$srcfile` | sed 's/'$$srcfile':.*//'; \
+	    fi \
+	  done \
+	elif test `basename $(PROFILER)` = "tcov"; then \
+	  files=`grep SRCFILE memcached-debug.profile/tcovd | sed 's/SRCFILE://' | sort | uniq` && \
+	  $(PROFILER) -x memcached-debug.profile $$files 2>&1; \
+	  for file in *.tcov; do \
+	    srcfile=`echo $$file | sed 's/.tcov//'`; \
+	    if test -n "`echo $(memcached_debug_SOURCES) | grep $$srcfile`"; then \
+	      echo $$srcfile : `grep 'Percent of the file executed' $$file`; \
+	    fi \
+	  done \
+	else :; fi
 
 dist-hook:
 	rm -rf $(distdir)/doc/.svn/

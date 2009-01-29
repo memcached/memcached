@@ -201,7 +201,7 @@ sub new {
 
 sub DESTROY {
     my $self = shift;
-    kill 9, $self->{pid};
+    kill 2, $self->{pid};
 }
 
 sub port { $_[0]{port} }

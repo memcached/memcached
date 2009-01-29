@@ -37,6 +37,32 @@ AC_SUBST(DTRACE_OBJ)
 AC_SUBST(DTRACE_DEBUG_OBJ)
 AC_SUBST(DTRACEFLAGS)
 
+if test "$GCC" = "yes"
+then
+   AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
+   if test "x$PROFILER" != "xno"; then
+      PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"
+   fi
+else
+   AC_RUN_IFELSE(
+      [AC_LANG_PROGRAM([], [dnl
+#ifdef __SUNPRO_C
+   return 0;
+#else
+   return 1;
+#endif
+      ])
+    ],[
+       AC_PATH_PROG([PROFILER], [tcov], "no", [$PATH])
+       if test "x$PROFILER" != "xno"; then
+          PROFILER_FLAGS=-xprofile=tcov
+       fi
+    ])
+fi
+
+AC_SUBST(PROFILER_FLAGS)
+
+
 AC_ARG_ENABLE(64bit,
   [AS_HELP_STRING([--enable-64bit],[build 64bit version])])
 if test "x$enable_64bit" == "xyes"
