@@ -1,4 +1,6 @@
 *.[ao]
+*.gcov
+*.gcda
 *.gcno
 .deps
 INSTALL
