@@ -1,4 +1,5 @@
 *.[ao]
+*.gcno
 .deps
 INSTALL
 Makefile
