@@ -36,12 +36,14 @@ AC_SUBST(DTRACE_HEADER)
 AC_SUBST(DTRACE_OBJ)
 AC_SUBST(DTRACE_DEBUG_OBJ)
 AC_SUBST(DTRACEFLAGS)
+AC_SUBST(PROFILER_LDFLAGS)
 
 if test "$GCC" = "yes"
 then
    AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
    if test "x$PROFILER" != "xno"; then
       PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"
+      PROFILER_LDFLAGS="-lgcov"
    fi
 else
    AC_RUN_IFELSE(
