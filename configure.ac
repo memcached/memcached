@@ -6,7 +6,38 @@ AM_INIT_AUTOMAKE(AC_PACKAGE_NAME, AC_PACKAGE_VERSION)
 AM_CONFIG_HEADER(config.h)
 
 AC_PROG_CC
-AC_PROG_CC_C99
+
+dnl **********************************************************************
+dnl DETECT_ICC ([ACTION-IF-YES], [ACTION-IF-NO])
+dnl
+dnl check if this is the Intel ICC compiler, and if so run the ACTION-IF-YES
+dnl sets the $ICC variable to "yes" or "no"
+dnl **********************************************************************
+AC_DEFUN([DETECT_ICC],
+[
+    ICC="no"
+    AC_MSG_CHECKING([for icc in use])
+    if test "$GCC" = "yes"; then
+       dnl check if this is icc acting as gcc in disguise
+       AC_EGREP_CPP([^__INTEL_COMPILER], [__INTEL_COMPILER],
+         dnl action if the text is found, this it has not been replaced by the
+         dnl cpp
+         ICC="no"
+         [$2],
+         dnl the text was not found, it was replaced by the cpp
+         ICC="yes"
+         AC_MSG_RESULT([yes])
+         [$1]
+       )
+    fi
+    if test "$ICC" = "no"; then
+        # this is not ICC
+        AC_MSG_RESULT([no])
+    fi
+])
+
+DETECT_ICC([], [AC_PROG_CC_C99])
+
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
@@ -38,7 +69,11 @@ AC_SUBST(DTRACE_DEBUG_OBJ)
 AC_SUBST(DTRACEFLAGS)
 AC_SUBST(PROFILER_LDFLAGS)
 
-if test "$GCC" = "yes"
+if test "$ICC" = "yes"
+then
+   :
+   dnl ICC trying to be gcc, but not well
+elif test "$GCC" = "yes"
 then
    AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
    if test "x$PROFILER" != "xno"; then
@@ -274,7 +309,11 @@ dnl Let the compiler be a bit more picky. Please note that you cannot
 dnl specify these flags to the compiler before AC_CHECK_FUNCS, because
 dnl the test program will generate a compilation warning and hence fail
 dnl to detect the function ;-)
-if test "$GCC" = "yes"
+if test "$ICC" = "yes"
+then
+   :
+   dnl ICC trying to be gcc.
+elif test "$GCC" = "yes"
 then
   CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
 elif test "$SUNSTUDIO" = "true"

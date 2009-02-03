@@ -611,12 +611,13 @@ int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 static void *assoc_maintenance_thread(void *arg) {
 
     while (do_run_maintenance_thread) {
+        int ii = 0;
 
         /* Lock the cache, and bulk move multiple buckets to the new
          * hash table. */
         pthread_mutex_lock(&cache_lock);
 
-        for (int ii = 0; ii < hash_bulk_move && expanding; ++ii) {
+        for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             item *it, *next;
             int bucket;
 

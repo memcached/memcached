@@ -157,7 +157,7 @@ enum conn_states {
     conn_swallow,    /** swallowing unnecessary bytes w/o storing */
     conn_closing,    /** closing this connection */
     conn_mwrite,     /** writing out many items sequentially */
-    conn_max_state,  /** Max state value (used for assertion) */
+    conn_max_state  /** Max state value (used for assertion) */
 };
 
 enum bin_substates {
@@ -176,7 +176,7 @@ enum protocol {
     ascii_prot = 3, /* arbitrary value. */
     ascii_udp_prot,
     binary_prot,
-    negotiating_prot, /* Discovering the protocol */
+    negotiating_prot /* Discovering the protocol */
 };
 
 #define IS_UDP(x) (x == ascii_udp_prot)
