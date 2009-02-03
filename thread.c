@@ -18,12 +18,12 @@
 /* An item in the connection queue. */
 typedef struct conn_queue_item CQ_ITEM;
 struct conn_queue_item {
-    int     sfd;
-    int     init_state;
-    int     event_flags;
-    int     read_buffer_size;
-    int     protocol;
-    CQ_ITEM *next;
+    int               sfd;
+    enum conn_states  init_state;
+    int               event_flags;
+    int               read_buffer_size;
+    enum protocol     protocol;
+    CQ_ITEM          *next;
 };
 
 /* A connection queue. */
