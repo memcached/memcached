@@ -312,7 +312,7 @@ dnl to detect the function ;-)
 if test "$ICC" = "yes"
 then
    dnl ICC trying to be gcc.
-   CFLAGS="$CFLAGS -diag-disable 187"
+   CFLAGS="$CFLAGS -diag-disable 187 -Wall -Werror"
 elif test "$GCC" = "yes"
 then
   CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
