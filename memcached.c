@@ -897,7 +897,6 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     protocol_binary_response_header* header;
 
     assert(c);
-    assert(body_len >= 0);
 
     c->msgcurr = 0;
     c->msgused = 0;
