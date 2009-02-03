@@ -311,8 +311,8 @@ dnl the test program will generate a compilation warning and hence fail
 dnl to detect the function ;-)
 if test "$ICC" = "yes"
 then
-   :
    dnl ICC trying to be gcc.
+   CFLAGS="$CFLAGS -diag-disable 187"
 elif test "$GCC" = "yes"
 then
   CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
