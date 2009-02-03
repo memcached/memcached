@@ -1095,7 +1095,8 @@ static void complete_incr_bin(conn *c) {
 }
 
 static void complete_update_bin(conn *c) {
-    int eno = -1, ret = 0;
+    protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
+    int ret = 0;
     assert(c != NULL);
 
     item *it = c->item;
