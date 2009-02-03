@@ -206,7 +206,8 @@ struct conn {
     char   *wcurr;
     int    wsize;
     int    wbytes;
-    int    write_and_go; /** which state to go into after finishing current write */
+    /** which state to go into after finishing current write */
+    enum conn_states  write_and_go;
     void   *write_and_free; /** free this memory after finishing writing */
 
     char   *ritem;  /** when we read in an item's value, it goes here */
