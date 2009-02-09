@@ -28,6 +28,8 @@ SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts TODO t memcached.spec memcached_dtrace.d
 
+MOSTLYCLEANFILES = *.gcov *.gcno *.gcda
+
 test:	memcached-debug
 	prove $(srcdir)/t
 	@if test `basename $(PROFILER)` = "gcov"; then \
