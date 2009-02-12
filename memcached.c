@@ -1552,6 +1552,10 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
         do_item_replace(it, new_it);
         do_item_remove(new_it);       /* release our reference */
     } else { /* replace in-place */
+        /* When changing the value without replacing the item, we
+           need to update the CAS on the existing item. */
+        it->cas_id = get_cas_id();
+
         memcpy(ITEM_data(it), buf, res);
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
     }

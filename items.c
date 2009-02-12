@@ -17,7 +17,6 @@
 /* Forward Declarations */
 static void item_link_q(item *it);
 static void item_unlink_q(item *it);
-static uint64_t get_cas_id();
 
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned
