@@ -1928,7 +1928,6 @@ typedef struct token_s {
 #define COMMAND_TOKEN 0
 #define SUBCOMMAND_TOKEN 1
 #define KEY_TOKEN 1
-#define KEY_MAX_LENGTH 250
 
 #define MAX_TOKENS 8
 

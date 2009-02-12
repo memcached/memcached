@@ -309,6 +309,7 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     item *it;
     unsigned int len;
     unsigned int shown = 0;
+    char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
 
     if (slabs_clsid > LARGEST_ID) return NULL;
@@ -319,8 +320,11 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     bufcurr = 0;
 
     while (it != NULL && (limit == 0 || shown < limit)) {
+        assert(it->nkey <= KEY_MAX_LENGTH);
+        /* Copy the key since it may not be null-terminated in the struct */
+        strncpy(key_temp, ITEM_key(it), it->nkey + 1); /* + 1 terminates */
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n",
-                       ITEM_key(it), it->nbytes - 2,
+                       key_temp, it->nbytes - 2,
                        (unsigned long)it->exptime + stats.started);
         if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;

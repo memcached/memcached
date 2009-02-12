@@ -16,6 +16,9 @@
 
 #include "protocol_binary.h"
 
+/* Maximum length of a key. */
+#define KEY_MAX_LENGTH 250
+
 #define DATA_BUFFER_SIZE 2048
 #define UDP_READ_BUFFER_SIZE 65536
 #define UDP_MAX_PAYLOAD_SIZE 1400
