@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 30;
+use Test::More tests => 39;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -115,3 +115,28 @@ ok( ( $res1 eq "STORED\r\n" && $res2 eq "EXISTS\r\n") ||
     ( $res1 eq "EXISTS\r\n" && $res2 eq "STORED\r\n"),
     "cas on same item from two sockets");
 
+### bug 15: http://code.google.com/p/memcached/issues/detail?id=15
+
+# set foo
+print $sock "set bug15 0 0 1\r\n0\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored 0");
+
+# Check out the first gets.
+print $sock "gets bug15\r\n";
+ok(scalar <$sock> =~ /VALUE bug15 0 1 (\d+)\r\n/, "gets bug15 regexp success");
+my $bug15_cas = $1;
+is(scalar <$sock>, "0\r\n", "gets bug15 data is 0");
+is(scalar <$sock>, "END\r\n","gets bug15 END");
+
+# Increment
+print $sock "incr bug15 1\r\n";
+is(scalar <$sock>, "1\r\n", "incr worked");
+
+# Validate a changed CAS
+print $sock "gets bug15\r\n";
+ok(scalar <$sock> =~ /VALUE bug15 0 1 (\d+)\r\n/, "gets bug15 regexp success");
+my $next_bug15_cas = $1;
+is(scalar <$sock>, "1\r\n", "gets bug15 data is 0");
+is(scalar <$sock>, "END\r\n","gets bug15 END");
+
+ok($bug15_cas != $next_bug15_cas, "CAS changed");
