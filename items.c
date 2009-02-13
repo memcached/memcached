@@ -322,7 +322,8 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     while (it != NULL && (limit == 0 || shown < limit)) {
         assert(it->nkey <= KEY_MAX_LENGTH);
         /* Copy the key since it may not be null-terminated in the struct */
-        strncpy(key_temp, ITEM_key(it), it->nkey + 1); /* + 1 terminates */
+        strncpy(key_temp, ITEM_key(it), it->nkey);
+        key_temp[it->nkey] = 0x00; /* terminate */
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n",
                        key_temp, it->nbytes - 2,
                        (unsigned long)it->exptime + stats.started);
