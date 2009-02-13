@@ -26,9 +26,9 @@ sub mem_stats {
     my $stats = {};
     while (<$sock>) {
         last if /^(\.|END)/;
-        /^STAT (\S+) (\d+)/;
+        /^(STAT|ITEM) (\S+)\s+([^\r\n]+)/;
         #print " slabs: $_";
-        $stats->{$1} = $2;
+        $stats->{$2} = $3;
     }
     return $stats;
 }
