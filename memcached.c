@@ -1393,7 +1393,6 @@ static void process_bin_stat(conn *c) {
     } else {
         int len = 0;
         buf = get_stats(subcommand, nkey, &append_bin_stats, (void *)c, &len);
-        memset(subcommand, 0, strlen(subcommand));
 
         /* len is set to -1 in get_stats if memory couldn't be allocated */
         if (len < 0)
