@@ -20,23 +20,20 @@ AC_DEFUN([DETECT_ICC],
     if test "$GCC" = "yes"; then
        dnl check if this is icc acting as gcc in disguise
        AC_EGREP_CPP([^__INTEL_COMPILER], [__INTEL_COMPILER],
-         dnl action if the text is found, this it has not been replaced by the
-         dnl cpp
-         ICC="no"
-         [$2],
-         dnl the text was not found, it was replaced by the cpp
-         ICC="yes"
+         AC_MSG_RESULT([no])
+         [$2]
+         ICC="no",
          AC_MSG_RESULT([yes])
          [$1]
-       )
-    fi
-    if test "$ICC" = "no"; then
-        # this is not ICC
-        AC_MSG_RESULT([no])
+         ICC="yes")
     fi
 ])
 
-DETECT_ICC([], [AC_PROG_CC_C99])
+DETECT_ICC([], [])
+
+if test "$ICC" == "no"; then
+   AC_PROG_CC_C99
+fi
 
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
