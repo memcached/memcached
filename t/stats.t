@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 17;
+use Test::More tests => 18;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -55,3 +55,7 @@ my $stats = mem_stats($sock);
 foreach my $key (qw(total_items curr_items cmd_get cmd_set get_hits)) {
     is($stats->{$key}, 1, "after one set/one get $key is 1");
 }
+
+my $cache_dump = mem_stats($sock, " cachedump 1 100");
+ok(defined $cache_dump->{'foo'}, "got foo from cachedump");
+
