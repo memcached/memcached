@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 776;
+use Test::More tests => 783;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -52,6 +52,10 @@ use constant REQ_MAGIC        => 0x80;
 use constant RES_MAGIC        => 0x81;
 
 my $mc = MC::Client->new;
+
+# Let's turn on detail stats for all this stuff
+
+$mc->stats('detail on');
 
 my $check = sub {
     my ($key, $orig_flags, $orig_val) = @_;
@@ -321,6 +325,15 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
     }
 }
 
+# Along with the assertion added to the code to verify we're staying
+# within bounds when we do a stats detail dump (detail turned on at
+# the top).
+my %stats = $mc->stats('detail dump');
+
+# ######################################################################
+# Test ends around here.
+# ######################################################################
+
 package MC::Client;
 
 use strict;
@@ -401,7 +414,7 @@ sub _handle_single_response {
         $opaque, $ident_hi, $ident_lo) = unpack(::RES_PKT_FMT, $response);
     Test::More::is($magic, ::RES_MAGIC, "Got proper response magic");
 
-    return ($opaque, '') if($remaining == 0);
+    return ($opaque, '', '', 0) if($remaining == 0);
 
     # fetch the value
     my $rv="";
@@ -426,7 +439,7 @@ sub _handle_single_response {
         die MC::Error->new($status, $rv);
     }
 
-    return ($opaque, $rv, $cas);
+    return ($opaque, $rv, $cas, $keylen);
 }
 
 sub _do_command {
@@ -478,6 +491,29 @@ sub silent_incrdecr {
 
     $mc->send_silent($cmd, $key, '', $opaque,
                      $mc->_incrdecr_header($amt, $init, $exp));
+}
+
+sub stats {
+    my $self = shift;
+    my $key  = shift;
+    my $cas = 0;
+    my $opaque = int(rand(2**32));
+    $self->send_command(::CMD_STAT, $key, '', $opaque, '', $cas);
+
+    my %rv = ();
+    my $found_key = '';
+    my $found_val = '';
+    do {
+        my ($op, $data, $cas, $keylen) = $self->_handle_single_response($opaque);
+        if($keylen > 0) {
+            $found_key = substr($data, 0, $keylen);
+            $found_val = substr($data, $keylen);
+            $rv{$found_key} = $found_val;
+        } else {
+            $found_key = '';
+        }
+    } while($found_key ne '');
+    return %rv;
 }
 
 sub get {
@@ -586,7 +622,6 @@ sub noop {
     my $self = shift;
     return $self->_do_command(::CMD_NOOP, '', '');
 }
-
 
 package MC::Error;
 

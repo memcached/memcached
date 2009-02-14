@@ -1346,13 +1346,16 @@ static void process_bin_stat(conn *c) {
         if (strncmp(subcmd_pos, " dump", 5) == 0) {
             char *dump_buf = stats_prefix_dump(&len);
             int nbytes = 0;
+            int allocation = 0;
 
             if (dump_buf == NULL || len <= 0) {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
                 return;
             }
 
-            buf = malloc((sizeof(header->response) * 2) + len);
+            /* Extra 9 bytes for (length "detailed") */
+            allocation = (sizeof(header->response) * 2) + len + 8;
+            buf = malloc(allocation);
 
             if (buf == NULL) {
                 free(dump_buf);
@@ -1366,6 +1369,7 @@ static void process_bin_stat(conn *c) {
                                       dump_buf, len, (void *)c);
             bufpos += nbytes;
             nbytes += append_bin_stats(bufpos, NULL, 0, NULL, 0, (void *)c);
+            assert(nbytes <= allocation);
             free(dump_buf);
 
             write_and_free(c, buf, nbytes);
