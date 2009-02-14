@@ -338,7 +338,11 @@ sub send_command {
                    $datatype, $reserved, $totallen, $opaque, $ident_hi,
                    $ident_lo);
 
-    return $self->{socket}->send($msg . $extra_header . $key . $val);
+    my $full_msg = $msg . $extra_header . $key . $val;
+    my $sent = $self->{socket}->send($full_msg);
+    if($sent != length($full_msg)) {
+        die("only sent $sent of " . length($full_msg) . " bytes");
+    }
 }
 
 # Send a silent command and ensure it doesn't respond.
