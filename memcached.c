@@ -1210,6 +1210,8 @@ static void process_bin_get(conn *c) {
         /* Add the data minus the CRLF */
         add_iov(c, ITEM_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
+        /* Remember this command so we can garbage collect it later */
+        c->item = it;
     } else {
         STATS_LOCK();
         stats.get_cmds++;
@@ -1794,6 +1796,10 @@ static void complete_nread_binary(conn *c) {
 static void reset_cmd_handler(conn *c) {
     c->cmd = -1;
     c->substate = bin_no_state;
+    if(c->item != NULL) {
+        item_remove(c->item);
+        c->item = NULL;
+    }
     conn_shrink(c);
     if (c->rbytes > 0) {
         conn_set_state(c, conn_parse_cmd);

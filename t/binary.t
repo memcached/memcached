@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 376;
+use Test::More tests => 776;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -297,6 +297,28 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
     $set->($key, 8, 19, $value);
     $mc->send_silent(::CMD_PREPENDQ, $key, "prefixed ", 7284492);
     $check->($key, 19, "prefixed " . $value);
+}
+
+# diag "Leaky binary get test.";
+# # http://code.google.com/p/memcached/issues/detail?id=16
+{
+    # Get a new socket so we can speak text to it.
+    my $sock = $server->new_sock;
+    my $max = 1024 * 1024;
+    my $big = "a big value that's > .5M and < 1M. ";
+    while (length($big) * 2 < $max) {
+        $big = $big . $big;
+    }
+    my $biglen = length($big);
+
+    for(1..100) {
+        my $key = "some_key_$_";
+        # print STDERR "Key is $key\n";
+        # print $sock "set $key 0 0 $vallen\r\n$value\r\n";
+        print $sock "set $key 0 0 $biglen\r\n$big\r\n";
+        is(scalar <$sock>, "STORED\r\n", "stored big");
+        my ($f, $v, $c) = $mc->get($key);
+    }
 }
 
 package MC::Client;
