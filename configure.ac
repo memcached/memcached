@@ -31,7 +31,7 @@ AC_DEFUN([DETECT_ICC],
 
 DETECT_ICC([], [])
 
-if test "$ICC" == "no"; then
+if test "$ICC" = "no"; then
    AC_PROG_CC_C99
 fi
 
