@@ -382,7 +382,15 @@ sub _handle_single_response {
     return ($opaque, '') if($remaining == 0);
 
     # fetch the value
-    $self->{socket}->recv(my $rv, $remaining);
+    my $rv="";
+    while($remaining - length($rv) > 0) {
+        $self->{socket}->recv(my $buf, $remaining - length($rv));
+        $rv .= $buf;
+    }
+    if(length($rv) != $remaining) {
+        my $found = length($rv);
+        die("Expected $remaining bytes, got $found");
+    }
 
     if (defined $myopaque) {
         Test::More::is($opaque, $myopaque, "Expected opaque");
