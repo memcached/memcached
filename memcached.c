@@ -860,14 +860,23 @@ static void complete_nread_ascii(conn *c) {
       }
 #endif
 
-      if (ret == STORED)
+      switch (ret) {
+      case STORED:
           out_string(c, "STORED");
-      else if(ret == EXISTS)
+          break;
+      case EXISTS:
           out_string(c, "EXISTS");
-      else if(ret == NOT_FOUND)
+          break;
+      case NOT_FOUND:
           out_string(c, "NOT_FOUND");
-      else
+          break;
+      case NOT_STORED:
           out_string(c, "NOT_STORED");
+          break;
+      default:
+          out_string(c, "SERVER_ERROR Unhandled storage type.");
+      }
+
     }
 
     item_remove(c->item);       /* release the c->item reference */
