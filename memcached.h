@@ -191,6 +191,10 @@ enum protocol {
 #define NREAD_PREPEND 5
 #define NREAD_CAS 6
 
+enum store_item_type {
+    NOT_STORED=0, STORED, EXISTS, NOT_FOUND
+};
+
 typedef struct conn conn;
 struct conn {
     int    sfd;
@@ -286,7 +290,7 @@ char *do_suffix_from_freelist(void);
 bool do_suffix_add_to_freelist(char *s);
 char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
                    char *buf);
-int do_store_item(item *item, int comm, conn* c);
+enum store_item_type do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
 uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
                           const char *val, const uint32_t vlen, void *cookie);
@@ -344,7 +348,7 @@ char *slabs_stats(uint32_t (*add_stats)(char *buf,
                   const uint32_t vlen, void *cookie), void *c, int *buflen);
 void  STATS_LOCK(void);
 void  STATS_UNLOCK(void);
-int   store_item(item *item, int comm, conn *c);
+enum store_item_type store_item(item *item, int comm, conn *c);
 
 /* If supported, give compiler hints for branch prediction. */
 #if !defined(__GNUC__) || (__GNUC__ == 2 && __GNUC_MINOR__ < 96)

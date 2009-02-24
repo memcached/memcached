@@ -463,8 +463,8 @@ char *add_delta(conn *c, item *item, int incr, const int64_t delta,
 /*
  * Stores an item in the cache (high level, obeys set/add/replace semantics)
  */
-int store_item(item *item, int comm, conn* c) {
-    int ret;
+enum store_item_type store_item(item *item, int comm, conn* c) {
+    enum store_item_type ret;
 
     pthread_mutex_lock(&cache_lock);
     ret = do_store_item(item, comm, c);

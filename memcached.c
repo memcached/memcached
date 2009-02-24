@@ -819,7 +819,7 @@ static void complete_nread_ascii(conn *c) {
 
     item *it = c->item;
     int comm = c->item_comm;
-    int ret;
+    enum store_item_type ret;
 
     STATS_LOCK();
     stats.set_cmds++;
@@ -860,11 +860,11 @@ static void complete_nread_ascii(conn *c) {
       }
 #endif
 
-      if (ret == 1)
+      if (ret == STORED)
           out_string(c, "STORED");
-      else if(ret == 2)
+      else if(ret == EXISTS)
           out_string(c, "EXISTS");
-      else if(ret == 3)
+      else if(ret == NOT_FOUND)
           out_string(c, "NOT_FOUND");
       else
           out_string(c, "NOT_STORED");
@@ -1095,7 +1095,7 @@ static void complete_incr_bin(conn *c) {
 
 static void complete_update_bin(conn *c) {
     protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
-    int ret = 0;
+    enum store_item_type ret = NOT_STORED;
     assert(c != NULL);
 
     item *it = c->item;
@@ -1116,36 +1116,36 @@ static void complete_update_bin(conn *c) {
     switch (c->item_comm) {
     case NREAD_ADD:
         MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
-                              (ret == 1) ? it->nbytes : -1, cas);
+                              (ret == STORED) ? it->nbytes : -1, cas);
         break;
     case NREAD_REPLACE:
         MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
-                                  (ret == 1) ? it->nbytes : -1, cas);
+                                  (ret == STORED) ? it->nbytes : -1, cas);
         break;
     case NREAD_APPEND:
         MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
-                                 (ret == 1) ? it->nbytes : -1, cas);
+                                 (ret == STORED) ? it->nbytes : -1, cas);
         break;
     case NREAD_PREPEND:
         MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
-                                 (ret == 1) ? it->nbytes : -1, cas);
+                                 (ret == STORED) ? it->nbytes : -1, cas);
         break;
     case NREAD_SET:
         MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
-                              (ret == 1) ? it->nbytes : -1, cas);
+                              (ret == STORED) ? it->nbytes : -1, cas);
         break;
     }
 #endif
 
     switch (ret) {
-        case 1:
+        case STORED:
             /* Stored */
             write_bin_response(c, NULL, 0, 0, 0);
             break;
-        case 2:
+        case EXISTS:
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
             break;
-        case 3:
+        case NOT_FOUND:
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
             break;
         default:
@@ -1827,12 +1827,12 @@ static void complete_nread(conn *c) {
  * Stores an item in the cache according to the semantics of one of the set
  * commands. In threaded mode, this is protected by the cache lock.
  *
- * Returns true if the item was stored.
+ * Returns the state of storage.
  */
-int do_store_item(item *it, int comm, conn *c) {
+enum store_item_type do_store_item(item *it, int comm, conn *c) {
     char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey);
-    int stored = 0;
+    enum store_item_type stored = NOT_STORED;
 
     item *new_it = NULL;
     int flags;
@@ -1847,20 +1847,20 @@ int do_store_item(item *it, int comm, conn *c) {
     } else if (comm == NREAD_CAS) {
         /* validate cas operation */
         if(old_it == NULL) {
-          // LRU expired
-          stored = 3;
+            // LRU expired
+            stored = NOT_FOUND;
         }
         else if (ITEM_get_cas(it) == ITEM_get_cas(old_it)) {
-          // cas validates
-          item_replace(old_it, it);
-          stored = 1;
+            // cas validates
+            item_replace(old_it, it);
+            stored = STORED;
         } else {
-          if(settings.verbose > 1) {
-            fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
-                    (unsigned long long)ITEM_get_cas(old_it),
-                    (unsigned long long)ITEM_get_cas(it));
-          }
-          stored = 2;
+            if(settings.verbose > 1) {
+                fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
+                        (unsigned long long)ITEM_get_cas(old_it),
+                        (unsigned long long)ITEM_get_cas(it));
+            }
+            stored = EXISTS;
         }
     } else {
         /*
@@ -1874,11 +1874,11 @@ int do_store_item(item *it, int comm, conn *c) {
             if (ITEM_get_cas(it) != 0) {
                 // CAS much be equal
                 if (ITEM_get_cas(it) != ITEM_get_cas(old_it)) {
-                    stored = 2;
+                    stored = EXISTS;
                 }
             }
 
-            if (stored == 0) {
+            if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
                 /* flags was already lost - so recover them from ITEM_suffix(it) */
 
@@ -1891,7 +1891,7 @@ int do_store_item(item *it, int comm, conn *c) {
                     if (old_it != NULL)
                         do_item_remove(old_it);
 
-                    return 0;
+                    return NOT_STORED;
                 }
 
                 /* copy data from it and old_it to new_it */
@@ -1909,7 +1909,7 @@ int do_store_item(item *it, int comm, conn *c) {
             }
         }
 
-        if (stored == 0) {
+        if (stored == NOT_STORED) {
             if (old_it != NULL)
                 item_replace(old_it, it);
             else
@@ -1917,7 +1917,7 @@ int do_store_item(item *it, int comm, conn *c) {
 
             c->cas = ITEM_get_cas(it);
 
-            stored = 1;
+            stored = STORED;
         }
     }
 
