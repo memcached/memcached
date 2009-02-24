@@ -1147,25 +1147,25 @@ static void complete_update_bin(conn *c) {
 #endif
 
     switch (ret) {
-        case STORED:
-            /* Stored */
-            write_bin_response(c, NULL, 0, 0, 0);
-            break;
-        case EXISTS:
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
-            break;
-        case NOT_FOUND:
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
-            break;
-        default:
-            if (c->item_comm == NREAD_ADD) {
-                eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-            } else if(c->item_comm == NREAD_REPLACE) {
-                eno = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-            } else {
-                eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
-            }
-            write_bin_error(c, eno, 0);
+    case STORED:
+        /* Stored */
+        write_bin_response(c, NULL, 0, 0, 0);
+        break;
+    case EXISTS:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
+        break;
+    case NOT_FOUND:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        break;
+    default:
+        if (c->item_comm == NREAD_ADD) {
+            eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+        } else if(c->item_comm == NREAD_REPLACE) {
+            eno = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+        } else {
+            eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
+        }
+        write_bin_error(c, eno, 0);
     }
 
     item_remove(c->item);       /* release the c->item reference */
