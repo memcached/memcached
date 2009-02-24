@@ -1157,7 +1157,7 @@ static void complete_update_bin(conn *c) {
     case NOT_FOUND:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
         break;
-    default:
+    case NOT_STORED:
         if (c->item_comm == NREAD_ADD) {
             eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
         } else if(c->item_comm == NREAD_REPLACE) {
