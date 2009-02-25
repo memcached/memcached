@@ -4115,6 +4115,22 @@ int main (int argc, char **argv) {
         }
     }
 
+    /* lose root privileges if we have them */
+    if (getuid() == 0 || geteuid() == 0) {
+        if (username == 0 || *username == '\0') {
+            fprintf(stderr, "can't run as root without the -u switch\n");
+            return 1;
+        }
+        if ((pw = getpwnam(username)) == 0) {
+            fprintf(stderr, "can't find the user %s to switch to\n", username);
+            return 1;
+        }
+        if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
+            fprintf(stderr, "failed to assume identity of user %s\n", username);
+            return 1;
+        }
+    }
+
     /* daemonize if requested */
     /* if we want to ensure our ability to dump core, don't chdir to / */
     if (do_daemonize) {
@@ -4137,22 +4153,6 @@ int main (int argc, char **argv) {
 #else
         fprintf(stderr, "warning: -k invalid, mlockall() not supported on this platform.  proceeding without.\n");
 #endif
-    }
-
-    /* lose root privileges if we have them */
-    if (getuid() == 0 || geteuid() == 0) {
-        if (username == 0 || *username == '\0') {
-            fprintf(stderr, "can't run as root without the -u switch\n");
-            return 1;
-        }
-        if ((pw = getpwnam(username)) == 0) {
-            fprintf(stderr, "can't find the user %s to switch to\n", username);
-            return 1;
-        }
-        if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
-            fprintf(stderr, "failed to assume identity of user %s\n", username);
-            return 1;
-        }
     }
 
     /* initialize main thread libevent instance */
