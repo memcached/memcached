@@ -45,6 +45,7 @@ std *
 #include <time.h>
 #include <assert.h>
 #include <limits.h>
+#include <sysexits.h>
 
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
@@ -4091,7 +4092,7 @@ int main (int argc, char **argv) {
 
         if ((getrlimit(RLIMIT_CORE, &rlim) != 0) || rlim.rlim_cur == 0) {
             fprintf(stderr, "failed to ensure corefile creation\n");
-            exit(EXIT_FAILURE);
+            exit(EX_OSERR);
         }
     }
 
@@ -4102,7 +4103,7 @@ int main (int argc, char **argv) {
 
     if (getrlimit(RLIMIT_NOFILE, &rlim) != 0) {
         fprintf(stderr, "failed to getrlimit number of files\n");
-        exit(EXIT_FAILURE);
+        exit(EX_OSERR);
     } else {
         int maxfiles = settings.maxconns;
         if (rlim.rlim_cur < maxfiles)
@@ -4111,7 +4112,7 @@ int main (int argc, char **argv) {
             rlim.rlim_max = rlim.rlim_cur;
         if (setrlimit(RLIMIT_NOFILE, &rlim) != 0) {
             fprintf(stderr, "failed to set rlimit for open files. Try running as root or requesting smaller maxconns value.\n");
-            exit(EXIT_FAILURE);
+            exit(EX_OSERR);
         }
     }
 
@@ -4119,15 +4120,15 @@ int main (int argc, char **argv) {
     if (getuid() == 0 || geteuid() == 0) {
         if (username == 0 || *username == '\0') {
             fprintf(stderr, "can't run as root without the -u switch\n");
-            return 1;
+            exit(EX_USAGE);
         }
         if ((pw = getpwnam(username)) == 0) {
             fprintf(stderr, "can't find the user %s to switch to\n", username);
-            return 1;
+            exit(EX_NOUSER);
         }
         if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
             fprintf(stderr, "failed to assume identity of user %s\n", username);
-            return 1;
+            exit(EX_OSERR);
         }
     }
 
@@ -4138,7 +4139,7 @@ int main (int argc, char **argv) {
         res = daemonize(maxcore, settings.verbose);
         if (res == -1) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
-            return 1;
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -4176,7 +4177,7 @@ int main (int argc, char **argv) {
     if (sigemptyset(&sa.sa_mask) == -1 ||
         sigaction(SIGPIPE, &sa, 0) == -1) {
         perror("failed to ignore SIGPIPE; sigaction");
-        exit(EXIT_FAILURE);
+        exit(EX_OSERR);
     }
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
@@ -4200,7 +4201,7 @@ int main (int argc, char **argv) {
                   settings.socketpath);
           if (errno != 0)
               perror("socket listen");
-          exit(EXIT_FAILURE);
+          exit(EX_OSERR);
         }
     }
 
@@ -4212,7 +4213,7 @@ int main (int argc, char **argv) {
             fprintf(stderr, "failed to listen on TCP port %d\n", settings.port);
             if (errno != 0)
                 perror("tcp listen");
-            exit(EXIT_FAILURE);
+            exit(EX_OSERR);
         }
 
         /*
@@ -4229,7 +4230,7 @@ int main (int argc, char **argv) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
             if (errno != 0)
                 perror("udp listen");
-            exit(EXIT_FAILURE);
+            exit(EX_OSERR);
         }
     }
 
@@ -4249,5 +4250,5 @@ int main (int argc, char **argv) {
     if (u_socket)
       free(u_socket);
 
-    return 0;
+    return EXIT_SUCCESS;
 }
