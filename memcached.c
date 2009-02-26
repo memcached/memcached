@@ -2616,7 +2616,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  */
 char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char *buf) {
     char *ptr;
-    int64_t value;
+    uint64_t value;
     int res;
 
     ptr = ITEM_data(it);
@@ -2632,9 +2632,10 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
         value += delta;
         MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
     } else {
-        value -= delta;
-        if(value < 0) {
+        if(delta > value) {
             value = 0;
+        } else {
+            value -= delta;
         }
         MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
     }

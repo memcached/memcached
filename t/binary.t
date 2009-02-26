@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 783;
+use Test::More tests => 797;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -170,6 +170,14 @@ $mc->flush;
 is($mc->incr("x", undef, 5), 5, "Initial value");
 is($mc->decr("x"), 4, "Decrease by one");
 is($mc->decr("x", 211), 0, "Floor is zero");
+
+{
+    # diag "bug21";
+    $mc->add("bug21", "9223372036854775807", 0, 0);
+    is($mc->incr("bug21"), 9223372036854775808, "First incr for bug21.");
+    is($mc->incr("bug21"), 9223372036854775809, "Second incr for bug21.");
+    is($mc->decr("bug21"), 9223372036854775808, "Decr for bug21.");
+}
 
 {
     # diag "CAS";
