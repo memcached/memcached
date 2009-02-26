@@ -1519,7 +1519,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  */
 char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char *buf) {
     char *ptr;
-    int64_t value;
+    uint64_t value;
     int res;
 
     ptr = ITEM_data(it);

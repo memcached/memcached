@@ -1,13 +1,23 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 17;
+use Test::More tests => 21;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
 my $server = new_memcached();
 my $sock = $server->sock;
+
+# Bug 21
+print $sock "set bug21 0 0 19\r\n9223372036854775807\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored text");
+print $sock "incr bug21 1\r\n";
+is(scalar <$sock>, "9223372036854775808\r\n", "bug21 incr 1");
+print $sock "incr bug21 1\r\n";
+is(scalar <$sock>, "9223372036854775809\r\n", "bug21 incr 2");
+print $sock "decr bug21 1\r\n";
+is(scalar <$sock>, "9223372036854775808\r\n", "bug21 decr");
 
 print $sock "set num 0 0 1\r\n1\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored num");
@@ -52,3 +62,4 @@ print $sock "set text 0 0 2\r\nhi\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored text");
 print $sock "incr text 1\r\n";
 is(scalar <$sock>, "1\r\n", "hi - 1 = 0");
+
