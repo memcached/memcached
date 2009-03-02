@@ -34,7 +34,7 @@ SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts TODO t memcached.spec memcached_dtrace.d
 
-MOSTLYCLEANFILES = *.gcov *.gcno *.gcda
+MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
 test:	memcached-debug
 	prove $(srcdir)/t

@@ -2,6 +2,7 @@
 *.gcov
 *.gcda
 *.gcno
+*.tcov
 .deps
 INSTALL
 Makefile
@@ -20,6 +21,7 @@ depcomp
 install-sh
 memcached
 memcached-debug
+memcached-debug.profile
 missing
 stamp-h1
 tags
