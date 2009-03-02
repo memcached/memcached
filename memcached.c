@@ -3536,7 +3536,13 @@ static int server_socket(const int port, enum protocol prot) {
      * that otherwise mess things up.
      */
     memset(&hints, 0, sizeof (hints));
-    hints.ai_flags = AI_PASSIVE|AI_ADDRCONFIG;
+    hints.ai_flags = AI_PASSIVE;
+
+    /* Only use AI_ADDRCONFIG if a hostname is specified, otherwise we might
+     * not get results for INADDR_ANY. */
+    if (settings.inter)
+        hints.ai_flags |= AI_ADDRCONFIG;
+
     if (IS_UDP(prot))
     {
         hints.ai_socktype = SOCK_DGRAM;
