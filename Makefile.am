@@ -3,7 +3,13 @@ pkginclude_HEADERS = protocol_binary.h
 
 BUILT_SOURCES= @DTRACE_HEADER@
 
-memcached_SOURCES = memcached.c slabs.c slabs.h items.c items.h assoc.c assoc.h memcached.h thread.c stats.c stats.h daemon.c
+memcached_SOURCES = memcached.c memcached.h \
+                    hash.c hash.h \
+                    slabs.c slabs.h \
+                    items.c items.h \
+                    assoc.c assoc.h \
+                    thread.c daemon.c \
+                    stats.c stats.h
 memcached_debug_SOURCES = $(memcached_SOURCES)
 memcached_CPPFLAGS = -DNDEBUG
 memcached_LDADD = @DTRACE_OBJ@

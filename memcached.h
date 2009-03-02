@@ -304,6 +304,7 @@ extern int daemonize(int nochdir, int noclose);
 #include "assoc.h"
 #include "items.h"
 #include "trace.h"
+#include "hash.h"
 
 
 /*
