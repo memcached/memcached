@@ -1,8 +1,9 @@
+#ifndef TRACE_H
+#define TRACE_H
 
 #ifdef ENABLE_DTRACE
 #include "memcached_dtrace.h"
 #else
-
 #define MEMCACHED_ASSOC_DELETE(arg0, arg1, arg2)
 #define MEMCACHED_ASSOC_DELETE_ENABLED() (0)
 #define MEMCACHED_ASSOC_FIND(arg0, arg1, arg2)
@@ -63,5 +64,6 @@
 #define MEMCACHED_SLABS_SLABCLASS_ALLOCATE_ENABLED() (0)
 #define MEMCACHED_SLABS_SLABCLASS_ALLOCATE_FAILED(arg0)
 #define MEMCACHED_SLABS_SLABCLASS_ALLOCATE_FAILED_ENABLED() (0)
+#endif
 
 #endif
