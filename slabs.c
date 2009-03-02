@@ -406,7 +406,7 @@ char *do_slabs_stats(uint32_t (*add_stats)(char *buf,
             linelen += nbytes;
             bufcurr += nbytes;
 
-            sprintf(key, "%d:total_page", i);
+            sprintf(key, "%d:total_pages", i);
             sprintf(val, "%u", slabs);
             nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
