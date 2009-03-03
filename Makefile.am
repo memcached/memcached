@@ -11,6 +11,11 @@ memcached_SOURCES = memcached.c memcached.h \
                     thread.c daemon.c \
                     stats.c stats.h \
                     trace.h
+
+if BUILD_SOLARIS_PRIVS
+memcached_SOURCES += solaris_priv.c
+endif
+
 memcached_debug_SOURCES = $(memcached_SOURCES)
 memcached_CPPFLAGS = -DNDEBUG
 memcached_LDADD = @DTRACE_OBJ@

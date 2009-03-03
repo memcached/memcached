@@ -303,6 +303,22 @@ fi
 
 AC_C_ALIGNMENT
 
+dnl Check for the requirements for running memcached with less privileges
+dnl than the default privilege set. On Solaris we need setppriv and priv.h
+dnl If you want to add support for other platforms you should check for
+dnl your requirements, define HAVE_DROP_PRIVILEGES, and make sure you add
+dnl the source file containing the implementation into memcached_SOURCE
+dnl in Makefile.am
+AC_CHECK_FUNCS(setppriv, [
+   AC_CHECK_HEADER(priv.h, [
+      AC_DEFINE([HAVE_DROP_PRIVILEGES], 1,
+         [Define this if you have an implementation of drop_privileges()])
+      build_solaris_privs=yes
+   ], [])
+],[])
+
+AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
+
 dnl Let the compiler be a bit more picky. Please note that you cannot
 dnl specify these flags to the compiler before AC_CHECK_FUNCS, because
 dnl the test program will generate a compilation warning and hence fail

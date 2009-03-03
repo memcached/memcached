@@ -4241,6 +4241,9 @@ int main (int argc, char **argv) {
         }
     }
 
+    /* Drop privileges no longer needed */
+    drop_privileges();
+
     /* enter the event loop */
     event_base_loop(main_base, 0);
 

@@ -351,6 +351,12 @@ void  STATS_LOCK(void);
 void  STATS_UNLOCK(void);
 enum store_item_type store_item(item *item, int comm, conn *c);
 
+#if HAVE_DROP_PRIVILEGES
+extern void drop_privileges();
+#else
+#define drop_privileges()
+#endif
+
 /* If supported, give compiler hints for branch prediction. */
 #if !defined(__GNUC__) || (__GNUC__ == 2 && __GNUC_MINOR__ < 96)
 #define __builtin_expect(x, expected_value) (x)
