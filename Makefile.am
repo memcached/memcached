@@ -1,7 +1,7 @@
 bin_PROGRAMS = memcached memcached-debug
 pkginclude_HEADERS = protocol_binary.h
 
-BUILT_SOURCES= @DTRACE_HEADER@
+BUILT_SOURCES=
 
 memcached_SOURCES = memcached.c memcached.h \
                     hash.c hash.h \
@@ -18,11 +18,26 @@ endif
 
 memcached_debug_SOURCES = $(memcached_SOURCES)
 memcached_CPPFLAGS = -DNDEBUG
-memcached_LDADD = @DTRACE_OBJ@
-memcached_debug_LDADD = @DTRACE_DEBUG_OBJ@ @PROFILER_LDFLAGS@
-memcached_DEPENDENCIES = @DTRACE_OBJ@
-memcached_debug_DEPENDENCIES = @DTRACE_DEBUG_OBJ@
+memcached_debug_LDADD = @PROFILER_LDFLAGS@
 memcached_debug_CFLAGS = @PROFILER_FLAGS@
+
+memcached_LDADD = 
+memcached_DEPENDENCIES =
+memcached_debug_DEPENDENCIES = 
+CLEANFILES=
+
+if BUILD_DTRACE
+BUILT_SOURCES += memcached_dtrace.h
+CLEANFILES += memcached_dtrace.h
+endif
+
+if DTRACE_INSTRUMENT_OBJ
+memcached_LDADD += memcached_dtrace.o
+memcached_DEPENDENCIES += memcached_dtrace.o
+memcached_debug_LDADD += memcached_debug_dtrace.o
+memcached_debug_DEPENDENCIES += memcached_debug_dtrace.o
+CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
+endif
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d 
@@ -35,6 +50,7 @@ memcached_dtrace.o: $(memcached_OBJECTS)
 
 memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 	$(DTRACE) $(DTRACEFLAGS) -G -o memcached_debug_dtrace.o -s ${srcdir}/memcached_dtrace.d $(memcached_debug_OBJECTS)
+
 
 SUBDIRS = doc
 DIST_DIRS = scripts
