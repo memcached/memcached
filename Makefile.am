@@ -66,7 +66,4 @@ test:	memcached-debug
 	else :; fi
 
 dist-hook:
-	rm -rf $(distdir)/doc/.svn/
-	rm -rf $(distdir)/scripts/.svn/
-	rm -rf $(distdir)/t/.svn/
-	rm -rf $(distdir)/t/lib/.svn/
+	rm -f $(distdir)/*/*~ $(distdir)/t/lib/*~ $(distdir)/*~
