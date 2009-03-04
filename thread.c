@@ -574,7 +574,8 @@ void STATS_UNLOCK() {
 }
 
 void threadlocal_stats_reset(void) {
-    for (int ii = 0; ii < settings.num_threads; ++ii) {
+    int ii;
+    for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
 
         threads[ii].stats.get_cmds = 0;
@@ -587,13 +588,14 @@ void threadlocal_stats_reset(void) {
 }
 
 void threadlocal_stats_aggregate(struct thread_stats *stats) {
+    int ii;
     /* The struct contains a mutex, so I should probably not memset it.. */
     stats->get_cmds = 0;
     stats->set_cmds = 0;
     stats->get_hits = 0;
     stats->get_misses = 0;
 
-    for (int ii = 0; ii < settings.num_threads; ++ii) {
+    for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
 
         stats->get_cmds += threads[ii].stats.get_cmds;
