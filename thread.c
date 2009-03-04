@@ -58,15 +58,6 @@ static pthread_mutex_t cqi_freelist_lock;
  * Each libevent instance has a wakeup pipe, which other threads
  * can use to signal that they've put a new connection on its queue.
  */
-typedef struct {
-    pthread_t thread_id;        /* unique ID of this thread */
-    struct event_base *base;    /* libevent handle this thread uses */
-    struct event notify_event;  /* listen event for notify pipe */
-    int notify_receive_fd;      /* receiving end of notify pipe */
-    int notify_send_fd;         /* sending end of notify pipe */
-    CQ  new_conn_queue;         /* queue of new connections to handle */
-} LIBEVENT_THREAD;
-
 static LIBEVENT_THREAD *threads;
 
 /*
@@ -275,7 +266,17 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(1);
     }
 
-    cq_init(&me->new_conn_queue);
+    me->new_conn_queue = malloc(sizeof(struct conn_queue));
+    if (me->new_conn_queue == NULL) {
+        perror("Failed to allocate memory for connection queue");
+        exit(EXIT_FAILURE);
+    }
+    cq_init(me->new_conn_queue);
+
+    if (pthread_mutex_init(&me->stats.mutex, NULL) != 0) {
+        perror("Failed to initialize mutex");
+        exit(EXIT_FAILURE);
+    }
 }
 
 
@@ -312,7 +313,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         if (settings.verbose > 0)
             fprintf(stderr, "Can't read from libevent pipe\n");
 
-    item = cq_pop(&me->new_conn_queue);
+    item = cq_pop(me->new_conn_queue);
 
     if (NULL != item) {
         conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
@@ -328,6 +329,8 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                 }
                 close(item->sfd);
             }
+        } else {
+            c->thread = me;
         }
         cqi_free(item);
     }
@@ -358,7 +361,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     item->read_buffer_size = read_buffer_size;
     item->protocol = prot;
 
-    cq_push(&thread->new_conn_queue, item);
+    cq_push(thread->new_conn_queue, item);
 
     MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
     if (write(thread->notify_send_fd, "", 1) != 1) {
@@ -570,6 +573,39 @@ void STATS_UNLOCK() {
     pthread_mutex_unlock(&stats_lock);
 }
 
+void threadlocal_stats_reset(void) {
+    for (int ii = 0; ii < settings.num_threads; ++ii) {
+        pthread_mutex_lock(&threads[ii].stats.mutex);
+
+        threads[ii].stats.get_cmds = 0;
+        threads[ii].stats.set_cmds = 0;
+        threads[ii].stats.get_hits = 0;
+        threads[ii].stats.get_misses = 0;
+
+        pthread_mutex_unlock(&threads[ii].stats.mutex);
+    }
+}
+
+void threadlocal_stats_aggregate(struct thread_stats *stats) {
+    /* The struct contains a mutex, so I should probably not memset it.. */
+    stats->get_cmds = 0;
+    stats->set_cmds = 0;
+    stats->get_hits = 0;
+    stats->get_misses = 0;
+
+    for (int ii = 0; ii < settings.num_threads; ++ii) {
+        pthread_mutex_lock(&threads[ii].stats.mutex);
+
+        stats->get_cmds += threads[ii].stats.get_cmds;
+        stats->set_cmds += threads[ii].stats.set_cmds;
+        stats->get_hits += threads[ii].stats.get_hits;
+        stats->get_misses += threads[ii].stats.get_misses;
+
+        pthread_mutex_unlock(&threads[ii].stats.mutex);
+    }
+}
+
+
 /*
  * Initializes the thread subsystem, creating various worker threads.
  *
@@ -609,7 +645,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
         threads[i].notify_receive_fd = fds[0];
         threads[i].notify_send_fd = fds[1];
 
-    setup_thread(&threads[i]);
+        setup_thread(&threads[i]);
     }
 
     /* Create threads after we've done all the libevent setup. */

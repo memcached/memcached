@@ -66,7 +66,6 @@ static int try_read_udp(conn *c);
 static void conn_set_state(conn *c, enum conn_states state);
 
 /* stats */
-static void stats_reset(void);
 static void stats_init(void);
 static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
                           const uint16_t klen, const char *val,
@@ -101,6 +100,7 @@ static void conn_free(conn *c);
 /** exported globals **/
 struct stats stats;
 struct settings settings;
+time_t process_started;     /* when the process was started */
 
 /** file scope variables **/
 static conn *listen_conn = NULL;
@@ -130,9 +130,9 @@ static rel_time_t realtime(const time_t exptime) {
            underflow and wrap around to some large value way in the
            future, effectively making items expiring in the past
            really expiring never */
-        if (exptime <= stats.started)
+        if (exptime <= process_started)
             return (rel_time_t)1;
-        return (rel_time_t)(exptime - stats.started);
+        return (rel_time_t)(exptime - process_started);
     } else {
         return (rel_time_t)(exptime + current_time);
     }
@@ -140,24 +140,25 @@ static rel_time_t realtime(const time_t exptime) {
 
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
-    stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
+    stats.evictions = 0;
     stats.curr_bytes = stats.bytes_read = stats.bytes_written = 0;
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
        like 'settings.oldest_live' which act as booleans as well as
        values are now false in boolean context... */
-    stats.started = time(0) - 2;
+    process_started = time(0) - 2;
     stats_prefix_init();
 }
 
 static void stats_reset(void) {
     STATS_LOCK();
     stats.total_items = stats.total_conns = 0;
-    stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
+    stats.evictions = 0;
     stats.bytes_read = stats.bytes_written = 0;
     stats_prefix_clear();
     STATS_UNLOCK();
+    threadlocal_stats_reset();
 }
 
 static void settings_init(void) {
@@ -822,9 +823,9 @@ static void complete_nread_ascii(conn *c) {
     int comm = c->item_comm;
     enum store_item_type ret;
 
-    STATS_LOCK();
-    stats.set_cmds++;
-    STATS_UNLOCK();
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.set_cmds++;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
 
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
@@ -1110,9 +1111,9 @@ static void complete_update_bin(conn *c) {
 
     item *it = c->item;
 
-    STATS_LOCK();
-    stats.set_cmds++;
-    STATS_UNLOCK();
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.set_cmds++;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
 
     /* We don't actually receive the trailing two characters in the bin
      * protocol, so we're going to just set them here */
@@ -1195,10 +1196,11 @@ static void process_bin_get(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
-        STATS_LOCK();
-        stats.get_cmds++;
-        stats.get_hits++;
-        STATS_UNLOCK();
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.get_cmds++;
+        c->thread->stats.get_hits++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                               it->nbytes, ITEM_get_cas(it));
 
@@ -1223,10 +1225,11 @@ static void process_bin_get(conn *c) {
         /* Remember this command so we can garbage collect it later */
         c->item = it;
     } else {
-        STATS_LOCK();
-        stats.get_cmds++;
-        stats.get_misses++;
-        STATS_UNLOCK();
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.get_cmds++;
+        c->thread->stats.get_misses++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
 
         if (c->noreply) {
@@ -2071,6 +2074,9 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     rel_time_t now = current_time;
     *buflen = 0;
 
+    struct thread_stats thread_stats;
+    threadlocal_stats_aggregate(&thread_stats);
+
 #ifndef WIN32
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
@@ -2089,7 +2095,7 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%ld", now + (long)stats.started);
+    vlen = sprintf(val, "%ld", now + (long)process_started);
     nbytes = add_stats(pos, "time", strlen("time"), val, vlen, (void *)c);
     pos += nbytes;
     *buflen += nbytes;
@@ -2139,23 +2145,23 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%llu", (unsigned long long)stats.get_cmds);
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.get_cmds);
     nbytes = add_stats(pos, "cmd_get", strlen("cmd_get"), val, vlen, (void *)c);
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%llu", (unsigned long long)stats.set_cmds);
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.set_cmds);
     nbytes = add_stats(pos, "cmd_set", strlen("cmd_set"), val, vlen, (void *)c);
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%llu", (unsigned long long)stats.get_hits);
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.get_hits);
     nbytes = add_stats(pos, "get_hits", strlen("get_hits"), val, vlen,
                        (void *)c);
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%llu", (unsigned long long)stats.get_misses);
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.get_misses);
     nbytes = add_stats(pos, "get_misses", strlen("get_misses"), val, vlen,
                        (void *)c);
     pos += nbytes;
@@ -2346,11 +2352,11 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             nkey = key_token->length;
 
             if(nkey > KEY_MAX_LENGTH) {
-                STATS_LOCK();
-                stats.get_cmds   += stats_get_cmds;
-                stats.get_hits   += stats_get_hits;
-                stats.get_misses += stats_get_misses;
-                STATS_UNLOCK();
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.get_cmds   += stats_get_cmds;
+                c->thread->stats.get_hits   += stats_get_hits;
+                c->thread->stats.get_misses += stats_get_misses;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
@@ -2399,11 +2405,11 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                   suffix = suffix_from_freelist();
                   if (suffix == NULL) {
-                    STATS_LOCK();
-                    stats.get_cmds   += stats_get_cmds;
-                    stats.get_hits   += stats_get_hits;
-                    stats.get_misses += stats_get_misses;
-                    STATS_UNLOCK();
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.get_cmds   += stats_get_cmds;
+                    c->thread->stats.get_hits   += stats_get_hits;
+                    c->thread->stats.get_misses += stats_get_misses;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
                     out_string(c, "SERVER_ERROR out of memory making CAS suffix");
                     item_remove(it);
                     return;
@@ -2486,11 +2492,11 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         c->msgcurr = 0;
     }
 
-    STATS_LOCK();
-    stats.get_cmds   += stats_get_cmds;
-    stats.get_hits   += stats_get_hits;
-    stats.get_misses += stats_get_misses;
-    STATS_UNLOCK();
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.get_cmds   += stats_get_cmds;
+    c->thread->stats.get_hits   += stats_get_hits;
+    c->thread->stats.get_misses += stats_get_misses;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
 
     return;
 }
@@ -3736,7 +3742,7 @@ static void set_current_time(void) {
     struct timeval timer;
 
     gettimeofday(&timer, NULL);
-    current_time = (rel_time_t) (timer.tv_sec - stats.started);
+    current_time = (rel_time_t) (timer.tv_sec - process_started);
 }
 
 static void clock_handler(const int fd, const short which, void *arg) {
