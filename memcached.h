@@ -358,12 +358,6 @@ char *item_stats_sizes(uint32_t (*add_stats)(char *buf,
                        const uint32_t vlen, void *cookie), void *c, int *bytes);
 void  item_unlink(item *it);
 void  item_update(item *it);
-void *slabs_alloc(size_t size, unsigned int id);
-void  slabs_free(void *ptr, size_t size, unsigned int id);
-int   slabs_reassign(unsigned char srcid, unsigned char dstid);
-char *slabs_stats(uint32_t (*add_stats)(char *buf,
-                  const char *key, const uint16_t klen, const char *val,
-                  const uint32_t vlen, void *cookie), void *c, int *buflen);
 
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);

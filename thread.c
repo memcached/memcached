@@ -44,9 +44,6 @@ static pthread_mutex_t suffix_lock;
 /* Lock for cache operations (item_*, assoc_*) */
 pthread_mutex_t cache_lock;
 
-/* Lock for slab allocator operations */
-static pthread_mutex_t slabs_lock;
-
 /* Lock for global stats */
 static pthread_mutex_t stats_lock;
 
@@ -524,45 +521,6 @@ char *item_stats_sizes(uint32_t (*add_stats)(char *buf,
     return ret;
 }
 
-/******************************* SLAB ALLOCATOR ******************************/
-
-void *slabs_alloc(size_t size, unsigned int id) {
-    void *ret;
-
-    pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_alloc(size, id);
-    pthread_mutex_unlock(&slabs_lock);
-    return ret;
-}
-
-void slabs_free(void *ptr, size_t size, unsigned int id) {
-    pthread_mutex_lock(&slabs_lock);
-    do_slabs_free(ptr, size, id);
-    pthread_mutex_unlock(&slabs_lock);
-}
-
-char *slabs_stats(uint32_t (*add_stats)(char *buf,
-                  const char *key, const uint16_t klen, const char *val,
-                  const uint32_t vlen, void *cookie), void *c, int *buflen) {
-    char *ret;
-
-    pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_stats(add_stats, c, buflen);
-    pthread_mutex_unlock(&slabs_lock);
-    return ret;
-}
-
-#ifdef ALLOW_SLABS_REASSIGN
-int slabs_reassign(unsigned char srcid, unsigned char dstid) {
-    int ret;
-
-    pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_reassign(srcid, dstid);
-    pthread_mutex_unlock(&slabs_lock);
-    return ret;
-}
-#endif
-
 /******************************* GLOBAL STATS ******************************/
 
 void STATS_LOCK() {
@@ -619,7 +577,6 @@ void thread_init(int nthreads, struct event_base *main_base) {
 
     pthread_mutex_init(&cache_lock, NULL);
     pthread_mutex_init(&conn_lock, NULL);
-    pthread_mutex_init(&slabs_lock, NULL);
     pthread_mutex_init(&stats_lock, NULL);
 
     pthread_mutex_init(&init_lock, NULL);

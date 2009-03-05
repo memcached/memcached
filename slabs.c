@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <pthread.h>
 
 #define POWER_SMALLEST 1
 #define POWER_LARGEST  200
@@ -57,6 +58,11 @@ static int power_largest;
 static void *mem_base = NULL;
 static void *mem_current = NULL;
 static size_t mem_avail = 0;
+
+/**
+ * Access to the slab allocator is protected by this lock
+ */
+static pthread_mutex_t slabs_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
  * Forward Declarations
@@ -220,7 +226,7 @@ static int do_slabs_newslab(const unsigned int id) {
 }
 
 /*@null@*/
-void *do_slabs_alloc(const size_t size, unsigned int id) {
+static void *do_slabs_alloc(const size_t size, unsigned int id) {
     slabclass_t *p;
     void *ret = NULL;
 
@@ -272,7 +278,7 @@ void *do_slabs_alloc(const size_t size, unsigned int id) {
     return ret;
 }
 
-void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
+static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
 
     assert(((item *)ptr)->slabs_clsid == 0);
@@ -367,9 +373,12 @@ char *get_stats(const char *stat_type, int nkey,
 }
 
 /*@null@*/
-char *do_slabs_stats(uint32_t (*add_stats)(char *buf,
-                     const char *key, const uint16_t klen, const char *val,
-                     const uint32_t vlen, void *cookie), void *c, int *buflen) {
+static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
+                                                  const uint16_t klen,
+                                                  const char *val,
+                                                  const uint32_t vlen,
+                                                  void *cookie),
+                            void *c, int *buflen) {
     int i, total, linelen;
     char *buf = (char *)malloc(power_largest * 200 + 100);
     char *bufcurr = buf;
@@ -533,6 +542,15 @@ int do_slabs_reassign(unsigned char srcid, unsigned char dstid) {
     }
     return 1;
 }
+
+int slabs_reassign(unsigned char srcid, unsigned char dstid) {
+    int ret;
+
+    pthread_mutex_lock(&slabs_lock);
+    ret = do_slabs_reassign(srcid, dstid);
+    pthread_mutex_unlock(&slabs_lock);
+    return ret;
+}
 #endif
 
 static void *memory_allocate(size_t size) {
@@ -561,5 +579,31 @@ static void *memory_allocate(size_t size) {
         }
     }
 
+    return ret;
+}
+
+void *slabs_alloc(size_t size, unsigned int id) {
+    void *ret;
+
+    pthread_mutex_lock(&slabs_lock);
+    ret = do_slabs_alloc(size, id);
+    pthread_mutex_unlock(&slabs_lock);
+    return ret;
+}
+
+void slabs_free(void *ptr, size_t size, unsigned int id) {
+    pthread_mutex_lock(&slabs_lock);
+    do_slabs_free(ptr, size, id);
+    pthread_mutex_unlock(&slabs_lock);
+}
+
+char *slabs_stats(uint32_t (*add_stats)(char *buf,
+                  const char *key, const uint16_t klen, const char *val,
+                  const uint32_t vlen, void *cookie), void *c, int *buflen) {
+    char *ret;
+
+    pthread_mutex_lock(&slabs_lock);
+    ret = do_slabs_stats(add_stats, c, buflen);
+    pthread_mutex_unlock(&slabs_lock);
     return ret;
 }

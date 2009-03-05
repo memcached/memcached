@@ -1,4 +1,6 @@
 /* slabs memory allocation */
+#ifndef SLABS_H
+#define SLABS_H
 
 /** Init the subsystem. 1st argument is the limit on no. of bytes to allocate,
     0 if no limit. 2nd argument is the growth factor; each slab will use a chunk
@@ -17,10 +19,10 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc);
 unsigned int slabs_clsid(const size_t size);
 
 /** Allocate object of given length. 0 on error */ /*@null@*/
-void *do_slabs_alloc(const size_t size, unsigned int id);
+void *slabs_alloc(const size_t size, unsigned int id);
 
 /** Free previously allocated object */
-void do_slabs_free(void *ptr, size_t size, unsigned int id);
+void slabs_free(void *ptr, size_t size, unsigned int id);
 
 /** Return a datum for stats in binary protocol */
 char *get_stats(const char *stat_type, int nkey,
@@ -29,7 +31,7 @@ char *get_stats(const char *stat_type, int nkey,
                 const uint32_t vlen, void *cookie), void *arg, int *buflen);
 
 /** Fill buffer with stats */ /*@null@*/
-char *do_slabs_stats(uint32_t (*add_stats)(char *buf,
+char *slabs_stats(uint32_t (*add_stats)(char *buf,
                      const char *key, const uint16_t klen, const char *val,
                      const uint32_t vlen, void *cookie), void *c, int *buflen);
 
@@ -37,5 +39,6 @@ char *do_slabs_stats(uint32_t (*add_stats)(char *buf,
   1 = success
    0 = fail
    -1 = tried. busy. send again shortly. */
-int do_slabs_reassign(unsigned char srcid, unsigned char dstid);
+int slabs_reassign(unsigned char srcid, unsigned char dstid);
 
+#endif
