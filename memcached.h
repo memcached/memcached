@@ -65,6 +65,8 @@ struct thread_stats {
     uint64_t      set_cmds;
     uint64_t      get_hits;
     uint64_t      get_misses;
+    uint64_t      bytes_read;
+    uint64_t      bytes_written;
 };
 
 struct stats {
@@ -76,8 +78,6 @@ struct stats {
     unsigned int  total_conns;
     unsigned int  conn_structs;
     uint64_t      evictions;
-    uint64_t      bytes_read;
-    uint64_t      bytes_written;
 };
 
 #define MAX_VERBOSITY_LEVEL 2

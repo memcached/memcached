@@ -141,7 +141,7 @@ static rel_time_t realtime(const time_t exptime) {
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.evictions = 0;
-    stats.curr_bytes = stats.bytes_read = stats.bytes_written = 0;
+    stats.curr_bytes = 0;
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -155,7 +155,6 @@ static void stats_reset(void) {
     STATS_LOCK();
     stats.total_items = stats.total_conns = 0;
     stats.evictions = 0;
-    stats.bytes_read = stats.bytes_written = 0;
     stats_prefix_clear();
     STATS_UNLOCK();
     threadlocal_stats_reset();
@@ -2167,13 +2166,13 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%llu", (unsigned long long)stats.bytes_read);
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.bytes_read);
     nbytes = add_stats(pos, "bytes_read", strlen("bytes_read"), val, vlen,
                        (void *)c);
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%llu", (unsigned long long)stats.bytes_written);
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.bytes_written);
     nbytes = add_stats(pos, "bytes_written", strlen("bytes_written"), val,
                        vlen, (void *)c);
     pos += nbytes;
@@ -2986,9 +2985,9 @@ static int try_read_udp(conn *c) {
                    0, &c->request_addr, &c->request_addr_size);
     if (res > 8) {
         unsigned char *buf = (unsigned char *)c->rbuf;
-        STATS_LOCK();
-        stats.bytes_read += res;
-        STATS_UNLOCK();
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.bytes_read += res;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
 
         /* Beginning of UDP packet is the request ID; save it. */
         c->request_id = buf[0] * 256 + buf[1];
@@ -3050,9 +3049,9 @@ static int try_read_network(conn *c) {
         int avail = c->rsize - c->rbytes;
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
-            STATS_LOCK();
-            stats.bytes_read += res;
-            STATS_UNLOCK();
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.bytes_read += res;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
             gotdata = 1;
             c->rbytes += res;
             if (res == avail) {
@@ -3136,9 +3135,9 @@ static int transmit(conn *c) {
 
         res = sendmsg(c->sfd, m, 0);
         if (res > 0) {
-            STATS_LOCK();
-            stats.bytes_written += res;
-            STATS_UNLOCK();
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.bytes_written += res;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
 
             /* We've written some of the data. Remove the completed
                iovec entries from the list of pending writes. */
@@ -3291,9 +3290,9 @@ static void drive_machine(conn *c) {
             /*  now try reading from the socket */
             res = read(c->sfd, c->ritem, c->rlbytes);
             if (res > 0) {
-                STATS_LOCK();
-                stats.bytes_read += res;
-                STATS_UNLOCK();
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.bytes_read += res;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
                 if (c->rcurr == c->ritem) {
                     c->rcurr += res;
                 }
@@ -3340,9 +3339,9 @@ static void drive_machine(conn *c) {
             /*  now try reading from the socket */
             res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
             if (res > 0) {
-                STATS_LOCK();
-                stats.bytes_read += res;
-                STATS_UNLOCK();
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.bytes_read += res;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
                 c->sbytes -= res;
                 break;
             }

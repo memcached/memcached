@@ -540,6 +540,8 @@ void threadlocal_stats_reset(void) {
         threads[ii].stats.set_cmds = 0;
         threads[ii].stats.get_hits = 0;
         threads[ii].stats.get_misses = 0;
+        threads[ii].stats.bytes_read = 0;
+        threads[ii].stats.bytes_written = 0;
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
     }
@@ -552,6 +554,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
     stats->set_cmds = 0;
     stats->get_hits = 0;
     stats->get_misses = 0;
+    stats->bytes_written = 0;
+    stats->bytes_read = 0;
 
     for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
@@ -560,6 +564,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
         stats->set_cmds += threads[ii].stats.set_cmds;
         stats->get_hits += threads[ii].stats.get_hits;
         stats->get_misses += threads[ii].stats.get_misses;
+        stats->bytes_read += threads[ii].stats.bytes_read;
+        stats->bytes_written += threads[ii].stats.bytes_written;
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
     }
