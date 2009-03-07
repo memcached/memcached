@@ -21,12 +21,6 @@
 #include <assert.h>
 #include <pthread.h>
 
-#define POWER_SMALLEST 1
-#define POWER_LARGEST  200
-#define POWER_BLOCK 1048576
-#define CHUNK_ALIGN_BYTES 8
-#define DONT_PREALLOC_SLABS
-
 /* powers-of-N allocation structures */
 
 typedef struct {
