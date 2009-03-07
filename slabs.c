@@ -383,6 +383,10 @@ static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
         return NULL;
     }
 
+    /* Get the per-thread stats which contain some interesting aggregates */
+    struct thread_stats thread_stats;
+    threadlocal_stats_aggregate(&thread_stats);
+
     total = 0;
     for(i = POWER_SMALLEST; i <= power_largest; i++) {
         slabclass_t *p = &slabclass[i];
@@ -433,6 +437,20 @@ static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
 
             sprintf(key, "%d:free_chunks_end", i);
             sprintf(val, "%u", p->end_page_free);
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
+            linelen += nbytes;
+            bufcurr += nbytes;
+
+            sprintf(key, "%d:get_hits", i);
+            sprintf(val, "%llu",
+                    (unsigned long long)thread_stats.slab_stats[i].get_hits);
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
+            linelen += nbytes;
+            bufcurr += nbytes;
+
+            sprintf(key, "%d:cmd_set", i);
+            sprintf(val, "%llu",
+                    (unsigned long long)thread_stats.slab_stats[i].set_cmds);
             nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
             bufcurr += nbytes;
