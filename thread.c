@@ -530,45 +530,65 @@ void STATS_UNLOCK() {
 }
 
 void threadlocal_stats_reset(void) {
-    int ii;
+    int ii, sid;
     for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
 
         threads[ii].stats.get_cmds = 0;
-        threads[ii].stats.set_cmds = 0;
-        threads[ii].stats.get_hits = 0;
         threads[ii].stats.get_misses = 0;
         threads[ii].stats.bytes_read = 0;
         threads[ii].stats.bytes_written = 0;
+
+        for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
+            threads[ii].stats.slab_stats[sid].set_cmds = 0;
+            threads[ii].stats.slab_stats[sid].get_hits = 0;
+        }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
     }
 }
 
 void threadlocal_stats_aggregate(struct thread_stats *stats) {
-    int ii;
+    int ii, sid;
     /* The struct contains a mutex, so I should probably not memset it.. */
     stats->get_cmds = 0;
-    stats->set_cmds = 0;
-    stats->get_hits = 0;
     stats->get_misses = 0;
     stats->bytes_written = 0;
     stats->bytes_read = 0;
+
+    memset(stats->slab_stats, 0,
+           sizeof(struct slab_stats) * MAX_NUMBER_OF_SLAB_CLASSES);
 
     for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
 
         stats->get_cmds += threads[ii].stats.get_cmds;
-        stats->set_cmds += threads[ii].stats.set_cmds;
-        stats->get_hits += threads[ii].stats.get_hits;
         stats->get_misses += threads[ii].stats.get_misses;
         stats->bytes_read += threads[ii].stats.bytes_read;
         stats->bytes_written += threads[ii].stats.bytes_written;
+
+        for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
+            stats->slab_stats[sid].set_cmds +=
+                threads[ii].stats.slab_stats[sid].set_cmds;
+            stats->slab_stats[sid].get_hits +=
+                threads[ii].stats.slab_stats[sid].get_hits;
+        }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
     }
 }
 
+void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
+    int sid;
+
+    out->set_cmds = 0;
+    out->get_hits = 0;
+
+    for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
+        out->set_cmds += stats->slab_stats[sid].set_cmds;
+        out->get_hits += stats->slab_stats[sid].get_hits;
+    }
+}
 
 /*
  * Initializes the thread subsystem, creating various worker threads.

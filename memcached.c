@@ -821,7 +821,7 @@ static void complete_nread_ascii(conn *c) {
     enum store_item_type ret;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.set_cmds++;
+    c->thread->stats.slab_stats[it->slabs_clsid].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
@@ -1109,7 +1109,7 @@ static void complete_update_bin(conn *c) {
     item *it = c->item;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.set_cmds++;
+    c->thread->stats.slab_stats[it->slabs_clsid].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     /* We don't actually receive the trailing two characters in the bin
@@ -1195,7 +1195,7 @@ static void process_bin_get(conn *c) {
 
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.get_cmds++;
-        c->thread->stats.get_hits++;
+        c->thread->stats.slab_stats[it->slabs_clsid].get_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
@@ -2073,6 +2073,8 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
 
     struct thread_stats thread_stats;
     threadlocal_stats_aggregate(&thread_stats);
+    struct slab_stats slab_stats;
+    slab_stats_aggregate(&thread_stats, &slab_stats);
 
 #ifndef WIN32
     struct rusage usage;
@@ -2147,12 +2149,12 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.set_cmds);
+    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.set_cmds);
     nbytes = add_stats(pos, "cmd_set", strlen("cmd_set"), val, vlen, (void *)c);
     pos += nbytes;
     *buflen += nbytes;
 
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.get_hits);
+    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.get_hits);
     nbytes = add_stats(pos, "get_hits", strlen("get_hits"), val, vlen,
                        (void *)c);
     pos += nbytes;
@@ -2333,14 +2335,16 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
     char *key;
     size_t nkey;
-    int i = 0;
+    int i = 0, sid = 0;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
     char *suffix;
     int stats_get_cmds   = 0;
-    int stats_get_hits   = 0;
     int stats_get_misses = 0;
+    int stats_get_hits[MAX_NUMBER_OF_SLAB_CLASSES];
     assert(c != NULL);
+
+    memset(&stats_get_hits, 0, sizeof(stats_get_hits));
 
     do {
         while(key_token->length != 0) {
@@ -2351,8 +2355,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             if(nkey > KEY_MAX_LENGTH) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.get_cmds   += stats_get_cmds;
-                c->thread->stats.get_hits   += stats_get_hits;
                 c->thread->stats.get_misses += stats_get_misses;
+                for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
+                    c->thread->stats.slab_stats[sid].get_hits += stats_get_hits[sid];
+                }
                 pthread_mutex_unlock(&c->thread->stats.mutex);
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
@@ -2404,8 +2410,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   if (suffix == NULL) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.get_cmds   += stats_get_cmds;
-                    c->thread->stats.get_hits   += stats_get_hits;
                     c->thread->stats.get_misses += stats_get_misses;
+                    for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
+                        c->thread->stats.slab_stats[sid].get_hits += stats_get_hits[sid];
+                    }
                     pthread_mutex_unlock(&c->thread->stats.mutex);
                     out_string(c, "SERVER_ERROR out of memory making CAS suffix");
                     item_remove(it);
@@ -2441,7 +2449,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
 
                 /* item_get() has incremented it->refcount for us */
-                stats_get_hits++;
+                stats_get_hits[it->slabs_clsid]++;
                 item_update(it);
                 *(c->ilist + i) = it;
                 i++;
@@ -2491,8 +2499,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.get_cmds   += stats_get_cmds;
-    c->thread->stats.get_hits   += stats_get_hits;
     c->thread->stats.get_misses += stats_get_misses;
+    for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
+        c->thread->stats.slab_stats[sid].get_hits += stats_get_hits[sid];
+    }
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     return;

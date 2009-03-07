@@ -66,14 +66,19 @@
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
 typedef unsigned int rel_time_t;
 
+/* Stats stored per slab (and per thread). */
+struct slab_stats {
+    uint64_t  set_cmds;
+    uint64_t  get_hits;
+};
+
 struct thread_stats {
-    pthread_mutex_t mutex;
-    uint64_t      get_cmds;
-    uint64_t      set_cmds;
-    uint64_t      get_hits;
-    uint64_t      get_misses;
-    uint64_t      bytes_read;
-    uint64_t      bytes_written;
+    pthread_mutex_t   mutex;
+    uint64_t          get_cmds;
+    uint64_t          get_misses;
+    uint64_t          bytes_read;
+    uint64_t          bytes_written;
+    struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
 };
 
 struct stats {
@@ -370,7 +375,7 @@ void STATS_LOCK(void);
 void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);
 void threadlocal_stats_aggregate(struct thread_stats *stats);
-
+void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
 
 enum store_item_type store_item(item *item, int comm, conn *c);
 
