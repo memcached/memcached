@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 51;
+use Test::More tests => 70;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -35,6 +35,9 @@ my $sock = $server->sock;
 ## STAT incr_hits 2
 ## STAT decr_misses 1
 ## STAT decr_hits 1
+## STAT cas_misses 0
+## STAT cas_hits 0
+## STAT cas_badval 0
 ## STAT evictions 0
 ## STAT bytes_read 7
 ## STAT bytes_written 0
@@ -43,7 +46,7 @@ my $sock = $server->sock;
 my $stats = mem_stats($sock);
 
 # Test number of keys
-is(scalar(keys(%$stats)), 28, "28 stats values");
+is(scalar(keys(%$stats)), 31, "31 stats values");
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits decr_misses)) {
@@ -110,4 +113,36 @@ print $sock "decr n 1\r\n";
 is(scalar <$sock>, "2\r\n", "decr works");
 check_incr_stats(1, 1, 1, 1);
 
+# cas stats
 
+sub check_cas_stats {
+    my ($ch, $cm, $cb) = @_;
+    my $stats = mem_stats($sock);
+
+    is($stats->{cas_hits}, $ch);
+    is($stats->{cas_misses}, $cm);
+    is($stats->{cas_badval}, $cb);
+}
+
+check_cas_stats(0, 0, 0);
+
+print $sock "cas c 0 0 1 99999999\r\nz\r\n";
+is(scalar <$sock>, "NOT_FOUND\r\n", "missed cas");
+check_cas_stats(0, 1, 0);
+
+print $sock "set c 0 0 1\r\nx\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored c");
+my ($id, $v) = mem_gets($sock, 'c');
+is('x', $v, 'got the expected value');
+
+print $sock "cas c 0 0 1 99999999\r\nz\r\n";
+is(scalar <$sock>, "EXISTS\r\n", "missed cas");
+check_cas_stats(0, 1, 1);
+my ($newid, $v) = mem_gets($sock, 'c');
+is('x', $v, 'got the expected value');
+
+print $sock "cas c 0 0 1 $id\r\nz\r\n";
+is(scalar <$sock>, "STORED\r\n", "good cas");
+check_cas_stats(1, 1, 1);
+my ($newid, $v) = mem_gets($sock, 'c');
+is('z', $v, 'got the expected value');

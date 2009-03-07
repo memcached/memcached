@@ -1868,12 +1868,25 @@ enum store_item_type do_store_item(item *it, int comm, conn *c) {
         if(old_it == NULL) {
             // LRU expired
             stored = NOT_FOUND;
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.cas_misses++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
         }
         else if (ITEM_get_cas(it) == ITEM_get_cas(old_it)) {
             // cas validates
+            // it and old_it may belong to different classes.
+            // I'm updating the stats for the one that's getting pushed out
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.slab_stats[old_it->slabs_clsid].cas_hits++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
             item_replace(old_it, it);
             stored = STORED;
         } else {
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.slab_stats[old_it->slabs_clsid].cas_badval++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
             if(settings.verbose > 1) {
                 fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
                         (unsigned long long)ITEM_get_cas(old_it),
@@ -2207,6 +2220,24 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
 
     vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.decr_hits);
     nbytes = add_stats(pos, "decr_hits", strlen("decr_hits"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.cas_misses);
+    nbytes = add_stats(pos, "cas_misses", strlen("cas_misses"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.cas_hits);
+    nbytes = add_stats(pos, "cas_hits", strlen("cas_hits"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.cas_badval);
+    nbytes = add_stats(pos, "cas_badval", strlen("cas_badval"), val, vlen,
                        (void *)c);
     pos += nbytes;
     *buflen += nbytes;

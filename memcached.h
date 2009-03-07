@@ -71,6 +71,8 @@ struct slab_stats {
     uint64_t  set_cmds;
     uint64_t  get_hits;
     uint64_t  delete_hits;
+    uint64_t  cas_hits;
+    uint64_t  cas_badval;
     uint64_t  incr_hits;
     uint64_t  decr_hits;
 };
@@ -82,6 +84,7 @@ struct thread_stats {
     uint64_t          delete_misses;
     uint64_t          incr_misses;
     uint64_t          decr_misses;
+    uint64_t          cas_misses;
     uint64_t          bytes_read;
     uint64_t          bytes_written;
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
