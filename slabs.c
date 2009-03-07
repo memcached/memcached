@@ -42,7 +42,7 @@ typedef struct {
     unsigned int killing;  /* index+1 of dying slab, or zero if none */
 } slabclass_t;
 
-static slabclass_t slabclass[POWER_LARGEST + 1];
+static slabclass_t slabclass[MAX_NUMBER_OF_SLAB_CLASSES];
 static size_t mem_limit = 0;
 static size_t mem_malloced = 0;
 static int power_largest;

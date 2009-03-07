@@ -61,6 +61,7 @@
 #define POWER_BLOCK 1048576
 #define CHUNK_ALIGN_BYTES 8
 #define DONT_PREALLOC_SLABS
+#define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
 
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
 typedef unsigned int rel_time_t;
