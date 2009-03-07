@@ -6,8 +6,6 @@
  * a multiplier factor from there, up to half the maximum slab size. The last
  * slab size is always 1MB, since that's the maximum item size allowed by the
  * memcached protocol.
-*
- * $Id$
  */
 #include "memcached.h"
 #include <sys/stat.h>

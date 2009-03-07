@@ -12,8 +12,6 @@
  *  Authors:
  *      Anatoly Vorobey <mellon@pobox.com>
  *      Brad Fitzpatrick <brad@danga.com>
-std *
- *  $Id$
  */
 #include "memcached.h"
 #include <sys/stat.h>

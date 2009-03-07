@@ -6,8 +6,6 @@
  *
  * Author:
  *   Steven Grimm <sgrimm@facebook.com>
- *
- * $Id$
  */
 #include "memcached.h"
 #include <stdio.h>

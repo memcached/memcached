@@ -9,8 +9,6 @@
  *       or commercial.  It's free."
  *
  * The rest of the file is licensed under the BSD license.  See LICENSE.
- *
- * $Id$
  */
 
 #include "memcached.h"

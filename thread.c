@@ -1,8 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
  * Thread management for memcached.
- *
- *  $Id$
  */
 #include "memcached.h"
 #include <assert.h>
