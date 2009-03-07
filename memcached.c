@@ -1096,6 +1096,15 @@ static void complete_incr_bin(conn *c) {
         item_remove(it);         /* release our reference */
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
     } else {
+
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (c->cmd == PROTOCOL_BINARY_CMD_INCREMENT) {
+            c->thread->stats.incr_misses++;
+        } else {
+            c->thread->stats.decr_misses++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
     }
 #undef INCR_MAX_STORAGE_LEN
@@ -2178,6 +2187,30 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     pos += nbytes;
     *buflen += nbytes;
 
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.incr_misses);
+    nbytes = add_stats(pos, "incr_misses", strlen("incr_misses"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.incr_hits);
+    nbytes = add_stats(pos, "incr_hits", strlen("incr_hits"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.decr_misses);
+    nbytes = add_stats(pos, "decr_misses", strlen("decr_misses"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.decr_hits);
+    nbytes = add_stats(pos, "decr_hits", strlen("decr_hits"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
     vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.bytes_read);
     nbytes = add_stats(pos, "bytes_read", strlen("bytes_read"), val, vlen,
                        (void *)c);
@@ -2620,6 +2653,14 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 
     it = item_get(key, nkey);
     if (!it) {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (incr) {
+            c->thread->stats.incr_misses++;
+        } else {
+            c->thread->stats.decr_misses++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         out_string(c, "NOT_FOUND");
         return;
     }
@@ -2664,6 +2705,15 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
         }
         MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
     }
+
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    if (incr) {
+        c->thread->stats.slab_stats[it->slabs_clsid].incr_hits++;
+    } else {
+        c->thread->stats.slab_stats[it->slabs_clsid].decr_hits++;
+    }
+    pthread_mutex_unlock(&c->thread->stats.mutex);
+
     sprintf(buf, "%llu", (unsigned long long)value);
     res = strlen(buf);
     if (res + 2 > it->nbytes) { /* need to realloc */

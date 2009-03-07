@@ -537,6 +537,8 @@ void threadlocal_stats_reset(void) {
         threads[ii].stats.get_cmds = 0;
         threads[ii].stats.get_misses = 0;
         threads[ii].stats.delete_misses = 0;
+        threads[ii].stats.incr_misses = 0;
+        threads[ii].stats.decr_misses = 0;
         threads[ii].stats.bytes_read = 0;
         threads[ii].stats.bytes_written = 0;
 
@@ -544,6 +546,8 @@ void threadlocal_stats_reset(void) {
             threads[ii].stats.slab_stats[sid].set_cmds = 0;
             threads[ii].stats.slab_stats[sid].get_hits = 0;
             threads[ii].stats.slab_stats[sid].delete_hits = 0;
+            threads[ii].stats.slab_stats[sid].incr_hits = 0;
+            threads[ii].stats.slab_stats[sid].decr_hits = 0;
         }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
@@ -556,6 +560,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
     stats->get_cmds = 0;
     stats->get_misses = 0;
     stats->delete_misses = 0;
+    stats->incr_misses = 0;
+    stats->decr_misses = 0;
     stats->bytes_written = 0;
     stats->bytes_read = 0;
 
@@ -568,6 +574,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
         stats->get_cmds += threads[ii].stats.get_cmds;
         stats->get_misses += threads[ii].stats.get_misses;
         stats->delete_misses += threads[ii].stats.delete_misses;
+        stats->decr_misses += threads[ii].stats.decr_misses;
+        stats->incr_misses += threads[ii].stats.incr_misses;
         stats->bytes_read += threads[ii].stats.bytes_read;
         stats->bytes_written += threads[ii].stats.bytes_written;
 
@@ -578,6 +586,10 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
                 threads[ii].stats.slab_stats[sid].get_hits;
             stats->slab_stats[sid].delete_hits +=
                 threads[ii].stats.slab_stats[sid].delete_hits;
+            stats->slab_stats[sid].decr_hits +=
+                threads[ii].stats.slab_stats[sid].decr_hits;
+            stats->slab_stats[sid].incr_hits +=
+                threads[ii].stats.slab_stats[sid].incr_hits;
         }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
@@ -590,11 +602,15 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     out->set_cmds = 0;
     out->get_hits = 0;
     out->delete_hits = 0;
+    out->incr_hits = 0;
+    out->decr_hits = 0;
 
     for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
         out->set_cmds += stats->slab_stats[sid].set_cmds;
         out->get_hits += stats->slab_stats[sid].get_hits;
         out->delete_hits += stats->slab_stats[sid].delete_hits;
+        out->decr_hits += stats->slab_stats[sid].decr_hits;
+        out->incr_hits += stats->slab_stats[sid].incr_hits;
     }
 }
 
