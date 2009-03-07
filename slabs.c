@@ -455,6 +455,13 @@ static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
             linelen += nbytes;
             bufcurr += nbytes;
 
+            sprintf(key, "%d:delete_hits", i);
+            sprintf(val, "%llu",
+                    (unsigned long long)thread_stats.slab_stats[i].delete_hits);
+            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
+            linelen += nbytes;
+            bufcurr += nbytes;
+
             total++;
         }
     }

@@ -2166,6 +2166,18 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     pos += nbytes;
     *buflen += nbytes;
 
+    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.delete_misses);
+    nbytes = add_stats(pos, "delete_misses", strlen("delete_misses"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
+    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.delete_hits);
+    nbytes = add_stats(pos, "delete_hits", strlen("delete_hits"), val, vlen,
+                       (void *)c);
+    pos += nbytes;
+    *buflen += nbytes;
+
     vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.bytes_read);
     nbytes = add_stats(pos, "bytes_read", strlen("bytes_read"), val, vlen,
                        (void *)c);
@@ -2700,10 +2712,19 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     it = item_get(key, nkey);
     if (it) {
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
+
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.slab_stats[it->slabs_clsid].delete_hits++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         item_unlink(it);
         item_remove(it);      /* release our reference */
         out_string(c, "DELETED");
     } else {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.delete_misses++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         out_string(c, "NOT_FOUND");
     }
 }

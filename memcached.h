@@ -70,12 +70,14 @@ typedef unsigned int rel_time_t;
 struct slab_stats {
     uint64_t  set_cmds;
     uint64_t  get_hits;
+    uint64_t  delete_hits;
 };
 
 struct thread_stats {
     pthread_mutex_t   mutex;
     uint64_t          get_cmds;
     uint64_t          get_misses;
+    uint64_t          delete_misses;
     uint64_t          bytes_read;
     uint64_t          bytes_written;
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
