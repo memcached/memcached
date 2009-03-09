@@ -490,22 +490,23 @@ The server terminates this list with the line
 
 END\r\n
 
-Name                   Meaning
-------------------------------
-chunk_size             The amount of space each chunk uses. One item will use
-                       one chunk of the appropriate size.
-chunks_per_page        How many chunks exist within one page. A page by
-                       default is one megabyte in size. Slabs are allocated per
-                       page, then broken into chunks.
-total_pages            Total number of pages allocated to the slab class.
-total_chunks           Total number of chunks allocated to the slab class.
-used_chunks            How many chunks have been allocated to items.
-free_chunks            Chunks not yet allocated to items, or freed via delete.
-free_chunks_end        Number of free chunks at the end of the last allocated
-                       page.
-active_slabs           Total number of slab classes allocated.
-total_malloced         Total amount of memory allocated to slab pages.
-
+|-----------------+----------------------------------------------------------|
+| Name            | Meaning                                                  |
+|-----------------+----------------------------------------------------------|
+| chunk_size      | The amount of space each chunk uses. One item will use   |
+|                 | one chunk of the appropriate size.                       |
+| chunks_per_page | How many chunks exist within one page. A page by         |
+|                 | default is one megabyte in size. Slabs are allocated per |
+|                 | page, then broken into chunks.                           |
+| total_pages     | Total number of pages allocated to the slab class.       |
+| total_chunks    | Total number of chunks allocated to the slab class.      |
+| used_chunks     | How many chunks have been allocated to items.            |
+| free_chunks     | Chunks not yet allocated to items, or freed via delete.  |
+| free_chunks_end | Number of free chunks at the end of the last allocated   |
+|                 | page.                                                    |
+| active_slabs    | Total number of slab classes allocated.                  |
+| total_malloced  | Total amount of memory allocated to slab pages.          |
+|-----------------+----------------------------------------------------------|
 
 Other commands
 --------------
