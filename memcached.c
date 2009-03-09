@@ -3658,14 +3658,8 @@ static int server_socket(const int port, enum protocol prot) {
     if (settings.inter)
         hints.ai_flags |= AI_ADDRCONFIG;
 
-    if (IS_UDP(prot))
-    {
-        hints.ai_socktype = SOCK_DGRAM;
-        hints.ai_family = AF_INET; /* This left here because of issues with OSX 10.5 */
-    } else {
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = SOCK_STREAM;
-    }
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = IS_UDP(prot) ? SOCK_DGRAM : SOCK_STREAM;
 
     snprintf(port_buf, NI_MAXSERV, "%d", port);
     error= getaddrinfo(settings.inter, port_buf, &hints, &ai);
