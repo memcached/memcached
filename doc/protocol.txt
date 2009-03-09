@@ -384,6 +384,17 @@ integers separated by a colon.
 |                       |         | found present                                  |
 | get_misses            | 64u     | Number of items that have been requested       |
 |                       |         | and not found                                  |
+| delete_misses         | 64u     | Number of deletions requests for missing keys. |
+| delete_hits           | 64u     | Number of deletion requests resulting in       |
+|                       |         | an item being removed.                         |
+| incr_misses           | 64u     | Number of incr requests against missing keys.  |
+| incr_hits             | 64u     | Number of successful incr requests.            |
+| decr_misses           | 64u     | Number of decr requests against missing keys.  |
+| decr_hits             | 64u     | Number of successful decr requests.            |
+| cas_misses            | 64u     | Number of CAS requests against missing keys.   |
+| cas_hits              | 64u     | Number of successful CAS requests.             |
+| cas_badval            | 64u     | Number of CAS requests for which a key was     |
+|                       |         | found, but the CAS value did not match.        |
 | evictions             | 64u     | Number of valid items removed from cache       |
 |                       |         | to free memory for new items                   |
 | bytes_read            | 64u     | Total number of bytes read by this server      |
