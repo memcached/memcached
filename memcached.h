@@ -266,7 +266,6 @@ struct conn {
      */
 
     void   *item;     /* for commands set/add/replace  */
-    int    item_comm; /* which one is it: set/add/replace */
 
     /* data for the swallow state */
     int    sbytes;    /* how many bytes to swallow */
@@ -306,7 +305,7 @@ struct conn {
     /* This is where the binary header goes */
     protocol_binary_request_header binary_header;
     uint64_t cas; /* the cas to return */
-    short cmd;
+    short cmd; /* current command being processed */
     int opaque;
     int keylen;
     conn   *next;     /* Used for generating a list of conn structures */

@@ -824,13 +824,13 @@ static void out_string(conn *c, const char *str) {
 
 /*
  * we get here after reading the value in set/add/replace commands. The command
- * has been stored in c->item_comm, and the item is ready in c->item.
+ * has been stored in c->cmd, and the item is ready in c->item.
  */
 static void complete_nread_ascii(conn *c) {
     assert(c != NULL);
 
     item *it = c->item;
-    int comm = c->item_comm;
+    int comm = c->cmd;
     enum store_item_type ret;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
@@ -844,7 +844,7 @@ static void complete_nread_ascii(conn *c) {
 
 #ifdef ENABLE_DTRACE
       uint64_t cas = ITEM_get_cas(it);
-      switch (c->item_comm) {
+      switch (c->cmd) {
       case NREAD_ADD:
           MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
                                 (ret == 1) ? it->nbytes : -1, cas);
@@ -1139,11 +1139,11 @@ static void complete_update_bin(conn *c) {
     *(ITEM_data(it) + it->nbytes - 2) = '\r';
     *(ITEM_data(it) + it->nbytes - 1) = '\n';
 
-    ret = store_item(it, c->item_comm, c);
+    ret = store_item(it, c->cmd, c);
 
 #ifdef ENABLE_DTRACE
     uint64_t cas = ITEM_get_cas(it);
-    switch (c->item_comm) {
+    switch (c->cmd) {
     case NREAD_ADD:
         MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
                               (ret == STORED) ? it->nbytes : -1, cas);
@@ -1179,9 +1179,9 @@ static void complete_update_bin(conn *c) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
         break;
     case NOT_STORED:
-        if (c->item_comm == NREAD_ADD) {
+        if (c->cmd == NREAD_ADD) {
             eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-        } else if(c->item_comm == NREAD_REPLACE) {
+        } else if(c->cmd == NREAD_REPLACE) {
             eno = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
         } else {
             eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
@@ -1662,20 +1662,20 @@ static void process_bin_update(conn *c) {
 
     switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_ADD:
-            c->item_comm = NREAD_ADD;
+            c->cmd = NREAD_ADD;
             break;
         case PROTOCOL_BINARY_CMD_SET:
-            c->item_comm = NREAD_SET;
+            c->cmd = NREAD_SET;
             break;
         case PROTOCOL_BINARY_CMD_REPLACE:
-            c->item_comm = NREAD_REPLACE;
+            c->cmd = NREAD_REPLACE;
             break;
         default:
             assert(0);
     }
 
     if (ITEM_get_cas(it) != 0) {
-        c->item_comm = NREAD_CAS;
+        c->cmd = NREAD_CAS;
     }
 
     c->item = it;
@@ -1722,10 +1722,10 @@ static void process_bin_append_prepend(conn *c) {
 
     switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_APPEND:
-            c->item_comm = NREAD_APPEND;
+            c->cmd = NREAD_APPEND;
             break;
         case PROTOCOL_BINARY_CMD_PREPEND:
-            c->item_comm = NREAD_PREPEND;
+            c->cmd = NREAD_PREPEND;
             break;
         default:
             assert(0);
@@ -2665,7 +2665,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     c->item = it;
     c->ritem = ITEM_data(it);
     c->rlbytes = it->nbytes;
-    c->item_comm = comm;
+    c->cmd = comm;
     conn_set_state(c, conn_nread);
 }
 
