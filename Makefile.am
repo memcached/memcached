@@ -1,4 +1,4 @@
-bin_PROGRAMS = memcached memcached-debug
+bin_PROGRAMS = memcached memcached-debug sizes
 pkginclude_HEADERS = protocol_binary.h
 
 BUILT_SOURCES=
@@ -58,7 +58,8 @@ EXTRA_DIST = doc scripts TODO t memcached.spec memcached_dtrace.d
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
-test:	memcached-debug
+test:	memcached-debug sizes
+	$(srcdir)/sizes
 	prove $(srcdir)/t
 	@if test `basename $(PROFILER)` = "gcov"; then \
 	  for file in memcached_debug-*.gc??; do \

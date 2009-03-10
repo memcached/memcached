@@ -32,3 +32,4 @@ memcached_dtrace.h
 memcached-*.tar.gz
 doc/protocol-binary-range.txt
 doc/protocol-binary.txt
+/sizes
