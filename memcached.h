@@ -301,7 +301,6 @@ struct conn {
     unsigned char *hdrbuf; /* udp packet headers */
     int    hdrsize;   /* number of headers' worth of space is allocated */
 
-    int    binary;    /* are we in binary mode */
     bool   noreply;   /* True if the reply should not be sent. */
     /* Binary protocol stuff */
     /* This is where the binary header goes */
