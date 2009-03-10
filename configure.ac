@@ -33,6 +33,36 @@ AC_DEFUN([DETECT_ICC],
 
 DETECT_ICC([], [])
 
+dnl **********************************************************************
+dnl DETECT_SUNCC ([ACTION-IF-YES], [ACTION-IF-NO])
+dnl
+dnl check if this is the Sun Studio compiler, and if so run the ACTION-IF-YES
+dnl sets the $SUNCC variable to "yes" or "no"
+dnl **********************************************************************
+AC_DEFUN([DETECT_SUNCC],
+[
+    SUNCC="no"
+    AC_MSG_CHECKING([for Sun cc in use])
+    AC_RUN_IFELSE(
+      [AC_LANG_PROGRAM([], [dnl
+#ifdef __SUNPRO_C
+   return 0;
+#else
+   return 1;
+#endif
+      ])
+    ],[
+       AC_MSG_RESULT([yes])
+       [$1]
+       SUNCC="yes"
+    ], [
+       AC_MSG_RESULT([no])
+       [$2]
+    ])
+])
+
+DETECT_SUNCC([CFLAGS="-mt $CFLAGS"], [])
+
 if test "$ICC" = "no"; then
    AC_PROG_CC_C99
 fi
@@ -66,34 +96,29 @@ AC_SUBST(DTRACE)
 AC_SUBST(DTRACEFLAGS)
 AC_SUBST(PROFILER_LDFLAGS)
 
-if test "$ICC" = "yes"
-then
-   :
-   dnl ICC trying to be gcc, but not well
-elif test "$GCC" = "yes"
-then
-   AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
-   if test "x$PROFILER" != "xno"; then
-      PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"
-      PROFILER_LDFLAGS="-lgcov"
-   fi
-else
-   AC_RUN_IFELSE(
-      [AC_LANG_PROGRAM([], [dnl
-#ifdef __SUNPRO_C
-   return 0;
-#else
-   return 1;
-#endif
-      ])
-    ],[
-       AC_PATH_PROG([PROFILER], [tcov], "no", [$PATH])
-       if test "x$PROFILER" != "xno"; then
-          PROFILER_FLAGS=-xprofile=tcov
-       fi
-    ])
-fi
+AC_ARG_ENABLE(coverage,
+  [AS_HELP_STRING([--disable-coverage],[Disable code coverage])])
 
+if test "x$enable_coverage" != "xno"; then
+   if test "$ICC" = "yes"
+   then
+      :
+      dnl ICC trying to be gcc, but not well
+   elif test "$GCC" = "yes"
+   then
+      AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
+      if test "x$PROFILER" != "xno"; then
+         PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"
+         PROFILER_LDFLAGS="-lgcov"
+      fi
+   elif test "$SUNCC" = "yes"
+   then
+      AC_PATH_PROG([PROFILER], [tcov], "no", [$PATH])
+      if test "x$PROFILER" != "xno"; then
+         PROFILER_FLAGS=-xprofile=tcov
+      fi
+   fi
+fi
 AC_SUBST(PROFILER_FLAGS)
 
 
@@ -255,21 +280,7 @@ AC_C_ENDIAN
 
 dnl Check whether the user's system supports pthread
 AC_SEARCH_LIBS(pthread_create, pthread)
-if test "x$ac_cv_search_pthread_create" != "xno"; then
-  dnl Sun compilers need the -mt flag!
-  AC_RUN_IFELSE(
-    [AC_LANG_PROGRAM([], [dnl
-#ifdef __SUNPRO_C
- return 0;
-#else
- return 1;
-#endif
-    ])
-  ],[
-    CFLAGS="-mt $CFLAGS"
-    SUNSTUDIO=true
-  ])
-else
+if test "x$ac_cv_search_pthread_create" == "xno"; then
   AC_MSG_ERROR([Can't enable threads without the POSIX thread library.])
 fi
 
@@ -334,7 +345,7 @@ then
 elif test "$GCC" = "yes"
 then
   CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
-elif test "$SUNSTUDIO" = "true"
+elif test "$SUNCC" = "yes"
 then
   CFLAGS="$CFLAGS -errfmt=error -errwarn -errshort=tags"
 fi
