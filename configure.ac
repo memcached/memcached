@@ -21,11 +21,13 @@ AC_DEFUN([DETECT_ICC],
        dnl check if this is icc acting as gcc in disguise
        AC_EGREP_CPP([^__INTEL_COMPILER], [__INTEL_COMPILER],
          AC_MSG_RESULT([no])
-         [$2]
-         ICC="no",
+         [$2],
          AC_MSG_RESULT([yes])
          [$1]
          ICC="yes")
+    else
+       AC_MSG_RESULT([no])
+       [$2]
     fi
 ])
 
