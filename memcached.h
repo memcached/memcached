@@ -321,11 +321,6 @@ extern volatile rel_time_t current_time;
 /*
  * Functions
  */
-
-conn *do_conn_from_freelist(void);
-bool do_conn_add_to_freelist(conn *c);
-char *do_suffix_from_freelist(void);
-bool do_suffix_add_to_freelist(char *s);
 char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
                    char *buf);
 enum store_item_type do_store_item(item *item, int comm, conn* c);

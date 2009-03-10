@@ -230,52 +230,58 @@ static int add_msghdr(conn *c)
 static conn **freeconns;
 static int freetotal;
 static int freecurr;
+/* Lock for connection freelist */
+static pthread_mutex_t conn_lock = PTHREAD_MUTEX_INITIALIZER;
 
 
 static void conn_init(void) {
     freetotal = 200;
     freecurr = 0;
-    if ((freeconns = (conn **)malloc(sizeof(conn *) * freetotal)) == NULL) {
-        fprintf(stderr, "malloc()\n");
+    if ((freeconns = calloc(freetotal, sizeof(conn *))) == NULL) {
+        fprintf(stderr, "Failed to allocate connection structures\n");
     }
     return;
 }
 
 /*
- * Returns a connection from the freelist, if any. Should call this using
- * conn_from_freelist() for thread safety.
+ * Returns a connection from the freelist, if any.
  */
-conn *do_conn_from_freelist() {
+conn *conn_from_freelist() {
     conn *c;
 
+    pthread_mutex_lock(&conn_lock);
     if (freecurr > 0) {
         c = freeconns[--freecurr];
     } else {
         c = NULL;
     }
+    pthread_mutex_unlock(&conn_lock);
 
     return c;
 }
 
 /*
- * Adds a connection to the freelist. 0 = success. Should call this using
- * conn_add_to_freelist() for thread safety.
+ * Adds a connection to the freelist. 0 = success.
  */
-bool do_conn_add_to_freelist(conn *c) {
+bool conn_add_to_freelist(conn *c) {
+    bool ret = true;
+    pthread_mutex_lock(&conn_lock);
     if (freecurr < freetotal) {
         freeconns[freecurr++] = c;
-        return false;
+        ret = false;
     } else {
         /* try to enlarge free connections array */
-        conn **new_freeconns = realloc(freeconns, sizeof(conn *) * freetotal * 2);
+        size_t newsize = freetotal * 2;
+        conn **new_freeconns = realloc(freeconns, sizeof(conn *) * newsize);
         if (new_freeconns) {
-            freetotal *= 2;
+            freetotal = newsize;
             freeconns = new_freeconns;
             freeconns[freecurr++] = c;
-            return false;
+            ret = false;
         }
     }
-    return true;
+    pthread_mutex_unlock(&conn_lock);
+    return ret;
 }
 
 static const char *prot_text(enum protocol prot) {
@@ -598,25 +604,27 @@ static void conn_set_state(conn *c, enum conn_states state) {
 static char **freesuffix;
 static int freesuffixtotal;
 static int freesuffixcurr;
+/* Lock for alternative item suffix freelist */
+static pthread_mutex_t suffix_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void suffix_init(void) {
     freesuffixtotal = 500;
     freesuffixcurr  = 0;
 
-    freesuffix = (char **)malloc( sizeof(char *) * freesuffixtotal );
+    freesuffix = calloc(freesuffixtotal, sizeof(char *));
     if (freesuffix == NULL) {
-        fprintf(stderr, "malloc()\n");
+        fprintf(stderr, "Failed to allocate suffix pool\n");
     }
     return;
 }
 
 /*
- * Returns a suffix buffer from the freelist, if any. Should call this using
- * suffix_from_freelist() for thread safety.
+ * Returns a suffix buffer from the freelist, if any.
  */
-char *do_suffix_from_freelist() {
+char *suffix_from_freelist() {
     char *s;
 
+    pthread_mutex_lock(&suffix_lock);
     if (freesuffixcurr > 0) {
         s = freesuffix[--freesuffixcurr];
     } else {
@@ -624,18 +632,22 @@ char *do_suffix_from_freelist() {
          * STDERR on the server. */
         s = malloc( SUFFIX_SIZE );
     }
+    pthread_mutex_unlock(&suffix_lock);
 
     return s;
 }
 
 /*
  * Adds a connection to the freelist. 0 = success. Should call this using
- * conn_add_to_freelist() for thread safety.
+ * suffix_add_to_freelist() for thread safety.
  */
-bool do_suffix_add_to_freelist(char *s) {
+bool suffix_add_to_freelist(char *s) {
+    bool ret = true;
+
+    pthread_mutex_lock(&suffix_lock);
     if (freesuffixcurr < freesuffixtotal) {
         freesuffix[freesuffixcurr++] = s;
-        return false;
+        ret = false;
     } else {
         /* try to enlarge free connections array */
         char **new_freesuffix = realloc(freesuffix,
@@ -644,10 +656,11 @@ bool do_suffix_add_to_freelist(char *s) {
             freesuffixtotal *= 2;
             freesuffix = new_freesuffix;
             freesuffix[freesuffixcurr++] = s;
-            return false;
+            ret = false;
         }
     }
-    return true;
+    pthread_mutex_unlock(&suffix_lock);
+    return ret;
 }
 
 /*

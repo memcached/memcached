@@ -33,12 +33,6 @@ struct conn_queue {
     pthread_cond_t  cond;
 };
 
-/* Lock for connection freelist */
-static pthread_mutex_t conn_lock;
-
-/* Lock for alternative item suffix freelist */
-static pthread_mutex_t suffix_lock;
-
 /* Lock for cache operations (item_*, assoc_*) */
 pthread_mutex_t cache_lock;
 
@@ -176,66 +170,6 @@ static void create_worker(void *(*func)(void *), void *arg) {
         exit(1);
     }
 }
-
-
-/*
- * Pulls a conn structure from the freelist, if one is available.
- */
-conn *conn_from_freelist() {
-    conn *c;
-
-    pthread_mutex_lock(&conn_lock);
-    c = do_conn_from_freelist();
-    pthread_mutex_unlock(&conn_lock);
-
-    return c;
-}
-
-
-/*
- * Adds a conn structure to the freelist.
- *
- * Returns 0 on success, 1 if the structure couldn't be added.
- */
-bool conn_add_to_freelist(conn *c) {
-    bool result;
-
-    pthread_mutex_lock(&conn_lock);
-    result = do_conn_add_to_freelist(c);
-    pthread_mutex_unlock(&conn_lock);
-
-    return result;
-}
-
-/*
- * Pulls a suffix buffer from the freelist, if one is available.
- */
-char *suffix_from_freelist() {
-    char *s;
-
-    pthread_mutex_lock(&suffix_lock);
-    s = do_suffix_from_freelist();
-    pthread_mutex_unlock(&suffix_lock);
-
-    return s;
-}
-
-
-/*
- * Adds a suffix buffer to the freelist.
- *
- * Returns 0 on success, 1 if the buffer couldn't be added.
- */
-bool suffix_add_to_freelist(char *s) {
-    bool result;
-
-    pthread_mutex_lock(&suffix_lock);
-    result = do_suffix_add_to_freelist(s);
-    pthread_mutex_unlock(&suffix_lock);
-
-    return result;
-}
-
 
 /****************************** LIBEVENT THREADS *****************************/
 
@@ -634,7 +568,6 @@ void thread_init(int nthreads, struct event_base *main_base) {
     int         i;
 
     pthread_mutex_init(&cache_lock, NULL);
-    pthread_mutex_init(&conn_lock, NULL);
     pthread_mutex_init(&stats_lock, NULL);
 
     pthread_mutex_init(&init_lock, NULL);
