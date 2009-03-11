@@ -352,8 +352,8 @@ response to the "stats" command, together with the type of the value
 sent for this name, and the meaning of the value.
 
 In the type column below, "32u" means a 32-bit unsigned integer, "64u"
-means a 64-bit unsigner integer. '32u:32u' means two 32-but unsigned
-integers separated by a colon.
+means a 64-bit unsigner integer. '32u.32u' means two 32-but unsigned
+integers separated by a colon (treat this as a floating point number).
 
 |-----------------------+---------+-------------------------------------------|
 | Name                  | Type    | Meaning                                   |
@@ -364,9 +364,9 @@ integers separated by a colon.
 | version               | string  | Version string of this server             |
 | pointer_size          | 32      | Default size of pointers on the host OS   |
 |                       |         | (generally 32 or 64)                      |
-| rusage_user           | 32u:32u | Accumulated user time for this process    |
+| rusage_user           | 32u.32u | Accumulated user time for this process    |
 |                       |         | (seconds:microseconds)                    |
-| rusage_system         | 32u:32u | Accumulated system time for this process  |
+| rusage_system         | 32u.32u | Accumulated system time for this process  |
 |                       |         | (seconds:microseconds)                    |
 | curr_items            | 32u     | Current number of items stored            |
 | total_items           | 32u     | Total number of items stored since        |
