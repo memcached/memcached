@@ -52,13 +52,13 @@ print $sock "set boo 0 $expire 6\r\nbooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored boo");
 mem_get_is($sock, "boo", undef, "now expired");
 
-print $sock "add add 0 1 6\r\naddval\r\n";
+print $sock "add add 0 2 6\r\naddval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored add");
 mem_get_is($sock, "add", "addval");
 # second add fails
-print $sock "add add 0 1 7\r\naddval2\r\n";
+print $sock "add add 0 2 7\r\naddval2\r\n";
 is(scalar <$sock>, "NOT_STORED\r\n", "add failure");
-sleep(1.3);
-print $sock "add add 0 1 7\r\naddval3\r\n";
+sleep(2.3);
+print $sock "add add 0 2 7\r\naddval3\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored add again");
 mem_get_is($sock, "add", "addval3");
