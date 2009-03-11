@@ -1,3 +1,19 @@
+2009-03-11
+
+	* Protocol:  Binary complete (Dustin, Trond, Toru, etc...)
+
+	* Performance:  improvements from facebook (Dormando)
+
+	* Performance:  per-thread stats (Trond)
+
+	* Performance:  Hash expansion in its own thread (Trond)
+
+	* Stats:  Lots of new stats (Dustin)
+
+	* Bug fixes (various)
+
+	See the 1.3.2 release notes or revision control for more detail.
+
 2008-09-06
        * Display error status on listen failures (Dormando)
 
