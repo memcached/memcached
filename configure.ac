@@ -330,9 +330,15 @@ AC_CHECK_FUNCS(setppriv, [
 
 AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
 
+AC_ARG_ENABLE(docs,
+  [AS_HELP_STRING([--disable-docs],[Disable documentation generation])])
+
 AC_PATH_PROG([XML2RFC], [xml2rfc], "no")
 AC_PATH_PROG([XSLTPROC], [xsltproc], "no")
-AM_CONDITIONAL([BUILD_SPECIFICATIONS],[test "x$XML2RFC" != "xno" -a "x$XSLTPROC" != "xno"])
+
+AM_CONDITIONAL([BUILD_SPECIFICATIONS],
+               [test "x$enable_docs" != "xno" -a "x$XML2RFC" != "xno" -a "x$XSLTPROC" != "xno"])
+
 
 dnl Let the compiler be a bit more picky. Please note that you cannot
 dnl specify these flags to the compiler before AC_CHECK_FUNCS, because
