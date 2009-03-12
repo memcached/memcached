@@ -376,6 +376,8 @@ void dispatch_conn_new(int sfd, int init_state, int event_flags,
 
     /* Skip the dispatch thread (0) */
     tid++;
+    assert(tid != 0);
+    assert(tid < settings.num_threads);
     LIBEVENT_THREAD *thread = threads + tid;
 
     last_thread = tid;

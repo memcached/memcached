@@ -175,10 +175,11 @@ static void settings_init(void) {
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
 #ifdef USE_THREADS
-    settings.num_threads = 4 + 1;     /* N workers + 1 dispatcher */
+    settings.num_threads = 4;
 #else
     settings.num_threads = 1;
 #endif
+    settings.num_threads++;  /* N workers + 1 dispatcher */
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
     settings.reqs_per_event = 20;
@@ -2908,7 +2909,7 @@ int main (int argc, char **argv) {
             break;
         case 't':
             settings.num_threads = atoi(optarg) + 1; /* Extra dispatch thread */
-            if (settings.num_threads == 0) {
+            if (settings.num_threads < 2) {
                 fprintf(stderr, "Number of threads must be greater than 0\n");
                 return 1;
             }
