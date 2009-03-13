@@ -1274,34 +1274,30 @@ static void process_bin_get(conn *c) {
 
 uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
                           const char *val, const uint32_t vlen, void *cookie) {
-    protocol_binary_response_header *header;
-    char *ptr = buf;
-    uint32_t bodylen = klen + vlen;
-    header = (protocol_binary_response_header *)ptr;
     conn *c = (conn *)cookie;
+    uint32_t bodylen = klen + vlen;
+    protocol_binary_response_header header = {
+        .response.magic = (uint8_t)PROTOCOL_BINARY_RES,
+        .response.opcode = PROTOCOL_BINARY_CMD_STAT,
+        .response.keylen = (uint16_t)htons(klen),
+        .response.datatype = (uint8_t)PROTOCOL_BINARY_RAW_BYTES,
+        .response.bodylen = htonl(bodylen),
+        .response.opaque = c->opaque
+    };
 
-    header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
-    header->response.opcode = PROTOCOL_BINARY_CMD_STAT;
-    header->response.keylen = (uint16_t)htons(klen);
-    header->response.extlen = (uint8_t)0;
-    header->response.datatype = (uint8_t)PROTOCOL_BINARY_RAW_BYTES;
-    header->response.status = (uint16_t)htons(0);
-    header->response.bodylen = htonl(bodylen);
-    header->response.opaque = c->opaque;
-    header->response.cas = swap64(0);
-    ptr += sizeof(header->response);
+    memcpy(buf, header.bytes, sizeof(header.response));
+    buf += sizeof(header.response);
 
     if (klen > 0) {
-        memcpy(ptr, key, klen);
-        ptr += klen;
+        memcpy(buf, key, klen);
+        buf += klen;
 
         if (vlen > 0) {
-            memcpy(ptr, val, vlen);
-            ptr += vlen;
+            memcpy(buf, val, vlen);
         }
     }
 
-    return sizeof(header->response) + klen + vlen;
+    return sizeof(header.response) + bodylen;
 }
 
 static void process_bin_stat(conn *c) {
