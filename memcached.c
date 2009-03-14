@@ -2092,7 +2092,7 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
                           const uint16_t klen, const char *val,
                           const uint32_t vlen, void *cookie), conn *c,
                           int *buflen) {
-    char temp[1024];
+    char temp[2048];
     char val[128];
     char *buf = NULL;
     char *pos = temp;
@@ -2273,6 +2273,8 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     nbytes = add_stats(pos, "threads", strlen("threads"), val, vlen, (void *)c);
     pos += nbytes;
     *buflen += nbytes;
+
+    assert(*buflen < sizeof(temp));
 
     if(*buflen > 0 && (buf = malloc(*buflen)) == NULL) {
         STATS_UNLOCK();
