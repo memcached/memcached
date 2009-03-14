@@ -1060,7 +1060,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     command = tokens[COMMAND_TOKEN].value;
 
     if (ntokens == 2 && strcmp(command, "stats") == 0) {
-        char temp[1024];
+        char temp[2048];
         pid_t pid = getpid();
         char *pos = temp;
 
