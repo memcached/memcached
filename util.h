@@ -7,7 +7,5 @@
  *
  * returns true if conversion succeeded.
  */
-bool safe_strtoull(const char *str, unsigned long long *out);
-bool safe_strtoll(const char *str, long long *out);
-
-
+bool safe_strtoull(const char *str, uint64_t *out);
+bool safe_strtoll(const char *str, int64_t *out);

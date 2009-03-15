@@ -7,7 +7,7 @@
 
 #include "memcached.h"
 
-bool safe_strtoull(const char *str, unsigned long long *out) {
+bool safe_strtoull(const char *str, uint64_t *out) {
     assert(out != NULL);
     errno = 0;
     *out = 0;
@@ -30,7 +30,7 @@ bool safe_strtoull(const char *str, unsigned long long *out) {
     return false;
 }
 
-bool safe_strtoll(const char *str, long long *out) {
+bool safe_strtoll(const char *str, int64_t *out) {
     assert(out != NULL);
     errno = 0;
     *out = 0;

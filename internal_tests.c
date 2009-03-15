@@ -10,7 +10,7 @@ static void test_safe_strtoull(void);
 static void test_safe_strtoll(void);
 
 static void test_safe_strtoull() {
-  unsigned long long val;
+  uint64_t val;
   assert(safe_strtoull("123", &val));
   assert(val == 123);
   assert(safe_strtoull("+123", &val));
@@ -27,7 +27,7 @@ static void test_safe_strtoull() {
 }
 
 static void test_safe_strtoll() {
-  long long val;
+  int64_t val;
   assert(safe_strtoll("123", &val));
   assert(val == 123);
   assert(safe_strtoll("+123", &val));
