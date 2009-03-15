@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 21;
+use Test::More tests => 23;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -58,10 +58,14 @@ is(scalar <$sock>, "NOT_FOUND\r\n", "can't decr bogus key");
 print $sock "decr incr 5\r\n";
 is(scalar <$sock>, "NOT_FOUND\r\n", "can't incr bogus key");
 
+print $sock "set bigincr 0 0 1\r\n0\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored bigincr");
+print $sock "incr bigincr 18446744073709551610\r\n";
+is(scalar <$sock>, "18446744073709551610\r\n");
+
 print $sock "set text 0 0 2\r\nhi\r\n";
-is(scalar <$sock>, "STORED\r\n", "stored text");
+is(scalar <$sock>, "STORED\r\n", "stored hi");
 print $sock "incr text 1\r\n";
 is(scalar <$sock>,
    "CLIENT_ERROR cannot increment or decrement non-numeric value\r\n",
    "hi - 1 = 0");
-

@@ -2671,7 +2671,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
     char temp[sizeof("18446744073709551615")];
     item *it;
-    int64_t delta;
+    uint64_t delta;
     char *key;
     size_t nkey;
 
@@ -2687,7 +2687,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    if (!safe_strtoll(tokens[2].value, &delta)) {
+    if (!safe_strtoull(tokens[2].value, &delta)) {
         out_string(c, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
