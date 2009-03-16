@@ -97,6 +97,7 @@ struct settings {
     int detail_enabled;     /* nonzero if we're collecting detailed stats */
     int reqs_per_event;     /* Maximum number of io to process on each
                                io-event. */
+    int backlog;
 };
 
 extern struct stats stats;

@@ -183,6 +183,7 @@ static void settings_init(void) {
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
     settings.reqs_per_event = 20;
+    settings.backlog = 1024;
 }
 
 /* returns true if a deleted item's delete-locked-time is over, and it
@@ -1966,7 +1967,7 @@ void accept_new_conns(const bool do_accept) {
     for (next = listen_conn; next; next = next->next) {
         if (do_accept) {
             update_event(next, EV_READ | EV_PERSIST);
-            if (listen(next->sfd, 1024) != 0) {
+            if (listen(next->sfd, settings.backlog) != 0) {
                 perror("listen");
             }
         }
@@ -2439,7 +2440,7 @@ static int server_socket(const int port, const bool is_udp) {
             continue;
         } else {
             success++;
-            if (!is_udp && listen(sfd, 1024) == -1) {
+            if (!is_udp && listen(sfd, settings.backlog) == -1) {
                 perror("listen()");
                 close(sfd);
                 freeaddrinfo(ai);
@@ -2536,7 +2537,7 @@ static int server_socket_unix(const char *path, int access_mask) {
         return 1;
     }
     umask(old_umask);
-    if (listen(sfd, 1024) == -1) {
+    if (listen(sfd, settings.backlog) == -1) {
         perror("listen()");
         close(sfd);
         return 1;
@@ -2668,6 +2669,7 @@ static void usage(void) {
     printf("-R            Maximum number of requests per event\n"
            "              limits the number of requests process for a given con nection\n"
            "              to prevent starvation.  default 20\n");
+    printf("-b            Set the backlog queue limit (default 1024)\n");
     return;
 }
 
@@ -2845,7 +2847,7 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "a:p:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:LR:")) != -1) {
+    while ((c = getopt(argc, argv, "a:p:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:LR:b")) != -1) {
         switch (c) {
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
@@ -2940,6 +2942,9 @@ int main (int argc, char **argv) {
             }
             break;
 #endif
+        case 'b' :
+            settings.backlog = atoi(optarg);
+            break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
