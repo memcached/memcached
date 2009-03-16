@@ -122,6 +122,7 @@ struct settings {
     int reqs_per_event;     /* Maximum number of io to process on each
                                io-event. */
     bool use_cas;
+    int backlog;
 };
 
 extern struct stats stats;
