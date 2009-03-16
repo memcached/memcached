@@ -84,6 +84,10 @@ if test "x$enable_dtrace" == "xyes"; then
         dtrace_instrument_obj=yes
         rm conftest.$$
     fi
+
+    if test "`which tr`" = "/usr/ucb/tr"; then
+        AC_MSG_ERROR([Please remove /usr/ucb from your path. See man standards for more info])
+    fi
   else
     AC_MSG_ERROR([Need dtrace binary and OS support.])
   fi
