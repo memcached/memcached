@@ -85,7 +85,7 @@ static size_t item_make_header(const uint8_t nkey, const int flags, const int nb
 /*@null@*/
 item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
-    item *it;
+    item *it = NULL;
     char suffix[40];
     size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
     if (settings.use_cas) {
@@ -96,10 +96,34 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     if (id == 0)
         return 0;
 
-    it = slabs_alloc(ntotal, id);
-    if (it == 0) {
-        int tries = 50;
-        item *search;
+    /* do a quick check if we have any expired items in the tail.. */
+    int tries = 50;
+    item *search;
+
+    for (search = tails[id];
+         tries > 0 && search != NULL;
+         tries--, search=search->prev) {
+        if (search->refcount == 0 &&
+            (search->exptime != 0 && search->exptime < current_time)) {
+            it = search;
+            /* I don't want to actually free the object, just steal
+             * the item to avoid to grab the slab mutex twice ;-)
+             */
+            it->refcount = 1;
+            do_item_unlink(it);
+            /* Initialize the item block: */
+            it->slabs_clsid = 0;
+            it->refcount = 0;
+            break;
+        }
+    }
+
+    if (it == NULL && (it = slabs_alloc(ntotal, id)) == NULL) {
+        /*
+        ** Could not find an expired item at the tail, and memory allocation
+        ** failed. Try to evict some items!
+        */
+        tries = 50;
 
         /* If requested to not push old items out of cache when memory runs out,
          * we're out of luck at this point...
