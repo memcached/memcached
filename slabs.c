@@ -424,7 +424,7 @@ static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
             bufcurr += nbytes;
 
             sprintf(key, "%d:used_chunks", i);
-            sprintf(val, "%u", ((slabs*perslab) - p->sl_curr));
+            sprintf(val, "%u", slabs*perslab - p->sl_curr - p->end_page_free);
             nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
             linelen += nbytes;
             bufcurr += nbytes;
