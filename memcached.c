@@ -4095,7 +4095,32 @@ int main (int argc, char **argv) {
     setbuf(stderr, NULL);
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "a:p:s:U:m:Mc:khirvdl:u:P:f:s:n:t:D:LR:C:b")) != -1) {
+    while (-1 != (c = getopt(argc, argv,
+          "a:"  /* access mask for unix socket */
+          "p:"  /* TCP port number to listen on */
+          "s:"  /* unix socket path to listen on */
+          "U:"  /* UDP port number to listen on */
+          "m:"  /* max memory to use for items in megabytes */
+          "M"   /* return error on memory exhausted */
+          "c:"  /* max simultaneous connections */
+          "k"   /* lock down all paged memory */
+          "hi"  /* help, licence info */
+          "r"   /* maximize core file limit */
+          "v"   /* verbose */
+          "d"   /* daemon mode */
+          "l:"  /* interface to listen on */
+          "u:"  /* user identity to run as */
+          "P:"  /* save PID in file */
+          "f:"  /* factor? */
+          "s:"  /* unix socket */
+          "n:"  /* minimum space allocated for key+value+flags */
+          "t:"  /* threads */
+          "D:"  /* prefix delimiter? */
+          "L"   /* Large memory pages */
+          "R:"  /* max requests per event */
+          "C:"  /* Disable use of CAS */
+          "b"   /* backlog queue limit */
+        ))) {
         switch (c) {
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
