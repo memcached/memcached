@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 797;
+use Test::More tests => 857;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -331,6 +331,16 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
         is(scalar <$sock>, "STORED\r\n", "stored big");
         my ($f, $v, $c) = $mc->get($key);
     }
+}
+
+# diag "Test stats settings."
+{
+    my %stats = $mc->stats('settings');
+
+    is(1024, $stats{'maxconns'});
+    is('NULL', $stats{'domain_socket'});
+    is('on', $stats{'evictions'});
+    is('yes', $stats{'cas_enabled'});
 }
 
 # Along with the assertion added to the code to verify we're staying

@@ -408,6 +408,43 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | (see doc/threads.txt)                     |
 |-----------------------+---------+-------------------------------------------|
 
+Settings statistics
+-------------------
+CAVEAT: This section describes statistics which are subject to change in the
+future.
+
+The "stats" command with the argument of "settings" returns details of
+the settings of the running memcached.  This is primarily made up of
+the results of processing commandline options.
+
+Note that these are not guaranteed to return in any specific order and
+this list may not be exhaustive.  Otherwise, this returns like any
+other stats command.
+
+|-----------------+----------+----------------------------------------------|
+| Name            | Type     | Meaning                                      |
+|-----------------+----------+----------------------------------------------|
+| maxbytes        | size_t   | Maximum number of bytes allows in this cache |
+| maxconns        | 32       | Maximum number of clients allowed.           |
+| tcpport         | 32       | TCP listen port.                             |
+| udpport         | 32       | UDP listen port.                             |
+| inter           | string   | Listen interface.                            |
+| verbosity       | 32       | 0 = none, 1 = some, 2 = lots                 |
+| oldest          | 32u      | Age of the oldest honored object.            |
+| evictions       | on/off   | When off, LRU evictions are disabled.        |
+| domain_socket   | string   | Path to the domain socket (if any).          |
+| umask           | 32 (oct) | umask for the creation of the domain socket. |
+| growth_factor   | float    | Chunk size growth factor.                    |
+| chunk_size      | 32       | Minimum space allocated for key+value+flags  |
+| num_threads     | 32       | Number of threads (including dispatch).      |
+| stat_key_prefix | char     | Stats prefix separator character.            |
+| detail_enabled  | bool     | If yes, stats detail is enabled.             |
+| reqs_per_event  | 32       | Max num IO ops processed within an event.    |
+| cas_enabled     | bool     | When no, CAS is not enabled for this server. |
+| tcp_backlog     | 32       | TCP listen backlog.
+|-----------------+----------+----------------------------------------------|
+
+
 Item statistics
 ---------------
 CAVEAT: This section describes statistics which are subject to change in the

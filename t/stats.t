@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 70;
+use Test::More tests => 74;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -146,3 +146,9 @@ is(scalar <$sock>, "STORED\r\n", "good cas");
 check_cas_stats(1, 1, 1);
 my ($newid, $v) = mem_gets($sock, 'c');
 is('z', $v, 'got the expected value');
+
+my $settings = mem_stats($sock, ' settings');
+is(1024, $settings->{'maxconns'});
+is('NULL', $settings->{'domain_socket'});
+is('on', $settings->{'evictions'});
+is('yes', $settings->{'cas_enabled'});

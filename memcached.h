@@ -103,6 +103,7 @@ struct stats {
 
 #define MAX_VERBOSITY_LEVEL 2
 
+/* When adding a setting, be sure to update process_stat_settings */
 struct settings {
     size_t maxbytes;
     int maxconns;

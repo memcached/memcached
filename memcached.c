@@ -69,6 +69,14 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
                           const uint16_t klen, const char *val,
                           const uint32_t vlen, void *cookie), conn *c,
                           int *buflen);
+static char *process_stat_settings(uint32_t (*add_stats)(char *buf,
+                                                        const char *k,
+                                                        const uint16_t kl,
+                                                        const char *v,
+                                                        const uint32_t vl,
+                                                        void *cookie),
+                                   void *c, int *buflen);
+
 
 /* defaults */
 static void settings_init(void);
@@ -1367,6 +1375,23 @@ static void process_bin_stat(conn *c) {
 
         append_bin_stats(buf, NULL, 0, NULL, 0, (void *)c);
         write_and_free(c, buf, sizeof(header->response));
+    } else if (strncmp(subcommand, "settings", 8) == 0) {
+        int buflen = 0;
+        char *buf = NULL, *ptr = NULL;
+
+        if ((buf = process_stat_settings(&append_bin_stats, (void *)c,
+                                         &buflen)) == NULL) {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+            return;
+        }
+
+        /* XXX:  append termination packet Like all these, assume it
+           fits. :/ */
+        ptr = buf + buflen;
+        append_bin_stats(ptr, NULL, 0, NULL, 0, (void *)c);
+
+        write_and_free(c, buf, buflen + sizeof(header->response));
+        return;
     } else if (strncmp(subcommand, "detail", 6) == 0) {
         char *subcmd_pos = subcommand + 6;
         char *bufpos;
@@ -2306,6 +2331,61 @@ uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
     return nbytes;
 }
 
+/* Local macro existing specifically to process stats */
+#define APPEND_STAT(fmt, name, val) \
+    vlen = sprintf(val_str, fmt, val); \
+    size = add_stats(pos, name, strlen(name), val_str, vlen, c); \
+    *buflen += size; \
+    pos += size; \
+    assert(*buflen < allocated);
+
+static char *process_stat_settings(uint32_t (*add_stats)(char *buf,
+                                                         const char *k,
+                                                         const uint16_t kl,
+                                                         const char *v,
+                                                         const uint32_t vl,
+                                                         void *cookie),
+                                   void *c, int *buflen) {
+    char *buf = NULL, *pos = NULL;
+    char val_str[128];
+    int size = 0, vlen = 0, allocated = 2048;
+    *buflen = 0;
+
+    assert(add_stats);
+
+    buf = calloc(allocated, 1);
+    if (!buf) {
+        return NULL;
+    }
+
+    pos = buf;
+
+    APPEND_STAT("%u", "maxbytes", (unsigned int)settings.maxbytes);
+    APPEND_STAT("%d", "maxconns", settings.maxconns);
+    APPEND_STAT("%d", "tcpport", settings.port);
+    APPEND_STAT("%d", "udpport", settings.udpport);
+    APPEND_STAT("%s", "inter", settings.inter ? settings.inter : "NULL");
+    APPEND_STAT("%d", "verbosity", settings.verbose);
+    APPEND_STAT("%lu", "oldest", (unsigned long)settings.oldest_live);
+    APPEND_STAT("%s", "evictions", settings.evict_to_free ? "on" : "off");
+    APPEND_STAT("%s", "domain_socket",
+                settings.socketpath ? settings.socketpath : "NULL");
+    APPEND_STAT("%o", "umask", settings.access);
+    APPEND_STAT("%.2f", "growth_factor", settings.factor);
+    APPEND_STAT("%d", "chunk_size", settings.chunk_size);
+    APPEND_STAT("%d", "num_threads", settings.num_threads);
+    APPEND_STAT("%c", "stat_key_prefix", settings.prefix_delimiter);
+    APPEND_STAT("%s", "detail_enabled",
+                settings.detail_enabled ? "yes" : "no");
+    APPEND_STAT("%d", "reqs_per_event", settings.reqs_per_event);
+    APPEND_STAT("%s", "cas_enabled", settings.use_cas ? "yes" : "no");
+    APPEND_STAT("%d", "tcp_backlog", settings.backlog);
+
+    return buf;
+}
+
+#undef APPEND_STAT
+
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     char *command;
     char *subcommand;
@@ -2380,6 +2460,23 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         return;
     }
 
+    if (strcmp(subcommand, "settings") == 0) {
+        int buflen = 0;
+        char *buf = NULL, *ptr = NULL;
+
+        if ((buf = process_stat_settings(&append_ascii_stats, (void *)c,
+                                         &buflen)) == NULL) {
+            out_string(c, "SERVER_ERROR out of memory writing stats");
+            return;
+        }
+
+        ptr = buf + buflen;
+        /* XXX:  append terminator (assumes space) */
+        buflen += append_ascii_stats(ptr, NULL, 0, NULL, 0, (void *)c);
+
+        write_and_free(c, buf, buflen);
+        return;
+    }
 
     if (strcmp(subcommand, "cachedump") == 0) {
 
