@@ -4215,8 +4215,8 @@ int main (int argc, char **argv) {
           "D:"  /* prefix delimiter? */
           "L"   /* Large memory pages */
           "R:"  /* max requests per event */
-          "C:"  /* Disable use of CAS */
-          "b"   /* backlog queue limit */
+          "C"  /* Disable use of CAS */
+          "b:"   /* backlog queue limit */
         ))) {
         switch (c) {
         case 'a':
