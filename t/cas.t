@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 39;
+use Test::More tests => 43;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -15,6 +15,22 @@ my @result;
 my @result2;
 
 ok($sock != $sock2, "have two different connections open");
+
+sub check_args {
+    my ($line, $name) = @_;
+
+    my $svr = new_memcached();
+    my $s = $svr->sock;
+
+    print $s $line;
+    is(scalar <$s>, "CLIENT_ERROR bad command line format\r\n", $name);
+    undef $svr;
+}
+
+check_args "cas bad blah 0 0 0\r\n\r\n", "bad flags";
+check_args "cas bad 0 blah 0 0\r\n\r\n", "bad exp";
+check_args "cas bad 0 0 blah 0\r\n\r\n", "bad cas";
+check_args "cas bad 0 0 0 blah\r\n\r\n", "bad size";
 
 # gets foo (should not exist)
 print $sock "gets foo\r\n";

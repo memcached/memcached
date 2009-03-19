@@ -2599,7 +2599,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
     char *key;
     size_t nkey;
-    int flags;
+    unsigned int flags;
+    int32_t exptime_int = 0;
     time_t exptime;
     int vlen;
     uint64_t req_cas_id=0;
@@ -2617,19 +2618,23 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    flags = strtoul(tokens[2].value, NULL, 10);
-    exptime = strtol(tokens[3].value, NULL, 10);
-    vlen = strtol(tokens[4].value, NULL, 10);
+    if (! (safe_strtoul(tokens[2].value, (uint32_t *)&flags)
+           && safe_strtol(tokens[3].value, &exptime_int)
+           && safe_strtol(tokens[4].value, (int32_t *)&vlen))) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    /* Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
+    exptime = exptime_int;
 
     // does cas value exist?
     if (handle_cas) {
-        req_cas_id = strtoull(tokens[5].value, NULL, 10);
-    }
-
-    if (errno == ERANGE || ((flags == 0 || exptime == 0) && errno == EINVAL)
-        || vlen < 0) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
+        if (!safe_strtoull(tokens[5].value, &req_cas_id)
+            || vlen < 0 ) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
     }
 
     if (settings.detail_enabled) {
