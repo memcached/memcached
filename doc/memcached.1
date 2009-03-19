@@ -43,6 +43,13 @@ Use <num> MB memory max to use for object storage; the default is 64 megabytes.
 .B \-c <num>
 Use <num> max simultaneous connections; the default is 1024.
 .TP
+.B \-R <num>
+This option seeks to prevent client starvation by setting a limit to the 
+number of sequential requests the server will process from an individual 
+client connection. Once a connection has exceeded this value, the server will 
+attempt to process I/O on other connections before handling any further 
+request from this connection. The default value for this option is 20.
+.TP
 .B \-k 
 Lock down all paged memory. This is a somewhat dangerous option with large
 caches, so consult the README and memcached homepage for configuration
@@ -74,6 +81,9 @@ significant memory efficiency gain with a lower value. If you use a high
 chunk growth factor (-f option), on the other hand, you may want to increase
 the size to allow a bigger percentage of your items to fit in the most densely
 packed (smallest) chunks.
+.TP
+.B \-C
+Disable the use of CAS id (and reduce the per-item size with 8 bytes).
 .TP
 .B \-h
 Show the version of memcached and a summary of options.
