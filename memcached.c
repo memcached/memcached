@@ -4012,6 +4012,11 @@ static void usage(void) {
 #endif
            );
 
+    printf("-D <char>     Use <char> as the delimiter between key prefixes and IDs.\n"
+           "              This is used for per-prefix stats reporting. The default is\n"
+           "              \":\" (colon). If this option is specified, stats collection\n"
+           "              is turned on automatically; if not, then it may be turned on\n"
+           "              by sending the \"stats detail on\" command to the server.\n");
     printf("-t <num>      number of threads to use, default 4\n");
     printf("-R            Maximum number of requests per event\n"
            "              limits the number of requests process for a given con nection\n"
