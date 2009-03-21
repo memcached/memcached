@@ -1868,9 +1868,11 @@ static void reset_cmd_handler(conn *c) {
 
 static void complete_nread(conn *c) {
     assert(c != NULL);
-    assert(c->protocol == ascii_prot || c->protocol == binary_prot);
+    assert(c->protocol == ascii_udp_prot
+           || c->protocol == ascii_prot
+           || c->protocol == binary_prot);
 
-    if (c->protocol == ascii_prot) {
+    if (c->protocol == ascii_prot || c->protocol == ascii_udp_prot) {
         complete_nread_ascii(c);
     } else if (c->protocol == binary_prot) {
         complete_nread_binary(c);

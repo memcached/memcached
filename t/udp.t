@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 33;
+use Test::More tests => 48;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -17,8 +17,18 @@ mem_get_is($sock, "foo", "fooval");
 my $usock = $server->new_udp_sock
     or die "Can't bind : $@\n";
 
-# test all the steps, one by one:
-test_single($usock);
+# test all the get steps, one by one:
+test_single_op($usock,"get foo\r\n","VALUE foo 0 6\r\nfooval\r\nEND\r\n");
+
+# test all the set steps, one by one:
+test_single_op($usock,"set aval 0 0 1\r\n1\r\n","STORED\r\n");
+
+# test all the incr steps, one by one:
+test_single_op($usock,"incr aval 1\r\n","2\r\n");
+
+# test all the delete steps, one by one:
+test_single_op($usock,"delete aval\r\n","DELETED\r\n");
+
 
 # testing sequence numbers
 for my $offt (1, 1, 2) {
@@ -53,10 +63,12 @@ is(substr($res->{0}, 8), "END\r\n");
     is(hexify(substr($res->{1}, 0, 2)), hexify(pack("n", 999)), "sequence number of middle packet is correct");
 }
 
-sub test_single {
+sub test_single_op {
     my $usock = shift;
+    my $op = shift;
+    my $resp = shift;
     my $req = pack("nnnn", 45, 0, 1, 0);  # request id (opaque), seq num, #packets, reserved (must be 0)
-    $req .= "get foo\r\n";
+    $req .= $op;
     ok(defined send($usock, $req, 0), "sent request");
 
     my $rin = '';
@@ -69,9 +81,10 @@ sub test_single {
     $sender = $usock->recv($res, 1500, 0);
 
     my $id = pack("n", 45);
+    my $expctdlen = length($resp) + 8;
     is(hexify(substr($res, 0, 8)), hexify($id) . '0000' . '0001' . '0000', "header is correct");
-    is(length $res, 36, '');
-    is(substr($res, 8), "VALUE foo 0 6\r\nfooval\r\nEND\r\n", "payload is as expected");
+    is(length $res,$expctdlen,'');
+    is(substr($res, 8), $resp, "response is correct");
 }
 
 sub hexify {
