@@ -1,5 +1,6 @@
-bin_PROGRAMS = memcached memcached-debug sizes internal_tests
+bin_PROGRAMS = memcached
 pkginclude_HEADERS = protocol_binary.h
+noinst_PROGRAMS = memcached-debug sizes internal_tests
 
 BUILT_SOURCES=
 
