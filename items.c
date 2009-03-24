@@ -421,19 +421,22 @@ char *do_item_stats(uint32_t (*add_stats)(char *buf,
 /*@null@*/
 char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf,
                           const char *key, const uint16_t klen, const char *val,
-                          const uint32_t vlen, void *cookie), void *c, int *bytes) {
+                          const uint32_t vlen, void *cookie), void *c, int *buflen) {
 
-    const int num_buckets = 32768;   /* max 1MB object, divided into 32 bytes size buckets */
+    /* max 1MB object, divided into 32 bytes size buckets */
+    const int num_buckets = 32768;
     unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
-    char *buf = (char *)malloc(2 * 1024 * 1024); /* 2MB max response size */
-    char *ptr = buf;
-    uint32_t nbytes, linelen = 0;
+
+    int allocated = 2 * 1024 * 1024;
+    char *buf = (char *)malloc(allocated); /* 2MB max response size */
+    char *pos = buf;
+    int size;
     int i;
 
     if (histogram == 0 || buf == 0) {
         if (histogram) free(histogram);
         if (buf) free(buf);
-        *bytes = -1;
+        *buflen = -1;
         return NULL;
     }
 
@@ -451,22 +454,20 @@ char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf,
     }
 
     /* write the buffer */
-    *bytes = 0;
-    char key[128];
-    char val[128];
+    *buflen = 0;
+    char val_str[128];
+    int vlen = 0;
 
     for (i = 0; i < num_buckets; i++) {
         if (histogram[i] != 0) {
-            sprintf(key, "%d", i * 32);
-            sprintf(val, "%u", histogram[i]);
-            nbytes = add_stats(ptr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            ptr += nbytes;
+            char key[8];
+            vlen = sprintf(key, "%d", i * 32);
+            assert(vlen < sizeof(key));
+            APPEND_STAT(key, "%u", histogram[i]);
         }
     }
 
-    nbytes = add_stats(ptr, NULL, 0, NULL, 0, c);
-    *bytes = linelen + nbytes;
+    *buflen += add_stats(pos, NULL, 0, NULL, 0, c);
 
     free(histogram);
     return buf;
