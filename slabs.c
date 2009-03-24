@@ -348,17 +348,11 @@ char *get_stats(const char *stat_type, int nkey,
 
         return buf;
     } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
-        buf = item_stats(add_stats, c, &size);
-        *buflen = size;
-        return buf;
+        return item_stats(add_stats, c, buflen);
     } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
-        buf = slabs_stats(add_stats, c, &size);
-        *buflen = size;
-        return buf;
+        return slabs_stats(add_stats, c, buflen);
     } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
-        buf = item_stats_sizes(add_stats, c, &size);
-        *buflen = size;
-        return buf;
+        return item_stats_sizes(add_stats, c, buflen);
     }
 
     return NULL;
