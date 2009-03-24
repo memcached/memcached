@@ -350,12 +350,11 @@ static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
                                                   const uint32_t vlen,
                                                   void *cookie),
                             void *c, int *buflen) {
-    int i, total, linelen;
-    char *buf = (char *)malloc(power_largest * 200 + 100);
-    char *bufcurr = buf;
+    int i, total, size, allocated = power_largest * 200 + 100;
+    char *buf = (char *)malloc(allocated);
+    char *pos = buf;
 
     *buflen = 0;
-    linelen = 0;
 
     if (buf == NULL) {
         *buf = -1;
@@ -374,124 +373,45 @@ static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
             slabs = p->slabs;
             perslab = p->perslab;
 
-            char key[128];
-            char val[128];
-            uint32_t nbytes = 0;
+            char key_str[128];
+            char val_str[128];
+            int klen = 0, vlen = 0;
 
-            sprintf(key, "%d:chunk_size", i);
-            sprintf(val, "%u", p->size);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:chunks_per_page", i);
-            sprintf(val, "%u", perslab);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:total_pages", i);
-            sprintf(val, "%u", slabs);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:total_chunks", i);
-            sprintf(val, "%u", slabs*perslab);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:used_chunks", i);
-            sprintf(val, "%u", slabs*perslab - p->sl_curr - p->end_page_free);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:free_chunks", i);
-            sprintf(val, "%u", p->sl_curr);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:free_chunks_end", i);
-            sprintf(val, "%u", p->end_page_free);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:get_hits", i);
-            sprintf(val, "%llu",
+            APPEND_NUM_STAT(i, "chunk_size", "%u", p->size);
+            APPEND_NUM_STAT(i, "chunks_per_page", "%u", perslab);
+            APPEND_NUM_STAT(i, "total_pages", "%u", slabs);
+            APPEND_NUM_STAT(i, "total_chunks", "%u", slabs * perslab);
+            APPEND_NUM_STAT(i, "used_chunks", "%u",
+                            slabs*perslab - p->sl_curr - p->end_page_free);
+            APPEND_NUM_STAT(i, "free_chunks", "%u", p->sl_curr);
+            APPEND_NUM_STAT(i, "free_chunks_end", "%u", p->end_page_free);
+            APPEND_NUM_STAT(i, "get_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].get_hits);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:cmd_set", i);
-            sprintf(val, "%llu",
+            APPEND_NUM_STAT(i, "cmd_set", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].set_cmds);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:delete_hits", i);
-            sprintf(val, "%llu",
+            APPEND_NUM_STAT(i, "delete_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].delete_hits);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:incr_hits", i);
-            sprintf(val, "%llu",
+            APPEND_NUM_STAT(i, "incr_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].incr_hits);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:decr_hits", i);
-            sprintf(val, "%llu",
+            APPEND_NUM_STAT(i, "decr_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].decr_hits);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:cas_hits", i);
-            sprintf(val, "%llu",
+            APPEND_NUM_STAT(i, "cas_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].cas_hits);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "%d:cas_badval", i);
-            sprintf(val, "%llu",
+            APPEND_NUM_STAT(i, "cas_badval", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].cas_badval);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
 
             total++;
         }
     }
 
     /* add overall slab stats and append terminator */
-    uint32_t nbytes = 0;
-    char key[128];
-    char val[128];
+    char val_str[128];
+    int vlen = 0;
 
-    sprintf(key, "active_slabs");
-    sprintf(val, "%d", total);
-    nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-    linelen += nbytes;
-    bufcurr += nbytes;
+    APPEND_STAT("active_slabs", "%d", total);
+    APPEND_STAT("total_malloced", "%llu", (unsigned long long)mem_malloced);
 
-    sprintf(key, "total_malloced");
-    sprintf(val, "%llu", (unsigned long long)mem_malloced);
-    nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-    linelen += nbytes;
-    bufcurr += nbytes;
-
-    linelen += add_stats(bufcurr, NULL, 0, NULL, 0, c);
-    *buflen = linelen;
+    *buflen += add_stats(pos, NULL, 0, NULL, 0, c);
 
     return buf;
 }
