@@ -2121,11 +2121,12 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
                           const uint16_t klen, const char *val,
                           const uint32_t vlen, void *cookie), conn *c,
                           int *buflen) {
-    char temp[2048];
-    char val[128];
+    int allocated = 2048;
+    char temp[allocated];
+    char val_str[128];
     char *buf = NULL;
     char *pos = temp;
-    size_t nbytes;
+    size_t size;
     int vlen = 0;
     pid_t pid = getpid();
     rel_time_t now = current_time;
@@ -2142,168 +2143,43 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
 #endif /* !WIN32 */
 
     STATS_LOCK();
-    memset(val, 0, 128);
+    memset(val_str, 0, 128);
 
-    vlen = sprintf(val, "%lu", (long)pid);
-    nbytes = add_stats(pos, "pid", strlen("pid"), val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%u", now);
-    nbytes = add_stats(pos, "uptime", strlen("uptime"), val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%ld", now + (long)process_started);
-    nbytes = add_stats(pos, "time", strlen("time"), val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    nbytes = add_stats(pos, "version", strlen("version"), VERSION,
-                       strlen(VERSION), (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%d", (int)(8 * sizeof(void *)));
-    nbytes = add_stats(pos, "pointer_size", strlen("pointer_size"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
+    APPEND_STAT("pid", "%lu", (long)pid);
+    APPEND_STAT("uptime", "%u", now);
+    APPEND_STAT("time", "%ld", now + (long)process_started);
+    APPEND_STAT("version", "%s", VERSION);
+    APPEND_STAT("pointer_size", "%d", (int)(8 * sizeof(void *)));
 
 #ifndef WIN32
-    vlen = sprintf(val, "%ld.%06ld", (long)usage.ru_utime.tv_sec,
-                   (long)usage.ru_utime.tv_usec);
-    nbytes = add_stats(pos, "rusage_user", strlen("rusage_user"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%ld.%06ld", (long)usage.ru_stime.tv_sec,
-                   (long)usage.ru_stime.tv_usec);
-    nbytes = add_stats(pos, "rusage_system", strlen("rusage_system"), val,
-                       vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
+    APPEND_STAT2("rusage_user", "%ld.%06ld",
+                 (long)usage.ru_utime.tv_sec,
+                 (long)usage.ru_utime.tv_usec);
+    APPEND_STAT2("rusage_system", "%ld.%06ld",
+                 (long)usage.ru_stime.tv_sec,
+                 (long)usage.ru_stime.tv_usec);
 #endif /* !WIN32 */
 
-    vlen = sprintf(val, "%u", stats.curr_conns - 1); /* ignore listening conn */
-    nbytes = add_stats(pos, "curr_connections", strlen("curr_connections"),
-                       val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%u", stats.total_conns);
-    nbytes = add_stats(pos, "total_connections", strlen("total_connections"),
-                       val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%u", stats.conn_structs);
-    nbytes = add_stats(pos, "connection_structures",
-                       strlen("connection_structures"), val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.get_cmds);
-    nbytes = add_stats(pos, "cmd_get", strlen("cmd_get"), val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.set_cmds);
-    nbytes = add_stats(pos, "cmd_set", strlen("cmd_set"), val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.get_hits);
-    nbytes = add_stats(pos, "get_hits", strlen("get_hits"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.get_misses);
-    nbytes = add_stats(pos, "get_misses", strlen("get_misses"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.delete_misses);
-    nbytes = add_stats(pos, "delete_misses", strlen("delete_misses"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.delete_hits);
-    nbytes = add_stats(pos, "delete_hits", strlen("delete_hits"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.incr_misses);
-    nbytes = add_stats(pos, "incr_misses", strlen("incr_misses"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.incr_hits);
-    nbytes = add_stats(pos, "incr_hits", strlen("incr_hits"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.decr_misses);
-    nbytes = add_stats(pos, "decr_misses", strlen("decr_misses"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.decr_hits);
-    nbytes = add_stats(pos, "decr_hits", strlen("decr_hits"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.cas_misses);
-    nbytes = add_stats(pos, "cas_misses", strlen("cas_misses"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.cas_hits);
-    nbytes = add_stats(pos, "cas_hits", strlen("cas_hits"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)slab_stats.cas_badval);
-    nbytes = add_stats(pos, "cas_badval", strlen("cas_badval"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.bytes_read);
-    nbytes = add_stats(pos, "bytes_read", strlen("bytes_read"), val, vlen,
-                       (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)thread_stats.bytes_written);
-    nbytes = add_stats(pos, "bytes_written", strlen("bytes_written"), val,
-                       vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%llu", (unsigned long long)settings.maxbytes);
-    nbytes = add_stats(pos, "limit_maxbytes", strlen("limit_maxbytes"), val,
-                       vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    vlen = sprintf(val, "%u", settings.num_threads);
-    nbytes = add_stats(pos, "threads", strlen("threads"), val, vlen, (void *)c);
-    pos += nbytes;
-    *buflen += nbytes;
-
-    assert(*buflen < sizeof(temp));
+    APPEND_STAT("curr_connections", "%u", stats.curr_conns - 1);
+    APPEND_STAT("total_connections", "%u", stats.total_conns);
+    APPEND_STAT("connection_structures", "%u", stats.conn_structs);
+    APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
+    APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
+    APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
+    APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
+    APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
+    APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
+    APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);
+    APPEND_STAT("incr_hits", "%llu", (unsigned long long)slab_stats.incr_hits);
+    APPEND_STAT("decr_misses", "%llu", (unsigned long long)thread_stats.decr_misses);
+    APPEND_STAT("decr_hits", "%llu", (unsigned long long)slab_stats.decr_hits);
+    APPEND_STAT("cas_misses", "%llu", (unsigned long long)thread_stats.cas_misses);
+    APPEND_STAT("cas_hits", "%llu", (unsigned long long)slab_stats.cas_hits);
+    APPEND_STAT("cas_badval", "%llu", (unsigned long long)slab_stats.cas_badval);
+    APPEND_STAT("bytes_read", "%llu", (unsigned long long)thread_stats.bytes_read);
+    APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
+    APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
+    APPEND_STAT("threads", "%d", settings.num_threads);
 
     if(*buflen > 0 && (buf = malloc(*buflen)) == NULL) {
         STATS_UNLOCK();
