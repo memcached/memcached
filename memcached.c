@@ -164,6 +164,7 @@ static void stats_reset(void) {
     stats_prefix_clear();
     STATS_UNLOCK();
     threadlocal_stats_reset();
+    item_stats_reset();
 }
 
 static void settings_init(void) {

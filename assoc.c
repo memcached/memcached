@@ -183,7 +183,6 @@ void assoc_delete(const char *key, const size_t nkey) {
 
 static volatile int do_run_maintenance_thread = 1;
 
-extern pthread_mutex_t cache_lock;
 #define DEFAULT_HASH_BULK_MOVE 1
 int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 

@@ -46,6 +46,13 @@ void item_init(void) {
     }
 }
 
+void item_stats_reset(void) {
+    pthread_mutex_lock(&cache_lock);
+    memset(itemstats, 0, sizeof(itemstats_t) * LARGEST_ID);
+    pthread_mutex_unlock(&cache_lock);
+}
+
+
 /* Get the next CAS id for a new item. */
 uint64_t get_cas_id(void) {
     static uint64_t cas_id = 0;
