@@ -430,7 +430,6 @@ char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf,
     int allocated = 2 * 1024 * 1024;
     char *buf = (char *)malloc(allocated); /* 2MB max response size */
     char *pos = buf;
-    int size;
     int i;
 
     if (histogram == 0 || buf == 0) {
@@ -455,14 +454,13 @@ char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf,
 
     /* write the buffer */
     *buflen = 0;
-    char val_str[128];
-    int vlen = 0;
 
     for (i = 0; i < num_buckets; i++) {
         if (histogram[i] != 0) {
             char key[8];
-            vlen = sprintf(key, "%d", i * 32);
-            assert(vlen < sizeof(key));
+            int klen = 0;
+            klen = sprintf(key, "%d", i * 32);
+            assert(klen < sizeof(key));
             APPEND_STAT(key, "%u", histogram[i]);
         }
     }

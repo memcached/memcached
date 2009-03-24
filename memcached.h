@@ -175,23 +175,10 @@ typedef struct _stritem {
          + (item)->nsuffix + (item)->nbytes \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
-/* Stat processing macros */
-
 /* Append a simple stat with a stat name, value format and value */
-#define APPEND_STAT(name, fmt, val)                               \
-    vlen = sprintf(val_str, fmt, val);                           \
-    size = add_stats(pos, name, strlen(name), val_str, vlen, c); \
-    *buflen += size;                                             \
-    pos += size;                                                 \
-    assert(*buflen < allocated);
-
-/* Append a simple stat with a stat name, value format and two values */
-#define APPEND_STAT2(name, fmt, val, val2)                       \
-    vlen = sprintf(val_str, fmt, val, val2);                     \
-    size = add_stats(pos, name, strlen(name), val_str, vlen, c); \
-    *buflen += size;                                             \
-    pos += size;                                                 \
-    assert(*buflen < allocated);
+#define APPEND_STAT(name, fmt, val) \
+    pos = append_stat(name, pos, add_stats, c, allocated, buflen, \
+                      fmt, val);
 
 /* Append an indexed stat with a stat name (with format), value format
    and value */
@@ -412,6 +399,16 @@ void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
+
+/* Stat processing functions */
+char *append_stat(const char *name, char *pos,
+                  uint32_t (*add_stats)(char *buf, const char *key,
+                                        const uint16_t klen, const char *val,
+                                        const uint32_t vlen, void *cookie),
+                  conn *c,
+                  int allocated,
+                  int *buflen,
+                  const char *fmt, ...);
 
 enum store_item_type store_item(item *item, int comm, conn *c);
 

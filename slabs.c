@@ -314,9 +314,7 @@ char *get_stats(const char *stat_type, int nkey,
     if (!stat_type) {
         int allocated = 512;
         char *buf, *pos;
-        char val_str[128];
-        int size, vlen;
-        *buflen = size = vlen = 0;
+        *buflen = 0;
 
         if ((buf = malloc(allocated)) == NULL) {
             *buflen = -1;
@@ -405,8 +403,6 @@ static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
     }
 
     /* add overall slab stats and append terminator */
-    char val_str[128];
-    int vlen = 0;
 
     APPEND_STAT("active_slabs", "%d", total);
     APPEND_STAT("total_malloced", "%llu", (unsigned long long)mem_malloced);

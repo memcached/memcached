@@ -21,6 +21,7 @@
 #include <sys/resource.h>
 #include <sys/uio.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 /* some POSIX systems need the following definition
  * to get mlockall flags out of sys/mman.h.  */
@@ -2095,6 +2096,39 @@ static inline void set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
     }
 }
 
+char *append_stat(const char *name, char *pos,
+                  uint32_t (*add_stats)(char *buf, const char *key,
+                                        const uint16_t klen, const char *val,
+                                        const uint32_t vlen, void *cookie),
+                  conn *c,
+                  int allocated,
+                  int *buflen,
+                  const char *fmt, ...) {
+    char val_str[128];
+    int vlen = 0, size = 0;
+    va_list ap;
+
+    assert(name);
+    assert(pos);
+    assert(add_stats);
+    assert(c);
+    assert(fmt);
+    assert(buflen);
+    assert(*buflen < allocated);
+
+    va_start(ap, fmt);
+    vlen = vsnprintf(val_str, sizeof(val_str) - 1, fmt, ap);
+    va_end(ap);
+
+    size = add_stats(pos, name, strlen(name), val_str, vlen, c);
+    *buflen += size;
+    pos += size;
+
+    assert(*buflen < allocated);
+
+    return pos;
+}
+
 inline static void process_stats_detail(conn *c, const char *command) {
     assert(c != NULL);
 
@@ -2123,11 +2157,8 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
                           int *buflen) {
     int allocated = 2048;
     char temp[allocated];
-    char val_str[128];
     char *buf = NULL;
     char *pos = temp;
-    size_t size;
-    int vlen = 0;
     pid_t pid = getpid();
     rel_time_t now = current_time;
     *buflen = 0;
@@ -2143,7 +2174,6 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
 #endif /* !WIN32 */
 
     STATS_LOCK();
-    memset(val_str, 0, 128);
 
     APPEND_STAT("pid", "%lu", (long)pid);
     APPEND_STAT("uptime", "%u", now);
@@ -2152,12 +2182,14 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     APPEND_STAT("pointer_size", "%d", (int)(8 * sizeof(void *)));
 
 #ifndef WIN32
-    APPEND_STAT2("rusage_user", "%ld.%06ld",
-                 (long)usage.ru_utime.tv_sec,
-                 (long)usage.ru_utime.tv_usec);
-    APPEND_STAT2("rusage_system", "%ld.%06ld",
-                 (long)usage.ru_stime.tv_sec,
-                 (long)usage.ru_stime.tv_usec);
+    pos = append_stat("rusage_user", pos, add_stats, c, allocated,
+                      buflen, "%ld.%06ld",
+                      (long)usage.ru_utime.tv_sec,
+                      (long)usage.ru_utime.tv_usec);
+    pos = append_stat("rusage_system", pos, add_stats, c, allocated,
+                      buflen, "%ld.%06ld",
+                      (long)usage.ru_stime.tv_sec,
+                      (long)usage.ru_stime.tv_usec);
 #endif /* !WIN32 */
 
     APPEND_STAT("curr_connections", "%u", stats.curr_conns - 1);
@@ -2218,8 +2250,7 @@ static char *process_stat_settings(uint32_t (*add_stats)(char *buf,
                                                          void *cookie),
                                    void *c, int *buflen) {
     char *buf = NULL, *pos = NULL;
-    char val_str[128];
-    int size = 0, vlen = 0, allocated = 2048;
+    int allocated = 2048;
     *buflen = 0;
 
     assert(add_stats);
