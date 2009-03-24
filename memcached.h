@@ -178,7 +178,7 @@ typedef struct _stritem {
 /* Stat processing macros */
 
 /* Append a simple stat with a stat name, value format and value */
-#define APPEND_STAT(fmt, name, val)                               \
+#define APPEND_STAT(name, fmt, val)                               \
     vlen = sprintf(val_str, fmt, val);                           \
     size = add_stats(pos, name, strlen(name), val_str, vlen, c); \
     *buflen += size;                                             \

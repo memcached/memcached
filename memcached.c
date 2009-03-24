@@ -2355,26 +2355,26 @@ static char *process_stat_settings(uint32_t (*add_stats)(char *buf,
 
     pos = buf;
 
-    APPEND_STAT("%u", "maxbytes", (unsigned int)settings.maxbytes);
-    APPEND_STAT("%d", "maxconns", settings.maxconns);
-    APPEND_STAT("%d", "tcpport", settings.port);
-    APPEND_STAT("%d", "udpport", settings.udpport);
-    APPEND_STAT("%s", "inter", settings.inter ? settings.inter : "NULL");
-    APPEND_STAT("%d", "verbosity", settings.verbose);
-    APPEND_STAT("%lu", "oldest", (unsigned long)settings.oldest_live);
-    APPEND_STAT("%s", "evictions", settings.evict_to_free ? "on" : "off");
-    APPEND_STAT("%s", "domain_socket",
+    APPEND_STAT("maxbytes", "%u", (unsigned int)settings.maxbytes);
+    APPEND_STAT("maxconns", "%d", settings.maxconns);
+    APPEND_STAT("tcpport", "%d", settings.port);
+    APPEND_STAT("udpport", "%d", settings.udpport);
+    APPEND_STAT("inter", "%s", settings.inter ? settings.inter : "NULL");
+    APPEND_STAT("verbosity", "%d", settings.verbose);
+    APPEND_STAT("oldest", "%lu", (unsigned long)settings.oldest_live);
+    APPEND_STAT("evictions", "%s", settings.evict_to_free ? "on" : "off");
+    APPEND_STAT("domain_socket", "%s",
                 settings.socketpath ? settings.socketpath : "NULL");
-    APPEND_STAT("%o", "umask", settings.access);
-    APPEND_STAT("%.2f", "growth_factor", settings.factor);
-    APPEND_STAT("%d", "chunk_size", settings.chunk_size);
-    APPEND_STAT("%d", "num_threads", settings.num_threads);
-    APPEND_STAT("%c", "stat_key_prefix", settings.prefix_delimiter);
-    APPEND_STAT("%s", "detail_enabled",
+    APPEND_STAT("umask", "%o", settings.access);
+    APPEND_STAT("growth_factor", "%.2f", settings.factor);
+    APPEND_STAT("chunk_size", "%d", settings.chunk_size);
+    APPEND_STAT("num_threads", "%d", settings.num_threads);
+    APPEND_STAT("stat_key_prefix", "%c", settings.prefix_delimiter);
+    APPEND_STAT("detail_enabled", "%s",
                 settings.detail_enabled ? "yes" : "no");
-    APPEND_STAT("%d", "reqs_per_event", settings.reqs_per_event);
-    APPEND_STAT("%s", "cas_enabled", settings.use_cas ? "yes" : "no");
-    APPEND_STAT("%d", "tcp_backlog", settings.backlog);
+    APPEND_STAT("reqs_per_event", "%d", settings.reqs_per_event);
+    APPEND_STAT("cas_enabled", "%s", settings.use_cas ? "yes" : "no");
+    APPEND_STAT("tcp_backlog", "%d", settings.backlog);
 
     return buf;
 }
