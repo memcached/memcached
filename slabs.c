@@ -308,16 +308,17 @@ char *get_stats(const char *stat_type, int nkey,
                 uint32_t (*add_stats)(char *buf,
                 const char *key, const uint16_t klen, const char *val,
                 const uint32_t vlen, void *cookie), void *c, int *buflen) {
-    char *buf, *pos;
-    char val[128];
-    int size, vlen;
-    *buflen = size = vlen = 0;
-
     if (add_stats == NULL)
         return NULL;
 
     if (!stat_type) {
-        if ((buf = malloc(512)) == NULL) {
+        int allocated = 512;
+        char *buf, *pos;
+        char val_str[128];
+        int size, vlen;
+        *buflen = size = vlen = 0;
+
+        if ((buf = malloc(allocated)) == NULL) {
             *buflen = -1;
             return NULL;
         }
@@ -325,26 +326,10 @@ char *get_stats(const char *stat_type, int nkey,
         pos = buf;
 
         /* prepare general statistics for the engine */
-        vlen = sprintf(val, "%llu", (unsigned long long)stats.curr_bytes);
-        size = add_stats(pos, "bytes", strlen("bytes"), val, vlen, c);
-        *buflen += size;
-        pos += size;
-
-        vlen = sprintf(val, "%u", stats.curr_items);
-        size = add_stats(pos, "curr_items", strlen("curr_items"), val, vlen, c);
-        *buflen += size;
-        pos += size;
-
-        vlen = sprintf(val, "%u", stats.total_items);
-        size = add_stats(pos, "total_items", strlen("total_items"), val, vlen,
-                         c);
-        *buflen += size;
-        pos += size;
-
-        vlen = sprintf(val, "%llu", (unsigned long long)stats.evictions);
-        size = add_stats(pos, "evictions", strlen("evictions"), val, vlen, c);
-        *buflen += size;
-        pos += size;
+        APPEND_STAT("bytes", "%llu", (unsigned long long)stats.curr_bytes);
+        APPEND_STAT("curr_items", "%u", stats.curr_items);
+        APPEND_STAT("total_items", "%u", stats.total_items);
+        APPEND_STAT("evictions", "%llu", (unsigned long long)stats.evictions);
 
         return buf;
     } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
