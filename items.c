@@ -374,72 +374,47 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
 
 char *do_item_stats(uint32_t (*add_stats)(char *buf,
                     const char *key, const uint16_t klen, const char *val,
-                    const uint32_t vlen, void *cookie), void *c, int *bytes) {
-
-    size_t bufleft = (size_t) LARGEST_ID * 240;
-    char *buffer = malloc(bufleft);
-    char *bufcurr = buffer;
-    rel_time_t now = current_time;
+                    const uint32_t vlen, void *cookie), void *c, int *buflen) {
+    int allocated = LARGEST_ID * 240;
+    char *buf = malloc(allocated);
+    char *pos = buf;
     protocol_binary_response_header *header;
     int hdrsiz = sizeof(header->response);
-    int i, linelen = 0;
+    int i, size = 0;
 
-    if (buffer == NULL) {
-        *bytes = -1;
+    if (buf == NULL) {
+        *buflen = -1;
         return NULL;
     }
 
     for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i] != NULL) {
-            char key[128];
-            char val[256];
-            uint32_t nbytes = 0;
+            const char *fmt = "items:%d:%s";
+            char key_str[128];
+            char val_str[256];
+            int klen = 0, vlen = 0;
 
-            sprintf(key, "items:%d:number", i);
-            sprintf(val, "%u", sizes[i]);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "items:%d:age", i);
-            sprintf(val, "%u", now - tails[i]->time);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "items:%d:evicted", i);
-            sprintf(val, "%u", itemstats[i].evicted);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "items:%d:evicted_time", i);
-            sprintf(val, "%u", itemstats[i].evicted_time);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
-
-            sprintf(key, "items:%d:outofmemory", i);
-            sprintf(val, "%u", itemstats[i].outofmemory);
-            nbytes = add_stats(bufcurr, key, strlen(key), val, strlen(val), c);
-            linelen += nbytes;
-            bufcurr += nbytes;
+            APPEND_NUM_FMT_STAT(fmt, i, "number", "%u", sizes[i]);
+            APPEND_NUM_FMT_STAT(fmt, i, "age", "%u", tails[i]->time);
+            APPEND_NUM_FMT_STAT(fmt, i, "evicted",
+                                "%u", itemstats[i].evicted);
+            APPEND_NUM_FMT_STAT(fmt, i, "evicted_time",
+                                "%u", itemstats[i].evicted_time);
+            APPEND_NUM_FMT_STAT(fmt, i, "outofmemory",
+                                "%u", itemstats[i].outofmemory);
 
             /* check whether binary protocol terminator will fit */
-            if (linelen + hdrsiz < bufleft) {
-                bufleft -= linelen;
-            } else {
-                free(buffer);
+            if (*buflen + hdrsiz > allocated) {
+                free(buf);
                 return NULL;
             }
         }
     }
 
     /* getting here means both ascii and binary terminators fit */
-    linelen += add_stats(bufcurr, NULL, 0, NULL, 0, c);
-    *bytes = linelen;
+    *buflen += add_stats(pos, NULL, 0, NULL, 0, c);
 
-    return buffer;
+    return buf;
 }
 
 /** dumps out a list of objects of each size, with granularity of 32 bytes */

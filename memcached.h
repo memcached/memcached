@@ -193,14 +193,19 @@ typedef struct _stritem {
     pos += size;                                                 \
     assert(*buflen < allocated);
 
-/* Append a simple stat with a stat name, value format and value */
-#define APPEND_NUM_STAT(num, name, fmt, val)                \
-    klen = sprintf(key_str, "%d:%s", num, name);            \
-    vlen = sprintf(val_str, fmt, val);                      \
-    size = add_stats(pos, key_str, klen, val_str, vlen, c); \
-    *buflen += size;                                        \
-    pos += size;                                            \
+/* Append an indexed stat with a stat name (with format), value format
+   and value */
+#define APPEND_NUM_FMT_STAT(name_fmt, num, name, fmt, val)   \
+    klen = sprintf(key_str, name_fmt, num, name);            \
+    vlen = sprintf(val_str, fmt, val);                       \
+    size = add_stats(pos, key_str, klen, val_str, vlen, c);  \
+    *buflen += size;                                         \
+    pos += size;                                             \
     assert(*buflen < allocated);
+
+/* Common APPEND_NUM_FMT_STAT format. */
+#define APPEND_NUM_STAT(num, name, fmt, val) \
+    APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
 /**
  * NOTE: If you modify this table you _MUST_ update the function state_text
