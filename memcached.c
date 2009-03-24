@@ -2334,14 +2334,6 @@ uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
     return nbytes;
 }
 
-/* Local macro existing specifically to process stats */
-#define APPEND_STAT(fmt, name, val) \
-    vlen = sprintf(val_str, fmt, val); \
-    size = add_stats(pos, name, strlen(name), val_str, vlen, c); \
-    *buflen += size; \
-    pos += size; \
-    assert(*buflen < allocated);
-
 static char *process_stat_settings(uint32_t (*add_stats)(char *buf,
                                                          const char *k,
                                                          const uint16_t kl,
@@ -2386,8 +2378,6 @@ static char *process_stat_settings(uint32_t (*add_stats)(char *buf,
 
     return buf;
 }
-
-#undef APPEND_STAT
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     char *command;

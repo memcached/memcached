@@ -175,6 +175,17 @@ typedef struct _stritem {
          + (item)->nsuffix + (item)->nbytes \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
+/* Stat processing macros */
+
+/* Append a simple stat with a stat name, value format and value */
+#define APPEND_STAT(fmt, name, val)                               \
+    vlen = sprintf(val_str, fmt, val);                           \
+    size = add_stats(pos, name, strlen(name), val_str, vlen, c); \
+    *buflen += size;                                             \
+    pos += size;                                                 \
+    assert(*buflen < allocated);
+
+
 /**
  * NOTE: If you modify this table you _MUST_ update the function state_text
  */
