@@ -159,7 +159,7 @@ static rel_time_t realtime(const time_t exptime) {
 
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
-    stats.evictions = 0;
+    stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
     stats.curr_bytes = 0;
 
     /* make the time we started always be 2 seconds before we really
@@ -2209,6 +2209,7 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     APPEND_STAT("connection_structures", "%u", stats.conn_structs);
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
+    APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
     APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
@@ -2223,6 +2224,7 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     APPEND_STAT("bytes_read", "%llu", (unsigned long long)thread_stats.bytes_read);
     APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
     APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
+    APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
     APPEND_STAT("threads", "%d", settings.num_threads);
 
     if(*buflen > 0 && (buf = malloc(*buflen)) == NULL) {
@@ -2915,6 +2917,10 @@ static void process_command(conn *c, char *command) {
         set_current_time();
 
         set_noreply_maybe(c, tokens, ntokens);
+
+        STATS_LOCK();
+        c->thread->stats.flush_cmds++;
+        STATS_UNLOCK();
 
         if(ntokens == (c->noreply ? 3 : 2)) {
             settings.oldest_live = current_time - 1;

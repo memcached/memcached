@@ -91,6 +91,7 @@ struct thread_stats {
     uint64_t          cas_misses;
     uint64_t          bytes_read;
     uint64_t          bytes_written;
+    uint64_t          flush_cmds;
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
 };
 
@@ -102,6 +103,10 @@ struct stats {
     unsigned int  curr_conns;
     unsigned int  total_conns;
     unsigned int  conn_structs;
+    uint64_t      get_cmds;
+    uint64_t      set_cmds;
+    uint64_t      get_hits;
+    uint64_t      get_misses;
     uint64_t      evictions;
 };
 

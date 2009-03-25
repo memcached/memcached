@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 89;
+use Test::More tests => 91;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -25,6 +25,7 @@ my $sock = $server->sock;
 ## STAT curr_connections 1
 ## STAT total_connections 2
 ## STAT connection_structures 2
+## STAT cmd_flush 0
 ## STAT cmd_get 0
 ## STAT cmd_set 0
 ## STAT get_hits 0
@@ -46,10 +47,12 @@ my $sock = $server->sock;
 my $stats = mem_stats($sock);
 
 # Test number of keys
-is(scalar(keys(%$stats)), 31, "31 stats values");
+is(scalar(keys(%$stats)), 32, "32 stats values");
 
 # Test initial state
-foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits decr_misses)) {
+foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses
+                 bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits
+                 decr_misses)) {
     is($stats->{$key}, 0, "initial $key is zero");
 }
 
@@ -171,3 +174,9 @@ is(0, $stats->{'cas_misses'});
 is(0, $stats->{'cas_hits'});
 is(0, $stats->{'cas_badval'});
 is(0, $stats->{'evictions'});
+
+print $sock "flush_all\r\n";
+is(scalar <$sock>, "OK\r\n", "flushed");
+
+my $stats = mem_stats($sock);
+is($stats->{cmd_flush}, 1, "after one flush cmd_flush is 1");
