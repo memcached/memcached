@@ -446,7 +446,18 @@ bool item_delete_lock_over (item *it) {
 /** wrapper around assoc_find which does the lazy expiration/deletion logic */
 item *do_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_locked) {
     item *it = assoc_find(key, nkey);
+    int was_found = 0;
     if (delete_locked) *delete_locked = false;
+
+    if (settings.verbose > 2) {
+        if (it == NULL) {
+            fprintf(stderr, "> NOT FOUND %s", key);
+        } else {
+            fprintf(stderr, "> FOUND KEY %s", ITEM_key(it));
+            was_found++;
+        }
+    }
+
     if (it != NULL && (it->it_flags & ITEM_DELETED)) {
         /* it's flagged as delete-locked.  let's see if that condition
            is past due, and the 5-second delete_timer just hasn't
@@ -456,20 +467,41 @@ item *do_item_get_notedeleted(const char *key, const size_t nkey, bool *delete_l
             it = NULL;
         }
     }
+
+    if (it == NULL && was_found) {
+        fprintf(stderr, " -nuked by delete lock");
+        was_found--;
+    }
+
     if (it != NULL && settings.oldest_live != 0 && settings.oldest_live <= current_time &&
         it->time <= settings.oldest_live) {
         do_item_unlink(it);           /* MTSAFE - cache_lock held */
         it = NULL;
     }
+
+    if (it == NULL && was_found) {
+        fprintf(stderr, " -nuked by flush");
+        was_found--;
+    }
+
     if (it != NULL && it->exptime != 0 && it->exptime <= current_time) {
         do_item_unlink(it);           /* MTSAFE - cache_lock held */
         it = NULL;
+    }
+
+    if (it == NULL && was_found) {
+        fprintf(stderr, " -nuked by expire");
+        was_found--;
     }
 
     if (it != NULL) {
         it->refcount++;
         DEBUG_REFCNT(it, '+');
     }
+
+    if (settings.verbose > 2)
+        fprintf(stderr, "\n");
+
     return it;
 }
 
