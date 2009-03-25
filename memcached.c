@@ -141,7 +141,7 @@ static rel_time_t realtime(const time_t exptime) {
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
-    stats.curr_bytes = stats.bytes_read = stats.bytes_written = 0;
+    stats.curr_bytes = stats.bytes_read = stats.bytes_written = stats.flush_cmds = 0;
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -1085,6 +1085,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         pos += sprintf(pos, "STAT curr_connections %u\r\n", stats.curr_conns - 1); /* ignore listening conn */
         pos += sprintf(pos, "STAT total_connections %u\r\n", stats.total_conns);
         pos += sprintf(pos, "STAT connection_structures %u\r\n", stats.conn_structs);
+        pos += sprintf(pos, "STAT cmd_flush %llu\r\n", stats.flush_cmds);
         pos += sprintf(pos, "STAT cmd_get %llu\r\n", stats.get_cmds);
         pos += sprintf(pos, "STAT cmd_set %llu\r\n", stats.set_cmds);
         pos += sprintf(pos, "STAT get_hits %llu\r\n", stats.get_hits);
@@ -1725,6 +1726,10 @@ static void process_command(conn *c, char *command) {
         set_current_time();
 
         set_noreply_maybe(c, tokens, ntokens);
+
+        STATS_LOCK();
+        stats.flush_cmds++;
+        STATS_UNLOCK();
 
         if(ntokens == (c->noreply ? 3 : 2)) {
             settings.oldest_live = current_time - 1;

@@ -71,6 +71,7 @@ struct stats {
     uint64_t      set_cmds;
     uint64_t      get_hits;
     uint64_t      get_misses;
+    uint64_t      flush_cmds;
     uint64_t      evictions;
     time_t        started;          /* when the process was started */
     uint64_t      bytes_read;
