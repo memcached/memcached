@@ -473,6 +473,7 @@ void threadlocal_stats_reset(void) {
         threads[ii].stats.delete_misses = 0;
         threads[ii].stats.incr_misses = 0;
         threads[ii].stats.decr_misses = 0;
+        threads[ii].stats.cas_misses = 0;
         threads[ii].stats.bytes_read = 0;
         threads[ii].stats.bytes_written = 0;
 
@@ -482,6 +483,8 @@ void threadlocal_stats_reset(void) {
             threads[ii].stats.slab_stats[sid].delete_hits = 0;
             threads[ii].stats.slab_stats[sid].incr_hits = 0;
             threads[ii].stats.slab_stats[sid].decr_hits = 0;
+            threads[ii].stats.slab_stats[sid].cas_hits = 0;
+            threads[ii].stats.slab_stats[sid].cas_badval = 0;
         }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);

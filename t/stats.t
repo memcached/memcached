@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 74;
+use Test::More tests => 89;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -152,3 +152,22 @@ is(1024, $settings->{'maxconns'});
 is('NULL', $settings->{'domain_socket'});
 is('on', $settings->{'evictions'});
 is('yes', $settings->{'cas_enabled'});
+
+print $sock "stats reset\r\n";
+is(scalar <$sock>, "RESET\r\n", "good stats reset");
+
+my $stats = mem_stats($sock);
+is(0, $stats->{'cmd_get'});
+is(0, $stats->{'cmd_set'});
+is(0, $stats->{'get_hits'});
+is(0, $stats->{'get_misses'});
+is(0, $stats->{'delete_misses'});
+is(0, $stats->{'delete_hits'});
+is(0, $stats->{'incr_misses'});
+is(0, $stats->{'incr_hits'});
+is(0, $stats->{'decr_misses'});
+is(0, $stats->{'decr_hits'});
+is(0, $stats->{'cas_misses'});
+is(0, $stats->{'cas_hits'});
+is(0, $stats->{'cas_badval'});
+is(0, $stats->{'evictions'});
