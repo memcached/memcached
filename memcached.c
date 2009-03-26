@@ -3603,7 +3603,6 @@ static int new_socket(struct addrinfo *ai) {
     int flags;
 
     if ((sfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1) {
-        perror("socket()");
         return -1;
     }
 
@@ -3669,12 +3668,6 @@ static int server_socket(const int port, enum protocol prot) {
      */
     memset(&hints, 0, sizeof (hints));
     hints.ai_flags = AI_PASSIVE;
-
-    /* Only use AI_ADDRCONFIG if a hostname is specified, otherwise we might
-     * not get results for INADDR_ANY. */
-    if (settings.inter)
-        hints.ai_flags |= AI_ADDRCONFIG;
-
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = IS_UDP(prot) ? SOCK_DGRAM : SOCK_STREAM;
 
@@ -3692,8 +3685,10 @@ static int server_socket(const int port, enum protocol prot) {
     for (next= ai; next; next= next->ai_next) {
         conn *listen_conn_add;
         if ((sfd = new_socket(next)) == -1) {
-            freeaddrinfo(ai);
-            return 1;
+            /* getaddrinfo can return "junk" addresses,
+             * we make sure at least one works before erroring.
+             */
+            continue;
         }
 
 #ifdef IPV6_V6ONLY
