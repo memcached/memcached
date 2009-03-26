@@ -60,8 +60,17 @@ static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
 static int server_socket(const int port, enum protocol prot);
 static int try_read_command(conn *c);
-static int try_read_network(conn *c);
-static int try_read_udp(conn *c);
+
+enum try_read_result {
+    READ_DATA_RECEIVED,
+    READ_NO_DATA_RECEIVED,
+    READ_ERROR,            /** an error occured (on the socket) (or client closed connection) */
+    READ_MEMORY_ERROR      /** failed to allocate more memory */
+};
+
+static enum try_read_result try_read_network(conn *c);
+static enum try_read_result try_read_udp(conn *c);
+
 static void conn_set_state(conn *c, enum conn_states state);
 
 /* stats */
@@ -3095,9 +3104,8 @@ static int try_read_command(conn *c) {
 
 /*
  * read a UDP request.
- * return 0 if there's nothing to read.
  */
-static int try_read_udp(conn *c) {
+static enum try_read_result try_read_udp(conn *c) {
     int res;
 
     assert(c != NULL);
@@ -3117,7 +3125,7 @@ static int try_read_udp(conn *c) {
         /* If this is a multi-packet request, drop it. */
         if (buf[4] != 0 || buf[5] != 1) {
             out_string(c, "SERVER_ERROR multi-packet request not supported");
-            return 0;
+            return READ_NO_DATA_RECEIVED;
         }
 
         /* Don't care about any of the rest of the header. */
@@ -3126,9 +3134,9 @@ static int try_read_udp(conn *c) {
 
         c->rbytes += res;
         c->rcurr = c->rbuf;
-        return 1;
+        return READ_DATA_RECEIVED;
     }
-    return 0;
+    return READ_NO_DATA_RECEIVED;
 }
 
 /*
@@ -3136,13 +3144,10 @@ static int try_read_udp(conn *c) {
  * close.
  * before reading, move the remaining incomplete fragment of a command
  * (if any) to the beginning of the buffer.
- * @return 1 data received
- *         0 no data received
- *        -1 an error occured (on the socket) (or client closed connection)
- *        -2 memory error (failed to allocate more memory)
+ * @return enum try_read_result
  */
-static int try_read_network(conn *c) {
-    int gotdata = 0;
+static enum try_read_result try_read_network(conn *c) {
+    enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
 
     assert(c != NULL);
@@ -3162,7 +3167,7 @@ static int try_read_network(conn *c) {
                 c->rbytes = 0; /* ignore what we read */
                 out_string(c, "SERVER_ERROR out of memory reading request");
                 c->write_and_go = conn_closing;
-                return -2;
+                return READ_MEMORY_ERROR;
             }
             c->rcurr = c->rbuf = new_rbuf;
             c->rsize *= 2;
@@ -3174,7 +3179,7 @@ static int try_read_network(conn *c) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
-            gotdata = 1;
+            gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
             if (res == avail) {
                 continue;
@@ -3183,13 +3188,13 @@ static int try_read_network(conn *c) {
             }
         }
         if (res == 0) {
-            return -1;
+            return READ_ERROR;
         }
         if (res == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;
             }
-            return -1;
+            return READ_ERROR;
         }
     }
     return gotdata;
@@ -3359,19 +3364,19 @@ static void drive_machine(conn *c) {
             res = IS_UDP(c->protocol) ? try_read_udp(c) : try_read_network(c);
 
             switch (res) {
-            case 0 :
+            case READ_NO_DATA_RECEIVED:
                 conn_set_state(c, conn_waiting);
                 break;
-            case 1:
+            case READ_DATA_RECEIVED:
              /* Only process nreqs at a time to avoid starving other
                 connections */
                 if (--nreqs)
                     conn_set_state(c, conn_parse_cmd);
                 break;
-            case -1:
+            case READ_ERROR:
                 conn_set_state(c, conn_closing);
                 break;
-            case -2: /* Failed to allocate more memory */
+            case READ_MEMORY_ERROR: /* Failed to allocate more memory */
                 /* State already set by try_read_network */
                 break;
             }
