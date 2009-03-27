@@ -3984,14 +3984,13 @@ int main (int argc, char **argv) {
           "u:"  /* user identity to run as */
           "P:"  /* save PID in file */
           "f:"  /* factor? */
-          "s:"  /* unix socket */
           "n:"  /* minimum space allocated for key+value+flags */
           "t:"  /* threads */
           "D:"  /* prefix delimiter? */
           "L"   /* Large memory pages */
           "R:"  /* max requests per event */
-          "C"  /* Disable use of CAS */
-          "b:"   /* backlog queue limit */
+          "C"   /* Disable use of CAS */
+          "b:"  /* backlog queue limit */
         ))) {
         switch (c) {
         case 'a':
