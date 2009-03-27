@@ -1,0 +1,39 @@
+* Hacking Memcached
+
+* Prerequisites
+
+ - autoconf
+ - automake
+ - autotools
+ - libevent
+
+* Getting Started
+
+After checking out a git repository, you must first run autogen.sh
+once in order to create the configure script.
+
+Next, run the configure script and start doing builds.
+
+* Setting up Git
+
+Though not required, there are a couple of things you can add to git
+to help development.
+
+** Pre Commit Hook
+
+The pre-commit hook can be used to ensure that your tree passes tests
+before allowing a commit.  To do so, add the following to
+.git/hooks/pre-commit (which must be executable):
+
+    #!/bin/sh
+    make test
+
+** Post Commit Hook
+
+Because the version number changes on each commit, it's good to use a
+post commit hook to update the version number after each commit so as
+to keep the reporting accurate.  To do so, add the following to
+.git/hooks/post-commit (which must be executable)
+
+    #!/bin/sh
+    ./version.sh
