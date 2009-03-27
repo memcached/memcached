@@ -142,6 +142,8 @@ static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
     stats.curr_bytes = stats.bytes_read = stats.bytes_written = stats.flush_cmds = 0;
+    stats.listen_disabled_num = 0;
+    stats.accepting_conns = 1; /* assuming we start in this state. */
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -1095,6 +1097,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         pos += sprintf(pos, "STAT bytes_written %llu\r\n", stats.bytes_written);
         pos += sprintf(pos, "STAT limit_maxbytes %llu\r\n", (uint64_t) settings.maxbytes);
         pos += sprintf(pos, "STAT threads %u\r\n", settings.num_threads);
+        pos += sprintf(pos, "STAT accepting_conns %u\r\n", stats.accepting_conns);
+        pos += sprintf(pos, "STAT listen_disabled_num %llu\r\n", stats.listen_disabled_num);
         pos += sprintf(pos, "END");
         STATS_UNLOCK();
         out_string(c, temp);
@@ -1982,7 +1986,18 @@ void accept_new_conns(const bool do_accept) {
                 perror("listen");
             }
         }
-  }
+    }
+
+    if (do_accept) {
+        STATS_LOCK();
+        stats.accepting_conns = 1;
+        STATS_UNLOCK();
+    } else {
+        STATS_LOCK();
+        stats.accepting_conns = 0;
+        stats.listen_disabled_num++;
+        STATS_UNLOCK();
+    }
 }
 
 

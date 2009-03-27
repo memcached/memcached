@@ -76,6 +76,8 @@ struct stats {
     time_t        started;          /* when the process was started */
     uint64_t      bytes_read;
     uint64_t      bytes_written;
+    unsigned int  accepting_conns;  /* whether we are currently accepting */
+    uint64_t      listen_disabled_num;
 };
 
 #define MAX_VERBOSITY_LEVEL 2
