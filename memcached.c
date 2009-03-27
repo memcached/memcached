@@ -451,9 +451,7 @@ static void conn_cleanup(conn *c) {
 
     if (c->suffixleft != 0) {
         for (; c->suffixleft > 0; c->suffixleft--, c->suffixcurr++) {
-            if(suffix_add_to_freelist(*(c->suffixcurr))) {
-                free(*(c->suffixcurr));
-            }
+            cache_free(c->thread->suffix_cache, *(c->suffixcurr));
         }
     }
 
@@ -610,72 +608,6 @@ static void conn_set_state(conn *c, enum conn_states state) {
             MEMCACHED_PROCESS_COMMAND_END(c->sfd, c->wbuf, c->wbytes);
         }
     }
-}
-
-/*
- * Free list management for suffix buffers.
- */
-
-static char **freesuffix;
-static int freesuffixtotal;
-static int freesuffixcurr;
-/* Lock for alternative item suffix freelist */
-static pthread_mutex_t suffix_lock = PTHREAD_MUTEX_INITIALIZER;
-
-static void suffix_init(void) {
-    freesuffixtotal = 500;
-    freesuffixcurr  = 0;
-
-    freesuffix = calloc(freesuffixtotal, sizeof(char *));
-    if (freesuffix == NULL) {
-        fprintf(stderr, "Failed to allocate suffix pool\n");
-    }
-    return;
-}
-
-/*
- * Returns a suffix buffer from the freelist, if any.
- */
-char *suffix_from_freelist() {
-    char *s;
-
-    pthread_mutex_lock(&suffix_lock);
-    if (freesuffixcurr > 0) {
-        s = freesuffix[--freesuffixcurr];
-    } else {
-        /* If malloc fails, let the logic fall through without spamming
-         * STDERR on the server. */
-        s = malloc( SUFFIX_SIZE );
-    }
-    pthread_mutex_unlock(&suffix_lock);
-
-    return s;
-}
-
-/*
- * Adds a connection to the freelist. 0 = success. Should call this using
- * suffix_add_to_freelist() for thread safety.
- */
-bool suffix_add_to_freelist(char *s) {
-    bool ret = true;
-
-    pthread_mutex_lock(&suffix_lock);
-    if (freesuffixcurr < freesuffixtotal) {
-        freesuffix[freesuffixcurr++] = s;
-        ret = false;
-    } else {
-        /* try to enlarge free connections array */
-        char **new_freesuffix = realloc(freesuffix,
-            sizeof(char *) * freesuffixtotal * 2);
-        if (new_freesuffix) {
-            freesuffixtotal *= 2;
-            freesuffix = new_freesuffix;
-            freesuffix[freesuffixcurr++] = s;
-            ret = false;
-        }
-    }
-    pthread_mutex_unlock(&suffix_lock);
-    return ret;
 }
 
 /*
@@ -2354,7 +2286,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     }
                   }
 
-                  suffix = suffix_from_freelist();
+                  suffix = cache_alloc(c->thread->suffix_cache);
                   if (suffix == NULL) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.get_cmds   += stats_get_cmds;
@@ -3386,10 +3318,7 @@ static void drive_machine(conn *c) {
                     }
                     while (c->suffixleft > 0) {
                         char *suffix = *(c->suffixcurr);
-                        if(suffix_add_to_freelist(suffix)) {
-                            /* Failed to add to freelist, don't leak */
-                            free(suffix);
-                        }
+                        cache_free(c->thread->suffix_cache, suffix);
                         c->suffixcurr++;
                         c->suffixleft--;
                     }
@@ -4200,8 +4129,6 @@ int main (int argc, char **argv) {
     stats_init();
     assoc_init();
     conn_init();
-    /* Hacky suffix buffers. */
-    suffix_init();
     slabs_init(settings.maxbytes, settings.factor, preallocate);
 
     /*

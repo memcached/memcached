@@ -1,8 +1,10 @@
 bin_PROGRAMS = memcached
 pkginclude_HEADERS = protocol_binary.h
-noinst_PROGRAMS = memcached-debug sizes internal_tests
+noinst_PROGRAMS = memcached-debug sizes testapp
 
 BUILT_SOURCES=
+
+testapp_SOURCES = testapp.c util.c util.h
 
 memcached_SOURCES = memcached.c memcached.h \
                     hash.c hash.h \
@@ -12,7 +14,12 @@ memcached_SOURCES = memcached.c memcached.h \
                     thread.c daemon.c \
                     stats.c stats.h \
                     util.c util.h \
-                    trace.h
+                    trace.h cache.h
+
+if BUILD_CACHE
+memcached_SOURCES += cache.c
+testapp_SOURCES += cache.c
+endif
 
 if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += solaris_priv.c
@@ -27,8 +34,6 @@ memcached_LDADD =
 memcached_DEPENDENCIES =
 memcached_debug_DEPENDENCIES = 
 CLEANFILES=
-
-internal_tests_SOURCES = internal_tests.c util.c
 
 if BUILD_DTRACE
 BUILT_SOURCES += memcached_dtrace.h
@@ -62,9 +67,9 @@ EXTRA_DIST = doc scripts TODO t memcached.spec memcached_dtrace.d version.m4
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
-test:	memcached-debug internal_tests sizes
+test:	memcached-debug sizes testapp
 	$(srcdir)/sizes
-	$(srcdir)/internal_tests
+	$(srcdir)/testapp
 	prove $(srcdir)/t
 	@if test `basename $(PROFILER)` = "gcov"; then \
 	  for file in memcached_debug-*.gc??; do \

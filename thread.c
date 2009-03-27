@@ -217,6 +217,13 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         perror("Failed to initialize mutex");
         exit(EXIT_FAILURE);
     }
+
+    me->suffix_cache = cache_create("suffix", SUFFIX_SIZE, sizeof(char*),
+                                    NULL, NULL);
+    if (me->suffix_cache == NULL) {
+        fprintf(stderr, "Failed to create suffix cache\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 
