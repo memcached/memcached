@@ -160,7 +160,8 @@ static rel_time_t realtime(const time_t exptime) {
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
-    stats.curr_bytes = 0;
+    stats.curr_bytes = stats.listen_disabled_num = 0;
+    stats.accepting_conns = 1; /* assuming we start in this state. */
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -2224,7 +2225,8 @@ static char *server_stats(uint32_t (*add_stats)(char *buf, const char *key,
     APPEND_STAT("bytes_read", "%llu", (unsigned long long)thread_stats.bytes_read);
     APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
     APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
-    APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
+    APPEND_STAT("accepting_conns", "%u", stats.accepting_conns);
+    APPEND_STAT("listen_disabled_num", "%llu", (unsigned long long)stats.listen_disabled_num);
     APPEND_STAT("threads", "%d", settings.num_threads);
 
     if(*buflen > 0 && (buf = malloc(*buflen)) == NULL) {
@@ -3242,7 +3244,18 @@ void accept_new_conns(const bool do_accept) {
                 perror("listen");
             }
         }
-  }
+    }
+
+    if (do_accept) {
+        STATS_LOCK();
+        stats.accepting_conns = 1;
+        STATS_UNLOCK();
+    } else {
+        STATS_LOCK();
+        stats.accepting_conns = 0;
+        stats.listen_disabled_num++;
+        STATS_UNLOCK();
+    }
 }
 
 /*

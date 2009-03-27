@@ -108,6 +108,9 @@ struct stats {
     uint64_t      get_hits;
     uint64_t      get_misses;
     uint64_t      evictions;
+    time_t        started;          /* when the process was started */
+    unsigned int  accepting_conns;  /* whether we are currently accepting */
+    uint64_t      listen_disabled_num;
 };
 
 #define MAX_VERBOSITY_LEVEL 2
