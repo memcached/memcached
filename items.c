@@ -30,6 +30,7 @@ typedef struct {
     unsigned int evicted;
     rel_time_t evicted_time;
     unsigned int outofmemory;
+    unsigned int tailrepairs;
 } itemstats_t;
 
 static item *heads[LARGEST_ID];
@@ -137,7 +138,26 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
         it = slabs_alloc(ntotal, id);
         if (it == 0) {
             itemstats[id].outofmemory++;
-            return NULL;
+            /* Last ditch effort. There is a very rare bug which causes
+             * refcount leaks. We've fixed most of them, but it still happens,
+             * and it may happen in the future.
+             * We can reasonably assume no item can stay locked for more than
+             * three hours, so if we find one in the tail which is that old,
+             * free it anyway.
+             */
+            tries = 50;
+            for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
+                if (search->refcount != 0 && search->time + 10800 < current_time) {
+                    itemstats[id].tailrepairs++;
+                    search->refcount = 0;
+                    do_item_unlink(search);
+                    break;
+                }
+            }
+            it = slabs_alloc(ntotal, id);
+            if (it == 0) {
+                return NULL;
+            }
         }
     }
 
@@ -335,7 +355,7 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
 }
 
 char *do_item_stats(int *bytes) {
-    size_t bufleft = (size_t) LARGEST_ID * 240;
+    size_t bufleft = (size_t) LARGEST_ID * 360;
     char *buffer = malloc(bufleft);
     char *bufcurr = buffer;
     rel_time_t now = current_time;
@@ -353,11 +373,13 @@ char *do_item_stats(int *bytes) {
                 "STAT items:%d:age %u\r\n"
                 "STAT items:%d:evicted %u\r\n"
                 "STAT items:%d:evicted_time %u\r\n"
-                "STAT items:%d:outofmemory %u\r\n",
+                "STAT items:%d:outofmemory %u\r\n"
+                "STAT items:%d:tailrepairs %u\r\n",
                     i, sizes[i], i, now - tails[i]->time,
                     i, itemstats[i].evicted,
                     i, itemstats[i].evicted_time,
-                    i, itemstats[i].outofmemory);
+                    i, itemstats[i].outofmemory,
+                    i, itemstats[i].tailrepairs);
             if (linelen + sizeof("END\r\n") < bufleft) {
                 bufcurr += linelen;
                 bufleft -= linelen;
