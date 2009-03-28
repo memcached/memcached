@@ -29,6 +29,7 @@ typedef struct {
     unsigned int evicted;
     rel_time_t evicted_time;
     unsigned int outofmemory;
+    unsigned int tailrepairs;
 } itemstats_t;
 
 static item *heads[LARGEST_ID];
@@ -169,7 +170,26 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
         it = slabs_alloc(ntotal, id);
         if (it == 0) {
             itemstats[id].outofmemory++;
-            return NULL;
+            /* Last ditch effort. There is a very rare bug which causes
+             * refcount leaks. We've fixed most of them, but it still happens,
+             * and it may happen in the future.
+             * We can reasonably assume no item can stay locked for more than
+             * three hours, so if we find one in the tail which is that old,
+             * free it anyway.
+             */
+            tries = 50;
+            for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
+                if (search->refcount != 0 && search->time + 10800 < current_time) {
+                    itemstats[id].tailrepairs++;
+                    search->refcount = 0;
+                    do_item_unlink(search);
+                    break;
+                }
+            }
+            it = slabs_alloc(ntotal, id);
+            if (it == 0) {
+                return NULL;
+            }
         }
     }
 
@@ -402,6 +422,8 @@ char *do_item_stats(uint32_t (*add_stats)(char *buf,
                                 "%u", itemstats[i].evicted_time);
             APPEND_NUM_FMT_STAT(fmt, i, "outofmemory",
                                 "%u", itemstats[i].outofmemory);
+            APPEND_NUM_FMT_STAT(fmt, i, "tailrepairs",
+                                "%u", itemstats[i].tailrepairs);;
 
             /* check whether binary protocol terminator will fit */
             if (*buflen + hdrsiz > allocated) {

@@ -478,6 +478,9 @@ evicted_time           Seconds since the last access for the most recent item
 outofmemory            Number of times the underlying slab class was unable to
                        store a new item. This means you are running with -M or
                        an eviction failed.
+tailrepairs            Number of times we self-healed a slab with a refcount
+                       leak. If this counter is increasing a lot, please
+                       report your situation to the developers.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.
