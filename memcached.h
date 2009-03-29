@@ -63,6 +63,10 @@
 #define DONT_PREALLOC_SLABS
 #define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
 
+/* How long an object can reasonably be assumed to be locked before
+   harvesting it on a low memory condition. */
+#define TAIL_REPAIR_TIME (3 * 3600)
+
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
 typedef unsigned int rel_time_t;
 

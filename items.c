@@ -179,7 +179,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
              */
             tries = 50;
             for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
-                if (search->refcount != 0 && search->time + 10800 < current_time) {
+                if (search->refcount != 0 && search->time + TAIL_REPAIR_TIME < current_time) {
                     itemstats[id].tailrepairs++;
                     search->refcount = 0;
                     do_item_unlink(search);
