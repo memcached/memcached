@@ -1,3 +1,22 @@
+2009-03-30 [Version 1.2.7-rc1 released]
+
+	   * Slew of new tests. (misc, mostly Dustin Sallings)
+
+	   * Minor bug fixes. (misc, mostly Dustin Sallings, some Dormando)
+	     (see git history for full list)
+	
+	   * -b command for setting the tcp listen backlog (Chris Goffinet)
+
+	   * Workaround for a more major bug that very rarely makes memcached stop
+	     allowing new data to be set. (Dormando)
+
+	   * Print why a key was expired in -vv mode (Dormando)
+
+	   * cmd_flush stat (Dormando)
+
+	   * listen_disabled_num stat for determining if you've hit the maxconns
+	     limit (Dormando)
+
 2008-09-06
 
        * Display error status on listen failures (Dormando)
