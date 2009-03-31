@@ -1,3 +1,29 @@
+2009-03-31
+
+	* Feature:  -b option for configuring backlog
+
+	* Feature:  stats settings
+
+	* Fix: binary stat alignment bug (bug26)
+
+	* Fix: buffer overflow in stats (bug27)
+
+	* Fix: recycle memory more aggressively (bug14)
+
+	* Fix: incr validation (bug31)
+
+	* Fix: 64-bit incr/decr delta problem (bug21)
+
+	* Fix: Ascii UDP set (bug36)
+
+	* Fix: stats slabs' used chunks (bug29)
+
+	* Fix: stats reset resetting more (bug22)
+
+	* Misc: More tests, documentation, cleanliness (godliness)
+
+	* Stable merge (stats, debuggability, listen bugs)
+
 2009-03-11
 
 	* Protocol:  Binary complete (Dustin, Trond, Toru, etc...)
