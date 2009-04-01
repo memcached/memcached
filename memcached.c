@@ -158,6 +158,7 @@ static void stats_reset(void) {
     stats.total_items = stats.total_conns = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
     stats.bytes_read = stats.bytes_written = 0;
+    stats.flush_cmds = stats.listen_disabled_num = 0;
     stats_prefix_clear();
     STATS_UNLOCK();
 }
