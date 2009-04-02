@@ -189,22 +189,22 @@ typedef struct _stritem {
 
 /* Append a simple stat with a stat name, value format and value */
 #define APPEND_STAT(name, fmt, val) \
-    pos = append_stat(name, pos, add_stats, c, allocated, buflen, \
-                      fmt, val);
+    append_stat(name, add_stats, c, fmt, val);
 
 /* Append an indexed stat with a stat name (with format), value format
    and value */
 #define APPEND_NUM_FMT_STAT(name_fmt, num, name, fmt, val)   \
     klen = sprintf(key_str, name_fmt, num, name);            \
     vlen = sprintf(val_str, fmt, val);                       \
-    size = add_stats(pos, key_str, klen, val_str, vlen, c);  \
-    *buflen += size;                                         \
-    pos += size;                                             \
-    assert(*buflen < allocated);
+    add_stats(key_str, klen, val_str, vlen, c);
 
 /* Common APPEND_NUM_FMT_STAT format. */
 #define APPEND_NUM_STAT(num, name, fmt, val) \
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
+
+typedef void (*ADD_STAT)(const char *key, const uint16_t klen,
+                         const char *val, const uint32_t vlen,
+                         const void *cookie);
 
 /**
  * NOTE: If you modify this table you _MUST_ update the function state_text
@@ -334,6 +334,13 @@ struct conn {
     int    hdrsize;   /* number of headers' worth of space is allocated */
 
     bool   noreply;   /* True if the reply should not be sent. */
+    /* current stats command */
+    struct {
+        char *buffer;
+        size_t size;
+        size_t offset;
+    } stats;
+
     /* Binary protocol stuff */
     /* This is where the binary header goes */
     protocol_binary_request_header binary_header;
@@ -356,10 +363,6 @@ char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
                    char *buf);
 enum store_item_type do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
-uint32_t append_bin_stats(char *buf, const char *key, const uint16_t klen,
-                          const char *val, const uint32_t vlen, void *cookie);
-uint32_t append_ascii_stats(char *buf, const char *key, const uint16_t klen,
-                            const char *val, const uint32_t vlen, void *cookie);
 extern int daemonize(int nochdir, int noclose);
 
 
@@ -397,12 +400,8 @@ item *item_get(const char *key, const size_t nkey);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it);
-char *item_stats(uint32_t (*add_stats)(char *buf, const char *key,
-                 const uint16_t klen, const char *val,
-                 const uint32_t vlen, void *cookie), void *c, int *bytes);
-char *item_stats_sizes(uint32_t (*add_stats)(char *buf,
-                       const char *key, const uint16_t klen, const char *val,
-                       const uint32_t vlen, void *cookie), void *c, int *bytes);
+void  item_stats(ADD_STAT add_stats, void *c);
+void  item_stats_sizes(ADD_STAT add_stats, void *c);
 void  item_unlink(item *it);
 void  item_update(item *it);
 
@@ -413,14 +412,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
 
 /* Stat processing functions */
-char *append_stat(const char *name, char *pos,
-                  uint32_t (*add_stats)(char *buf, const char *key,
-                                        const uint16_t klen, const char *val,
-                                        const uint32_t vlen, void *cookie),
-                  conn *c,
-                  int allocated,
-                  int *buflen,
-                  const char *fmt, ...);
+void append_stat(const char *name, ADD_STAT add_stats, conn *c,
+                 const char *fmt, ...);
 
 enum store_item_type store_item(item *item, int comm, conn *c);
 

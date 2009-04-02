@@ -304,61 +304,36 @@ static int nz_strcmp(int nzlength, const char *nz, const char *z) {
     return (zlength == nzlength) && (strncmp(nz, z, zlength) == 0) ? 0 : -1;
 }
 
-char *get_stats(const char *stat_type, int nkey,
-                uint32_t (*add_stats)(char *buf,
-                const char *key, const uint16_t klen, const char *val,
-                const uint32_t vlen, void *cookie), void *c, int *buflen) {
-    if (add_stats == NULL)
-        return NULL;
+bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
+    bool ret = true;
 
-    if (!stat_type) {
-        int allocated = 512;
-        char *buf, *pos;
-        *buflen = 0;
-
-        if ((buf = malloc(allocated)) == NULL) {
-            *buflen = -1;
-            return NULL;
+    if (add_stats != NULL) {
+        if (!stat_type) {
+            /* prepare general statistics for the engine */
+            APPEND_STAT("bytes", "%llu", (unsigned long long)stats.curr_bytes);
+            APPEND_STAT("curr_items", "%u", stats.curr_items);
+            APPEND_STAT("total_items", "%u", stats.total_items);
+            APPEND_STAT("evictions", "%llu",
+                        (unsigned long long)stats.evictions);
+        } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
+            item_stats(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
+            slabs_stats(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
+            item_stats_sizes(add_stats, c);
+        } else {
+            ret = false;
         }
-
-        pos = buf;
-
-        /* prepare general statistics for the engine */
-        APPEND_STAT("bytes", "%llu", (unsigned long long)stats.curr_bytes);
-        APPEND_STAT("curr_items", "%u", stats.curr_items);
-        APPEND_STAT("total_items", "%u", stats.total_items);
-        APPEND_STAT("evictions", "%llu", (unsigned long long)stats.evictions);
-
-        return buf;
-    } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
-        return item_stats(add_stats, c, buflen);
-    } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
-        return slabs_stats(add_stats, c, buflen);
-    } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
-        return item_stats_sizes(add_stats, c, buflen);
+    } else {
+        ret = false;
     }
 
-    return NULL;
+    return ret;
 }
 
 /*@null@*/
-static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
-                                                  const uint16_t klen,
-                                                  const char *val,
-                                                  const uint32_t vlen,
-                                                  void *cookie),
-                            void *c, int *buflen) {
-    int i, total, size, allocated = power_largest * 200 + 100;
-    char *buf = (char *)malloc(allocated);
-    char *pos = buf;
-
-    *buflen = 0;
-
-    if (buf == NULL) {
-        *buf = -1;
-        return NULL;
-    }
-
+static void do_slabs_stats(ADD_STAT add_stats, void *c) {
+    int i, total;
     /* Get the per-thread stats which contain some interesting aggregates */
     struct thread_stats thread_stats;
     threadlocal_stats_aggregate(&thread_stats);
@@ -406,10 +381,7 @@ static char *do_slabs_stats(uint32_t (*add_stats)(char *buf, const char *key,
 
     APPEND_STAT("active_slabs", "%d", total);
     APPEND_STAT("total_malloced", "%llu", (unsigned long long)mem_malloced);
-
-    *buflen += add_stats(pos, NULL, 0, NULL, 0, c);
-
-    return buf;
+    add_stats(NULL, 0, NULL, 0, c);
 }
 
 #ifdef ALLOW_SLABS_REASSIGN
@@ -537,13 +509,8 @@ void slabs_free(void *ptr, size_t size, unsigned int id) {
     pthread_mutex_unlock(&slabs_lock);
 }
 
-char *slabs_stats(uint32_t (*add_stats)(char *buf,
-                  const char *key, const uint16_t klen, const char *val,
-                  const uint32_t vlen, void *cookie), void *c, int *buflen) {
-    char *ret;
-
+void slabs_stats(ADD_STAT add_stats, void *c) {
     pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_stats(add_stats, c, buflen);
+    do_slabs_stats(add_stats, c);
     pthread_mutex_unlock(&slabs_lock);
-    return ret;
 }

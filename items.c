@@ -392,21 +392,8 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     return buffer;
 }
 
-char *do_item_stats(uint32_t (*add_stats)(char *buf,
-                    const char *key, const uint16_t klen, const char *val,
-                    const uint32_t vlen, void *cookie), void *c, int *buflen) {
-    int allocated = LARGEST_ID * 240;
-    char *buf = malloc(allocated);
-    char *pos = buf;
-    protocol_binary_response_header *header;
-    int hdrsiz = sizeof(header->response);
-    int i, size = 0;
-
-    if (buf == NULL) {
-        *buflen = -1;
-        return NULL;
-    }
-
+void do_item_stats(ADD_STAT add_stats, void *c) {
+    int i;
     for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i] != NULL) {
             const char *fmt = "items:%d:%s";
@@ -424,73 +411,49 @@ char *do_item_stats(uint32_t (*add_stats)(char *buf,
                                 "%u", itemstats[i].outofmemory);
             APPEND_NUM_FMT_STAT(fmt, i, "tailrepairs",
                                 "%u", itemstats[i].tailrepairs);;
-
-            /* check whether binary protocol terminator will fit */
-            if (*buflen + hdrsiz > allocated) {
-                free(buf);
-                return NULL;
-            }
         }
     }
 
     /* getting here means both ascii and binary terminators fit */
-    *buflen += add_stats(pos, NULL, 0, NULL, 0, c);
-
-    return buf;
+    add_stats(NULL, 0, NULL, 0, c);
 }
 
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
-char *do_item_stats_sizes(uint32_t (*add_stats)(char *buf,
-                          const char *key, const uint16_t klen, const char *val,
-                          const uint32_t vlen, void *cookie), void *c, int *buflen) {
+void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 
     /* max 1MB object, divided into 32 bytes size buckets */
     const int num_buckets = 32768;
-    unsigned int *histogram = (unsigned int *)malloc((size_t)num_buckets * sizeof(int));
+    unsigned int *histogram = calloc(num_buckets, sizeof(int));
 
-    int allocated = 2 * 1024 * 1024;
-    char *buf = (char *)malloc(allocated); /* 2MB max response size */
-    char *pos = buf;
-    int i;
+    if (histogram != NULL) {
+        int i;
 
-    if (histogram == 0 || buf == 0) {
-        if (histogram) free(histogram);
-        if (buf) free(buf);
-        *buflen = -1;
-        return NULL;
-    }
-
-    /* build the histogram */
-    memset(histogram, 0, (size_t)num_buckets * sizeof(int));
-    for (i = 0; i < LARGEST_ID; i++) {
-        item *iter = heads[i];
-        while (iter) {
-            int ntotal = ITEM_ntotal(iter);
-            int bucket = ntotal / 32;
-            if ((ntotal % 32) != 0) bucket++;
-            if (bucket < num_buckets) histogram[bucket]++;
-            iter = iter->next;
+        /* build the histogram */
+        for (i = 0; i < LARGEST_ID; i++) {
+            item *iter = heads[i];
+            while (iter) {
+                int ntotal = ITEM_ntotal(iter);
+                int bucket = ntotal / 32;
+                if ((ntotal % 32) != 0) bucket++;
+                if (bucket < num_buckets) histogram[bucket]++;
+                iter = iter->next;
+            }
         }
-    }
 
-    /* write the buffer */
-    *buflen = 0;
-
-    for (i = 0; i < num_buckets; i++) {
-        if (histogram[i] != 0) {
-            char key[8];
-            int klen = 0;
-            klen = sprintf(key, "%d", i * 32);
-            assert(klen < sizeof(key));
-            APPEND_STAT(key, "%u", histogram[i]);
+        /* write the buffer */
+        for (i = 0; i < num_buckets; i++) {
+            if (histogram[i] != 0) {
+                char key[8];
+                int klen = 0;
+                klen = sprintf(key, "%d", i * 32);
+                assert(klen < sizeof(key));
+                APPEND_STAT(key, "%u", histogram[i]);
+            }
         }
+        free(histogram);
     }
-
-    *buflen += add_stats(pos, NULL, 0, NULL, 0, c);
-
-    free(histogram);
-    return buf;
+    add_stats(NULL, 0, NULL, 0, c);
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */

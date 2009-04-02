@@ -25,15 +25,10 @@ void *slabs_alloc(const size_t size, unsigned int id);
 void slabs_free(void *ptr, size_t size, unsigned int id);
 
 /** Return a datum for stats in binary protocol */
-char *get_stats(const char *stat_type, int nkey,
-                uint32_t (*add_stats)(char *buf,
-                const char *key, const uint16_t klen, const char *val,
-                const uint32_t vlen, void *cookie), void *arg, int *buflen);
+bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 
 /** Fill buffer with stats */ /*@null@*/
-char *slabs_stats(uint32_t (*add_stats)(char *buf,
-                     const char *key, const uint16_t klen, const char *val,
-                     const uint32_t vlen, void *cookie), void *c, int *buflen);
+void slabs_stats(ADD_STAT add_stats, void *c);
 
 /* Request some slab be moved between classes
   1 = success

@@ -428,29 +428,19 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
 /*
  * Dumps statistics about slab classes
  */
-char *item_stats(uint32_t (*add_stats)(char *buf, const char *key,
-                 const uint16_t klen, const char *val, const uint32_t vlen,
-                 void *cookie), void *c, int *bytes) {
-    char *ret;
-
+void  item_stats(ADD_STAT add_stats, void *c) {
     pthread_mutex_lock(&cache_lock);
-    ret = do_item_stats(add_stats, c, bytes);
+    do_item_stats(add_stats, c);
     pthread_mutex_unlock(&cache_lock);
-    return ret;
 }
 
 /*
  * Dumps a list of objects of each size in 32-byte increments
  */
-char *item_stats_sizes(uint32_t (*add_stats)(char *buf,
-                       const char *key, const uint16_t klen, const char *val,
-                       const uint32_t vlen, void *cookie), void *c, int *bytes) {
-    char *ret;
-
+void  item_stats_sizes(ADD_STAT add_stats, void *c) {
     pthread_mutex_lock(&cache_lock);
-    ret = do_item_stats_sizes(add_stats, c, bytes);
+    do_item_stats_sizes(add_stats, c);
     pthread_mutex_unlock(&cache_lock);
-    return ret;
 }
 
 /******************************* GLOBAL STATS ******************************/
