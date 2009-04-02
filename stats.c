@@ -162,7 +162,7 @@ char *stats_prefix_dump(int *length) {
     PREFIX_STATS *pfs;
     char *buf;
     int i, pos;
-    size_t size;
+    size_t size = 0, written = 0, total_written = 0;
 
     /*
      * Figure out how big the buffer needs to be. This is the sum of the
@@ -185,9 +185,12 @@ char *stats_prefix_dump(int *length) {
     pos = 0;
     for (i = 0; i < PREFIX_HASH_SIZE; i++) {
         for (pfs = prefix_stats[i]; NULL != pfs; pfs = pfs->next) {
-            pos += snprintf(buf + pos, size-pos, format,
+            written = snprintf(buf + pos, size-pos, format,
                            pfs->prefix, pfs->num_gets, pfs->num_hits,
                            pfs->num_sets, pfs->num_deletes);
+            pos += written;
+            total_written += written;
+            assert(total_written < size);
         }
     }
 
