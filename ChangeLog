@@ -1,3 +1,7 @@
+2009-04-02 [Version 1.2.7 released]
+
+       * reset new stats with 'stats reset'
+
 2009-03-30 [Version 1.2.7-rc1 released]
 
 	   * Slew of new tests. (misc, mostly Dustin Sallings)
