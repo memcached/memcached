@@ -1,3 +1,7 @@
+2009-04-02
+
+	* Fix: Rewrote stat buffer handling (Trond)
+
 2009-03-31
 
 	* Feature:  -b option for configuring backlog
