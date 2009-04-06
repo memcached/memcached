@@ -1339,7 +1339,7 @@ static bool grow_stats_buf(conn *c, size_t needed) {
     size_t nsize = size;
     bool rv = true;
 
-    while (nsize < needed) {
+    while (nsize < needed + c->stats.offset) {
         nsize = nsize << 1;
     }
 
