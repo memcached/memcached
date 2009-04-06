@@ -1339,6 +1339,12 @@ static bool grow_stats_buf(conn *c, size_t needed) {
     size_t available = nsize - c->stats.offset;
     bool rv = true;
 
+    /* Special case: No buffer -- need to allocate fresh */
+    if (c->stats.buffer == NULL) {
+        nsize = 1024;
+        available = c->stats.size = c->stats.offset = 0;
+    }
+
     while (needed > available) {
         assert(nsize > 0);
         nsize = nsize << 1;
@@ -1368,11 +1374,6 @@ static void append_stats(const char *key, const uint16_t klen,
     }
 
     conn *c = (conn*)cookie;
-    if (c->stats.buffer == NULL) {
-        c->stats.buffer = malloc(2048);
-        c->stats.size = 2048;
-        c->stats.offset = 0;
-    }
 
     if (c->protocol == binary_prot) {
         size_t needed = vlen + klen + sizeof(protocol_binary_response_header);
