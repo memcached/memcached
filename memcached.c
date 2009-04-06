@@ -1335,15 +1335,17 @@ static void append_ascii_stats(const char *key, const uint16_t klen,
 }
 
 static bool grow_stats_buf(conn *c, size_t needed) {
-    size_t size = c->stats.size - c->stats.offset;
-    size_t nsize = size;
+    size_t nsize = c->stats.size;
+    size_t available = nsize - c->stats.offset;
     bool rv = true;
 
-    while (nsize < needed + c->stats.offset) {
+    while (needed > available) {
+        assert(nsize > 0);
         nsize = nsize << 1;
+        available = nsize - c->stats.offset;
     }
 
-    if (nsize > size) {
+    if (nsize != c->stats.size) {
         char *ptr = realloc(c->stats.buffer, nsize);
         if (ptr) {
             c->stats.buffer = ptr;
