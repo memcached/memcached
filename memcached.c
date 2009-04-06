@@ -1387,6 +1387,8 @@ static void append_stats(const char *key, const uint16_t klen,
         }
         append_ascii_stats(key, klen, val, vlen, c);
     }
+
+    assert(c->stats.offset <= c->stats.size);
 }
 
 static void process_bin_stat(conn *c) {
