@@ -40,6 +40,7 @@ typedef struct {
     unsigned int list_size; /* size of prev array */
 
     unsigned int killing;  /* index+1 of dying slab, or zero if none */
+    size_t requested; /* The number of requested bytes */
 } slabclass_t;
 
 static slabclass_t slabclass[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -262,6 +263,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
     }
 
     if (ret) {
+        p->requested += size;
         MEMCACHED_SLABS_ALLOCATE(size, id, p->size, ret);
     } else {
         MEMCACHED_SLABS_ALLOCATE_FAILED(size, id);
@@ -296,6 +298,7 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
         p->sl_total = new_size;
     }
     p->slots[p->sl_curr++] = ptr;
+    p->requested -= size;
     return;
 }
 
@@ -358,6 +361,8 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
                             slabs*perslab - p->sl_curr - p->end_page_free);
             APPEND_NUM_STAT(i, "free_chunks", "%u", p->sl_curr);
             APPEND_NUM_STAT(i, "free_chunks_end", "%u", p->end_page_free);
+            APPEND_NUM_STAT(i, "mem_requested", "%llu",
+                            (unsigned long long)p->requested);
             APPEND_NUM_STAT(i, "get_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].get_hits);
             APPEND_NUM_STAT(i, "cmd_set", "%llu",
