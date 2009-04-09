@@ -267,12 +267,17 @@ enum bin_substates {
 
 enum protocol {
     ascii_prot = 3, /* arbitrary value. */
-    ascii_udp_prot,
     binary_prot,
     negotiating_prot /* Discovering the protocol */
 };
 
-#define IS_UDP(x) (x == ascii_udp_prot)
+enum network_transport {
+    local_transport, /* Unix sockets*/
+    tcp_transport,
+    udp_transport
+};
+
+#define IS_UDP(x) (x == udp_transport)
 
 #define NREAD_ADD 1
 #define NREAD_SET 2
@@ -359,6 +364,7 @@ struct conn {
     int    suffixleft;
 
     enum protocol protocol;   /* which protocol this connection speaks */
+    enum network_transport transport; /* what transport is used by this connection */
 
     /* data for UDP clients */
     int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
@@ -397,7 +403,7 @@ void do_accept_new_conns(const bool do_accept);
 char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
                    char *buf);
 enum store_item_type do_store_item(item *item, int comm, conn* c);
-conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum protocol prot, struct event_base *base);
+conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 extern int daemonize(int nochdir, int noclose);
 
 
@@ -418,7 +424,7 @@ extern int daemonize(int nochdir, int noclose);
 
 void thread_init(int nthreads, struct event_base *main_base);
 int  dispatch_event_add(int thread, conn *c);
-void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum protocol prot);
+void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 
 /* Lock wrappers for cache functions that are called from main loop. */
 char *add_delta(conn *c, item *item, const int incr, const int64_t delta,
