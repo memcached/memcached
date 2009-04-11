@@ -359,6 +359,7 @@ extern volatile rel_time_t current_time;
 /*
  * Functions
  */
+void do_accept_new_conns(const bool do_accept);
 char *do_add_delta(conn *c, item *item, const bool incr, const int64_t delta,
                    char *buf);
 enum store_item_type do_store_item(item *item, int comm, conn* c);
@@ -388,6 +389,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, in
 /* Lock wrappers for cache functions that are called from main loop. */
 char *add_delta(conn *c, item *item, const int incr, const int64_t delta,
                 char *buf);
+void accept_new_conns(const bool do_accept);
 conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 char *suffix_from_freelist(void);

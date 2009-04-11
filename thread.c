@@ -36,6 +36,9 @@ struct conn_queue {
 /* Lock for cache operations (item_*, assoc_*) */
 pthread_mutex_t cache_lock;
 
+/* Connection lock around accepting new connections */
+pthread_mutex_t conn_lock = PTHREAD_MUTEX_INITIALIZER;
+
 /* Lock for global stats */
 static pthread_mutex_t stats_lock;
 
@@ -171,6 +174,14 @@ static void create_worker(void *(*func)(void *), void *arg) {
     }
 }
 
+/*
+ * Sets whether or not we accept new connections.
+ */
+void accept_new_conns(const bool do_accept) {
+    pthread_mutex_lock(&conn_lock);
+    do_accept_new_conns(do_accept);
+    pthread_mutex_unlock(&conn_lock);
+}
 /****************************** LIBEVENT THREADS *****************************/
 
 /*
