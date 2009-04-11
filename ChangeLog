@@ -1,3 +1,15 @@
+2009-04-10 [Version 1.2.8 released]
+
+       * make -b command actually work
+
+	   * *critical bugfix*. In 1.2.7 under multithreaded mode, memcached would
+	     never restart accepting connections after hitting the maximum connection 
+		 limit.
+	
+	   * remove 'stats maps' command, as it is a potential information leak,
+	     usable if versions prior to 1.2.8 ever have buffer overflows
+		 discovered.
+
 2009-04-02 [Version 1.2.7 released]
 
        * reset new stats with 'stats reset'
