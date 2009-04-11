@@ -219,6 +219,14 @@ static void create_worker(void *(*func)(void *), void *arg) {
     }
 }
 
+/*
+ * Sets whether or not we accept new connections.
+ */
+void mt_accept_new_conns(const bool do_accept) {
+    pthread_mutex_lock(&conn_lock);
+    do_accept_new_conns(do_accept);
+    pthread_mutex_unlock(&conn_lock);
+}
 
 /*
  * Pulls a conn structure from the freelist, if one is available.

@@ -233,6 +233,7 @@ extern volatile rel_time_t current_time;
  * Functions
  */
 
+void do_accept_new_conns(const bool do_accept);
 conn *do_conn_from_freelist();
 bool do_conn_add_to_freelist(conn *c);
 char *do_suffix_from_freelist();
@@ -274,6 +275,7 @@ void dispatch_conn_new(int sfd, int init_state, int event_flags, int read_buffer
 char *mt_add_delta(conn *c, item *item, const int incr, const int64_t delta,
                    char *buf);
 void mt_assoc_move_next_bucket(void);
+void mt_accept_new_conns(const bool do_accept);
 conn *mt_conn_from_freelist(void);
 bool  mt_conn_add_to_freelist(conn *c);
 char *mt_suffix_from_freelist(void);
@@ -303,6 +305,7 @@ int   mt_store_item(item *item, int comm);
 
 # define add_delta(c,x,y,z,a)        mt_add_delta(c,x,y,z,a)
 # define assoc_move_next_bucket()    mt_assoc_move_next_bucket()
+# define accept_new_conns(x)         mt_accept_new_conns(x)
 # define conn_from_freelist()        mt_conn_from_freelist()
 # define conn_add_to_freelist(x)     mt_conn_add_to_freelist(x)
 # define suffix_from_freelist()      mt_suffix_from_freelist()
@@ -334,6 +337,7 @@ int   mt_store_item(item *item, int comm);
 
 # define add_delta(c,x,y,z,a)          do_add_delta(c,x,y,z,a)
 # define assoc_move_next_bucket()    do_assoc_move_next_bucket()
+# define accept_new_conns(x)         do_accept_new_conns(x)
 # define conn_from_freelist()        do_conn_from_freelist()
 # define conn_add_to_freelist(x)     do_conn_add_to_freelist(x)
 # define suffix_from_freelist()      do_suffix_from_freelist()
