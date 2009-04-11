@@ -1,8 +1,9 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-
+#undef NDEBUG
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 
 #include "memcached.h"
 
@@ -104,11 +105,33 @@ static void test_safe_strtol() {
   assert(val == 123);
 }
 
+static void test_issue_44(void) {
+    char pidfile[80];
+    char buffer[256];
+    sprintf(pidfile, "/tmp/memcached.%d", getpid());
+    sprintf(buffer, "./memcached-debug -p 0 -P %s -d", pidfile);
+    assert(system(buffer) == 0);
+    sleep(1);
+    FILE *fp = fopen(pidfile, "r");
+    assert(fp);
+    assert(fgets(buffer, sizeof(buffer), fp));
+    fclose(fp);
+    pid_t pid = atol(buffer);
+    assert(kill(pid, 0) == 0);
+    assert(kill(pid, SIGHUP) == 0);
+    sleep(1);
+    assert(kill(pid, 0) == 0);
+    assert(kill(pid, SIGTERM) == 0);
+    assert(remove(pidfile) == 0);
+}
+
+
 int main(int argc, char **argv) {
   test_safe_strtoull();
   test_safe_strtoll();
   test_safe_strtoul();
   test_safe_strtol();
+  test_issue_44();
   printf("OK.\n");
   return 0;
 }

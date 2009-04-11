@@ -292,6 +292,7 @@ fi
 AC_CHECK_FUNCS(mlockall)
 AC_CHECK_FUNCS(getpagesizes)
 AC_CHECK_FUNCS(memcntl)
+AC_CHECK_FUNCS(sigignore)
 
 AC_DEFUN([AC_C_ALIGNMENT],
 [AC_CACHE_CHECK(for alignment, ac_cv_c_alignment,
@@ -353,9 +354,11 @@ if test "$ICC" = "yes"
 then
    dnl ICC trying to be gcc.
    CFLAGS="$CFLAGS -diag-disable 187 -Wall -Werror"
+   AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux])
 elif test "$GCC" = "yes"
 then
   CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux])
 elif test "$SUNCC" = "yes"
 then
   CFLAGS="$CFLAGS -errfmt=error -errwarn -errshort=tags"

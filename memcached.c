@@ -3895,6 +3895,18 @@ static void sig_handler(const int sig) {
     exit(EXIT_SUCCESS);
 }
 
+#ifndef HAVE_SIGIGNORE
+static int sigignore(int sig) {
+    struct sigaction sa = { .sa_handler = SIG_IGN, .sa_flags = 0 };
+
+    if (sigemptyset(&sa.sa_mask) == -1 || sigaction(sig, &sa, 0) == -1) {
+        return -1;
+    }
+    return 0;
+}
+#endif
+
+
 #if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
 /*
  * On systems that supports multiple page sizes we may reduce the
@@ -3945,7 +3957,6 @@ int main (int argc, char **argv) {
     char *username = NULL;
     char *pid_file = NULL;
     struct passwd *pw;
-    struct sigaction sa;
     struct rlimit rlim;
     /* listening sockets */
     static int *l_socket = NULL;
@@ -4159,9 +4170,10 @@ int main (int argc, char **argv) {
     /* daemonize if requested */
     /* if we want to ensure our ability to dump core, don't chdir to / */
     if (do_daemonize) {
-        int res;
-        res = daemonize(maxcore, settings.verbose);
-        if (res == -1) {
+        if (sigignore(SIGHUP) == -1) {
+            perror("Failed to ignore SIGHUP");
+        }
+        if (daemonize(maxcore, settings.verbose) == -1) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
             exit(EXIT_FAILURE);
         }
@@ -4196,10 +4208,7 @@ int main (int argc, char **argv) {
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
      */
-    sa.sa_handler = SIG_IGN;
-    sa.sa_flags = 0;
-    if (sigemptyset(&sa.sa_mask) == -1 ||
-        sigaction(SIGPIPE, &sa, 0) == -1) {
+    if (sigignore(SIGPIPE) == -1) {
         perror("failed to ignore SIGPIPE; sigaction");
         exit(EX_OSERR);
     }
