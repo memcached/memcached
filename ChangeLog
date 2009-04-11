@@ -1,3 +1,9 @@
+2009-04-10
+
+	* *critical bugfix*. In 1.2.7 under multithreaded mode, memcached
+	  would never restart accepting connections after hitting the
+	  maximum connection limit.
+
 2009-04-02
 
 	* Fix: Rewrote stat buffer handling (Trond)
