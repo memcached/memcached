@@ -1,5 +1,10 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
+/** \file
+ * The main memcached header holding commonly used data
+ * structures and function prototypes.
+ */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -17,7 +22,7 @@
 #include "protocol_binary.h"
 #include "cache.h"
 
-/* Maximum length of a key. */
+/** Maximum length of a key. */
 #define KEY_MAX_LENGTH 250
 
 #define DATA_BUFFER_SIZE 2048
@@ -64,14 +69,14 @@
 #define DONT_PREALLOC_SLABS
 #define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
 
-/* How long an object can reasonably be assumed to be locked before
-   harvesting it on a low memory condition. */
+/** How long an object can reasonably be assumed to be locked before
+    harvesting it on a low memory condition. */
 #define TAIL_REPAIR_TIME (3 * 3600)
 
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
 typedef unsigned int rel_time_t;
 
-/* Stats stored per slab (and per thread). */
+/** Stats stored per slab (and per thread). */
 struct slab_stats {
     uint64_t  set_cmds;
     uint64_t  get_hits;
@@ -82,6 +87,9 @@ struct slab_stats {
     uint64_t  decr_hits;
 };
 
+/**
+ * Stats stored per-thread.
+ */
 struct thread_stats {
     pthread_mutex_t   mutex;
     uint64_t          get_cmds;
@@ -96,6 +104,9 @@ struct thread_stats {
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
 };
 
+/**
+ * Global stats.
+ */
 struct stats {
     pthread_mutex_t mutex;
     unsigned int  curr_items;
@@ -117,6 +128,9 @@ struct stats {
 #define MAX_VERBOSITY_LEVEL 2
 
 /* When adding a setting, be sure to update process_stat_settings */
+/**
+ * Globally accessible settings as derived from the commandline.
+ */
 struct settings {
     size_t maxbytes;
     int maxconns;
@@ -149,6 +163,9 @@ extern struct settings settings;
 /* temp */
 #define ITEM_SLABBED 4
 
+/**
+ * Structure for storing items within memcached.
+ */
 typedef struct _stritem {
     struct _stritem *next;
     struct _stritem *prev;
@@ -188,40 +205,52 @@ typedef struct _stritem {
          + (item)->nsuffix + (item)->nbytes \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
-/* Append a simple stat with a stat name, value format and value */
+/** Append a simple stat with a stat name, value format and value */
 #define APPEND_STAT(name, fmt, val) \
     append_stat(name, add_stats, c, fmt, val);
 
-/* Append an indexed stat with a stat name (with format), value format
-   and value */
+/** Append an indexed stat with a stat name (with format), value format
+    and value */
 #define APPEND_NUM_FMT_STAT(name_fmt, num, name, fmt, val)   \
     klen = sprintf(key_str, name_fmt, num, name);            \
     vlen = sprintf(val_str, fmt, val);                       \
     add_stats(key_str, klen, val_str, vlen, c);
 
-/* Common APPEND_NUM_FMT_STAT format. */
+/** Common APPEND_NUM_FMT_STAT format. */
 #define APPEND_NUM_STAT(num, name, fmt, val) \
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
+/**
+ * Callback for any function producing stats.
+ *
+ * @param key the stat's key
+ * @param klen length of the key
+ * @param val the stat's value in an ascii form (e.g. text form of a number)
+ * @param vlen length of the value
+ * @parm cookie magic callback cookie
+ */
 typedef void (*ADD_STAT)(const char *key, const uint16_t klen,
                          const char *val, const uint32_t vlen,
                          const void *cookie);
 
-/**
+/*
  * NOTE: If you modify this table you _MUST_ update the function state_text
  */
+/**
+ * Possible states of a connection.
+ */
 enum conn_states {
-    conn_listening,  /** the socket which listens for connections */
-    conn_new_cmd,    /** Prepare connection for next command */
-    conn_waiting,    /** waiting for a readable socket */
-    conn_read,       /** reading in a command line */
-    conn_parse_cmd,  /** try to parse a command from the input buffer */
-    conn_write,      /** writing out a simple response */
-    conn_nread,      /** reading in a fixed number of bytes */
-    conn_swallow,    /** swallowing unnecessary bytes w/o storing */
-    conn_closing,    /** closing this connection */
-    conn_mwrite,     /** writing out many items sequentially */
-    conn_max_state  /** Max state value (used for assertion) */
+    conn_listening,  /**< the socket which listens for connections */
+    conn_new_cmd,    /**< Prepare connection for next command */
+    conn_waiting,    /**< waiting for a readable socket */
+    conn_read,       /**< reading in a command line */
+    conn_parse_cmd,  /**< try to parse a command from the input buffer */
+    conn_write,      /**< writing out a simple response */
+    conn_nread,      /**< reading in a fixed number of bytes */
+    conn_swallow,    /**< swallowing unnecessary bytes w/o storing */
+    conn_closing,    /**< closing this connection */
+    conn_mwrite,     /**< writing out many items sequentially */
+    conn_max_state   /**< Max state value (used for assertion) */
 };
 
 enum bin_substates {
@@ -267,6 +296,9 @@ typedef struct {
     cache_t *suffix_cache;      /* suffix cache */
 } LIBEVENT_THREAD;
 
+/**
+ * The structure representing a connection into memcached.
+ */
 typedef struct conn conn;
 struct conn {
     int    sfd;
