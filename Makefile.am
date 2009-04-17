@@ -92,5 +92,8 @@ test:	memcached-debug sizes testapp
 	  done \
 	else :; fi
 
+docs:
+	(cat Doxyfile ; echo "PROJECT_NUMBER=`cat version.num`") | doxygen -
+
 dist-hook:
 	rm -f $(distdir)/*/*~ $(distdir)/t/lib/*~ $(distdir)/*~

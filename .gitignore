@@ -34,5 +34,6 @@ doc/protocol-binary-range.txt
 doc/protocol-binary.txt
 /sizes
 /version.m4
+/version.num
 /testapp
 /doc/doxy
