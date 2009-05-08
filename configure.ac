@@ -71,6 +71,18 @@ fi
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
+AC_ARG_ENABLE(sasl,
+  [AS_HELP_STRING([--enable-sasl],[Enable SASL authentication])])
+
+AC_CHECK_HEADERS([sasl/sasl.h])
+if test "x$enable_sasl" = "xyes"; then
+  AC_DEFINE([ENABLE_SASL],1,[Set to nonzero if you want to include SASL])
+  AC_SEARCH_LIBS([sasl_server_init], [sasl2], [],
+    [
+      AC_MSG_ERROR([Failed to locate the library containing sasl_server_init])
+    ])
+fi
+
 AC_ARG_ENABLE(dtrace,
   [AS_HELP_STRING([--enable-dtrace],[Enable dtrace probes])])
 if test "x$enable_dtrace" = "xyes"; then
@@ -96,9 +108,11 @@ fi
 
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
+AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
 
 AC_SUBST(DTRACE)
 AC_SUBST(DTRACEFLAGS)
+AC_SUBST(ENABLE_SASL)
 AC_SUBST(PROFILER_LDFLAGS)
 
 AC_ARG_ENABLE(coverage,
@@ -239,6 +253,7 @@ AC_SEARCH_LIBS(socket, socket)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(umem_cache_create, umem)
 AC_SEARCH_LIBS(gethugepagesizes, hugetlbfs)
+
 AC_HEADER_STDBOOL
 AC_C_CONST
 
