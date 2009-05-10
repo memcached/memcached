@@ -18,9 +18,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #include "protocol_binary.h"
 #include "cache.h"
+
+#include "sasl_defs.h"
 
 /** Maximum length of a key. */
 #define KEY_MAX_LENGTH 250
@@ -155,7 +158,9 @@ enum bin_substates {
     bin_reading_stat,
     bin_reading_del_header,
     bin_reading_incr_header,
-    bin_read_flush_exptime
+    bin_read_flush_exptime,
+    bin_reading_sasl_auth,
+    bin_reading_sasl_auth_data
 };
 
 enum protocol {
@@ -268,6 +273,7 @@ struct settings {
     enum protocol binding_protocol;
     int backlog;
     int item_size_max;        /* Maximum item size, and upper end for slabs */
+    bool sasl;              /* SASL on/off */
 };
 
 extern struct stats stats;
@@ -324,6 +330,7 @@ typedef struct {
 typedef struct conn conn;
 struct conn {
     int    sfd;
+    sasl_conn_t *sasl_conn;
     enum conn_states  state;
     enum bin_substates substate;
     struct event event;

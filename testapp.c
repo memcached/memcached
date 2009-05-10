@@ -1475,7 +1475,7 @@ static enum test_return test_binary_stat(void) {
 }
 
 static enum test_return test_binary_illegal(void) {
-    uint8_t cmd = 0x1b;
+    uint8_t cmd = 0x23;
     while (cmd != 0x00) {
         union {
             protocol_binary_request_no_extras request;
@@ -1585,6 +1585,10 @@ static enum test_return test_binary_pipeline_hickup_chunk(void *buffer, size_t b
                               NULL, 0, NULL, 0);
             break;
 
+        case PROTOCOL_BINARY_CMD_SASL_LIST_MECHS:
+        case PROTOCOL_BINARY_CMD_SASL_AUTH:
+        case PROTOCOL_BINARY_CMD_SASL_STEP:
+            /* Ignoring SASL */
         case PROTOCOL_BINARY_CMD_QUITQ:
         case PROTOCOL_BINARY_CMD_QUIT:
             /* I don't want to pass on the quit commands ;-) */

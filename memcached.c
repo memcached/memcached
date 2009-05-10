@@ -94,6 +94,7 @@ static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
 static int add_msghdr(conn *c);
 
+
 /* time handling */
 static void set_current_time(void);  /* update the global variable holding
                               global 32-bit seconds-since-start time
@@ -462,6 +463,12 @@ static void conn_cleanup(conn *c) {
     if (c->write_and_free) {
         free(c->write_and_free);
         c->write_and_free = 0;
+    }
+
+    if (c->sasl_conn) {
+        assert(settings.sasl);
+        sasl_dispose(&c->sasl_conn);
+        c->sasl_conn = NULL;
     }
 }
 
@@ -936,6 +943,9 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
         break;
     case PROTOCOL_BINARY_RESPONSE_NOT_STORED:
         errstr = "Not stored.";
+        break;
+    case PROTOCOL_BINARY_RESPONSE_AUTH_ERROR:
+        errstr = "Auth failure.";
         break;
     default:
         assert(false);
@@ -1454,12 +1464,194 @@ static void handle_binary_protocol_error(conn *c) {
     c->write_and_go = conn_closing;
 }
 
+static void init_sasl_conn(conn *c) {
+    assert(c);
+    /* should something else be returned? */
+    if (!settings.sasl)
+        return;
+
+    if (!c->sasl_conn) {
+        int result=sasl_server_new("memcached",
+                                   NULL, NULL, NULL, NULL,
+                                   NULL, 0, &c->sasl_conn);
+        if (result != SASL_OK) {
+            if (settings.verbose) {
+                fprintf(stderr, "Failed to initialize SASL conn.\n");
+            }
+            c->sasl_conn = NULL;
+        }
+    }
+}
+
+static void bin_list_sasl_mechs(conn *c) {
+    // Guard against a disabled SASL.
+    if (!settings.sasl) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
+                        c->binary_header.request.bodylen
+                        - c->binary_header.request.keylen);
+        return;
+    }
+
+    init_sasl_conn(c);
+    const char *result_string = NULL;
+    unsigned int string_length = 0;
+    int result=sasl_listmech(c->sasl_conn, NULL,
+                             "",   /* What to prepend the string with */
+                             " ",  /* What to separate mechanisms with */
+                             "",   /* What to append to the string */
+                             &result_string, &string_length,
+                             NULL);
+    if (result != SASL_OK) {
+        /* Perhaps there's a better error for this... */
+        if (settings.verbose) {
+            fprintf(stderr, "Failed to list SASL mechanisms.\n");
+        }
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+        return;
+    }
+    write_bin_response(c, (char*)result_string, 0, 0, string_length);
+}
+
+static void process_bin_sasl_auth(conn *c) {
+    // Guard for handling disabled SASL on the server.
+    if (!settings.sasl) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
+                        c->binary_header.request.bodylen
+                        - c->binary_header.request.keylen);
+        return;
+    }
+
+    assert(c->binary_header.request.extlen == 0);
+
+    int nkey = c->binary_header.request.keylen;
+    int vlen = c->binary_header.request.bodylen - nkey;
+
+    char *key = binary_get_key(c);
+    assert(key);
+
+    item *it = item_alloc(key, nkey, 0, 0, vlen);
+
+    if (it == 0) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
+        c->write_and_go = conn_swallow;
+        return;
+    }
+
+    c->item = it;
+    c->ritem = ITEM_data(it);
+    c->rlbytes = vlen;
+    conn_set_state(c, conn_nread);
+    c->substate = bin_reading_sasl_auth_data;
+}
+
+static void process_bin_complete_sasl_auth(conn *c) {
+    assert(settings.sasl);
+    const char *out = NULL;
+    unsigned int outlen = 0;
+
+    assert(c->item);
+    init_sasl_conn(c);
+
+    int nkey = c->binary_header.request.keylen;
+    int vlen = c->binary_header.request.bodylen - nkey;
+
+    char mech[nkey+1];
+    memcpy(mech, ITEM_key((item*)c->item), nkey);
+    mech[nkey] = 0x00;
+
+    if (settings.verbose)
+        fprintf(stderr, "mech:  ``%s'' with %d bytes of data\n", mech, vlen);
+
+    const char *challenge = vlen == 0 ? NULL : ITEM_data((item*) c->item);
+
+    int result=-1;
+
+    switch (c->cmd) {
+    case PROTOCOL_BINARY_CMD_SASL_AUTH:
+        result = sasl_server_start(c->sasl_conn, mech,
+                                   challenge, vlen,
+                                   &out, &outlen);
+        break;
+    case PROTOCOL_BINARY_CMD_SASL_STEP:
+        result = sasl_server_step(c->sasl_conn,
+                                  challenge, vlen,
+                                  &out, &outlen);
+        break;
+    default:
+        assert(false); /* CMD should be one of the above */
+        /* This code is pretty much impossible, but makes the compiler
+           happier */
+        if (settings.verbose) {
+            fprintf(stderr, "Unhandled command %d with challenge %s\n",
+                    c->cmd, challenge);
+        }
+        break;
+    }
+
+    item_unlink(c->item);
+
+    if (settings.verbose) {
+        fprintf(stderr, "sasl result code:  %d\n", result);
+    }
+
+    switch(result) {
+    case SASL_OK:
+        write_bin_response(c, "Authenticated", 0, 0, strlen("Authenticated"));
+        break;
+    case SASL_CONTINUE:
+        add_bin_header(c, PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE, 0, 0, outlen);
+        if(outlen > 0) {
+            add_iov(c, out, outlen);
+        }
+        conn_set_state(c, conn_mwrite);
+        c->write_and_go = conn_new_cmd;
+        break;
+    default:
+        if (settings.verbose)
+            fprintf(stderr, "Unknown sasl response:  %d\n", result);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+    }
+}
+
+static bool authenticated(conn *c) {
+    assert(settings.sasl);
+    bool rv = false;
+
+    switch (c->cmd) {
+    case PROTOCOL_BINARY_CMD_SASL_LIST_MECHS: /* FALLTHROUGH */
+    case PROTOCOL_BINARY_CMD_SASL_AUTH:       /* FALLTHROUGH */
+    case PROTOCOL_BINARY_CMD_SASL_STEP:       /* FALLTHROUGH */
+    case PROTOCOL_BINARY_CMD_VERSION:         /* FALLTHROUGH */
+        rv = true;
+        break;
+    default:
+        if (c->sasl_conn) {
+            const void *uname = NULL;
+            sasl_getprop(c->sasl_conn, SASL_USERNAME, &uname);
+            rv = uname != NULL;
+        }
+    }
+
+    if (settings.verbose > 1) {
+        fprintf(stderr, "authenticated() in cmd 0x%02x is %s\n",
+                c->cmd, rv ? "true" : "false");
+    }
+
+    return rv;
+}
+
 static void dispatch_bin_command(conn *c) {
     int protocol_error = 0;
 
     int extlen = c->binary_header.request.extlen;
     int keylen = c->binary_header.request.keylen;
     uint32_t bodylen = c->binary_header.request.bodylen;
+
+    if (settings.sasl && !authenticated(c)) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+        c->write_and_go = conn_closing;
+        return;
+    }
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
     c->noreply = true;
@@ -1589,6 +1781,21 @@ static void dispatch_bin_command(conn *c) {
                 if (c->noreply) {
                     conn_set_state(c, conn_closing);
                 }
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_SASL_LIST_MECHS:
+            if (extlen == 0 && keylen == 0 && bodylen == 0) {
+                bin_list_sasl_mechs(c);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_SASL_AUTH:
+        case PROTOCOL_BINARY_CMD_SASL_STEP:
+            if (extlen == 0 && keylen != 0) {
+                bin_read_key(c, bin_reading_sasl_auth, 0);
             } else {
                 protocol_error = 1;
             }
@@ -1833,6 +2040,12 @@ static void complete_nread_binary(conn *c) {
         break;
     case bin_read_flush_exptime:
         process_bin_flush(c);
+        break;
+    case bin_reading_sasl_auth:
+        process_bin_sasl_auth(c);
+        break;
+    case bin_reading_sasl_auth_data:
+        process_bin_complete_sasl_auth(c);
         break;
     default:
         fprintf(stderr, "Not handling substate %d\n", c->substate);
@@ -3814,6 +4027,9 @@ static void usage(void) {
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
     printf("-I            Override the size of each slab page. Adjusts max item size\n"
            "              (default: 1mb, min: 1k, max: 128m)\n");
+#ifdef ENABLE_SASL
+    printf("-S            Turn on Sasl authentication\n");
+#endif
     return;
 }
 
@@ -4029,6 +4245,7 @@ int main (int argc, char **argv) {
           "b:"  /* backlog queue limit */
           "B:"  /* Binding protocol */
           "I:"  /* Max item size */
+          "S"   /* Sasl ON */
         ))) {
         switch (c) {
         case 'a':
@@ -4181,6 +4398,13 @@ int main (int argc, char **argv) {
                 );
             }
             break;
+        case 'S': /* set Sasl authentication to true. Default is false */
+#ifndef ENABLE_SASL
+            fprintf(stderr, "This server is not built with SASL support.\n");
+            exit(EX_USAGE);
+#endif
+            settings.sasl = true;
+            break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
@@ -4247,6 +4471,11 @@ int main (int argc, char **argv) {
             fprintf(stderr, "failed to assume identity of user %s\n", username);
             exit(EX_OSERR);
         }
+    }
+
+    /* Initialize Sasl if -S was specified */
+    if (settings.sasl) {
+        init_sasl();
     }
 
     /* daemonize if requested */

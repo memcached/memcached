@@ -69,6 +69,8 @@ extern "C"
         PROTOCOL_BINARY_RESPONSE_EINVAL = 0x04,
         PROTOCOL_BINARY_RESPONSE_NOT_STORED = 0x05,
         PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL = 0x06,
+        PROTOCOL_BINARY_RESPONSE_AUTH_ERROR = 0x20,
+        PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE = 0x21,
         PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND = 0x81,
         PROTOCOL_BINARY_RESPONSE_ENOMEM = 0x82
     } protocol_binary_response_status;
@@ -105,6 +107,10 @@ extern "C"
         PROTOCOL_BINARY_CMD_FLUSHQ = 0x18,
         PROTOCOL_BINARY_CMD_APPENDQ = 0x19,
         PROTOCOL_BINARY_CMD_PREPENDQ = 0x1a,
+
+        PROTOCOL_BINARY_CMD_SASL_LIST_MECHS = 0x20,
+        PROTOCOL_BINARY_CMD_SASL_AUTH = 0x21,
+        PROTOCOL_BINARY_CMD_SASL_STEP = 0x22,
 
         /* These commands are used for range operations and exist within
          * this header for use in other projects.  Range operations are

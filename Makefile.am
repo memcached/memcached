@@ -27,6 +27,10 @@ if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += solaris_priv.c
 endif
 
+if ENABLE_SASL
+memcached_SOURCES += sasl_defs.c
+endif
+
 memcached_debug_SOURCES = $(memcached_SOURCES)
 memcached_CPPFLAGS = -DNDEBUG
 memcached_debug_LDADD = @PROFILER_LDFLAGS@
