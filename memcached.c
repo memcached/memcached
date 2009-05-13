@@ -2841,7 +2841,7 @@ static int try_read_command(conn *c) {
                             c->binary_header.request.magic);
                 }
                 conn_set_state(c, conn_closing);
-                return 0;
+                return -1;
             }
 
             c->msgcurr = 0;
