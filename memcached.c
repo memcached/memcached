@@ -192,6 +192,7 @@ static void settings_init(void) {
     settings.detail_enabled = 0;
     settings.reqs_per_event = 20;
     settings.backlog = 1024;
+    settings.binding_protocol = negotiating_prot;
 }
 
 /*
@@ -363,7 +364,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     }
 
     c->transport = transport;
-    c->protocol = negotiating_prot;
+    c->protocol = settings.binding_protocol;
 
     /* unix socket mode doesn't need this, so zeroed out.  but why
      * is this done for every command?  presumably for UDP
@@ -2136,6 +2137,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("reqs_per_event", "%d", settings.reqs_per_event);
     APPEND_STAT("cas_enabled", "%s", settings.use_cas ? "yes" : "no");
     APPEND_STAT("tcp_backlog", "%d", settings.backlog);
+    APPEND_STAT("binding_protocol", "%s",
+                prot_text(settings.binding_protocol));
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -3721,6 +3724,7 @@ static void usage(void) {
            "              to prevent starvation.  default 20\n");
     printf("-C            Disable use of CAS\n");
     printf("-b            Set the backlog queue limit (default 1024)\n");
+    printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
     return;
 }
 
@@ -3930,6 +3934,7 @@ int main (int argc, char **argv) {
           "R:"  /* max requests per event */
           "C"   /* Disable use of CAS */
           "b:"  /* backlog queue limit */
+          "B:"  /* Binding protocol */
         ))) {
         switch (c) {
         case 'a':
@@ -4030,6 +4035,19 @@ int main (int argc, char **argv) {
             break;
         case 'b' :
             settings.backlog = atoi(optarg);
+            break;
+        case 'B':
+            if (strcmp(optarg, "auto") == 0) {
+                settings.binding_protocol = negotiating_prot;
+            } else if (strcmp(optarg, "binary") == 0) {
+                settings.binding_protocol = binary_prot;
+            } else if (strcmp(optarg, "ascii") == 0) {
+                settings.binding_protocol = ascii_prot;
+            } else {
+                fprintf(stderr, "Invalid value for binding protocol: %s\n"
+                        " -- should be one of auto, binary, or ascii\n", optarg);
+                exit(EX_USAGE);
+            }
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);

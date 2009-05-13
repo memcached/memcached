@@ -118,6 +118,12 @@ Try to use large memory pages (if available). Increasing the memory page size
 could reduce the number of TLB misses and improve the performance. In order to
 get large pages from the OS, memcached will allocate the total item-cache in
 one large chunk. Only available if supported on your OS.
+.TP
+.B \-B <proto>
+Specify the binding protocol to use.  By default, the server will
+autonegotiate client connections.  By using this option, you can
+specify the protocol clients must speak.  Possible options are "auto"
+(the default, autonegotiation behavior), "ascii" and "binary".
 .br
 .SH LICENSE
 The memcached daemon is copyright Danga Interactive and is distributed under 

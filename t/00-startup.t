@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 8;
+use Test::More tests => 14;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -35,3 +35,24 @@ eval {
     is('8675', $stats->{'tcp_backlog'});
 };
 is($@, '', "-b works");
+
+foreach my $val ('auto', 'ascii') {
+    eval {
+        my $server = new_memcached("-B $val");
+        my $stats = mem_stats($server->sock, 'settings');
+        ok($stats->{'binding_protocol'} =~ /$val/, "$val works");
+    };
+    is($@, '', "$val works");
+}
+
+# For the binary test, we just verify it starts since we don't have an easy bin client.
+eval {
+    my $server = new_memcached("-B binary");
+};
+is($@, '', "binary works");
+
+# Should blow up with something invalid.
+eval {
+    my $server = new_memcached("-B http");
+};
+ok($@, "Died with illegal -B arg.");
