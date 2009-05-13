@@ -73,6 +73,112 @@
     harvesting it on a low memory condition. */
 #define TAIL_REPAIR_TIME (3 * 3600)
 
+/* warning: don't use these macros with a function, as it evals its arg twice */
+#define ITEM_get_cas(i) ((uint64_t)(((i)->it_flags & ITEM_CAS) ? \
+                                    *(uint64_t*)&((i)->end[0]) : 0x0))
+#define ITEM_set_cas(i,v) { if ((i)->it_flags & ITEM_CAS) { \
+                          *(uint64_t*)&((i)->end[0]) = v; } }
+
+#define ITEM_key(item) (((char*)&((item)->end[0])) \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
+#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
+#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
+         + (item)->nsuffix \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
+#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
+         + (item)->nsuffix + (item)->nbytes \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
+/** Append a simple stat with a stat name, value format and value */
+#define APPEND_STAT(name, fmt, val) \
+    append_stat(name, add_stats, c, fmt, val);
+
+/** Append an indexed stat with a stat name (with format), value format
+    and value */
+#define APPEND_NUM_FMT_STAT(name_fmt, num, name, fmt, val)   \
+    klen = sprintf(key_str, name_fmt, num, name);            \
+    vlen = sprintf(val_str, fmt, val);                       \
+    add_stats(key_str, klen, val_str, vlen, c);
+
+/** Common APPEND_NUM_FMT_STAT format. */
+#define APPEND_NUM_STAT(num, name, fmt, val) \
+    APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
+
+/**
+ * Callback for any function producing stats.
+ *
+ * @param key the stat's key
+ * @param klen length of the key
+ * @param val the stat's value in an ascii form (e.g. text form of a number)
+ * @param vlen length of the value
+ * @parm cookie magic callback cookie
+ */
+typedef void (*ADD_STAT)(const char *key, const uint16_t klen,
+                         const char *val, const uint32_t vlen,
+                         const void *cookie);
+
+/*
+ * NOTE: If you modify this table you _MUST_ update the function state_text
+ */
+/**
+ * Possible states of a connection.
+ */
+enum conn_states {
+    conn_listening,  /**< the socket which listens for connections */
+    conn_new_cmd,    /**< Prepare connection for next command */
+    conn_waiting,    /**< waiting for a readable socket */
+    conn_read,       /**< reading in a command line */
+    conn_parse_cmd,  /**< try to parse a command from the input buffer */
+    conn_write,      /**< writing out a simple response */
+    conn_nread,      /**< reading in a fixed number of bytes */
+    conn_swallow,    /**< swallowing unnecessary bytes w/o storing */
+    conn_closing,    /**< closing this connection */
+    conn_mwrite,     /**< writing out many items sequentially */
+    conn_max_state   /**< Max state value (used for assertion) */
+};
+
+enum bin_substates {
+    bin_no_state,
+    bin_reading_set_header,
+    bin_reading_cas_header,
+    bin_read_set_value,
+    bin_reading_get_key,
+    bin_reading_stat,
+    bin_reading_del_header,
+    bin_reading_incr_header,
+    bin_read_flush_exptime
+};
+
+enum protocol {
+    ascii_prot = 3, /* arbitrary value. */
+    binary_prot,
+    negotiating_prot /* Discovering the protocol */
+};
+
+enum network_transport {
+    local_transport, /* Unix sockets*/
+    tcp_transport,
+    udp_transport
+};
+
+#define IS_UDP(x) (x == udp_transport)
+
+#define NREAD_ADD 1
+#define NREAD_SET 2
+#define NREAD_REPLACE 3
+#define NREAD_APPEND 4
+#define NREAD_PREPEND 5
+#define NREAD_CAS 6
+
+enum store_item_type {
+    NOT_STORED=0, STORED, EXISTS, NOT_FOUND
+};
+
+
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
 typedef unsigned int rel_time_t;
 
@@ -184,111 +290,6 @@ typedef struct _stritem {
     /* then " flags length\r\n" (no terminating null) */
     /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
-
-/* warning: don't use these macros with a function, as it evals its arg twice */
-#define ITEM_get_cas(i) ((uint64_t)(((i)->it_flags & ITEM_CAS) ? \
-                                    *(uint64_t*)&((i)->end[0]) : 0x0))
-#define ITEM_set_cas(i,v) { if ((i)->it_flags & ITEM_CAS) { \
-                          *(uint64_t*)&((i)->end[0]) = v; } }
-
-#define ITEM_key(item) (((char*)&((item)->end[0])) \
-         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
-
-#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
-         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
-
-#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
-         + (item)->nsuffix \
-         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
-
-#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
-         + (item)->nsuffix + (item)->nbytes \
-         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
-
-/** Append a simple stat with a stat name, value format and value */
-#define APPEND_STAT(name, fmt, val) \
-    append_stat(name, add_stats, c, fmt, val);
-
-/** Append an indexed stat with a stat name (with format), value format
-    and value */
-#define APPEND_NUM_FMT_STAT(name_fmt, num, name, fmt, val)   \
-    klen = sprintf(key_str, name_fmt, num, name);            \
-    vlen = sprintf(val_str, fmt, val);                       \
-    add_stats(key_str, klen, val_str, vlen, c);
-
-/** Common APPEND_NUM_FMT_STAT format. */
-#define APPEND_NUM_STAT(num, name, fmt, val) \
-    APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
-
-/**
- * Callback for any function producing stats.
- *
- * @param key the stat's key
- * @param klen length of the key
- * @param val the stat's value in an ascii form (e.g. text form of a number)
- * @param vlen length of the value
- * @parm cookie magic callback cookie
- */
-typedef void (*ADD_STAT)(const char *key, const uint16_t klen,
-                         const char *val, const uint32_t vlen,
-                         const void *cookie);
-
-/*
- * NOTE: If you modify this table you _MUST_ update the function state_text
- */
-/**
- * Possible states of a connection.
- */
-enum conn_states {
-    conn_listening,  /**< the socket which listens for connections */
-    conn_new_cmd,    /**< Prepare connection for next command */
-    conn_waiting,    /**< waiting for a readable socket */
-    conn_read,       /**< reading in a command line */
-    conn_parse_cmd,  /**< try to parse a command from the input buffer */
-    conn_write,      /**< writing out a simple response */
-    conn_nread,      /**< reading in a fixed number of bytes */
-    conn_swallow,    /**< swallowing unnecessary bytes w/o storing */
-    conn_closing,    /**< closing this connection */
-    conn_mwrite,     /**< writing out many items sequentially */
-    conn_max_state   /**< Max state value (used for assertion) */
-};
-
-enum bin_substates {
-    bin_no_state,
-    bin_reading_set_header,
-    bin_reading_cas_header,
-    bin_read_set_value,
-    bin_reading_get_key,
-    bin_reading_stat,
-    bin_reading_del_header,
-    bin_reading_incr_header,
-    bin_read_flush_exptime
-};
-
-enum protocol {
-    ascii_prot = 3, /* arbitrary value. */
-    binary_prot,
-    negotiating_prot /* Discovering the protocol */
-};
-
-enum network_transport {
-    local_transport, /* Unix sockets*/
-    tcp_transport,
-    udp_transport
-};
-
-#define IS_UDP(x) (x == udp_transport)
-
-#define NREAD_ADD 1
-#define NREAD_SET 2
-#define NREAD_REPLACE 3
-#define NREAD_APPEND 4
-#define NREAD_PREPEND 5
-#define NREAD_CAS 6
-
-enum store_item_type {
-    NOT_STORED=0, STORED, EXISTS, NOT_FOUND
-};
 
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
