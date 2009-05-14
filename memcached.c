@@ -384,10 +384,14 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         } else if (c->protocol == negotiating_prot) {
             fprintf(stderr, "<%d new auto-negotiating client connection\n",
                     sfd);
+        } else if (c->protocol == ascii_prot) {
+            fprintf(stderr, "<%d new ascii client connection.\n", sfd);
+        } else if (c->protocol == binary_prot) {
+            fprintf(stderr, "<%d new binary client connection.\n", sfd);
         } else {
             fprintf(stderr, "<%d new unknown (%d) client connection\n",
                 sfd, c->protocol);
-            abort();
+            assert(false);
         }
     }
 

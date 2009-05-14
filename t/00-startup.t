@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 14;
+use Test::More tests => 17;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -50,6 +50,24 @@ eval {
     my $server = new_memcached("-B binary");
 };
 is($@, '', "binary works");
+
+eval {
+    my $server = new_memcached("-vv -B auto");
+};
+is($@, '', "auto works");
+
+eval {
+    my $server = new_memcached("-vv -B ascii");
+};
+is($@, '', "ascii works");
+
+
+# For the binary test, we just verify it starts since we don't have an easy bin client.
+eval {
+    my $server = new_memcached("-vv -B binary");
+};
+is($@, '', "binary works");
+
 
 # Should blow up with something invalid.
 eval {
