@@ -3684,15 +3684,15 @@ static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
     printf("-p <num>      TCP port number to listen on (default: 11211)\n"
            "-U <num>      UDP port number to listen on (default: 11211, 0 is off)\n"
-           "-s <file>     unix socket path to listen on (disables network support)\n"
-           "-a <mask>     access mask for unix socket, in octal (default 0700)\n"
-           "-l <ip_addr>  interface to listen on, default is INADDR_ANY\n"
+           "-s <file>     UNIX socket path to listen on (disables network support)\n"
+           "-a <mask>     access mask for UNIX socket, in octal (default: 0700)\n"
+           "-l <ip_addr>  interface to listen on (default: INADDR_ANY, all addresses)\n"
            "-d            run as a daemon\n"
            "-r            maximize core file limit\n"
            "-u <username> assume identity of <username> (only when run as root)\n"
-           "-m <num>      max memory to use for items in megabytes, default is 64 MB\n"
+           "-m <num>      max memory to use for items in megabytes (default: 64 MB)\n"
            "-M            return error on memory exhausted (rather than removing items)\n"
-           "-c <num>      max simultaneous connections, default is 1024\n"
+           "-c <num>      max simultaneous connections (default: 1024)\n"
            "-k            lock down all paged memory.  Note that there is a\n"
            "              limit on how much memory you may lock.  Trying to\n"
            "              allocate more than that would fail, so be sure you\n"
@@ -3705,8 +3705,8 @@ static void usage(void) {
            "-h            print this help and exit\n"
            "-i            print memcached and libevent license\n"
            "-P <file>     save PID in <file>, only used with -d option\n"
-           "-f <factor>   chunk size growth factor, default 1.25\n"
-           "-n <bytes>    minimum space allocated for key+value+flags, default 48\n"
+           "-f <factor>   chunk size growth factor (default: 1.25)\n"
+           "-n <bytes>    minimum space allocated for key+value+flags (default: 48)\n"
 
 #if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
            "-L            Try to use large memory pages (if available). Increasing\n"
@@ -3722,12 +3722,12 @@ static void usage(void) {
            "              \":\" (colon). If this option is specified, stats collection\n"
            "              is turned on automatically; if not, then it may be turned on\n"
            "              by sending the \"stats detail on\" command to the server.\n");
-    printf("-t <num>      number of threads to use, default 4\n");
-    printf("-R            Maximum number of requests per event\n"
-           "              limits the number of requests process for a given con nection\n"
-           "              to prevent starvation.  default 20\n");
+    printf("-t <num>      number of threads to use (default: 4)\n");
+    printf("-R            Maximum number of requests per event, limits the number of\n"
+           "              requests process for a given connection to prevent \n"
+           "              starvation (default: 20)\n");
     printf("-C            Disable use of CAS\n");
-    printf("-b            Set the backlog queue limit (default 1024)\n");
+    printf("-b            Set the backlog queue limit (default: 1024)\n");
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
     return;
 }
