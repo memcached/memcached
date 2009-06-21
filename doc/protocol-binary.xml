@@ -210,6 +210,7 @@
           <t hangText="0x0003">Value too large</t>
           <t hangText="0x0004">Invalid arguments</t>
           <t hangText="0x0005">Item not stored</t>
+          <t hangText="0x0006">Incr/Decr on non-numeric value.</t>
           <t hangText="0x0081">Unknown command</t>
           <t hangText="0x0082">Out of memory</t>
         </list>

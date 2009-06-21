@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 860;
+use Test::More tests => 880;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -164,6 +164,19 @@ is($mc->incr("x"), 0, "First incr call is zero");
 is($mc->incr("x"), 1, "Second incr call is one");
 is($mc->incr("x", 211), 212, "Adding 211 gives you 212");
 is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
+
+# diag "Issue 48 - incrementing plain text.";
+{
+    $mc->set("issue48", "text", 0, 0);
+    my $rv =()= eval { $mc->incr('issue48'); };
+    ok($@ && $@->delta_badval, "Expected invalid value when incrementing text.");
+    $check->('issue48', 0, "text");
+
+    my $rv =()= eval { $mc->decr('issue48'); };
+    ok($@ && $@->delta_badval, "Expected invalid value when decrementing text.");
+    $check->('issue48', 0, "text");
+}
+
 
 # diag "Test decrement";
 $mc->flush;
@@ -646,10 +659,13 @@ package MC::Error;
 use strict;
 use warnings;
 
-use constant ERR_UNKNOWN_CMD => 0x81;
-use constant ERR_NOT_FOUND   => 0x1;
-use constant ERR_EXISTS      => 0x2;
-use constant ERR_TOO_BIG     => 0x3;
+use constant ERR_UNKNOWN_CMD  => 0x81;
+use constant ERR_NOT_FOUND    => 0x1;
+use constant ERR_EXISTS       => 0x2;
+use constant ERR_TOO_BIG      => 0x3;
+use constant ERR_EINVAL       => 0x4;
+use constant ERR_NOT_STORED   => 0x5;
+use constant ERR_DELTA_BADVAL => 0x6;
 
 use overload '""' => sub {
     my $self = shift;
@@ -677,6 +693,11 @@ sub exists {
 sub too_big {
     my $self = shift;
     return $self->[0] == ERR_TOO_BIG;
+}
+
+sub delta_badval {
+    my $self = shift;
+    return $self->[0] == ERR_DELTA_BADVAL;
 }
 
 # vim: filetype=perl

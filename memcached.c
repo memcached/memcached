@@ -931,6 +931,9 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
     case PROTOCOL_BINARY_RESPONSE_E2BIG:
         errstr = "Too large.";
         break;
+    case PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL:
+        errstr = "Non-numeric server-side value for incr or decr";
+        break;
     case PROTOCOL_BINARY_RESPONSE_NOT_STORED:
         errstr = "Not stored.";
         break;
@@ -1028,12 +1031,17 @@ static void complete_incr_bin(conn *c) {
                c->binary_header.request.cas == ITEM_get_cas(it))) {
         /* Weird magic in add_delta forces me to pad here */
         char tmpbuf[INCR_MAX_STORAGE_LEN];
-        add_delta(c, it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
-                  req->message.body.delta, tmpbuf);
-        rsp->message.body.value = swap64(strtoull(tmpbuf, NULL, 10));
-        c->cas = ITEM_get_cas(it);
-        write_bin_response(c, &rsp->message.body, 0, 0,
-                           sizeof(rsp->message.body.value));
+        char *adrv = add_delta(c, it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
+                               req->message.body.delta, tmpbuf);
+        if (strncmp(adrv, "CLIENT_ERROR", 12) == 0) {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL, 0);
+        } else {
+            rsp->message.body.value = swap64(strtoull(tmpbuf, NULL, 10));
+            c->cas = ITEM_get_cas(it);
+            write_bin_response(c, &rsp->message.body, 0, 0,
+                               sizeof(rsp->message.body.value));
+        }
+
         item_remove(it);         /* release our reference */
     } else if (!it && req->message.body.expiration != 0xffffffff) {
         /* Save some room for the response */
