@@ -24,7 +24,7 @@ static void item_unlink_q(item *it);
  */
 #define ITEM_UPDATE_INTERVAL 60
 
-#define LARGEST_ID 255
+#define LARGEST_ID POWER_LARGEST
 typedef struct {
     unsigned int evicted;
     rel_time_t evicted_time;
