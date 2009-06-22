@@ -39,7 +39,7 @@ static unsigned int sizes[LARGEST_ID];
 
 void item_init(void) {
     int i;
-    memset(itemstats, 0, sizeof(itemstats_t) * LARGEST_ID);
+    memset(itemstats, 0, sizeof(itemstats));
     for(i = 0; i < LARGEST_ID; i++) {
         heads[i] = NULL;
         tails[i] = NULL;
@@ -49,7 +49,7 @@ void item_init(void) {
 
 void item_stats_reset(void) {
     pthread_mutex_lock(&cache_lock);
-    memset(itemstats, 0, sizeof(itemstats_t) * LARGEST_ID);
+    memset(itemstats, 0, sizeof(itemstats));
     pthread_mutex_unlock(&cache_lock);
 }
 
@@ -242,7 +242,7 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
 
 static void item_link_q(item *it) { /* item is the new head */
     item **head, **tail;
-    /* always true, warns: assert(it->slabs_clsid <= LARGEST_ID); */
+    assert(it->slabs_clsid < LARGEST_ID);
     assert((it->it_flags & ITEM_SLABBED) == 0);
 
     head = &heads[it->slabs_clsid];
@@ -260,7 +260,7 @@ static void item_link_q(item *it) { /* item is the new head */
 
 static void item_unlink_q(item *it) {
     item **head, **tail;
-    /* always true, warns: assert(it->slabs_clsid <= LARGEST_ID); */
+    assert(it->slabs_clsid < LARGEST_ID);
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
 
@@ -362,7 +362,7 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
 
-    if (slabs_clsid > LARGEST_ID) return NULL;
+    if (slabs_clsid >= LARGEST_ID) return NULL;
     it = heads[slabs_clsid];
 
     buffer = malloc((size_t)memlimit);
