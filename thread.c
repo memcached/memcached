@@ -400,9 +400,9 @@ void item_update(item *item) {
 /*
  * Does arithmetic on a numeric item value.
  */
-char *add_delta(conn *c, item *item, int incr, const int64_t delta,
-                char *buf) {
-    char *ret;
+enum delta_result_type add_delta(conn *c, item *item, int incr,
+                                 const int64_t delta, char *buf) {
+    enum delta_result_type ret;
 
     pthread_mutex_lock(&cache_lock);
     ret = do_add_delta(c, item, incr, delta, buf);

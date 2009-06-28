@@ -1031,10 +1031,22 @@ static void complete_incr_bin(conn *c) {
                c->binary_header.request.cas == ITEM_get_cas(it))) {
         /* Weird magic in add_delta forces me to pad here */
         char tmpbuf[INCR_MAX_STORAGE_LEN];
-        char *adrv = add_delta(c, it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
-                               req->message.body.delta, tmpbuf);
-        if (strncmp(adrv, "CLIENT_ERROR", 12) == 0) {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL, 0);
+        protocol_binary_response_status st = PROTOCOL_BINARY_RESPONSE_SUCCESS;
+
+        switch(add_delta(c, it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
+                         req->message.body.delta, tmpbuf)) {
+        case OK:
+            break;
+        case NON_NUMERIC:
+            st = PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL;
+            break;
+        case EOM:
+            st = PROTOCOL_BINARY_RESPONSE_ENOMEM;
+            break;
+        }
+
+        if (st != PROTOCOL_BINARY_RESPONSE_SUCCESS) {
+            write_bin_error(c, st, 0);
         } else {
             rsp->message.body.value = swap64(strtoull(tmpbuf, NULL, 10));
             c->cas = ITEM_get_cas(it);
@@ -2516,7 +2528,17 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
-    out_string(c, add_delta(c, it, incr, delta, temp));
+    switch(add_delta(c, it, incr, delta, temp)) {
+    case OK:
+        out_string(c, temp);
+        break;
+    case NON_NUMERIC:
+        out_string(c, "CLIENT_ERROR cannot increment or decrement non-numeric value");
+        break;
+    case EOM:
+        out_string(c, "SERVER_ERROR out of memory");
+        break;
+    }
     item_remove(it);         /* release our reference */
 }
 
@@ -2531,7 +2553,8 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  *
  * returns a response string to send back to the client.
  */
-char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char *buf) {
+enum delta_result_type do_add_delta(conn *c, item *it, const bool incr,
+                                    const int64_t delta, char *buf) {
     char *ptr;
     uint64_t value;
     int res;
@@ -2539,7 +2562,7 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
     ptr = ITEM_data(it);
 
     if (!safe_strtoull(ptr, &value)) {
-        return "CLIENT_ERROR cannot increment or decrement non-numeric value";
+        return NON_NUMERIC;
     }
 
     if (incr) {
@@ -2568,7 +2591,7 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
         item *new_it;
         new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
         if (new_it == 0) {
-            return "SERVER_ERROR out of memory in incr/decr";
+            return EOM;
         }
         memcpy(ITEM_data(new_it), buf, res);
         memcpy(ITEM_data(new_it) + res, "\r\n", 2);
@@ -2583,7 +2606,7 @@ char *do_add_delta(conn *c, item *it, const bool incr, const int64_t delta, char
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
     }
 
-    return buf;
+    return OK;
 }
 
 static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
