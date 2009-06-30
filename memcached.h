@@ -210,6 +210,7 @@ struct thread_stats {
     uint64_t          bytes_read;
     uint64_t          bytes_written;
     uint64_t          flush_cmds;
+    uint64_t          conn_yields; /* # of yields for connections (-R option)*/
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
 };
 

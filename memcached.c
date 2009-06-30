@@ -2136,6 +2136,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("accepting_conns", "%u", stats.accepting_conns);
     APPEND_STAT("listen_disabled_num", "%llu", (unsigned long long)stats.listen_disabled_num);
     APPEND_STAT("threads", "%d", settings.num_threads);
+    APPEND_STAT("conn_yields", "%llu", (unsigned long long)thread_stats.conn_yields);
     STATS_UNLOCK();
 }
 
@@ -3199,10 +3200,7 @@ static void drive_machine(conn *c) {
                 conn_set_state(c, conn_waiting);
                 break;
             case READ_DATA_RECEIVED:
-             /* Only process nreqs at a time to avoid starving other
-                connections */
-                if (--nreqs)
-                    conn_set_state(c, conn_parse_cmd);
+                conn_set_state(c, conn_parse_cmd);
                 break;
             case READ_ERROR:
                 conn_set_state(c, conn_closing);
@@ -3222,7 +3220,31 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_new_cmd:
-            reset_cmd_handler(c);
+            /* Only process nreqs at a time to avoid starving other
+               connections */
+
+            --nreqs;
+            if (nreqs >= 0) {
+                reset_cmd_handler(c);
+            } else {
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.conn_yields++;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
+                if (c->rbytes > 0) {
+                    /* We have already read in data into the input buffer,
+                       so libevent will most likely not signal read events
+                       on the socket (unless more data is available. As a
+                       hack we should just put in a request to write data,
+                       because that should be possible ;-)
+                    */
+                    if (!update_event(c, EV_WRITE | EV_PERSIST)) {
+                        if (settings.verbose > 0)
+                            fprintf(stderr, "Couldn't update event\n");
+                        conn_set_state(c, conn_closing);
+                    }
+                }
+                stop = true;
+            }
             break;
 
         case conn_nread:
