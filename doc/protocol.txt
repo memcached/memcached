@@ -406,6 +406,8 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | use for storage.                          |
 | threads               | 32u     | Number of worker threads requested.       |
 |                       |         | (see doc/threads.txt)                     |
+| conn_yields           | 64u     | Number of times any connection yielded to |
+|                       |         | another due to hitting the -R limit.      |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics
