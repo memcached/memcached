@@ -364,7 +364,7 @@ then
    AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux])
 elif test "$GCC" = "yes"
 then
-  CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  CFLAGS="$CFLAGS -Wall -Werror -pedantic -fno-strict-aliasing -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
   AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux])
 elif test "$SUNCC" = "yes"
 then
