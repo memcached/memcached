@@ -364,7 +364,13 @@ then
    AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux])
 elif test "$GCC" = "yes"
 then
-  CFLAGS="$CFLAGS -Wall -Werror -pedantic -fno-strict-aliasing -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  GCC_VERSION=`gcc -dumpversion`
+  CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  case $GCC_VERSION in
+    4.4.*)
+    CFLAGS="$CFLAGS -fno-strict-aliasing"
+    ;;
+  esac
   AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux])
 elif test "$SUNCC" = "yes"
 then
