@@ -172,7 +172,7 @@ is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
     ok($@ && $@->delta_badval, "Expected invalid value when incrementing text.");
     $check->('issue48', 0, "text");
 
-    my $rv =()= eval { $mc->decr('issue48'); };
+    $rv =()= eval { $mc->decr('issue48'); };
     ok($@ && $@->delta_badval, "Expected invalid value when decrementing text.");
     $check->('issue48', 0, "text");
 }
