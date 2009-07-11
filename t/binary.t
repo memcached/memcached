@@ -197,7 +197,7 @@ is($mc->decr("x", 211), 0, "Floor is zero");
     $mc->flush;
 
     {
-        my $rv =()= eval { $mc->set("x", "bad value", 19, 5, 0x7FFFFFFFFF) };
+        my $rv =()= eval { $mc->set("x", "bad value", 19, 5, 0x7FFFFFF) };
         is($rv, 0, "Empty return on expected failure");
         ok($@->not_found, "Error was 'not found' as expected");
     }
