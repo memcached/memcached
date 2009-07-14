@@ -102,7 +102,7 @@ ok($foo1_cas != $foo2_cas,"foo1 != foo2 single-gets success");
 print $sock "gets foo1 foo2\r\n";
 ok(scalar <$sock> =~ /VALUE foo1 0 1 (\d+)\r\n/, "validating first set of data is foo1");
 $foo1_cas = $1;
-is(scalar <$sock>, "1\r\n",, "validating foo1 set of data is 1");
+is(scalar <$sock>, "1\r\n", "validating foo1 set of data is 1");
 ok(scalar <$sock> =~ /VALUE foo2 0 1 (\d+)\r\n/, "validating second set of data is foo2");
 $foo2_cas = $1;
 is(scalar <$sock>, "2\r\n", "validating foo2 set of data is 2");
