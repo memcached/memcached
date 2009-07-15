@@ -379,7 +379,7 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
                        (unsigned long)it->exptime + process_started);
         if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;
-        strcpy(buffer + bufcurr, temp);
+        memcpy(buffer + bufcurr, temp, len);
         bufcurr += len;
         shown++;
         it = it->next;
