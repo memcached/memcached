@@ -3738,7 +3738,8 @@ static int server_socket_unix(const char *path, int access_mask) {
     memset(&addr, 0, sizeof(addr));
 
     addr.sun_family = AF_UNIX;
-    strcpy(addr.sun_path, path);
+    strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+    assert(strcmp(addr.sun_path, path) == 0);
     old_umask = umask( ~(access_mask&0777));
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
