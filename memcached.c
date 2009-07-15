@@ -4302,11 +4302,8 @@ int main (int argc, char **argv) {
     if (settings.socketpath != NULL) {
         errno = 0;
         if (server_socket_unix(settings.socketpath,settings.access)) {
-          fprintf(stderr, "failed to listen on UNIX socket: %s\n",
-                  settings.socketpath);
-          if (errno != 0)
-              perror("socket listen");
-          exit(EX_OSERR);
+            vperror("failed to listen on UNIX socket: %s", settings.socketpath);
+            exit(EX_OSERR);
         }
     }
 
@@ -4333,9 +4330,7 @@ int main (int argc, char **argv) {
         errno = 0;
         if (settings.port && server_socket(settings.port, tcp_transport,
                                            portnumber_file)) {
-            fprintf(stderr, "failed to listen on TCP port %d\n", settings.port);
-            if (errno != 0)
-                perror("tcp listen");
+            vperror("failed to listen on TCP port %d", settings.port);
             exit(EX_OSERR);
         }
 
@@ -4351,9 +4346,7 @@ int main (int argc, char **argv) {
         errno = 0;
         if (settings.udpport && server_socket(settings.udpport, udp_transport,
                                               portnumber_file)) {
-            fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
-            if (errno != 0)
-                perror("udp listen");
+            vperror("failed to listen on UDP port %d", settings.udpport);
             exit(EX_OSERR);
         }
 
