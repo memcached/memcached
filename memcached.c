@@ -998,7 +998,6 @@ static void complete_incr_bin(conn *c) {
     item *it;
     char *key;
     size_t nkey;
-#define INCR_MAX_STORAGE_LEN 24
 
     protocol_binary_response_incr* rsp = (protocol_binary_response_incr*)c->wbuf;
     protocol_binary_request_incr* req = binary_get_request(c);
@@ -1091,7 +1090,6 @@ static void complete_incr_bin(conn *c) {
 
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
     }
-#undef INCR_MAX_STORAGE_LEN
 }
 
 static void complete_update_bin(conn *c) {
@@ -2536,7 +2534,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 }
 
 static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
-    char temp[sizeof("18446744073709551615")];
+    char temp[INCR_MAX_STORAGE_LEN];
     item *it;
     uint64_t delta;
     char *key;
@@ -2630,7 +2628,7 @@ enum delta_result_type do_add_delta(conn *c, item *it, const bool incr,
     }
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
-    sprintf(buf, "%llu", (unsigned long long)value);
+    snprintf(buf, INCR_MAX_STORAGE_LEN, "%llu", (unsigned long long)value);
     res = strlen(buf);
     if (res + 2 > it->nbytes) { /* need to realloc */
         item *new_it;
