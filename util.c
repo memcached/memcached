@@ -1,9 +1,10 @@
-#include <stdlib.h>
+#include <stdio.h>
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #include "memcached.h"
 
@@ -87,4 +88,18 @@ bool safe_strtol(const char *str, int32_t *out) {
         return true;
     }
     return false;
+}
+
+void vperror(const char *fmt, ...) {
+    int old_errno = errno;
+    char buf[80];
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    errno = old_errno;
+
+    perror(buf);
 }

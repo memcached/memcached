@@ -22,6 +22,8 @@
 #include "cache.h"
 #include "util.h"
 
+#define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
+
 enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 
 static enum test_return cache_create_test(void)
@@ -387,6 +389,50 @@ static int connect_server(const char *hostname, in_port_t port)
     return sock;
 }
 
+static enum test_return test_vperror(void) {
+    int rv = 0;
+    int oldstderr = dup(STDERR_FILENO);
+    char tmpl[sizeof(TMP_TEMPLATE)+1];
+    strncpy(tmpl, TMP_TEMPLATE, sizeof(TMP_TEMPLATE)+1);
+
+    int newfile = mkstemp(tmpl);
+    assert(newfile > 0);
+    rv = dup2(newfile, STDERR_FILENO);
+    assert(rv == STDERR_FILENO);
+    rv = close(newfile);
+    assert(rv == 0);
+
+    errno = EIO;
+    vperror("Old McDonald had a farm.  %s", "EI EIO");
+
+    /* Restore stderr */
+    rv = dup2(oldstderr, STDERR_FILENO);
+    assert(rv == STDERR_FILENO);
+
+
+    /* Go read the file */
+    char buf[80] = { 0 };
+    FILE *efile = fopen(tmpl, "r");
+    assert(efile);
+    char *prv = fgets(buf, sizeof(buf), efile);
+    assert(prv);
+    fclose(efile);
+
+    unlink(tmpl);
+
+    char expected[80] = { 0 };
+    snprintf(expected, sizeof(expected),
+             "Old McDonald had a farm.  EI EIO: %s\n", strerror(EIO));
+
+    /*
+    fprintf(stderr,
+            "\nExpected:  ``%s''"
+            "\nGot:       ``%s''\n", expected, buf);
+    */
+
+    return strcmp(expected, buf) == 0 ? TEST_PASS : TEST_FAIL;
+}
+
 
 static enum test_return test_issue_72(void) {
     in_port_t port;
@@ -435,6 +481,7 @@ struct testcase testcases[] = {
     { "strtoull", test_safe_strtoull },
     { "issue_44", test_issue_44 },
     { "issue_72", test_issue_72 },
+    { "vperror", test_vperror },
     { NULL, NULL }
 };
 
