@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 880;
+use Test::More tests => 2880;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -356,6 +356,36 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
     is('yes', $stats{'cas_enabled'});
 }
 
+# diag "Test protocol boundary overruns";
+{
+    use List::Util qw[min];
+    # Attempting some protocol overruns by toying around with the edge
+    # of the data buffer at a few different sizes.  This assumes the
+    # boundary is at or around 2048 bytes.
+    for (my $i = 1900; $i < 2100; $i++) {
+        my $k = "test_key_$i";
+        my $v = 'x' x $i;
+        # diag "Trying $i $k";
+        my $extra = pack "NN", 82, 0;
+        my $data = $mc->build_command(::CMD_SETQ, $k, $v, 0, $extra, 0);
+        $data .= $mc->build_command(::CMD_SETQ, "alt_$k", "blah", 0, $extra, 0);
+        if (length($data) > 2024) {
+            for (my $j = 2024; $j < min(2096, length($data)); $j++) {
+                $mc->{socket}->send(substr($data, 0, $j));
+                $mc->flush_socket;
+                sleep(0.001);
+                $mc->{socket}->send(substr($data, $j));
+                $mc->flush_socket;
+            }
+        } else {
+            $mc->{socket}->send($data);
+        }
+        $mc->flush_socket;
+        $check->($k, 82, $v);
+        $check->("alt_$k", 82, "blah");
+    }
+}
+
 # Along with the assertion added to the code to verify we're staying
 # within bounds when we do a stats detail dump (detail turned on at
 # the top).
@@ -380,7 +410,7 @@ sub new {
     return $self;
 }
 
-sub send_command {
+sub build_command {
     my $self = shift;
     die "Not enough args to send_command" unless @_ >= 4;
     my ($cmd, $key, $val, $opaque, $extra_header, $cas) = @_;
@@ -403,12 +433,26 @@ sub send_command {
     my $msg = pack(::REQ_PKT_FMT, ::REQ_MAGIC, $cmd, $keylen, $extralen,
                    $datatype, $reserved, $totallen, $opaque, $ident_hi,
                    $ident_lo);
-
     my $full_msg = $msg . $extra_header . $key . $val;
+    return $full_msg;
+}
+
+sub send_command {
+    my $self = shift;
+    die "Not enough args to send_command" unless @_ >= 4;
+    my ($cmd, $key, $val, $opaque, $extra_header, $cas) = @_;
+
+    my $full_msg = $self->build_command($cmd, $key, $val, $opaque, $extra_header, $cas);
+
     my $sent = $self->{socket}->send($full_msg);
     if($sent != length($full_msg)) {
         die("only sent $sent of " . length($full_msg) . " bytes");
     }
+}
+
+sub flush_socket {
+    my $self = shift;
+    $self->{socket}->flush;
 }
 
 # Send a silent command and ensure it doesn't respond.
