@@ -58,7 +58,6 @@
  */
 static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
-static int server_socket(const int port, enum network_transport transport);
 static int try_read_command(conn *c);
 
 enum try_read_result {
@@ -3505,35 +3504,39 @@ static void maximize_sndbuf(const int sfd) {
         fprintf(stderr, "<%d send buffer was %d, now %d\n", sfd, old_size, last_good);
 }
 
-static int server_socket(const int port, enum network_transport transport) {
+/**
+ * Create a socket and bind it to a specific port number
+ * @param port the port number to bind to
+ * @param transport the transport protocol (TCP / UDP)
+ * @param portnumber_file A filepointer to write the port numbers to
+ *        when they are successfully added to the list of ports we
+ *        listen on.
+ */
+static int server_socket(int port, enum network_transport transport,
+                         FILE *portnumber_file) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
     struct addrinfo *next;
-    struct addrinfo hints;
+    struct addrinfo hints = { .ai_flags = AI_PASSIVE,
+                              .ai_family = AF_UNSPEC };
     char port_buf[NI_MAXSERV];
     int error;
     int success = 0;
-
     int flags =1;
 
-    /*
-     * the memset call clears nonstandard fields in some impementations
-     * that otherwise mess things up.
-     */
-    memset(&hints, 0, sizeof (hints));
-    hints.ai_flags = AI_PASSIVE;
-    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = IS_UDP(transport) ? SOCK_DGRAM : SOCK_STREAM;
 
-    snprintf(port_buf, NI_MAXSERV, "%d", port);
+    if (port == -1) {
+        port = 0;
+    }
+    snprintf(port_buf, sizeof(port_buf), "%d", port);
     error= getaddrinfo(settings.inter, port_buf, &hints, &ai);
     if (error != 0) {
         if (error != EAI_SYSTEM)
           fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(error));
         else
           perror("getaddrinfo()");
-
         return 1;
     }
 
@@ -3590,6 +3593,26 @@ static int server_socket(const int port, enum network_transport transport) {
                 close(sfd);
                 freeaddrinfo(ai);
                 return 1;
+            }
+            if (portnumber_file != NULL &&
+                (next->ai_addr->sa_family == AF_INET ||
+                 next->ai_addr->sa_family == AF_INET6)) {
+                union {
+                    struct sockaddr_in in;
+                    struct sockaddr_in6 in6;
+                } my_sockaddr;
+                socklen_t len = sizeof(my_sockaddr);
+                if (getsockname(sfd, (struct sockaddr*)&my_sockaddr, &len)==0) {
+                    if (next->ai_addr->sa_family == AF_INET) {
+                        fprintf(portnumber_file, "%s INET: %u\n",
+                                IS_UDP(transport) ? "UDP" : "TCP",
+                                ntohs(my_sockaddr.in.sin_port));
+                    } else {
+                        fprintf(portnumber_file, "%s INET6: %u\n",
+                                IS_UDP(transport) ? "UDP" : "TCP",
+                                ntohs(my_sockaddr.in6.sin6_port));
+                    }
+                }
             }
         }
 
@@ -4246,8 +4269,26 @@ int main (int argc, char **argv) {
     /* create the listening socket, bind it, and init */
     if (settings.socketpath == NULL) {
         int udp_port;
+
+        const char *portnumber_filename = getenv("MEMCACHED_PORT_FILENAME");
+        char temp_portnumber_filename[PATH_MAX];
+        FILE *portnumber_file = NULL;
+
+        if (portnumber_filename != NULL) {
+            snprintf(temp_portnumber_filename,
+                     sizeof(temp_portnumber_filename),
+                     "%s.lck", portnumber_filename);
+
+            portnumber_file = fopen(temp_portnumber_filename, "a");
+            if (portnumber_file == NULL) {
+                fprintf(stderr, "Failed to open \"%s\": %s\n",
+                        temp_portnumber_filename, strerror(errno));
+            }
+        }
+
         errno = 0;
-        if (settings.port && server_socket(settings.port, tcp_transport)) {
+        if (settings.port && server_socket(settings.port, tcp_transport,
+                                           portnumber_file)) {
             fprintf(stderr, "failed to listen on TCP port %d\n", settings.port);
             if (errno != 0)
                 perror("tcp listen");
@@ -4264,11 +4305,17 @@ int main (int argc, char **argv) {
 
         /* create the UDP listening socket and bind it */
         errno = 0;
-        if (settings.udpport && server_socket(settings.udpport, udp_transport)) {
+        if (settings.udpport && server_socket(settings.udpport, udp_transport,
+                                              portnumber_file)) {
             fprintf(stderr, "failed to listen on UDP port %d\n", settings.udpport);
             if (errno != 0)
                 perror("udp listen");
             exit(EX_OSERR);
+        }
+
+        if (portnumber_file) {
+            fclose(portnumber_file);
+            rename(temp_portnumber_filename, portnumber_filename);
         }
     }
 

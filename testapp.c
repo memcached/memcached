@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <netinet/in.h>
 
 #include "config.h"
 #include "cache.h"
@@ -230,29 +231,107 @@ static enum test_return test_safe_strtol(void) {
     return TEST_PASS;
 }
 
-static enum test_return test_issue_44(void) {
-    char pidfile[80];
-    char buffer[256];
-    sprintf(pidfile, "/tmp/memcached.%d", getpid());
-    sprintf(buffer, "./memcached-debug -p 0 -P %s -d", pidfile);
-    assert(system(buffer) == 0);
-    sleep(1);
-    FILE *fp = fopen(pidfile, "r");
-    assert(fp);
-    assert(fgets(buffer, sizeof(buffer), fp));
+/**
+ * Function to start the server and let it listen on a random port
+ *
+ * @param port_out where to store the TCP port number the server is
+ *                 listening on
+ * @param daemon set to true if you want to run the memcached server
+ *               as a daemon process
+ * @return the pid of the memcached server
+ */
+static pid_t start_server(in_port_t *port_out, bool daemon) {
+    char environment[80];
+    snprintf(environment, sizeof(environment),
+             "MEMCACHED_PORT_FILENAME=/tmp/ports.%u", getpid());
+    char *filename= environment + strlen("MEMCACHED_PORT_FILENAME=");
+    char pid_file[80];
+    snprintf(pid_file, sizeof(pid_file), "/tmp/pid.%u", getpid());
+
+    remove(filename);
+    remove(pid_file);
+
+    pid_t pid = fork();
+    assert(pid != -1);
+
+    if (pid == 0) {
+        /* Child */
+        char *argv[10];
+        int arg = 0;
+        putenv(environment);
+        argv[arg++] = "./memcached-debug";
+        argv[arg++] = "-p";
+        argv[arg++] = "-1";
+        argv[arg++] = "-U";
+        argv[arg++] = "0";
+        if (daemon) {
+            argv[arg++] = "-d";
+            argv[arg++] = "-P";
+            argv[arg++] = pid_file;
+        }
+        argv[arg++] = NULL;
+        assert(execv("./memcached-debug", argv) != -1);
+    }
+
+    /* Yeah just let us "busy-wait" for the file to be created ;-) */
+    while (access(filename, F_OK) == -1) {
+        usleep(10);
+    }
+
+    FILE *fp = fopen(filename, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "Failed to open the file containing port numbers: %s\n",
+                strerror(errno));
+        assert(false);
+    }
+
+    *port_out = (in_port_t)-1;
+    char buffer[80];
+    while ((fgets(buffer, sizeof(buffer), fp)) != NULL) {
+        if (strncmp(buffer, "TCP INET: ", 10) == 0) {
+            int32_t val;
+            assert(safe_strtol(buffer + 10, &val));
+            *port_out = (in_port_t)val;
+        }
+    }
     fclose(fp);
-    pid_t pid = atol(buffer);
-    assert(kill(pid, 0) == 0);
+    assert(remove(filename) == 0);
+
+    if (daemon) {
+        /* loop and wait for the pid file.. There is a potential race
+         * condition that the server just created the file but isn't
+         * finished writing the content, but I'll take the chance....
+         */
+        while (access(pid_file, F_OK) == -1) {
+            usleep(10);
+        }
+
+        fp = fopen(pid_file, "r");
+        if (fp == NULL) {
+            fprintf(stderr, "Failed to open pid file: %s\n",
+                    strerror(errno));
+            assert(false);
+        }
+        assert(fgets(buffer, sizeof(buffer), fp) != NULL);
+        fclose(fp);
+
+        int32_t val;
+        assert(safe_strtol(buffer, &val));
+        pid = (pid_t)val;
+    }
+
+    return pid;
+}
+
+static enum test_return test_issue_44(void) {
+    in_port_t port;
+    pid_t pid = start_server(&port, true);
     assert(kill(pid, SIGHUP) == 0);
     sleep(1);
-    assert(kill(pid, 0) == 0);
     assert(kill(pid, SIGTERM) == 0);
-    assert(remove(pidfile) == 0);
 
     return TEST_PASS;
 }
-
-
 
 typedef enum test_return (*TEST_FUNC)(void);
 struct testcase {
