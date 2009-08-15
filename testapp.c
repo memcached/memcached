@@ -263,9 +263,13 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
 
     if (pid == 0) {
         /* Child */
-        char *argv[10];
+        char *argv[20];
         int arg = 0;
         putenv(environment);
+        if (!daemon) {
+            argv[arg++] = "./timedrun";
+            argv[arg++] = "15";
+        }
         argv[arg++] = "./memcached-debug";
         argv[arg++] = "-p";
         argv[arg++] = "-1";
@@ -277,7 +281,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
             argv[arg++] = pid_file;
         }
         argv[arg++] = NULL;
-        assert(execv("./memcached-debug", argv) != -1);
+        assert(execv(argv[0], argv) != -1);
     }
 
     /* Yeah just let us "busy-wait" for the file to be created ;-) */
@@ -447,6 +451,7 @@ int main(int argc, char **argv)
 
     for (ii = 0; testcases[ii].description != NULL; ++ii) {
         fflush(stdout);
+        alarm(60);
         enum test_return ret = testcases[ii].function();
         if (ret == TEST_SKIP) {
             fprintf(stdout, "ok # SKIP %d - %s\n", ii + 1, testcases[ii].description);
