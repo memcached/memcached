@@ -461,6 +461,7 @@ sub send_command {
     my $full_msg = $self->build_command($cmd, $key, $val, $opaque, $extra_header, $cas);
 
     my $sent = $self->{socket}->send($full_msg);
+    die("Send failed:  $!") unless $sent;
     if($sent != length($full_msg)) {
         die("only sent $sent of " . length($full_msg) . " bytes");
     }
