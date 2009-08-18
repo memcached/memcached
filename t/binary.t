@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 2880;
+use Test::More tests => 3312;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -86,6 +86,16 @@ my $delete = sub {
 # diag "Test Version";
 my $v = $mc->version;
 ok(defined $v && length($v), "Proper version: $v");
+
+# Bug 71
+{
+    my %stats1 = $mc->stats('');
+    $mc->flush;
+    my %stats2 = $mc->stats('');
+
+    is($stats2{'cmd_flush'}, $stats1{'cmd_flush'} + 1,
+       "Stats not updated on a binary flush");
+}
 
 # diag "Flushing...";
 $mc->flush;
@@ -281,11 +291,17 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
 
 # diag "Silent flush";
 {
+    my %stats1 = $mc->stats('');
+
     $set->('x', 5, 19, "somevaluex");
     $set->('y', 5, 17, "somevaluey");
     $mc->send_silent(::CMD_FLUSHQ, '', '', 2775256);
     $empty->('x');
     $empty->('y');
+
+    my %stats2 = $mc->stats('');
+    is($stats2{'cmd_flush'}, $stats1{'cmd_flush'} + 1,
+       "Stats not updated on a binary quiet flush");
 }
 
 # diag "Append";

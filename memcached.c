@@ -1764,6 +1764,10 @@ static void process_bin_flush(conn *c) {
     }
     item_flush_expired();
 
+    STATS_LOCK();
+    c->thread->stats.flush_cmds++;
+    STATS_UNLOCK();
+
     write_bin_response(c, NULL, 0, 0, 0);
 }
 
