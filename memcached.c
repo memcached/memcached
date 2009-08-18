@@ -1764,9 +1764,9 @@ static void process_bin_flush(conn *c) {
     }
     item_flush_expired();
 
-    STATS_LOCK();
+    pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.flush_cmds++;
-    STATS_UNLOCK();
+    pthread_mutex_unlock(&c->thread->stats.mutex);
 
     write_bin_response(c, NULL, 0, 0, 0);
 }
@@ -2778,9 +2778,9 @@ static void process_command(conn *c, char *command) {
 
         set_noreply_maybe(c, tokens, ntokens);
 
-        STATS_LOCK();
+        pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.flush_cmds++;
-        STATS_UNLOCK();
+        pthread_mutex_unlock(&c->thread->stats.mutex);
 
         if(ntokens == (c->noreply ? 3 : 2)) {
             settings.oldest_live = current_time - 1;
