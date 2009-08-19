@@ -24,7 +24,7 @@ is included below.
 Unix socket path to listen on (disables network support).
 .TP
 .B \-a <perms>
-Permissions (in octal format) for Unix socket created with -s option.
+Permissions (in octal format) for Unix socket created with \-s option.
 .TP
 .B \-l <ip_addr>  
 Listen on <ip_addr>; default to INADDR_ANY. This is an important option to
@@ -78,7 +78,7 @@ The default is 1.25.
 Allocate a minimum of <size> bytes for the item key, value, and flags. The
 default is 48. If you have a lot of small keys and values, you can get a
 significant memory efficiency gain with a lower value. If you use a high
-chunk growth factor (-f option), on the other hand, you may want to increase
+chunk growth factor (\-f option), on the other hand, you may want to increase
 the size to allow a bigger percentage of your items to fit in the most densely
 packed (smallest) chunks.
 .TP
@@ -99,7 +99,7 @@ responses.
 Print memcached and libevent licenses.
 .TP
 .B \-P <filename>
-Print pidfile to <filename>, only used under -d option.
+Print pidfile to <filename>, only used under \-d option.
 .TP
 .B \-t <threads>
 Number of threads to use to process incoming requests. This option is only
