@@ -322,16 +322,17 @@ static void test_prefix_dump() {
 
     /* Find a key that hashes to the same bucket as "abc" */
     for (keynum = 0; keynum < PREFIX_HASH_SIZE * 100; keynum++) {
-        sprintf(tmp, "%d", keynum);
+        snprintf(tmp, sizeof(tmp), "%d", keynum);
         if (hashval == hash(tmp, strlen(tmp), 0) % PREFIX_HASH_SIZE) {
             break;
         }
     }
     stats_prefix_record_set(tmp);
-    sprintf(tmp, "PREFIX %d get 0 hit 0 set 1 del 0\r\n"
-                 "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
-                 "PREFIX def get 0 hit 0 set 0 del 1\r\n"
-                 "END\r\n", keynum);
+    snprintf(tmp, sizeof(tmp),
+             "PREFIX %d get 0 hit 0 set 1 del 0\r\n"
+             "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
+             "PREFIX def get 0 hit 0 set 0 del 1\r\n"
+             "END\r\n", keynum);
     test_equals_str("stats with two stats in one bucket",
                     tmp, stats_prefix_dump(&length));
     test_equals_int("stats length with two stats in one bucket",

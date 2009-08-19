@@ -2086,7 +2086,7 @@ static inline void set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
 
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...) {
-    char val_str[128];
+    char val_str[STAT_VAL_LEN];
     int vlen;
     va_list ap;
 

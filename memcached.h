@@ -96,15 +96,18 @@
          + (item)->nsuffix + (item)->nbytes \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
+#define STAT_KEY_LEN 128
+#define STAT_VAL_LEN 128
+
 /** Append a simple stat with a stat name, value format and value */
 #define APPEND_STAT(name, fmt, val) \
     append_stat(name, add_stats, c, fmt, val);
 
 /** Append an indexed stat with a stat name (with format), value format
     and value */
-#define APPEND_NUM_FMT_STAT(name_fmt, num, name, fmt, val)   \
-    klen = sprintf(key_str, name_fmt, num, name);            \
-    vlen = sprintf(val_str, fmt, val);                       \
+#define APPEND_NUM_FMT_STAT(name_fmt, num, name, fmt, val)          \
+    klen = snprintf(key_str, STAT_KEY_LEN, name_fmt, num, name);    \
+    vlen = snprintf(val_str, STAT_VAL_LEN, fmt, val);               \
     add_stats(key_str, klen, val_str, vlen, c);
 
 /** Common APPEND_NUM_FMT_STAT format. */

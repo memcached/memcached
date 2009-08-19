@@ -349,8 +349,8 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
             slabs = p->slabs;
             perslab = p->perslab;
 
-            char key_str[128];
-            char val_str[128];
+            char key_str[STAT_KEY_LEN];
+            char val_str[STAT_VAL_LEN];
             int klen = 0, vlen = 0;
 
             APPEND_NUM_STAT(i, "chunk_size", "%u", p->size);

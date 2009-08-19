@@ -397,8 +397,8 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
     for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i] != NULL) {
             const char *fmt = "items:%d:%s";
-            char key_str[128];
-            char val_str[256];
+            char key_str[STAT_KEY_LEN];
+            char val_str[STAT_VAL_LEN];
             int klen = 0, vlen = 0;
 
             APPEND_NUM_FMT_STAT(fmt, i, "number", "%u", sizes[i]);
@@ -446,7 +446,7 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
             if (histogram[i] != 0) {
                 char key[8];
                 int klen = 0;
-                klen = sprintf(key, "%d", i * 32);
+                klen = snprintf(key, sizeof(key), "%d", i * 32);
                 assert(klen < sizeof(key));
                 APPEND_STAT(key, "%u", histogram[i]);
             }
