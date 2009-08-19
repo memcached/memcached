@@ -2368,11 +2368,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     return;
                   }
                   *(c->suffixlist + i) = suffix;
-                  sprintf(suffix, " %llu\r\n", (unsigned long long)ITEM_get_cas(it));
+                  int suffix_len = snprintf(suffix, SUFFIX_SIZE,
+                                            " %llu\r\n",
+                                            (unsigned long long)ITEM_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
-                      add_iov(c, suffix, strlen(suffix)) != 0 ||
+                      add_iov(c, suffix, suffix_len) != 0 ||
                       add_iov(c, ITEM_data(it), it->nbytes) != 0)
                       {
                           item_remove(it);
