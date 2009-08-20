@@ -71,7 +71,7 @@ static PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
 
     assert(key != NULL);
 
-    for (length = 0; key[length] != '\0' && length < nkey; length++)
+    for (length = 0; length < nkey && key[length] != '\0'; length++)
         if (key[length] == settings.prefix_delimiter)
             break;
 
