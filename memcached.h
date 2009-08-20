@@ -470,7 +470,7 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
 enum store_item_type store_item(item *item, int comm, conn *c);
 
 #if HAVE_DROP_PRIVILEGES
-extern void drop_privileges();
+extern void drop_privileges(void);
 #else
 #define drop_privileges()
 #endif

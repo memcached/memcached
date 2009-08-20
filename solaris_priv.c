@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <priv.h>
 #include <stdio.h>
+#include "memcached.h"
 
 /*
  * this section of code will drop all (Solaris) privileges including
@@ -8,7 +9,7 @@
  * effect of this is that after running this code, the process will not able
  * to fork(), exec(), etc.  See privileges(5) for more information.
  */
-void drop_privileges() {
+void drop_privileges(void) {
    priv_set_t *privs = priv_str_to_set("basic", ",", NULL);
 
    if (privs == NULL) {
