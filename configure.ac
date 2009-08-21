@@ -107,10 +107,11 @@ AC_ARG_ENABLE(coverage,
 if test "x$enable_coverage" != "xno"; then
    if test "$ICC" = "yes"
    then
-      :
       dnl ICC trying to be gcc, but not well
+      CFLAGS="$CFLAGS -pthread"
    elif test "$GCC" = "yes"
    then
+      CFLAGS="$CFLAGS -pthread"
       AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
       if test "x$PROFILER" != "xno"; then
          PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"
