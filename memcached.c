@@ -1443,6 +1443,7 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
                 return;
             }
 
+            c->rbuf= newm;
             /* rcurr should point to the same offset in the packet */
             c->rcurr = c->rbuf + offset - sizeof(protocol_binary_request_header);
             c->rsize = nsize;
@@ -3339,8 +3340,14 @@ static void drive_machine(conn *c) {
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */
-            if (settings.verbose > 0)
-                fprintf(stderr, "Failed to read, and not due to blocking\n");
+            if (settings.verbose > 0) {
+                fprintf(stderr, "Failed to read, and not due to blocking:\n"
+                        "errno: %d %s \n"
+                        "rcurr=%lx ritem=%lx rbuf=%lx rlbytes=%d rsize=%d\n",
+                        errno, strerror(errno),
+                        (long)c->rcurr, (long)c->ritem, (long)c->rbuf,
+                        (int)c->rlbytes, (int)c->rsize);
+            }
             conn_set_state(c, conn_closing);
             break;
 

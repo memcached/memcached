@@ -268,6 +268,11 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
         char *argv[20];
         int arg = 0;
         putenv(environment);
+#ifdef __sun
+        putenv("LD_PRELOAD=watchmalloc.so.1");
+        putenv("MALLOC_DEBUG=WATCH");
+#endif
+
         if (!daemon) {
             argv[arg++] = "./timedrun";
             argv[arg++] = "15";
