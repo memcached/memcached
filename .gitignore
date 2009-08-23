@@ -38,3 +38,4 @@ doc/protocol-binary.txt
 /testapp
 /timedrun
 /doc/doxy
+/memcached.spec
