@@ -310,10 +310,10 @@ AC_DEFUN([AC_C_ALIGNMENT],
   ],[
     ac_cv_c_alignment=none
   ],[
-    ac_cv_c_endian=need
+    ac_cv_c_alignment=need
   ])
 ])
-if test $ac_cv_c_endian = need; then
+if test $ac_cv_c_alignment = need; then
   AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])
 fi
 ])
