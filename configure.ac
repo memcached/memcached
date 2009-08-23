@@ -364,7 +364,7 @@ then
    AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux])
 elif test "$GCC" = "yes"
 then
-  GCC_VERSION=`gcc -dumpversion`
+  GCC_VERSION=`$CC -dumpversion`
   CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
   case $GCC_VERSION in
     4.4.*)
