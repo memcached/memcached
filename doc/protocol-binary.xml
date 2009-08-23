@@ -250,12 +250,16 @@
           <t hangText="0x1A">PrependQ</t>
         </list>
         </t>
-	<t>
-	  As a convention all of the commands ending with "Q" for Quiet.
-	  A quiet version of a command will not send back a response, except
-	  for GetQ and GetKQ. See the description of the 
-	  <xref target="command-get">Get commands</xref> for a full description.
-	</t>
+	      <t>
+	        As a convention all of the commands ending with "Q" for
+	        Quiet.  A quiet version of a command will omit responses
+	        that are considered uninteresting.  Whether a given response
+	        is interesting is dependent upon the command.  See the
+	        descriptions of the
+	        <xref target="command-get">set commands</xref>
+	        and <xref target="command-set">set commands</xref> for
+	        examples of commands that include quiet variants.
+	      </t>
       </section>
 
       <section anchor="value-types" title="Data Types">
@@ -599,6 +603,13 @@ Value        (33-37): The textual string: "World"
         <t>
         Set should store the data unconditionally if the item exists
         or not.
+        </t>
+
+        <t>
+          Quiet mutations only return responses on failure.  Success
+          is considered the general case and is suppressed when in
+          quiet mode, but errors should not be allowed to go
+          unnoticed.
         </t>
 
         <section anchor="command-set-example" title="Example">
