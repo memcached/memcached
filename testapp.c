@@ -282,6 +282,11 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
         argv[arg++] = "-1";
         argv[arg++] = "-U";
         argv[arg++] = "0";
+        /* Handle rpmbuild and the like doing this as root */
+        if (getuid() == 0) {
+            argv[arg++] = "-u";
+            argv[arg++] = "root";
+        }
         if (daemon) {
             argv[arg++] = "-d";
             argv[arg++] = "-P";
