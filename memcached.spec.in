@@ -90,7 +90,7 @@ exit 0
 %{_bindir}/memcached
 %{_mandir}/man1/memcached.1*
 %{_initrddir}/memcached
-
+%{_includedir}/memcached
 
 %changelog
 * Sat Aug 29 2009 Dustin Sallings <dustin@spy.net> - 1.4.1-1
