@@ -555,9 +555,16 @@ END\r\n
 | free_chunks     | Chunks not yet allocated to items, or freed via delete.  |
 | free_chunks_end | Number of free chunks at the end of the last allocated   |
 |                 | page.                                                    |
+| mem_requested   | Number of bytes requested to be stored in this slab[*].  |
 | active_slabs    | Total number of slab classes allocated.                  |
 | total_malloced  | Total amount of memory allocated to slab pages.          |
 |-----------------+----------------------------------------------------------|
+
+* Items are stored in a slab that is the same size or larger than the
+  item.  mem_requested shows the size of all items within a
+  slab. (total_pages * 1MB) - mem_requested shows memory wasted in a
+  slab class.  If you see a lot of waste, consider tuning the slab
+  factor.
 
 Other commands
 --------------
