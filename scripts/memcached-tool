@@ -178,15 +178,17 @@ while (<$sock>) {
     }
 }
 
-print "  #  Item_Size   Max_age  1MB_pages Count   Full?\n";
+print "  #  Item_Size  Max_age   Pages   Count   Full?  Evicted Evict_Time OOM\n";
 foreach my $n (1..40) {
     my $it = $items{$n};
     next if (0 == $it->{total_pages});
-    my $size = $it->{chunk_size} < 1024 ? "$it->{chunk_size} B " :
-        sprintf("%.1f kB", $it->{chunk_size} / 1024.0);
+    my $size = $it->{chunk_size} < 1024 ?
+        "$it->{chunk_size}B" :
+        sprintf("%.1fK", $it->{chunk_size} / 1024.0);
     my $full = $it->{free_chunks_end} == 0 ? "yes" : " no";
-    printf "%3d   %8s %7d s %7d %7d %7s\n",
-    $n, $size, $it->{age}, $it->{total_pages},
-    $it->{number}, $full;
+    printf("%3d %8s %9ds %7d %7d %7s %8d %8d %4d\n",
+           $n, $size, $it->{age}, $it->{total_pages},
+           $it->{number}, $full, $it->{evicted},
+           $it->{evicted_time}, $it->{outofmemory});
 }
 
