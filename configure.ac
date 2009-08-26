@@ -283,6 +283,28 @@ fi
 
 AC_C_ENDIAN
 
+AC_DEFUN([AC_C_HTONLL],
+[
+    AC_MSG_CHECKING([for htonll])
+    have_htoll="no"
+    AC_RUN_IFELSE([
+       AC_LANG_PROGRAM([
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <inttypes.h>
+       ], [
+          return htonll(0);
+       ])
+    ], [
+      have_htoll="yes"
+      AC_DEFINE([HAVE_HTONLL], [1], [Have ntohll])
+    ])
+
+    AC_MSG_RESULT([$have_htoll])
+])
+
+AC_C_HTONLL
+
 dnl Check whether the user's system supports pthread
 AC_SEARCH_LIBS(pthread_create, pthread)
 if test "x$ac_cv_search_pthread_create" == "xno"; then

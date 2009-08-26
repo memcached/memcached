@@ -93,7 +93,6 @@ static void write_and_free(conn *c, char *buf, int bytes);
 static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
 static int add_msghdr(conn *c);
-static uint64_t mc_swap64(uint64_t in);
 
 /* time handling */
 static void set_current_time(void);  /* update the global variable holding
@@ -891,7 +890,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
 
     header->response.bodylen = htonl(body_len);
     header->response.opaque = c->opaque;
-    header->response.cas = mc_swap64(c->cas);
+    header->response.cas = htonll(c->cas);
 
     if (settings.verbose > 1) {
         int ii;
@@ -976,24 +975,6 @@ static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen)
     }
 }
 
-/* Byte swap a 64-bit number */
-static uint64_t mc_swap64(uint64_t in) {
-#ifdef ENDIAN_LITTLE
-    /* Little endian, flip the bytes around until someone makes a faster/better
-    * way to do this. */
-    int64_t rv = 0;
-    int i = 0;
-     for(i = 0; i<8; i++) {
-        rv = (rv << 8) | (in & 0xff);
-        in >>= 8;
-     }
-    return rv;
-#else
-    /* big-endian machines don't need byte swapping */
-    return in;
-#endif
-}
-
 static void complete_incr_bin(conn *c) {
     item *it;
     char *key;
@@ -1006,8 +987,8 @@ static void complete_incr_bin(conn *c) {
     assert(c->wsize >= sizeof(*rsp));
 
     /* fix byteorder in the request */
-    req->message.body.delta = mc_swap64(req->message.body.delta);
-    req->message.body.initial = mc_swap64(req->message.body.initial);
+    req->message.body.delta = ntohll(req->message.body.delta);
+    req->message.body.initial = ntohll(req->message.body.initial);
     req->message.body.expiration = ntohl(req->message.body.expiration);
     key = binary_get_key(c);
     nkey = c->binary_header.request.keylen;
@@ -1047,7 +1028,7 @@ static void complete_incr_bin(conn *c) {
         if (st != PROTOCOL_BINARY_RESPONSE_SUCCESS) {
             write_bin_error(c, st, 0);
         } else {
-            rsp->message.body.value = mc_swap64(strtoull(tmpbuf, NULL, 10));
+            rsp->message.body.value = htonll(strtoull(tmpbuf, NULL, 10));
             c->cas = ITEM_get_cas(it);
             write_bin_response(c, &rsp->message.body, 0, 0,
                                sizeof(rsp->message.body.value));
@@ -1056,7 +1037,7 @@ static void complete_incr_bin(conn *c) {
         item_remove(it);         /* release our reference */
     } else if (!it && req->message.body.expiration != 0xffffffff) {
         /* Save some room for the response */
-        rsp->message.body.value = mc_swap64(req->message.body.initial);
+        rsp->message.body.value = htonll(req->message.body.initial);
         it = item_alloc(key, nkey, 0, realtime(req->message.body.expiration),
                         INCR_MAX_STORAGE_LEN);
 
@@ -1197,7 +1178,7 @@ static void process_bin_get(conn *c) {
             keylen = nkey;
         }
         add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
-        rsp->message.header.response.cas = mc_swap64(ITEM_get_cas(it));
+        rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
 
         // add the flags
         rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
@@ -1795,7 +1776,7 @@ static void process_bin_delete(conn *c) {
 
     it = item_get(key, nkey);
     if (it) {
-        uint64_t cas=mc_swap64(req->message.header.request.cas);
+        uint64_t cas = ntohll(req->message.header.request.cas);
         if (cas == 0 || cas == ITEM_get_cas(it)) {
             MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
             item_unlink(it);
@@ -2922,7 +2903,7 @@ static int try_read_command(conn *c) {
             c->binary_header = *req;
             c->binary_header.request.keylen = ntohs(req->request.keylen);
             c->binary_header.request.bodylen = ntohl(req->request.bodylen);
-            c->binary_header.request.cas = mc_swap64(req->request.cas);
+            c->binary_header.request.cas = ntohll(req->request.cas);
 
             if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
                 if (settings.verbose) {
