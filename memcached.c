@@ -1587,6 +1587,9 @@ static void dispatch_bin_command(conn *c) {
             if (keylen == 0 && extlen == 0 && bodylen == 0) {
                 write_bin_response(c, NULL, 0, 0, 0);
                 c->write_and_go = conn_closing;
+                if (c->noreply) {
+                    conn_set_state(c, conn_closing);
+                }
             } else {
                 protocol_error = 1;
             }

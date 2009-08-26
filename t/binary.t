@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3312;
+use Test::More tests => 3313;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -372,6 +372,28 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
     is('yes', $stats{'cas_enabled'});
 }
 
+# diag "Test quit commands.";
+{
+    my $s2 = new_memcached();
+    my $mc2 = MC::Client->new($s2);
+    $mc2->send_command(CMD_QUITQ, '', '', 0, '', 0);
+
+    # Five seconds ought to be enough to get hung up on.
+    my $oldalarmt = alarm(5);
+
+    # Verify we can't read anything.
+    my $bytesread = -1;
+    eval {
+        local $SIG{'ALRM'} = sub { die "timeout" };
+        my $data = "";
+        $bytesread = sysread($mc2->{socket}, $data, 24),
+    };
+    is($bytesread, 0, "Read after quit.");
+
+    # Restore signal stuff.
+    alarm($oldalarmt);
+}
+
 # diag "Test protocol boundary overruns";
 {
     use List::Util qw[min];
@@ -420,7 +442,9 @@ use IO::Socket::INET;
 
 sub new {
     my $self = shift;
-    my $sock = $server->sock;
+    my ($s) = @_;
+    $s = $server unless defined $s;
+    my $sock = $s->sock;
     $self = fields::new($self);
     $self->{socket} = $sock;
     return $self;
