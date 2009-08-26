@@ -2493,27 +2493,32 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
     // does cas value exist?
     if (handle_cas) {
-        if (!safe_strtoull(tokens[5].value, &req_cas_id)
-            || vlen < 0 ) {
+        if (!safe_strtoull(tokens[5].value, &req_cas_id)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
+    }
+
+    vlen += 2;
+    if (vlen < 0 || vlen - 2 < 0) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
     }
 
     if (settings.detail_enabled) {
         stats_prefix_record_set(key, nkey);
     }
 
-    it = item_alloc(key, nkey, flags, realtime(exptime), vlen+2);
+    it = item_alloc(key, nkey, flags, realtime(exptime), vlen);
 
     if (it == 0) {
-        if (! item_size_ok(nkey, flags, vlen + 2))
+        if (! item_size_ok(nkey, flags, vlen))
             out_string(c, "SERVER_ERROR object too large for cache");
         else
             out_string(c, "SERVER_ERROR out of memory storing object");
         /* swallow the data line */
         c->write_and_go = conn_swallow;
-        c->sbytes = vlen + 2;
+        c->sbytes = vlen;
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
