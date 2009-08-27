@@ -1582,6 +1582,10 @@ static void dispatch_bin_command(conn *c) {
     if (protocol_error) {
         /* Just write an error message and disconnect the client */
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
+        if (settings.verbose) {
+            fprintf(stderr, "Protocol error (opcode %02x), close connection %d\n",
+                    c->binary_header.request.opcode, c->sfd);
+        }
         c->write_and_go = conn_closing;
     }
 }
