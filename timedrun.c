@@ -45,6 +45,9 @@ static int wait_for_process(pid_t pid)
             case 0:
                 /* On the first iteration, pass the signal through */
                 sig = caught > 0 ? caught : SIGTERM;
+                if (caught == SIGALRM) {
+                   fprintf(stderr, "Timeout.. killing the process\n");
+                }
                 break;
             case 1:
                 sig = SIGTERM;
