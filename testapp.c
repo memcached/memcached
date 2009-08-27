@@ -1,5 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #undef NDEBUG
+#include <pthread.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -25,6 +26,11 @@
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 
 enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
+
+static pid_t server_pid;
+static in_port_t port;
+static int sock;
+static bool allow_closed_read = false;
 
 static enum test_return cache_create_test(void)
 {
@@ -249,7 +255,7 @@ static enum test_return test_safe_strtol(void) {
  *               as a daemon process
  * @return the pid of the memcached server
  */
-static pid_t start_server(in_port_t *port_out, bool daemon) {
+static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     char environment[80];
     snprintf(environment, sizeof(environment),
              "MEMCACHED_PORT_FILENAME=/tmp/ports.%lu", (long)getpid());
@@ -260,6 +266,15 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
     remove(filename);
     remove(pid_file);
 
+#ifdef __sun
+    /* I want to name the corefiles differently so that they don't
+       overwrite each other
+    */
+    char coreadm[128];
+    sprintf(coreadm, "coreadm -p core.%%f.%%p %lu", (unsigned long)getpid());
+    system(coreadm);
+#endif
+
     pid_t pid = fork();
     assert(pid != -1);
 
@@ -267,6 +282,9 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
         /* Child */
         char *argv[20];
         int arg = 0;
+        char tmo[24];
+        snprintf(tmo, sizeof(tmo), "%u", timeout);
+
         putenv(environment);
 #ifdef __sun
         putenv("LD_PRELOAD=watchmalloc.so.1");
@@ -275,7 +293,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
 
         if (!daemon) {
             argv[arg++] = "./timedrun";
-            argv[arg++] = "15";
+            argv[arg++] = tmo;
         }
         argv[arg++] = "./memcached-debug";
         argv[arg++] = "-p";
@@ -292,6 +310,9 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
             argv[arg++] = "-P";
             argv[arg++] = pid_file;
         }
+#ifdef MESSAGE_DEBUG
+         argv[arg++] = "-vvv";
+#endif
         argv[arg++] = NULL;
         assert(execv(argv[0], argv) != -1);
     }
@@ -348,7 +369,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon) {
 
 static enum test_return test_issue_44(void) {
     in_port_t port;
-    pid_t pid = start_server(&port, true);
+    pid_t pid = start_server(&port, true, 15);
     assert(kill(pid, SIGHUP) == 0);
     sleep(1);
     assert(kill(pid, SIGTERM) == 0);
@@ -446,7 +467,7 @@ static enum test_return test_vperror(void) {
 
 static enum test_return test_issue_72(void) {
     in_port_t port;
-    pid_t pid = start_server(&port, false);
+    pid_t pid = start_server(&port, false, 15);
     int sock = connect_server("127.0.0.1", port);
     assert(sock != -1);
 
@@ -466,9 +487,1110 @@ static enum test_return test_issue_72(void) {
     protocol_binary_response_set response;
     assert(read(sock, &response, sizeof(response)) == sizeof(response));
     assert(response.message.header.response.magic == PROTOCOL_BINARY_RES);
-    assert(response.message.header.response.status == PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    assert(ntohs(response.message.header.response.status) == PROTOCOL_BINARY_RESPONSE_SUCCESS);
     close(sock);
     assert(kill(pid, SIGTERM) == 0);
+    return TEST_PASS;
+}
+
+static enum test_return start_memcached_server(void) {
+    server_pid = start_server(&port, false, 600);
+    sock = connect_server("127.0.0.1", port);
+    return TEST_PASS;
+}
+
+static enum test_return stop_memcached_server(void) {
+    close(sock);
+    assert(kill(server_pid, SIGTERM) == 0);
+    return TEST_PASS;
+}
+
+static void safe_send(const void* buf, size_t len, bool hickup)
+{
+    off_t offset = 0;
+    const char* ptr = buf;
+#ifdef MESSAGE_DEBUG
+    uint8_t val = *ptr;
+    assert(val == (uint8_t)0x80);
+    fprintf(stderr, "About to send %lu bytes:", (unsigned long)len);
+    for (int ii = 0; ii < len; ++ii) {
+        if (ii % 4 == 0) {
+            fprintf(stderr, "\n   ");
+        }
+        val = *(ptr + ii);
+        fprintf(stderr, " 0x%02x", val);
+    }
+    fprintf(stderr, "\n");
+    usleep(500);
+#endif
+
+    do {
+        size_t num_bytes = len - offset;
+        if (hickup) {
+            if (num_bytes > 1024) {
+                num_bytes = (rand() % 1023) + 1;
+            }
+        }
+
+        ssize_t nw = write(sock, ptr + offset, num_bytes);
+        if (nw == -1) {
+            if (errno != EINTR) {
+                fprintf(stderr, "Failed to write: %s\n", strerror(errno));
+                abort();
+            }
+        } else {
+            if (hickup) {
+                usleep(100);
+            }
+            offset += nw;
+        }
+    } while (offset < len);
+}
+
+static bool safe_recv(void *buf, size_t len) {
+    if (len == 0) {
+        return true;
+    }
+    off_t offset = 0;
+    do {
+        ssize_t nr = read(sock, ((char*)buf) + offset, len - offset);
+        if (nr == -1) {
+            if (errno != EINTR) {
+                fprintf(stderr, "Failed to read: %s\n", strerror(errno));
+                abort();
+            }
+        } else {
+            if (nr == 0 && allow_closed_read) {
+                return false;
+            }
+            assert(nr != 0);
+            offset += nr;
+        }
+    } while (offset < len);
+
+    return true;
+}
+
+static bool safe_recv_packet(void *buf, size_t size) {
+    protocol_binary_response_no_extras *response = buf;
+    assert(size > sizeof(*response));
+    if (!safe_recv(response, sizeof(*response))) {
+        return false;
+    }
+    response->message.header.response.keylen = ntohs(response->message.header.response.keylen);
+    response->message.header.response.status = ntohs(response->message.header.response.status);
+    response->message.header.response.bodylen = ntohl(response->message.header.response.bodylen);
+
+    size_t len = sizeof(*response);
+
+    char *ptr = buf;
+    ptr += len;
+    if (!safe_recv(ptr, response->message.header.response.bodylen)) {
+        return false;
+    }
+
+#ifdef MESSAGE_DEBUG
+    usleep(500);
+    ptr = buf;
+    len += response->message.header.response.bodylen;
+    uint8_t val = *ptr;
+    assert(val == (uint8_t)0x81);
+    fprintf(stderr, "Received %lu bytes:", (unsigned long)len);
+    for (int ii = 0; ii < len; ++ii) {
+        if (ii % 4 == 0) {
+            fprintf(stderr, "\n   ");
+        }
+        val = *(ptr + ii);
+        fprintf(stderr, " 0x%02x", val);
+    }
+    fprintf(stderr, "\n");
+#endif
+    return true;
+}
+
+static off_t storage_command(char*buf,
+                             size_t bufsz,
+                             uint8_t cmd,
+                             const void* key,
+                             size_t keylen,
+                             const void* dta,
+                             size_t dtalen,
+                             uint32_t flags,
+                             uint32_t exp) {
+    /* all of the storage commands use the same command layout */
+    protocol_binary_request_set *request = (void*)buf;
+    assert(bufsz > sizeof(*request) + keylen + dtalen);
+
+    memset(request, 0, sizeof(*request));
+    request->message.header.request.magic = PROTOCOL_BINARY_REQ;
+    request->message.header.request.opcode = cmd;
+    request->message.header.request.keylen = htons(keylen);
+    request->message.header.request.extlen = 8;
+    request->message.header.request.bodylen = htonl(keylen + 8 + dtalen);
+    request->message.header.request.opaque = 0xdeadbeef;
+    request->message.body.flags = flags;
+    request->message.body.expiration = exp;
+
+    off_t key_offset = sizeof(protocol_binary_request_no_extras) + 8;
+
+    memcpy(buf + key_offset, key, keylen);
+    if (dta != NULL) {
+        memcpy(buf + key_offset + keylen, dta, dtalen);
+    }
+
+    return key_offset + keylen + dtalen;
+}
+
+static off_t raw_command(char* buf,
+                         size_t bufsz,
+                         uint8_t cmd,
+                         const void* key,
+                         size_t keylen,
+                         const void* dta,
+                         size_t dtalen) {
+    /* all of the storage commands use the same command layout */
+    protocol_binary_request_no_extras *request = (void*)buf;
+    assert(bufsz > sizeof(*request) + keylen + dtalen);
+
+    memset(request, 0, sizeof(*request));
+    request->message.header.request.magic = PROTOCOL_BINARY_REQ;
+    request->message.header.request.opcode = cmd;
+    request->message.header.request.keylen = htons(keylen);
+    request->message.header.request.bodylen = htonl(keylen + dtalen);
+    request->message.header.request.opaque = 0xdeadbeef;
+
+    off_t key_offset = sizeof(protocol_binary_request_no_extras);
+
+    if (key != NULL) {
+        memcpy(buf + key_offset, key, keylen);
+    }
+    if (dta != NULL) {
+        memcpy(buf + key_offset + keylen, dta, dtalen);
+    }
+
+    return sizeof(*request) + keylen + dtalen;
+}
+
+static off_t flush_command(char* buf, size_t bufsz, uint8_t cmd, uint32_t exptime, bool use_extra) {
+    protocol_binary_request_flush *request = (void*)buf;
+    assert(bufsz > sizeof(*request));
+
+    memset(request, 0, sizeof(*request));
+    request->message.header.request.magic = PROTOCOL_BINARY_REQ;
+    request->message.header.request.opcode = cmd;
+
+    off_t size = sizeof(protocol_binary_request_no_extras);
+    if (use_extra) {
+        request->message.header.request.extlen = 4;
+        request->message.body.expiration = htonl(exptime);
+        request->message.header.request.bodylen = htonl(4);
+        size += 4;
+    }
+
+    request->message.header.request.opaque = 0xdeadbeef;
+
+    return size;
+}
+
+static off_t arithmetic_command(char* buf,
+                                size_t bufsz,
+                                uint8_t cmd,
+                                const void* key,
+                                size_t keylen,
+                                uint64_t delta,
+                                uint64_t initial,
+                                uint32_t exp) {
+    protocol_binary_request_incr *request = (void*)buf;
+    assert(bufsz > sizeof(*request) + keylen);
+
+    memset(request, 0, sizeof(*request));
+    request->message.header.request.magic = PROTOCOL_BINARY_REQ;
+    request->message.header.request.opcode = cmd;
+    request->message.header.request.keylen = htons(keylen);
+    request->message.header.request.extlen = 20;
+    request->message.header.request.bodylen = htonl(keylen + 20);
+    request->message.header.request.opaque = 0xdeadbeef;
+    request->message.body.delta = htonll(delta);
+    request->message.body.initial = htonll(initial);
+    request->message.body.expiration = htonl(exp);
+
+    off_t key_offset = sizeof(protocol_binary_request_no_extras) + 20;
+
+    memcpy(buf + key_offset, key, keylen);
+    return key_offset + keylen;
+}
+
+static void validate_response_header(protocol_binary_response_no_extras *response,
+                                     uint8_t cmd, uint16_t status)
+{
+    assert(response->message.header.response.magic == PROTOCOL_BINARY_RES);
+    assert(response->message.header.response.opcode == cmd);
+    assert(response->message.header.response.datatype == PROTOCOL_BINARY_RAW_BYTES);
+    assert(response->message.header.response.status == status);
+    assert(response->message.header.response.opaque == 0xdeadbeef);
+
+    if (status == PROTOCOL_BINARY_RESPONSE_SUCCESS) {
+        switch (cmd) {
+        case PROTOCOL_BINARY_CMD_ADDQ:
+        case PROTOCOL_BINARY_CMD_APPENDQ:
+        case PROTOCOL_BINARY_CMD_DECREMENTQ:
+        case PROTOCOL_BINARY_CMD_DELETEQ:
+        case PROTOCOL_BINARY_CMD_FLUSHQ:
+        case PROTOCOL_BINARY_CMD_INCREMENTQ:
+        case PROTOCOL_BINARY_CMD_PREPENDQ:
+        case PROTOCOL_BINARY_CMD_QUITQ:
+        case PROTOCOL_BINARY_CMD_REPLACEQ:
+        case PROTOCOL_BINARY_CMD_SETQ:
+            assert("Quiet command shouldn't return on success" == NULL);
+        default:
+            break;
+        }
+
+        switch (cmd) {
+        case PROTOCOL_BINARY_CMD_ADD:
+        case PROTOCOL_BINARY_CMD_REPLACE:
+        case PROTOCOL_BINARY_CMD_SET:
+        case PROTOCOL_BINARY_CMD_APPEND:
+        case PROTOCOL_BINARY_CMD_PREPEND:
+            assert(response->message.header.response.keylen == 0);
+            assert(response->message.header.response.extlen == 0);
+            assert(response->message.header.response.bodylen == 0);
+            assert(response->message.header.response.cas != 0);
+            break;
+        case PROTOCOL_BINARY_CMD_FLUSH:
+        case PROTOCOL_BINARY_CMD_NOOP:
+        case PROTOCOL_BINARY_CMD_QUIT:
+        case PROTOCOL_BINARY_CMD_DELETE:
+            assert(response->message.header.response.keylen == 0);
+            assert(response->message.header.response.extlen == 0);
+            assert(response->message.header.response.bodylen == 0);
+            assert(response->message.header.response.cas == 0);
+            break;
+
+        case PROTOCOL_BINARY_CMD_DECREMENT:
+        case PROTOCOL_BINARY_CMD_INCREMENT:
+            assert(response->message.header.response.keylen == 0);
+            assert(response->message.header.response.extlen == 0);
+            assert(response->message.header.response.bodylen == 8);
+            assert(response->message.header.response.cas != 0);
+            break;
+
+        case PROTOCOL_BINARY_CMD_STAT:
+            assert(response->message.header.response.extlen == 0);
+            /* key and value exists in all packets except in the terminating */
+            assert(response->message.header.response.cas == 0);
+            break;
+
+        case PROTOCOL_BINARY_CMD_VERSION:
+            assert(response->message.header.response.keylen == 0);
+            assert(response->message.header.response.extlen == 0);
+            assert(response->message.header.response.bodylen != 0);
+            assert(response->message.header.response.cas == 0);
+            break;
+
+        case PROTOCOL_BINARY_CMD_GET:
+        case PROTOCOL_BINARY_CMD_GETQ:
+            assert(response->message.header.response.keylen == 0);
+            assert(response->message.header.response.extlen == 4);
+            assert(response->message.header.response.cas != 0);
+            break;
+
+        case PROTOCOL_BINARY_CMD_GETK:
+        case PROTOCOL_BINARY_CMD_GETKQ:
+            assert(response->message.header.response.keylen != 0);
+            assert(response->message.header.response.extlen == 4);
+            assert(response->message.header.response.cas != 0);
+            break;
+
+        default:
+            /* Undefined command code */
+            break;
+        }
+    } else {
+        assert(response->message.header.response.cas == 0);
+        assert(response->message.header.response.extlen == 0);
+        if (cmd != PROTOCOL_BINARY_CMD_GETK) {
+            assert(response->message.header.response.keylen == 0);
+        }
+    }
+}
+
+static enum test_return test_binary_noop(void) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } buffer;
+
+    size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             PROTOCOL_BINARY_CMD_NOOP,
+                             NULL, 0, NULL, 0);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, PROTOCOL_BINARY_CMD_NOOP,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_quit_impl(uint8_t cmd) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } buffer;
+    size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             cmd, NULL, 0, NULL, 0);
+
+    safe_send(buffer.bytes, len, false);
+    if (cmd == PROTOCOL_BINARY_CMD_QUIT) {
+        safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+        validate_response_header(&buffer.response, PROTOCOL_BINARY_CMD_QUIT,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    }
+
+    /* Socket should be closed now, read should return 0 */
+    assert(read(sock, buffer.bytes, sizeof(buffer.bytes)) == 0);
+    close(sock);
+    sock = connect_server("127.0.0.1", port);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_quit(void) {
+    return test_binary_quit_impl(PROTOCOL_BINARY_CMD_QUIT);
+}
+
+static enum test_return test_binary_quitq(void) {
+    return test_binary_quit_impl(PROTOCOL_BINARY_CMD_QUITQ);
+}
+
+static enum test_return test_binary_set_impl(const char *key, uint8_t cmd) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    uint64_t value = 0xdeadbeefdeadcafe;
+    size_t len = storage_command(send.bytes, sizeof(send.bytes), cmd,
+                                 key, strlen(key), &value, sizeof(value),
+                                 0, 0);
+
+    /* Set should work over and over again */
+    int ii;
+    for (ii = 0; ii < 10; ++ii) {
+        safe_send(send.bytes, len, false);
+        if (cmd == PROTOCOL_BINARY_CMD_SET) {
+            safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+            validate_response_header(&receive.response, cmd,
+                                     PROTOCOL_BINARY_RESPONSE_SUCCESS);
+        }
+    }
+
+    if (cmd == PROTOCOL_BINARY_CMD_SETQ) {
+        return test_binary_noop();
+    }
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_set(void) {
+    return test_binary_set_impl("test_binary_set", PROTOCOL_BINARY_CMD_SET);
+}
+
+static enum test_return test_binary_setq(void) {
+    return test_binary_set_impl("test_binary_setq", PROTOCOL_BINARY_CMD_SETQ);
+}
+
+
+static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
+    uint64_t value = 0xdeadbeefdeadcafe;
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = storage_command(send.bytes, sizeof(send.bytes), cmd, key,
+                                 strlen(key), &value, sizeof(value),
+                                 0, 0);
+
+    /* Add should only work the first time */
+    int ii;
+    for (ii = 0; ii < 10; ++ii) {
+        safe_send(send.bytes, len, false);
+        if (ii == 0) {
+            if (cmd == PROTOCOL_BINARY_CMD_ADD) {
+                safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+                validate_response_header(&receive.response, cmd,
+                                         PROTOCOL_BINARY_RESPONSE_SUCCESS);
+            }
+        } else {
+            safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+            validate_response_header(&receive.response, cmd,
+                                     PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS);
+        }
+    }
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_add(void) {
+    return test_binary_add_impl("test_binary_add", PROTOCOL_BINARY_CMD_ADD);
+}
+
+static enum test_return test_binary_addq(void) {
+    return test_binary_add_impl("test_binary_addq", PROTOCOL_BINARY_CMD_ADDQ);
+}
+
+static enum test_return test_binary_replace_impl(const char* key, uint8_t cmd) {
+    uint64_t value = 0xdeadbeefdeadcafe;
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = storage_command(send.bytes, sizeof(send.bytes), cmd,
+                                 key, strlen(key), &value, sizeof(value),
+                                 0, 0);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, cmd,
+                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+    len = storage_command(send.bytes, sizeof(send.bytes),
+                          PROTOCOL_BINARY_CMD_ADD,
+                          key, strlen(key), &value, sizeof(value), 0, 0);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_ADD,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    len = storage_command(send.bytes, sizeof(send.bytes), cmd,
+                          key, strlen(key), &value, sizeof(value), 0, 0);
+    int ii;
+    for (ii = 0; ii < 10; ++ii) {
+        safe_send(send.bytes, len, false);
+        if (cmd == PROTOCOL_BINARY_CMD_REPLACE) {
+            safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+            validate_response_header(&receive.response,
+                                     PROTOCOL_BINARY_CMD_REPLACE,
+                                     PROTOCOL_BINARY_RESPONSE_SUCCESS);
+        }
+    }
+
+    if (cmd == PROTOCOL_BINARY_CMD_REPLACEQ) {
+        test_binary_noop();
+    }
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_replace(void) {
+    return test_binary_replace_impl("test_binary_replace",
+                                    PROTOCOL_BINARY_CMD_REPLACE);
+}
+
+static enum test_return test_binary_replaceq(void) {
+    return test_binary_replace_impl("test_binary_replaceq",
+                                    PROTOCOL_BINARY_CMD_REPLACEQ);
+}
+
+static enum test_return test_binary_delete_impl(const char *key, uint8_t cmd) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = raw_command(send.bytes, sizeof(send.bytes), cmd,
+                             key, strlen(key), NULL, 0);
+
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, cmd,
+                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+    len = storage_command(send.bytes, sizeof(send.bytes),
+                          PROTOCOL_BINARY_CMD_ADD,
+                          key, strlen(key), NULL, 0, 0, 0);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_ADD,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    len = raw_command(send.bytes, sizeof(send.bytes),
+                      cmd, key, strlen(key), NULL, 0);
+    safe_send(send.bytes, len, false);
+
+    if (cmd == PROTOCOL_BINARY_CMD_DELETE) {
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_DELETE,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    }
+
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, cmd,
+                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_delete(void) {
+    return test_binary_delete_impl("test_binary_delete",
+                                   PROTOCOL_BINARY_CMD_DELETE);
+}
+
+static enum test_return test_binary_deleteq(void) {
+    return test_binary_delete_impl("test_binary_deleteq",
+                                   PROTOCOL_BINARY_CMD_DELETEQ);
+}
+
+static enum test_return test_binary_get_impl(const char *key, uint8_t cmd) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = raw_command(send.bytes, sizeof(send.bytes), cmd,
+                             key, strlen(key), NULL, 0);
+
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, cmd,
+                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+
+    len = storage_command(send.bytes, sizeof(send.bytes),
+                          PROTOCOL_BINARY_CMD_ADD,
+                          key, strlen(key), NULL, 0,
+                          0, 0);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_ADD,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    /* run a little pipeline test ;-) */
+    len = 0;
+    int ii;
+    for (ii = 0; ii < 10; ++ii) {
+        union {
+            protocol_binary_request_no_extras request;
+            char bytes[1024];
+        } temp;
+        size_t l = raw_command(temp.bytes, sizeof(temp.bytes),
+                               cmd, key, strlen(key), NULL, 0);
+        memcpy(send.bytes + len, temp.bytes, l);
+        len += l;
+    }
+
+    safe_send(send.bytes, len, false);
+    for (ii = 0; ii < 10; ++ii) {
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response, cmd,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    }
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_get(void) {
+    return test_binary_get_impl("test_binary_get", PROTOCOL_BINARY_CMD_GET);
+}
+
+static enum test_return test_binary_getk(void) {
+    return test_binary_get_impl("test_binary_getk", PROTOCOL_BINARY_CMD_GETK);
+}
+
+static enum test_return test_binary_getq_impl(const char *key, uint8_t cmd) {
+    const char *missing = "test_binary_getq_missing";
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, temp, receive;
+    size_t len = storage_command(send.bytes, sizeof(send.bytes),
+                                 PROTOCOL_BINARY_CMD_ADD,
+                                 key, strlen(key), NULL, 0,
+                                 0, 0);
+    size_t len2 = raw_command(temp.bytes, sizeof(temp.bytes), cmd,
+                             missing, strlen(missing), NULL, 0);
+    /* I need to change the first opaque so that I can separate the two
+     * return packets */
+    temp.request.message.header.request.opaque = 0xfeedface;
+    memcpy(send.bytes + len, temp.bytes, len2);
+    len += len2;
+
+    len2 = raw_command(temp.bytes, sizeof(temp.bytes), cmd,
+                       key, strlen(key), NULL, 0);
+    memcpy(send.bytes + len, temp.bytes, len2);
+    len += len2;
+
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_ADD,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    /* The first GETQ shouldn't return anything */
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, cmd,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_getq(void) {
+    return test_binary_getq_impl("test_binary_getq", PROTOCOL_BINARY_CMD_GETQ);
+}
+
+static enum test_return test_binary_getkq(void) {
+    return test_binary_getq_impl("test_binary_getkq", PROTOCOL_BINARY_CMD_GETKQ);
+}
+
+static enum test_return test_binary_incr_impl(const char* key, uint8_t cmd) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response_header;
+        protocol_binary_response_incr response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = arithmetic_command(send.bytes, sizeof(send.bytes), cmd,
+                                    key, strlen(key), 1, 0, 0);
+
+    int ii;
+    for (ii = 0; ii < 10; ++ii) {
+        safe_send(send.bytes, len, false);
+        if (cmd == PROTOCOL_BINARY_CMD_INCREMENT) {
+            safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+            validate_response_header(&receive.response_header, cmd,
+                                     PROTOCOL_BINARY_RESPONSE_SUCCESS);
+            assert(ntohll(receive.response.message.body.value) == ii);
+        }
+    }
+
+    if (cmd == PROTOCOL_BINARY_CMD_INCREMENTQ) {
+        test_binary_noop();
+    }
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_incr(void) {
+    return test_binary_incr_impl("test_binary_incr",
+                                 PROTOCOL_BINARY_CMD_INCREMENT);
+}
+
+static enum test_return test_binary_incrq(void) {
+    return test_binary_incr_impl("test_binary_incrq",
+                                 PROTOCOL_BINARY_CMD_INCREMENTQ);
+}
+
+static enum test_return test_binary_decr_impl(const char* key, uint8_t cmd) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response_header;
+        protocol_binary_response_decr response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = arithmetic_command(send.bytes, sizeof(send.bytes), cmd,
+                                    key, strlen(key), 1, 9, 0);
+
+    int ii;
+    for (ii = 9; ii >= 0; --ii) {
+        safe_send(send.bytes, len, false);
+        if (cmd == PROTOCOL_BINARY_CMD_DECREMENT) {
+            safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+            validate_response_header(&receive.response_header, cmd,
+                                     PROTOCOL_BINARY_RESPONSE_SUCCESS);
+            assert(ntohll(receive.response.message.body.value) == ii);
+        }
+    }
+
+    /* decr on 0 should not wrap */
+    safe_send(send.bytes, len, false);
+    if (cmd == PROTOCOL_BINARY_CMD_DECREMENT) {
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response_header, cmd,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+        assert(ntohll(receive.response.message.body.value) == 0);
+    } else {
+        test_binary_noop();
+    }
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_decr(void) {
+    return test_binary_decr_impl("test_binary_decr",
+                                 PROTOCOL_BINARY_CMD_DECREMENT);
+}
+
+static enum test_return test_binary_decrq(void) {
+    return test_binary_decr_impl("test_binary_decrq",
+                                 PROTOCOL_BINARY_CMD_DECREMENTQ);
+}
+
+static enum test_return test_binary_version(void) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } buffer;
+
+    size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             PROTOCOL_BINARY_CMD_VERSION,
+                             NULL, 0, NULL, 0);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, PROTOCOL_BINARY_CMD_VERSION,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_flush_impl(const char *key, uint8_t cmd) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+
+    size_t len = storage_command(send.bytes, sizeof(send.bytes),
+                                 PROTOCOL_BINARY_CMD_ADD,
+                                 key, strlen(key), NULL, 0, 0, 0);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_ADD,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    len = flush_command(send.bytes, sizeof(send.bytes), cmd, 2, true);
+    safe_send(send.bytes, len, false);
+    if (cmd == PROTOCOL_BINARY_CMD_FLUSH) {
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response, cmd,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    }
+
+    len = raw_command(send.bytes, sizeof(send.bytes), PROTOCOL_BINARY_CMD_GET,
+                      key, strlen(key), NULL, 0);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_GET,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    sleep(2);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_GET,
+                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+
+    int ii;
+    for (ii = 0; ii < 2; ++ii) {
+        len = storage_command(send.bytes, sizeof(send.bytes),
+                              PROTOCOL_BINARY_CMD_ADD,
+                              key, strlen(key), NULL, 0, 0, 0);
+        safe_send(send.bytes, len, false);
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_ADD,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+        len = flush_command(send.bytes, sizeof(send.bytes), cmd, 0, ii == 0);
+        safe_send(send.bytes, len, false);
+        if (cmd == PROTOCOL_BINARY_CMD_FLUSH) {
+            safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+            validate_response_header(&receive.response, cmd,
+                                     PROTOCOL_BINARY_RESPONSE_SUCCESS);
+        }
+
+        len = raw_command(send.bytes, sizeof(send.bytes),
+                          PROTOCOL_BINARY_CMD_GET,
+                          key, strlen(key), NULL, 0);
+        safe_send(send.bytes, len, false);
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_GET,
+                                 PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+    }
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_flush(void) {
+    return test_binary_flush_impl("test_binary_flush",
+                                  PROTOCOL_BINARY_CMD_FLUSH);
+}
+
+static enum test_return test_binary_flushq(void) {
+    return test_binary_flush_impl("test_binary_flushq",
+                                  PROTOCOL_BINARY_CMD_FLUSHQ);
+}
+
+static enum test_return test_binary_concat_impl(const char *key, uint8_t cmd) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    const char *value = "world";
+
+    size_t len = raw_command(send.bytes, sizeof(send.bytes), cmd,
+                              key, strlen(key), value, strlen(value));
+
+
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, cmd,
+                             PROTOCOL_BINARY_RESPONSE_NOT_STORED);
+
+    len = storage_command(send.bytes, sizeof(send.bytes),
+                          PROTOCOL_BINARY_CMD_ADD,
+                          key, strlen(key), value, strlen(value), 0, 0);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_ADD,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    len = raw_command(send.bytes, sizeof(send.bytes), cmd,
+                      key, strlen(key), value, strlen(value));
+    safe_send(send.bytes, len, false);
+
+    if (cmd == PROTOCOL_BINARY_CMD_APPEND || cmd == PROTOCOL_BINARY_CMD_PREPEND) {
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response, cmd,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    } else {
+        len = raw_command(send.bytes, sizeof(send.bytes), PROTOCOL_BINARY_CMD_NOOP,
+                          NULL, 0, NULL, 0);
+        safe_send(send.bytes, len, false);
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_NOOP,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    }
+
+    len = raw_command(send.bytes, sizeof(send.bytes), PROTOCOL_BINARY_CMD_GETK,
+                      key, strlen(key), NULL, 0);
+
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_GETK,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    assert(receive.response.message.header.response.keylen == strlen(key));
+    assert(receive.response.message.header.response.bodylen == (strlen(key) + 2*strlen(value) + 4));
+
+    char *ptr = receive.bytes;
+    ptr += sizeof(receive.response);
+    ptr += 4;
+
+    assert(memcmp(ptr, key, strlen(key)) == 0);
+    ptr += strlen(key);
+    assert(memcmp(ptr, value, strlen(value)) == 0);
+    ptr += strlen(value);
+    assert(memcmp(ptr, value, strlen(value)) == 0);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_append(void) {
+    return test_binary_concat_impl("test_binary_append",
+                                   PROTOCOL_BINARY_CMD_APPEND);
+}
+
+static enum test_return test_binary_prepend(void) {
+    return test_binary_concat_impl("test_binary_prepend",
+                                   PROTOCOL_BINARY_CMD_PREPEND);
+}
+
+static enum test_return test_binary_appendq(void) {
+    return test_binary_concat_impl("test_binary_appendq",
+                                   PROTOCOL_BINARY_CMD_APPENDQ);
+}
+
+static enum test_return test_binary_prependq(void) {
+    return test_binary_concat_impl("test_binary_prependq",
+                                   PROTOCOL_BINARY_CMD_PREPENDQ);
+}
+
+static enum test_return test_binary_stat(void) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } buffer;
+
+    size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             PROTOCOL_BINARY_CMD_STAT,
+                             NULL, 0, NULL, 0);
+
+    safe_send(buffer.bytes, len, false);
+    do {
+        safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+        validate_response_header(&buffer.response, PROTOCOL_BINARY_CMD_STAT,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    } while (buffer.response.message.header.response.keylen != 0);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_illegal(void) {
+    uint8_t cmd = 0x1b;
+    while (cmd != 0x00) {
+        union {
+            protocol_binary_request_no_extras request;
+            protocol_binary_response_no_extras response;
+            char bytes[1024];
+        } buffer;
+        size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                                 cmd, NULL, 0, NULL, 0);
+        safe_send(buffer.bytes, len, false);
+        safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+        validate_response_header(&buffer.response, cmd,
+                                 PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND);
+        ++cmd;
+    }
+
+    return TEST_PASS;
+}
+
+volatile bool hickup_thread_running;
+
+static void *binary_hickup_recv_verification_thread(void *arg) {
+    protocol_binary_response_no_extras *response = malloc(65*1024);
+    if (response != NULL) {
+        while (safe_recv_packet(response, 65*1024)) {
+            /* Just validate the packet format */
+            validate_response_header(response,
+                                     response->message.header.response.opcode,
+                                     response->message.header.response.status);
+        }
+        free(response);
+    }
+    hickup_thread_running = false;
+    allow_closed_read = false;
+    return NULL;
+}
+
+static enum test_return test_binary_pipeline_hickup_chunk(void *buffer, size_t buffersize) {
+    off_t offset = 0;
+    char *key[256];
+    uint64_t value = 0xfeedfacedeadbeef;
+
+    while (hickup_thread_running &&
+           offset + sizeof(protocol_binary_request_no_extras) < buffersize) {
+        union {
+            protocol_binary_request_no_extras request;
+            char bytes[65 * 1024];
+        } command;
+        uint8_t cmd = (uint8_t)(rand() & 0xff);
+        size_t len;
+        size_t keylen = (rand() % 250) + 1;
+
+        switch (cmd) {
+        case PROTOCOL_BINARY_CMD_ADD:
+        case PROTOCOL_BINARY_CMD_ADDQ:
+        case PROTOCOL_BINARY_CMD_REPLACE:
+        case PROTOCOL_BINARY_CMD_REPLACEQ:
+        case PROTOCOL_BINARY_CMD_SET:
+        case PROTOCOL_BINARY_CMD_SETQ:
+            len = storage_command(command.bytes, sizeof(command.bytes), cmd,
+                                  key, keylen , &value, sizeof(value),
+                                  0, 0);
+            break;
+        case PROTOCOL_BINARY_CMD_APPEND:
+        case PROTOCOL_BINARY_CMD_APPENDQ:
+        case PROTOCOL_BINARY_CMD_PREPEND:
+        case PROTOCOL_BINARY_CMD_PREPENDQ:
+            len = raw_command(command.bytes, sizeof(command.bytes), cmd,
+                              key, keylen, &value, sizeof(value));
+            break;
+        case PROTOCOL_BINARY_CMD_FLUSH:
+        case PROTOCOL_BINARY_CMD_FLUSHQ:
+            len = raw_command(command.bytes, sizeof(command.bytes), cmd,
+                              NULL, 0, NULL, 0);
+            break;
+        case PROTOCOL_BINARY_CMD_NOOP:
+            len = raw_command(command.bytes, sizeof(command.bytes), cmd,
+                              NULL, 0, NULL, 0);
+            break;
+        case PROTOCOL_BINARY_CMD_DELETE:
+        case PROTOCOL_BINARY_CMD_DELETEQ:
+            len = raw_command(command.bytes, sizeof(command.bytes), cmd,
+                             key, keylen, NULL, 0);
+            break;
+        case PROTOCOL_BINARY_CMD_DECREMENT:
+        case PROTOCOL_BINARY_CMD_DECREMENTQ:
+        case PROTOCOL_BINARY_CMD_INCREMENT:
+        case PROTOCOL_BINARY_CMD_INCREMENTQ:
+            len = arithmetic_command(command.bytes, sizeof(command.bytes), cmd,
+                                     key, keylen, 1, 0, 0);
+            break;
+        case PROTOCOL_BINARY_CMD_VERSION:
+            len = raw_command(command.bytes, sizeof(command.bytes),
+                             PROTOCOL_BINARY_CMD_VERSION,
+                             NULL, 0, NULL, 0);
+            break;
+        case PROTOCOL_BINARY_CMD_GET:
+        case PROTOCOL_BINARY_CMD_GETK:
+        case PROTOCOL_BINARY_CMD_GETKQ:
+        case PROTOCOL_BINARY_CMD_GETQ:
+            len = raw_command(command.bytes, sizeof(command.bytes), cmd,
+                             key, keylen, NULL, 0);
+            break;
+
+        case PROTOCOL_BINARY_CMD_STAT:
+            len = raw_command(command.bytes, sizeof(command.bytes),
+                              PROTOCOL_BINARY_CMD_STAT,
+                              NULL, 0, NULL, 0);
+            break;
+
+        case PROTOCOL_BINARY_CMD_QUITQ:
+        case PROTOCOL_BINARY_CMD_QUIT:
+            /* I don't want to pass on the quit commands ;-) */
+            cmd |= 0xf0;
+            /* FALLTHROUGH */
+        default:
+            len = raw_command(command.bytes, sizeof(command.bytes),
+                              cmd, NULL, 0, NULL, 0);
+        }
+
+        if ((len + offset) < buffersize) {
+            memcpy(((char*)buffer) + offset, command.bytes, len);
+            offset += len;
+        } else {
+            break;
+        }
+    }
+    safe_send(buffer, offset, true);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_pipeline_hickup(void)
+{
+    size_t buffersize = 65 * 1024;
+    void *buffer = malloc(buffersize);
+    int ii;
+
+    pthread_t tid;
+    int ret;
+    allow_closed_read = true;
+    hickup_thread_running = true;
+    if ((ret = pthread_create(&tid, NULL,
+                              binary_hickup_recv_verification_thread, NULL)) != 0) {
+        fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
+        return TEST_FAIL;
+    }
+
+    /* Allow the thread to start */
+    usleep(250);
+
+    srand((int)time(NULL));
+    for (ii = 0; ii < 2; ++ii) {
+        test_binary_pipeline_hickup_chunk(buffer, buffersize);
+    }
+
+    /* send quitq to shut down the read thread ;-) */
+    size_t len = raw_command(buffer, buffersize, PROTOCOL_BINARY_CMD_QUITQ,
+                             NULL, 0, NULL, 0);
+    safe_send(buffer, len, false);
+
+    pthread_join(tid, NULL);
+    free(buffer);
     return TEST_PASS;
 }
 
@@ -492,6 +1614,38 @@ struct testcase testcases[] = {
     { "issue_44", test_issue_44 },
     { "issue_72", test_issue_72 },
     { "vperror", test_vperror },
+    /* The following tests all run towards the same server */
+    { "start_server", start_memcached_server },
+    { "binary_noop", test_binary_noop },
+    { "binary_quit", test_binary_quit },
+    { "binary_quitq", test_binary_quitq },
+    { "binary_set", test_binary_set },
+    { "binary_setq", test_binary_setq },
+    { "binary_add", test_binary_add },
+    { "binary_addq", test_binary_addq },
+    { "binary_replace", test_binary_replace },
+    { "binary_replaceq", test_binary_replaceq },
+    { "binary_delete", test_binary_delete },
+    { "binary_deleteq", test_binary_deleteq },
+    { "binary_get", test_binary_get },
+    { "binary_getq", test_binary_getq },
+    { "binary_getk", test_binary_getk },
+    { "binary_getkq", test_binary_getkq },
+    { "binary_incr", test_binary_incr },
+    { "binary_incrq", test_binary_incrq },
+    { "binary_decr", test_binary_decr },
+    { "binary_decrq", test_binary_decrq },
+    { "binary_version", test_binary_version },
+    { "binary_flush", test_binary_flush },
+    { "binary_flushq", test_binary_flushq },
+    { "binary_append", test_binary_append },
+    { "binary_appendq", test_binary_appendq },
+    { "binary_prepend", test_binary_prepend },
+    { "binary_prependq", test_binary_prependq },
+    { "binary_stat", test_binary_stat },
+    { "binary_illegal", test_binary_illegal },
+    { "binary_pipeline_hickup", test_binary_pipeline_hickup },
+    { "stop_server", stop_memcached_server },
     { NULL, NULL }
 };
 
@@ -508,7 +1662,10 @@ int main(int argc, char **argv)
 
     for (ii = 0; testcases[ii].description != NULL; ++ii) {
         fflush(stdout);
-        alarm(60);
+#ifndef DEBUG
+        /* the test program shouldn't run longer than 10 minutes... */
+        alarm(600);
+#endif
         enum test_return ret = testcases[ii].function();
         if (ret == TEST_SKIP) {
             fprintf(stdout, "ok # SKIP %d - %s\n", ii + 1, testcases[ii].description);
