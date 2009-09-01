@@ -5,7 +5,8 @@ our @files;
 
 BEGIN {
     chdir "$Bin/.." or die;
-    @files = grep {! /^config.h$/ } (glob("*.h"), glob("*.c"), glob("*.ac"), "memcached.spec");
+    @files = grep {! /^config.h$/ } (glob("*.h"), glob("*.c"), glob("*.ac"),
+                                     "memcached.spec.in");
 }
 use Test::More tests => scalar(@files);
 
