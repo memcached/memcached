@@ -224,7 +224,7 @@ is($mc->decr("x", 211), 0, "Floor is zero");
         ok($@->exists, "Expected error state of 'exists' (1)");
     }
 
-    $r, $rcas = $mc->set("x", "new value", 19, 5, $i);
+    ($r, $rcas) = $mc->set("x", "new value", 19, 5, $i);
 
     my ($newflags, $newval, $newi) = $mc->get("x");
     is($newval, "new value", "CAS properly overwrote value");
@@ -532,7 +532,9 @@ sub _handle_single_response {
         $opaque, $ident_hi, $ident_lo) = unpack(::RES_PKT_FMT, $response);
     Test::More::is($magic, ::RES_MAGIC, "Got proper response magic");
 
-    return ($opaque, '', '', 0) if($remaining == 0);
+    my $cas = ($ident_hi * 2 ** 32) + $ident_lo;
+
+    return ($opaque, '', $cas, 0) if($remaining == 0);
 
     # fetch the value
     my $rv="";
@@ -550,8 +552,6 @@ sub _handle_single_response {
     } else {
         Test::More::pass("Implicit pass since myopaque is undefined");
     }
-
-    my $cas = ($ident_hi * 2 ** 32) + $ident_lo;
 
     if ($status) {
         die MC::Error->new($status, $rv);

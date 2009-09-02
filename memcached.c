@@ -1974,6 +1974,10 @@ enum store_item_type do_store_item(item *it, int comm, conn *c) {
     if (new_it != NULL)
         do_item_remove(new_it);
 
+    if (stored == STORED) {
+        c->cas = ITEM_get_cas(it);
+    }
+
     return stored;
 }
 

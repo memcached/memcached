@@ -892,6 +892,17 @@ static enum test_return test_binary_set_impl(const char *key, uint8_t cmd) {
         return test_binary_noop();
     }
 
+    send.request.message.header.request.cas = receive.response.message.header.response.cas;
+    safe_send(send.bytes, len, false);
+    if (cmd == PROTOCOL_BINARY_CMD_SET) {
+        safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+        validate_response_header(&receive.response, cmd,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+        assert(receive.response.message.header.response.cas != send.request.message.header.request.cas);
+    } else {
+        return test_binary_noop();
+    }
+
     return TEST_PASS;
 }
 
