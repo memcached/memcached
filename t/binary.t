@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3313;
+use Test::More tests => 3315;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -212,10 +212,11 @@ is($mc->decr("x", 211), 0, "Floor is zero");
         ok($@->not_found, "Error was 'not found' as expected");
     }
 
-    $mc->add("x", "original value", 5, 19);
+    my ($r, $rcas) = $mc->add("x", "original value", 5, 19);
 
     my ($flags, $val, $i) = $mc->get("x");
     is($val, "original value", "->gets returned proper value");
+    is($rcas, $i, "Add CAS matched.");
 
     {
         my $rv =()= eval { $mc->set("x", "broken value", 19, 5, $i+1) };
@@ -223,10 +224,11 @@ is($mc->decr("x", 211), 0, "Floor is zero");
         ok($@->exists, "Expected error state of 'exists' (1)");
     }
 
-    $mc->set("x", "new value", 19, 5, $i);
+    $r, $rcas = $mc->set("x", "new value", 19, 5, $i);
 
     my ($newflags, $newval, $newi) = $mc->get("x");
     is($newval, "new value", "CAS properly overwrote value");
+    is($rcas, $newi, "Get CAS matched.");
 
     {
         my $rv =()= eval { $mc->set("x", "replay value", 19, 5,  $i) };
