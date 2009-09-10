@@ -3832,16 +3832,15 @@ static void usage(void) {
            "-i            print memcached and libevent license\n"
            "-P <file>     save PID in <file>, only used with -d option\n"
            "-f <factor>   chunk size growth factor (default: 1.25)\n"
-           "-n <bytes>    minimum space allocated for key+value+flags (default: 48)\n"
+           "-n <bytes>    minimum space allocated for key+value+flags (default: 48)\n");
 
 #if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
-           "-L            Try to use large memory pages (if available). Increasing\n"
+    printf("-L            Try to use large memory pages (if available). Increasing\n"
            "              the memory page size could reduce the number of TLB misses\n"
            "              and improve the performance. In order to get large pages\n"
            "              from the OS, memcached will allocate the total item-cache\n"
-           "              in one large chunk.\n"
+           "              in one large chunk.\n");
 #endif
-           );
 
     printf("-D <char>     Use <char> as the delimiter between key prefixes and IDs.\n"
            "              This is used for per-prefix stats reporting. The default is\n"
