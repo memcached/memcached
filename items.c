@@ -37,16 +37,6 @@ static item *tails[LARGEST_ID];
 static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
 
-void item_init(void) {
-    int i;
-    memset(itemstats, 0, sizeof(itemstats));
-    for(i = 0; i < LARGEST_ID; i++) {
-        heads[i] = NULL;
-        tails[i] = NULL;
-        sizes[i] = 0;
-    }
-}
-
 void item_stats_reset(void) {
     pthread_mutex_lock(&cache_lock);
     memset(itemstats, 0, sizeof(itemstats));

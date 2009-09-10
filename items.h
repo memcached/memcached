@@ -1,5 +1,4 @@
 /* See items.c */
-void item_init(void);
 uint64_t get_cas_id(void);
 
 /*@null@*/
