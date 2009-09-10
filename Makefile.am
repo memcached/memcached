@@ -5,7 +5,7 @@ noinst_PROGRAMS = memcached-debug sizes testapp timedrun
 
 BUILT_SOURCES=
 
-testapp_SOURCES = testapp.c util.c util.h
+testapp_SOURCES = testapp.c util.c util.h config_parser.c config_parser.h
 
 timedrun_SOURCES = timedrun.c
 
@@ -17,7 +17,8 @@ memcached_SOURCES = memcached.c memcached.h \
                     thread.c daemon.c \
                     stats.c stats.h \
                     util.c util.h \
-                    trace.h cache.h sasl_defs.h
+                    trace.h cache.h sasl_defs.h \
+                    config_parser.c config_parser.h
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c

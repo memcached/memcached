@@ -90,6 +90,21 @@ bool safe_strtol(const char *str, int32_t *out) {
     return false;
 }
 
+bool safe_strtof(const char *str, float *out) {
+    assert(out != NULL);
+    errno = 0;
+    *out = 0;
+    char *endptr;
+    float l = strtof(str, &endptr);
+    if (errno == ERANGE)
+        return false;
+    if (isspace(*endptr) || (*endptr == '\0' && endptr != str)) {
+        *out = l;
+        return true;
+    }
+    return false;
+}
+
 void vperror(const char *fmt, ...) {
     int old_errno = errno;
     char buf[1024];

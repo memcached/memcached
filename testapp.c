@@ -17,11 +17,13 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 #include "config.h"
 #include "cache.h"
 #include "util.h"
 #include "protocol_binary.h"
+#include "config_parser.h"
 
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 
@@ -243,6 +245,30 @@ static enum test_return test_safe_strtol(void) {
     // We'll allow space to terminate the string.  And leading space.
     assert(safe_strtol(" 123 foo", &val));
     assert(val == 123);
+    return TEST_PASS;
+}
+
+static enum test_return test_safe_strtof(void) {
+    float val;
+    assert(safe_strtof("123", &val));
+    assert(val == 123.00f);
+    assert(safe_strtof("+123", &val));
+    assert(val == 123.00f);
+    assert(safe_strtof("-123", &val));
+    assert(val == -123.00f);
+    assert(!safe_strtof("", &val));  // empty
+    assert(!safe_strtof("123BOGUS", &val));  // non-numeric
+
+    // We'll allow space to terminate the string.  And leading space.
+    assert(safe_strtof(" 123 foo", &val));
+    assert(val == 123.00f);
+
+    assert(safe_strtof("123.23", &val));
+    assert(val == 123.23f);
+
+    assert(safe_strtof("123.00", &val));
+    assert(val == 123.00f);
+
     return TEST_PASS;
 }
 
@@ -471,6 +497,118 @@ static enum test_return test_vperror(void) {
     */
 
     return strcmp(expected, buf) == 0 ? TEST_PASS : TEST_FAIL;
+}
+
+static char* trim(char* ptr) {
+    char *start = ptr;
+    while (isspace(*start)) {
+        ++start;
+    }
+    char *end = start + strlen(start) - 1;
+    if (end != start) {
+        while (isspace(*end)) {
+            *end = '\0';
+            --end;
+        }
+    }
+    return start;
+}
+
+static enum test_return test_config_parser(void) {
+    bool bool_val = false;
+    size_t size_val = 0;
+    float float_val = 0;
+
+    /* Set up the different items I can handle */
+    struct config_item items[] = {
+        { .key = "bool",
+          .datatype = DT_BOOL,
+          .value.dt_bool = &bool_val },
+        { .key = "size_t",
+          .datatype = DT_SIZE,
+          .value.dt_size = &size_val },
+        { .key = "float",
+          .datatype = DT_FLOAT,
+          .value.dt_float = &float_val},
+        { .key = "config_file",
+          .datatype = DT_CONFIGFILE },
+        { .key = NULL}
+    };
+
+    char outfile[sizeof(TMP_TEMPLATE)+1];
+    strncpy(outfile, TMP_TEMPLATE, sizeof(TMP_TEMPLATE)+1);
+    char cfgfile[sizeof(TMP_TEMPLATE)+1];
+    strncpy(cfgfile, TMP_TEMPLATE, sizeof(TMP_TEMPLATE)+1);
+
+    int newfile = mkstemp(outfile);
+    assert(newfile > 0);
+    FILE *error = fdopen(newfile, "w");
+
+    assert(error != NULL);
+    assert(parse_config("", items, error) == 0);
+    /* Nothing should be found */
+    for (int ii = 0; ii < 4; ++ii) {
+        assert(!items[0].found);
+    }
+
+    assert(parse_config("bool=true", items, error) == 0);
+    assert(bool_val);
+    /* only bool should be found */
+    assert(items[0].found);
+    items[0].found = false;
+    for (int ii = 0; ii < 4; ++ii) {
+        assert(!items[0].found);
+    }
+
+    /* It should allow illegal keywords */
+    assert(parse_config("pacman=dead", items, error) == 1);
+    /* and illegal values */
+    assert(parse_config("bool=12", items, error) == -1);
+    assert(!items[0].found);
+    /* and multiple occurences of the same value */
+    assert(parse_config("size_t=1; size_t=1024", items, error) == 0);
+    assert(items[1].found);
+    assert(size_val == 1024);
+    items[1].found = false;
+
+    /* And all of the variables */
+    assert(parse_config("bool=true;size_t=1024;float=12.5", items, error) == 0);
+    assert(bool_val);
+    assert(size_val == 1024);
+    assert(float_val == 12.5f);
+    for (int ii = 0; ii < 4; ++ii) {
+        items[ii].found = false;
+    }
+
+    newfile = mkstemp(cfgfile);
+    assert(newfile > 0);
+    FILE *cfg = fdopen(newfile, "w");
+    assert(cfg != NULL);
+    fprintf(cfg, "# This is a config file\nbool=true\nsize_t=1023\nfloat=12.4\n");
+    fclose(cfg);
+    char buffer[1024];
+    sprintf(buffer, "config_file=%s", cfgfile);
+    assert(parse_config(buffer, items, error) == 0);
+    assert(bool_val);
+    assert(size_val == 1023);
+    assert(float_val == 12.4f);
+    fclose(error);
+
+    remove(cfgfile);
+    /* Verify that I received the error messages ;-) */
+    error = fopen(outfile, "r");
+    assert(error);
+
+    assert(fgets(buffer, sizeof(buffer), error));
+    assert(strcmp("Unsupported key: <pacman>", trim(buffer)) == 0);
+    assert(fgets(buffer, sizeof(buffer), error));
+    assert(strcmp("Invalid entry, Key: <bool> Value: <12>", trim(buffer)) == 0);
+    assert(fgets(buffer, sizeof(buffer), error));
+    assert(strcmp("WARNING: Found duplicate entry for \"size_t\"", trim(buffer)) == 0);
+    assert(fgets(buffer, sizeof(buffer), error) == NULL);
+
+    remove(outfile);
+    return TEST_PASS;
 }
 
 static void send_ascii_command(const char *buf) {
@@ -1786,6 +1924,7 @@ struct testcase testcases[] = {
     { "cache_destructor", cache_destructor_test },
     { "cache_reuse", cache_reuse_test },
     { "cache_redzone", cache_redzone_test },
+    { "strtof", test_safe_strtof },
     { "strtol", test_safe_strtol },
     { "strtoll", test_safe_strtoll },
     { "strtoul", test_safe_strtoul },
@@ -1793,6 +1932,7 @@ struct testcase testcases[] = {
     { "issue_44", test_issue_44 },
     { "vperror", test_vperror },
     { "issue_101", test_issue_101 },
+    { "config_parser", test_config_parser },
     /* The following tests all run towards the same server */
     { "start_server", start_memcached_server },
     { "issue_92", test_issue_92 },
