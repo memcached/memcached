@@ -1,5 +1,5 @@
 bin_PROGRAMS = memcached
-pkginclude_HEADERS = protocol_binary.h
+pkginclude_HEADERS = include/memcached/protocol_binary.h
 noinst_PROGRAMS = memcached-debug sizes testapp timedrun
 
 BUILT_SOURCES=
