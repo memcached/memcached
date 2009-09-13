@@ -5,8 +5,10 @@ EXTRA_DIST = *.txt
 BUILT_SOURCES=
 
 if BUILD_SPECIFICATIONS
-BUILT_SOURCES += protocol-binary.txt protocol-binary-range.txt
-MOSTLYCLEANFILES = protocol-binary.txt protocol-binary-range.txt
+BUILT_SOURCES += protocol-binary.txt protocol-binary-range.txt \
+                 engine-interface.txt
+MOSTLYCLEANFILES = protocol-binary.txt protocol-binary-range.txt \
+                   engine-interface.txt
 endif
 
 %.txt: %.full
@@ -17,4 +19,3 @@ endif
 
 %.full: %.xml xml2rfc/rfc2629-noinc.xsl
 	@XSLTPROC@ xml2rfc/rfc2629-noinc.xsl $< >$@
-

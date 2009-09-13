@@ -1,0 +1,640 @@
+<?xml version="1.0" encoding="US-ASCII"?>
+<!DOCTYPE rfc SYSTEM "xml2rfc/rfc2629.dtd">
+<?xml-stylesheet type='text/xsl' href='xml2rfc/rfc2629.xslt'?>
+<?rfc toc="yes"?>
+<?rfc strict="yes"?>
+<?rfc symrefs="yes"?>
+<?rfc sortrefs="yes" ?>
+<?rfc compact="yes" ?>
+<?rfc subcompact="yes" ?>
+<rfc category="info" docName="draft-norbye-engine-interface-02" ipr="none">
+    <front>
+        <title> Memcache Engine Interface </title>
+        <author fullname="Trond Norbye" surname="Norbye" role="editor">
+            <organization>Sun Microsystems, INC</organization>
+            <address>
+                <postal>
+                    <street>Haakon VII g. 7B</street>
+                    <city>Trondheim</city>
+                    <code>NO-7485 Trondheim</code>
+                    <country>Norway</country>
+                </postal>
+                <email>trond.norbye@sun.com</email>
+            </address>
+        </author>
+        <author fullname="Toru Maesaka" surname="Maesaka" role="editor">
+            <organization>mixi, INC</organization>
+            <address>
+                <postal>
+                    <street>Jingumae 2-34-17</street>
+                    <city>Shibuya</city>
+                    <code>Tokyo 150-0001</code>
+                    <country>Japan</country>
+
+                </postal>
+                <email>dev@torum.net</email>
+            </address>
+        </author>
+        <date day="18" month="December" year="2008" />
+        <area>Applications</area>
+        <keyword>memcache memcached cache</keyword>
+        <abstract>
+            <t>
+                This memo describes the engine interface.
+            </t>
+        </abstract>
+    </front>
+    <middle>
+        <section anchor="introduction" title="Introduction">
+            <section anchor="conventions" title="Conventions Used In This Document">
+                <t>
+                    The key words "MUST", "MUST NOT", "REQUIRED", "SHALL",
+                    "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY",
+                    and "OPTIONAL" in this document are to be interpreted as
+                    described in
+                    <xref target="KEYWORDS"/>.
+                </t>
+            </section>
+        </section>
+        <section anchor="datatypes" title="Data structures">
+            <section anchor="errorcodes" title="Error codes">
+                <t>
+                The engine interface defines the enum ENGINE_ERROR_CODE with
+                the following valid error messages:
+                </t>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="ENGINE_SUCCESS">The command executed successfully
+                        </t>
+                        <t hangText="ENGINE_KEY_ENOENT">The key does not exists
+                        </t>
+                        <t hangText="ENGINE_KEY_EEXISTS">The key already exists
+                        </t>
+                        <t hangText="ENGINE_ENOMEM">Could not allocate memory
+                        </t>
+                        <t hangText="ENGINE_NOT_STORED">The item was not stored
+                        </t>
+                        <t hangText="ENGINE_EINVAL">Invalid arguments
+                        </t>
+                        <t hangText="ENGINE_ENOTSUP">The engine does not support this
+                        </t>
+                        <t hangText="ENGINE_EWOULDBLOCK">This would cause the engine to block
+                        </t>
+                        <t hangText="ENGINE_E2BIG">The data is too big for the engine
+                        </t>
+                        <t hangText="ENGINE_WANT_MORE">The engine will block,
+                        but can accept more data before blocking</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="operation" title="Store operations">
+                <t>
+                The engine interface defines the enum ENGINE_STORE_OPERATION
+		with the following values:
+                </t>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="OPERATION_ADD">TODO: fillme!!</t>
+                        <t hangText="OPERATION_SET"></t>
+                        <t hangText="OPERATION_REPLACE"></t>
+                        <t hangText="OPERATION_APPEND"></t>
+                        <t hangText="OPERATION_PREPEND"></t>
+                        <t hangText="OPERATION_CAS"></t>
+                    </list>
+                </t>
+            </section>
+
+            <section anchor="rel_time_t" title="rel_time_t">
+                <t>
+                    Items will only expire some time in the future, and the
+                    rel_time_t is a datatype to represent a time period
+                    relative to process startup time.
+                </t>
+                <figure>
+                    <preamble>rel_time_t</preamble>
+                    <artwork>
+  typedef uint32_t rel_time_t;
+                    </artwork>
+                </figure>
+            </section>
+            <section anchor="item" title="struct item">
+                <t>
+                    Each "key-value" pair stored in memcached is represented
+                    with an item structure consisting of a fixed part and a
+                    variable part. This might sound unnecessary complex, but
+                    adds extra flexibility for the various storage engines.
+                </t>
+                <t>
+                    The fixed part of the item structure consists of:
+                </t>
+                <figure>
+                    <preamble>struct item</preamble>
+                    <artwork>
+typedef struct {
+  rel_time_t exptime;
+  uint32_t nbytes;
+  uint32_t flags;
+  uint16_t nkey;
+  uint16_t iflag;
+} item;
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="exptime">When the item will expire (relative to process startup)</t>
+                        <t hangText="nbytes">The total size of the data (in bytes)</t>
+                        <t hangText="flags">Flags associated with the item</t>
+                        <t hangText="nkey">The total length of the key (in bytes)</t>
+                        <t hangText="iflag">Item flags describing the content of the item structure.
+                            The upper 8 bits is reserved for the storage engine to use</t>
+                    </list>
+                </t>
+                <t>
+                    The variable part of the item structure contains the
+                    following optional data. Please note that the optional
+                    fields MUST be present in the specified order.
+                </t>
+                <figure>
+                    <preamble>struct item variable data</preamble>
+                    <artwork>
+cas_id          Optional, stored as uint64_t
+inline key      Optional, stored as n bytes containing the key
+pointer to key  Optional, stored as a void*
+inline data     Optional, stored as n bytes containing the data
+padding         Optional, stored as n bytes
+pointer to data Optional, Stored as a void*
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="cas_id">Only present if iflag &amp; ITEM_WITH_CAS</t>
+                        <t hangText="inline key">Present if !(iflag &amp; ITEM_KEY_PTR)</t>
+                        <t hangText="pointer to key">Present if iflag &amp; ITEM_KEY_PTR</t>
+                        <t hangText="inline data">Present if !(iflag &amp; ITEM_DATA_PTR)</t>
+                        <t hangText="padding">Only present if !(iflag &amp; ITEM_KEY_PTR) &amp;&amp; (iflag &amp; ITEM_DATA_PTR)</t>
+                        <t hangText="pointer to data">Present if iflag &amp; ITEM_DATA_PTR</t>
+                    </list>
+                </t>
+                <t>
+                    The size of the padding is (sizeof(void*) - (nkey % sizeof(void*))
+                </t>
+            </section>
+            <section anchor="interface" title="Interface structure">
+                <t>
+                All communication with the storage engine will go through the
+                engine interface structure. This is defined as an extendible
+                structure to allow future modifications and preserve binary
+                backwards compatibility.
+                </t>
+                <figure>
+                    <preamble>struct engine_interface</preamble>
+                    <artwork>
+typedef struct engine_interface{
+  uint64_t interface;
+} ENGINE_HANDLE;
+                    </artwork>
+                </figure>
+            </section>
+        </section>
+        <section anchor="create_instance" title="Create instance">
+            <t>
+                Each shared object providing an implementation of the storage
+                interface must export the following function to allow memcached
+                to create a handle to the storage interface:
+            </t>
+            <figure>
+                <artwork>
+ENGINE_ERROR_CODE create_instance(uint64_t interface,
+                                  ENGINE_HANDLE** handle);
+                </artwork>
+            </figure>
+            <t>
+                <list hangIndent="20" style="hanging">
+                    <t hangText="interface">The highest interface level the server supports</t>
+                    <t hangText="handle">Where to store the interface handle</t>
+                </list>
+            </t>
+        </section>
+
+        <section anchor="interface_v1" title="Interface structure v. 1">
+            <figure>
+                <preamble>Engine interface version 1</preamble>
+                <artwork>
+typedef struct engine_interface_v1 {
+   struct engine_interface interface;
+   const char* (*get_info)(ENGINE_HANDLE* handle);
+   ENGINE_ERROR_CODE (*initialize)(ENGINE_HANDLE* handle,
+                                   const char* config_str);
+   void (*destroy)(ENGINE_HANDLE* handle);
+   ENGINE_ERROR_CODE (*allocate)(ENGINE_HANDLE* handle,
+                                 const void* cookie,
+                                 item **item,
+                                 const void* key,
+                                 const size_t nkey,
+                                 const size_t nbytes,
+                                 const int flags,
+                                 const rel_time_t exptime);
+   ENGINE_ERROR_CODE (*remove)(ENGINE_HANDLE* handle,
+                               const void* cookie,
+                               item* item);
+   void (*release)(ENGINE_HANDLE* handle, item* item);
+   ENGINE_ERROR_CODE (*get)(ENGINE_HANDLE* handle,
+                            const void* cookie,
+                            item** item,
+                            const void* key,
+                            const int nkey);
+   ENGINE_ERROR_CODE (*store)(ENGINE_HANDLE* handle,
+                              const void *cookie,
+                              item* item,
+                              enum operation operation);
+   ENGINE_ERROR_CODE (*arithmetic)(ENGINE_HANDLE* handle,
+                                   const void* cookie,
+                                   const void* key,
+                                   const int nkey,
+                                   const bool increment,
+                                   const bool create,
+                                   const uint64_t delta,
+                                   const uint64_t initial,
+                                   const rel_time_t exptime,
+                                   uint64_t *cas,
+                                   uint64_t *result);
+   ENGINE_ERROR_CODE (*flush)(ENGINE_HANDLE* handle,
+                              const void* cookie, time_t when);
+   ENGINE_ERROR_CODE (*get_stats)(ENGINE_HANDLE* handle,
+                                  const void* cookie,
+                                  const char* stat_key,
+                                  int nkey,
+                                  ADD_STAT add_stat);
+   void (*reset_stats)(ENGINE_HANDLE* handle);
+   ENGINE_ERROR_CODE (*unknow_command)(ENGINE_HANDLE* handle,
+                const void* cookie,
+                protocol_binary_request_header *request,
+                ADD_RESPONSE response);
+} ENGINE_HANDLE_V1;
+                </artwork>
+            </figure>
+            <section anchor="interface_m" title="interface">
+                <t>
+                    To preserve binary compatibility this member MUST be first
+                    in the structure. An engine implementing this interface
+                    MUST set the interface member to the value 1.
+                </t>
+            </section>
+            <section anchor="get_info" title="get_info">
+                <t>
+                    Get information about this storage engine (to use in the
+                    version command). The core server will NOT try to release
+                    the memory returned, so the engine SHOULD reuse this buffer
+                    to aviod memory leakage.
+                </t>
+                <figure>
+                    <artwork>
+const char* (*get_info)(ENGINE_HANDLE* handle);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="initialize" title="initialize">
+                <t>
+                    Called during initialization of memcached. The engine
+                    should do all of its initalization in this routine.
+                </t>
+                <figure>
+                    <artwork>
+ENGINE_ERROR_CODE (*initialize)(ENGINE_HANDLE* handle,
+                                const char* config_str);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="config_str">String containing configuration options</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="destroy" title="destroy">
+                <t>
+                    Called during shutdown of memcached. The engine
+                    should release all resources and perform shutdown logic
+                    in this routine.
+                </t>
+                <figure>
+                    <artwork>
+void (*destroy)(ENGINE_HANDLE* handle);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="allocate" title="allocate">
+                <t>Allocate space to store an item.</t>
+                <figure>
+                    <artwork>
+ENGINE_ERROR_CODE (*allocate)(ENGINE_HANDLE* handle,
+                                   const void* cookie,
+                                   item **item,
+                                   const void* key,
+                                   const size_t nkey,
+                                   const size_t nbytes.
+                                   const int flags,
+                                   const rel_time_t exptime);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="cookie">Cookie for the engine to use with ENGINE_EWOULDBLOCK</t>
+                        <t hangText="item">Where to store the result</t>
+                        <t hangText="key">Pointer to the key</t>
+                        <t hangText="nkey">The length of the key</t>
+                        <t hangText="nbytes">The number of bytes in the data</t>
+                        <t hangText="flags">The flags to store with the item</t>
+                        <t hangText="exptime">When the item will expire</t>
+                        <t hangText=""></t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="remove" title="remove">
+                <t>Delete an item.</t>
+                <figure>
+                    <artwork>
+ENGINE_ERROR_CODE (*remove)(ENGINE_HANDLE* handle,
+                                 const void* cookie,
+                                 item* item);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="cookie">Cookie for the engine to use with ENGINE_EWOULDBLOCK</t>
+                        <t hangText="item">The item to delete</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="release" title="release">
+                <t>
+                    Release an item. The core server will no longer reference
+                    the object, so the engine may release or modify it.
+                </t>
+                <figure>
+                    <artwork>
+void (*release)(ENGINE_HANDLE* handle, item* item);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="item">The item to release</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="get" title="get">
+                <t>Get an item identified by a key</t>
+                <figure>
+                    <artwork>
+ENGINE_ERROR_CODE (*get)(ENGINE_HANDLE* handle,
+                         const void* cookie,
+                         item** item,
+                         const void* key,
+                         const int nkey);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="cookie">Cookie for the engine to use with ENGINE_EWOULDBLOCK</t>
+                        <t hangText="item">Where to store the result</t>
+                        <t hangText="key">Pointer to the key</t>
+                        <t hangText="nkey">The length of the key</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="store" title="store">
+                <t>Store an item in the cache.</t>
+                <figure>
+                    <artwork>
+ENGINE_ERROR_CODE (*store)(ENGINE_HANDLE* handle,
+                           const void *cookie,
+                           item* item,
+                           enum operation operation);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="cookie">Cookie for the engine to use with ENGINE_EWOULDBLOCK</t>
+                        <t hangText="item">The item to store</t>
+                        <t hangText="operation">ADD / SET / REPLACE</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="arithmetic" title="arithmetic">
+                <t>
+                    Perform arithmetic operation (increment / decrement)
+                    on the value of a key.
+                </t>
+                <figure>
+                    <artwork>
+ENGINE_ERROR_CODE (*arithmetic)(ENGINE_HANDLE* handle,
+                                const void* cookie,
+                                const void* key,
+                                const int nkey,
+                                const bool increment,
+                                const bool create,
+                                const uint64_t delta,
+                                const uint64_t initial,
+                                const rel_time_t exptime,
+                                uint64_t *cas,
+                                uint64_t *result);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="cookie">Cookie for the engine to use with ENGINE_EWOULDBLOCK</t>
+                        <t hangText="key">The key to operate on</t>
+                        <t hangText="nkey">The length of the key</t>
+                        <t hangText="increment">TRUE if increment, FALSE to decrement</t>
+                        <t hangText="create">Set to TRUE if we should create nonexisting keys</t>
+                        <t hangText="delta">The amount to increment / decrement</t>
+                        <t hangText="initial">The initial value if we create the key</t>
+                        <t hangText="exptime">When the item shall expire</t>
+                        <t hangText="cas">IN: the current CAS value, OUT: the resulting CAS value</t>
+                        <t hangText="result">OUT: The resulting value</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="flush" title="flush">
+                <t>Flush all items from the cache</t>
+                <figure>
+                    <artwork>
+ENGINE_ERROR_CODE (*flush)(ENGINE_HANDLE* handle,
+                           const void *cookie,
+                           time_t when);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="cookie">Cookie for the engine to use with ENGINE_EWOULDBLOCK</t>
+                        <t hangText="when">When to flush the cache (see the protocol spec)</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="get_stats" title="get_stats">
+                <t>
+                    Query the engine for statistics.
+                </t>
+                <t>
+                    <figure>
+                        <artwork>
+ENGINE_ERROR_CODE (*get_stats)(ENGINE_HANDLE* handle,
+                               const void* cookie,
+                               const char* stat_key,
+                               int nkey,
+                               ADD_STAT add_stat);
+                        </artwork>
+                    </figure>
+                </t>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="cookie">Cookie for the engine that MUST be provided as the cookie in the callback to the server</t>
+                        <t hangText="stat_key">Specifies what kind of stats to fetch</t>
+                        <t hangText="nkey">The length of stat_key</t>
+                        <t hangText="add_stat">Function to call to append statistics information</t>
+                    </list>
+                </t>
+                <t>
+                    Details on the add_stat function is as follows:
+                </t>
+                <t>
+                    <figure>
+                        <artwork>
+typedef void (*ADD_STAT)(const char *key, const uint16_t klen,
+                         const char *val, const uint32_t vlen,
+                         const void *cookie);
+                        </artwork>
+                    </figure>
+                </t>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="key">Name of the statistic</t>
+                        <t hangText="klen">The length of the key</t>
+                        <t hangText="val">The value of the statistic</t>
+                        <t hangText="cookie">Cookie provided by the engine</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="reset_stats" title="reset_stats">
+                <t>Reset statistics.</t>
+                <figure>
+                    <artwork>
+void (*reset_stats)(ENGINE_HANDLE* handle);
+                    </artwork>
+                </figure>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                    </list>
+                </t>
+            </section>
+            <section anchor="unknown_command" title="unknown_command">
+                <t>
+                    The frontend received an unknown command that might be
+                    engine specific.
+                </t>
+                <t>
+                    <figure>
+                        <artwork>
+ENGINE_ERROR_CODE (*unknow_command)(ENGINE_HANDLE* handle,
+                     const void* cookie,
+                     protocol_binary_request_header *request,
+                     ADD_RESPONSE response);
+                        </artwork>
+                    </figure>
+                </t>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="handle">Pointer to the engine</t>
+                        <t hangText="cookie">Cookie for the engine that MUST be provided as the cookie in the callback to the server</t>
+                        <t hangText="request">Pointer to the request header (the rest of the data will follow). The header is converted to host byte order</t>
+                        <t hangText="response">Function to add a packet to the return stream</t>
+                    </list>
+                </t>
+                <t>
+                    Details on the response function is as follows:
+                </t>
+                <t>
+                    <figure>
+                        <artwork>
+typedef void (*ADD_RESPONSE)(const void *key, uint16_t keylen,
+                             const void *ext, uint8_t extlen,
+                             const void *body, uint32_t bodylen,
+                             uint8_t datatype, uint16_t status,
+                             uint64_t cas, const void *cookie);
+                        </artwork>
+                    </figure>
+                </t>
+                <t>
+                    <list hangIndent="20" style="hanging">
+                        <t hangText="key">Key to put in the response (may be NULL)</t>
+                        <t hangText="keylen">The length of the key</t>
+                        <t hangText="ext">Data to put in the extra field in the response</t>
+                        <t hangText="extlen">The length of the extra data</t>
+                        <t hangText="body">The data to put in the body of the response</t>
+                        <t hangText="bodylen">The lenght of the body</t>
+                        <t hangText="datatype">Currently unused. Should be 0</t>
+                        <t hangText="status">Type of response. See protocol_binary.h for legal values</t>
+                        <t hangText="cas">CAS value of the response message (Should be 0 if cas isn't used)</t>
+                        <t hangText="cookie">Cookie provided by the engine</t>
+                    </list>
+                </t>
+            </section>
+        </section>
+        <section anchor="async" title="Asynchronous interface">
+            <t>
+                An engine should return ENGINE_EWOULDBLOCK if it cannot return
+                immediately from the request. It may then perform all the
+                operations it may want to in another thread, and call:
+            </t>
+            <figure>
+                <artwork>
+void notify_io_complete(const void* cookie,
+                        ENGINE_ERROR_CODE status);
+                </artwork>
+            </figure>
+            <t>
+                <list hangIndent="20" style="hanging">
+                    <t hangText="cookie">Cookie for the engine to use with ENGINE_EWOULDBLOCK</t>
+                    <t hangText="status">The status for the IO operation</t>
+                </list>
+            </t>
+            <t>
+                    The memcached server will then retry the operation.
+            </t>
+        </section>
+        <section anchor="security" title="Security Considerations">
+            <t>
+                Memcache has no authentication or security layers whatsoever.
+                It is RECOMMENDED that memcache be deployed strictly on closed,
+                protected, back-end networks within a single data center,
+                within a single cluster of servers, or even on a single host,
+                providing shared caching for multiple applications.
+                Memcache MUST NOT be made available on a public network.
+            </t>
+        </section>
+    </middle>
+    <back>
+        <references title="Normative References">
+            <dwdrfc-ref anchor="KEYWORDS" src='http://xml.resource.org/public/rfc/bibxml/reference.RFC.2119.xml'/>
+        </references>
+    </back>
+</rfc>

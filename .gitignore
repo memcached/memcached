@@ -32,6 +32,7 @@ cscope.out
 /memcached-*.tar.gz
 /doc/protocol-binary-range.txt
 /doc/protocol-binary.txt
+/doc/engine-interface.txt
 /sizes
 /version.m4
 /version.num
