@@ -18,4 +18,4 @@ for ($key = 0; $key < 10; $key++) {
 
 my $first_stats = mem_stats($sock, "slabs");
 my $req = $first_stats->{"1:mem_requested"};
-ok ($req == "640" || $req == "800", "Check allocated size");
+ok ($req == "600" || $req == "720", "Check allocated size");

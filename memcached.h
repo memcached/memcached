@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include "memcached/protocol_binary.h"
+#include "memcached/engine.h"
 #include "cache.h"
 
 #include "sasl_defs.h"
@@ -77,23 +78,8 @@
 #define TAIL_REPAIR_TIME (3 * 3600)
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
-#define ITEM_get_cas(i) ((uint64_t)(((i)->it_flags & ITEM_CAS) ? \
-                                    *(uint64_t*)&((i)->end[0]) : 0x0))
-#define ITEM_set_cas(i,v) { if ((i)->it_flags & ITEM_CAS) { \
-                          *(uint64_t*)&((i)->end[0]) = v; } }
-
-#define ITEM_key(item) (((char*)&((item)->end[0])) \
-         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
-
-#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
-         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
-
-#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
-         + (item)->nsuffix \
-         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
-
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
-         + (item)->nsuffix + (item)->nbytes \
+         + (item)->nbytes \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define STAT_KEY_LEN 128
@@ -114,18 +100,6 @@
 #define APPEND_NUM_STAT(num, name, fmt, val) \
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
-/**
- * Callback for any function producing stats.
- *
- * @param key the stat's key
- * @param klen length of the key
- * @param val the stat's value in an ascii form (e.g. text form of a number)
- * @param vlen length of the value
- * @parm cookie magic callback cookie
- */
-typedef void (*ADD_STAT)(const char *key, const uint16_t klen,
-                         const char *val, const uint32_t vlen,
-                         const void *cookie);
 
 /*
  * NOTE: If you modify this table you _MUST_ update the function state_text
@@ -189,9 +163,6 @@ enum store_item_type {
 enum delta_result_type {
     OK, NON_NUMERIC, EOM
 };
-
-/** Time relative to server start. Smaller than time_t on 64-bit systems. */
-typedef unsigned int rel_time_t;
 
 /** Stats stored per slab (and per thread). */
 struct slab_stats {
@@ -286,28 +257,6 @@ extern struct settings settings;
 
 /* temp */
 #define ITEM_SLABBED 4
-
-/**
- * Structure for storing items within memcached.
- */
-typedef struct _stritem {
-    struct _stritem *next;
-    struct _stritem *prev;
-    struct _stritem *h_next;    /* hash chain next */
-    rel_time_t      time;       /* least recent access */
-    rel_time_t      exptime;    /* expire time */
-    int             nbytes;     /* size of data */
-    unsigned short  refcount;
-    uint8_t         nsuffix;    /* length of flags-and-length string */
-    uint8_t         it_flags;   /* ITEM_* above */
-    uint8_t         slabs_clsid;/* which slab class we're in */
-    uint8_t         nkey;       /* key length, w/terminating null and padding */
-    void * end[];
-    /* if it_flags & ITEM_CAS we have 8 bytes CAS */
-    /* then null-terminated key */
-    /* then " flags length\r\n" (no terminating null) */
-    /* then data with terminating \r\n (no terminating null; it's binary!) */
-} item;
 
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */

@@ -43,6 +43,32 @@ extern "C" {
 
    /** Time relative to server start. Smaller than time_t on 64-bit systems. */
    typedef uint32_t rel_time_t;
+
+
+/**
+ * For now use the old version
+ */
+typedef struct _stritem {
+    struct _stritem *next;
+    struct _stritem *prev;
+    struct _stritem *h_next;    /* hash chain next */
+    rel_time_t      time;       /* least recent access */
+    rel_time_t      exptime;    /* expire time */
+    int             nbytes;     /* size of data */
+    unsigned short  refcount;
+    uint8_t         it_flags;   /* ITEM_* above */
+    uint8_t         slabs_clsid;/* which slab class we're in */
+    uint8_t         nkey;       /* key length, w/terminating null and padding */
+   uint32_t        flags;
+    void * end[];
+    /* if it_flags & ITEM_CAS we have 8 bytes CAS */
+    /* then null-terminated key */
+    /* then " flags length\r\n" (no terminating null) */
+    /* then data with terminating \r\n (no terminating null; it's binary!) */
+} item;
+
+
+#ifdef FUTURE
    typedef struct {
       rel_time_t exptime; /* When the item will expire (relative to process
                              startup) */
@@ -54,6 +80,7 @@ extern "C" {
                          implementation.
                       */
    } item;
+#endif
 
    uint64_t ITEM_get_cas(const item*);
    void ITEM_set_cas(item*, uint64_t);

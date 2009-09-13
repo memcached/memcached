@@ -63,31 +63,11 @@ uint64_t get_cas_id(void) {
 # define DEBUG_REFCNT(it,op) while(0)
 #endif
 
-/**
- * Generates the variable-sized part of the header for an object.
- *
- * key     - The key
- * nkey    - The length of the key
- * flags   - key flags
- * nbytes  - Number of bytes to hold value and addition CRLF terminator
- * suffix  - Buffer for the "VALUE" line suffix (flags, size).
- * nsuffix - The length of the suffix is stored here.
- *
- * Returns the total size of the header.
- */
-static size_t item_make_header(const uint8_t nkey, const int flags, const int nbytes,
-                     char *suffix, uint8_t *nsuffix) {
-    /* suffix is defined at 40 chars elsewhere.. */
-    *nsuffix = (uint8_t) snprintf(suffix, 40, " %d %d\r\n", flags, nbytes - 2);
-    return sizeof(item) + nkey + *nsuffix + nbytes;
-}
 
 /*@null@*/
 item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes) {
-    uint8_t nsuffix;
     item *it = NULL;
-    char suffix[40];
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
+    size_t ntotal = sizeof(item) + nkey + nbytes;
     if (settings.use_cas) {
         ntotal += sizeof(uint64_t);
     }
@@ -208,10 +188,9 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     it->it_flags = settings.use_cas ? ITEM_CAS : 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
+    it->flags = flags;
     memcpy(ITEM_key(it), key, nkey);
     it->exptime = exptime;
-    memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
-    it->nsuffix = nsuffix;
     return it;
 }
 
@@ -236,11 +215,12 @@ void item_free(item *it) {
  * the maximum for a cache entry.)
  */
 bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
-    char prefix[40];
-    uint8_t nsuffix;
+    size_t ntotal = sizeof(item) + nkey + nbytes;
+    if (settings.use_cas) {
+        ntotal += sizeof(uint64_t);
+    }
 
-    return slabs_clsid(item_make_header(nkey + 1, flags, nbytes,
-                                        prefix, &nsuffix)) != 0;
+    return slabs_clsid(ntotal) != 0;
 }
 
 static void item_link_q(item *it) { /* item is the new head */

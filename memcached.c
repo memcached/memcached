@@ -122,6 +122,35 @@ static enum transmit_result transmit(conn *c);
 
 #define REALTIME_MAXDELTA 60*60*24*30
 
+
+uint64_t ITEM_get_cas(const item* item)
+{
+    if (item->it_flags & ITEM_CAS) {
+        return *(uint64_t*)(item + 1);
+    }
+    return 0;
+}
+
+void ITEM_set_cas(item* item, uint64_t val)
+{
+    if (item->it_flags & ITEM_CAS) {
+        *(uint64_t*)(item + 1) = val;
+    }
+}
+
+char* ITEM_key(const item* item) {
+    char *ret = (void*)(item + 1);
+    if (item->it_flags & ITEM_CAS) {
+        ret += sizeof(uint64_t);
+    }
+
+    return ret;
+}
+
+char* ITEM_data(const item* item) {
+    return ITEM_key(item) + item->nkey + 1;
+}
+
 /*
  * given time value that's either unix time or delta from current unix time, return
  * unix time. Use the fact that delta can't exceed one month (and real time value can't
@@ -1193,7 +1222,7 @@ static void process_bin_get(conn *c) {
         rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
 
         // add the flags
-        rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        rsp->message.body.flags = htonl(it->flags);
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
         if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
@@ -2106,7 +2135,6 @@ enum store_item_type do_store_item(item *it, int comm, conn *c) {
     enum store_item_type stored = NOT_STORED;
 
     item *new_it = NULL;
-    int flags;
 
     if (old_it != NULL && comm == NREAD_ADD) {
         /* add only adds a nonexistent item, but promote to head of LRU */
@@ -2164,11 +2192,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c) {
 
             if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
-                /* flags was already lost - so recover them from ITEM_suffix(it) */
-
-                flags = (int) strtol(ITEM_suffix(old_it), (char **) NULL, 10);
-
-                new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
+                new_it = do_item_alloc(key, it->nkey, old_it->flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
                 if (new_it == NULL) {
                     /* SERVER_ERROR out of memory */
@@ -2525,7 +2549,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     int i = 0;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
-    char *suffix;
     assert(c != NULL);
 
     do {
@@ -2555,6 +2578,33 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     }
                 }
 
+
+                /* Goofy mid-flight realloc. */
+                if ((i + 1) >= c->suffixsize) {
+                    char **new_suffix_list = realloc(c->suffixlist,
+                                                     sizeof(char *) * c->suffixsize * 2);
+                    if (new_suffix_list) {
+                        c->suffixsize *= 2;
+                        c->suffixlist  = new_suffix_list;
+                    } else {
+                        item_remove(it);
+                        break;
+                    }
+                }
+
+                /* Rebuild the suffix */
+                char *suffix = cache_alloc(c->thread->suffix_cache);
+                if (suffix == NULL) {
+                    out_string(c, "SERVER_ERROR out of memory rebuilding suffix");
+                    item_remove(it);
+                    return;
+                }
+                *(c->suffixlist + i) = suffix;
+                int suffix_len = snprintf(suffix, SUFFIX_SIZE,
+                                          " %u %u\r\n",
+                                          it->flags,
+                                          it->nbytes - 2);
+
                 /*
                  * Construct the response. Each hit adds three elements to the
                  * outgoing data list:
@@ -2567,33 +2617,21 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
-                  /* Goofy mid-flight realloc. */
-                  if (i >= c->suffixsize) {
-                    char **new_suffix_list = realloc(c->suffixlist,
-                                           sizeof(char *) * c->suffixsize * 2);
-                    if (new_suffix_list) {
-                        c->suffixsize *= 2;
-                        c->suffixlist  = new_suffix_list;
-                    } else {
-                        item_remove(it);
-                        break;
-                    }
-                  }
 
-                  suffix = cache_alloc(c->thread->suffix_cache);
-                  if (suffix == NULL) {
+                  char *cas = cache_alloc(c->thread->suffix_cache);
+                  if (cas == NULL) {
                     out_string(c, "SERVER_ERROR out of memory making CAS suffix");
                     item_remove(it);
                     return;
                   }
-                  *(c->suffixlist + i) = suffix;
-                  int suffix_len = snprintf(suffix, SUFFIX_SIZE,
+                  *(c->suffixlist + i) = cas;
+                  int cas_len = snprintf(cas, SUFFIX_SIZE,
                                             " %llu\r\n",
                                             (unsigned long long)ITEM_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
-                      add_iov(c, suffix, suffix_len) != 0 ||
+                      add_iov(c, suffix, suffix_len - 2) != 0 ||
+                      add_iov(c, cas, cas_len) != 0 ||
                       add_iov(c, ITEM_data(it), it->nbytes) != 0)
                       {
                           item_remove(it);
@@ -2606,7 +2644,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                                         it->nbytes, ITEM_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
+                      add_iov(c, suffix, suffix_len) != 0 ||
+                      add_iov(c, ITEM_data(it), it->nbytes) != 0)
                       {
                           item_remove(it);
                           break;
@@ -2856,7 +2895,7 @@ enum delta_result_type do_add_delta(conn *c, item *it, const bool incr,
     res = strlen(buf);
     if (res + 2 > it->nbytes) { /* need to realloc */
         item *new_it;
-        new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
+        new_it = do_item_alloc(ITEM_key(it), it->nkey, it->flags, it->exptime, res + 2 );
         if (new_it == 0) {
             return EOM;
         }
