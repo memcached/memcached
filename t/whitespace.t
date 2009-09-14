@@ -6,10 +6,12 @@ our @files;
 BEGIN {
     chdir "$Bin/.." or die;
 
-    my @exempted = qw(Makefile.am ChangeLog);
+    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am);
+    push(@exempted, glob("doc/*.xml"));
+    push(@exempted, glob("doc/xml2rfc/*.xsl"));
     my %exempted_hash = map { $_ => 1 } @exempted;
 
-    my @stuff = split /\0/, `git ls-tree -z --name-only HEAD`;
+    my @stuff = split /\0/, `git ls-tree -r -z --name-only HEAD`;
     @files = grep { -f $_ && ! $exempted_hash{$_} } @stuff;
 
     # We won't find any files if git isn't installed.  If git isn't

@@ -66,11 +66,11 @@ sub udp_set_test {
     my $val_len = length($value);
 
     if ($protocol == ::IS_ASCII) {
-	$req = "set $key $flags $exp $val_len\r\n$value\r\n";
+        $req = "set $key $flags $exp $val_len\r\n$value\r\n";
     } elsif ($protocol == ::IS_BINARY) {
         my $key_len = length($key);
-	my $extra = pack "NN",$flags,$exp;
-	my $extra_len = length($extra);
+        my $extra = pack "NN",$flags,$exp;
+        my $extra_len = length($extra);
         my $total_len = $val_len + $extra_len + $key_len;
         $req = pack(::REQ_PKT_FMT, ::BIN_REQ_MAGIC, ::CMD_SET, $key_len, $extra_len, 0, 0, $total_len, 0, 0, 0);
         $req .=  $extra . $key . $value;
@@ -80,11 +80,11 @@ sub udp_set_test {
     my $resp = construct_udp_message($datagrams);
 
     if ($protocol == ::IS_ASCII) {
-	is($resp,"STORED\r\n","Store key $key using ASCII protocol");
+        is($resp,"STORED\r\n","Store key $key using ASCII protocol");
     } elsif ($protocol == ::IS_BINARY) {
         my ($resp_magic, $resp_op_code, $resp_key_len, $resp_extra_len, $resp_data_type, $resp_status, $resp_total_len,
-	    $resp_opaque, $resp_ident_hi, $resp_ident_lo) = unpack(::RES_PKT_FMT, $resp);
-	is($resp_status,"0","Store key $key using binary protocol");
+            $resp_opaque, $resp_ident_hi, $resp_ident_lo) = unpack(::RES_PKT_FMT, $resp);
+        is($resp_status,"0","Store key $key using binary protocol");
     }
 }
 
@@ -95,10 +95,10 @@ sub udp_get_test {
     my $req = "";
 
     if ($protocol == ::IS_ASCII) {
-	$req = "get $key\r\n";
+        $req = "get $key\r\n";
     } elsif ($protocol == ::IS_BINARY) {
         $req = pack(::REQ_PKT_FMT, ::BIN_REQ_MAGIC, ::CMD_GET, $key_len, 0, 0, 0, $key_len, 0, 0, 0);
-	$req .= $key;
+        $req .= $key;
     }
 
     my $datagrams = send_udp_request($usock, $req_id, $req);
@@ -106,18 +106,18 @@ sub udp_get_test {
 
     if ($protocol == ::IS_ASCII) {
         if ($exists == ::ENTRY_EXISTS) {
-	    is($resp,"VALUE $key 0 $value_len\r\n$value\r\nEND\r\n","Retrieve entry with key $key using ASCII protocol");
+            is($resp,"VALUE $key 0 $value_len\r\n$value\r\nEND\r\n","Retrieve entry with key $key using ASCII protocol");
         } else {
-	    is($resp,"END\r\n","Retrieve non existing entry with key $key using ASCII protocol");
+            is($resp,"END\r\n","Retrieve non existing entry with key $key using ASCII protocol");
         }
     } elsif ($protocol == ::IS_BINARY) {
         my ($resp_magic, $resp_op_code, $resp_key_len, $resp_extra_len, $resp_data_type, $resp_status, $resp_total_len,
-	    $resp_opaque, $resp_ident_hi, $resp_ident_lo) = unpack(::RES_PKT_FMT, $resp);
+            $resp_opaque, $resp_ident_hi, $resp_ident_lo) = unpack(::RES_PKT_FMT, $resp);
         if ($exists == ::ENTRY_EXISTS) {
-	    is($resp_status,"0","Retrieve entry with key $key using binary protocol");
-	    is(substr($resp,::MIN_RECV_BYTES + $resp_extra_len + $resp_key_len, $value_len),$value,"Value for key $key retrieved with binary protocol matches");
+            is($resp_status,"0","Retrieve entry with key $key using binary protocol");
+            is(substr($resp,::MIN_RECV_BYTES + $resp_extra_len + $resp_key_len, $value_len),$value,"Value for key $key retrieved with binary protocol matches");
         } else {
-	    is($resp_status,"1","Retrieve non existing entry with key $key using binary protocol");
+            is($resp_status,"1","Retrieve non existing entry with key $key using binary protocol");
         }
     }
 }
@@ -128,21 +128,21 @@ sub udp_delete_test {
     my $key_len = length($key);
 
     if ($protocol == ::IS_ASCII) {
-	$req = "delete $key $time\r\n";
+        $req = "delete $key $time\r\n";
     } elsif ($protocol == ::IS_BINARY) {
         $req = pack(::REQ_PKT_FMT, ::BIN_REQ_MAGIC, ::CMD_DELETE, $key_len, 0, 0, 0, $key_len, 0, 0, 0);
-	$req .= $key;
+        $req .= $key;
     }
 
     my $datagrams = send_udp_request($usock, $req_id, $req);
     my $resp = construct_udp_message($datagrams);
 
     if ($protocol == ::IS_ASCII) {
-	is($resp,"DELETED\r\n","Delete key $key using ASCII protocol");
+        is($resp,"DELETED\r\n","Delete key $key using ASCII protocol");
     } elsif ($protocol == ::IS_BINARY) {
         my ($resp_magic, $resp_op_code, $resp_key_len, $resp_extra_len, $resp_data_type, $resp_status, $resp_total_len,
-	    $resp_opaque, $resp_ident_hi, $resp_ident_lo) = unpack(::RES_PKT_FMT, $resp);
-	is($resp_status,"0","Delete key $key using binary protocol");
+            $resp_opaque, $resp_ident_hi, $resp_ident_lo) = unpack(::RES_PKT_FMT, $resp);
+        is($resp_status,"0","Delete key $key using binary protocol");
     }
 }
 
@@ -154,34 +154,34 @@ sub udp_incr_decr_test {
     my $acmd = "incr";
     my $bcmd = ::CMD_INCR;
     if ($optype eq "incr") {
-	$expected_value = $init_val + $val;
-    } else { 
+        $expected_value = $init_val + $val;
+    } else {
         $acmd = "decr";
         $bcmd = ::CMD_DECR;
-	$expected_value = $init_val - $val;
+        $expected_value = $init_val - $val;
     }
 
     if ($protocol == ::IS_ASCII) {
-	$req = "$acmd $key $val\r\n";
+        $req = "$acmd $key $val\r\n";
     } elsif ($protocol == ::IS_BINARY) {
-   	my $extra = pack(::INCRDECR_PKT_FMT, ($val / 2 ** 32),($val % 2 ** 32), 0, 0, 0);
+        my $extra = pack(::INCRDECR_PKT_FMT, ($val / 2 ** 32),($val % 2 ** 32), 0, 0, 0);
         my $extra_len = length($extra);
         $req = pack(::REQ_PKT_FMT, ::BIN_REQ_MAGIC, $bcmd, $key_len, $extra_len, 0, 0, $key_len + $extra_len, 0, 0, 0);
-	$req .= $extra . $key;
+        $req .= $extra . $key;
     }
 
     my $datagrams = send_udp_request($usock, $req_id, $req);
     my $resp = construct_udp_message($datagrams);
 
     if ($protocol == ::IS_ASCII) {
-	is($resp,"$expected_value\r\n","perform $acmd math operation on key $key with ASCII protocol");
+        is($resp,"$expected_value\r\n","perform $acmd math operation on key $key with ASCII protocol");
     } elsif ($protocol == ::IS_BINARY) {
-        my ($resp_magic, $resp_op_code, $resp_key_len, $resp_extra_len, $resp_data_type, $resp_status, $resp_total_len, 
-	    $resp_opaque, $resp_ident_hi, $resp_ident_lo) = unpack(::RES_PKT_FMT, $resp);
-	is($resp_status,"0","perform $acmd math operation on key $key with binary protocol");
-	my ($resp_hi,$resp_lo) = unpack("NN",substr($resp,::MIN_RECV_BYTES + $resp_extra_len + $resp_key_len, 
-            $resp_total_len - $resp_extra_len - $resp_key_len));
-	is(($resp_hi * 2 ** 32) + $resp_lo,$expected_value,"validate result of binary protocol math operation $acmd . Expected value $expected_value")
+        my ($resp_magic, $resp_op_code, $resp_key_len, $resp_extra_len, $resp_data_type, $resp_status, $resp_total_len,
+            $resp_opaque, $resp_ident_hi, $resp_ident_lo) = unpack(::RES_PKT_FMT, $resp);
+        is($resp_status,"0","perform $acmd math operation on key $key with binary protocol");
+        my ($resp_hi,$resp_lo) = unpack("NN",substr($resp,::MIN_RECV_BYTES + $resp_extra_len + $resp_key_len,
+                                                    $resp_total_len - $resp_extra_len - $resp_key_len));
+        is(($resp_hi * 2 ** 32) + $resp_lo,$expected_value,"validate result of binary protocol math operation $acmd . Expected value $expected_value")
     }
 }
 
@@ -195,7 +195,7 @@ sub construct_udp_message {
         $cur_dg = %$datagrams->{$cur_dg_index};
         isnt($cur_dg,"","missing datagram for segment $cur_dg_index");
         $cur_udp_header=substr($cur_dg, 0, 8);
-	$msg .= substr($cur_dg,8);
+        $msg .= substr($cur_dg,8);
     }
     return $msg;
 }
@@ -248,10 +248,10 @@ sub send_udp_request {
 
 
 __END__
-$sender = recv($usock, $ans, 1050, 0);
+    $sender = recv($usock, $ans, 1050, 0);
 
 __END__
-$usock->send
+    $usock->send
 
 
     ($hispaddr = recv(SOCKET, $rtime, 4, 0))        || die "recv: $!";

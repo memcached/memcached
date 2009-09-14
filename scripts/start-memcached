@@ -11,8 +11,8 @@ use strict;
 
 if($> != 0 and $< != 0)
 {
-	print STDERR "Only root wants to run start-memcached.\n";
-	exit;
+    print STDERR "Only root wants to run start-memcached.\n";
+    exit;
 }
 
 my $params; my $etchandle; my $etcfile = "/etc/memcached.conf";
@@ -25,74 +25,74 @@ my $pidfile = "/var/run/memcached.pid";
 
 # If we don't get a valid logfile parameter in the /etc/memcached.conf file,
 # we'll just throw away all of our in-daemon output. We need to re-tie it so
-# that non-bash shells will not hang on logout. Thanks to Michael Renner for 
+# that non-bash shells will not hang on logout. Thanks to Michael Renner for
 # the tip
 my $fd_reopened = "/dev/null";
 
-	sub handle_logfile
-	{
-		my ($logfile) = @_;
-		$fd_reopened = $logfile;
-	}
+sub handle_logfile
+{
+    my ($logfile) = @_;
+    $fd_reopened = $logfile;
+}
 
-	sub reopen_logfile
-	{
-		my ($logfile) = @_;
+sub reopen_logfile
+{
+    my ($logfile) = @_;
 
-		open *STDERR, ">>$logfile";
-		open *STDOUT, ">>$logfile";
-		open *STDIN, ">>/dev/null";
-		$fd_reopened = $logfile;
-	}
+    open *STDERR, ">>$logfile";
+    open *STDOUT, ">>$logfile";
+    open *STDIN, ">>/dev/null";
+    $fd_reopened = $logfile;
+}
 
 # This is set up in place here to support other non -[a-z] directives
 
 my $conf_directives = {
-	"logfile" => \&handle_logfile,
+    "logfile" => \&handle_logfile,
 };
 
 if(open $etchandle, $etcfile)
 {
-	foreach my $line (<$etchandle>)
-	{
-		$line ||= "";
-		$line =~ s/\#.*//g;
-		$line =~ s/\s+$//g;
-		$line =~ s/^\s+//g;
-		next unless $line;
-		next if $line =~ /^\-[dh]/;
+    foreach my $line (<$etchandle>)
+    {
+        $line ||= "";
+        $line =~ s/\#.*//g;
+        $line =~ s/\s+$//g;
+        $line =~ s/^\s+//g;
+        next unless $line;
+        next if $line =~ /^\-[dh]/;
 
-		if($line =~ /^[^\-]/)
-		{
-			my ($directive, $arg) = $line =~ /^(.*?)\s+(.*)/; 
-			$conf_directives->{$directive}->($arg);
-			next;
-		}
+        if($line =~ /^[^\-]/)
+        {
+            my ($directive, $arg) = $line =~ /^(.*?)\s+(.*)/;
+            $conf_directives->{$directive}->($arg);
+            next;
+        }
 
-		push @$params, $line;		
-	}
+        push @$params, $line;
+    }
 
 }else{
-	$params = [];
+    $params = [];
 }
 
-	push @$params, "-u root" unless(grep "-u", @$params);
-	$params = join " ", @$params;
+push @$params, "-u root" unless(grep "-u", @$params);
+$params = join " ", @$params;
 
 if(-e $pidfile)
 {
-	open PIDHANDLE, "$pidfile";
-	my $localpid = <PIDHANDLE>;
-	close PIDHANDLE;
+    open PIDHANDLE, "$pidfile";
+    my $localpid = <PIDHANDLE>;
+    close PIDHANDLE;
 
-	chomp $localpid;
-	if(-d "/proc/$localpid")
-	{
-		print STDERR "memcached is already running.\n"; 
-		exit;		
-	}else{
-		`rm -f $localpid`;
-	}
+    chomp $localpid;
+    if(-d "/proc/$localpid")
+    {
+        print STDERR "memcached is already running.\n";
+        exit;
+    }else{
+        `rm -f $localpid`;
+    }
 
 }
 
@@ -100,18 +100,18 @@ my $pid = fork();
 
 if($pid == 0)
 {
-		reopen_logfile($fd_reopened);
-		exec "$memcached $params";
-		exit(0);
+    reopen_logfile($fd_reopened);
+    exec "$memcached $params";
+    exit(0);
 
 }else{
-	if(open PIDHANDLE,">$pidfile")
-	{
-		print PIDHANDLE $pid;
-		close PIDHANDLE;
-	}else{
+    if(open PIDHANDLE,">$pidfile")
+    {
+        print PIDHANDLE $pid;
+        close PIDHANDLE;
+    }else{
 
-		print STDERR "Can't write pidfile to $pidfile.\n";
-	}
+        print STDERR "Can't write pidfile to $pidfile.\n";
+    }
 }
 

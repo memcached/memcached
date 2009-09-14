@@ -55,7 +55,7 @@ is(scalar <$sock>, "EXISTS\r\n", "check and set with invalid id");
 # test "gets", grab unique ID
 print $sock "gets moo\r\n";
 # VALUE moo 0 6 3084947704
-# 
+#
 my @retvals = split(/ /, scalar <$sock>);
 my $data = scalar <$sock>; # grab data
 my $dot  = scalar <$sock>; # grab dot on line by itself

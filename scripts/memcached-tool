@@ -36,8 +36,8 @@ if ($mode eq "display") {
 
 undef $mode if @ARGV;
 
-die 
-"Usage: memcached-tool <host[:port]> [mode]\n
+die
+    "Usage: memcached-tool <host[:port]> [mode]\n
        memcached-tool 10.0.0.5:11211 display    # shows slabs
        memcached-tool 10.0.0.5:11211            # same.  (default is display)
        memcached-tool 10.0.0.5:11211 stats      # shows general stats
@@ -55,34 +55,34 @@ the first reassigned page)
 $host .= ":11211" unless $host =~ /:\d+/;
 
 my $sock = IO::Socket::INET->new(PeerAddr => $host,
-				 Proto    => 'tcp');
+                                 Proto    => 'tcp');
 die "Couldn't connect to $host\n" unless $sock;
 
 
 if ($mode eq "move") {
     my $tries = 0;
     while (1) {
-	print $sock "slabs reassign $from $to\r\n";
-	my $res = <$sock>;
-	$res =~ s/\s+//;
-	if ($res eq "DONE") {
-	    print "Success.\n";
-	    exit 0;
-	} elsif ($res eq "CANT") {
-	    print "Error: can't move from $from to $to.  Destination not yet full?  See usage docs.\n";
-	    exit;
-	} elsif ($res eq "BUSY") {
-	    if (++$tries == 3) {
-		print "Failed to move after 3 tries.  Try again later.\n";
-		exit;
-	    }
+        print $sock "slabs reassign $from $to\r\n";
+        my $res = <$sock>;
+        $res =~ s/\s+//;
+        if ($res eq "DONE") {
+            print "Success.\n";
+            exit 0;
+        } elsif ($res eq "CANT") {
+            print "Error: can't move from $from to $to.  Destination not yet full?  See usage docs.\n";
+            exit;
+        } elsif ($res eq "BUSY") {
+            if (++$tries == 3) {
+                print "Failed to move after 3 tries.  Try again later.\n";
+                exit;
+            }
 
-	    print "Page busy, retrying...\n";
-	    sleep 1;
-	} elsif ($res =~ "CLIENT_ERROR") {
-	    print "Error: CLIENT_ERROR; perhaps slab reassignment is not enabled.\n";
-        exit;
-	}
+            print "Page busy, retrying...\n";
+            sleep 1;
+        } elsif ($res =~ "CLIENT_ERROR") {
+            print "Error: CLIENT_ERROR; perhaps slab reassignment is not enabled.\n";
+            exit;
+        }
     }
 
     exit;
@@ -150,8 +150,8 @@ if ($mode eq 'stats') {
     }
     printf ("#%-17s %5s %11s\n", $host, "Field", "Value");
     foreach my $name (sort(keys(%items))) {
-      printf ("%24s %12s\n", $name, $items{$name});
-      
+        printf ("%24s %12s\n", $name, $items{$name});
+
     }
     exit;
 }
@@ -159,14 +159,14 @@ if ($mode eq 'stats') {
 # display mode:
 
 my %items;  # class -> { number, age, chunk_size, chunks_per_page,
-            #            total_pages, total_chunks, used_chunks,
-            #            free_chunks, free_chunks_end }
+#            total_pages, total_chunks, used_chunks,
+#            free_chunks, free_chunks_end }
 
 print $sock "stats items\r\n";
 while (<$sock>) {
     last if /^END/;
     if (/^STAT items:(\d+):(\w+) (\d+)/) {
-	$items{$1}{$2} = $3;
+        $items{$1}{$2} = $3;
     }
 }
 
@@ -174,7 +174,7 @@ print $sock "stats slabs\r\n";
 while (<$sock>) {
     last if /^END/;
     if (/^STAT (\d+):(\w+) (\d+)/) {
-	$items{$1}{$2} = $3;
+        $items{$1}{$2} = $3;
     }
 }
 
@@ -182,11 +182,11 @@ print "  #  Item_Size   Max_age  1MB_pages Count   Full?\n";
 foreach my $n (1..40) {
     my $it = $items{$n};
     next if (0 == $it->{total_pages});
-    my $size = $it->{chunk_size} < 1024 ? "$it->{chunk_size} B " : 
-	sprintf("%.1f kB", $it->{chunk_size} / 1024.0);
+    my $size = $it->{chunk_size} < 1024 ? "$it->{chunk_size} B " :
+        sprintf("%.1f kB", $it->{chunk_size} / 1024.0);
     my $full = $it->{free_chunks_end} == 0 ? "yes" : " no";
     printf "%3d   %8s %7d s %7d %7d %7s\n",
-                        $n, $size, $it->{age}, $it->{total_pages},
-                        $it->{number}, $full;
+    $n, $size, $it->{age}, $it->{total_pages},
+    $it->{number}, $full;
 }
 

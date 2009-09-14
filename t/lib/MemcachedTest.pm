@@ -64,32 +64,32 @@ sub mem_get_is {
 }
 
 sub mem_gets {
-  # works on single-line values only.  no newlines in value.
-  my ($sock_opts, $key) = @_;
-  my $opts = ref $sock_opts eq "HASH" ? $sock_opts : {};
-  my $sock = ref $sock_opts eq "HASH" ? $opts->{sock} : $sock_opts;
-  my $val;
-  my $expect_flags = $opts->{flags} || 0;
+    # works on single-line values only.  no newlines in value.
+    my ($sock_opts, $key) = @_;
+    my $opts = ref $sock_opts eq "HASH" ? $sock_opts : {};
+    my $sock = ref $sock_opts eq "HASH" ? $opts->{sock} : $sock_opts;
+    my $val;
+    my $expect_flags = $opts->{flags} || 0;
 
-  print $sock "gets $key\r\n";
-  my $response = <$sock>;
-  if ($response =~ /^END/) {
-    return "NOT_FOUND";
-  }
-  else
-  {
-    $response =~ /VALUE (.*) (\d+) (\d+) (\d+)/;
-    my $flags = $2;
-    my $len = $3;
-    my $identifier = $4;
-    read $sock, $val , $len;
-    # get the END
-    $_ = <$sock>;
-    $_ = <$sock>;
+    print $sock "gets $key\r\n";
+    my $response = <$sock>;
+    if ($response =~ /^END/) {
+        return "NOT_FOUND";
+    }
+    else
+    {
+        $response =~ /VALUE (.*) (\d+) (\d+) (\d+)/;
+        my $flags = $2;
+        my $len = $3;
+        my $identifier = $4;
+        read $sock, $val , $len;
+        # get the END
+        $_ = <$sock>;
+        $_ = <$sock>;
 
-    return ($identifier,$val);    
-  }
-  
+        return ($identifier,$val);
+    }
+
 }
 sub mem_gets_is {
     # works on single-line values only.  no newlines in value.
@@ -166,28 +166,28 @@ sub new_memcached {
     # unix domain sockets
     if ($args =~ /-s (\S+)/) {
         sleep 1;
-	my $filename = $1;
-	my $conn = IO::Socket::UNIX->new(Peer => $filename) || 
-	    croak("Failed to connect to unix domain socket: $! '$filename'");
+        my $filename = $1;
+        my $conn = IO::Socket::UNIX->new(Peer => $filename) ||
+            croak("Failed to connect to unix domain socket: $! '$filename'");
 
-	return Memcached::Handle->new(pid  => $childpid,
-				      conn => $conn,
-				      domainsocket => $filename,
-				      port => $port);
+        return Memcached::Handle->new(pid  => $childpid,
+                                      conn => $conn,
+                                      domainsocket => $filename,
+                                      port => $port);
     }
 
     # try to connect / find open port, only if we're not using unix domain
     # sockets
 
     for (1..20) {
-	my $conn = IO::Socket::INET->new(PeerAddr => "127.0.0.1:$port");
-	if ($conn) {
-	    return Memcached::Handle->new(pid  => $childpid,
-					  conn => $conn,
-					  udpport => $udpport,
-					  port => $port);
-	}
-	select undef, undef, undef, 0.10;
+        my $conn = IO::Socket::INET->new(PeerAddr => "127.0.0.1:$port");
+        if ($conn) {
+            return Memcached::Handle->new(pid  => $childpid,
+                                          conn => $conn,
+                                          udpport => $udpport,
+                                          port => $port);
+        }
+        select undef, undef, undef, 0.10;
     }
     croak("Failed to startup/connect to memcached server.");
 }
@@ -211,7 +211,7 @@ sub sock {
     my $self = shift;
 
     if ($self->{conn} && ($self->{domainsocket} || getpeername($self->{conn}))) {
-	return $self->{conn};
+        return $self->{conn};
     }
     return $self->new_sock;
 }
@@ -219,9 +219,9 @@ sub sock {
 sub new_sock {
     my $self = shift;
     if ($self->{domainsocket}) {
-	return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
+        return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
     } else {
-	return IO::Socket::INET->new(PeerAddr => "127.0.0.1:$self->{port}");
+        return IO::Socket::INET->new(PeerAddr => "127.0.0.1:$self->{port}");
     }
 }
 
@@ -232,7 +232,7 @@ sub new_udp_sock {
                                  Proto    => 'udp',
                                  LocalAddr => '127.0.0.1',
                                  LocalPort => MemcachedTest::free_port('udp'),
-                                 );
+        );
 
 }
 
