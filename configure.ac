@@ -231,6 +231,7 @@ dnl ----------------------------------------------------------------------------
 AC_SEARCH_LIBS(socket, socket)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(umem_cache_create, umem)
+AC_SEARCH_LIBS(gethugepagesizes, hugetlbfs)
 AC_HEADER_STDBOOL
 AC_C_CONST
 

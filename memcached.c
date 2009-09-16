@@ -3810,15 +3810,11 @@ static void usage(void) {
            "-P <file>     save PID in <file>, only used with -d option\n"
            "-f <factor>   chunk size growth factor (default: 1.25)\n"
            "-n <bytes>    minimum space allocated for key+value+flags (default: 48)\n");
-
-#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
     printf("-L            Try to use large memory pages (if available). Increasing\n"
            "              the memory page size could reduce the number of TLB misses\n"
            "              and improve the performance. In order to get large pages\n"
            "              from the OS, memcached will allocate the total item-cache\n"
            "              in one large chunk.\n");
-#endif
-
     printf("-D <char>     Use <char> as the delimiter between key prefixes and IDs.\n"
            "              This is used for per-prefix stats reporting. The default is\n"
            "              \":\" (colon). If this option is specified, stats collection\n"
@@ -3949,12 +3945,12 @@ static int sigignore(int sig) {
 #endif
 
 
-#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
 /*
  * On systems that supports multiple page sizes we may reduce the
  * number of TLB-misses by using the biggest available page size
  */
 static int enable_large_pages(void) {
+#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
     int ret = -1;
     size_t sizes[32];
     int avail = getpagesizes(sizes, 32);
@@ -3987,8 +3983,10 @@ static int enable_large_pages(void) {
     }
 
     return ret;
-}
+#else
+    return 0;
 #endif
+}
 
 int main (int argc, char **argv) {
     int c;
@@ -4130,11 +4128,9 @@ int main (int argc, char **argv) {
             settings.detail_enabled = 1;
             break;
         case 'L' :
-#if defined(HAVE_GETPAGESIZES) && defined(HAVE_MEMCNTL)
             if (enable_large_pages() == 0) {
                 preallocate = true;
             }
-#endif
             break;
         case 'C' :
             settings.use_cas = false;
