@@ -32,9 +32,9 @@ memcached_CPPFLAGS = -DNDEBUG
 memcached_debug_LDADD = @PROFILER_LDFLAGS@
 memcached_debug_CFLAGS = @PROFILER_FLAGS@
 
-memcached_LDADD = 
+memcached_LDADD =
 memcached_DEPENDENCIES =
-memcached_debug_DEPENDENCIES = 
+memcached_debug_DEPENDENCIES =
 CLEANFILES=
 
 if BUILD_DTRACE
@@ -51,7 +51,7 @@ CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
 endif
 
 memcached_dtrace.h: memcached_dtrace.d
-	${DTRACE} -h -s memcached_dtrace.d 
+	${DTRACE} -h -s memcached_dtrace.d
 	sed -e 's,void \*,const void \*,g' memcached_dtrace.h | \
             sed -e 's,char \*,const char \*,g' | tr '\t' ' ' > mmc_dtrace.tmp
 	mv mmc_dtrace.tmp memcached_dtrace.h
@@ -65,7 +65,7 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 
 SUBDIRS = doc
 DIST_DIRS = scripts
-EXTRA_DIST = doc scripts TODO t memcached.spec memcached_dtrace.d version.m4
+EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
