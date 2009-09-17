@@ -1058,9 +1058,9 @@ static void complete_incr_bin(conn *c) {
     case ENGINE_SUCCESS:
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (incr) {
-            c->thread->stats.slab_stats[/* ITEM_get_slabs_clsid(it)*/ 0 ].incr_hits++;
+            c->thread->stats.incr_hits++;
         } else {
-            c->thread->stats.slab_stats[/*ITEM_get_slabs_clsid(it)*/ 0 ].decr_hits++;
+            c->thread->stats.decr_hits++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
         rsp->message.body.value = htonll(rsp->message.body.value);
@@ -2296,9 +2296,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
     APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
     APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);
-    APPEND_STAT("incr_hits", "%llu", (unsigned long long)slab_stats.incr_hits);
+    APPEND_STAT("incr_hits", "%llu", (unsigned long long)thread_stats.incr_hits);
     APPEND_STAT("decr_misses", "%llu", (unsigned long long)thread_stats.decr_misses);
-    APPEND_STAT("decr_hits", "%llu", (unsigned long long)slab_stats.decr_hits);
+    APPEND_STAT("decr_hits", "%llu", (unsigned long long)thread_stats.decr_hits);
     APPEND_STAT("cas_misses", "%llu", (unsigned long long)thread_stats.cas_misses);
     APPEND_STAT("cas_hits", "%llu", (unsigned long long)slab_stats.cas_hits);
     APPEND_STAT("cas_badval", "%llu", (unsigned long long)slab_stats.cas_badval);
@@ -2723,9 +2723,9 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     case ENGINE_SUCCESS:
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (incr) {
-            c->thread->stats.slab_stats[/* ITEM_get_slabs_clsid(it)*/ 0 ].incr_hits++;
+            c->thread->stats.incr_hits++;
         } else {
-            c->thread->stats.slab_stats[/*ITEM_get_slabs_clsid(it)*/ 0 ].decr_hits++;
+            c->thread->stats.decr_hits++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
         snprintf(temp, sizeof(temp), "%llu", result);

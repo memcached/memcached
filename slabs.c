@@ -371,10 +371,6 @@ static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
                     (unsigned long long)thread_stats.slab_stats[i].set_cmds);
             APPEND_NUM_STAT(i, "delete_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].delete_hits);
-            APPEND_NUM_STAT(i, "incr_hits", "%llu",
-                    (unsigned long long)thread_stats.slab_stats[i].incr_hits);
-            APPEND_NUM_STAT(i, "decr_hits", "%llu",
-                    (unsigned long long)thread_stats.slab_stats[i].decr_hits);
             APPEND_NUM_STAT(i, "cas_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].cas_hits);
             APPEND_NUM_STAT(i, "cas_badval", "%llu",

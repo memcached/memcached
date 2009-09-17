@@ -700,14 +700,6 @@ ENGINE_ERROR_CODE do_add_delta(conn *c, hash_item *it, const bool incr,
     }
 
     *result = value;
-    pthread_mutex_lock(&c->thread->stats.mutex);
-    if (incr) {
-        c->thread->stats.slab_stats[ITEM_clsid(&it->item)].incr_hits++;
-    } else {
-        c->thread->stats.slab_stats[ITEM_clsid(&it->item)].decr_hits++;
-    }
-    pthread_mutex_unlock(&c->thread->stats.mutex);
-
     char buf[80];
     snprintf(buf, sizeof(buf), "%llu", (unsigned long long)value);
     res = strlen(buf);
