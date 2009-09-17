@@ -2688,9 +2688,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 }
 
 static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
-#ifdef FUTURE
-    char temp[INCR_MAX_STORAGE_LEN];
-    item *it;
+
     uint64_t delta;
     char *key;
     size_t nkey;
@@ -2712,32 +2710,49 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
-    if (settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey) != ENGINE_SUCCESS) {
+
+    ENGINE_ERROR_CODE ret;
+    uint64_t cas;
+    uint64_t result;
+    ret = settings.engine.v1->arithmetic(settings.engine.v0, c, key, nkey,
+                                         incr, false, delta, 0, 0, &cas,
+                                         &result);
+
+    char temp[INCR_MAX_STORAGE_LEN];
+    switch (ret) {
+    case ENGINE_SUCCESS:
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (incr) {
+            c->thread->stats.slab_stats[/* ITEM_get_slabs_clsid(it)*/ 0 ].incr_hits++;
+        } else {
+            c->thread->stats.slab_stats[/*ITEM_get_slabs_clsid(it)*/ 0 ].decr_hits++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+        snprintf(temp, sizeof(temp), "%llu", result);
+        out_string(c, temp);
+        break;
+    case ENGINE_KEY_ENOENT:
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (c->cmd == PROTOCOL_BINARY_CMD_INCREMENT) {
             c->thread->stats.incr_misses++;
         } else {
             c->thread->stats.decr_misses++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
-
         out_string(c, "NOT_FOUND");
-        return;
-    }
-
-    switch(add_delta(c, it, incr, delta, temp)) {
-    case OK:
-        out_string(c, temp);
         break;
-    case NON_NUMERIC:
-        out_string(c, "CLIENT_ERROR cannot increment or decrement non-numeric value");
-        break;
-    case EOM:
+    case ENGINE_ENOMEM:
         out_string(c, "SERVER_ERROR out of memory");
         break;
+    case ENGINE_EINVAL:
+        out_string(c, "CLIENT_ERROR cannot increment or decrement non-numeric value");
+        break;
+    case ENGINE_NOT_STORED:
+        out_string(c, "SERVER_ERROR failed to store item");
+        break;
+    default:
+        abort();
     }
-    settings.engine.v1->release(settings.engine.v0, it);         /* release our reference */
-#endif
 }
 
 static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
