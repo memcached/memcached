@@ -104,7 +104,27 @@ extern "C"
     PROTOCOL_BINARY_CMD_QUITQ = 0x17,
     PROTOCOL_BINARY_CMD_FLUSHQ = 0x18,
     PROTOCOL_BINARY_CMD_APPENDQ = 0x19,
-    PROTOCOL_BINARY_CMD_PREPENDQ = 0x1a
+    PROTOCOL_BINARY_CMD_PREPENDQ = 0x1a,
+
+    /* These commands are used for range operations and exist within
+     * this header for use in other projects.  Range operations are
+     * not expected to be implemented in the memcached server itself.
+     */
+    PROTOCOL_BINARY_CMD_RGET      = 0x30,
+    PROTOCOL_BINARY_CMD_RSET      = 0x31,
+    PROTOCOL_BINARY_CMD_RSETQ     = 0x32,
+    PROTOCOL_BINARY_CMD_RAPPEND   = 0x33,
+    PROTOCOL_BINARY_CMD_RAPPENDQ  = 0x34,
+    PROTOCOL_BINARY_CMD_RPREPEND  = 0x35,
+    PROTOCOL_BINARY_CMD_RPREPENDQ = 0x36,
+    PROTOCOL_BINARY_CMD_RDELETE   = 0x37,
+    PROTOCOL_BINARY_CMD_RDELETEQ  = 0x38,
+    PROTOCOL_BINARY_CMD_RINCR     = 0x39,
+    PROTOCOL_BINARY_CMD_RINCRQ    = 0x3a,
+    PROTOCOL_BINARY_CMD_RDECR     = 0x3b,
+    PROTOCOL_BINARY_CMD_RDECRQ    = 0x3c
+    /* End Range operations */
+
   } protocol_binary_command;
 
   /**
@@ -356,6 +376,42 @@ extern "C"
    * See section 4
    */
   typedef protocol_binary_response_no_extras protocol_binary_response_stats;
+
+  /**
+   * Definition of a request for a range operation.
+   * See http://code.google.com/p/memcached/wiki/RangeOps
+   *
+   * These types are used for range operations and exist within
+   * this header for use in other projects.  Range operations are
+   * not expected to be implemented in the memcached server itself.
+   */
+  typedef union {
+    struct {
+      protocol_binary_response_header header;
+      struct {
+        uint16_t size;
+        uint8_t  reserved;
+        uint8_t  flags;
+        uint32_t max_results;
+      } body;
+    } message;
+    uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
+  } protocol_binary_request_rangeop;
+
+  typedef protocol_binary_request_rangeop protocol_binary_request_rget;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rset;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rsetq;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rappend;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rappendq;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rprepend;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rprependq;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rdelete;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rdeleteq;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rincr;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rincrq;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rdecr;
+  typedef protocol_binary_request_rangeop protocol_binary_request_rdecrq;
+
 #ifdef __cplusplus
 }
 #endif
