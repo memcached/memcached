@@ -96,7 +96,7 @@ int main(int argc, char **argv)
     assert(argc > 2);
 
     naptime = atoi(argv[1]);
-    assert(naptime > 0 && naptime < 1800);
+/*     assert(naptime > 0 && naptime < 1800); */
 
     alarm(naptime);
 

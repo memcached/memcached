@@ -21,6 +21,8 @@
 #include <assert.h>
 #include <pthread.h>
 
+#include "default_engine.h"
+
 /* powers-of-N allocation structures */
 
 typedef struct {
@@ -96,7 +98,7 @@ unsigned int slabs_clsid(const size_t size) {
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-void slabs_init(const size_t limit, const double factor, const bool prealloc) {
+ENGINE_ERROR_CODE slabs_init(const size_t limit, const double factor, const bool prealloc) {
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
 
@@ -109,8 +111,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
             mem_current = mem_base;
             mem_avail = mem_limit;
         } else {
-            fprintf(stderr, "Warning: Failed to allocate requested memory in"
-                    " one large chunk.\nWill allocate in smaller chunks\n");
+            return ENGINE_ENOMEM;
         }
     }
 
@@ -156,6 +157,8 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
         }
     }
 #endif
+
+    return ENGINE_SUCCESS;
 }
 
 #ifndef DONT_PREALLOC_SLABS
@@ -225,7 +228,6 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
     }
 
     p = &slabclass[id];
-    assert(p->sl_curr == 0 || ((item *)p->slots[p->sl_curr - 1])->slabs_clsid == 0);
 
 #ifdef USE_SYSTEM_MALLOC
     if (mem_limit && mem_malloced + size > mem_limit) {
@@ -271,7 +273,6 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
 static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
 
-    assert(((item *)ptr)->slabs_clsid == 0);
     assert(id >= POWER_SMALLEST && id <= power_largest);
     if (id < POWER_SMALLEST || id > power_largest)
         return;
@@ -335,8 +336,9 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
 }
 
 /*@null@*/
-static void do_slabs_stats(ADD_STAT add_stats, void *c) {
+static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
     int i, total;
+    conn *c = (void*)cookie;
     /* Get the per-thread stats which contain some interesting aggregates */
     struct thread_stats thread_stats;
     threadlocal_stats_aggregate(&thread_stats);
@@ -433,7 +435,7 @@ void slabs_free(void *ptr, size_t size, unsigned int id) {
     pthread_mutex_unlock(&slabs_lock);
 }
 
-void slabs_stats(ADD_STAT add_stats, void *c) {
+void slabs_stats(ADD_STAT add_stats, const void *c) {
     pthread_mutex_lock(&slabs_lock);
     do_slabs_stats(add_stats, c);
     pthread_mutex_unlock(&slabs_lock);

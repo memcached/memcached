@@ -6,6 +6,7 @@ use Test::More tests => 3361;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
+use Carp;
 
 my $server = new_memcached();
 ok($server, "started the server");
@@ -73,7 +74,7 @@ my $set = sub {
 my $empty = sub {
     my $key = shift;
     my $rv =()= eval { $mc->get($key) };
-    is($rv, 0, "Didn't get a result from get");
+ confess unless    is($rv, 0, "Didn't get a result from get");
     ok($@->not_found, "We got a not found error when we expected one");
 };
 

@@ -1,4 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+#ifndef MEMCACHED_H
+#define MEMCACHED_H
 
 /** \file
  * The main memcached header holding commonly used data
@@ -77,11 +79,6 @@
     harvesting it on a low memory condition. */
 #define TAIL_REPAIR_TIME (3 * 3600)
 
-/* warning: don't use these macros with a function, as it evals its arg twice */
-#define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
-         + (item)->nbytes \
-         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
-
 #define STAT_KEY_LEN 128
 #define STAT_VAL_LEN 128
 
@@ -148,21 +145,6 @@ enum network_transport {
 };
 
 #define IS_UDP(x) (x == udp_transport)
-
-#define NREAD_ADD 1
-#define NREAD_SET 2
-#define NREAD_REPLACE 3
-#define NREAD_APPEND 4
-#define NREAD_PREPEND 5
-#define NREAD_CAS 6
-
-enum store_item_type {
-    NOT_STORED=0, STORED, EXISTS, NOT_FOUND
-};
-
-enum delta_result_type {
-    OK, NON_NUMERIC, EOM
-};
 
 /** Stats stored per slab (and per thread). */
 struct slab_stats {
@@ -246,6 +228,10 @@ struct settings {
     int backlog;
     int item_size_max;        /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
+    union {
+        ENGINE_HANDLE *v0;
+        ENGINE_HANDLE_V1 *v1;
+    } engine;
 };
 
 extern struct stats stats;
@@ -312,6 +298,8 @@ struct conn {
      */
 
     void   *item;     /* for commands set/add/replace  */
+    ENGINE_STORE_OPERATION    store_op; /* which one is it: set/add/replace */
+
 
     /* data for the swallow state */
     int    sbytes;    /* how many bytes to swallow */
@@ -374,17 +362,11 @@ extern volatile rel_time_t current_time;
  * Functions
  */
 void do_accept_new_conns(const bool do_accept);
-enum delta_result_type do_add_delta(conn *c, item *item, const bool incr,
-                                    const int64_t delta, char *buf);
-enum store_item_type do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 extern int daemonize(int nochdir, int noclose);
 
 
 #include "stats.h"
-#include "slabs.h"
-#include "assoc.h"
-#include "items.h"
 #include "trace.h"
 #include "hash.h"
 #include "util.h"
@@ -401,23 +383,10 @@ int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 
 /* Lock wrappers for cache functions that are called from main loop. */
-enum delta_result_type add_delta(conn *c, item *item, const int incr,
-                                 const int64_t delta, char *buf);
 void accept_new_conns(const bool do_accept);
 conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 int   is_listen_thread(void);
-item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
-char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
-void  item_flush_expired(void);
-item *item_get(const char *key, const size_t nkey);
-int   item_link(item *it);
-void  item_remove(item *it);
-int   item_replace(item *it, item *new_it);
-void  item_stats(ADD_STAT add_stats, void *c);
-void  item_stats_sizes(ADD_STAT add_stats, void *c);
-void  item_unlink(item *it);
-void  item_update(item *it);
 
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
@@ -428,8 +397,6 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
 /* Stat processing functions */
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
-
-enum store_item_type store_item(item *item, int comm, conn *c);
 
 #if HAVE_DROP_PRIVILEGES
 extern void drop_privileges(void);
@@ -444,3 +411,4 @@ extern void drop_privileges(void);
 
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
+#endif

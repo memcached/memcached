@@ -22,7 +22,7 @@
 #include "config.h"
 #include "cache.h"
 #include "util.h"
-#include "protocol_binary.h"
+#include "memcached/protocol_binary.h"
 #include "config_parser.h"
 
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
@@ -728,6 +728,7 @@ static enum test_return test_issue_102(void) {
 static enum test_return start_memcached_server(void) {
     server_pid = start_server(&port, false, 600);
     sock = connect_server("127.0.0.1", port, false);
+
     return TEST_PASS;
 }
 
@@ -1983,7 +1984,7 @@ int main(int argc, char **argv)
 
     for (ii = 0; testcases[ii].description != NULL; ++ii) {
         fflush(stdout);
-#ifndef DEBUG
+#if 0
         /* the test program shouldn't run longer than 10 minutes... */
         alarm(600);
 #endif

@@ -45,30 +45,10 @@ extern "C" {
    typedef uint32_t rel_time_t;
 
 
-/**
- * For now use the old version
- */
-typedef struct _stritem {
-    struct _stritem *next;
-    struct _stritem *prev;
-    struct _stritem *h_next;    /* hash chain next */
-    rel_time_t      time;       /* least recent access */
-    rel_time_t      exptime;    /* expire time */
-    int             nbytes;     /* size of data */
-    unsigned short  refcount;
-    uint8_t         it_flags;   /* ITEM_* above */
-    uint8_t         slabs_clsid;/* which slab class we're in */
-    uint8_t         nkey;       /* key length, w/terminating null and padding */
-   uint32_t        flags;
-    void * end[];
-    /* if it_flags & ITEM_CAS we have 8 bytes CAS */
-    /* then null-terminated key */
-    /* then " flags length\r\n" (no terminating null) */
-    /* then data with terminating \r\n (no terminating null; it's binary!) */
-} item;
+   rel_time_t realtime(const time_t exptime);
+extern volatile rel_time_t current_time;
 
 
-#ifdef FUTURE
    typedef struct {
       rel_time_t exptime; /* When the item will expire (relative to process
                              startup) */
@@ -80,13 +60,16 @@ typedef struct _stritem {
                          implementation.
                       */
    } item;
-#endif
 
    uint64_t ITEM_get_cas(const item*);
    void ITEM_set_cas(item*, uint64_t);
    char* ITEM_key(const item*);
    char* ITEM_data(const item*);
    void ITEM_set_data_ptr(const item*, void*);
+   static inline uint8_t ITEM_clsid(const item* item) {
+      return 0;
+   }
+
    void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status);
 
    /**
@@ -174,6 +157,7 @@ typedef struct _stritem {
       ENGINE_ERROR_CODE (*store)(ENGINE_HANDLE* handle,
                                  const void *cookie,
                                  item* item,
+                                 uint64_t *cas,
                                  ENGINE_STORE_OPERATION operation);
       ENGINE_ERROR_CODE (*arithmetic)(ENGINE_HANDLE* handle,
                                       const void* cookie,
