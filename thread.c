@@ -46,6 +46,8 @@ static pthread_mutex_t stats_lock;
 static CQ_ITEM *cqi_freelist;
 static pthread_mutex_t cqi_freelist_lock;
 
+static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
+
 /*
  * Each libevent instance has a wakeup pipe, which other threads
  * can use to signal that they've put a new connection on its queue.
@@ -53,7 +55,7 @@ static pthread_mutex_t cqi_freelist_lock;
 static LIBEVENT_THREAD *threads;
 
 /*
- * Number of threads that have finished setting themselves up.
+ * Number of worker threads that have finished setting themselves up.
  */
 static int init_count = 0;
 static pthread_mutex_t init_lock;
@@ -188,12 +190,10 @@ void accept_new_conns(const bool do_accept) {
  * Set up a thread's information.
  */
 static void setup_thread(LIBEVENT_THREAD *me) {
+    me->base = event_init();
     if (! me->base) {
-        me->base = event_init();
-        if (! me->base) {
-            fprintf(stderr, "Can't allocate event base\n");
-            exit(1);
-        }
+        fprintf(stderr, "Can't allocate event base\n");
+        exit(1);
     }
 
     /* Listen for notifications from other threads */
@@ -284,7 +284,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 }
 
 /* Which thread we assigned a connection to most recently. */
-static int last_thread = 0;
+static int last_thread = -1;
 
 /*
  * Dispatches a new connection to another thread. This is only ever called
@@ -294,10 +294,8 @@ static int last_thread = 0;
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport) {
     CQ_ITEM *item = cqi_new();
-    int tid = last_thread % (settings.num_threads - 1);
+    int tid = (last_thread + 1) % settings.num_threads;
 
-    /* Skip the dispatch thread (0) */
-    tid++;
     LIBEVENT_THREAD *thread = threads + tid;
 
     last_thread = tid;
@@ -320,7 +318,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
  * Returns true if this is the thread that listens for new TCP connections.
  */
 int is_listen_thread() {
-    return pthread_self() == threads[0].thread_id;
+    return pthread_self() == dispatcher_thread.thread_id;
 }
 
 /********************************* ITEM ACCESS *******************************/
@@ -578,7 +576,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
 /*
  * Initializes the thread subsystem, creating various worker threads.
  *
- * nthreads  Number of event handler threads to spawn
+ * nthreads  Number of worker event handler threads to spawn
  * main_base Event base for main thread
  */
 void thread_init(int nthreads, struct event_base *main_base) {
@@ -599,8 +597,8 @@ void thread_init(int nthreads, struct event_base *main_base) {
         exit(1);
     }
 
-    threads[0].base = main_base;
-    threads[0].thread_id = pthread_self();
+    dispatcher_thread.base = main_base;
+    dispatcher_thread.thread_id = pthread_self();
 
     for (i = 0; i < nthreads; i++) {
         int fds[2];
@@ -616,13 +614,12 @@ void thread_init(int nthreads, struct event_base *main_base) {
     }
 
     /* Create threads after we've done all the libevent setup. */
-    for (i = 1; i < nthreads; i++) {
+    for (i = 0; i < nthreads; i++) {
         create_worker(worker_libevent, &threads[i]);
     }
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);
-    init_count++; /* main thread */
     while (init_count < nthreads) {
         pthread_cond_wait(&init_cond, &init_lock);
     }

@@ -186,7 +186,7 @@ static void settings_init(void) {
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
-    settings.num_threads = 4 + 1;     /* N workers + 1 dispatcher */
+    settings.num_threads = 4;         /* N workers */
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
     settings.reqs_per_event = 20;
@@ -3645,7 +3645,7 @@ static int server_socket(int port, enum network_transport transport,
         if (IS_UDP(transport)) {
             int c;
 
-            for (c = 1; c < settings.num_threads; c++) {
+            for (c = 0; c < settings.num_threads; c++) {
                 /* this is guaranteed to hit all threads because we round-robin */
                 dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
                                   UDP_READ_BUFFER_SIZE, transport);
@@ -4113,7 +4113,7 @@ int main (int argc, char **argv) {
             }
             break;
         case 't':
-            settings.num_threads = atoi(optarg) + 1; /* Extra dispatch thread */
+            settings.num_threads = atoi(optarg);
             if (settings.num_threads == 0) {
                 fprintf(stderr, "Number of threads must be greater than 0\n");
                 return 1;

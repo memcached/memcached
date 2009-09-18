@@ -260,7 +260,7 @@ struct settings {
     int access;  /* access mask (a la chmod) for unix domain socket */
     double factor;          /* chunk size growth factor */
     int chunk_size;
-    int num_threads;        /* number of libevent threads to run */
+    int num_threads;        /* number of worker (without dispatcher) libevent threads to run */
     char prefix_delimiter;  /* character that marks a key prefix (for stats) */
     int detail_enabled;     /* nonzero if we're collecting detailed stats */
     int reqs_per_event;     /* Maximum number of io to process on each
@@ -312,6 +312,11 @@ typedef struct {
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *suffix_cache;      /* suffix cache */
 } LIBEVENT_THREAD;
+
+typedef struct {
+    pthread_t thread_id;        /* unique ID of this thread */
+    struct event_base *base;    /* libevent handle this thread uses */
+} LIBEVENT_DISPATCHER_THREAD;
 
 /**
  * The structure representing a connection into memcached.

@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 17;
+use Test::More tests => 18;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -74,3 +74,9 @@ eval {
     my $server = new_memcached("-B http");
 };
 ok($@, "Died with illegal -B arg.");
+
+# Should not allow -t 0
+eval {
+    my $server = new_memcached("-t 0");
+};
+ok($@, "Died with illegal 0 thread count");
