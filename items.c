@@ -352,7 +352,6 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
 
-    if (slabs_clsid >= LARGEST_ID) return NULL;
     it = heads[slabs_clsid];
 
     buffer = malloc((size_t)memlimit);

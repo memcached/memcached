@@ -493,6 +493,71 @@ static enum test_return test_issue_72(void) {
     return TEST_PASS;
 }
 
+static void send_ascii_command(const char *buf) {
+    off_t offset = 0;
+    const char* ptr = buf;
+    size_t len = strlen(buf);
+
+    do {
+        ssize_t nw = write(sock, ptr + offset, len - offset);
+        if (nw == -1) {
+            if (errno != EINTR) {
+                fprintf(stderr, "Failed to write: %s\n", strerror(errno));
+                abort();
+            }
+        } else {
+            offset += nw;
+        }
+    } while (offset < len);
+}
+
+/*
+ * This is a dead slow single byte read, but it should only read out
+ * _one_ response and I don't have an input buffer... The current
+ * implementation only supports single-line responses, so if you want to use
+ * it for get commands you need to implement that first ;-)
+ */
+static void read_ascii_response(char *buffer, size_t size) {
+    off_t offset = 0;
+    bool need_more = true;
+    do {
+        ssize_t nr = read(sock, buffer + offset, 1);
+        if (nr == -1) {
+            if (errno != EINTR) {
+                fprintf(stderr, "Failed to read: %s\n", strerror(errno));
+                abort();
+            }
+        } else {
+            assert(nr == 1);
+            if (buffer[offset] == '\n') {
+                need_more = false;
+                buffer[offset + 1] = '\0';
+            }
+            offset += nr;
+            assert(offset + 1 < size);
+        }
+    } while (need_more);
+}
+
+static enum test_return test_issue_92(void) {
+    char buffer[1024];
+
+    close(sock);
+    sock = connect_server("127.0.0.1", port);
+
+    send_ascii_command("stats cachedump 1 0 0\r\n");
+    read_ascii_response(buffer, sizeof(buffer));
+    assert(strncmp(buffer, "END", strlen("END")) == 0);
+
+    send_ascii_command("stats cachedump 200 0 0\r\n");
+    read_ascii_response(buffer, sizeof(buffer));
+    assert(strncmp(buffer, "CLIENT_ERROR", strlen("CLIENT_ERROR")) == 0);
+
+    close(sock);
+    sock = connect_server("127.0.0.1", port);
+    return TEST_PASS;
+}
+
 static enum test_return start_memcached_server(void) {
     server_pid = start_server(&port, false, 600);
     sock = connect_server("127.0.0.1", port);
@@ -1627,6 +1692,7 @@ struct testcase testcases[] = {
     { "vperror", test_vperror },
     /* The following tests all run towards the same server */
     { "start_server", start_memcached_server },
+    { "issue_92", test_issue_92 },
     { "binary_noop", test_binary_noop },
     { "binary_quit", test_binary_quit },
     { "binary_quitq", test_binary_quitq },

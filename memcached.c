@@ -2242,6 +2242,11 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
+        if (id >= POWER_LARGEST) {
+            out_string(c, "CLIENT_ERROR Illegal slab id");
+            return;
+        }
+
         buf = item_cachedump(id, limit, &bytes);
         write_and_free(c, buf, bytes);
         return ;
