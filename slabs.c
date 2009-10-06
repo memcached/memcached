@@ -129,7 +129,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
         slabclass[i].perslab = POWER_BLOCK / slabclass[i].size;
         size *= factor;
         if (settings.verbose > 1) {
-            fprintf(stderr, "slab class %3d: chunk size %6u perslab %5u\n",
+            fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
                     i, slabclass[i].size, slabclass[i].perslab);
         }
     }
@@ -137,6 +137,10 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
     power_largest = i;
     slabclass[power_largest].size = POWER_BLOCK;
     slabclass[power_largest].perslab = 1;
+    if (settings.verbose > 1) {
+        fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
+                i, slabclass[i].size, slabclass[i].perslab);
+    }
 
     /* for the test suite:  faking of how much we've already malloc'd */
     {
