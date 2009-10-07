@@ -192,6 +192,7 @@ static void settings_init(void) {
     settings.reqs_per_event = 20;
     settings.backlog = 1024;
     settings.binding_protocol = negotiating_prot;
+    settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
 }
 
 /*
@@ -2199,6 +2200,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("tcp_backlog", "%d", settings.backlog);
     APPEND_STAT("binding_protocol", "%s",
                 prot_text(settings.binding_protocol));
+    APPEND_STAT("item_size_max", "%d", settings.item_size_max);
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -3832,6 +3834,7 @@ static void usage(void) {
     printf("-C            Disable use of CAS\n");
     printf("-b            Set the backlog queue limit (default: 1024)\n");
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
+    printf("-I            Override the size of each slab page. Adjusts max item size\n");
     return;
 }
 
@@ -4003,6 +4006,8 @@ int main (int argc, char **argv) {
     char *pid_file = NULL;
     struct passwd *pw;
     struct rlimit rlim;
+    char unit = '\0';
+    int size_max = 0;
     /* listening sockets */
     static int *l_socket = NULL;
 
@@ -4044,6 +4049,7 @@ int main (int argc, char **argv) {
           "C"   /* Disable use of CAS */
           "b:"  /* backlog queue limit */
           "B:"  /* Binding protocol */
+          "I:"  /* Max item size */
         ))) {
         switch (c) {
         case 'a':
@@ -4154,6 +4160,36 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "Invalid value for binding protocol: %s\n"
                         " -- should be one of auto, binary, or ascii\n", optarg);
                 exit(EX_USAGE);
+            }
+            break;
+        case 'I':
+            unit = optarg[strlen(optarg)-1];
+            if (unit == 'k' || unit == 'm' ||
+                unit == 'K' || unit == 'M') {
+                optarg[strlen(optarg)-1] = '\0';
+                size_max = atoi(optarg);
+                if (unit == 'k' || unit == 'K')
+                    size_max *= 1024;
+                if (unit == 'm' || unit == 'M')
+                    size_max *= 1024 * 1024;
+                settings.item_size_max = size_max;
+            } else {
+                settings.item_size_max = atoi(optarg);
+            }
+            if (settings.item_size_max < 1024) {
+                fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
+                return 1;
+            }
+            if (settings.item_size_max > 1024 * 1024 * 128) {
+                fprintf(stderr, "Cannot set item size limit higher than 128 mb.\n");
+                return 1;
+            }
+            if (settings.item_size_max > 1024 * 1024) {
+                fprintf(stderr, "WARNING: Setting item max size above 1MB is not"
+                    " recommended!\n"
+                    " Raising this limit increases the minimum memory requirements\n"
+                    " and will decrease your memory efficiency.\n"
+                );
             }
             break;
         default:

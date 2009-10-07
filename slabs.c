@@ -120,13 +120,13 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
 
     memset(slabclass, 0, sizeof(slabclass));
 
-    while (++i < POWER_LARGEST && size <= POWER_BLOCK / 2) {
+    while (++i < POWER_LARGEST && size <= settings.item_size_max / 2) {
         /* Make sure items are always n-byte aligned */
         if (size % CHUNK_ALIGN_BYTES)
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
 
         slabclass[i].size = size;
-        slabclass[i].perslab = POWER_BLOCK / slabclass[i].size;
+        slabclass[i].perslab = settings.item_size_max / slabclass[i].size;
         size *= factor;
         if (settings.verbose > 1) {
             fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
@@ -135,7 +135,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
     }
 
     power_largest = i;
-    slabclass[power_largest].size = POWER_BLOCK;
+    slabclass[power_largest].size = settings.item_size_max;
     slabclass[power_largest].perslab = 1;
     if (settings.verbose > 1) {
         fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
@@ -197,7 +197,7 @@ static int grow_slab_list (const unsigned int id) {
 static int do_slabs_newslab(const unsigned int id) {
     slabclass_t *p = &slabclass[id];
 #ifdef ALLOW_SLABS_REASSIGN
-    int len = POWER_BLOCK;
+    int len = settings.item_size_max;
 #else
     int len = p->size * p->perslab;
 #endif
@@ -426,7 +426,7 @@ int do_slabs_reassign(unsigned char srcid, unsigned char dstid) {
     if (p->killing == 0) p->killing = 1;
 
     slab = p->slab_list[p->killing - 1];
-    slab_end = (char*)slab + POWER_BLOCK;
+    slab_end = (char*)slab + settings.item_size_max;
 
     for (iter = slab; iter < slab_end; (char*)iter += p->size) {
         item *it = (item *)iter;

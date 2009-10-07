@@ -204,6 +204,11 @@ sub DESTROY {
     kill 2, $self->{pid};
 }
 
+sub stop {
+    my $self = shift;
+    kill 15, $self->{pid};
+}
+
 sub port { $_[0]{port} }
 sub udpport { $_[0]{udpport} }
 

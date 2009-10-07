@@ -67,7 +67,6 @@
 /* Slab sizing definitions. */
 #define POWER_SMALLEST 1
 #define POWER_LARGEST  200
-#define POWER_BLOCK 1048576
 #define CHUNK_ALIGN_BYTES 8
 #define DONT_PREALLOC_SLABS
 #define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
@@ -268,6 +267,7 @@ struct settings {
     bool use_cas;
     enum protocol binding_protocol;
     int backlog;
+    int item_size_max;        /* Maximum item size, and upper end for slabs */
 };
 
 extern struct stats stats;
