@@ -196,11 +196,7 @@ static int grow_slab_list (const unsigned int id) {
 
 static int do_slabs_newslab(const unsigned int id) {
     slabclass_t *p = &slabclass[id];
-#ifdef ALLOW_SLABS_REASSIGN
-    int len = settings.item_size_max;
-#else
     int len = p->size * p->perslab;
-#endif
     char *ptr;
 
     if ((mem_limit && mem_malloced + len > mem_limit && p->slabs > 0) ||
@@ -392,87 +388,6 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
     APPEND_STAT("total_malloced", "%llu", (unsigned long long)mem_malloced);
     add_stats(NULL, 0, NULL, 0, c);
 }
-
-#ifdef ALLOW_SLABS_REASSIGN
-/* Blows away all the items in a slab class and moves its slabs to another
-   class. This is only used by the "slabs reassign" command, for manual tweaking
-   of memory allocation. It's disabled by default since it requires that all
-   slabs be the same size (which can waste space for chunk size mantissas of
-   other than 2.0).
-   1 = success
-   0 = fail
-   -1 = tried. busy. send again shortly. */
-int do_slabs_reassign(unsigned char srcid, unsigned char dstid) {
-    void *slab, *slab_end;
-    slabclass_t *p, *dp;
-    void *iter;
-    bool was_busy = false;
-
-    if (srcid < POWER_SMALLEST || srcid > power_largest ||
-        dstid < POWER_SMALLEST || dstid > power_largest)
-        return 0;
-
-    p = &slabclass[srcid];
-    dp = &slabclass[dstid];
-
-    /* fail if src still populating, or no slab to give up in src */
-    if (p->end_page_ptr || ! p->slabs)
-        return 0;
-
-    /* fail if dst is still growing or we can't make room to hold its new one */
-    if (dp->end_page_ptr || ! grow_slab_list(dstid))
-        return 0;
-
-    if (p->killing == 0) p->killing = 1;
-
-    slab = p->slab_list[p->killing - 1];
-    slab_end = (char*)slab + settings.item_size_max;
-
-    for (iter = slab; iter < slab_end; (char*)iter += p->size) {
-        item *it = (item *)iter;
-        if (it->slabs_clsid) {
-            if (it->refcount) was_busy = true;
-            item_unlink(it);
-        }
-    }
-
-    /* go through free list and discard items that are no longer part of this slab */
-    {
-        int fi;
-        for (fi = p->sl_curr - 1; fi >= 0; fi--) {
-            if (p->slots[fi] >= slab && p->slots[fi] < slab_end) {
-                p->sl_curr--;
-                if (p->sl_curr > fi) p->slots[fi] = p->slots[p->sl_curr];
-            }
-        }
-    }
-
-    if (was_busy) return -1;
-
-    /* if good, now move it to the dst slab class */
-    p->slab_list[p->killing - 1] = p->slab_list[p->slabs - 1];
-    p->slabs--;
-    p->killing = 0;
-    dp->slab_list[dp->slabs++] = slab;
-    dp->end_page_ptr = slab;
-    dp->end_page_free = dp->perslab;
-    /* this isn't too critical, but other parts of the code do asserts to
-       make sure this field is always 0.  */
-    for (iter = slab; iter < slab_end; (char*)iter += dp->size) {
-        ((item *)iter)->slabs_clsid = 0;
-    }
-    return 1;
-}
-
-int slabs_reassign(unsigned char srcid, unsigned char dstid) {
-    int ret;
-
-    pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_reassign(srcid, dstid);
-    pthread_mutex_unlock(&slabs_lock);
-    return ret;
-}
-#endif
 
 static void *memory_allocate(size_t size) {
     void *ret;

@@ -30,10 +30,4 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 /** Fill buffer with stats */ /*@null@*/
 void slabs_stats(ADD_STAT add_stats, void *c);
 
-/* Request some slab be moved between classes
-  1 = success
-   0 = fail
-   -1 = tried. busy. send again shortly. */
-int slabs_reassign(unsigned char srcid, unsigned char dstid);
-
 #endif

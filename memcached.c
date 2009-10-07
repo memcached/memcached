@@ -2801,36 +2801,6 @@ static void process_command(conn *c, char *command) {
 
         conn_set_state(c, conn_closing);
 
-    } else if (ntokens == 5 && (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0 &&
-                                strcmp(tokens[COMMAND_TOKEN + 1].value, "reassign") == 0)) {
-#ifdef ALLOW_SLABS_REASSIGN
-
-        int src, dst, rv;
-
-        src = strtol(tokens[2].value, NULL, 10);
-        dst  = strtol(tokens[3].value, NULL, 10);
-
-        if(errno == ERANGE) {
-            out_string(c, "CLIENT_ERROR bad command line format");
-            return;
-        }
-
-        rv = slabs_reassign(src, dst);
-        if (rv == 1) {
-            out_string(c, "DONE");
-            return;
-        }
-        if (rv == 0) {
-            out_string(c, "CANT");
-            return;
-        }
-        if (rv == -1) {
-            out_string(c, "BUSY");
-            return;
-        }
-#else
-        out_string(c, "CLIENT_ERROR Slab reassignment not supported");
-#endif
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {

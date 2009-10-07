@@ -42,14 +42,6 @@ die
        memcached-tool 10.0.0.5:11211            # same.  (default is display)
        memcached-tool 10.0.0.5:11211 stats      # shows general stats
        memcached-tool 10.0.0.5:11211 dump       # dumps keys and values
-       memcached-tool 10.0.0.5:11211 move 7 9   # takes 1MB slab from class #7
-                                                # to class #9.
-
-You can only move slabs around on a server that supports 'slabs reassign'
-messages and only once slab memory is totally allocated, and only
-once the target class is full.  (So you can't move from #6 to #9 and #7
-to #9 at the same itme, since you'd have to wait for #9 to fill from
-the first reassigned page)
 " unless $host && $mode;
 
 $host .= ":11211" unless $host =~ /:\d+/;
@@ -57,36 +49,6 @@ $host .= ":11211" unless $host =~ /:\d+/;
 my $sock = IO::Socket::INET->new(PeerAddr => $host,
                                  Proto    => 'tcp');
 die "Couldn't connect to $host\n" unless $sock;
-
-
-if ($mode eq "move") {
-    my $tries = 0;
-    while (1) {
-        print $sock "slabs reassign $from $to\r\n";
-        my $res = <$sock>;
-        $res =~ s/\s+//;
-        if ($res eq "DONE") {
-            print "Success.\n";
-            exit 0;
-        } elsif ($res eq "CANT") {
-            print "Error: can't move from $from to $to.  Destination not yet full?  See usage docs.\n";
-            exit;
-        } elsif ($res eq "BUSY") {
-            if (++$tries == 3) {
-                print "Failed to move after 3 tries.  Try again later.\n";
-                exit;
-            }
-
-            print "Page busy, retrying...\n";
-            sleep 1;
-        } elsif ($res =~ "CLIENT_ERROR") {
-            print "Error: CLIENT_ERROR; perhaps slab reassignment is not enabled.\n";
-            exit;
-        }
-    }
-
-    exit;
-}
 
 if ($mode eq 'dump') {
     my %items;
