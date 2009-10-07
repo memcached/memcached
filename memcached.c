@@ -4095,9 +4095,19 @@ int main (int argc, char **argv) {
             break;
         case 't':
             settings.num_threads = atoi(optarg);
-            if (settings.num_threads == 0) {
+            if (settings.num_threads <= 0) {
                 fprintf(stderr, "Number of threads must be greater than 0\n");
                 return 1;
+            }
+            /* There're other problems when you get above 64 threads.
+             * In the future we should portably detect # of cores for the
+             * default.
+             */
+            if (settings.num_threads > 64) {
+                fprintf(stderr, "WARNING: Setting a high number of worker"
+                                "threads is not recommended.\n"
+                                " Set this value to the number of cores in"
+                                " your machine or less.\n");
             }
             break;
         case 'D':
