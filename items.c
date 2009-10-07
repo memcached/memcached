@@ -27,6 +27,7 @@ static void item_unlink_q(item *it);
 #define LARGEST_ID POWER_LARGEST
 typedef struct {
     unsigned int evicted;
+    unsigned int evicted_nonzero;
     rel_time_t evicted_time;
     unsigned int outofmemory;
     unsigned int tailrepairs;
@@ -149,6 +150,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
                 if (search->exptime == 0 || search->exptime > current_time) {
                     itemstats[id].evicted++;
                     itemstats[id].evicted_time = current_time - search->time;
+                    if (search->exptime != 0)
+                        itemstats[id].evicted_nonzero++;
                     STATS_LOCK();
                     stats.evictions++;
                     STATS_UNLOCK();
@@ -394,6 +397,8 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_FMT_STAT(fmt, i, "age", "%u", tails[i]->time);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted",
                                 "%u", itemstats[i].evicted);
+            APPEND_NUM_FMT_STAT(fmt, i, "evicted_nonzero",
+                                "%u", itemstats[i].evicted_nonzero);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted_time",
                                 "%u", itemstats[i].evicted_time);
             APPEND_NUM_FMT_STAT(fmt, i, "outofmemory",

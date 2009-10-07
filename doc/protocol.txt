@@ -474,6 +474,9 @@ number                 Number of items presently stored in this class. Expired
 age                    Age of the oldest item in the LRU.
 evicted                Number of times an item had to be evicted from the LRU
                        before it expired.
+evicted_nonzero        Number of times an item which had an explicit expire
+                       time set had to be evicted from the LRU before it
+                       expired.
 evicted_time           Seconds since the last access for the most recent item
                        evicted from this class. Use this to judge how
                        recently active your evicted data is.
