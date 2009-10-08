@@ -144,6 +144,19 @@ sub supports_udp {
 sub new_memcached {
     my ($args, $passed_port) = @_;
     my $port = $passed_port || free_port();
+    my $host = '127.0.0.1';
+
+    if ($ENV{T_MEMD_USE_DAEMON}) {
+        my ($host, $port) = ($ENV{T_MEMD_USE_DAEMON} =~ m/^([^:]+):(\d+)$/);
+        my $conn = IO::Socket::INET->new(PeerAddr => "$host:$port");
+        if ($conn) {
+            return Memcached::Handle->new(conn => $conn,
+                                          host => $host,
+                                          port => $port);
+        }
+        croak("Failed to connect to specified memcached server.") unless $conn;
+    }
+
     my $udpport = free_port("udp");
     $args .= " -p $port";
     if (supports_udp()) {
@@ -173,6 +186,7 @@ sub new_memcached {
         return Memcached::Handle->new(pid  => $childpid,
                                       conn => $conn,
                                       domainsocket => $filename,
+                                      host => $host,
                                       port => $port);
     }
 
@@ -185,6 +199,7 @@ sub new_memcached {
             return Memcached::Handle->new(pid  => $childpid,
                                           conn => $conn,
                                           udpport => $udpport,
+                                          host => $host,
                                           port => $port);
         }
         select undef, undef, undef, 0.10;
@@ -209,6 +224,7 @@ sub stop {
     kill 15, $self->{pid};
 }
 
+sub host { $_[0]{host} }
 sub port { $_[0]{port} }
 sub udpport { $_[0]{udpport} }
 
@@ -226,7 +242,7 @@ sub new_sock {
     if ($self->{domainsocket}) {
         return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
     } else {
-        return IO::Socket::INET->new(PeerAddr => "127.0.0.1:$self->{port}");
+        return IO::Socket::INET->new(PeerAddr => "$self->{host}:$self->{port}");
     }
 }
 

@@ -37,3 +37,12 @@ to keep the reporting accurate.  To do so, add the following to
 
     #!/bin/sh
     ./version.sh
+
+** Running memcached in gdb for tests.
+
+By default `make test` will spawn a memcached daemon for each test.
+This doesn't let you easily drop into gdb or run verbosely.
+
+If you export the environment variable
+T_MEMD_USE_DAEMON="127.0.0.1:11211" the tests will use an existing
+daemon at that address.
