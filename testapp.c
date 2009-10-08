@@ -464,35 +464,6 @@ static enum test_return test_vperror(void) {
     return strcmp(expected, buf) == 0 ? TEST_PASS : TEST_FAIL;
 }
 
-
-static enum test_return test_issue_72(void) {
-    in_port_t port;
-    pid_t pid = start_server(&port, false, 15);
-    int sock = connect_server("127.0.0.1", port);
-    assert(sock != -1);
-
-    char data[sizeof(protocol_binary_request_set) + 2048] = { 0 };
-    protocol_binary_request_set *request = (protocol_binary_request_set*)data;
-    request->message.header.request.magic = PROTOCOL_BINARY_REQ;
-    request->message.header.request.opcode = PROTOCOL_BINARY_CMD_SET;
-    uint16_t keylen = 2048;
-    request->message.header.request.keylen = htons(keylen);
-    request->message.header.request.extlen = 8;
-    request->message.header.request.bodylen = htonl(keylen + 8);
-
-    assert(write(sock, data, 2000) == 2000);
-    usleep(250);
-    assert(write(sock, data, sizeof(data) - 2000) == sizeof(data) - 2000);
-
-    protocol_binary_response_set response;
-    assert(read(sock, &response, sizeof(response)) == sizeof(response));
-    assert(response.message.header.response.magic == PROTOCOL_BINARY_RES);
-    assert(ntohs(response.message.header.response.status) == PROTOCOL_BINARY_RESPONSE_SUCCESS);
-    close(sock);
-    assert(kill(pid, SIGTERM) == 0);
-    return TEST_PASS;
-}
-
 static void send_ascii_command(const char *buf) {
     off_t offset = 0;
     const char* ptr = buf;
@@ -1688,7 +1659,6 @@ struct testcase testcases[] = {
     { "strtoul", test_safe_strtoul },
     { "strtoull", test_safe_strtoull },
     { "issue_44", test_issue_44 },
-    { "issue_72", test_issue_72 },
     { "vperror", test_vperror },
     /* The following tests all run towards the same server */
     { "start_server", start_memcached_server },
