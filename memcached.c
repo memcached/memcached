@@ -943,7 +943,7 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
         fprintf(stderr, ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
     }
 
-    if (settings.verbose > 0) {
+    if (settings.verbose > 1) {
         fprintf(stderr, ">%d Writing an error: %s\n", c->sfd, errstr);
     }
 
@@ -994,7 +994,7 @@ static void complete_incr_bin(conn *c) {
     key = binary_get_key(c);
     nkey = c->binary_header.request.keylen;
 
-    if (settings.verbose) {
+    if (settings.verbose > 1) {
         int i;
         fprintf(stderr, "incr ");
 
@@ -1151,7 +1151,7 @@ static void process_bin_get(conn *c) {
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
 
-    if (settings.verbose) {
+    if (settings.verbose > 1) {
         int ii;
         fprintf(stderr, "<%d GET ", c->sfd);
         for (ii = 0; ii < nkey; ++ii) {
@@ -1333,7 +1333,7 @@ static void process_bin_stat(conn *c) {
     char *subcommand = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
 
-    if (settings.verbose) {
+    if (settings.verbose > 1) {
         int ii;
         fprintf(stderr, "<%d STATS ", c->sfd);
         for (ii = 0; ii < nkey; ++ii) {
@@ -1411,7 +1411,7 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
         }
 
         if (nsize != c->rsize) {
-            if (settings.verbose) {
+            if (settings.verbose > 1) {
                 fprintf(stderr, "%d: Need to grow buffer from %lu to %lu\n",
                         c->sfd, (unsigned long)c->rsize, (unsigned long)nsize);
             }
@@ -1433,7 +1433,7 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
         if (c->rbuf != c->rcurr) {
             memmove(c->rbuf, c->rcurr, c->rbytes);
             c->rcurr = c->rbuf;
-            if (settings.verbose) {
+            if (settings.verbose > 1) {
                 fprintf(stderr, "%d: Repack input buffer\n", c->sfd);
             }
         }
@@ -1619,7 +1619,7 @@ static void process_bin_update(conn *c) {
 
     vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
 
-    if (settings.verbose) {
+    if (settings.verbose > 1) {
         int ii;
         if (c->cmd == PROTOCOL_BINARY_CMD_ADD) {
             fprintf(stderr, "<%d ADD ", c->sfd);
@@ -1632,9 +1632,7 @@ static void process_bin_update(conn *c) {
             fprintf(stderr, "%c", key[ii]);
         }
 
-        if (settings.verbose > 1) {
-            fprintf(stderr, " Value len is %d", vlen);
-        }
+        fprintf(stderr, " Value len is %d", vlen);
         fprintf(stderr, "\n");
     }
 
@@ -1781,7 +1779,7 @@ static void process_bin_delete(conn *c) {
 
     assert(c != NULL);
 
-    if (settings.verbose) {
+    if (settings.verbose > 1) {
         fprintf(stderr, "Deleting %s\n", key);
     }
 
@@ -2834,7 +2832,7 @@ static int try_read_command(conn *c) {
             c->protocol = ascii_prot;
         }
 
-        if (settings.verbose) {
+        if (settings.verbose > 1) {
             fprintf(stderr, "%d: Client using the %s protocol\n", c->sfd,
                     prot_text(c->protocol));
         }
@@ -2851,7 +2849,7 @@ static int try_read_command(conn *c) {
                 /* must realign input buffer */
                 memmove(c->rbuf, c->rcurr, c->rbytes);
                 c->rcurr = c->rbuf;
-                if (settings.verbose) {
+                if (settings.verbose > 1) {
                     fprintf(stderr, "%d: Realign input buffer\n", c->sfd);
                 }
             }
