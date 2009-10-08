@@ -1444,6 +1444,16 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
     conn_set_state(c, conn_nread);
 }
 
+/* Just write an error message and disconnect the client */
+static void handle_binary_protocol_error(conn *c) {
+    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
+    if (settings.verbose) {
+        fprintf(stderr, "Protocol error (opcode %02x), close connection %d\n",
+                c->binary_header.request.opcode, c->sfd);
+    }
+    c->write_and_go = conn_closing;
+}
+
 static void dispatch_bin_command(conn *c) {
     int protocol_error = 0;
 
@@ -1453,6 +1463,13 @@ static void dispatch_bin_command(conn *c) {
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
     c->noreply = true;
+
+    /* binprot supports 16bit keys, but internals are still 8bit */
+    if (keylen > KEY_MAX_LENGTH) {
+        handle_binary_protocol_error(c);
+        return;
+    }
+
     switch (c->cmd) {
     case PROTOCOL_BINARY_CMD_SETQ:
         c->cmd = PROTOCOL_BINARY_CMD_SET;
@@ -1580,15 +1597,8 @@ static void dispatch_bin_command(conn *c) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, bodylen);
     }
 
-    if (protocol_error) {
-        /* Just write an error message and disconnect the client */
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
-        if (settings.verbose) {
-            fprintf(stderr, "Protocol error (opcode %02x), close connection %d\n",
-                    c->binary_header.request.opcode, c->sfd);
-        }
-        c->write_and_go = conn_closing;
-    }
+    if (protocol_error)
+        handle_binary_protocol_error(c);
 }
 
 static void process_bin_update(conn *c) {

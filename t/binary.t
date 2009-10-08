@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3318;
+use Test::More tests => 3322;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -431,6 +431,16 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
 # the top).
 my %stats = $mc->stats('detail dump');
 
+# This test causes a disconnection.
+{
+    # diag "Key too large.";
+    my $key = "x" x 365;
+    eval {
+        $mc->get($key, 'should die', 10, 10);
+    };
+    ok($@->einval, "Invalid key length");
+}
+
 # ######################################################################
 # Test ends around here.
 # ######################################################################
@@ -785,6 +795,11 @@ sub too_big {
 sub delta_badval {
     my $self = shift;
     return $self->[0] == ERR_DELTA_BADVAL;
+}
+
+sub einval {
+    my $self = shift;
+    return $self->[0] == ERR_EINVAL;
 }
 
 # vim: filetype=perl
