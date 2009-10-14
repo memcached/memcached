@@ -57,7 +57,7 @@ Storage commands (there are six: "set", "add", "replace", "append"
 "prepend" and "cas") ask the server to store some data identified by a
 key. The client sends a command line, and then a data block; after
 that the client expects one line of response, which will indicate
-success or faulure.
+success or failure.
 
 Retrieval commands (there are two: "get" and "gets") ask the server to
 retrieve data corresponding to a set of keys (one or more keys in one
