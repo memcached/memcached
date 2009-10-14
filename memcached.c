@@ -3812,7 +3812,8 @@ static void usage(void) {
     printf("-C            Disable use of CAS\n");
     printf("-b            Set the backlog queue limit (default: 1024)\n");
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
-    printf("-I            Override the size of each slab page. Adjusts max item size\n");
+    printf("-I            Override the size of each slab page. Adjusts max item size\n"
+           "              (default: 1mb, min: 1k, max: 128m)\n");
     return;
 }
 
