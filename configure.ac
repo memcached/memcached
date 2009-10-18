@@ -73,7 +73,7 @@ AC_PROG_INSTALL
 
 AC_ARG_ENABLE(dtrace,
   [AS_HELP_STRING([--enable-dtrace],[Enable dtrace probes])])
-if test "x$enable_dtrace" == "xyes"; then
+if test "x$enable_dtrace" = "xyes"; then
   AC_PATH_PROG([DTRACE], [dtrace], "no", [/usr/sbin:$PATH])
   if test "x$DTRACE" != "xno"; then
     AC_DEFINE([ENABLE_DTRACE],1,[Set to nonzero if you want to include DTRACE])
@@ -137,7 +137,7 @@ AC_SUBST(PROFILER_FLAGS)
 
 AC_ARG_ENABLE(64bit,
   [AS_HELP_STRING([--enable-64bit],[build 64bit version])])
-if test "x$enable_64bit" == "xyes"
+if test "x$enable_64bit" = "xyes"
 then
     org_cflags=$CFLAGS
     CFLAGS=-m64
@@ -315,7 +315,7 @@ AC_C_HTONLL
 
 dnl Check whether the user's system supports pthread
 AC_SEARCH_LIBS(pthread_create, pthread)
-if test "x$ac_cv_search_pthread_create" == "xno"; then
+if test "x$ac_cv_search_pthread_create" = "xno"; then
   AC_MSG_ERROR([Can't enable threads without the POSIX thread library.])
 fi
 
