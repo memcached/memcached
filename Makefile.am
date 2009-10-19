@@ -1,7 +1,7 @@
 bin_PROGRAMS = memcached
 pkginclude_HEADERS = include/memcached/protocol_binary.h \
                      include/memcached/engine.h
-noinst_PROGRAMS = memcached-debug sizes testapp timedrun
+noinst_PROGRAMS = sizes testapp timedrun
 
 BUILT_SOURCES=
 
@@ -34,14 +34,9 @@ if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
 
-memcached_debug_SOURCES = $(memcached_SOURCES)
-memcached_CPPFLAGS = -DNDEBUG
-memcached_debug_LDADD = @PROFILER_LDFLAGS@
-memcached_debug_CFLAGS = @PROFILER_FLAGS@
-
-memcached_LDADD =
+memcached_LDADD = @PROFILER_LDFLAGS@
+memcached_CFLAGS = @PROFILER_FLAGS@
 memcached_DEPENDENCIES =
-memcached_debug_DEPENDENCIES =
 CLEANFILES=
 
 if BUILD_DTRACE
@@ -52,9 +47,7 @@ endif
 if DTRACE_INSTRUMENT_OBJ
 memcached_LDADD += memcached_dtrace.o
 memcached_DEPENDENCIES += memcached_dtrace.o
-memcached_debug_LDADD += memcached_debug_dtrace.o
-memcached_debug_DEPENDENCIES += memcached_debug_dtrace.o
-CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
+CLEANFILES += memcached_dtrace.o
 endif
 
 memcached_dtrace.h: memcached_dtrace.d
@@ -66,36 +59,32 @@ memcached_dtrace.h: memcached_dtrace.d
 memcached_dtrace.o: $(memcached_OBJECTS)
 	$(DTRACE) $(DTRACEFLAGS) -G -o memcached_dtrace.o -s ${srcdir}/memcached_dtrace.d $(memcached_OBJECTS)
 
-memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
-	$(DTRACE) $(DTRACEFLAGS) -G -o memcached_debug_dtrace.o -s ${srcdir}/memcached_dtrace.d $(memcached_debug_OBJECTS)
-
-
 SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
-test:	memcached-debug sizes testapp
+test:	memcached sizes testapp
 	$(srcdir)/sizes
 	$(srcdir)/testapp
 	prove $(srcdir)/t
 	@if test `basename $(PROFILER)` = "gcov"; then \
-	  for file in memcached_debug-*.gc??; do \
-	    mv -f $$file `echo $$file | sed 's/memcached_debug-//'`; \
+	  for file in memcached-*.gc??; do \
+	    mv -f $$file `echo $$file | sed 's/memcached-//'`; \
 	  done && \
 	  for file in *.gcda; do \
 	    srcfile=`echo $$file | sed 's/.gcda/.c/'`; \
-	    if test -n "`echo $(memcached_debug_SOURCES) | grep $$srcfile`"; then \
+	    if test -n "`echo $(memcached_SOURCES) | grep $$srcfile`"; then \
 	      echo `$(PROFILER) $$srcfile` | sed 's/'$$srcfile':.*//'; \
 	    fi \
 	  done \
 	elif test `basename $(PROFILER)` = "tcov"; then \
-	  files=`grep SRCFILE memcached-debug.profile/tcovd | sed 's/SRCFILE://' | sort | uniq` && \
-	  $(PROFILER) -x memcached-debug.profile $$files 2>&1; \
+	  files=`grep SRCFILE memcached.profile/tcovd | sed 's/SRCFILE://' | sort | uniq` && \
+	  $(PROFILER) -x memcached.profile $$files 2>&1; \
 	  for file in *.tcov; do \
 	    srcfile=`echo $$file | sed 's/.tcov//'`; \
-	    if test -n "`echo $(memcached_debug_SOURCES) | grep $$srcfile`"; then \
+	    if test -n "`echo $(memcached_SOURCES) | grep $$srcfile`"; then \
 	      echo $$srcfile : `grep 'Percent of the file executed' $$file`; \
 	    fi \
 	  done \

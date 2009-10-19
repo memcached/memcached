@@ -152,9 +152,9 @@ AC_SUBST(ENABLE_SASL)
 AC_SUBST(PROFILER_LDFLAGS)
 
 AC_ARG_ENABLE(coverage,
-  [AS_HELP_STRING([--disable-coverage],[Disable code coverage])])
+  [AS_HELP_STRING([--enable-coverage],[Disable code coverage])])
 
-if test "x$enable_coverage" != "xno"; then
+if test "x$enable_coverage" = "xyes"; then
    if test "$ICC" = "yes"
    then
       dnl ICC trying to be gcc, but not well

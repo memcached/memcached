@@ -322,7 +322,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = "./timedrun";
             argv[arg++] = tmo;
         }
-        argv[arg++] = "./memcached-debug";
+        argv[arg++] = "./memcached";
         argv[arg++] = "-p";
         argv[arg++] = "-1";
         argv[arg++] = "-U";
