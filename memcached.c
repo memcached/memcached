@@ -2471,7 +2471,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cas_badval", "%"PRIu64, slab_stats.cas_badval);
     APPEND_STAT("bytes_read", "%"PRIu64, thread_stats.bytes_read);
     APPEND_STAT("bytes_written", "%"PRIu64, thread_stats.bytes_written);
-    APPEND_STAT("limit_maxbytes", "%zu", settings.maxbytes);
+    APPEND_STAT("limit_maxbytes", "%"PRIu64, settings.maxbytes);
     APPEND_STAT("accepting_conns", "%u", stats.accepting_conns);
     APPEND_STAT("listen_disabled_num", "%"PRIu64, stats.listen_disabled_num);
     APPEND_STAT("threads", "%d", settings.num_threads);
