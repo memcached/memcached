@@ -1084,7 +1084,7 @@ static void complete_incr_bin(conn *c) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
         break;
     case ENGINE_EINVAL:
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL, 0);
         break;
     case ENGINE_NOT_STORED:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED, 0);
