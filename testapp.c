@@ -1978,6 +1978,10 @@ int main(int argc, char **argv)
     int exitcode = 0;
     int ii = 0, num_cases = 0;
 
+    /* Use unbuffered stdio */
+    setbuf(stdout, NULL);
+    setbuf(stderr, NULL);
+
     for (num_cases = 0; testcases[num_cases].description; num_cases++) {
         /* Just counting */
     }
