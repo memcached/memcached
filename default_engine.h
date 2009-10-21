@@ -50,6 +50,7 @@ extern rel_time_t current_time;
 struct engine_stats {
    pthread_mutex_t lock;
    uint64_t evictions;
+   uint64_t reclaimed;
    uint64_t curr_bytes;
    uint64_t curr_items;
    uint64_t total_items;

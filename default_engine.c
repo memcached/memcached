@@ -326,6 +326,7 @@ static void default_reset_stats(ENGINE_HANDLE* handle) {
 
    pthread_mutex_lock(&default_engine.stats.lock);
    default_engine.stats.evictions = 0;
+   default_engine.stats.reclaimed = 0;
    default_engine.stats.total_items = 0;
    pthread_mutex_unlock(&default_engine.stats.lock);
 }

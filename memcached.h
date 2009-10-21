@@ -182,9 +182,6 @@ struct thread_stats {
  */
 struct stats {
     pthread_mutex_t mutex;
-    unsigned int  curr_items;
-    unsigned int  total_items;
-    uint64_t      curr_bytes;
     unsigned int  curr_conns;
     unsigned int  total_conns;
     unsigned int  conn_structs;
@@ -192,8 +189,6 @@ struct stats {
     uint64_t      set_cmds;
     uint64_t      get_hits;
     uint64_t      get_misses;
-    uint64_t      evictions;
-    uint64_t      reclaimed;
     time_t        started;          /* when the process was started */
     bool          accepting_conns;  /* whether we are currently accepting */
     uint64_t      listen_disabled_num;
