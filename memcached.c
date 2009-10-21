@@ -2285,29 +2285,27 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("curr_connections", "%u", stats.curr_conns - 1);
     APPEND_STAT("total_connections", "%u", stats.total_conns);
     APPEND_STAT("connection_structures", "%u", stats.conn_structs);
-    APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
-    APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
-    APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
-    APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
-    APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
-    APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
-    APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
-    APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);
-    APPEND_STAT("incr_hits", "%llu", (unsigned long long)thread_stats.incr_hits);
-    APPEND_STAT("decr_misses", "%llu", (unsigned long long)thread_stats.decr_misses);
-    APPEND_STAT("decr_hits", "%llu", (unsigned long long)thread_stats.decr_hits);
-    APPEND_STAT("cas_misses", "%llu", (unsigned long long)thread_stats.cas_misses);
-    APPEND_STAT("cas_hits", "%llu", (unsigned long long)slab_stats.cas_hits);
-    APPEND_STAT("cas_badval", "%llu", (unsigned long long)slab_stats.cas_badval);
-    APPEND_STAT("auth_cmds", "%llu", (unsigned long long)thread_stats.auth_cmds);
-    APPEND_STAT("auth_errors", "%llu", (unsigned long long)thread_stats.auth_errors);
-    APPEND_STAT("bytes_read", "%llu", (unsigned long long)thread_stats.bytes_read);
-    APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
-    APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
+    APPEND_STAT("cmd_get", "%"PRIu64, thread_stats.get_cmds);
+    APPEND_STAT("cmd_set", "%"PRIu64, slab_stats.set_cmds);
+    APPEND_STAT("cmd_flush", "%"PRIu64, thread_stats.flush_cmds);
+    APPEND_STAT("get_hits", "%"PRIu64, slab_stats.get_hits);
+    APPEND_STAT("get_misses", "%"PRIu64, thread_stats.get_misses);
+    APPEND_STAT("delete_misses", "%"PRIu64, thread_stats.delete_misses);
+    APPEND_STAT("delete_hits", "%"PRIu64, slab_stats.delete_hits);
+    APPEND_STAT("incr_misses", "%"PRIu64, thread_stats.incr_misses);
+    APPEND_STAT("incr_hits", "%"PRIu64, thread_stats.incr_hits);
+    APPEND_STAT("decr_misses", "%"PRIu64, thread_stats.decr_misses);
+    APPEND_STAT("decr_hits", "%"PRIu64, thread_stats.decr_hits);
+    APPEND_STAT("cas_misses", "%"PRIu64, thread_stats.cas_misses);
+    APPEND_STAT("cas_hits", "%"PRIu64, slab_stats.cas_hits);
+    APPEND_STAT("cas_badval", "%"PRIu64, slab_stats.cas_badval);
+    APPEND_STAT("bytes_read", "%"PRIu64, thread_stats.bytes_read);
+    APPEND_STAT("bytes_written", "%"PRIu64, thread_stats.bytes_written);
+    APPEND_STAT("limit_maxbytes", "%"PRIu64, settings.maxbytes);
     APPEND_STAT("accepting_conns", "%u", stats.accepting_conns);
-    APPEND_STAT("listen_disabled_num", "%llu", (unsigned long long)stats.listen_disabled_num);
+    APPEND_STAT("listen_disabled_num", "%"PRIu64, stats.listen_disabled_num);
     APPEND_STAT("threads", "%d", settings.num_threads);
-    APPEND_STAT("conn_yields", "%llu", (unsigned long long)thread_stats.conn_yields);
+    APPEND_STAT("conn_yields", "%"PRIu64, thread_stats.conn_yields);
     STATS_UNLOCK();
 }
 
@@ -2886,6 +2884,11 @@ static void process_command(conn *c, char *command) {
         time_t exptime;
 
         set_noreply_maybe(c, tokens, ntokens);
+
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.flush_cmds++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         if (ntokens == (c->noreply ? 3 : 2)) {
             exptime = 0;
         } else {
