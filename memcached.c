@@ -2728,7 +2728,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         break;
     case ENGINE_KEY_ENOENT:
         pthread_mutex_lock(&c->thread->stats.mutex);
-        if (c->cmd == PROTOCOL_BINARY_CMD_INCREMENT) {
+        if (incr) {
             c->thread->stats.incr_misses++;
         } else {
             c->thread->stats.decr_misses++;
