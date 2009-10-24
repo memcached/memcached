@@ -1526,6 +1526,12 @@ static void process_bin_sasl_auth(conn *c) {
     int nkey = c->binary_header.request.keylen;
     int vlen = c->binary_header.request.bodylen - nkey;
 
+    if (nkey > MAX_SASL_MECH_LEN) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, vlen);
+        c->write_and_go = conn_swallow;
+        return;
+    }
+
     char *key = binary_get_key(c);
     assert(key);
 

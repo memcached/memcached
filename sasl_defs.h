@@ -1,6 +1,9 @@
 #ifndef SASL_DEFS_H
 #define SASL_DEFS_H 1
 
+// Longest one I could find was ``9798-U-RSA-SHA1-ENC''
+#define MAX_SASL_MECH_LEN 32
+
 #if defined(HAVE_SASL_SASL_H) && defined(ENABLE_SASL)
 
 #include <sasl/sasl.h>

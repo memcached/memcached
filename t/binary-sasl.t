@@ -12,7 +12,7 @@ my $supports_sasl = supports_sasl();
 use Test::More;
 
 if (supports_sasl()) {
-    plan tests => 19;
+    plan tests => 20;
 } else {
     plan tests => 1;
     eval {
@@ -161,6 +161,9 @@ system("echo testpass | saslpasswd2 -a memcached -c -p testuser");
 
 $mc = MC::Client->new;
 
+# Attempt a bad auth mech.
+is ($mc->authenticate('testuser', 'testpass', "X" x 40), 0x4, "bad mech");
+
 # Attempt bad authentication.
 is ($mc->authenticate('testuser', 'wrongpassword'), 0x20, "bad auth");
 
@@ -221,9 +224,10 @@ sub new {
 }
 
 sub authenticate {
-    my ($self, $user, $pass)= @_;
+    my ($self, $user, $pass, $mech)= @_;
+    $mech ||= 'PLAIN';
     my $buf = sprintf("%c%s%c%s", 0, $user, 0, $pass);
-    my ($status, $rv, undef) = $self->_do_command(::CMD_SASL_AUTH, "PLAIN", $buf, '');
+    my ($status, $rv, undef) = $self->_do_command(::CMD_SASL_AUTH, $mech, $buf, '');
     return $status;
 }
 sub list_mechs {
