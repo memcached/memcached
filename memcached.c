@@ -4214,6 +4214,7 @@ int main (int argc, char **argv) {
 
     /* udp socket */
     static int *u_socket = NULL;
+    bool protocol_specified = false;
 
     /* handle SIGINT */
     signal(SIGINT, sig_handler);
@@ -4362,6 +4363,7 @@ int main (int argc, char **argv) {
             settings.backlog = atoi(optarg);
             break;
         case 'B':
+            protocol_specified = true;
             if (strcmp(optarg, "auto") == 0) {
                 settings.binding_protocol = negotiating_prot;
             } else if (strcmp(optarg, "binary") == 0) {
@@ -4414,6 +4416,17 @@ int main (int argc, char **argv) {
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
+        }
+    }
+
+    if (settings.sasl) {
+        if (!protocol_specified) {
+            settings.binding_protocol = binary_prot;
+        } else {
+            if (settings.binding_protocol != binary_prot) {
+                fprintf(stderr, "WARNING: You shouldn't allow the ASCII protocol while using SASL\n");
+                exit(EX_USAGE);
+            }
         }
     }
 

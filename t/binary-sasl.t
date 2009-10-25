@@ -12,7 +12,7 @@ my $supports_sasl = supports_sasl();
 use Test::More;
 
 if (supports_sasl()) {
-    plan tests => 20;
+    plan tests => 23;
 } else {
     plan tests => 1;
     eval {
@@ -21,6 +21,21 @@ if (supports_sasl()) {
     ok($@, "Died with illegal -S args when SASL is not supported.");
     exit 0;
 }
+
+eval {
+    my $server = new_memcached("-S -B auto");
+};
+ok($@, "SASL shouldn't be used with protocol auto negotiate");
+
+eval {
+    my $server = new_memcached("-S -B ascii");
+};
+ok($@, "SASL isn't implemented in the ascii protocol");
+
+eval {
+    my $server = new_memcached("-S -B binary -B ascii");
+};
+ok($@, "SASL isn't implemented in the ascii protocol");
 
 # Based almost 100% off testClient.py which is:
 # Copyright (c) 2007  Dustin Sallings <dustin@spy.net>
