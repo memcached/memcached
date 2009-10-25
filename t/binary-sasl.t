@@ -123,7 +123,7 @@ ok(defined $v && length($v), "Proper version: $v");
 
 # list mechs
 my $mechs= $mc->list_mechs();
-Test::More::cmp_ok($mechs, 'eq', 'PLAIN CRAM-MD5', "list_mechs $mechs");
+Test::More::cmp_ok($mechs, 'eq', 'CRAM-MD5 PLAIN', "list_mechs $mechs");
 
 # this should fail, not authenticated
 {
@@ -233,7 +233,7 @@ sub authenticate {
 sub list_mechs {
     my ($self)= @_;
     my ($status, $rv, undef) = $self->_do_command(::CMD_SASL_LIST_MECHS, '', '', '');
-    return $rv ;
+    return join(" ", sort(split(/\s+/, $rv)));
 }
 
 sub build_command {
