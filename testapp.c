@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -1670,6 +1671,78 @@ static enum test_return test_binary_pipeline_hickup(void)
     return TEST_PASS;
 }
 
+
+static enum test_return test_issue_101(void) {
+    const int max = 2;
+    enum test_return ret = TEST_PASS;
+    int fds[max];
+    int ii = 0;
+    pid_t child = 0;
+
+    const char *command = "stats\r\nstats\r\nstats\r\nstats\r\nstats\r\n";
+    size_t cmdlen = strlen(command);
+
+    server_pid = start_server(&port, false, 1000);
+
+    for (ii = 0; ii < max; ++ii) {
+        fds[ii] = connect_server("127.0.0.1", port, false);
+        /* set nonblocking */
+        int flags = fcntl(fds[ii], F_GETFL, 0);
+        if (flags < 0 || fcntl(fds[ii], F_SETFL, flags | O_NONBLOCK) < 0) {
+            perror("Failed to set nonblocking mode");
+            ret = TEST_FAIL;
+            goto cleanup;
+        }
+    }
+
+    /* Send command on the connection until it blocks */
+    for (ii = 0; ii < max; ++ii) {
+        bool more = true;
+        do {
+            ssize_t err = write(fds[ii], command, cmdlen);
+            if (err == -1) {
+                switch (errno) {
+                case EINTR:
+                    break;
+                case ENOMEM:
+                case EWOULDBLOCK:
+                    more = false;
+                    break;
+                default:
+                    ret = TEST_FAIL;
+                    goto cleanup;
+                }
+            }
+        } while (more);
+    }
+
+    child = fork();
+    if (child == (pid_t)-1) {
+        abort();
+    } else if (child > 0) {
+        int stat;
+        pid_t c;
+        while ((c = waitpid(child, &stat, 0)) == (pid_t)-1 && errno == EINTR);
+        assert(c == child);
+        assert(stat == 0);
+    } else {
+        sock = connect_server("127.0.0.1", port, false);
+        ret = test_binary_noop();
+        close(sock);
+        exit(0);
+    }
+
+ cleanup:
+    /* close all connections */
+    for (ii = 0; ii < max; ++ii) {
+        close(fds[ii]);
+    }
+
+    assert(kill(server_pid, SIGTERM) == 0);
+
+    return ret;
+}
+
 typedef enum test_return (*TEST_FUNC)(void);
 struct testcase {
     const char *description;
@@ -1689,6 +1762,7 @@ struct testcase testcases[] = {
     { "strtoull", test_safe_strtoull },
     { "issue_44", test_issue_44 },
     { "vperror", test_vperror },
+    { "issue_101", test_issue_101 },
     /* The following tests all run towards the same server */
     { "start_server", start_memcached_server },
     { "issue_92", test_issue_92 },
