@@ -17,6 +17,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <fcntl.h>
 
 #include "protocol_binary.h"
 #include "config.h"
@@ -398,7 +399,7 @@ static struct addrinfo *lookuphost(const char *hostname, in_port_t port)
     return ai;
 }
 
-static int connect_server(const char *hostname, in_port_t port)
+static int connect_server(const char *hostname, in_port_t port, bool nonblock)
 {
     struct addrinfo *ai = lookuphost(hostname, port);
     int sock = -1;
@@ -410,6 +411,14 @@ static int connect_server(const char *hostname, in_port_t port)
                      strerror(errno));
              close(sock);
              sock = -1;
+          } else if (nonblock) {
+              int flags = fcntl(sock, F_GETFL, 0);
+              if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
+                  fprintf(stderr, "Failed to enable nonblocking mode: %s\n",
+                          strerror(errno));
+                  close(sock);
+                  sock = -1;
+              }
           }
        } else {
           fprintf(stderr, "Failed to create socket: %s\n", strerror(errno));
@@ -514,7 +523,7 @@ static enum test_return test_issue_92(void) {
     char buffer[1024];
 
     close(sock);
-    sock = connect_server("127.0.0.1", port);
+    sock = connect_server("127.0.0.1", port, false);
 
     send_ascii_command("stats cachedump 1 0 0\r\n");
     read_ascii_response(buffer, sizeof(buffer));
@@ -525,13 +534,13 @@ static enum test_return test_issue_92(void) {
     assert(strncmp(buffer, "CLIENT_ERROR", strlen("CLIENT_ERROR")) == 0);
 
     close(sock);
-    sock = connect_server("127.0.0.1", port);
+    sock = connect_server("127.0.0.1", port, false);
     return TEST_PASS;
 }
 
 static enum test_return start_memcached_server(void) {
     server_pid = start_server(&port, false, 600);
-    sock = connect_server("127.0.0.1", port);
+    sock = connect_server("127.0.0.1", port, false);
     return TEST_PASS;
 }
 
@@ -889,7 +898,7 @@ static enum test_return test_binary_quit_impl(uint8_t cmd) {
     /* Socket should be closed now, read should return 0 */
     assert(read(sock, buffer.bytes, sizeof(buffer.bytes)) == 0);
     close(sock);
-    sock = connect_server("127.0.0.1", port);
+    sock = connect_server("127.0.0.1", port, false);
 
     return TEST_PASS;
 }
