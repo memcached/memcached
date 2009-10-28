@@ -3127,9 +3127,27 @@ static int try_read_command(conn *c) {
 
         if (c->rbytes == 0)
             return 0;
+
         el = memchr(c->rcurr, '\n', c->rbytes);
-        if (!el)
+        if (!el) {
+            if (c->rbytes > 1024) {
+                /*
+                 * We didn't have a '\n' in the first k. This _has_ to be a
+                 * large multiget, if not we should just nuke the connection.
+                 */
+                char *ptr = c->rcurr;
+                while (*ptr == ' ') { /* ignore leading whitespaces */
+                    ++ptr;
+                }
+
+                if (strcmp(ptr, "get ") && strcmp(ptr, "gets ")) {
+                    conn_set_state(c, conn_closing);
+                    return 1;
+                }
+            }
+
             return 0;
+        }
         cont = el + 1;
         if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
             el--;
@@ -3191,12 +3209,17 @@ static enum try_read_result try_read_udp(conn *c) {
  * close.
  * before reading, move the remaining incomplete fragment of a command
  * (if any) to the beginning of the buffer.
+ *
+ * To protect us from someone flooding a connection with bogus data causing
+ * the connection to eat up all available memory, break out and start looking
+ * at the data I've got after a number of reallocs...
+ *
  * @return enum try_read_result
  */
 static enum try_read_result try_read_network(conn *c) {
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
-
+    int num_allocs = 0;
     assert(c != NULL);
 
     if (c->rcurr != c->rbuf) {
@@ -3207,6 +3230,10 @@ static enum try_read_result try_read_network(conn *c) {
 
     while (1) {
         if (c->rbytes >= c->rsize) {
+            if (num_allocs == 4) {
+                return gotdata;
+            }
+            ++num_allocs;
             char *new_rbuf = realloc(c->rbuf, c->rsize * 2);
             if (!new_rbuf) {
                 if (settings.verbose > 0)
