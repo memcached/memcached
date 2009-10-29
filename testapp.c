@@ -1685,14 +1685,8 @@ static enum test_return test_issue_101(void) {
     server_pid = start_server(&port, false, 1000);
 
     for (ii = 0; ii < max; ++ii) {
-        fds[ii] = connect_server("127.0.0.1", port, false);
-        /* set nonblocking */
-        int flags = fcntl(fds[ii], F_GETFL, 0);
-        if (flags < 0 || fcntl(fds[ii], F_SETFL, flags | O_NONBLOCK) < 0) {
-            perror("Failed to set nonblocking mode");
-            ret = TEST_FAIL;
-            goto cleanup;
-        }
+        fds[ii] = connect_server("127.0.0.1", port, true);
+        assert(fds[ii] > 0);
     }
 
     /* Send command on the connection until it blocks */
