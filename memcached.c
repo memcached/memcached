@@ -2873,7 +2873,8 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
 
     if (ntokens == 4) {
         if (!set_noreply_maybe(c, tokens, ntokens)) {
-            out_string(c, "CLIENT_ERROR bad command line format");
+            out_string(c, "CLIENT_ERROR bad command line format.  "
+                       "Usage: delete <key> [noreply]");
             return;
         }
     }
