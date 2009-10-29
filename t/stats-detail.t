@@ -34,7 +34,7 @@ print $sock "stats detail dump\r\n";
 is(scalar <$sock>, "PREFIX foo get 2 hit 1 set 1 del 0\r\n", "details after get without hit");
 is(scalar <$sock>, "END\r\n", "end of details");
 
-print $sock "delete foo:125 0\r\n";
+print $sock "delete foo:125\r\n";
 is(scalar <$sock>, "NOT_FOUND\r\n", "sent delete command");
 
 print $sock "stats detail dump\r\n";

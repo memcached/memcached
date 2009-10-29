@@ -57,7 +57,7 @@ for my $prot (::IS_ASCII,::IS_BINARY) {
     udp_get_test($prot,45,"404$prot","1",::ENTRY_MISSING);
     udp_incr_decr_test($prot,45,"aval$prot","1","incr",1);
     udp_incr_decr_test($prot,45,"aval$prot","1","decr",2);
-    udp_delete_test($prot,45,"aval$prot","0");
+    udp_delete_test($prot,45,"aval$prot");
 }
 
 sub udp_set_test {
@@ -123,12 +123,12 @@ sub udp_get_test {
 }
 
 sub udp_delete_test {
-    my ($protocol, $req_id, $key, $time) = @_;
+    my ($protocol, $req_id, $key) = @_;
     my $req = "";
     my $key_len = length($key);
 
     if ($protocol == ::IS_ASCII) {
-        $req = "delete $key $time\r\n";
+        $req = "delete $key\r\n";
     } elsif ($protocol == ::IS_BINARY) {
         $req = pack(::REQ_PKT_FMT, ::BIN_REQ_MAGIC, ::CMD_DELETE, $key_len, 0, 0, 0, $key_len, 0, 0, 0);
         $req .= $key;

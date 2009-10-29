@@ -2288,7 +2288,7 @@ static void write_and_free(conn *c, char *buf, int bytes) {
     }
 }
 
-static inline void set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
+static inline bool set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
 {
     int noreply_index = ntokens - 2;
 
@@ -2303,6 +2303,7 @@ static inline void set_noreply_maybe(conn *c, token_t *tokens, size_t ntokens)
         && strcmp(tokens[noreply_index].value, "noreply") == 0) {
         c->noreply = true;
     }
+    return c->noreply;
 }
 
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
@@ -2870,7 +2871,12 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
 
     assert(c != NULL);
 
-    set_noreply_maybe(c, tokens, ntokens);
+    if (ntokens == 4) {
+        if (!set_noreply_maybe(c, tokens, ntokens)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+    }
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
