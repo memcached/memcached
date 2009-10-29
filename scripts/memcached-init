@@ -9,6 +9,16 @@
 #
 # Version:  @(#)skeleton  1.9  26-Feb-2001  miquels@cistron.nl
 #
+### BEGIN INIT INFO
+# Provides:          memcached
+# Required-Start:    $syslog
+# Required-Stop:     $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start memcached daemon at boot time
+# Description:       Enable memcached server
+### END INIT INFO
+
 
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 DAEMON=/usr/bin/memcached
