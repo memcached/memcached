@@ -2618,6 +2618,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             } else {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.get_misses++;
+                c->thread->stats.get_cmds++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
                 MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
             }
