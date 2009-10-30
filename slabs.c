@@ -116,7 +116,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
 
     memset(slabclass, 0, sizeof(slabclass));
 
-    while (++i < POWER_LARGEST && size <= settings.item_size_max / 2) {
+    while (++i < POWER_LARGEST && size <= settings.item_size_max / factor) {
         /* Make sure items are always n-byte aligned */
         if (size % CHUNK_ALIGN_BYTES)
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
