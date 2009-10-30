@@ -68,12 +68,20 @@ static PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
     uint32_t hashval;
     size_t length;
+    bool bailout = true;
 
     assert(key != NULL);
 
-    for (length = 0; length < nkey && key[length] != '\0'; length++)
-        if (key[length] == settings.prefix_delimiter)
+    for (length = 0; length < nkey && key[length] != '\0'; length++) {
+        if (key[length] == settings.prefix_delimiter) {
+            bailout = false;
             break;
+        }
+    }
+
+    if (bailout) {
+        return NULL;
+    }
 
     hashval = hash(key, length, 0) % PREFIX_HASH_SIZE;
 
