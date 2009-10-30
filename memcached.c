@@ -4250,6 +4250,8 @@ int main (int argc, char **argv) {
     /* udp socket */
     static int *u_socket = NULL;
     bool protocol_specified = false;
+    bool tcp_specified = false;
+    bool udp_specified = false;
 
     /* handle SIGINT */
     signal(SIGINT, sig_handler);
@@ -4297,9 +4299,11 @@ int main (int argc, char **argv) {
 
         case 'U':
             settings.udpport = atoi(optarg);
+            udp_specified = true;
             break;
         case 'p':
             settings.port = atoi(optarg);
+            tcp_specified = true;
             break;
         case 's':
             settings.socketpath = optarg;
@@ -4463,6 +4467,12 @@ int main (int argc, char **argv) {
                 exit(EX_USAGE);
             }
         }
+    }
+
+    if (tcp_specified && !udp_specified) {
+        settings.udpport = settings.port;
+    } else if (udp_specified && !tcp_specified) {
+        settings.port = settings.udpport;
     }
 
     if (maxcore != 0) {
