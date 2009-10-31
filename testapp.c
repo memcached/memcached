@@ -1679,6 +1679,10 @@ static enum test_return test_issue_101(void) {
     int ii = 0;
     pid_t child = 0;
 
+    if (getenv("SKIP_TEST_101") != NULL) {
+        return TEST_SKIP;
+    }
+
     const char *command = "stats\r\nstats\r\nstats\r\nstats\r\nstats\r\n";
     size_t cmdlen = strlen(command);
 
