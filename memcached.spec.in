@@ -1,12 +1,12 @@
 Name:           memcached
 Version:        @VERSION@
-Release:        1%{?dist}
+Release:        @RELEASE@%{?dist}
 Summary:        High Performance, Distributed Memory Object Cache
 
 Group:          System Environment/Daemons
 License:        BSD
 URL:            http://www.danga.com/memcached/
-Source0:        http://www.danga.com/memcached/dist/%{name}-%{version}.tar.gz
+Source0:        http://memcached.googlecode.com/files/%{name}-@FULLVERSION@.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:  libevent-devel
@@ -23,11 +23,11 @@ system, generic in nature, but intended for use in speeding up dynamic
 web applications by alleviating database load.
 
 %prep
-%setup -q
+%setup -q -n %{name}-@FULLVERSION@
 
 
 %build
-%configure --enable-threads
+%configure
 
 make %{?_smp_mflags}
 
@@ -94,6 +94,9 @@ exit 0
 %{_includedir}/memcached
 
 %changelog
+* Mon Nov  2 2009 Dormando <dormando@rydia.net> - 1.4.3-1
+- Fix autogen more.
+
 * Sat Aug 29 2009 Dustin Sallings <dustin@spy.net> - 1.4.1-1
 - Autogenerate the version number from tags.
 
