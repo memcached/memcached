@@ -3148,7 +3148,9 @@ static int try_read_command(conn *c) {
                     ++ptr;
                 }
 
-                if (strcmp(ptr, "get ") && strcmp(ptr, "gets ")) {
+                if (ptr - c->rcurr > 100 ||
+                    (strncmp(ptr, "get ", 4) && strncmp(ptr, "gets ", 5))) {
+
                     conn_set_state(c, conn_closing);
                     return 1;
                 }
