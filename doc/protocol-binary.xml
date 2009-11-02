@@ -346,12 +346,6 @@ Value        (24-32): The textual string "Not found"
         </t>
 
         <t>
-        <list style="symbols">
-          <t>4 byte flags</t>
-        </list>
-        </t>
-
-        <t>
             Response (if found):
         </t>
         <t>
