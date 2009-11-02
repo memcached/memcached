@@ -1,0 +1,20 @@
+dormando's awesome memcached top
+
+A flexible 'top' like utility for viewing memcached clusters.
+
+Under development. Latest code is available at:
+http://github.com/dormando/damemtop
+
+See --help for full information.
+
+Requires 'AnyEvent', and 'YAML' libraries from CPAN:
+http://search.cpan.org/
+
+'AnyEvent' depends on 'common::sense' (also at CPAN).
+
+If you have a large cluster and want higher performance, find
+and install 'EV' from CPAN. AnyEvent will automagically use it
+and use epoll, kqeueue, etc, for socket handling.
+
+Pester me for questions/bugs/ideas. As of writing the util is
+in early release and missing many future features.

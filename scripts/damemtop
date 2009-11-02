@@ -1,0 +1,571 @@
+#!/usr/bin/perl
+#  dormando's awesome memcached top utility!
+#
+#  Copyright 2009 Dormando (dormando@rydia.net).  All rights reserved.
+#
+#  Use and distribution licensed under the BSD license.  See
+#  the COPYING file for full text.
+
+use strict;
+use warnings FATAL => 'all';
+
+use AnyEvent;
+use AnyEvent::Socket;
+use AnyEvent::Handle;
+use Getopt::Long;
+use YAML qw/Dump Load LoadFile/;
+use Term::ReadKey qw/ReadMode ReadKey GetTerminalSize/;
+
+our $VERSION = '0.1';
+
+my $CLEAR     = `clear`;
+my @TERM_SIZE = ();
+$|++;
+
+my %opts = ();
+GetOptions(\%opts, 'help|h', 'config=s');
+
+if ($opts{help}) {
+    show_help(); exit;
+}
+
+$SIG{INT} = sub {
+    ReadMode('normal');
+    print "\n";
+    exit;
+};
+
+# TODO: make this load from central location, and merge in homedir changes.
+# then merge Getopt::Long stuff on top of that
+# TODO: Set a bunch of defaults and merge in.
+my $CONF = load_config();
+my %CONS    = ();
+my $LAST_RUN = time; # time after the last loop cycle.
+my $TIME_SINCE_LAST_RUN = time; # time since last loop cycle.
+my $loop_timer;
+my $main_cond;
+my $prev_stats_results;
+
+my %display_modes = (
+    't' => \&display_top_mode,
+    '?' => \&display_help_mode,
+    'h' => \&display_help_mode,
+);
+
+my %column_compute = (
+    'hostname' => { stats => [], code => \&compute_hostname},
+    'hit_rate' => { stats => ['get_hits', 'get_misses'],
+                    code  => \&compute_hit_rate },
+    'fill_rate' => { stats => ['bytes', 'limit_maxbytes'],
+                    code => \&compute_fill_rate },
+);
+
+my %column_format = (
+    'hit_rate' => \&format_percent,
+    'fill_rate' => \&format_percent,
+);
+
+# This can collapse into %column_compute
+my %column_format_totals = (
+    'hit_rate' => 0,
+    'fill_rate' => 0,
+);
+
+ReadMode('cbreak');
+my $LAST_KEY = '';
+my $read_keys = AnyEvent->io (
+    fh => \*STDIN, poll => 'r',
+    cb => sub {
+        $LAST_KEY = ReadKey(-1);
+        # If there is a running timer, cancel it.
+        # Don't want to interrupt a main loop run.
+        # fire_main_loop()'s iteration will pick up the keypress.
+        if ($loop_timer) {
+            $loop_timer = undef;
+            $main_cond->send;
+        }
+    }
+);
+
+# start main loop
+fire_main_loop();
+
+### AnyEvent related code.
+
+sub fire_main_loop {
+    for (;;) {
+        $loop_timer = undef;
+        $main_cond = AnyEvent->condvar;
+        my $time_taken = main_loop();
+        my $delay = $CONF->{delay} - $time_taken;
+        $delay = 0 if $delay < 0;
+        $loop_timer = AnyEvent->timer(
+            after => $delay,
+            cb    => $main_cond,
+        );
+        $main_cond->recv;
+    }
+}
+
+sub main_loop {
+    my $start = AnyEvent->now; # use ->time to find the end.
+    maintain_connections();
+
+    my $cv = AnyEvent->condvar;
+
+    # FIXME: Need to dump early if there're no connected conns
+    # FIXME: Make this only fetch stats from cons we care to visualize?
+    # maybe keep everything anyway to maintain averages?
+    my %stats_results = ();
+    while (my ($hostname, $con) = each %CONS) {
+        $cv->begin;
+        call_stats($con, ['', 'items', 'slabs'], sub {
+            $stats_results{$hostname} = shift;
+            $cv->end;
+        });
+    }
+    $cv->recv;
+
+    # Short circuit since we don't have anything to compare to.
+    unless ($prev_stats_results) {
+        $prev_stats_results = \%stats_results;
+        return $CONF->{delay};
+    }
+
+    # Semi-exact global time diff for stats that want to average
+    # themselves per-second.
+    my $this_run = AnyEvent->time;
+    $TIME_SINCE_LAST_RUN = $this_run - $LAST_RUN;
+    $LAST_RUN = $this_run;
+
+    # Done all our fetches. Drive the display.
+    display_run($prev_stats_results, \%stats_results);
+    $prev_stats_results = \%stats_results;
+
+    my $end  = AnyEvent->time;
+    my $diff = $LAST_RUN - $start;
+    print "loop took: $diff";
+    return $diff;
+}
+
+sub maintain_connections {
+    my $cv    = AnyEvent->condvar;
+
+    $cv->begin (sub { shift->send });
+    for my $host (@{$CONF->{servers}}) {
+        next if $CONS{$host};
+        $cv->begin;
+        $CONS{$host} = connect_memcached($host, sub {
+            if ($_[0] eq 'err') {
+                print "Failed connecting to $host: ", $_[1], "\n";
+                delete $CONS{$host};
+            }
+            $cv->end;
+        });
+    }
+    $cv->end;
+
+    $cv->recv;
+}
+
+sub connect_memcached {
+    my ($fullhost, $cb)   = @_;
+    my ($host, $port) = split /:/, $fullhost;
+
+    my $con; $con = AnyEvent::Handle->new (
+        connect => [$host => $port],
+        on_connect => sub {
+            $cb->('con');
+        },
+        on_connect_error => sub {
+            $cb->('err', $!);
+            $con->destroy;
+        },
+        on_eof   => sub {
+            $cb->('err', $!);
+            $con->destroy;
+        },
+    );
+    return $con;
+}
+
+# Function's getting a little weird since I started optimizing it.
+# As of my first set of production tests, this routine is where we spend
+# almost all of our processing time.
+sub call_stats {
+    my ($con, $cmds, $cb) = @_;
+
+    my $stats = {};
+    my $num_types = @$cmds;
+
+    my $reader; $reader = sub {
+        my ($con, $results) = @_;
+        {
+            my %temp = ();
+            for my $line (split(/\n/, $results)) {
+                my ($k, $v) = (split(/\s+/, $line))[1,2];
+                $temp{$k} = $v;
+            }
+            $stats->{$cmds->[0]} = \%temp;
+        }
+        shift @$cmds;
+        unless (@$cmds) {
+            # Out of commands to process, return goodies.
+            $cb->($stats);
+            return;
+        }
+    };
+
+    for my $cmd (@$cmds) {
+        $con->push_write('stats ' . $cmd . "\n");
+        $stats->{$cmd} = {};
+        $con->push_read(line => "END\r\n", $reader);
+    }
+}
+
+### Compute routines
+
+sub compute_hostname {
+    return $_[0];
+}
+
+sub compute_hit_rate {
+    my $s = $_[1];
+    my $total = $s->{get_hits} + $s->{get_misses};
+    return 'NA' unless $total;
+    return $s->{get_hits} / $total;
+}
+
+sub compute_fill_rate {
+    my $s = $_[1];
+    return $s->{bytes} / $s->{limit_maxbytes};
+}
+
+sub format_column {
+    my ($col, $val) = @_;
+    my $res;
+    $col =~ s/^all_//;
+    if ($column_format{$col}) {
+        if (ref($column_format{$col}) eq 'CODE') {
+            return $column_format{$col}->($val);
+        } else {
+            return $val .= $column_format{$col};
+        }
+    } else {
+        return format_commas($val);
+    }
+}
+
+sub column_can_total {
+    my $col = shift;
+    $col =~ s/^all_//;
+    return 1 unless exists $column_format_totals{$col};
+    return $column_format_totals{$col};
+}
+
+### Display routines
+
+# If there isn't a specific column type computer, see if we just want to
+# look at the specific stat and return it.
+# If column is a generic type and of 'all_cmd_get' format, return the more
+# complete stat instead of the diffed stat.
+sub compute_column {
+    my ($col, $host, $prev_stats, $curr_stats) = @_;
+    my $diff_stats = 1;
+    $diff_stats    = 0 if ($col =~ s/^all_//);
+
+    # Really should decide on whether or not to flatten the hash :/
+    my $find_stat = sub {
+        for my $type (keys %{$_[0]}) {
+            return $_[0]->{$type}->{$_[1]} if exists $_[0]->{$type}->{$_[1]};
+        }
+    };
+
+    my $diff_stat = sub {
+        my $stat = shift;
+        return 'NA' unless defined $find_stat->($curr_stats, $stat);
+        if ($diff_stats) {
+            my $diff = eval {
+                return ($find_stat->($curr_stats, $stat)
+                       - $find_stat->($prev_stats, $stat))
+                       / $TIME_SINCE_LAST_RUN;
+            };
+            return 'NA' if ($@);
+            return $diff;
+        } else {
+            return $find_stat->($curr_stats, $stat);
+        }
+    };
+
+    if (my $comp = $column_compute{$col}) {
+        my %s = ();
+        for my $stat (@{$comp->{stats}}) {
+            $s{$stat} = $diff_stat->($stat);
+        }
+        return $comp->{code}->($host, \%s);
+    } else {
+        return $diff_stat->($col);
+    }
+    return 'NA';
+}
+
+# We have a bunch of stats from a bunch of connections.
+# At this point we run a particular display mode, capture the lines, then
+# truncate and display them.
+sub display_run {
+    my $prev_stats = shift;
+    my $curr_stats = shift;
+    @TERM_SIZE = GetTerminalSize;
+    die "cannot detect terminal size" unless $TERM_SIZE[0] && $TERM_SIZE[1];
+
+    if ($LAST_KEY eq 'q') {
+        print "\n";
+        ReadMode('normal'); exit;
+    }
+
+    if ($LAST_KEY ne $CONF->{mode} && exists $display_modes{$LAST_KEY}) {
+        $CONF->{prev_mode} = $CONF->{mode};
+        $CONF->{mode} = $LAST_KEY;
+    } elsif ($CONF->{mode} eq 'h' || $CONF->{mode} eq '?') {
+        # Bust out of help mode on any key.
+        $CONF->{mode} = $CONF->{prev_mode};
+    }
+    my $lines = $display_modes{$CONF->{mode}}->($prev_stats, $curr_stats);
+    display_lines($lines) if $lines;
+}
+
+# Default "top" mode.
+# create a set of computed columns as requested by the config.
+# this has gotten a little out of hand... needs more cleanup/abstraction.
+sub display_top_mode {
+    my $prev_stats = shift;
+    my $curr_stats = shift;
+
+    my @columns = @{$CONF->{top_mode}->{columns}};
+    my @rows    = ();
+    my @tot_row = ();
+
+    # Round one.
+    for my $host (sort keys %{$curr_stats}) {
+        my @row = ();
+        for my $colnum (0 .. @columns-1) {
+            my $col = $columns[$colnum];
+            my $res = compute_column($col, $host, $prev_stats->{$host},
+                      $curr_stats->{$host});
+            $tot_row[$colnum] += $res if is_numeric($res);
+            push @row, $res;
+        }
+        push(@rows, \@row);
+    }
+
+    # Sort rows by sort column (ascending or descending)
+    if (my $sort = $CONF->{top_mode}->{sort_column}) {
+        my $order  = $CONF->{top_mode}->{sort_order} || 'asc';
+        my $colnum = 0;
+        for (0 .. @columns-1) { $colnum = $_ if $columns[$_] eq $sort; }
+        my @newrows;
+        if ($order eq 'asc') {
+            if (is_numeric($rows[0]->[$colnum])) {
+                @newrows = sort { $a->[$colnum] <=> $b->[$colnum] } @rows;
+            } else {
+                @newrows = sort { $a->[$colnum] cmp $b->[$colnum] } @rows;
+            }
+        } else {
+            if (is_numeric($rows[0]->[$colnum])) {
+                @newrows = sort { $b->[$colnum] <=> $a->[$colnum] } @rows;
+            } else {
+                @newrows = sort { $b->[$colnum] cmp $a->[$colnum] } @rows;
+            }
+        }
+        @rows = @newrows;
+    }
+
+    # Format each column after the sort...
+    {
+        my @newrows = ();
+        for my $row (@rows) {
+            my @newrow = ();
+            for my $colnum (0 .. @columns-1) {
+                push @newrow, is_numeric($row->[$colnum]) ?
+                            format_column($columns[$colnum], $row->[$colnum]) :
+                            $row->[$colnum];
+            }
+            push @newrows, \@newrow;
+        }
+        @rows = @newrows;
+    }
+
+    # Create average and total rows.
+    my @avg_row = ();
+    for my $col (0 .. @columns-1) {
+        if (is_numeric($tot_row[$col])) {
+            my $countable_rows = 0;
+            for my $row (@rows) {
+                next unless $row->[$col];
+                $countable_rows++ unless $row->[$col] eq 'NA';
+            }
+            $countable_rows = 1 unless $countable_rows;
+            push @avg_row, format_column($columns[$col],
+                 sprintf('%.2f', $tot_row[$col] / $countable_rows));
+        } else {
+            push @avg_row, 'NA';
+        }
+        $tot_row[$col] = 'NA' unless defined $tot_row[$col];
+        $tot_row[$col] = 'NA' unless (column_can_total($columns[$col]));
+        $tot_row[$col] = format_column($columns[$col], $tot_row[$col])
+                         unless $tot_row[$col] eq 'NA';
+    }
+    unshift @rows, \@avg_row;
+    unshift @rows, ['AVERAGE:'];
+    unshift @rows, \@tot_row;
+    unshift @rows, ['TOTAL:'];
+
+    # Round two. Pass @rows into a function which returns an array with the
+    # desired format spacing for each column.
+    unshift @rows, \@columns;
+    my $spacing = find_optimal_spacing(\@rows);
+
+    my @display_lines = ();
+    for my $row (@rows) {
+        my $line = '';
+        for my $col (0 .. @$row-1) {
+            my $space = $spacing->[$col];
+            $line .= sprintf("%-${space}s ", $row->[$col]);
+        }
+        push @display_lines, $line;
+    }
+
+    return \@display_lines;
+}
+
+sub display_help_mode {
+    my $help = <<"ENDHELP";
+
+dormando's awesome memcached top utility version v$VERSION
+
+This early version requires you to edit the ~/.damemtop/damemtop.yaml
+(or /etc/damemtop.yaml) file in order to change options.
+See --help for more info.
+
+Hit any key to exit help.
+ENDHELP
+    my @lines = split /\n/, $help;
+    display_lines(\@lines);
+    $LAST_KEY = ReadKey(0);
+    return;
+}
+
+# Takes a set of lines, clears screen, dumps header, trims lines, etc
+# MAYBE: mode to wrap lines instead of trim them?
+sub display_lines {
+    my $lines = shift;
+
+    my $width         = $TERM_SIZE[0];
+    my $height_remain = $TERM_SIZE[1];
+
+    unshift @$lines, display_header($width);
+    clear_screen() unless $CONF->{no_clear};
+
+    while (--$height_remain && @$lines) {
+        # truncate too long lines.
+        my $line = shift @$lines;
+        $line = substr $line, 0, $width-1;
+        print $line, "\n";
+    }
+}
+
+sub display_header {
+    my $topbar = 'damemtop: ' . scalar localtime;
+    if ($CONF->{mode} eq 't' && $CONF->{top_mode}->{sort_column}) {
+        $topbar .= ' [sort: ' . $CONF->{top_mode}->{sort_column} . ']';
+    }
+    $topbar .= ' [delay: ' . $CONF->{delay} . 's]';
+    return $topbar;
+}
+
+### Utilities
+
+# find the optimal format spacing for each column, which is:
+# longest length of item in col + 2 (whitespace).
+sub find_optimal_spacing {
+    my $rows  = shift;
+    my @maxes = ();
+
+    my $num_cols = @{$rows->[0]};
+    for my $row (@$rows) {
+        for my $col (0 .. $num_cols-1) {
+            $maxes[$col] = 0 unless $maxes[$col];
+            next unless $row->[$col];
+            $maxes[$col] = length($row->[$col])
+                if length($row->[$col]) > $maxes[$col];
+        }
+    }
+    for my $col (0 .. $num_cols) {
+        $maxes[$col] += 1;
+    }
+
+    return \@maxes;
+}
+
+# doesn't try too hard to identify numbers...
+sub is_numeric {
+    return 0 unless $_[0];
+    return 1 if $_[0] =~ m/^\d+(\.\d*)?(\w+)?$/;
+    return 0;
+}
+
+sub format_percent {
+    return sprintf("%.2f%%", $_[0] * 100);
+}
+
+sub format_commas {
+    my $num = shift;
+    $num = int($num);
+    $num =~ s/(^[-+]?\d+?(?=(?>(?:\d{3})+)(?!\d))|\G\d{3}(?=\d))/$1,/g;
+    return $num;
+}
+
+# Can tick counters/etc here as well.
+sub clear_screen {
+    print $CLEAR;
+}
+
+# tries minimally to find a localized config file.
+# TODO: Handle the YAML error and make it prettier.
+sub load_config {
+    my $config = $opts{config} if $opts{config};
+    my $homedir = "$ENV{HOME}/.damemtop/damemtop.yaml";
+    if (-e $homedir) {
+        $config = $homedir;
+    } else {
+        $config = '/etc/damemtop.yaml';
+    }
+    return LoadFile($config);
+}
+
+sub show_help {
+    print <<"ENDHELP";
+dormando's awesome memcached top utility version v$VERSION
+
+This program is copyright (c) 2009 Dormando.
+Use and distribution licensed under the BSD license.  See
+the COPYING file for full text.
+
+contact: dormando\@rydia.net or memcached\@googlegroups.com.
+
+This early version requires you to edit the ~/.damemtop/damemtop.yaml
+(or /etc/damemtop.yaml) file in order to change options.
+
+You may display any column that is in the output of
+'stats', 'stats items', or 'stats slabs' from memcached's ASCII protocol.
+Start a column with 'all_' (ie; 'all_get_hits') to display the current stat,
+otherwise the stat is displayed as an average per second.
+
+Specify a "sort_column" under "top_mode" to sort the output by any column.
+
+Some special "computed" columns exist:
+hit_rate (get/miss hit ratio)
+fill_rate (% bytes used out of the maximum memory limit)
+ENDHELP
+    exit;
+}
