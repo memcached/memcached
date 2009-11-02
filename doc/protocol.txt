@@ -542,8 +542,8 @@ END\r\n
 | chunk_size      | The amount of space each chunk uses. One item will use   |
 |                 | one chunk of the appropriate size.                       |
 | chunks_per_page | How many chunks exist within one page. A page by         |
-|                 | default is one megabyte in size. Slabs are allocated per |
-|                 | page, then broken into chunks.                           |
+|                 | default is less than or equal to one megabyte in size.   |
+|                 | Slabs are allocated by page, then broken into chunks.    |
 | total_pages     | Total number of pages allocated to the slab class.       |
 | total_chunks    | Total number of chunks allocated to the slab class.      |
 | get_hits        | Total number of get requests serviced by this class.     |
@@ -565,9 +565,9 @@ END\r\n
 
 * Items are stored in a slab that is the same size or larger than the
   item.  mem_requested shows the size of all items within a
-  slab. (total_pages * 1MB) - mem_requested shows memory wasted in a
-  slab class.  If you see a lot of waste, consider tuning the slab
-  factor.
+  slab. (total_chunks * chunk_size) - mem_requested shows memory
+  wasted in a slab class.  If you see a lot of waste, consider tuning
+  the slab factor.
 
 Other commands
 --------------
