@@ -49,8 +49,9 @@ static inline void* get_object(void *ptr) {
 #ifndef NDEBUG
     uint64_t *pre = ptr;
     return pre + 1;
-#endif
+#else
     return ptr;
+#endif
 }
 
 void cache_destroy(cache_t *cache) {
