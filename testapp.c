@@ -14,16 +14,14 @@
 #include <errno.h>
 #include <assert.h>
 #include <string.h>
-#include <inttypes.h>
-#include <stdbool.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
 
-#include "protocol_binary.h"
 #include "config.h"
 #include "cache.h"
 #include "util.h"
+#include "protocol_binary.h"
 
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 

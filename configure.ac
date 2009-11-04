@@ -255,6 +255,52 @@ AC_SEARCH_LIBS(umem_cache_create, umem)
 AC_SEARCH_LIBS(gethugepagesizes, hugetlbfs)
 
 AC_HEADER_STDBOOL
+AH_BOTTOM([#if HAVE_STDBOOL_H
+#include <stdbool.h>
+#else
+#define bool char
+#define false 0
+#define true 1
+#endif ])
+
+AC_CHECK_HEADERS([inttypes.h])
+AH_BOTTOM([#ifdef HAVE_INTTYPES_H
+#include <inttypes.h>
+#endif
+])
+
+dnl **********************************************************************
+dnl DETECT_UINT64_SUPPORT
+dnl
+dnl check if we can use a uint64_t
+dnl **********************************************************************
+AC_DEFUN([AC_C_DETECT_UINT64_SUPPORT],
+[
+    AC_CACHE_CHECK([for print macros for integers (C99 section 7.8.1)],
+        [ac_cv_c_uint64_support],
+        [AC_TRY_COMPILE(
+            [
+#ifdef HAVE_INTTYPES_H
+#include <inttypes.h>
+#endif
+#include <stdio.h>
+            ], [
+  uint64_t val = 0;
+  fprintf(stderr, "%" PRIu64 "\n", val);
+            ],
+            [ ac_cv_c_uint64_support=yes ],
+            [ ac_cv_c_uint64_support=no ])
+        ])
+])
+
+AC_C_DETECT_UINT64_SUPPORT
+AS_IF([test "x$ac_cv_c_uint64_support" = "xno"],
+      [AC_MSG_WARN([
+
+Failed to use print macros (PRIu) as defined in C99 section 7.8.1.
+
+])])
+
 AC_C_CONST
 
 dnl From licq: Copyright (c) 2000 Dirk Mueller
@@ -314,7 +360,9 @@ AC_DEFUN([AC_C_HTONLL],
        AC_LANG_PROGRAM([
 #include <sys/types.h>
 #include <netinet/in.h>
-#include <inttypes.h>
+#ifdef HAVE_INTTYPES_H
+#include <inttypes.h> */
+#endif
        ], [
           return htonll(0);
        ])

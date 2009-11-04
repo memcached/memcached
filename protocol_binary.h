@@ -35,8 +35,6 @@
 #ifndef PROTOCOL_BINARY_H
 #define PROTOCOL_BINARY_H
 
-#include <stdint.h>
-
 /**
  * This file contains definitions of the constants and packet formats
  * defined in the binary specification. Please note that you _MUST_ remember

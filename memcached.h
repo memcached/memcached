@@ -15,8 +15,6 @@
 #include <netinet/in.h>
 #include <event.h>
 #include <netdb.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include <pthread.h>
 #include <unistd.h>
 
