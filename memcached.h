@@ -349,10 +349,6 @@ struct conn {
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
 };
 
-
-/* current time of day (updated periodically) */
-extern volatile rel_time_t current_time;
-
 /*
  * Functions
  */

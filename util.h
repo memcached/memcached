@@ -1,3 +1,5 @@
+#ifndef UTIL_H
+#define UTIL_H
 /*
  * Wrappers around strtoull/strtoll that are safer and easier to
  * use.  For tests and assumptions, see internal_tests.c.
@@ -32,3 +34,4 @@ extern uint64_t ntohll(uint64_t);
  */
 void vperror(const char *fmt, ...)
     __gcc_attribute__ ((format (printf, 1, 2)));
+#endif

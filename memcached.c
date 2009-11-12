@@ -2365,8 +2365,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     } else if (strcmp(subcommand, "settings") == 0) {
         process_stat_settings(&append_stats, c);
     } else if (strcmp(subcommand, "cachedump") == 0) {
-        char *buf;
-        unsigned int bytes, id, limit = 0;
+        char *buf = NULL;
+        unsigned int bytes = 0, id, limit = 0;
 
         if (ntokens < 5) {
             out_string(c, "CLIENT_ERROR bad command line");
@@ -2723,7 +2723,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
             c->thread->stats.decr_hits++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
-        snprintf(temp, sizeof(temp), "%llu", result);
+        snprintf(temp, sizeof(temp), "%"PRIu64, result);
         out_string(c, temp);
         break;
     case ENGINE_KEY_ENOENT:

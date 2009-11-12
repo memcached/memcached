@@ -674,7 +674,7 @@ static ENGINE_ERROR_CODE do_store_item(hash_item *it, uint64_t *cas,
  *
  * returns a response string to send back to the client.
  */
-ENGINE_ERROR_CODE do_add_delta(conn *c, hash_item *it, const bool incr,
+static ENGINE_ERROR_CODE do_add_delta(conn *c, hash_item *it, const bool incr,
                                const int64_t delta, uint64_t *rcas,
                                uint64_t *result) {
     char *ptr;

@@ -658,6 +658,7 @@ static void read_ascii_response(char *buffer, size_t size) {
 }
 
 static enum test_return test_issue_92(void) {
+#ifdef FUTURE
     char buffer[1024];
 
     close(sock);
@@ -673,6 +674,8 @@ static enum test_return test_issue_92(void) {
 
     close(sock);
     sock = connect_server("127.0.0.1", port, false);
+#endif
+
     return TEST_PASS;
 }
 
@@ -1936,9 +1939,7 @@ struct testcase testcases[] = {
     { "config_parser", test_config_parser },
     /* The following tests all run towards the same server */
     { "start_server", start_memcached_server },
-#ifdef FUTURE
     { "issue_92", test_issue_92 },
-#endif
     { "issue_102", test_issue_102 },
     { "binary_noop", test_binary_noop },
     { "binary_quit", test_binary_quit },
