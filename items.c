@@ -279,7 +279,7 @@ static void item_unlink_q(hash_item *it) {
 }
 
 int do_item_link(hash_item *it) {
-    MEMCACHED_ITEM_LINK(ITEM_key(it), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_LINK(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
     assert((it->item.iflag & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     assert(it->item.nbytes < (1024 * 1024));  /* 1MB max size */
     it->item.iflag |= ITEM_LINKED;
@@ -301,7 +301,7 @@ int do_item_link(hash_item *it) {
 }
 
 void do_item_unlink(hash_item *it) {
-    MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_UNLINK(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
     if ((it->item.iflag & ITEM_LINKED) != 0) {
         it->item.iflag &= ~ITEM_LINKED;
         STATS_LOCK();
@@ -315,7 +315,7 @@ void do_item_unlink(hash_item *it) {
 }
 
 void do_item_remove(hash_item *it) {
-    MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_REMOVE(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
     assert((it->item.iflag & ITEM_SLABBED) == 0);
     if (it->refcount != 0) {
         it->refcount--;
@@ -327,7 +327,7 @@ void do_item_remove(hash_item *it) {
 }
 
 void do_item_update(hash_item *it) {
-    MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_UPDATE(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->item.iflag & ITEM_SLABBED) == 0);
 
@@ -340,8 +340,8 @@ void do_item_update(hash_item *it) {
 }
 
 int do_item_replace(hash_item *it, hash_item *new_it) {
-    MEMCACHED_ITEM_REPLACE(ITEM_key(it), it->item.nkey, it->item.nbytes,
-                           ITEM_key(new_it), new_it->item.nkey, new_it->item.nbytes);
+    MEMCACHED_ITEM_REPLACE(ITEM_key(&it->item), it->item.nkey, it->item.nbytes,
+                           ITEM_key(&new_it->item), new_it->item.nkey, new_it->item.nbytes);
     assert((it->item.iflag & ITEM_SLABBED) == 0);
 
     do_item_unlink(it);
@@ -689,14 +689,14 @@ static ENGINE_ERROR_CODE do_add_delta(conn *c, hash_item *it, const bool incr,
 
     if (incr) {
         value += delta;
-        MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->item.nkey, value);
+        MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(&it->item), it->item.nkey, value);
     } else {
         if(delta > value) {
             value = 0;
         } else {
             value -= delta;
         }
-        MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->item.nkey, value);
+        MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(&it->item), it->item.nkey, value);
     }
 
     *result = value;
