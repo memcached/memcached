@@ -4397,6 +4397,12 @@ int main (int argc, char **argv) {
                 );
             }
             break;
+        case 'E':
+            engine = optarg;
+            break;
+        case 'e':
+            engine_config = optarg;
+            break;
         case 'S': /* set Sasl authentication to true. Default is false */
 #ifndef ENABLE_SASL
             fprintf(stderr, "This server is not built with SASL support.\n");
