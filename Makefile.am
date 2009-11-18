@@ -11,10 +11,6 @@ timedrun_SOURCES = timedrun.c
 
 memcached_SOURCES = memcached.c memcached.h \
                     hash.c hash.h \
-                    slabs.c slabs.h \
-                    items.c items.h \
-                    assoc.c assoc.h \
-                    default_engine.c default_engine.h \
                     thread.c daemon.c \
                     stats.c stats.h \
                     util.c util.h \
@@ -35,9 +31,11 @@ memcached_SOURCES += sasl_defs.c
 endif
 
 memcached_LDADD = @PROFILER_LDFLAGS@
+memcached_LDFLAGS=-R '$(libdir)' -export-dynamic
 memcached_CFLAGS = @PROFILER_FLAGS@
 memcached_DEPENDENCIES =
 CLEANFILES=
+
 
 if BUILD_DTRACE
 BUILT_SOURCES += memcached_dtrace.h
@@ -49,6 +47,14 @@ memcached_LDADD += memcached_dtrace.o
 memcached_DEPENDENCIES += memcached_dtrace.o
 CLEANFILES += memcached_dtrace.o
 endif
+
+lib_LTLIBRARIES = default_engine.la
+default_engine_la_SOURCES= \
+                    assoc.c assoc.h \
+                    default_engine.c default_engine.h \
+                    items.c items.h \
+                    slabs.c slabs.h
+default_engine_la_LDFLAGS= -module
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d
@@ -66,8 +72,8 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
 test:	memcached sizes testapp
-	$(srcdir)/sizes
-	$(srcdir)/testapp
+	./sizes
+	./testapp
 	prove $(srcdir)/t
 	@if test `basename $(PROFILER)` = "gcov"; then \
 	  for file in memcached-*.gc??; do \

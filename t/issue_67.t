@@ -38,7 +38,9 @@ sub validate_port {
 sub run_server {
     my ($args) = @_;
 
-    my $exe = "$builddir/memcached-debug";
+    $args .= " -E $builddir/.libs/default_engine.so";
+
+    my $exe = "$builddir/memcached";
     croak("memcached binary doesn't exist.  Haven't run 'make' ?\n") unless -e $exe;
 
     my $childpid = fork();

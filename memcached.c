@@ -4122,7 +4122,7 @@ static bool load_engine(const char *soname, const char *config_str) {
         void* voidptr;
     } my_create = {.create = NULL };
 
-    void *handle = dlopen(soname, RTLD_LAZY | RTLD_GLOBAL);
+    void *handle = dlopen(soname, RTLD_LAZY | RTLD_LOCAL);
     if (handle == NULL) {
         const char *msg = dlerror();
         fprintf(stderr, "Failed to open library \"%s\": %s\n",

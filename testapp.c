@@ -292,6 +292,10 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     remove(filename);
     remove(pid_file);
 
+    char engine[1024];
+    getcwd(engine, sizeof(engine));
+    strcat(engine, "/.libs/default_engine.so");
+
 #ifdef __sun
     /* I want to name the corefiles differently so that they don't
        overwrite each other
@@ -323,6 +327,8 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = tmo;
         }
         argv[arg++] = "./memcached";
+        argv[arg++] = "-E";
+        argv[arg++] = engine;
         argv[arg++] = "-p";
         argv[arg++] = "-1";
         argv[arg++] = "-U";

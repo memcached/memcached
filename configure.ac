@@ -8,6 +8,13 @@ AM_INIT_AUTOMAKE(AC_PACKAGE_NAME, AC_PACKAGE_VERSION)
 AM_CONFIG_HEADER(config.h)
 
 AC_PROG_CC
+AC_DISABLE_STATIC
+AC_PROG_LIBTOOL
+
+if test "x${enable_dependency_tracking}" = "x"
+then
+  enable_dependency_tracking=yes
+fi
 
 dnl **********************************************************************
 dnl DETECT_ICC ([ACTION-IF-YES], [ACTION-IF-NO])
