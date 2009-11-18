@@ -43,3 +43,6 @@ Makefile.in
 TAGS
 cscope.out
 tags
+*.l[ao]
+/libtool
+/.libs/
