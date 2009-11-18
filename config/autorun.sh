@@ -38,6 +38,8 @@ then
   . config/pre_hook.sh
 fi
 
+mkdir -p m4
+
 if [ -d .git ]
 then
   perl config/version.pl || die "Failed to run config/version.pl"
