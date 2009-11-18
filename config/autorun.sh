@@ -40,7 +40,7 @@ fi
 
 if [ -d .git ]
 then
-  perl config/version.pl
+  perl config/version.pl || die "Failed to run config/version.pl"
 fi
 
 # Try to detect the supported binaries if the user didn't
