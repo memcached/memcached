@@ -12,12 +12,12 @@ chomp $version;
 #my $version = '1.4.3-rc1';
 #my $version = '1.4.3';
 unless ($version =~ m/^\d+\.\d+\.\d+/) {
-    write_file('version.m4', "m4_define([VERSION_NUMBER], [UNKNOWN])\n");
+    write_file('m4/version.m4', "m4_define([VERSION_NUMBER], [UNKNOWN])\n");
     exit;
 }
 
 $version =~ s/-/_/g;
-write_file('version.m4', "m4_define([VERSION_NUMBER], [$version])\n");
+write_file('m4/version.m4', "m4_define([VERSION_NUMBER], [$version])\n");
 my ($VERSION, $FULLVERSION, $RELEASE);
 
 if ($version =~ m/^(\d+\.\d+\.\d+)_rc(\d+)$/) {

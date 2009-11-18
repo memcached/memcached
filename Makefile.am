@@ -61,7 +61,7 @@ memcached_dtrace.o: $(memcached_OBJECTS)
 
 SUBDIRS = doc
 DIST_DIRS = scripts
-EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4
+EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
