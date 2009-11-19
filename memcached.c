@@ -4166,6 +4166,11 @@ static bool load_engine(const char *soname, const char *config_str) {
         return false;
     }
 
+    if (settings.verbose > 0) {
+        fprintf(stderr, "Loaded engine: %s\n",
+                settings.engine.v1->get_info(settings.engine.v0));
+    }
+
     return true;
 }
 
