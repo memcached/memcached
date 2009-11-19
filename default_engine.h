@@ -34,15 +34,10 @@ struct config {
    bool preallocate;
    float factor;
    size_t chunk_size;
+   size_t item_size_max;
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface, ENGINE_HANDLE **handle);
-
-#if 0
-/* FIXME! This symbol shouldn't be used directly from the backend! */
-rel_time_t realtime(const time_t exptime);
-extern rel_time_t current_time;
-#endif
 
 /**
  * Statistic information collected by the default engine
@@ -76,18 +71,8 @@ struct default_engine {
     */
    pthread_mutex_t cache_lock;
 
-   /**
-    * Are we in the middle of expanding the assoc table now?
-    */
-   volatile bool assoc_expanding;
-
    struct config config;
    struct engine_stats stats;
 };
-
-/**
- * Initially we just use one global variable
- */
-extern struct default_engine default_engine;
 
 #endif

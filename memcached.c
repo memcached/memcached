@@ -4404,6 +4404,8 @@ int main (int argc, char **argv) {
                     " and will decrease your memory efficiency.\n"
                 );
             }
+            old_opts += sprintf(old_opts, "item_size_max=%zu;",
+                                settings.item_size_max);
             break;
         case 'E':
             engine = optarg;

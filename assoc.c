@@ -2,13 +2,6 @@
 /*
  * Hash table
  *
- * The hash function used here is by Bob Jenkins, 1996:
- *    <http://burtleburtle.net/bob/hash/doobs.html>
- *       "By Bob Jenkins, 1996.  bob_jenkins@burtleburtle.net.
- *       You may use this code any way you wish, private, educational,
- *       or commercial.  It's free."
- *
- * The rest of the file is licensed under the BSD license.  See LICENSE.
  */
 
 #include "memcached.h"
@@ -120,8 +113,6 @@ static void assoc_expand(void) {
 
     primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));
     if (primary_hashtable) {
-        if (settings.verbose > 1)
-            fprintf(stderr, "Hash table expansion starting\n");
         hashpower++;
         expanding = true;
         expand_bucket = 0;
@@ -186,13 +177,14 @@ static volatile int do_run_maintenance_thread = 1;
 int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 
 static void *assoc_maintenance_thread(void *arg) {
+    struct default_engine *engine = arg;
 
     while (do_run_maintenance_thread) {
         int ii = 0;
 
         /* Lock the cache, and bulk move multiple buckets to the new
          * hash table. */
-        pthread_mutex_lock(&default_engine.cache_lock);
+        pthread_mutex_lock(&engine->cache_lock);
 
         for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             hash_item *it, *next;
@@ -212,24 +204,29 @@ static void *assoc_maintenance_thread(void *arg) {
             if (expand_bucket == hashsize(hashpower - 1)) {
                 expanding = false;
                 free(old_hashtable);
-                if (settings.verbose > 1)
+                if (engine->config.verbose > 1) {
                     fprintf(stderr, "Hash table expansion done\n");
+                }
             }
         }
 
-        if (!expanding) {
+        while (!expanding) {
             /* We are done expanding.. just wait for next invocation */
-            pthread_cond_wait(&maintenance_cond, &default_engine.cache_lock);
+            pthread_cond_wait(&maintenance_cond, &engine->cache_lock);
         }
 
-        pthread_mutex_unlock(&default_engine.cache_lock);
+        if (engine->config.verbose > 1) {
+            fprintf(stderr, "Start hash table expansion\n");
+        }
+
+        pthread_mutex_unlock(&engine->cache_lock);
     }
     return NULL;
 }
 
 static pthread_t maintenance_tid;
 
-int start_assoc_maintenance_thread() {
+int start_assoc_maintenance_thread(struct default_engine *engine) {
     int ret;
     char *env = getenv("MEMCACHED_HASH_BULK_MOVE");
     if (env != NULL) {
@@ -239,18 +236,18 @@ int start_assoc_maintenance_thread() {
         }
     }
     if ((ret = pthread_create(&maintenance_tid, NULL,
-                              assoc_maintenance_thread, NULL)) != 0) {
+                              assoc_maintenance_thread, engine)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
         return -1;
     }
     return 0;
 }
 
-void stop_assoc_maintenance_thread() {
-    pthread_mutex_lock(&default_engine.cache_lock);
+void stop_assoc_maintenance_thread(struct default_engine *engine) {
+    pthread_mutex_lock(&engine->cache_lock);
     do_run_maintenance_thread = 0;
     pthread_cond_signal(&maintenance_cond);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+    pthread_mutex_unlock(&engine->cache_lock);
 
     /* Wait for the maintenance thread to stop */
     pthread_join(maintenance_tid, NULL);

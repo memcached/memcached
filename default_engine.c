@@ -96,6 +96,7 @@ struct default_engine default_engine = {
       .preallocate = false,
       .factor = 1.25,
       .chunk_size = 48,
+      .item_size_max= 1024 * 1024,
    }
 };
 
@@ -137,10 +138,14 @@ static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
       return ret;
    }
 
-   ret = slabs_init(se->config.maxbytes, se->config.factor,
+   ret = slabs_init(se, se->config.maxbytes, se->config.factor,
                     se->config.preallocate);
    if (ret != ENGINE_SUCCESS) {
       return ret;
+   }
+
+   if (start_assoc_maintenance_thread(se) != 0) {
+      return ENGINE_FAILED;
    }
 
    return ENGINE_SUCCESS;
@@ -150,6 +155,8 @@ static void default_destroy(ENGINE_HANDLE* handle) {
    struct default_engine* se = get_handle(handle);
 
    if (se->initialized) {
+      stop_assoc_maintenance_thread(se);
+
       pthread_mutex_destroy(&se->cache_lock);
       pthread_mutex_destroy(&se->stats.lock);
       se->initialized = false;
@@ -176,7 +183,7 @@ static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
    }
 
    hash_item *it;
-   it = item_alloc(key, nkey, flags, exptime, nbytes);
+   it = item_alloc(engine, key, nkey, flags, exptime, nbytes);
 
    if (it != NULL) {
       *item = &it->item;
@@ -189,12 +196,12 @@ static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
 static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
                                              const void* cookie,
                                              item* item) {
-   item_unlink(get_real_item(item));
+   item_unlink(get_handle(handle), get_real_item(item));
    return ENGINE_SUCCESS;
 }
 
 static void default_item_release(ENGINE_HANDLE* handle, item* item) {
-   item_remove(get_real_item(item));
+   item_release(get_handle(handle), get_real_item(item));
 }
 
 static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
@@ -202,7 +209,7 @@ static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
                                      item** item,
                                      const void* key,
                                      const int nkey) {
-   hash_item *it = item_get(key, nkey);
+   hash_item *it = item_get(get_handle(handle), key, nkey);
    if (it != NULL) {
       *item = &it->item;
       return ENGINE_SUCCESS;
@@ -238,9 +245,9 @@ static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
    } else if (strncmp(stat_key, "slabs", 5) == 0) {
       slabs_stats(add_stat, cookie);
    } else if (strncmp(stat_key, "items", 5) == 0) {
-      item_stats(add_stat, (void*)cookie);
+      item_stats(engine, add_stat, cookie);
    } else if (strncmp(stat_key, "sizes", 5) == 0) {
-      item_stats_sizes(add_stat, (void*)cookie);
+      item_stats_sizes(engine, add_stat, cookie);
    } else {
       ret = ENGINE_KEY_ENOENT;
    }
@@ -253,7 +260,7 @@ static ENGINE_ERROR_CODE default_store(ENGINE_HANDLE* handle,
                                        item* item,
                                        uint64_t *cas,
                                        ENGINE_STORE_OPERATION operation) {
-   return store_item(get_real_item(item), cas, operation);
+   return store_item(get_handle(handle), get_real_item(item), cas, operation);
 }
 
 static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
@@ -268,7 +275,8 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
                                             uint64_t *cas,
                                             uint64_t *result) {
    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
-   hash_item *item = item_get(key, nkey);
+   struct default_engine *engine = get_handle(handle);
+   hash_item *item = item_get(engine, key, nkey);
 
    if (item == NULL) {
       if (!create) {
@@ -278,13 +286,14 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
          int len = snprintf(buffer, sizeof(buffer), "%llu\r\n",
                             (unsigned long long)initial);
 
-         item = item_alloc(key, nkey, 0, exptime, len);
+         item = item_alloc(engine, key, nkey, 0, exptime, len);
          if (item == NULL) {
             return ENGINE_ENOMEM;
          }
          memcpy(ITEM_data(&item->item), buffer, len);
-         if ((ret = store_item(item, cas, OPERATION_ADD)) == ENGINE_KEY_EEXISTS) {
-            item_remove(item);
+         if ((ret = store_item(engine, item, cas,
+                               OPERATION_ADD)) == ENGINE_KEY_EEXISTS) {
+            item_release(engine, item);
             return default_arithmetic(handle, cookie, key, nkey, increment,
                                       create, delta, initial, exptime, cas,
                                       result);
@@ -292,11 +301,11 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
 
          *result = initial;
          *cas = ITEM_get_cas(&item->item);
-         item_remove(item);
+         item_release(engine, item);
       }
    } else {
-      ret = add_delta((conn*)cookie, item, increment, delta, cas, result);
-      item_remove(item);
+      ret = add_delta(engine, item, increment, delta, cas, result);
+      item_release(engine, item);
    }
 
    return ret;
@@ -317,19 +326,20 @@ static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
    else /* exptime == 0 */
       default_engine.config.oldest_live = current_time - 1;
 
-   item_flush_expired();
+   item_flush_expired(get_handle(handle));
 
    return ENGINE_SUCCESS;
 }
 
 static void default_reset_stats(ENGINE_HANDLE* handle) {
-   item_stats_reset();
+   struct default_engine *engine = get_handle(handle);
+   item_stats_reset(engine);
 
-   pthread_mutex_lock(&default_engine.stats.lock);
+   pthread_mutex_lock(&engine->stats.lock);
    default_engine.stats.evictions = 0;
    default_engine.stats.reclaimed = 0;
    default_engine.stats.total_items = 0;
-   pthread_mutex_unlock(&default_engine.stats.lock);
+   pthread_mutex_unlock(&engine->stats.lock);
 }
 
 static ENGINE_ERROR_CODE initalize_configuration(struct config *config,
@@ -343,22 +353,25 @@ static ENGINE_ERROR_CODE initalize_configuration(struct config *config,
            .value.dt_bool = &config->use_cas },
          { .key = "verbose",
            .datatype = DT_SIZE,
-           .value.dt_size = &config->verbose},
+           .value.dt_size = &config->verbose },
          { .key = "eviction",
            .datatype = DT_BOOL,
-           .value.dt_bool = &config->evict_to_free},
+           .value.dt_bool = &config->evict_to_free },
          { .key = "cache_size",
            .datatype = DT_SIZE,
-           .value.dt_size = &config->maxbytes},
+           .value.dt_size = &config->maxbytes },
          { .key = "preallocate",
            .datatype = DT_BOOL,
-           .value.dt_bool = &config->preallocate},
+           .value.dt_bool = &config->preallocate },
          { .key = "factor",
            .datatype = DT_FLOAT,
-           .value.dt_float = &config->factor},
+           .value.dt_float = &config->factor },
          { .key = "chunk_size",
            .datatype = DT_SIZE,
-           .value.dt_size = &config->chunk_size},
+           .value.dt_size = &config->chunk_size },
+         { .key = "item_size_max",
+           .datatype = DT_SIZE,
+           .value.dt_size = &config->item_size_max },
          { .key = "config_file",
            .datatype = DT_CONFIGFILE },
          { .key = NULL}

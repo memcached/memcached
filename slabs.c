@@ -99,9 +99,12 @@ unsigned int slabs_clsid(const size_t size) {
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-ENGINE_ERROR_CODE slabs_init(const size_t limit, const double factor, const bool prealloc) {
+ENGINE_ERROR_CODE slabs_init(struct default_engine *engine,
+                             const size_t limit,
+                             const double factor,
+                             const bool prealloc) {
     int i = POWER_SMALLEST - 1;
-    unsigned int size = sizeof(item) + settings.chunk_size;
+    unsigned int size = sizeof(item) + engine->config.chunk_size;
 
     mem_limit = limit;
 
@@ -118,24 +121,24 @@ ENGINE_ERROR_CODE slabs_init(const size_t limit, const double factor, const bool
 
     memset(slabclass, 0, sizeof(slabclass));
 
-    while (++i < POWER_LARGEST && size <= settings.item_size_max / factor) {
+    while (++i < POWER_LARGEST && size <= engine->config.item_size_max / factor) {
         /* Make sure items are always n-byte aligned */
         if (size % CHUNK_ALIGN_BYTES)
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
 
         slabclass[i].size = size;
-        slabclass[i].perslab = settings.item_size_max / slabclass[i].size;
+        slabclass[i].perslab = engine->config.item_size_max / slabclass[i].size;
         size *= factor;
-        if (settings.verbose > 1) {
+        if (engine->config.verbose > 1) {
             fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
                     i, slabclass[i].size, slabclass[i].perslab);
         }
     }
 
     power_largest = i;
-    slabclass[power_largest].size = settings.item_size_max;
+    slabclass[power_largest].size = engine->config.item_size_max;
     slabclass[power_largest].perslab = 1;
-    if (settings.verbose > 1) {
+    if (engine->config.verbose > 1) {
         fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
                 i, slabclass[i].size, slabclass[i].perslab);
     }
@@ -298,40 +301,6 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     p->slots[p->sl_curr++] = ptr;
     p->requested -= size;
     return;
-}
-
-static int nz_strcmp(int nzlength, const char *nz, const char *z) {
-    int zlength=strlen(z);
-    return (zlength == nzlength) && (strncmp(nz, z, zlength) == 0) ? 0 : -1;
-}
-
-bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
-    bool ret = true;
-
-    if (add_stats != NULL) {
-        if (!stat_type) {
-            /* prepare general statistics for the engine */
-            pthread_mutex_lock(&default_engine.stats.lock);
-            APPEND_STAT("bytes", "%"PRIu64, default_engine.stats.curr_bytes);
-            APPEND_STAT("curr_items", "%u"PRIu64, default_engine.stats.curr_items);
-            APPEND_STAT("total_items", "%u"PRIu64, default_engine.stats.total_items);
-            APPEND_STAT("evictions", "%"PRIu64, default_engine.stats.evictions);
-            APPEND_STAT("reclaimed", "%"PRIu64, default_engine.stats.reclaimed);
-            pthread_mutex_unlock(&default_engine.stats.lock);
-        } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
-            item_stats(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
-            slabs_stats(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
-            item_stats_sizes(add_stats, c);
-        } else {
-            ret = false;
-        }
-    } else {
-        ret = false;
-    }
-
-    return ret;
 }
 
 /*@null@*/

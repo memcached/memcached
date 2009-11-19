@@ -15,10 +15,23 @@
 
 #include "default_engine.h"
 
-
 /* Forward Declarations */
 static void item_link_q(hash_item *it);
 static void item_unlink_q(hash_item *it);
+static hash_item *do_item_alloc(struct default_engine *engine,
+                                const void *key, const size_t nkey,
+                                const int flags, const rel_time_t exptime,
+                                const int nbytes);
+static hash_item *do_item_get(struct default_engine *engine,
+                              const char *key, const size_t nkey);
+static int do_item_link(struct default_engine *engine, hash_item *it);
+static void do_item_unlink(struct default_engine *engine, hash_item *it);
+static void do_item_release(struct default_engine *engine, hash_item *it);
+static void do_item_update(hash_item *it);
+static int do_item_replace(struct default_engine *engine,
+                            hash_item *it, hash_item *new_it);
+static void item_free(struct default_engine *engine, hash_item *it);
+
 
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned
@@ -42,17 +55,18 @@ static hash_item *tails[LARGEST_ID];
 static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
 
-void item_stats_reset(void) {
-    pthread_mutex_lock(&default_engine.cache_lock);
+void item_stats_reset(struct default_engine *engine) {
+    pthread_mutex_lock(&engine->cache_lock);
     memset(itemstats, 0, sizeof(itemstats));
-    pthread_mutex_unlock(&default_engine.cache_lock);
+    pthread_mutex_unlock(&engine->cache_lock);
 }
 
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
-static inline size_t ITEM_ntotal(const hash_item *item) {
+static inline size_t ITEM_ntotal(struct default_engine *engine,
+                                 const hash_item *item) {
     size_t ret = sizeof(*item) + item->item.nkey + item->item.nbytes;
-    if (settings.use_cas) {
+    if (engine->config.use_cas) {
         ret += sizeof(uint64_t);
     }
 
@@ -60,7 +74,7 @@ static inline size_t ITEM_ntotal(const hash_item *item) {
 }
 
 /* Get the next CAS id for a new item. */
-uint64_t get_cas_id(void) {
+static uint64_t get_cas_id(void) {
     static uint64_t cas_id = 0;
     return ++cas_id;
 }
@@ -78,10 +92,15 @@ uint64_t get_cas_id(void) {
 
 
 /*@null@*/
-hash_item *do_item_alloc(const void *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes) {
+hash_item *do_item_alloc(struct default_engine *engine,
+                         const void *key,
+                         const size_t nkey,
+                         const int flags,
+                         const rel_time_t exptime,
+                         const int nbytes) {
     hash_item *it = NULL;
     size_t ntotal = sizeof(hash_item) + nkey + nbytes;
-    if (settings.use_cas) {
+    if (engine->config.use_cas) {
         ntotal += sizeof(uint64_t);
     }
 
@@ -102,12 +121,12 @@ hash_item *do_item_alloc(const void *key, const size_t nkey, const int flags, co
             /* I don't want to actually free the object, just steal
              * the item to avoid to grab the slab mutex twice ;-)
              */
-            STATS_LOCK();
-            default_engine.stats.reclaimed++;
-            STATS_UNLOCK();
+            pthread_mutex_lock(&engine->stats.lock);
+            engine->stats.reclaimed++;
+            pthread_mutex_unlock(&engine->stats.lock);
             itemstats[id].reclaimed++;
             it->refcount = 1;
-            do_item_unlink(it);
+            do_item_unlink(engine, it);
             /* Initialize the item block: */
             it->slabs_clsid = 0;
             it->refcount = 0;
@@ -126,7 +145,7 @@ hash_item *do_item_alloc(const void *key, const size_t nkey, const int flags, co
          * we're out of luck at this point...
          */
 
-        if (settings.evict_to_free == 0) {
+        if (engine->config.evict_to_free == 0) {
             itemstats[id].outofmemory++;
             return NULL;
         }
@@ -151,16 +170,16 @@ hash_item *do_item_alloc(const void *key, const size_t nkey, const int flags, co
                     if (search->item.exptime != 0) {
                         itemstats[id].evicted_nonzero++;
                     }
-                    STATS_LOCK();
-                    default_engine.stats.evictions++;
-                    STATS_UNLOCK();
+                    pthread_mutex_lock(&engine->stats.lock);
+                    engine->stats.evictions++;
+                    pthread_mutex_unlock(&engine->stats.lock);
                 } else {
                     itemstats[id].reclaimed++;
-                    STATS_LOCK();
-                    default_engine.stats.reclaimed++;
-                    STATS_UNLOCK();
+                    pthread_mutex_lock(&engine->stats.lock);
+                    engine->stats.reclaimed++;
+                    pthread_mutex_unlock(&engine->stats.lock);
                 }
-                do_item_unlink(search);
+                do_item_unlink(engine, search);
                 break;
             }
         }
@@ -179,7 +198,7 @@ hash_item *do_item_alloc(const void *key, const size_t nkey, const int flags, co
                 if (search->refcount != 0 && search->time + TAIL_REPAIR_TIME < current_time) {
                     itemstats[id].tailrepairs++;
                     search->refcount = 0;
-                    do_item_unlink(search);
+                    do_item_unlink(engine, search);
                     break;
                 }
             }
@@ -199,7 +218,7 @@ hash_item *do_item_alloc(const void *key, const size_t nkey, const int flags, co
     it->next = it->prev = it->h_next = 0;
     it->refcount = 1;     /* the caller will have a reference */
     DEBUG_REFCNT(it, '*');
-    it->item.iflag = settings.use_cas ? ITEM_CAS : 0;
+    it->item.iflag = engine->config.use_cas ? ITEM_CAS : 0;
     it->item.nkey = nkey;
     it->item.nbytes = nbytes;
     it->item.flags = flags;
@@ -208,8 +227,8 @@ hash_item *do_item_alloc(const void *key, const size_t nkey, const int flags, co
     return it;
 }
 
-void item_free(hash_item *it) {
-    size_t ntotal = ITEM_ntotal(it);
+static void item_free(struct default_engine *engine, hash_item *it) {
+    size_t ntotal = ITEM_ntotal(engine, it);
     unsigned int clsid;
     assert((it->item.iflag & ITEM_LINKED) == 0);
     assert(it != heads[it->slabs_clsid]);
@@ -222,19 +241,6 @@ void item_free(hash_item *it) {
     it->item.iflag |= ITEM_SLABBED;
     DEBUG_REFCNT(it, 'F');
     slabs_free(it, ntotal, clsid);
-}
-
-/**
- * Returns true if an item will fit in the cache (its size does not exceed
- * the maximum for a cache entry.)
- */
-bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
-    size_t ntotal = sizeof(hash_item) + nkey + nbytes;
-    if (settings.use_cas) {
-        ntotal += sizeof(uint64_t);
-    }
-
-    return slabs_clsid(ntotal) != 0;
 }
 
 static void item_link_q(hash_item *it) { /* item is the new head */
@@ -278,7 +284,7 @@ static void item_unlink_q(hash_item *it) {
     return;
 }
 
-int do_item_link(hash_item *it) {
+int do_item_link(struct default_engine *engine, hash_item *it) {
     MEMCACHED_ITEM_LINK(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
     assert((it->item.iflag & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     assert(it->item.nbytes < (1024 * 1024));  /* 1MB max size */
@@ -286,35 +292,37 @@ int do_item_link(hash_item *it) {
     it->time = current_time;
     assoc_insert(it);
 
-    STATS_LOCK();
-    default_engine.stats.curr_bytes += ITEM_ntotal(it);
-    default_engine.stats.curr_items += 1;
-    default_engine.stats.total_items += 1;
-    STATS_UNLOCK();
+    pthread_mutex_lock(&engine->stats.lock);
+    engine->stats.curr_bytes += ITEM_ntotal(engine, it);
+    engine->stats.curr_items += 1;
+    engine->stats.total_items += 1;
+    pthread_mutex_unlock(&engine->stats.lock);
 
     /* Allocate a new CAS ID on link. */
-    ITEM_set_cas(&it->item, (settings.use_cas) ? get_cas_id() : 0);
+    ITEM_set_cas(&it->item, get_cas_id());
 
     item_link_q(it);
 
     return 1;
 }
 
-void do_item_unlink(hash_item *it) {
+void do_item_unlink(struct default_engine *engine, hash_item *it) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
     if ((it->item.iflag & ITEM_LINKED) != 0) {
         it->item.iflag &= ~ITEM_LINKED;
-        STATS_LOCK();
-        default_engine.stats.curr_bytes -= ITEM_ntotal(it);
-        default_engine.stats.curr_items -= 1;
-        STATS_UNLOCK();
+        pthread_mutex_lock(&engine->stats.lock);
+        engine->stats.curr_bytes -= ITEM_ntotal(engine, it);
+        engine->stats.curr_items -= 1;
+        pthread_mutex_unlock(&engine->stats.lock);
         assoc_delete(ITEM_key(&it->item), it->item.nkey);
         item_unlink_q(it);
-        if (it->refcount == 0) item_free(it);
+        if (it->refcount == 0) {
+            item_free(engine, it);
+        }
     }
 }
 
-void do_item_remove(hash_item *it) {
+void do_item_release(struct default_engine *engine, hash_item *it) {
     MEMCACHED_ITEM_REMOVE(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
     assert((it->item.iflag & ITEM_SLABBED) == 0);
     if (it->refcount != 0) {
@@ -322,7 +330,7 @@ void do_item_remove(hash_item *it) {
         DEBUG_REFCNT(it, '-');
     }
     if (it->refcount == 0 && (it->item.iflag & ITEM_LINKED) == 0) {
-        item_free(it);
+        item_free(engine, it);
     }
 }
 
@@ -339,17 +347,20 @@ void do_item_update(hash_item *it) {
     }
 }
 
-int do_item_replace(hash_item *it, hash_item *new_it) {
+int do_item_replace(struct default_engine *engine,
+                    hash_item *it, hash_item *new_it) {
     MEMCACHED_ITEM_REPLACE(ITEM_key(&it->item), it->item.nkey, it->item.nbytes,
                            ITEM_key(&new_it->item), new_it->item.nkey, new_it->item.nbytes);
     assert((it->item.iflag & ITEM_SLABBED) == 0);
 
-    do_item_unlink(it);
-    return do_item_link(new_it);
+    do_item_unlink(engine, it);
+    return do_item_link(engine, new_it);
 }
 
 /*@null@*/
-char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
+static char *do_item_cachedump(const unsigned int slabs_clsid,
+                               const unsigned int limit,
+                               unsigned int *bytes) {
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
     unsigned int bufcurr;
@@ -388,7 +399,7 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     return buffer;
 }
 
-void do_item_stats(ADD_STAT add_stats, void *c) {
+static void do_item_stats(ADD_STAT add_stats, void *c) {
     int i;
     for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i] != NULL) {
@@ -420,7 +431,8 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
 
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
-void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
+static void do_item_stats_sizes(struct default_engine *engine,
+                                ADD_STAT add_stats, void *c) {
 
     /* max 1MB object, divided into 32 bytes size buckets */
     const int num_buckets = 32768;
@@ -433,7 +445,7 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
         for (i = 0; i < LARGEST_ID; i++) {
             hash_item *iter = heads[i];
             while (iter) {
-                int ntotal = ITEM_ntotal(iter);
+                int ntotal = ITEM_ntotal(engine, iter);
                 int bucket = ntotal / 32;
                 if ((ntotal % 32) != 0) bucket++;
                 if (bucket < num_buckets) histogram[bucket]++;
@@ -457,11 +469,12 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */
-hash_item *do_item_get(const char *key, const size_t nkey) {
+hash_item *do_item_get(struct default_engine *engine,
+                       const char *key, const size_t nkey) {
     hash_item *it = assoc_find(key, nkey);
     int was_found = 0;
 
-    if (settings.verbose > 2) {
+    if (engine->config.verbose > 2) {
         if (it == NULL) {
             fprintf(stderr, "> NOT FOUND %s", key);
         } else {
@@ -470,10 +483,10 @@ hash_item *do_item_get(const char *key, const size_t nkey) {
         }
     }
 
-    if (it != NULL && default_engine.config.oldest_live != 0 &&
-        default_engine.config.oldest_live <= current_time &&
-        it->time <= default_engine.config.oldest_live) {
-        do_item_unlink(it);           /* MTSAFE - cache_lock held */
+    if (it != NULL && engine->config.oldest_live != 0 &&
+        engine->config.oldest_live <= current_time &&
+        it->time <= engine->config.oldest_live) {
+        do_item_unlink(engine, it);           /* MTSAFE - cache_lock held */
         it = NULL;
     }
 
@@ -483,7 +496,7 @@ hash_item *do_item_get(const char *key, const size_t nkey) {
     }
 
     if (it != NULL && it->item.exptime != 0 && it->item.exptime <= current_time) {
-        do_item_unlink(it);           /* MTSAFE - cache_lock held */
+        do_item_unlink(engine, it);           /* MTSAFE - cache_lock held */
         it = NULL;
     }
 
@@ -497,46 +510,10 @@ hash_item *do_item_get(const char *key, const size_t nkey) {
         DEBUG_REFCNT(it, '+');
     }
 
-    if (settings.verbose > 2)
+    if (engine->config.verbose > 2)
         fprintf(stderr, "\n");
 
     return it;
-}
-
-/** returns an item whether or not it's expired. */
-hash_item *do_item_get_nocheck(const char *key, const size_t nkey) {
-    hash_item *it = assoc_find(key, nkey);
-    if (it) {
-        it->refcount++;
-        DEBUG_REFCNT(it, '+');
-    }
-    return it;
-}
-
-/* expires items that are more recent than the oldest_live setting. */
-void do_item_flush_expired(void) {
-    int i;
-    hash_item *iter, *next;
-    if (default_engine.config.oldest_live == 0)
-        return;
-    for (i = 0; i < LARGEST_ID; i++) {
-        /* The LRU is sorted in decreasing time order, and an item's timestamp
-         * is never newer than its last access time, so we only need to walk
-         * back until we hit an item older than the oldest_live time.
-         * The oldest_live checking will auto-expire the remaining items.
-         */
-        for (iter = heads[i]; iter != NULL; iter = next) {
-            if (iter->time >= default_engine.config.oldest_live) {
-                next = iter->next;
-                if ((iter->item.iflag & ITEM_SLABBED) == 0) {
-                    do_item_unlink(iter);
-                }
-            } else {
-                /* We've hit the first old item. Continue to the next queue. */
-                break;
-            }
-        }
-    }
 }
 
 /*
@@ -545,10 +522,11 @@ void do_item_flush_expired(void) {
  *
  * Returns the state of storage.
  */
-static ENGINE_ERROR_CODE do_store_item(hash_item *it, uint64_t *cas,
+static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
+                                       hash_item *it, uint64_t *cas,
                                        ENGINE_STORE_OPERATION operation) {
     char *key = ITEM_key(&it->item);
-    hash_item *old_it = do_item_get(key, it->item.nkey);
+    hash_item *old_it = do_item_get(engine, key, it->item.nkey);
     ENGINE_ERROR_CODE stored = ENGINE_NOT_STORED;
 
     hash_item *new_it = NULL;
@@ -581,7 +559,7 @@ static ENGINE_ERROR_CODE do_store_item(hash_item *it, uint64_t *cas,
             pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
 
-            item_replace(old_it, it);
+            do_item_replace(engine, old_it, it);
             stored = ENGINE_SUCCESS;
         } else {
 #if 0
@@ -589,7 +567,7 @@ static ENGINE_ERROR_CODE do_store_item(hash_item *it, uint64_t *cas,
             c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
-            if(settings.verbose > 1) {
+            if (engine->config.verbose > 1) {
                 fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
                         (unsigned long long)ITEM_get_cas(&old_it->item),
                         (unsigned long long)ITEM_get_cas(&it->item));
@@ -614,12 +592,16 @@ static ENGINE_ERROR_CODE do_store_item(hash_item *it, uint64_t *cas,
 
             if (stored == ENGINE_NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
-                new_it = do_item_alloc(key, it->item.nkey, old_it->item.flags, old_it->item.exptime, it->item.nbytes + old_it->item.nbytes - 2 /* CRLF */);
+                new_it = do_item_alloc(engine, key, it->item.nkey,
+                                       old_it->item.flags,
+                                       old_it->item.exptime,
+                                       it->item.nbytes + old_it->item.nbytes - 2 /* CRLF */);
 
                 if (new_it == NULL) {
                     /* SERVER_ERROR out of memory */
-                    if (old_it != NULL)
-                        do_item_remove(old_it);
+                    if (old_it != NULL) {
+                        do_item_release(engine, old_it);
+                    }
 
                     return ENGINE_NOT_STORED;
                 }
@@ -640,20 +622,24 @@ static ENGINE_ERROR_CODE do_store_item(hash_item *it, uint64_t *cas,
         }
 
         if (stored == ENGINE_NOT_STORED) {
-            if (old_it != NULL)
-                item_replace(old_it, it);
-            else
-                do_item_link(it);
+            if (old_it != NULL) {
+                do_item_replace(engine, old_it, it);
+            } else {
+                do_item_link(engine, it);
+            }
 
             *cas = ITEM_get_cas(&it->item);
             stored = ENGINE_SUCCESS;
         }
     }
 
-    if (old_it != NULL)
-        do_item_remove(old_it);         /* release our reference */
-    if (new_it != NULL)
-        do_item_remove(new_it);
+    if (old_it != NULL) {
+        do_item_release(engine, old_it);         /* release our reference */
+    }
+
+    if (new_it != NULL) {
+        do_item_release(engine, new_it);
+    }
 
     if (stored == ENGINE_SUCCESS) {
         *cas = ITEM_get_cas(&it->item);
@@ -674,9 +660,10 @@ static ENGINE_ERROR_CODE do_store_item(hash_item *it, uint64_t *cas,
  *
  * returns a response string to send back to the client.
  */
-static ENGINE_ERROR_CODE do_add_delta(conn *c, hash_item *it, const bool incr,
-                               const int64_t delta, uint64_t *rcas,
-                               uint64_t *result) {
+static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
+                                      hash_item *it, const bool incr,
+                                      const int64_t delta, uint64_t *rcas,
+                                      uint64_t *result) {
     char *ptr;
     uint64_t value;
     int res;
@@ -689,14 +676,12 @@ static ENGINE_ERROR_CODE do_add_delta(conn *c, hash_item *it, const bool incr,
 
     if (incr) {
         value += delta;
-        MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(&it->item), it->item.nkey, value);
     } else {
         if(delta > value) {
             value = 0;
         } else {
             value -= delta;
         }
-        MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(&it->item), it->item.nkey, value);
     }
 
     *result = value;
@@ -705,19 +690,21 @@ static ENGINE_ERROR_CODE do_add_delta(conn *c, hash_item *it, const bool incr,
     res = strlen(buf);
     if (res + 2 > it->item.nbytes) { /* need to realloc */
         hash_item *new_it;
-        new_it = do_item_alloc(ITEM_key(&it->item), it->item.nkey, it->item.flags, it->item.exptime, res + 2 );
+        new_it = do_item_alloc(engine, ITEM_key(&it->item),
+                               it->item.nkey, it->item.flags,
+                               it->item.exptime, res + 2 );
         if (new_it == 0) {
             return ENGINE_ENOMEM;
         }
         memcpy(ITEM_data(&new_it->item), buf, res);
         memcpy(ITEM_data(&new_it->item) + res, "\r\n", 2);
-        item_replace(it, new_it);
+        do_item_replace(engine, it, new_it);
         *rcas = ITEM_get_cas(&new_it->item);
-        do_item_remove(new_it);       /* release our reference */
+        do_item_release(engine, new_it);       /* release our reference */
     } else { /* replace in-place */
         /* When changing the value without replacing the item, we
            need to update the CAS on the existing item. */
-        ITEM_set_cas(&it->item, (settings.use_cas) ? get_cas_id() : 0);
+        ITEM_set_cas(&it->item, get_cas_id());
         *rcas = ITEM_get_cas(&it->item);
 
         memcpy(ITEM_data(&it->item), buf, res);
@@ -733,12 +720,13 @@ static ENGINE_ERROR_CODE do_add_delta(conn *c, hash_item *it, const bool incr,
 /*
  * Allocates a new item.
  */
-hash_item *item_alloc(const void *key, size_t nkey, int flags,
+hash_item *item_alloc(struct default_engine *engine,
+                      const void *key, size_t nkey, int flags,
                       rel_time_t exptime, int nbytes) {
     hash_item *it;
-    pthread_mutex_lock(&default_engine.cache_lock);
-    it = do_item_alloc(key, nkey, flags, exptime, nbytes);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+    pthread_mutex_lock(&engine->cache_lock);
+    it = do_item_alloc(engine, key, nkey, flags, exptime, nbytes);
+    pthread_mutex_unlock(&engine->cache_lock);
     return it;
 }
 
@@ -746,125 +734,125 @@ hash_item *item_alloc(const void *key, size_t nkey, int flags,
  * Returns an item if it hasn't been marked as expired,
  * lazy-expiring as needed.
  */
-hash_item *item_get(const void *key, const size_t nkey) {
+hash_item *item_get(struct default_engine *engine,
+                    const void *key, const size_t nkey) {
     hash_item *it;
-    pthread_mutex_lock(&default_engine.cache_lock);
-    it = do_item_get(key, nkey);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+    pthread_mutex_lock(&engine->cache_lock);
+    it = do_item_get(engine, key, nkey);
+    pthread_mutex_unlock(&engine->cache_lock);
     return it;
-}
-
-/*
- * Links an item into the LRU and hashtable.
- */
-int item_link(hash_item *item) {
-    int ret;
-
-    pthread_mutex_lock(&default_engine.cache_lock);
-    ret = do_item_link(item);
-    pthread_mutex_unlock(&default_engine.cache_lock);
-    return ret;
 }
 
 /*
  * Decrements the reference count on an item and adds it to the freelist if
  * needed.
  */
-void item_remove(hash_item *item) {
-    pthread_mutex_lock(&default_engine.cache_lock);
-    do_item_remove(item);
-    pthread_mutex_unlock(&default_engine.cache_lock);
-}
-
-/*
- * Replaces one item with another in the hashtable.
- * Unprotected by a mutex lock since the core server does not require
- * it to be thread-safe.
- */
-int item_replace(hash_item *old_it, hash_item *new_it) {
-    return do_item_replace(old_it, new_it);
+void item_release(struct default_engine *engine, hash_item *item) {
+    pthread_mutex_lock(&engine->cache_lock);
+    do_item_release(engine, item);
+    pthread_mutex_unlock(&engine->cache_lock);
 }
 
 /*
  * Unlinks an item from the LRU and hashtable.
  */
-void item_unlink(hash_item *item) {
-    pthread_mutex_lock(&default_engine.cache_lock);
-    do_item_unlink(item);
-    pthread_mutex_unlock(&default_engine.cache_lock);
-}
-
-/*
- * Moves an item to the back of the LRU queue.
- */
-void item_update(hash_item *item) {
-    pthread_mutex_lock(&default_engine.cache_lock);
-    do_item_update(item);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+void item_unlink(struct default_engine *engine, hash_item *item) {
+    pthread_mutex_lock(&engine->cache_lock);
+    do_item_unlink(engine, item);
+    pthread_mutex_unlock(&engine->cache_lock);
 }
 
 /*
  * Does arithmetic on a numeric item value.
  */
-ENGINE_ERROR_CODE add_delta(conn *c, hash_item *item, const bool incr,
+ENGINE_ERROR_CODE add_delta(struct default_engine *engine,
+                            hash_item *item, const bool incr,
                             const int64_t delta, uint64_t *rcas,
                             uint64_t *result) {
     ENGINE_ERROR_CODE ret;
 
-    pthread_mutex_lock(&default_engine.cache_lock);
-    ret = do_add_delta(c, item, incr, delta, rcas, result);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+    pthread_mutex_lock(&engine->cache_lock);
+    ret = do_add_delta(engine, item, incr, delta, rcas, result);
+    pthread_mutex_unlock(&engine->cache_lock);
     return ret;
 }
 
 /*
  * Stores an item in the cache (high level, obeys set/add/replace semantics)
  */
-ENGINE_ERROR_CODE store_item(hash_item *item, uint64_t *cas,
+ENGINE_ERROR_CODE store_item(struct default_engine *engine,
+                             hash_item *item, uint64_t *cas,
                              ENGINE_STORE_OPERATION operation) {
     ENGINE_ERROR_CODE ret;
 
-    pthread_mutex_lock(&default_engine.cache_lock);
-    ret = do_store_item(item, cas, operation);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+    pthread_mutex_lock(&engine->cache_lock);
+    ret = do_store_item(engine, item, cas, operation);
+    pthread_mutex_unlock(&engine->cache_lock);
     return ret;
 }
 
 /*
  * Flushes expired items after a flush_all call
  */
-void item_flush_expired() {
-    pthread_mutex_lock(&default_engine.cache_lock);
-    do_item_flush_expired();
-    pthread_mutex_unlock(&default_engine.cache_lock);
+void item_flush_expired(struct default_engine *engine) {
+    int i;
+    hash_item *iter, *next;
+
+    pthread_mutex_lock(&engine->cache_lock);
+
+    if (engine->config.oldest_live != 0) {
+        for (i = 0; i < LARGEST_ID; i++) {
+            /*
+             * The LRU is sorted in decreasing time order, and an item's
+             * timestamp is never newer than its last access time, so we
+             * only need to walk back until we hit an item older than the
+             * oldest_live time.
+             * The oldest_live checking will auto-expire the remaining items.
+             */
+            for (iter = heads[i]; iter != NULL; iter = next) {
+                if (iter->time >= engine->config.oldest_live) {
+                    next = iter->next;
+                    if ((iter->item.iflag & ITEM_SLABBED) == 0) {
+                        do_item_unlink(engine, iter);
+                    }
+                } else {
+                    /* We've hit the first old item. Continue to the next queue. */
+                    break;
+                }
+            }
+        }
+    }
+    pthread_mutex_unlock(&engine->cache_lock);
 }
 
 /*
  * Dumps part of the cache
  */
-char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes) {
+char *item_cachedump(struct default_engine *engine,
+                     unsigned int slabs_clsid,
+                     unsigned int limit,
+                     unsigned int *bytes) {
     char *ret;
 
-    pthread_mutex_lock(&default_engine.cache_lock);
+    pthread_mutex_lock(&engine->cache_lock);
     ret = do_item_cachedump(slabs_clsid, limit, bytes);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+    pthread_mutex_unlock(&engine->cache_lock);
     return ret;
 }
 
-/*
- * Dumps statistics about slab classes
- */
-void  item_stats(ADD_STAT add_stats, void *c) {
-    pthread_mutex_lock(&default_engine.cache_lock);
-    do_item_stats(add_stats, c);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+void item_stats(struct default_engine *engine,
+                   ADD_STAT add_stat, const void *cookie)
+{
+    pthread_mutex_lock(&engine->cache_lock);
+    do_item_stats(add_stat, (void*)cookie);
+    pthread_mutex_unlock(&engine->cache_lock);
 }
 
-/*
- * Dumps a list of objects of each size in 32-byte increments
- */
-void  item_stats_sizes(ADD_STAT add_stats, void *c) {
-    pthread_mutex_lock(&default_engine.cache_lock);
-    do_item_stats_sizes(add_stats, c);
-    pthread_mutex_unlock(&default_engine.cache_lock);
+
+void item_stats_sizes(struct default_engine *engine,
+                      ADD_STAT add_stat, const void *cookie)
+{
+    pthread_mutex_lock(&engine->cache_lock);
+    do_item_stats_sizes(engine, add_stat, (void*)cookie);
+    pthread_mutex_unlock(&engine->cache_lock);
 }
