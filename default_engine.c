@@ -367,7 +367,7 @@ static ENGINE_ERROR_CODE initalize_configuration(struct config *config,
       ret = parse_config(cfg_str, items, stderr);
    }
 
-   return ret;
+   return ENGINE_SUCCESS;
 }
 
 static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
