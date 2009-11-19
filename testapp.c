@@ -1865,7 +1865,7 @@ static enum test_return test_issue_101(void) {
     int ii = 0;
     pid_t child = 0;
 
-    if (getenv("SKIP_TEST_101") != NULL) {
+    if (getenv("DONT_SKIP_TEST_101") == NULL) {
         return TEST_SKIP;
     }
 
