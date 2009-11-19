@@ -4133,7 +4133,10 @@ static bool load_engine(const char *soname, const char *config_str) {
 
     void *symbol = dlsym(handle, "create_instance");
     if (symbol == NULL) {
-        fprintf(stderr, "Library does not export \"create_instance\"\n");
+        fprintf(stderr,
+                "Could not find symbol \"create_instance\" in %s: %s\n",
+                soname ? soname : "self",
+                dlerror());
         return false;
     }
     my_create.voidptr = symbol;
