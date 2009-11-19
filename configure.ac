@@ -126,6 +126,10 @@ if test "x$enable_sasl" = "xyes"; then
                    [Set to nonzero if you want to enable a SASL pwdb])])
 fi
 
+AC_ARG_ENABLE(default-engine,
+  [AS_HELP_STRING([--enable-default-engine], [Build-in default engine])])
+AM_CONDITIONAL([INCLUDE_DEFAULT_ENGINE],[test "$enable_default_engine" = "yes"])
+
 AC_ARG_ENABLE(dtrace,
   [AS_HELP_STRING([--enable-dtrace],[Enable dtrace probes])])
 if test "x$enable_dtrace" = "xyes"; then

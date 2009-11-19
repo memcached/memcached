@@ -54,7 +54,11 @@ default_engine_la_SOURCES= \
                     default_engine.c default_engine.h \
                     items.c items.h \
                     slabs.c slabs.h
-default_engine_la_LDFLAGS= -module
+default_engine_la_LDFLAGS= -module -dynamic
+
+if INCLUDE_DEFAULT_ENGINE
+memcached_SOURCES += $(default_engine_la_SOURCES)
+endif
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d
