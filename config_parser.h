@@ -14,6 +14,7 @@ enum config_datatype {
    DT_SIZE,
    DT_FLOAT,
    DT_BOOL,
+   DT_STRING,
    DT_CONFIGFILE
 };
 
@@ -24,6 +25,7 @@ union config_value {
    size_t *dt_size;
    float *dt_float;
    bool *dt_bool;
+   char **dt_string;
 };
 
 /**

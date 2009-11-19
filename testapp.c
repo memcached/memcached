@@ -524,6 +524,7 @@ static enum test_return test_config_parser(void) {
     bool bool_val = false;
     size_t size_val = 0;
     float float_val = 0;
+    char *string_val = 0;
 
     /* Set up the different items I can handle */
     struct config_item items[] = {
@@ -536,6 +537,9 @@ static enum test_return test_config_parser(void) {
         { .key = "float",
           .datatype = DT_FLOAT,
           .value.dt_float = &float_val},
+        { .key = "string",
+          .datatype = DT_STRING,
+          .value.dt_string = &string_val},
         { .key = "config_file",
           .datatype = DT_CONFIGFILE },
         { .key = NULL}
@@ -553,7 +557,7 @@ static enum test_return test_config_parser(void) {
     assert(error != NULL);
     assert(parse_config("", items, error) == 0);
     /* Nothing should be found */
-    for (int ii = 0; ii < 4; ++ii) {
+    for (int ii = 0; ii < 5; ++ii) {
         assert(!items[0].found);
     }
 
@@ -562,7 +566,7 @@ static enum test_return test_config_parser(void) {
     /* only bool should be found */
     assert(items[0].found);
     items[0].found = false;
-    for (int ii = 0; ii < 4; ++ii) {
+    for (int ii = 0; ii < 5; ++ii) {
         assert(!items[0].found);
     }
 
@@ -578,11 +582,13 @@ static enum test_return test_config_parser(void) {
     items[1].found = false;
 
     /* And all of the variables */
-    assert(parse_config("bool=true;size_t=1024;float=12.5", items, error) == 0);
+    assert(parse_config("bool=true;size_t=1024;float=12.5;string=somestr",
+                        items, error) == 0);
     assert(bool_val);
     assert(size_val == 1024);
     assert(float_val == 12.5f);
-    for (int ii = 0; ii < 4; ++ii) {
+    assert(strcmp(string_val, "somestr") == 0);
+    for (int ii = 0; ii < 5; ++ii) {
         items[ii].found = false;
     }
 

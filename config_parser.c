@@ -129,6 +129,10 @@ int parse_config(const char *str, struct config_item *items, FILE *error) {
                   }
                }
                break;
+            case DT_STRING:
+               *items[ii].value.dt_string = strdup(value);
+               items[ii].found = true;
+               break;
             case DT_BOOL:
                if (strcasecmp(value, "true") == 0 || strcasecmp(value, "on") == 0) {
                   *items[ii].value.dt_bool = true;
