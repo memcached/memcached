@@ -5,7 +5,10 @@ noinst_PROGRAMS = sizes testapp timedrun
 
 BUILT_SOURCES=
 
-testapp_SOURCES = testapp.c util.c util.h config_parser.c config_parser.h
+testapp_SOURCES = testapp.c
+
+testapp_DEPENDENCIES= libconfig.la libutil.la
+testapp_LDADD= libconfig.la libutil.la
 
 timedrun_SOURCES = timedrun.c
 
@@ -13,9 +16,11 @@ memcached_SOURCES = memcached.c memcached.h \
                     hash.c hash.h \
                     thread.c daemon.c \
                     stats.c stats.h \
-                    util.c util.h \
-                    trace.h cache.h sasl_defs.h \
-                    config_parser.c config_parser.h
+                    trace.h cache.h sasl_defs.h
+
+noinst_LTLIBRARIES= libconfig.la libutil.la
+libconfig_la_SOURCES= config_parser.c config_parser.h
+libutil_la_SOURCES= util.c util.h
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c
@@ -30,10 +35,10 @@ if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
 
-memcached_LDADD = @PROFILER_LDFLAGS@
-memcached_LDFLAGS=-R '$(libdir)' -export-dynamic
+memcached_LDADD = libutil.la @PROFILER_LDFLAGS@
+memcached_LDFLAGS =-R '$(libdir)' -export-dynamic
 memcached_CFLAGS = @PROFILER_FLAGS@
-memcached_DEPENDENCIES =
+memcached_DEPENDENCIES = libutil.la
 CLEANFILES=
 
 
@@ -54,6 +59,9 @@ default_engine_la_SOURCES= \
                     default_engine.c default_engine.h \
                     items.c items.h \
                     slabs.c slabs.h
+
+default_engine_la_DEPENDENCIES= libconfig.la libutil.la
+default_engine_la_LIBADD= libconfig.la libutil.la
 default_engine_la_LDFLAGS= -module -dynamic
 
 if INCLUDE_DEFAULT_ENGINE
