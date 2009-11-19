@@ -23,8 +23,9 @@ extern "C" {
       ENGINE_ENOTSUP = 0x06, /* The engine does not support this */
       ENGINE_EWOULDBLOCK = 0x07, /* This would cause the engine to block */
       ENGINE_E2BIG = 0x08, /* The data is too big for the engine */
-      ENGINE_WANT_MORE = 0x09 /* The engine want more data if the frontend
-                               * have more data available. */
+      ENGINE_WANT_MORE = 0x09, /* The engine want more data if the frontend
+                                * have more data available. */
+      ENGINE_FAILED = 0xff /* Generic failue. */
    } ENGINE_ERROR_CODE;
 
    typedef enum {
