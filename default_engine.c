@@ -101,6 +101,7 @@ struct default_engine default_engine = {
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
+                                  const SERVER_HANDLE_V1 *server_handle,
                                   ENGINE_HANDLE **handle) {
    if (interface != 1) {
       return ENGINE_ENOTSUP;

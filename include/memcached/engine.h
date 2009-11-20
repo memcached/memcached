@@ -70,6 +70,15 @@ extern "C" {
         OPERATION_CAS      /**< Store with set semantics. */
     } ENGINE_STORE_OPERATION;
 
+    /**
+     * Event types for callbacks to the engine indicating state
+     * changes in the server.
+     */
+    typedef enum {
+        ON_CONNECT,    /**< A new connection was established. */
+        ON_DISCONNECT, /**< A connection was terminated. */
+        ON_AUTH        /**< A connection was authenticated */
+    } ENGINE_EVENT_TYPE;
 
 #define ITEM_WITH_CAS 1
 #define ITEM_KEY_PTR  2
@@ -165,11 +174,56 @@ extern "C" {
                                  uint64_t cas, const void *cookie);
 
     /**
-     * Generic opaque data structure for engines.
+     * Callback for server events.
+     *
+     * @param cookie The cookie provided by the frontend
+     * @param type the type of event
+     * @param event_data additional event-specific data.
      */
-    typedef struct engine_interface{
-        uint64_t interface; /**< The version number on the following structure */
+    typedef void (*EVENT_CALLBACK)(const void *cookie,
+                                   ENGINE_EVENT_TYPE type,
+                                   const void *event_data);
+
+    /**
+     * Abstract interface to an engine.
+     */
+    typedef struct engine_interface {
+        uint64_t interface; /**< The version number on the engine structure */
     } ENGINE_HANDLE;
+
+    /**
+     * Interface to the server.
+     */
+    typedef struct server_interface_v1 {
+
+        /**
+         * Register an event callback.
+         *
+         * @param type the type of event to register
+         * @param cb the callback to fire when the event occurs
+         */
+        void (*register_callback)(ENGINE_EVENT_TYPE type,
+                                  EVENT_CALLBACK cb);
+
+        /**
+         * Get the auth data for the connection associated with the
+         * given cookie.
+         *
+         * @param cookie The cookie provided by the frontend
+         *
+         * @return a principal name, or NULL if the connection is not
+         *         authenticated
+         */
+        const char* (*get_auth_data)(const void *cookie);
+
+        /**
+         * Get the server's version number.
+         *
+         * @return the server's version number
+         */
+        const char* (*server_version)();
+
+    } SERVER_HANDLE_V1;
 
     /**
      * The signature for the "create_instance" function exported from the module.
@@ -179,10 +233,12 @@ extern "C" {
      * number).
      *
      * @param interface The highest interface level the server supports
+     * @param server server handle for callbacks
      * @param Where to store the interface handle
      * @return See description of ENGINE_ERROR_CODE
      */
     typedef ENGINE_ERROR_CODE (*CREATE_INSTANCE)(uint64_t interface,
+                                                 const SERVER_HANDLE_V1 *server,
                                                  ENGINE_HANDLE** handle);
 
 

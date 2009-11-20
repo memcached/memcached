@@ -37,7 +37,9 @@ struct config {
    size_t item_size_max;
 };
 
-ENGINE_ERROR_CODE create_instance(uint64_t interface, ENGINE_HANDLE **handle);
+ENGINE_ERROR_CODE create_instance(uint64_t interface,
+                                  const SERVER_HANDLE_V1 *server,
+                                  ENGINE_HANDLE **handle);
 
 /**
  * Statistic information collected by the default engine

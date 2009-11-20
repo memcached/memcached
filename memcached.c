@@ -4114,6 +4114,24 @@ static int enable_large_pages(void) {
 #endif
 }
 
+static const char* get_server_version() {
+    return VERSION;
+}
+
+static const char* get_auth_data(const void *cookie) {
+    return NULL;
+}
+
+static void register_callback(ENGINE_EVENT_TYPE type, EVENT_CALLBACK cb) {
+    // Nothing yet.
+}
+
+struct server_interface_v1 server_handle = {
+    .register_callback = register_callback,
+    .get_auth_data = get_auth_data,
+    .server_version = get_server_version
+};
+
 static bool load_engine(const char *soname, const char *config_str) {
     ENGINE_HANDLE *engine = NULL;
     /* Hack to remove the warning from C99 */
@@ -4142,7 +4160,9 @@ static bool load_engine(const char *soname, const char *config_str) {
     my_create.voidptr = symbol;
 
     /* request a instance with protocol version 1 */
-    ENGINE_ERROR_CODE error = (*my_create.create)(1, &engine);
+    ENGINE_ERROR_CODE error = (*my_create.create)(1,
+                                                  &server_handle,
+                                                  &engine);
 
     if (error != ENGINE_SUCCESS || engine == NULL) {
         fprintf(stderr, "Failed to create instance. Error code: %d\n", error);
