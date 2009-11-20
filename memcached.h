@@ -221,7 +221,7 @@ struct settings {
     bool use_cas;
     enum protocol binding_protocol;
     int backlog;
-    int item_size_max;        /* Maximum item size, and upper end for slabs */
+    size_t item_size_max;   /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
     union {
         ENGINE_HANDLE *v0;
