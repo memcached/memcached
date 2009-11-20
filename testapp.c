@@ -293,8 +293,9 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     remove(pid_file);
 
     char engine[1024];
-    getcwd(engine, sizeof(engine));
+    assert(getcwd(engine, sizeof(engine)));
     strcat(engine, "/.libs/default_engine.so");
+    assert(strlen(engine) < sizeof(engine));
 
 #ifdef __sun
     /* I want to name the corefiles differently so that they don't
