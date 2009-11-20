@@ -4119,7 +4119,12 @@ static const char* get_server_version() {
 }
 
 static const char* get_auth_data(const void *cookie) {
-    return NULL;
+    const void *uname = NULL;
+    conn *c = (conn*)cookie;
+    if (c->sasl_conn) {
+        sasl_getprop(c->sasl_conn, SASL_USERNAME, &uname);
+    }
+    return (const char*)uname;
 }
 
 static void register_callback(ENGINE_EVENT_TYPE type, EVENT_CALLBACK cb) {
