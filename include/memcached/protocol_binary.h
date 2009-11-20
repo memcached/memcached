@@ -36,6 +36,11 @@
 #define PROTOCOL_BINARY_H
 
 /**
+ * \addtogroup Protocol
+ * @{
+ */
+
+/**
  * This file contains definitions of the constants and packet formats
  * defined in the binary specification. Please note that you _MUST_ remember
  * to convert each multibyte field to / from network byte order to / from
@@ -415,6 +420,10 @@ extern "C"
     typedef protocol_binary_request_rangeop protocol_binary_request_rincrq;
     typedef protocol_binary_request_rangeop protocol_binary_request_rdecr;
     typedef protocol_binary_request_rangeop protocol_binary_request_rdecrq;
+
+    /**
+     * @}
+     */
 
 #ifdef __cplusplus
 }

@@ -6,6 +6,11 @@
 #define PROTOCOL_PLUGIN_H 1
 
 /**
+ * \addtogroup Protex
+ * @{
+ */
+
+/**
  * Response transmission function.
  *
  * @param responder_data context data for the responder
@@ -109,5 +114,9 @@ void plugin_register_conn_observer(void *userdata,
  * @param obs the observer
  */
 void plugin_unregister_conn_observer(plugin_conn_observer obs);
+
+/**
+ * @}
+ */
 
 #endif PROTOCOL_PLUGIN_H

@@ -11,6 +11,33 @@
 extern "C" {
 #endif
 
+/*! \mainpage memcached public API
+ *
+ * \section intro_sec Introduction
+ *
+ * The memcached project provides an API for providing engines as well
+ * as data definitions for those implementing the protocol in C.  This
+ * documentation will explain both to you.
+ *
+ * \section docs_sec API Documentation
+ *
+ * Jump right into <a href="modules.html">the modules docs</a> to get started.
+ *
+ * \example default_engine.c
+ */
+
+/**
+ * \defgroup Engine Storage Engine API
+ * \defgroup Protex Protocol Extension API
+ * \defgroup Protocol Binary Protocol Structures
+ *
+ * \addtogroup Engine
+ * @{
+ *
+ * Most interesting here is to implement engine_interface_v1 for your
+ * engine.
+ */
+
 #define ENGINE_INTERFACE_VERSION 1
 
     /**
@@ -361,6 +388,10 @@ extern "C" {
                                              protocol_binary_request_header *request,
                                              ADD_RESPONSE response);
     } ENGINE_HANDLE_V1;
+
+    /**
+     * @}
+     */
 
 #ifdef __cplusplus
 }
