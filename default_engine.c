@@ -80,7 +80,7 @@ struct default_engine default_engine = {
       .store = default_store,
       .arithmetic = default_arithmetic,
       .flush = default_flush,
-      .unknow_command = default_unknown_command,
+      .unknown_command = default_unknown_command,
    },
    .initialized = true,
    .cache_lock = PTHREAD_MUTEX_INITIALIZER,
