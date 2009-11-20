@@ -19,6 +19,7 @@
 /configure
 /depcomp
 /doc/doxy
+/doc/doxy-api
 /doc/engine-interface.txt
 /doc/protocol-binary-range.txt
 /doc/protocol-binary.txt

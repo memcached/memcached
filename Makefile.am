@@ -109,6 +109,7 @@ test:	memcached sizes testapp
 	else :; fi
 
 docs:
+	(cat Doxyfile-api ; echo "PROJECT_NUMBER=`cat version.num`") | doxygen -
 	(cat Doxyfile ; echo "PROJECT_NUMBER=`cat version.num`") | doxygen -
 
 dist-hook:
