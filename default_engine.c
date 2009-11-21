@@ -101,11 +101,14 @@ struct default_engine default_engine = {
 };
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
-                                  const SERVER_HANDLE_V1 *server_handle,
+                                  GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle) {
-   if (interface != 1) {
+   SERVER_HANDLE_V1 *api = get_server_api(1);
+   if (interface != 1 || api == NULL) {
       return ENGINE_ENOTSUP;
    }
+
+   default_engine.server = *api;
 
    *handle = (ENGINE_HANDLE*)&default_engine;
    return ENGINE_SUCCESS;

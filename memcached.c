@@ -4131,11 +4131,26 @@ static void register_callback(ENGINE_EVENT_TYPE type, EVENT_CALLBACK cb) {
     // Nothing yet.
 }
 
-struct server_interface_v1 server_handle = {
-    .register_callback = register_callback,
-    .get_auth_data = get_auth_data,
-    .server_version = get_server_version
-};
+/**
+ * Callback the engines may call to get the public server interface
+ * @param interface the requested interface from the server
+ * @return pointer to a structure containing the interface. The client should
+ *         know the layout and perform the proper casts.
+ */
+static void *get_server_api(int interface)
+{
+    static struct server_interface_v1 server_api = {
+        .register_callback = register_callback,
+        .get_auth_data = get_auth_data,
+        .server_version = get_server_version
+    };
+
+    if (interface != 1) {
+        return NULL;
+    }
+
+    return &server_api;
+}
 
 static bool load_engine(const char *soname, const char *config_str) {
     ENGINE_HANDLE *engine = NULL;
@@ -4165,9 +4180,7 @@ static bool load_engine(const char *soname, const char *config_str) {
     my_create.voidptr = symbol;
 
     /* request a instance with protocol version 1 */
-    ENGINE_ERROR_CODE error = (*my_create.create)(1,
-                                                  &server_handle,
-                                                  &engine);
+    ENGINE_ERROR_CODE error = (*my_create.create)(1, get_server_api, &engine);
 
     if (error != ENGINE_SUCCESS || engine == NULL) {
         fprintf(stderr, "Failed to create instance. Error code: %d\n", error);

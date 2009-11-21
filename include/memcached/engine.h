@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #ifndef MEMCACHED_ENGINE_H
 #define MEMCACHED_ENGINE_H
 
@@ -225,6 +226,8 @@ extern "C" {
 
     } SERVER_HANDLE_V1;
 
+    typedef void* (*GET_SERVER_API)(int interface);
+
     /**
      * The signature for the "create_instance" function exported from the module.
      *
@@ -233,12 +236,12 @@ extern "C" {
      * number).
      *
      * @param interface The highest interface level the server supports
-     * @param server server handle for callbacks
+     * @param get_server_api function to get the server API from
      * @param Where to store the interface handle
      * @return See description of ENGINE_ERROR_CODE
      */
     typedef ENGINE_ERROR_CODE (*CREATE_INSTANCE)(uint64_t interface,
-                                                 const SERVER_HANDLE_V1 *server,
+                                                 GET_SERVER_API get_server_api,
                                                  ENGINE_HANDLE** handle);
 
 
