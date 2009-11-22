@@ -277,7 +277,6 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
 static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
 
-    assert(id >= POWER_SMALLEST && id <= power_largest);
     if (id < POWER_SMALLEST || id > power_largest)
         return;
 

@@ -328,7 +328,6 @@ void do_item_unlink(struct default_engine *engine, hash_item *it) {
 
 void do_item_release(struct default_engine *engine, hash_item *it) {
     MEMCACHED_ITEM_REMOVE(item_get_key(&it->item), it->item.nkey, it->item.nbytes);
-    assert((it->item.iflag & ITEM_SLABBED) == 0);
     if (it->refcount != 0) {
         it->refcount--;
         DEBUG_REFCNT(it, '-');
