@@ -4142,7 +4142,9 @@ static void *get_server_api(int interface)
     static struct server_interface_v1 server_api = {
         .register_callback = register_callback,
         .get_auth_data = get_auth_data,
-        .server_version = get_server_version
+        .server_version = get_server_version,
+        .hash = hash,
+        .realtime = realtime
     };
 
     if (interface != 1) {

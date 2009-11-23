@@ -35,4 +35,8 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 /** Fill buffer with stats */ /*@null@*/
 void slabs_stats(ADD_STAT add_stats, const void *c);
 
+void add_statistics(const void *cookie, ADD_STAT add_stats,
+                    const char *prefix, int num, const char *key,
+                    const char *fmt, ...);
+
 #endif

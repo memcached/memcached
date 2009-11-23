@@ -318,6 +318,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
 static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
                                        const void* cookie, time_t when) {
 
+   struct default_engine *engine = get_handle(handle);
    /*
      If exptime is zero realtime() would return zero too, and
      realtime(exptime) - 1 would overflow to the max unsigned
@@ -326,7 +327,7 @@ static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
    */
    /* @todo fix locking here!!! */
    if (when > 0)
-      default_engine.config.oldest_live = realtime(when) - 1;
+      default_engine.config.oldest_live = engine->server.realtime(when) - 1;
    else /* exptime == 0 */
       default_engine.config.oldest_live = current_time - 1;
 

@@ -290,7 +290,8 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     assert(it->item.nbytes < (1024 * 1024));  /* 1MB max size */
     it->item.iflag |= ITEM_LINKED;
     it->time = current_time;
-    assoc_insert(it);
+    assoc_insert(engine->server.hash(ITEM_key(&it->item), it->item.nkey, 0),
+                 it);
 
     pthread_mutex_lock(&engine->stats.lock);
     engine->stats.curr_bytes += ITEM_ntotal(engine, it);
@@ -314,7 +315,8 @@ void do_item_unlink(struct default_engine *engine, hash_item *it) {
         engine->stats.curr_bytes -= ITEM_ntotal(engine, it);
         engine->stats.curr_items -= 1;
         pthread_mutex_unlock(&engine->stats.lock);
-        assoc_delete(ITEM_key(&it->item), it->item.nkey);
+        assoc_delete(engine->server.hash(ITEM_key(&it->item), it->item.nkey, 0),
+                     ITEM_key(&it->item), it->item.nkey);
         item_unlink_q(it);
         if (it->refcount == 0) {
             item_free(engine, it);
@@ -403,25 +405,23 @@ static void do_item_stats(ADD_STAT add_stats, void *c) {
     int i;
     for (i = 0; i < LARGEST_ID; i++) {
         if (tails[i] != NULL) {
-            const char *fmt = "items:%d:%s";
-            char key_str[STAT_KEY_LEN];
-            char val_str[STAT_VAL_LEN];
-            int klen = 0, vlen = 0;
-
-            APPEND_NUM_FMT_STAT(fmt, i, "number", "%u", sizes[i]);
-            APPEND_NUM_FMT_STAT(fmt, i, "age", "%u", tails[i]->time);
-            APPEND_NUM_FMT_STAT(fmt, i, "evicted",
-                                "%u", itemstats[i].evicted);
-            APPEND_NUM_FMT_STAT(fmt, i, "evicted_nonzero",
-                                "%u", itemstats[i].evicted_nonzero);
-            APPEND_NUM_FMT_STAT(fmt, i, "evicted_time",
-                                "%u", itemstats[i].evicted_time);
-            APPEND_NUM_FMT_STAT(fmt, i, "outofmemory",
-                                "%u", itemstats[i].outofmemory);
-            APPEND_NUM_FMT_STAT(fmt, i, "tailrepairs",
-                                "%u", itemstats[i].tailrepairs);;
-            APPEND_NUM_FMT_STAT(fmt, i, "reclaimed",
-                                "%u", itemstats[i].reclaimed);;
+            const char *prefix = "items";
+            add_statistics(c, add_stats, prefix, i, "number", "%u",
+                           sizes[i]);
+            add_statistics(c, add_stats, prefix, i, "age", "%u",
+                           tails[i]->time);
+            add_statistics(c, add_stats, prefix, i, "evicted",
+                           "%u", itemstats[i].evicted);
+            add_statistics(c, add_stats, prefix, i, "evicted_nonzero",
+                           "%u", itemstats[i].evicted_nonzero);
+            add_statistics(c, add_stats, prefix, i, "evicted_time",
+                           "%u", itemstats[i].evicted_time);
+            add_statistics(c, add_stats, prefix, i, "outofmemory",
+                           "%u", itemstats[i].outofmemory);
+            add_statistics(c, add_stats, prefix, i, "tailrepairs",
+                           "%u", itemstats[i].tailrepairs);;
+            add_statistics(c, add_stats, prefix, i, "reclaimed",
+                           "%u", itemstats[i].reclaimed);;
         }
     }
 
@@ -456,11 +456,13 @@ static void do_item_stats_sizes(struct default_engine *engine,
         /* write the buffer */
         for (i = 0; i < num_buckets; i++) {
             if (histogram[i] != 0) {
-                char key[8];
-                int klen = 0;
+                char key[8], val[32];
+                int klen, vlen;
                 klen = snprintf(key, sizeof(key), "%d", i * 32);
+                vlen = snprintf(val, sizeof(val), "%u", histogram[i]);
                 assert(klen < sizeof(key));
-                APPEND_STAT(key, "%u", histogram[i]);
+                assert(vlen < sizeof(val));
+                add_stats(key, klen, val, vlen, c);
             }
         }
         free(histogram);
@@ -471,7 +473,7 @@ static void do_item_stats_sizes(struct default_engine *engine,
 /** wrapper around assoc_find which does the lazy expiration logic */
 hash_item *do_item_get(struct default_engine *engine,
                        const char *key, const size_t nkey) {
-    hash_item *it = assoc_find(key, nkey);
+    hash_item *it = assoc_find(engine->server.hash(key, nkey, 0), key, nkey);
     int was_found = 0;
 
     if (engine->config.verbose > 2) {

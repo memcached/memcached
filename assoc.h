@@ -3,10 +3,9 @@
 
 /* associative array */
 ENGINE_ERROR_CODE assoc_init(void);
-hash_item *assoc_find(const char *key, const size_t nkey);
-int assoc_insert(hash_item *item);
-void assoc_delete(const char *key, const size_t nkey);
-void do_assoc_move_next_bucket(void);
+hash_item *assoc_find(uint32_t hash, const char *key, const size_t nkey);
+int assoc_insert(uint32_t hash, hash_item *item);
+void assoc_delete(uint32_t hash, const char *key, const size_t nkey);
 int start_assoc_maintenance_thread(struct default_engine *engine);
 void stop_assoc_maintenance_thread(struct default_engine *engine);
 

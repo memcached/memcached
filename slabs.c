@@ -303,6 +303,34 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     return;
 }
 
+void add_statistics(const void *cookie, ADD_STAT add_stats,
+                    const char* prefix, int num, const char *key,
+                    const char *fmt, ...) {
+    char name[80], val[80];
+    int klen = 0, vlen;
+    va_list ap;
+
+    assert(cookie);
+    assert(add_stats);
+    assert(key);
+
+    va_start(ap, fmt);
+    vlen = vsnprintf(val, sizeof(val) - 1, fmt, ap);
+    va_end(ap);
+
+    if (prefix != NULL) {
+        klen = snprintf(name, sizeof(name), "%s:", prefix);
+    }
+
+    if (num != -1) {
+        klen += snprintf(name + klen, sizeof(name) - klen, "%d:", num);
+    }
+
+    klen += snprintf(name + klen, sizeof(name) - klen, "%s", key);
+
+    add_stats(name, klen, val, vlen, cookie);
+}
+
 /*@null@*/
 static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
     int i, total;
@@ -323,25 +351,32 @@ static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
             char val_str[STAT_VAL_LEN];
             int klen = 0, vlen = 0;
 
-            APPEND_NUM_STAT(i, "chunk_size", "%u", p->size);
-            APPEND_NUM_STAT(i, "chunks_per_page", "%u", perslab);
-            APPEND_NUM_STAT(i, "total_pages", "%u", slabs);
-            APPEND_NUM_STAT(i, "total_chunks", "%u", slabs * perslab);
-            APPEND_NUM_STAT(i, "used_chunks", "%u",
-                            slabs*perslab - p->sl_curr - p->end_page_free);
-            APPEND_NUM_STAT(i, "free_chunks", "%u", p->sl_curr);
-            APPEND_NUM_STAT(i, "free_chunks_end", "%u", p->end_page_free);
-            APPEND_NUM_STAT(i, "mem_requested", "%"PRIu64, (uint64_t)p->requested);
-            APPEND_NUM_STAT(i, "get_hits", "%"PRIu64,
-                    thread_stats.slab_stats[i].get_hits);
-            APPEND_NUM_STAT(i, "cmd_set", "%"PRIu64,
-                    thread_stats.slab_stats[i].set_cmds);
-            APPEND_NUM_STAT(i, "delete_hits", "%"PRIu64,
-                    thread_stats.slab_stats[i].delete_hits);
-            APPEND_NUM_STAT(i, "cas_hits", "%"PRIu64,
-                    thread_stats.slab_stats[i].cas_hits);
-            APPEND_NUM_STAT(i, "cas_badval", "%"PRIu64,
-                    thread_stats.slab_stats[i].cas_badval);
+            add_statistics(cookie, add_stats, NULL, i, "chunk_size", "%u",
+                           p->size);
+            add_statistics(cookie, add_stats, NULL, i, "chunks_per_page", "%u",
+                           perslab);
+            add_statistics(cookie, add_stats, NULL, i, "total_pages", "%u",
+                           slabs);
+            add_statistics(cookie, add_stats, NULL, i, "total_chunks", "%u",
+                           slabs * perslab);
+            add_statistics(cookie, add_stats, NULL, i, "used_chunks", "%u",
+                           slabs*perslab - p->sl_curr - p->end_page_free);
+            add_statistics(cookie, add_stats, NULL, i, "free_chunks", "%u",
+                           p->sl_curr);
+            add_statistics(cookie, add_stats, NULL, i, "free_chunks_end", "%u",
+                           p->end_page_free);
+            add_statistics(cookie, add_stats, NULL, i, "mem_requested", "%zu",
+                           p->requested);
+            add_statistics(cookie, add_stats, NULL, i, "get_hits", "%"PRIu64,
+                           thread_stats.slab_stats[i].get_hits);
+            add_statistics(cookie, add_stats, NULL, i, "cmd_set", "%"PRIu64,
+                           thread_stats.slab_stats[i].set_cmds);
+            add_statistics(cookie, add_stats, NULL, i, "delete_hits", "%"PRIu64,
+                           thread_stats.slab_stats[i].delete_hits);
+            add_statistics(cookie, add_stats, NULL, i, "cas_hits", "%"PRIu64,
+                           thread_stats.slab_stats[i].cas_hits);
+            add_statistics(cookie, add_stats, NULL, i, "cas_badval", "%"PRIu64,
+                           thread_stats.slab_stats[i].cas_badval);
 
             total++;
         }
@@ -349,8 +384,9 @@ static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
 
     /* add overall slab stats and append terminator */
 
-    APPEND_STAT("active_slabs", "%d", total);
-    APPEND_STAT("total_malloced", "%"PRIu64, (uint64_t)mem_malloced);
+    add_statistics(cookie, add_stats, NULL, -1, "active_slabs", "%d", total);
+    add_statistics(cookie, add_stats, NULL, -1, "total_malloced", "%zu",
+                   mem_malloced);
     add_stats(NULL, 0, NULL, 0, c);
 }
 

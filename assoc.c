@@ -58,17 +58,16 @@ ENGINE_ERROR_CODE assoc_init(void) {
     return (primary_hashtable != NULL) ? ENGINE_SUCCESS : ENGINE_ENOMEM;
 }
 
-hash_item *assoc_find(const char *key, const size_t nkey) {
-    uint32_t hv = hash(key, nkey, 0);
+hash_item *assoc_find(uint32_t hash, const char *key, const size_t nkey) {
     hash_item *it;
     unsigned int oldbucket;
 
     if (expanding &&
-        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+        (oldbucket = (hash & hashmask(hashpower - 1))) >= expand_bucket)
     {
         it = old_hashtable[oldbucket];
     } else {
-        it = primary_hashtable[hv & hashmask(hashpower)];
+        it = primary_hashtable[hash & hashmask(hashpower)];
     }
 
     hash_item *ret = NULL;
@@ -88,17 +87,18 @@ hash_item *assoc_find(const char *key, const size_t nkey) {
 /* returns the address of the item pointer before the key.  if *item == 0,
    the item wasn't found */
 
-static hash_item** _hashitem_before (const char *key, const size_t nkey) {
-    uint32_t hv = hash(key, nkey, 0);
+static hash_item** _hashitem_before (uint32_t hash,
+                                     const char *key,
+                                     const size_t nkey) {
     hash_item **pos;
     unsigned int oldbucket;
 
     if (expanding &&
-        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+        (oldbucket = (hash & hashmask(hashpower - 1))) >= expand_bucket)
     {
         pos = &old_hashtable[oldbucket];
     } else {
-        pos = &primary_hashtable[hv & hashmask(hashpower)];
+        pos = &primary_hashtable[hash & hashmask(hashpower)];
     }
 
     while (*pos && ((nkey != (*pos)->item.nkey) || memcmp(key, ITEM_key(&(*pos)->item), nkey))) {
@@ -124,21 +124,19 @@ static void assoc_expand(void) {
 }
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
-int assoc_insert(hash_item *it) {
-    uint32_t hv;
+int assoc_insert(uint32_t hash, hash_item *it) {
     unsigned int oldbucket;
 
-    assert(assoc_find(ITEM_key(&it->item), it->item.nkey) == 0);  /* shouldn't have duplicately named things defined */
+    assert(assoc_find(hash, ITEM_key(&it->item), it->item.nkey) == 0);  /* shouldn't have duplicately named things defined */
 
-    hv = hash(ITEM_key(&it->item), it->item.nkey, 0);
     if (expanding &&
-        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+        (oldbucket = (hash & hashmask(hashpower - 1))) >= expand_bucket)
     {
         it->h_next = old_hashtable[oldbucket];
         old_hashtable[oldbucket] = it;
     } else {
-        it->h_next = primary_hashtable[hv & hashmask(hashpower)];
-        primary_hashtable[hv & hashmask(hashpower)] = it;
+        it->h_next = primary_hashtable[hash & hashmask(hashpower)];
+        primary_hashtable[hash & hashmask(hashpower)] = it;
     }
 
     hash_items++;
@@ -150,8 +148,8 @@ int assoc_insert(hash_item *it) {
     return 1;
 }
 
-void assoc_delete(const char *key, const size_t nkey) {
-    hash_item **before = _hashitem_before(key, nkey);
+void assoc_delete(uint32_t hash, const char *key, const size_t nkey) {
+    hash_item **before = _hashitem_before(hash, key, nkey);
 
     if (*before) {
         hash_item *nxt;
@@ -193,7 +191,7 @@ static void *assoc_maintenance_thread(void *arg) {
             for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
                 next = it->h_next;
 
-                bucket = hash(ITEM_key(&it->item), it->item.nkey, 0) & hashmask(hashpower);
+                bucket = engine->server.hash(ITEM_key(&it->item), it->item.nkey, 0) & hashmask(hashpower);
                 it->h_next = primary_hashtable[bucket];
                 primary_hashtable[bucket] = it;
             }

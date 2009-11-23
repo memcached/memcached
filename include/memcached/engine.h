@@ -89,8 +89,6 @@ extern "C" {
     typedef uint32_t rel_time_t;
 
 
-    /** Get the relative time for the given time_t value. */
-    rel_time_t realtime(const time_t exptime);
     /** The current time. */
     extern volatile rel_time_t current_time;
 
@@ -223,6 +221,21 @@ extern "C" {
          * @return the server's version number
          */
         const char* (*server_version)();
+
+        /**
+         * Generate a simple hash value of a piece of data.
+         *
+         * @param data pointer to data to hash
+         * @param size size of the data to generate the hash value of
+         * @param seed an extra seed value for the hash function
+         * @return hash value of the data.
+         */
+        uint32_t (*hash)(const void *data, size_t size, uint32_t seed);
+
+        /**
+         * Get the relative time for the given time_t value.
+         */
+        rel_time_t (*realtime)(const time_t exptime);
 
     } SERVER_HANDLE_V1;
 
