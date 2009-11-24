@@ -13,6 +13,19 @@
 
 #include <memcached/engine.h>
 
+#ifndef PUBLIC
+
+#if defined (__SUNPRO_C) && (__SUNPRO_C >= 0x550)
+#define PUBLIC __global
+#elif defined __GNUC__
+#define PUBLIC __attribute__ ((visibility("default")))
+#else
+#define PUBLIC
+#endif
+
+#endif
+
+
 /* Forward decl */
 struct default_engine;
 
@@ -33,8 +46,6 @@ extern "C" {
 /* temp */
 #define ITEM_SLABBED (2<<8)
 
-
-
 struct config {
    bool use_cas;
    size_t verbose;
@@ -47,6 +58,7 @@ struct config {
    size_t item_size_max;
 };
 
+PUBLIC
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle);

@@ -40,8 +40,6 @@ AC_DEFUN([DETECT_ICC],
     fi
 ])
 
-DETECT_ICC([], [])
-
 dnl **********************************************************************
 dnl DETECT_SUNCC ([ACTION-IF-YES], [ACTION-IF-NO])
 dnl
@@ -70,7 +68,10 @@ AC_DEFUN([DETECT_SUNCC],
     ])
 ])
 
-DETECT_SUNCC([CFLAGS="-mt $CFLAGS"], [])
+AS_IF(test "x$GCC" = "xyes",
+      DETECT_ICC([], [CFLAGS="-fvisibility=hidden $CFLAGS"]),
+      ICC=no
+      DETECT_SUNCC([CFLAGS="-xldscope=hidden -mt $CFLAGS"], []))
 
 if test "$ICC" = "no"; then
    AC_PROG_CC_C99

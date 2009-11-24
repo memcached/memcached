@@ -5,8 +5,6 @@
  * You should not try to aquire any of the item locks before calling these
  * functions.
  */
-
-
 typedef struct _hash_item {
     struct _hash_item *next;
     struct _hash_item *prev;
@@ -137,5 +135,4 @@ ENGINE_ERROR_CODE add_delta(struct default_engine *engine,
                             hash_item *item, const bool incr,
                             const int64_t delta, uint64_t *cas,
                             uint64_t *result);
-
 #endif

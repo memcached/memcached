@@ -63,7 +63,7 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response);
 
-struct default_engine default_engine = {
+static struct default_engine default_engine = {
    .engine = {
       .interface = {
          .interface = 1

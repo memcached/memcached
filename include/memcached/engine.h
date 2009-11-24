@@ -8,6 +8,21 @@
 
 #include "memcached/protocol_binary.h"
 
+#ifndef PUBLIC
+
+/* @todo this should be removed when we don't abuse the global symbols
+ * anymore
+ */
+#if defined (__SUNPRO_C) && (__SUNPRO_C >= 0x550)
+#define PUBLIC __global
+#elif defined __GNUC__
+#define PUBLIC __attribute__ ((visibility("default")))
+#else
+#define PUBLIC
+#endif
+#endif
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -86,6 +101,7 @@ extern "C" {
 
 
     /** The current time. */
+    PUBLIC
     extern volatile rel_time_t current_time;
 
 

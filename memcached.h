@@ -230,6 +230,7 @@ struct settings {
 };
 
 extern struct stats stats;
+PUBLIC
 extern time_t process_started;
 extern struct settings settings;
 
@@ -376,6 +377,7 @@ int   is_listen_thread(void);
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);
+PUBLIC
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
 

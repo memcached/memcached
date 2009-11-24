@@ -168,11 +168,9 @@ void assoc_delete(uint32_t hash, const char *key, const size_t nkey) {
     assert(*before != 0);
 }
 
-
 static volatile int do_run_maintenance_thread = 1;
-
 #define DEFAULT_HASH_BULK_MOVE 1
-int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
+static int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 
 static void *assoc_maintenance_thread(void *arg) {
     struct default_engine *engine = arg;
