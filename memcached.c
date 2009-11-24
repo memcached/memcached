@@ -2883,7 +2883,8 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     assert(c != NULL);
 
     if (ntokens == 4) {
-        if (!set_noreply_maybe(c, tokens, ntokens)) {
+        if (strcmp(tokens[KEY_TOKEN+1].value, "0") != 0
+            && !set_noreply_maybe(c, tokens, ntokens)) {
             out_string(c, "CLIENT_ERROR bad command line format.  "
                        "Usage: delete <key> [noreply]");
             return;
