@@ -130,11 +130,11 @@ static enum transmit_result transmit(conn *c);
 
 
 /*
- * given time value that's either unix time or delta from current unix time, return
- * unix time. Use the fact that delta can't exceed one month (and real time value can't
- * be that low).
+ * given time value that's either unix time or delta from current unix time,
+ * return unix time. Use the fact that delta can't exceed one month
+ * (and real time value can't be that low).
  */
-rel_time_t realtime(const time_t exptime) {
+static rel_time_t realtime(const time_t exptime) {
     /* no. of seconds in 30 days - largest possible delta exptime */
 
     if (exptime == 0) return 0; /* 0 means never expire */
@@ -2484,7 +2484,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   *(c->suffixlist + i) = cas;
                   int cas_len = snprintf(cas, SUFFIX_SIZE,
                                             " %"PRIu64"\r\n",
-                                            (unsigned long long)settings.engine.v1->item_get_cas(it));
+                                            settings.engine.v1->item_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, settings.engine.v1->item_get_key(it), it->nkey) != 0 ||
                       add_iov(c, suffix, suffix_len - 2) != 0 ||

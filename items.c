@@ -571,7 +571,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
 #endif
             if (engine->config.verbose > 1) {
                 fprintf(stderr,
-                        "CAS:  failure: expected %"PRIu64", got %\n"PRIu64,
+                        "CAS:  failure: expected %"PRIu64", got %"PRIu64"\n",
                         item_get_cas(&old_it->item),
                         item_get_cas(&it->item));
             }

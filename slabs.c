@@ -347,10 +347,6 @@ static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
             slabs = p->slabs;
             perslab = p->perslab;
 
-            char key_str[STAT_KEY_LEN];
-            char val_str[STAT_VAL_LEN];
-            int klen = 0, vlen = 0;
-
             add_statistics(cookie, add_stats, NULL, i, "chunk_size", "%u",
                            p->size);
             add_statistics(cookie, add_stats, NULL, i, "chunks_per_page", "%u",
