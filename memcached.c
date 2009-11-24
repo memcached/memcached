@@ -129,34 +129,6 @@ static enum transmit_result transmit(conn *c);
 #define REALTIME_MAXDELTA 60*60*24*30
 
 
-uint64_t ITEM_get_cas(const item* item)
-{
-    if (item->iflag & ITEM_CAS) {
-        return *(uint64_t*)(item + 1);
-    }
-    return 0;
-}
-
-void ITEM_set_cas(item* item, uint64_t val)
-{
-    if (item->iflag & ITEM_CAS) {
-        *(uint64_t*)(item + 1) = val;
-    }
-}
-
-char* ITEM_key(const item* item) {
-    char *ret = (void*)(item + 1);
-    if (item->iflag & ITEM_CAS) {
-        ret += sizeof(uint64_t);
-    }
-
-    return ret;
-}
-
-char* ITEM_data(const item* item) {
-    return ITEM_key(item) + item->nkey + 1;
-}
-
 /*
  * given time value that's either unix time or delta from current unix time, return
  * unix time. Use the fact that delta can't exceed one month (and real time value can't
@@ -825,7 +797,7 @@ static void complete_nread_ascii(conn *c) {
     c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
-    if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
+    if (strncmp(settings.engine.v1->item_get_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
         ENGINE_ERROR_CODE ret = settings.engine.v1->store(settings.engine.v0, c,
@@ -834,27 +806,27 @@ static void complete_nread_ascii(conn *c) {
 #ifdef ENABLE_DTRACE
         switch (c->store_op) {
         case OPERATION_ADD:
-            MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
+            MEMCACHED_COMMAND_ADD(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                   (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
             break;
         case OPERATION_REPLACE:
-            MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
+            MEMCACHED_COMMAND_REPLACE(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                       (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
             break;
         case OPERATION_APPEND:
-            MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
+            MEMCACHED_COMMAND_APPEND(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                      (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
             break;
         case OPERATION_PREPEND:
-            MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
+            MEMCACHED_COMMAND_PREPEND(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                       (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
             break;
         case OPERATION_SET:
-            MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
+            MEMCACHED_COMMAND_SET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                   (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
             break;
         case OPERATION_CAS:
-            MEMCACHED_COMMAND_CAS(c->sfd, ITEM_key(it), it->nkey, it->nbytes,
+            MEMCACHED_COMMAND_CAS(c->sfd, settings.engine.v1->item_get_key(it), it->nkey, it->nbytes,
                                   c->cas);
             break;
         }
@@ -1103,8 +1075,8 @@ static void complete_update_bin(conn *c) {
 
     /* We don't actually receive the trailing two characters in the bin
      * protocol, so we're going to just set them here */
-    *(ITEM_data(it) + it->nbytes - 2) = '\r';
-    *(ITEM_data(it) + it->nbytes - 1) = '\n';
+    *(settings.engine.v1->item_get_data(it) + it->nbytes - 2) = '\r';
+    *(settings.engine.v1->item_get_data(it) + it->nbytes - 1) = '\n';
 
     ENGINE_ERROR_CODE ret = settings.engine.v1->store(settings.engine.v0, c,
                                                       it, &c->cas, c->store_op);
@@ -1112,23 +1084,23 @@ static void complete_update_bin(conn *c) {
 #ifdef ENABLE_DTRACE
     switch (c->cmd) {
     case OPERATION_ADD:
-        MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
+        MEMCACHED_COMMAND_ADD(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                               (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     case OPERATION_REPLACE:
-        MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
+        MEMCACHED_COMMAND_REPLACE(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                   (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     case OPERATION_APPEND:
-        MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
+        MEMCACHED_COMMAND_APPEND(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                  (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     case OPERATION_PREPEND:
-        MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
+        MEMCACHED_COMMAND_PREPEND(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                  (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     case OPERATION_SET:
-        MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
+        MEMCACHED_COMMAND_SET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                               (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     }
@@ -1188,7 +1160,7 @@ static void process_bin_get(conn *c) {
         c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+        MEMCACHED_COMMAND_GET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                               it->nbytes, ITEM_get_cas(it));
 
         if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
@@ -1196,18 +1168,18 @@ static void process_bin_get(conn *c) {
             keylen = nkey;
         }
         add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
-        rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
+        rsp->message.header.response.cas = htonll(settings.engine.v1->item_get_cas(it));
 
         // add the flags
         rsp->message.body.flags = htonl(it->flags);
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
         if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
-            add_iov(c, ITEM_key(it), nkey);
+            add_iov(c, settings.engine.v1->item_get_key(it), nkey);
         }
 
         /* Add the data minus the CRLF */
-        add_iov(c, ITEM_data(it), it->nbytes - 2);
+        add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
         /* Remember this command so we can garbage collect it later */
         c->item = it;
@@ -1564,7 +1536,7 @@ static void process_bin_sasl_auth(conn *c) {
     }
 
     c->item = it;
-    c->ritem = ITEM_data(it);
+    c->ritem = settings.engine.v1->item_get_data(it);
     c->rlbytes = vlen;
     conn_set_state(c, conn_nread);
     c->substate = bin_reading_sasl_auth_data;
@@ -1582,13 +1554,13 @@ static void process_bin_complete_sasl_auth(conn *c) {
     int vlen = c->binary_header.request.bodylen - nkey;
 
     char mech[nkey+1];
-    memcpy(mech, ITEM_key((item*)c->item), nkey);
+    memcpy(mech, settings.engine.v1->item_get_key((item*)c->item), nkey);
     mech[nkey] = 0x00;
 
     if (settings.verbose)
         fprintf(stderr, "mech:  ``%s'' with %d bytes of data\n", mech, vlen);
 
-    const char *challenge = vlen == 0 ? NULL : ITEM_data((item*) c->item);
+    const char *challenge = vlen == 0 ? NULL : settings.engine.v1->item_get_data((item*) c->item);
 
     int result=-1;
 
@@ -1889,7 +1861,7 @@ static void process_bin_update(conn *c) {
                                        realtime(req->message.body.expiration));
 
     if (ret == ENGINE_SUCCESS) {
-        ITEM_set_cas(it, c->binary_header.request.cas);
+        settings.engine.v1->item_set_cas(it, c->binary_header.request.cas);
 
         switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_ADD:
@@ -1905,12 +1877,12 @@ static void process_bin_update(conn *c) {
             assert(0);
         }
 
-        if (ITEM_get_cas(it) != 0) {
+        if (settings.engine.v1->item_get_cas(it) != 0) {
             c->store_op = OPERATION_CAS;
         }
 
         c->item = it;
-        c->ritem = ITEM_data(it);
+        c->ritem = settings.engine.v1->item_get_data(it);
         c->rlbytes = vlen;
         conn_set_state(c, conn_nread);
         c->substate = bin_read_set_value;
@@ -1960,7 +1932,7 @@ static void process_bin_append_prepend(conn *c) {
                                        &it, key, nkey,
                                        vlen + 2, 0, 0);
     if (ret == ENGINE_SUCCESS) {
-        ITEM_set_cas(it, c->binary_header.request.cas);
+        settings.engine.v1->item_set_cas(it, c->binary_header.request.cas);
 
         switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_APPEND:
@@ -1974,7 +1946,7 @@ static void process_bin_append_prepend(conn *c) {
         }
 
         c->item = it;
-        c->ritem = ITEM_data(it);
+        c->ritem = settings.engine.v1->item_get_data(it);
         c->rlbytes = vlen;
         conn_set_state(c, conn_nread);
         c->substate = bin_read_set_value;
@@ -2031,8 +2003,8 @@ static void process_bin_delete(conn *c) {
 
     if (settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey) == ENGINE_SUCCESS) {
         uint64_t cas = ntohll(req->message.header.request.cas);
-        if (cas == 0 || cas == ITEM_get_cas(it)) {
-            MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
+        if (cas == 0 || cas == settings.engine.v1->item_get_cas(it)) {
+            MEMCACHED_COMMAND_DELETE(c->sfd, settings.engine.v1->item_get_key(it), it->nkey);
             settings.engine.v1->remove(settings.engine.v0, c, it);
             write_bin_response(c, NULL, 0, 0, 0);
         } else {
@@ -2500,8 +2472,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                 if (return_cas)
                 {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                                        it->nbytes, ITEM_get_cas(it));
+                  MEMCACHED_COMMAND_GET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
+                                        it->nbytes, settings.engine.v1->item_get_cas(it));
 
                   char *cas = cache_alloc(c->thread->suffix_cache);
                   if (cas == NULL) {
@@ -2511,13 +2483,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   }
                   *(c->suffixlist + i) = cas;
                   int cas_len = snprintf(cas, SUFFIX_SIZE,
-                                            " %llu\r\n",
-                                            (unsigned long long)ITEM_get_cas(it));
+                                            " %"PRIu64"\r\n",
+                                            (unsigned long long)settings.engine.v1->item_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, ITEM_key(it), it->nkey) != 0 ||
+                      add_iov(c, settings.engine.v1->item_get_key(it), it->nkey) != 0 ||
                       add_iov(c, suffix, suffix_len - 2) != 0 ||
                       add_iov(c, cas, cas_len) != 0 ||
-                      add_iov(c, ITEM_data(it), it->nbytes) != 0)
+                      add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes) != 0)
                       {
                           settings.engine.v1->release(settings.engine.v0, it);
                           break;
@@ -2525,12 +2497,12 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 }
                 else
                 {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                                        it->nbytes, ITEM_get_cas(it));
+                  MEMCACHED_COMMAND_GET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
+                                        it->nbytes, settings.engine.v1->item_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, ITEM_key(it), it->nkey) != 0 ||
+                      add_iov(c, settings.engine.v1->item_get_key(it), it->nkey) != 0 ||
                       add_iov(c, suffix, suffix_len) != 0 ||
-                      add_iov(c, ITEM_data(it), it->nbytes) != 0)
+                      add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes) != 0)
                       {
                           settings.engine.v1->release(settings.engine.v0, it);
                           break;
@@ -2539,7 +2511,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
 
                 if (settings.verbose > 1)
-                    fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
+                    fprintf(stderr, ">%d sending key %s\n", c->sfd, settings.engine.v1->item_get_key(it));
 
                 /* item_get() has incremented it->refcount for us */
                 pthread_mutex_lock(&c->thread->stats.mutex);
@@ -2653,10 +2625,10 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
                                        &it, key, nkey,
                                        vlen, flags, realtime(exptime));
     if (ret == ENGINE_SUCCESS) {
-        ITEM_set_cas(it, req_cas_id);
+        settings.engine.v1->item_set_cas(it, req_cas_id);
 
         c->item = it;
-        c->ritem = ITEM_data(it);
+        c->ritem = settings.engine.v1->item_get_data(it);
         c->rlbytes = it->nbytes;
         c->store_op = store_op;
         conn_set_state(c, conn_nread);
@@ -2704,7 +2676,6 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         out_string(c, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
-
 
     ENGINE_ERROR_CODE ret;
     uint64_t cas;
@@ -2783,7 +2754,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     }
 
     if (settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey) == ENGINE_SUCCESS) {
-        MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
+        MEMCACHED_COMMAND_DELETE(c->sfd, settings.engine.v1->item_get_key(it), it->nkey);
 
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
@@ -3520,7 +3491,6 @@ static void drive_machine(conn *c) {
                 if (c->state == conn_mwrite) {
                     while (c->ileft > 0) {
                         item *it = *(c->icurr);
-                        assert((it->iflag & ITEM_SLABBED) == 0);
                         settings.engine.v1->release(settings.engine.v0, it);
                         c->icurr++;
                         c->ileft--;
@@ -4144,7 +4114,8 @@ static void *get_server_api(int interface)
         .get_auth_data = get_auth_data,
         .server_version = get_server_version,
         .hash = hash,
-        .realtime = realtime
+        .realtime = realtime,
+        .notify_io_complete = notify_io_complete
     };
 
     if (interface != 1) {

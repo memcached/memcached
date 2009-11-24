@@ -81,6 +81,10 @@ struct default_engine default_engine = {
       .arithmetic = default_arithmetic,
       .flush = default_flush,
       .unknown_command = default_unknown_command,
+      .item_get_cas = item_get_cas,
+      .item_set_cas = item_set_cas,
+      .item_get_key = item_get_key,
+      .item_get_data = item_get_data
    },
    .initialized = true,
    .cache_lock = PTHREAD_MUTEX_INITIALIZER,
@@ -294,7 +298,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
          if (item == NULL) {
             return ENGINE_ENOMEM;
          }
-         memcpy(ITEM_data(&item->item), buffer, len);
+         memcpy((void*)item_get_data(&item->item), buffer, len);
          if ((ret = store_item(engine, item, cas,
                                OPERATION_ADD)) == ENGINE_KEY_EEXISTS) {
             item_release(engine, item);
@@ -304,7 +308,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
          }
 
          *result = initial;
-         *cas = ITEM_get_cas(&item->item);
+         *cas = item_get_cas(&item->item);
          item_release(engine, item);
       }
    } else {
@@ -394,4 +398,35 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  ADD_RESPONSE response)
 {
     return ENGINE_ENOTSUP;
+}
+
+
+uint64_t item_get_cas(const item* item)
+{
+    if (item->iflag & ITEM_WITH_CAS) {
+        return *(uint64_t*)(item + 1);
+    }
+    return 0;
+}
+
+void item_set_cas(item* item, uint64_t val)
+{
+    if (item->iflag & ITEM_WITH_CAS) {
+        *(uint64_t*)(item + 1) = val;
+    }
+}
+
+char* item_get_key(const item* item)
+{
+    char *ret = (void*)(item + 1);
+    if (item->iflag & ITEM_WITH_CAS) {
+        ret += sizeof(uint64_t);
+    }
+
+    return ret;
+}
+
+char* item_get_data(const item* item)
+{
+    return item_get_key(item) + item->nkey + 1;
 }

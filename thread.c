@@ -280,6 +280,11 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     }
 }
 
+void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
+{
+    /* @todo implement me */
+}
+
 /* Which thread we assigned a connection to most recently. */
 static int last_thread = -1;
 

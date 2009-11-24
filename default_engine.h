@@ -25,6 +25,16 @@ struct default_engine;
 extern "C" {
 #endif
 
+   /* Flags */
+#define ITEM_WITH_CAS 1
+
+#define ITEM_LINKED (1<<8)
+
+/* temp */
+#define ITEM_SLABBED (2<<8)
+
+
+
 struct config {
    bool use_cas;
    size_t verbose;
@@ -77,5 +87,11 @@ struct default_engine {
    struct config config;
    struct engine_stats stats;
 };
+
+
+char* item_get_data(const item* item);
+char* item_get_key(const item* item);
+void item_set_cas(item* item, uint64_t val);
+uint64_t item_get_cas(const item* item);
 
 #endif

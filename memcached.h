@@ -233,12 +233,6 @@ extern struct stats stats;
 extern time_t process_started;
 extern struct settings settings;
 
-#define ITEM_LINKED 1
-#define ITEM_CAS 2
-
-/* temp */
-#define ITEM_SLABBED 4
-
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
@@ -388,6 +382,9 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
 /* Stat processing functions */
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
+
+void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status);
+
 
 #if HAVE_DROP_PRIVILEGES
 extern void drop_privileges(void);

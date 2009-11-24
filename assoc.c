@@ -73,7 +73,7 @@ hash_item *assoc_find(uint32_t hash, const char *key, const size_t nkey) {
     hash_item *ret = NULL;
     int depth = 0;
     while (it) {
-        if ((nkey == it->item.nkey) && (memcmp(key, ITEM_key(&it->item), nkey) == 0)) {
+        if ((nkey == it->item.nkey) && (memcmp(key, item_get_key(&it->item), nkey) == 0)) {
             ret = it;
             break;
         }
@@ -101,7 +101,7 @@ static hash_item** _hashitem_before (uint32_t hash,
         pos = &primary_hashtable[hash & hashmask(hashpower)];
     }
 
-    while (*pos && ((nkey != (*pos)->item.nkey) || memcmp(key, ITEM_key(&(*pos)->item), nkey))) {
+    while (*pos && ((nkey != (*pos)->item.nkey) || memcmp(key, item_get_key(&(*pos)->item), nkey))) {
         pos = &(*pos)->h_next;
     }
     return pos;
@@ -127,7 +127,7 @@ static void assoc_expand(void) {
 int assoc_insert(uint32_t hash, hash_item *it) {
     unsigned int oldbucket;
 
-    assert(assoc_find(hash, ITEM_key(&it->item), it->item.nkey) == 0);  /* shouldn't have duplicately named things defined */
+    assert(assoc_find(hash, item_get_key(&it->item), it->item.nkey) == 0);  /* shouldn't have duplicately named things defined */
 
     if (expanding &&
         (oldbucket = (hash & hashmask(hashpower - 1))) >= expand_bucket)
@@ -144,7 +144,7 @@ int assoc_insert(uint32_t hash, hash_item *it) {
         assoc_expand();
     }
 
-    MEMCACHED_ASSOC_INSERT(ITEM_key(&it->item), it->item.nkey, hash_items);
+    MEMCACHED_ASSOC_INSERT(item_get_key(&it->item), it->item.nkey, hash_items);
     return 1;
 }
 
@@ -191,7 +191,7 @@ static void *assoc_maintenance_thread(void *arg) {
             for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
                 next = it->h_next;
 
-                bucket = engine->server.hash(ITEM_key(&it->item), it->item.nkey, 0) & hashmask(hashpower);
+                bucket = engine->server.hash(item_get_key(&it->item), it->item.nkey, 0) & hashmask(hashpower);
                 it->h_next = primary_hashtable[bucket];
                 primary_hashtable[bucket] = it;
             }

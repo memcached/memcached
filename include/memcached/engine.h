@@ -81,10 +81,6 @@ extern "C" {
         ON_AUTH        /**< A connection was authenticated */
     } ENGINE_EVENT_TYPE;
 
-#define ITEM_WITH_CAS 1
-#define ITEM_KEY_PTR  2
-#define ITEM_DATA_PTR 4
-
     /** Time relative to server start. Smaller than time_t on 64-bit systems. */
     typedef uint32_t rel_time_t;
 
@@ -107,26 +103,7 @@ extern "C" {
                              * implementation. */
     } item;
 
-    /**
-     * Get the CAS ID from an item.
-     */
-    uint64_t ITEM_get_cas(const item*);
-    /**
-     * Set the CAS id on an item.
-     */
-    void ITEM_set_cas(item*, uint64_t);
-    /**
-     * Get the key from an item.
-     */
-    char* ITEM_key(const item*);
-    /**
-     * Get the data from an item.
-     */
-    char* ITEM_data(const item*);
-    /**
-     * Set the location of the data for the given item.
-     */
-    void ITEM_set_data_ptr(const item*, void*);
+
     /**
      * Get an item's class ID.
      */
@@ -134,10 +111,6 @@ extern "C" {
         return 0;
     }
 
-    /**
-     * Let a connection know that IO has completed.
-     */
-    void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status);
 
     /**
      * Callback for any function producing stats.
@@ -236,6 +209,15 @@ extern "C" {
          * Get the relative time for the given time_t value.
          */
         rel_time_t (*realtime)(const time_t exptime);
+
+
+        /**
+         * Let a connection know that IO has completed.
+         * @param cookie cookie representing the connection
+         * @param status the status for the io operation
+         */
+        void (*notify_io_complete)(const void *cookie,
+                                   ENGINE_ERROR_CODE status);
 
     } SERVER_HANDLE_V1;
 
@@ -459,6 +441,30 @@ extern "C" {
                                              const void* cookie,
                                              protocol_binary_request_header *request,
                                              ADD_RESPONSE response);
+
+        /*
+         * It is up to the engine writers how to store the data in the engine
+         */
+
+        /**
+         * Get the CAS ID from an item.
+         */
+        uint64_t (*item_get_cas)(const item *item);
+
+        /**
+         * Set the CAS id on an item.
+         */
+        void (*item_set_cas)(item *item, uint64_t cas);
+
+        /**
+         * Get the key from an item.
+         */
+        char* (*item_get_key)(const item *item);
+
+        /**
+         * Get the data from an item.
+         */
+        char* (*item_get_data)(const item *item);
     } ENGINE_HANDLE_V1;
 
     /**

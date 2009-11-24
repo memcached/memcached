@@ -218,11 +218,11 @@ hash_item *do_item_alloc(struct default_engine *engine,
     it->next = it->prev = it->h_next = 0;
     it->refcount = 1;     /* the caller will have a reference */
     DEBUG_REFCNT(it, '*');
-    it->item.iflag = engine->config.use_cas ? ITEM_CAS : 0;
+    it->item.iflag = engine->config.use_cas ? ITEM_WITH_CAS : 0;
     it->item.nkey = nkey;
     it->item.nbytes = nbytes;
     it->item.flags = flags;
-    memcpy(ITEM_key(&it->item), key, nkey);
+    memcpy((void*)item_get_key(&it->item), key, nkey);
     it->item.exptime = exptime;
     return it;
 }
@@ -285,12 +285,12 @@ static void item_unlink_q(hash_item *it) {
 }
 
 int do_item_link(struct default_engine *engine, hash_item *it) {
-    MEMCACHED_ITEM_LINK(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_LINK(item_get_key(&it->item), it->item.nkey, it->item.nbytes);
     assert((it->item.iflag & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     assert(it->item.nbytes < (1024 * 1024));  /* 1MB max size */
     it->item.iflag |= ITEM_LINKED;
     it->time = current_time;
-    assoc_insert(engine->server.hash(ITEM_key(&it->item), it->item.nkey, 0),
+    assoc_insert(engine->server.hash(item_get_key(&it->item), it->item.nkey, 0),
                  it);
 
     pthread_mutex_lock(&engine->stats.lock);
@@ -300,7 +300,7 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     pthread_mutex_unlock(&engine->stats.lock);
 
     /* Allocate a new CAS ID on link. */
-    ITEM_set_cas(&it->item, get_cas_id());
+    item_set_cas(&it->item, get_cas_id());
 
     item_link_q(it);
 
@@ -308,15 +308,15 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
 }
 
 void do_item_unlink(struct default_engine *engine, hash_item *it) {
-    MEMCACHED_ITEM_UNLINK(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_UNLINK(item_get_key(&it->item), it->item.nkey, it->item.nbytes);
     if ((it->item.iflag & ITEM_LINKED) != 0) {
         it->item.iflag &= ~ITEM_LINKED;
         pthread_mutex_lock(&engine->stats.lock);
         engine->stats.curr_bytes -= ITEM_ntotal(engine, it);
         engine->stats.curr_items -= 1;
         pthread_mutex_unlock(&engine->stats.lock);
-        assoc_delete(engine->server.hash(ITEM_key(&it->item), it->item.nkey, 0),
-                     ITEM_key(&it->item), it->item.nkey);
+        assoc_delete(engine->server.hash(item_get_key(&it->item), it->item.nkey, 0),
+                     item_get_key(&it->item), it->item.nkey);
         item_unlink_q(it);
         if (it->refcount == 0) {
             item_free(engine, it);
@@ -325,7 +325,7 @@ void do_item_unlink(struct default_engine *engine, hash_item *it) {
 }
 
 void do_item_release(struct default_engine *engine, hash_item *it) {
-    MEMCACHED_ITEM_REMOVE(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_REMOVE(item_get_key(&it->item), it->item.nkey, it->item.nbytes);
     assert((it->item.iflag & ITEM_SLABBED) == 0);
     if (it->refcount != 0) {
         it->refcount--;
@@ -337,7 +337,7 @@ void do_item_release(struct default_engine *engine, hash_item *it) {
 }
 
 void do_item_update(hash_item *it) {
-    MEMCACHED_ITEM_UPDATE(ITEM_key(&it->item), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_UPDATE(item_get_key(&it->item), it->item.nkey, it->item.nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->item.iflag & ITEM_SLABBED) == 0);
 
@@ -351,8 +351,8 @@ void do_item_update(hash_item *it) {
 
 int do_item_replace(struct default_engine *engine,
                     hash_item *it, hash_item *new_it) {
-    MEMCACHED_ITEM_REPLACE(ITEM_key(&it->item), it->item.nkey, it->item.nbytes,
-                           ITEM_key(&new_it->item), new_it->item.nkey, new_it->item.nbytes);
+    MEMCACHED_ITEM_REPLACE(item_get_key(&it->item), it->item.nkey, it->item.nbytes,
+                           item_get_key(&new_it->item), new_it->item.nkey, new_it->item.nbytes);
     assert((it->item.iflag & ITEM_SLABBED) == 0);
 
     do_item_unlink(engine, it);
@@ -381,7 +381,7 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
     while (it != NULL && (limit == 0 || shown < limit)) {
         assert(it->item.nkey <= KEY_MAX_LENGTH);
         /* Copy the key since it may not be null-terminated in the struct */
-        strncpy(key_temp, ITEM_key(&it->item), it->item.nkey);
+        strncpy(key_temp, item_get_key(&it->item), it->item.nkey);
         key_temp[it->item.nkey] = 0x00; /* terminate */
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n",
                        key_temp, it->item.nbytes - 2,
@@ -480,7 +480,7 @@ hash_item *do_item_get(struct default_engine *engine,
         if (it == NULL) {
             fprintf(stderr, "> NOT FOUND %s", key);
         } else {
-            fprintf(stderr, "> FOUND KEY %s", ITEM_key(&it->item));
+            fprintf(stderr, "> FOUND KEY %s", item_get_key(&it->item));
             was_found++;
         }
     }
@@ -527,7 +527,7 @@ hash_item *do_item_get(struct default_engine *engine,
 static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                                        hash_item *it, uint64_t *cas,
                                        ENGINE_STORE_OPERATION operation) {
-    char *key = ITEM_key(&it->item);
+    const char *key = item_get_key(&it->item);
     hash_item *old_it = do_item_get(engine, key, it->item.nkey);
     ENGINE_ERROR_CODE stored = ENGINE_NOT_STORED;
 
@@ -551,7 +551,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
             pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
         }
-        else if (ITEM_get_cas(&it->item) == ITEM_get_cas(&old_it->item)) {
+        else if (item_get_cas(&it->item) == item_get_cas(&old_it->item)) {
             // cas validates
             // it and old_it may belong to different classes.
             // I'm updating the stats for the one that's getting pushed out
@@ -570,9 +570,10 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
             pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
             if (engine->config.verbose > 1) {
-                fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
-                        (unsigned long long)ITEM_get_cas(&old_it->item),
-                        (unsigned long long)ITEM_get_cas(&it->item));
+                fprintf(stderr,
+                        "CAS:  failure: expected %"PRIu64", got %\n"PRIu64,
+                        item_get_cas(&old_it->item),
+                        item_get_cas(&it->item));
             }
             stored = ENGINE_KEY_EEXISTS;
         }
@@ -585,9 +586,9 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
             /*
              * Validate CAS
              */
-            if (ITEM_get_cas(&it->item) != 0) {
+            if (item_get_cas(&it->item) != 0) {
                 // CAS much be equal
-                if (ITEM_get_cas(&it->item) != ITEM_get_cas(&old_it->item)) {
+                if (item_get_cas(&it->item) != item_get_cas(&old_it->item)) {
                     stored = ENGINE_KEY_EEXISTS;
                 }
             }
@@ -611,12 +612,12 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                 /* copy data from it and old_it to new_it */
 
                 if (operation == OPERATION_APPEND) {
-                    memcpy(ITEM_data(&new_it->item), ITEM_data(&old_it->item), old_it->item.nbytes);
-                    memcpy(ITEM_data(&new_it->item) + old_it->item.nbytes - 2 /* CRLF */, ITEM_data(&it->item), it->item.nbytes);
+                    memcpy(item_get_data(&new_it->item), item_get_data(&old_it->item), old_it->item.nbytes);
+                    memcpy(item_get_data(&new_it->item) + old_it->item.nbytes - 2 /* CRLF */, item_get_data(&it->item), it->item.nbytes);
                 } else {
                     /* OPERATION_PREPEND */
-                    memcpy(ITEM_data(&new_it->item), ITEM_data(&it->item), it->item.nbytes);
-                    memcpy(ITEM_data(&new_it->item) + it->item.nbytes - 2 /* CRLF */, ITEM_data(&old_it->item), old_it->item.nbytes);
+                    memcpy(item_get_data(&new_it->item), item_get_data(&it->item), it->item.nbytes);
+                    memcpy(item_get_data(&new_it->item) + it->item.nbytes - 2 /* CRLF */, item_get_data(&old_it->item), old_it->item.nbytes);
                 }
 
                 it = new_it;
@@ -630,7 +631,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                 do_item_link(engine, it);
             }
 
-            *cas = ITEM_get_cas(&it->item);
+            *cas = item_get_cas(&it->item);
             stored = ENGINE_SUCCESS;
         }
     }
@@ -644,7 +645,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
     }
 
     if (stored == ENGINE_SUCCESS) {
-        *cas = ITEM_get_cas(&it->item);
+        *cas = item_get_cas(&it->item);
     }
 
     return stored;
@@ -666,11 +667,11 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
                                       hash_item *it, const bool incr,
                                       const int64_t delta, uint64_t *rcas,
                                       uint64_t *result) {
-    char *ptr;
+    const char *ptr;
     uint64_t value;
     int res;
 
-    ptr = ITEM_data(&it->item);
+    ptr = item_get_data(&it->item);
 
     if (!safe_strtoull(ptr, &value)) {
         return ENGINE_EINVAL;
@@ -688,29 +689,30 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
 
     *result = value;
     char buf[80];
-    snprintf(buf, sizeof(buf), "%llu", (unsigned long long)value);
+    snprintf(buf, sizeof(buf), "%"PRIu64, value);
     res = strlen(buf);
     if (res + 2 > it->item.nbytes) { /* need to realloc */
         hash_item *new_it;
-        new_it = do_item_alloc(engine, ITEM_key(&it->item),
+        new_it = do_item_alloc(engine, item_get_key(&it->item),
                                it->item.nkey, it->item.flags,
                                it->item.exptime, res + 2 );
         if (new_it == 0) {
             return ENGINE_ENOMEM;
         }
-        memcpy(ITEM_data(&new_it->item), buf, res);
-        memcpy(ITEM_data(&new_it->item) + res, "\r\n", 2);
+        memcpy(item_get_data(&new_it->item), buf, res);
+        memcpy(item_get_data(&new_it->item) + res, "\r\n", 2);
         do_item_replace(engine, it, new_it);
-        *rcas = ITEM_get_cas(&new_it->item);
+        *rcas = item_get_cas(&new_it->item);
         do_item_release(engine, new_it);       /* release our reference */
     } else { /* replace in-place */
         /* When changing the value without replacing the item, we
            need to update the CAS on the existing item. */
-        ITEM_set_cas(&it->item, get_cas_id());
-        *rcas = ITEM_get_cas(&it->item);
+        item_set_cas(&it->item, get_cas_id());
+        *rcas = item_get_cas(&it->item);
 
-        memcpy(ITEM_data(&it->item), buf, res);
-        memset(ITEM_data(&it->item) + res, ' ', it->item.nbytes - res - 2);
+        memcpy(item_get_data(&it->item), buf, res);
+        memset(item_get_data(&it->item) + res, ' ',
+               it->item.nbytes - res - 2);
     }
 
     return ENGINE_SUCCESS;
