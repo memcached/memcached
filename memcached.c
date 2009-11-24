@@ -2882,14 +2882,18 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
 
     assert(c != NULL);
 
-    if (ntokens == 4) {
-        if (strcmp(tokens[KEY_TOKEN+1].value, "0") != 0
-            && !set_noreply_maybe(c, tokens, ntokens)) {
+    if (ntokens > 3) {
+        bool hold_is_zero = strcmp(tokens[KEY_TOKEN+1].value, "0") == 0;
+        bool sets_noreply = set_noreply_maybe(c, tokens, ntokens);
+        bool valid = (ntokens == 4 && (hold_is_zero || sets_noreply))
+            || (ntokens == 5 && hold_is_zero && sets_noreply);
+        if (!valid) {
             out_string(c, "CLIENT_ERROR bad command line format.  "
                        "Usage: delete <key> [noreply]");
             return;
         }
     }
+
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
@@ -2994,7 +2998,7 @@ static void process_command(conn *c, char *command) {
 
         process_arithmetic_command(c, tokens, ntokens, 0);
 
-    } else if (ntokens >= 3 && ntokens <= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
+    } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
 
         process_delete_command(c, tokens, ntokens);
 
