@@ -8,10 +8,14 @@
 #ifndef MEMCACHED_DEFAULT_ENGINE_H
 #define MEMCACHED_DEFAULT_ENGINE_H
 
+#include "config.h"
+
 #include <pthread.h>
 #include <stdbool.h>
 
 #include <memcached/engine.h>
+
+#include "util.h"
 
 #ifndef PUBLIC
 
@@ -26,9 +30,22 @@
 #endif
 
 
+/* Slab sizing definitions. */
+#define POWER_SMALLEST 1
+#define POWER_LARGEST  200
+#define CHUNK_ALIGN_BYTES 8
+#define DONT_PREALLOC_SLABS
+#define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
+
+/** How long an object can reasonably be assumed to be locked before
+    harvesting it on a low memory condition. */
+#define TAIL_REPAIR_TIME (3 * 3600)
+
+
 /* Forward decl */
 struct default_engine;
 
+#include "trace.h"
 #include "items.h"
 #include "assoc.h"
 #include "hash.h"
@@ -105,5 +122,5 @@ char* item_get_data(const item* item);
 char* item_get_key(const item* item);
 void item_set_cas(item* item, uint64_t val);
 uint64_t item_get_cas(const item* item);
-
+uint8_t item_get_clsid(const item* item);
 #endif

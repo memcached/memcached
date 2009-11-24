@@ -3,8 +3,6 @@
  * Hash table
  *
  */
-
-#include "memcached.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/signal.h>

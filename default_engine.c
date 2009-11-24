@@ -84,7 +84,8 @@ static struct default_engine default_engine = {
       .item_get_cas = item_get_cas,
       .item_set_cas = item_set_cas,
       .item_get_key = item_get_key,
-      .item_get_data = item_get_data
+      .item_get_data = item_get_data,
+      .item_get_clsid = item_get_clsid
    },
    .initialized = true,
    .cache_lock = PTHREAD_MUTEX_INITIALIZER,
@@ -333,7 +334,7 @@ static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
    if (when > 0)
       default_engine.config.oldest_live = engine->server.realtime(when) - 1;
    else /* exptime == 0 */
-      default_engine.config.oldest_live = current_time - 1;
+      default_engine.config.oldest_live = engine->server.get_current_time() - 1;
 
    item_flush_expired(get_handle(handle));
 
@@ -429,4 +430,9 @@ char* item_get_key(const item* item)
 char* item_get_data(const item* item)
 {
     return item_get_key(item) + item->nkey + 1;
+}
+
+uint8_t item_get_clsid(const item* item)
+{
+    return 0;
 }

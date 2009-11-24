@@ -1,5 +1,5 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-#include "memcached.h"
+
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/signal.h>
@@ -27,7 +27,7 @@ static hash_item *do_item_get(struct default_engine *engine,
 static int do_item_link(struct default_engine *engine, hash_item *it);
 static void do_item_unlink(struct default_engine *engine, hash_item *it);
 static void do_item_release(struct default_engine *engine, hash_item *it);
-static void do_item_update(hash_item *it);
+static void do_item_update(struct default_engine *engine, hash_item *it);
 static int do_item_replace(struct default_engine *engine,
                             hash_item *it, hash_item *new_it);
 static void item_free(struct default_engine *engine, hash_item *it);
@@ -111,6 +111,8 @@ hash_item *do_item_alloc(struct default_engine *engine,
     /* do a quick check if we have any expired items in the tail.. */
     int tries = 50;
     hash_item *search;
+
+    rel_time_t current_time = engine->server.get_current_time();
 
     for (search = tails[id];
          tries > 0 && search != NULL;
@@ -289,7 +291,7 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     assert((it->item.iflag & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     assert(it->item.nbytes < (1024 * 1024));  /* 1MB max size */
     it->item.iflag |= ITEM_LINKED;
-    it->time = current_time;
+    it->time = engine->server.get_current_time();
     assoc_insert(engine->server.hash(item_get_key(&it->item), it->item.nkey, 0),
                  it);
 
@@ -336,7 +338,8 @@ void do_item_release(struct default_engine *engine, hash_item *it) {
     }
 }
 
-void do_item_update(hash_item *it) {
+void do_item_update(struct default_engine *engine, hash_item *it) {
+    rel_time_t current_time = engine->server.get_current_time();
     MEMCACHED_ITEM_UPDATE(item_get_key(&it->item), it->item.nkey, it->item.nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->item.iflag & ITEM_SLABBED) == 0);
@@ -363,6 +366,7 @@ int do_item_replace(struct default_engine *engine,
 static char *do_item_cachedump(const unsigned int slabs_clsid,
                                const unsigned int limit,
                                unsigned int *bytes) {
+#ifdef FUTURE
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
     unsigned int bufcurr;
@@ -377,6 +381,7 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
     buffer = malloc((size_t)memlimit);
     if (buffer == 0) return NULL;
     bufcurr = 0;
+
 
     while (it != NULL && (limit == 0 || shown < limit)) {
         assert(it->item.nkey <= KEY_MAX_LENGTH);
@@ -394,11 +399,17 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
         it = it->next;
     }
 
+
     memcpy(buffer + bufcurr, "END\r\n", 6);
     bufcurr += 5;
 
     *bytes = bufcurr;
     return buffer;
+#endif
+    (void)slabs_clsid;
+    (void)limit;
+    (void)bytes;
+    return NULL;
 }
 
 static void do_item_stats(ADD_STAT add_stats, void *c) {
@@ -473,6 +484,7 @@ static void do_item_stats_sizes(struct default_engine *engine,
 /** wrapper around assoc_find which does the lazy expiration logic */
 hash_item *do_item_get(struct default_engine *engine,
                        const char *key, const size_t nkey) {
+    rel_time_t current_time = engine->server.get_current_time();
     hash_item *it = assoc_find(engine->server.hash(key, nkey, 0), key, nkey);
     int was_found = 0;
 
@@ -535,7 +547,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
 
     if (old_it != NULL && operation == OPERATION_ADD) {
         /* add only adds a nonexistent item, but promote to head of LRU */
-        do_item_update(old_it);
+        do_item_update(engine, old_it);
     } else if (!old_it && (operation == OPERATION_REPLACE
         || operation == OPERATION_APPEND || operation == OPERATION_PREPEND))
     {
@@ -557,7 +569,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
             // I'm updating the stats for the one that's getting pushed out
 #if 0
             pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+            c->thread->stats.slab_stats[item_get_clsid(old_it)].cas_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
 
@@ -566,7 +578,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
         } else {
 #if 0
             pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
+            c->thread->stats.slab_stats[item_get_clsid(old_it)].cas_badval++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
             if (engine->config.verbose > 1) {

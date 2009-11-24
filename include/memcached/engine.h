@@ -8,21 +8,6 @@
 
 #include "memcached/protocol_binary.h"
 
-#ifndef PUBLIC
-
-/* @todo this should be removed when we don't abuse the global symbols
- * anymore
- */
-#if defined (__SUNPRO_C) && (__SUNPRO_C >= 0x550)
-#define PUBLIC __global
-#elif defined __GNUC__
-#define PUBLIC __attribute__ ((visibility("default")))
-#else
-#define PUBLIC
-#endif
-#endif
-
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -96,14 +81,10 @@ extern "C" {
         ON_AUTH        /**< A connection was authenticated */
     } ENGINE_EVENT_TYPE;
 
-    /** Time relative to server start. Smaller than time_t on 64-bit systems. */
+    /**
+     * Time relative to server start. Smaller than time_t on 64-bit systems.
+     */
     typedef uint32_t rel_time_t;
-
-
-    /** The current time. */
-    PUBLIC
-    extern volatile rel_time_t current_time;
-
 
     /**
      * Data common to any item stored in memcached.
@@ -118,15 +99,6 @@ extern "C" {
                              * server, the upper 8 bits is reserved for engine
                              * implementation. */
     } item;
-
-
-    /**
-     * Get an item's class ID.
-     */
-    static inline uint8_t ITEM_clsid(const item* item) {
-        return 0;
-    }
-
 
     /**
      * Callback for any function producing stats.
@@ -235,6 +207,10 @@ extern "C" {
         void (*notify_io_complete)(const void *cookie,
                                    ENGINE_ERROR_CODE status);
 
+        /**
+         * The current time.
+         */
+        rel_time_t (*get_current_time)(void);
     } SERVER_HANDLE_V1;
 
     typedef void* (*GET_SERVER_API)(int interface);
@@ -481,6 +457,11 @@ extern "C" {
          * Get the data from an item.
          */
         char* (*item_get_data)(const item *item);
+
+        /**
+         * Get an item's class ID.
+         */
+        uint8_t (*item_get_clsid)(const item* item);
     } ENGINE_HANDLE_V1;
 
     /**

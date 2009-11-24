@@ -61,6 +61,16 @@
 #endif
 
 /*
+ * We keep the current time of day in a global variable that's updated by a
+ * timer event. This saves us a bunch of time() system calls (we really only
+ * need to get the time once a second, whereas there can be tens of thousands
+ * of requests a second) and allows us to use server-start-relative timestamps
+ * rather than absolute UNIX timestamps, a space savings on systems where
+ * sizeof(time_t) > sizeof(unsigned int).
+ */
+static volatile rel_time_t current_time;
+
+/*
  * forward declarations
  */
 static void drive_machine(conn *c);
@@ -111,7 +121,7 @@ static void conn_free(conn *c);
 /** exported globals **/
 struct stats stats;
 struct settings settings;
-time_t process_started;     /* when the process was started */
+static time_t process_started;     /* when the process was started */
 
 /** file scope variables **/
 static conn *listen_conn = NULL;
@@ -794,7 +804,7 @@ static void complete_nread_ascii(conn *c) {
 
     item *it = c->item;
     pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
+    c->thread->stats.slab_stats[settings.engine.v1->item_get_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     if (strncmp(settings.engine.v1->item_get_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
@@ -1070,7 +1080,7 @@ static void complete_update_bin(conn *c) {
     item *it = c->item;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
+    c->thread->stats.slab_stats[settings.engine.v1->item_get_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     /* We don't actually receive the trailing two characters in the bin
@@ -1157,7 +1167,7 @@ static void process_bin_get(conn *c) {
 
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.get_cmds++;
-        c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
+        c->thread->stats.slab_stats[settings.engine.v1->item_get_clsid(it)].get_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         MEMCACHED_COMMAND_GET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
@@ -2515,7 +2525,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                 /* item_get() has incremented it->refcount for us */
                 pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
+                c->thread->stats.slab_stats[settings.engine.v1->item_get_clsid(it)].get_hits++;
                 c->thread->stats.get_cmds++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
                 *(c->ilist + i) = it;
@@ -2757,7 +2767,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         MEMCACHED_COMMAND_DELETE(c->sfd, settings.engine.v1->item_get_key(it), it->nkey);
 
         pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
+        c->thread->stats.slab_stats[settings.engine.v1->item_get_clsid(it)].delete_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         settings.engine.v1->remove(settings.engine.v0, c, it);
@@ -3837,15 +3847,6 @@ static int server_socket_unix(const char *path, int access_mask) {
     return 0;
 }
 
-/*
- * We keep the current time of day in a global variable that's updated by a
- * timer event. This saves us a bunch of time() system calls (we really only
- * need to get the time once a second, whereas there can be tens of thousands
- * of requests a second) and allows us to use server-start-relative timestamps
- * rather than absolute UNIX timestamps, a space savings on systems where
- * sizeof(time_t) > sizeof(unsigned int).
- */
-volatile rel_time_t current_time;
 static struct event clockevent;
 
 /* time-sensitive callers can call it by hand with this, outside the normal ever-1-second timer */
@@ -4101,6 +4102,11 @@ static void register_callback(ENGINE_EVENT_TYPE type, EVENT_CALLBACK cb) {
     // Nothing yet.
 }
 
+static rel_time_t get_current_time(void)
+{
+    return current_time;
+}
+
 /**
  * Callback the engines may call to get the public server interface
  * @param interface the requested interface from the server
@@ -4115,7 +4121,8 @@ static void *get_server_api(int interface)
         .server_version = get_server_version,
         .hash = hash,
         .realtime = realtime,
-        .notify_io_complete = notify_io_complete
+        .notify_io_complete = notify_io_complete,
+        .get_current_time = get_current_time
     };
 
     if (interface != 1) {

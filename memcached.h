@@ -75,9 +75,6 @@
 #define DONT_PREALLOC_SLABS
 #define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
 
-/** How long an object can reasonably be assumed to be locked before
-    harvesting it on a low memory condition. */
-#define TAIL_REPAIR_TIME (3 * 3600)
 
 #define STAT_KEY_LEN 128
 #define STAT_VAL_LEN 128
@@ -230,8 +227,6 @@ struct settings {
 };
 
 extern struct stats stats;
-PUBLIC
-extern time_t process_started;
 extern struct settings settings;
 
 typedef struct {
@@ -377,7 +372,6 @@ int   is_listen_thread(void);
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);
-PUBLIC
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
 

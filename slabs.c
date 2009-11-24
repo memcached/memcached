@@ -7,7 +7,6 @@
  * slab size is always 1MB, since that's the maximum item size allowed by the
  * memcached protocol.
  */
-#include "memcached.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/signal.h>
@@ -21,6 +20,7 @@
 #include <assert.h>
 #include <pthread.h>
 #include <inttypes.h>
+#include <stdarg.h>
 
 #include "default_engine.h"
 
@@ -334,10 +334,11 @@ void add_statistics(const void *cookie, ADD_STAT add_stats,
 /*@null@*/
 static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
     int i, total;
-    conn *c = (void*)cookie;
     /* Get the per-thread stats which contain some interesting aggregates */
+#ifdef FUTURE
     struct thread_stats thread_stats;
     threadlocal_stats_aggregate(&thread_stats);
+#endif
 
     total = 0;
     for(i = POWER_SMALLEST; i <= power_largest; i++) {
@@ -363,6 +364,7 @@ static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
                            p->end_page_free);
             add_statistics(cookie, add_stats, NULL, i, "mem_requested", "%zu",
                            p->requested);
+#ifdef FUTURE
             add_statistics(cookie, add_stats, NULL, i, "get_hits", "%"PRIu64,
                            thread_stats.slab_stats[i].get_hits);
             add_statistics(cookie, add_stats, NULL, i, "cmd_set", "%"PRIu64,
@@ -373,7 +375,7 @@ static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
                            thread_stats.slab_stats[i].cas_hits);
             add_statistics(cookie, add_stats, NULL, i, "cas_badval", "%"PRIu64,
                            thread_stats.slab_stats[i].cas_badval);
-
+#endif
             total++;
         }
     }
@@ -383,7 +385,7 @@ static void do_slabs_stats(ADD_STAT add_stats, const void *cookie) {
     add_statistics(cookie, add_stats, NULL, -1, "active_slabs", "%d", total);
     add_statistics(cookie, add_stats, NULL, -1, "total_malloced", "%zu",
                    mem_malloced);
-    add_stats(NULL, 0, NULL, 0, c);
+    add_stats(NULL, 0, NULL, 0, cookie);
 }
 
 static void *memory_allocate(size_t size) {
