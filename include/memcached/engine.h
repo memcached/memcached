@@ -312,9 +312,12 @@ extern "C" {
          * it.
          *
          * @param handle the engine handle
+         * @param cookie The cookie provided by the frontend
          * @param item the item to be released
          */
-        void (*release)(ENGINE_HANDLE* handle, item* item);
+        void (*release)(ENGINE_HANDLE* handle, const
+                        void *cookie,
+                        item* item);
 
         /**
          * Retrieve an item.
@@ -416,8 +419,9 @@ extern "C" {
          * Reset the stats.
          *
          * @param handle the engine handle
+         * @param cookie The cookie provided by the frontend
          */
-        void (*reset_stats)(ENGINE_HANDLE* handle);
+        void (*reset_stats)(ENGINE_HANDLE* handle, const void *cookie);
 
         /**
          * Any unknown command will be considered engine specific.

@@ -26,7 +26,8 @@ static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
 static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
                                              const void* cookie,
                                              item* item);
-static void default_item_release(ENGINE_HANDLE* handle, item* item);
+static void default_item_release(ENGINE_HANDLE* handle, const void *cookie,
+                                 item* item);
 static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
                                      const void* cookie,
                                      item** item,
@@ -37,7 +38,7 @@ static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
                   const char *stat_key,
                   int nkey,
                   ADD_STAT add_stat);
-static void default_reset_stats(ENGINE_HANDLE* handle);
+static void default_reset_stats(ENGINE_HANDLE* handle, const void *cookie);
 static ENGINE_ERROR_CODE default_store(ENGINE_HANDLE* handle,
                                        const void *cookie,
                                        item* item,
@@ -209,7 +210,9 @@ static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
    return ENGINE_SUCCESS;
 }
 
-static void default_item_release(ENGINE_HANDLE* handle, item* item) {
+static void default_item_release(ENGINE_HANDLE* handle,
+                                 const void *cookie,
+                                 item* item) {
    item_release(get_handle(handle), get_real_item(item));
 }
 
@@ -341,7 +344,7 @@ static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
    return ENGINE_SUCCESS;
 }
 
-static void default_reset_stats(ENGINE_HANDLE* handle) {
+static void default_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
    struct default_engine *engine = get_handle(handle);
    item_stats_reset(engine);
 
