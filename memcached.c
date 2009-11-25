@@ -2437,6 +2437,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("tcp_backlog", "%d", settings.backlog);
     APPEND_STAT("binding_protocol", "%s",
                 prot_text(settings.binding_protocol));
+    APPEND_STAT("auth_enabled_sasl", "%s", settings.sasl ? "yes" : "no");
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
 }
 

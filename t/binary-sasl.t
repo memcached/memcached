@@ -12,7 +12,7 @@ my $supports_sasl = supports_sasl();
 use Test::More;
 
 if (supports_sasl()) {
-    plan tests => 23;
+    plan tests => 25;
 } else {
     plan tests => 1;
     eval {
@@ -210,18 +210,21 @@ $check->('x','somevalue');
 $empty->('x');
 
 # check the SASL stats, make sure they track things correctly
+# note: the enabled or not is presence checked in stats.t
 
 # while authenticated, get current counter
+#
+# My initial approach was going to be to get current counts, reauthenticate
+# and fail, followed by a reauth successfully so I'd know what happened.
+# Reauthentication is currently unsupported, so it doesn't work that way at the
+# moment.  Adding tests may break this.
+
 {
-    my %stats = $mc->stats();
-    ok(! $status);
+    my %stats = $mc->stats('');
+    is ($stats{'auth_cmds'}, 2, "auth commands counted");
+    is ($stats{'auth_errors'}, 1, "auth errors correct");
 }
 
-# then reauth, failing
-
-# then reauth, suceeding
-
-# get new stats and check that we have the expected counters
 
 # Along with the assertion added to the code to verify we're staying
 # within bounds when we do a stats detail dump (detail turned on at
