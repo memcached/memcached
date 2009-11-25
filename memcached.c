@@ -1603,6 +1603,9 @@ static void process_bin_complete_sasl_auth(conn *c) {
     switch(result) {
     case SASL_OK:
         write_bin_response(c, "Authenticated", 0, 0, strlen("Authenticated"));
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.auth_cmds++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
         break;
     case SASL_CONTINUE:
         add_bin_header(c, PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE, 0, 0, outlen);
@@ -1616,6 +1619,10 @@ static void process_bin_complete_sasl_auth(conn *c) {
         if (settings.verbose)
             fprintf(stderr, "Unknown sasl response:  %d\n", result);
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.auth_cmds++;
+        c->thread->stats.auth_errors++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
     }
 }
 
@@ -2394,6 +2401,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cas_misses", "%llu", (unsigned long long)thread_stats.cas_misses);
     APPEND_STAT("cas_hits", "%llu", (unsigned long long)slab_stats.cas_hits);
     APPEND_STAT("cas_badval", "%llu", (unsigned long long)slab_stats.cas_badval);
+    APPEND_STAT("auth_cmds", "%llu", (unsigned long long)thread_stats.auth_cmds);
+    APPEND_STAT("auth_errors", "%llu", (unsigned long long)thread_stats.auth_errors);
     APPEND_STAT("bytes_read", "%llu", (unsigned long long)thread_stats.bytes_read);
     APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
     APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
@@ -4465,7 +4474,7 @@ int main (int argc, char **argv) {
             settings.binding_protocol = binary_prot;
         } else {
             if (settings.binding_protocol != binary_prot) {
-                fprintf(stderr, "WARNING: You shouldn't allow the ASCII protocol while using SASL\n");
+                fprintf(stderr, "ERROR: You cannot allow the ASCII protocol while using SASL.\n");
                 exit(EX_USAGE);
             }
         }

@@ -396,6 +396,9 @@ integers separated by a colon (treat this as a floating point number).
 | cas_hits              | 64u     | Number of successful CAS reqs.            |
 | cas_badval            | 64u     | Number of CAS reqs for which a key was    |
 |                       |         | found, but the CAS value did not match.   |
+| auth_cmds             | 64u     | Number of authentication commands         |
+|                       |         | handled, success or failure.              |
+| auth_errors           | 64u     | Number of failed authentications.         |
 | evictions             | 64u     | Number of valid items removed from cache  |
 |                       |         | to free memory for new items              |
 | bytes_read            | 64u     | Total number of bytes read by this server |

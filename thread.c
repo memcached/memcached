@@ -484,6 +484,8 @@ void threadlocal_stats_reset(void) {
         threads[ii].stats.bytes_written = 0;
         threads[ii].stats.flush_cmds = 0;
         threads[ii].stats.conn_yields = 0;
+        threads[ii].stats.auth_cmds = 0;
+        threads[ii].stats.auth_errors = 0;
 
         for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
             threads[ii].stats.slab_stats[sid].set_cmds = 0;
@@ -512,6 +514,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
     stats->bytes_read = 0;
     stats->flush_cmds = 0;
     stats->conn_yields = 0;
+    stats->auth_cmds = 0;
+    stats->auth_errors = 0;
 
     memset(stats->slab_stats, 0,
            sizeof(struct slab_stats) * MAX_NUMBER_OF_SLAB_CLASSES);
@@ -529,6 +533,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
         stats->bytes_written += threads[ii].stats.bytes_written;
         stats->flush_cmds += threads[ii].stats.flush_cmds;
         stats->conn_yields += threads[ii].stats.conn_yields;
+        stats->auth_cmds += threads[ii].stats.auth_cmds;
+        stats->auth_errors += threads[ii].stats.auth_errors;
 
         for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
             stats->slab_stats[sid].set_cmds +=

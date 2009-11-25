@@ -209,11 +209,24 @@ $check->('x','somevalue');
 }
 $empty->('x');
 
+# check the SASL stats, make sure they track things correctly
+
+# while authenticated, get current counter
+{
+    my %stats = $mc->stats();
+    ok(! $status);
+}
+
+# then reauth, failing
+
+# then reauth, suceeding
+
+# get new stats and check that we have the expected counters
 
 # Along with the assertion added to the code to verify we're staying
 # within bounds when we do a stats detail dump (detail turned on at
 # the top).
-#my %stats = $mc->stats('detail dump');
+# my %stats = $mc->stats('detail dump');
 
 # ######################################################################
 # Test ends around here.
