@@ -345,8 +345,8 @@ sub _handle_single_response {
     my ($magic, $cmd, $keylen, $extralen, $datatype, $status, $remaining,
         $opaque, $ident_hi, $ident_lo) = unpack(::RES_PKT_FMT, $response);
 
-    return ($opaque, '', '', 0) if not defined $remaining;
-    return ($opaque, '', '', 0) if ($remaining == 0);
+    return ($opaque, '', '', '', 0) if not defined $remaining;
+    return ($opaque, '', '', '', 0) if ($remaining == 0);
 
     # fetch the value
     my $rv="";
