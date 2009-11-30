@@ -126,7 +126,8 @@ enum bin_substates {
     bin_reading_incr_header,
     bin_read_flush_exptime,
     bin_reading_sasl_auth,
-    bin_reading_sasl_auth_data
+    bin_reading_sasl_auth_data,
+    bin_reading_packet
 };
 
 enum protocol {

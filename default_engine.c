@@ -402,7 +402,13 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response)
 {
-    return ENGINE_ENOTSUP;
+   if (response(NULL, 0, NULL, 0, NULL, 0,
+                PROTOCOL_BINARY_RAW_BYTES,
+                PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, 0, cookie)) {
+      return ENGINE_SUCCESS;
+   } else {
+      return ENGINE_FAILED;
+   }
 }
 
 

@@ -1405,12 +1405,12 @@ static void process_bin_stat(conn *c) {
     }
 }
 
-static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
+static void bin_read_chunk(conn *c, enum bin_substates next_substate, uint32_t chunk) {
     assert(c);
     c->substate = next_substate;
-    c->rlbytes = c->keylen + extra;
+    c->rlbytes = chunk;
 
-    /* Ok... do we have room for the extras and the key in the input buffer? */
+    /* Ok... do we have room for everything in our buffer? */
     ptrdiff_t offset = c->rcurr + sizeof(protocol_binary_request_header) - c->rbuf;
     if (c->rlbytes > c->rsize - offset) {
         size_t nsize = c->rsize;
@@ -1453,6 +1453,11 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
     c->ritem = c->rcurr + sizeof(protocol_binary_request_header);
     conn_set_state(c, conn_nread);
 }
+
+static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
+    bin_read_chunk(c, next_substate, c->keylen + extra);
+}
+
 
 /* Just write an error message and disconnect the client */
 static void handle_binary_protocol_error(conn *c) {
@@ -1658,6 +1663,114 @@ static bool authenticated(conn *c) {
     return rv;
 }
 
+static bool binary_response_handler(const void *key, uint16_t keylen,
+                                    const void *ext, uint8_t extlen,
+                                    const void *body, uint32_t bodylen,
+                                    uint8_t datatype, uint16_t status,
+                                    uint64_t cas, const void *cookie)
+{
+    conn *c = (conn*)cookie;
+    protocol_binary_response_header* header = (void *)c->wcurr;
+    uint32_t need = bodylen + extlen + keylen + sizeof(*header);
+    if (c->wbytes + need > c->wsize) {
+        if (settings.verbose > 0) {
+            fprintf(stderr,
+                    "<%d ERROR: Response exceeds available buffer size\n",
+                    c->sfd);
+        }
+        return false;
+    }
+
+    header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
+    header->response.opcode = c->binary_header.request.opcode;
+    header->response.keylen = (uint16_t)htons(keylen);
+    header->response.extlen = extlen;
+    header->response.datatype = datatype;
+    header->response.status = (uint16_t)htons(status);
+    header->response.bodylen = htonl(bodylen + keylen + extlen);
+    header->response.opaque = c->opaque;
+    header->response.cas = htonll(cas);
+
+    if (add_iov(c, c->wcurr, sizeof(header->response)) == -1) {
+        if (settings.verbose > 0) {
+            fprintf(stderr, "<%d ERROR: Failed to allocate response buffer\n",
+                    c->sfd);
+        }
+        return false;
+    }
+    c->wcurr += sizeof(*header);
+    if (extlen) {
+        memcpy(c->wcurr, ext, extlen);
+        if (add_iov(c, c->wcurr, extlen) == -1) {
+            if (settings.verbose > 0) {
+                fprintf(stderr,
+                        "<%d ERROR: Failed to allocate response buffer\n",
+                        c->sfd);
+            }
+            return false;
+        }
+        c->wcurr += extlen;
+    }
+
+    if (keylen) {
+        memcpy(c->wcurr, key, keylen);
+        if (add_iov(c, c->wcurr, keylen) == -1) {
+            if (settings.verbose > 0) {
+                fprintf(stderr,
+                        "<%d ERROR: Failed to allocate response buffer\n",
+                        c->sfd);
+            }
+            return false;
+        }
+        c->wcurr += keylen;
+    }
+
+    if (bodylen) {
+        memcpy(c->wcurr, body, bodylen);
+        if (add_iov(c, c->wcurr, bodylen) == -1) {
+            if (settings.verbose > 0) {
+                fprintf(stderr,
+                        "<%d ERROR: Failed to allocate response buffer\n",
+                        c->sfd);
+            }
+            return false;
+        }
+        c->wcurr += bodylen;
+    }
+
+    c->wbytes += need;
+}
+
+static void process_bin_packet(conn *c) {
+    ENGINE_ERROR_CODE ret;
+    void *packet = c->rcurr - (c->binary_header.request.bodylen +
+                               sizeof(c->binary_header));
+
+    c->msgcurr = 0;
+    c->msgused = 0;
+    c->iovused = 0;
+    if (add_msghdr(c) != 0) {
+        if (settings.verbose > 0) {
+            fprintf(stderr, "Failed to create output headers\n");
+        }
+        conn_set_state(c, conn_closing);
+        return ;
+    }
+    c->wcurr = c->wbuf;
+    c->wbytes = 0;
+    ret = settings.engine.v1->unknown_command(settings.engine.v0, c, packet,
+                                              binary_response_handler);
+    if (ret == ENGINE_SUCCESS) {
+        conn_set_state(c, conn_mwrite);
+        c->write_and_go = conn_new_cmd;
+    } else if (ret == ENGINE_ENOTSUP) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, 0);
+    } else {
+        /* FATAL ERROR, shut down connection */
+        conn_set_state(c, conn_closing);
+    }
+}
+
 static void dispatch_bin_command(conn *c) {
     int protocol_error = 0;
 
@@ -1819,7 +1932,12 @@ static void dispatch_bin_command(conn *c) {
             }
             break;
         default:
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, bodylen);
+            if (settings.engine.v1->unknown_command == NULL) {
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
+                                bodylen);
+            } else {
+                bin_read_chunk(c, bin_reading_packet, c->binary_header.request.bodylen);
+            }
     }
 
     if (protocol_error)
@@ -2065,6 +2183,9 @@ static void complete_nread_binary(conn *c) {
         break;
     case bin_reading_sasl_auth_data:
         process_bin_complete_sasl_auth(c);
+        break;
+    case bin_reading_packet:
+        process_bin_packet(c);
         break;
     default:
         fprintf(stderr, "Not handling substate %d\n", c->substate);
