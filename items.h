@@ -85,8 +85,9 @@ char *item_cachedump(struct default_engine *engine,
 /**
  * Flush expired items from the cache
  * @param engine handle to the storage engine
+ * @param when when the items should be flushed
  */
-void  item_flush_expired(struct default_engine *engine);
+void  item_flush_expired(struct default_engine *engine, time_t when);
 
 /**
  * Release our reference to the current item

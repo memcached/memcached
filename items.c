@@ -809,11 +809,17 @@ ENGINE_ERROR_CODE store_item(struct default_engine *engine,
 /*
  * Flushes expired items after a flush_all call
  */
-void item_flush_expired(struct default_engine *engine) {
+void item_flush_expired(struct default_engine *engine, time_t when) {
     int i;
     hash_item *iter, *next;
 
     pthread_mutex_lock(&engine->cache_lock);
+
+    if (when == 0) {
+        engine->config.oldest_live = engine->server.get_current_time() - 1;
+    } else {
+        engine->config.oldest_live = engine->server.realtime(when) - 1;
+    }
 
     if (engine->config.oldest_live != 0) {
         for (i = 0; i < LARGEST_ID; i++) {
