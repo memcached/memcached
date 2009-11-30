@@ -425,7 +425,7 @@ char* item_get_key(const item* item)
 
 char* item_get_data(const item* item)
 {
-    return item_get_key(item) + item->nkey + 1;
+    return item_get_key(item) + item->nkey;
 }
 
 uint8_t item_get_clsid(const item* item)

@@ -2436,7 +2436,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
+
             if (it) {
+                assert(memcmp(settings.engine.v1->item_get_data(it) + it->nbytes - 2, "\r\n", 2) == 0);
+
                 if (i >= c->isize) {
                     item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
                     if (new_list) {
