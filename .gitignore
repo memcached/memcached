@@ -3,9 +3,13 @@
 *.gcda
 *.gcno
 *.gcov
+*.l[ao]
 *.tcov
 *~
 .deps
+/.libs/
+/Doxyfile
+/Doxyfile-api
 /INSTALL
 /aclocal.m4
 /autom4te.cache
@@ -24,6 +28,7 @@
 /doc/protocol-binary-range.txt
 /doc/protocol-binary.txt
 /install-sh
+/libtool
 /ltmain.sh
 /m4/version.m4
 /memcached
@@ -44,6 +49,3 @@ Makefile.in
 TAGS
 cscope.out
 tags
-*.l[ao]
-/libtool
-/.libs/

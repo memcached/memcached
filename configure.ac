@@ -534,6 +534,16 @@ then
   CFLAGS="$CFLAGS -errfmt=error -errwarn -errshort=tags"
 fi
 
+dnl Check for stuff needed to run Doxygen
+AC_PATH_PROG([DOT], [dot], "no")
+AS_IF(test "x$DOT" = "xno", [HAVE_DOT=NO], [HAVE_DOT=YES])
+AC_PATH_PROG([DOXYGEN], [doxygen], "doxygen")
+AC_PATH_PROG([PERL], [perl], "perl")
+AC_SUBST(HAVE_DOT)
+PROJECT_NUMBER=VERSION_NUMBER
+AC_SUBST(PROJECT_NUMBER)
+
+dnl Generate output files
 CPPFLAGS="-I\${top_srcdir}/include ${CPPFLAGS}"
-AC_CONFIG_FILES(Makefile doc/Makefile)
+AC_CONFIG_FILES(Makefile doc/Makefile Doxyfile Doxyfile-api)
 AC_OUTPUT
