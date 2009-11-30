@@ -18,54 +18,24 @@
 
 #include "default_engine.h"
 
-static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
-
-
-typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
-typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
-
-/* how many powers of 2's worth of buckets we use */
-static unsigned int hashpower = 16;
-
-#define hashsize(n) ((ub4)1<<(n))
+#define hashsize(n) ((uint32_t)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 
-/* Main hash table. This is where we look except during expansion. */
-static hash_item** primary_hashtable = 0;
-
-/*
- * Previous hash table. During expansion, we look here for keys that haven't
- * been moved over to the primary yet.
- */
-static hash_item** old_hashtable = 0;
-
-/* Number of items in the hash table. */
-static unsigned int hash_items = 0;
-
-/* Flag: Are we in the middle of expanding now? */
-static bool expanding = false;
-
-/*
- * During expansion we migrate values with bucket granularity; this is how
- * far we've gotten so far. Ranges from 0 .. hashsize(hashpower - 1) - 1.
- */
-static unsigned int expand_bucket = 0;
-
-ENGINE_ERROR_CODE assoc_init(void) {
-    primary_hashtable = calloc(hashsize(hashpower), sizeof(void *));
-    return (primary_hashtable != NULL) ? ENGINE_SUCCESS : ENGINE_ENOMEM;
+ENGINE_ERROR_CODE assoc_init(struct default_engine *engine) {
+    engine->assoc.primary_hashtable = calloc(hashsize(engine->assoc.hashpower), sizeof(void *));
+    return (engine->assoc.primary_hashtable != NULL) ? ENGINE_SUCCESS : ENGINE_ENOMEM;
 }
 
-hash_item *assoc_find(uint32_t hash, const char *key, const size_t nkey) {
+hash_item *assoc_find(struct default_engine *engine, uint32_t hash, const char *key, const size_t nkey) {
     hash_item *it;
     unsigned int oldbucket;
 
-    if (expanding &&
-        (oldbucket = (hash & hashmask(hashpower - 1))) >= expand_bucket)
+    if (engine->assoc.expanding &&
+        (oldbucket = (hash & hashmask(engine->assoc.hashpower - 1))) >= engine->assoc.expand_bucket)
     {
-        it = old_hashtable[oldbucket];
+        it = engine->assoc.old_hashtable[oldbucket];
     } else {
-        it = primary_hashtable[hash & hashmask(hashpower)];
+        it = engine->assoc.primary_hashtable[hash & hashmask(engine->assoc.hashpower)];
     }
 
     hash_item *ret = NULL;
@@ -85,18 +55,19 @@ hash_item *assoc_find(uint32_t hash, const char *key, const size_t nkey) {
 /* returns the address of the item pointer before the key.  if *item == 0,
    the item wasn't found */
 
-static hash_item** _hashitem_before (uint32_t hash,
-                                     const char *key,
-                                     const size_t nkey) {
+static hash_item** _hashitem_before(struct default_engine *engine,
+                                    uint32_t hash,
+                                    const char *key,
+                                    const size_t nkey) {
     hash_item **pos;
     unsigned int oldbucket;
 
-    if (expanding &&
-        (oldbucket = (hash & hashmask(hashpower - 1))) >= expand_bucket)
+    if (engine->assoc.expanding &&
+        (oldbucket = (hash & hashmask(engine->assoc.hashpower - 1))) >= engine->assoc.expand_bucket)
     {
-        pos = &old_hashtable[oldbucket];
+        pos = &engine->assoc.old_hashtable[oldbucket];
     } else {
-        pos = &primary_hashtable[hash & hashmask(hashpower)];
+        pos = &engine->assoc.primary_hashtable[hash & hashmask(engine->assoc.hashpower)];
     }
 
     while (*pos && ((nkey != (*pos)->item.nkey) || memcmp(key, item_get_key(&(*pos)->item), nkey))) {
@@ -106,52 +77,52 @@ static hash_item** _hashitem_before (uint32_t hash,
 }
 
 /* grows the hashtable to the next power of 2. */
-static void assoc_expand(void) {
-    old_hashtable = primary_hashtable;
+static void assoc_expand(struct default_engine *engine) {
+    engine->assoc.old_hashtable = engine->assoc.primary_hashtable;
 
-    primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));
-    if (primary_hashtable) {
-        hashpower++;
-        expanding = true;
-        expand_bucket = 0;
-        pthread_cond_signal(&maintenance_cond);
+    engine->assoc.primary_hashtable = calloc(hashsize(engine->assoc.hashpower + 1), sizeof(void *));
+    if (engine->assoc.primary_hashtable) {
+        engine->assoc.hashpower++;
+        engine->assoc.expanding = true;
+        engine->assoc.expand_bucket = 0;
+        pthread_cond_signal(&engine->assoc.maintenance_cond);
     } else {
-        primary_hashtable = old_hashtable;
+        engine->assoc.primary_hashtable = engine->assoc.old_hashtable;
         /* Bad news, but we can keep running. */
     }
 }
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
-int assoc_insert(uint32_t hash, hash_item *it) {
+int assoc_insert(struct default_engine *engine, uint32_t hash, hash_item *it) {
     unsigned int oldbucket;
 
-    assert(assoc_find(hash, item_get_key(&it->item), it->item.nkey) == 0);  /* shouldn't have duplicately named things defined */
+    assert(assoc_find(engine, hash, item_get_key(&it->item), it->item.nkey) == 0);  /* shouldn't have duplicately named things defined */
 
-    if (expanding &&
-        (oldbucket = (hash & hashmask(hashpower - 1))) >= expand_bucket)
+    if (engine->assoc.expanding &&
+        (oldbucket = (hash & hashmask(engine->assoc.hashpower - 1))) >= engine->assoc.expand_bucket)
     {
-        it->h_next = old_hashtable[oldbucket];
-        old_hashtable[oldbucket] = it;
+        it->h_next = engine->assoc.old_hashtable[oldbucket];
+        engine->assoc.old_hashtable[oldbucket] = it;
     } else {
-        it->h_next = primary_hashtable[hash & hashmask(hashpower)];
-        primary_hashtable[hash & hashmask(hashpower)] = it;
+        it->h_next = engine->assoc.primary_hashtable[hash & hashmask(engine->assoc.hashpower)];
+        engine->assoc.primary_hashtable[hash & hashmask(engine->assoc.hashpower)] = it;
     }
 
-    hash_items++;
-    if (! expanding && hash_items > (hashsize(hashpower) * 3) / 2) {
-        assoc_expand();
+    engine->assoc.hash_items++;
+    if (! engine->assoc.expanding && engine->assoc.hash_items > (hashsize(engine->assoc.hashpower) * 3) / 2) {
+        assoc_expand(engine);
     }
 
     MEMCACHED_ASSOC_INSERT(item_get_key(&it->item), it->item.nkey, hash_items);
     return 1;
 }
 
-void assoc_delete(uint32_t hash, const char *key, const size_t nkey) {
-    hash_item **before = _hashitem_before(hash, key, nkey);
+void assoc_delete(struct default_engine *engine, uint32_t hash, const char *key, const size_t nkey) {
+    hash_item **before = _hashitem_before(engine, hash, key, nkey);
 
     if (*before) {
         hash_item *nxt;
-        hash_items--;
+        engine->assoc.hash_items--;
         /* The DTrace probe cannot be triggered as the last instruction
          * due to possible tail-optimization by the compiler
          */
@@ -180,33 +151,33 @@ static void *assoc_maintenance_thread(void *arg) {
          * hash table. */
         pthread_mutex_lock(&engine->cache_lock);
 
-        for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
+        for (ii = 0; ii < hash_bulk_move && engine->assoc.expanding; ++ii) {
             hash_item *it, *next;
             int bucket;
 
-            for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
+            for (it = engine->assoc.old_hashtable[engine->assoc.expand_bucket]; NULL != it; it = next) {
                 next = it->h_next;
 
-                bucket = engine->server.hash(item_get_key(&it->item), it->item.nkey, 0) & hashmask(hashpower);
-                it->h_next = primary_hashtable[bucket];
-                primary_hashtable[bucket] = it;
+                bucket = engine->server.hash(item_get_key(&it->item), it->item.nkey, 0) & hashmask(engine->assoc.hashpower);
+                it->h_next = engine->assoc.primary_hashtable[bucket];
+                engine->assoc.primary_hashtable[bucket] = it;
             }
 
-            old_hashtable[expand_bucket] = NULL;
+            engine->assoc.old_hashtable[engine->assoc.expand_bucket] = NULL;
 
-            expand_bucket++;
-            if (expand_bucket == hashsize(hashpower - 1)) {
-                expanding = false;
-                free(old_hashtable);
+            engine->assoc.expand_bucket++;
+            if (engine->assoc.expand_bucket == hashsize(engine->assoc.hashpower - 1)) {
+                engine->assoc.expanding = false;
+                free(engine->assoc.old_hashtable);
                 if (engine->config.verbose > 1) {
                     fprintf(stderr, "Hash table expansion done\n");
                 }
             }
         }
 
-        while (!expanding) {
+        while (!engine->assoc.expanding) {
             /* We are done expanding.. just wait for next invocation */
-            pthread_cond_wait(&maintenance_cond, &engine->cache_lock);
+            pthread_cond_wait(&engine->assoc.maintenance_cond, &engine->cache_lock);
         }
 
         if (engine->config.verbose > 1) {
@@ -239,8 +210,8 @@ int start_assoc_maintenance_thread(struct default_engine *engine) {
 
 void stop_assoc_maintenance_thread(struct default_engine *engine) {
     pthread_mutex_lock(&engine->cache_lock);
-    do_run_maintenance_thread = 0;
-    pthread_cond_signal(&maintenance_cond);
+    engine->assoc.do_run_maintenance_thread = 0;
+    pthread_cond_signal(&engine->assoc.maintenance_cond);
     pthread_mutex_unlock(&engine->cache_lock);
 
     /* Wait for the maintenance thread to stop */

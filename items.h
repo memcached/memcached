@@ -15,6 +15,23 @@ typedef struct _hash_item {
     item item;
 } hash_item;
 
+typedef struct {
+    unsigned int evicted;
+    unsigned int evicted_nonzero;
+    rel_time_t evicted_time;
+    unsigned int outofmemory;
+    unsigned int tailrepairs;
+    unsigned int reclaimed;
+} itemstats_t;
+
+struct items {
+   hash_item *heads[POWER_LARGEST];
+   hash_item *tails[POWER_LARGEST];
+   itemstats_t itemstats[POWER_LARGEST];
+   unsigned int sizes[POWER_LARGEST];
+};
+
+
 /**
  * Allocate and initialize a new item structure
  * @param engine handle to the storage engine

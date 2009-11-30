@@ -103,6 +103,14 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
       },
       .server = *api,
       .initialized = true,
+      .assoc = {
+         .maintenance_cond = PTHREAD_COND_INITIALIZER,
+         .hashpower = 16,
+         .do_run_maintenance_thread = 1
+      },
+      .slabs = {
+         .lock = PTHREAD_MUTEX_INITIALIZER
+      },
       .cache_lock = PTHREAD_MUTEX_INITIALIZER,
       .stats = {
          .lock = PTHREAD_MUTEX_INITIALIZER,
@@ -150,7 +158,7 @@ static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
       return ret;
    }
 
-   ret = assoc_init();
+   ret = assoc_init(se);
    if (ret != ENGINE_SUCCESS) {
       return ret;
    }
@@ -194,7 +202,7 @@ static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
    if (engine->config.use_cas) {
       ntotal += sizeof(uint64_t);
    }
-   unsigned int id = slabs_clsid(ntotal);
+   unsigned int id = slabs_clsid(engine, ntotal);
    if (id == 0) {
       return ENGINE_E2BIG;
    }
@@ -262,7 +270,7 @@ static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
       add_stat("bytes", 5, val, len, cookie);
       pthread_mutex_unlock(&engine->stats.lock);
    } else if (strncmp(stat_key, "slabs", 5) == 0) {
-      slabs_stats(add_stat, cookie);
+      slabs_stats(engine, add_stat, cookie);
    } else if (strncmp(stat_key, "items", 5) == 0) {
       item_stats(engine, add_stat, cookie);
    } else if (strncmp(stat_key, "sizes", 5) == 0) {

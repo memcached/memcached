@@ -16,8 +16,8 @@
 #include "default_engine.h"
 
 /* Forward Declarations */
-static void item_link_q(hash_item *it);
-static void item_unlink_q(hash_item *it);
+static void item_link_q(struct default_engine *engine, hash_item *it);
+static void item_unlink_q(struct default_engine *engine, hash_item *it);
 static hash_item *do_item_alloc(struct default_engine *engine,
                                 const void *key, const size_t nkey,
                                 const int flags, const rel_time_t exptime,
@@ -40,24 +40,9 @@ static void item_free(struct default_engine *engine, hash_item *it);
  */
 #define ITEM_UPDATE_INTERVAL 60
 
-#define LARGEST_ID POWER_LARGEST
-typedef struct {
-    unsigned int evicted;
-    unsigned int evicted_nonzero;
-    rel_time_t evicted_time;
-    unsigned int reclaimed;
-    unsigned int outofmemory;
-    unsigned int tailrepairs;
-} itemstats_t;
-
-static hash_item *heads[LARGEST_ID];
-static hash_item *tails[LARGEST_ID];
-static itemstats_t itemstats[LARGEST_ID];
-static unsigned int sizes[LARGEST_ID];
-
 void item_stats_reset(struct default_engine *engine) {
     pthread_mutex_lock(&engine->cache_lock);
-    memset(itemstats, 0, sizeof(itemstats));
+    memset(engine->items.itemstats, 0, sizeof(engine->items.itemstats));
     pthread_mutex_unlock(&engine->cache_lock);
 }
 
@@ -104,7 +89,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
         ntotal += sizeof(uint64_t);
     }
 
-    unsigned int id = slabs_clsid(ntotal);
+    unsigned int id = slabs_clsid(engine, ntotal);
     if (id == 0)
         return 0;
 
@@ -114,7 +99,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
 
     rel_time_t current_time = engine->server.get_current_time();
 
-    for (search = tails[id];
+    for (search = engine->items.tails[id];
          tries > 0 && search != NULL;
          tries--, search=search->prev) {
         if (search->refcount == 0 &&
@@ -126,7 +111,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
             pthread_mutex_lock(&engine->stats.lock);
             engine->stats.reclaimed++;
             pthread_mutex_unlock(&engine->stats.lock);
-            itemstats[id].reclaimed++;
+            engine->items.itemstats[id].reclaimed++;
             it->refcount = 1;
             do_item_unlink(engine, it);
             /* Initialize the item block: */
@@ -136,7 +121,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
         }
     }
 
-    if (it == NULL && (it = slabs_alloc(ntotal, id)) == NULL) {
+    if (it == NULL && (it = slabs_alloc(engine, ntotal, id)) == NULL) {
         /*
         ** Could not find an expired item at the tail, and memory allocation
         ** failed. Try to evict some items!
@@ -148,7 +133,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
          */
 
         if (engine->config.evict_to_free == 0) {
-            itemstats[id].outofmemory++;
+            engine->items.itemstats[id].outofmemory++;
             return NULL;
         }
 
@@ -159,24 +144,24 @@ hash_item *do_item_alloc(struct default_engine *engine,
          * tries
          */
 
-        if (tails[id] == 0) {
-            itemstats[id].outofmemory++;
+        if (engine->items.tails[id] == 0) {
+            engine->items.itemstats[id].outofmemory++;
             return NULL;
         }
 
-        for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
+        for (search = engine->items.tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
             if (search->refcount == 0) {
                 if (search->item.exptime == 0 || search->item.exptime > current_time) {
-                    itemstats[id].evicted++;
-                    itemstats[id].evicted_time = current_time - search->time;
+                    engine->items.itemstats[id].evicted++;
+                    engine->items.itemstats[id].evicted_time = current_time - search->time;
                     if (search->item.exptime != 0) {
-                        itemstats[id].evicted_nonzero++;
+                        engine->items.itemstats[id].evicted_nonzero++;
                     }
                     pthread_mutex_lock(&engine->stats.lock);
                     engine->stats.evictions++;
                     pthread_mutex_unlock(&engine->stats.lock);
                 } else {
-                    itemstats[id].reclaimed++;
+                    engine->items.itemstats[id].reclaimed++;
                     pthread_mutex_lock(&engine->stats.lock);
                     engine->stats.reclaimed++;
                     pthread_mutex_unlock(&engine->stats.lock);
@@ -185,9 +170,9 @@ hash_item *do_item_alloc(struct default_engine *engine,
                 break;
             }
         }
-        it = slabs_alloc(ntotal, id);
+        it = slabs_alloc(engine, ntotal, id);
         if (it == 0) {
-            itemstats[id].outofmemory++;
+            engine->items.itemstats[id].outofmemory++;
             /* Last ditch effort. There is a very rare bug which causes
              * refcount leaks. We've fixed most of them, but it still happens,
              * and it may happen in the future.
@@ -196,15 +181,15 @@ hash_item *do_item_alloc(struct default_engine *engine,
              * free it anyway.
              */
             tries = 50;
-            for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
+            for (search = engine->items.tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
                 if (search->refcount != 0 && search->time + TAIL_REPAIR_TIME < current_time) {
-                    itemstats[id].tailrepairs++;
+                    engine->items.itemstats[id].tailrepairs++;
                     search->refcount = 0;
                     do_item_unlink(engine, search);
                     break;
                 }
             }
-            it = slabs_alloc(ntotal, id);
+            it = slabs_alloc(engine, ntotal, id);
             if (it == 0) {
                 return NULL;
             }
@@ -215,7 +200,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
 
     it->slabs_clsid = id;
 
-    assert(it != heads[it->slabs_clsid]);
+    assert(it != engine->items.heads[it->slabs_clsid]);
 
     it->next = it->prev = it->h_next = 0;
     it->refcount = 1;     /* the caller will have a reference */
@@ -233,8 +218,8 @@ static void item_free(struct default_engine *engine, hash_item *it) {
     size_t ntotal = ITEM_ntotal(engine, it);
     unsigned int clsid;
     assert((it->item.iflag & ITEM_LINKED) == 0);
-    assert(it != heads[it->slabs_clsid]);
-    assert(it != tails[it->slabs_clsid]);
+    assert(it != engine->items.heads[it->slabs_clsid]);
+    assert(it != engine->items.tails[it->slabs_clsid]);
     assert(it->refcount == 0);
 
     /* so slab size changer can tell later if item is already free or not */
@@ -242,16 +227,16 @@ static void item_free(struct default_engine *engine, hash_item *it) {
     it->slabs_clsid = 0;
     it->item.iflag |= ITEM_SLABBED;
     DEBUG_REFCNT(it, 'F');
-    slabs_free(it, ntotal, clsid);
+    slabs_free(engine, it, ntotal, clsid);
 }
 
-static void item_link_q(hash_item *it) { /* item is the new head */
+static void item_link_q(struct default_engine *engine, hash_item *it) { /* item is the new head */
     hash_item **head, **tail;
-    assert(it->slabs_clsid < LARGEST_ID);
+    assert(it->slabs_clsid < POWER_LARGEST);
     assert((it->item.iflag & ITEM_SLABBED) == 0);
 
-    head = &heads[it->slabs_clsid];
-    tail = &tails[it->slabs_clsid];
+    head = &engine->items.heads[it->slabs_clsid];
+    tail = &engine->items.tails[it->slabs_clsid];
     assert(it != *head);
     assert((*head && *tail) || (*head == 0 && *tail == 0));
     it->prev = 0;
@@ -259,15 +244,15 @@ static void item_link_q(hash_item *it) { /* item is the new head */
     if (it->next) it->next->prev = it;
     *head = it;
     if (*tail == 0) *tail = it;
-    sizes[it->slabs_clsid]++;
+    engine->items.sizes[it->slabs_clsid]++;
     return;
 }
 
-static void item_unlink_q(hash_item *it) {
+static void item_unlink_q(struct default_engine *engine, hash_item *it) {
     hash_item **head, **tail;
-    assert(it->slabs_clsid < LARGEST_ID);
-    head = &heads[it->slabs_clsid];
-    tail = &tails[it->slabs_clsid];
+    assert(it->slabs_clsid < POWER_LARGEST);
+    head = &engine->items.heads[it->slabs_clsid];
+    tail = &engine->items.tails[it->slabs_clsid];
 
     if (*head == it) {
         assert(it->prev == 0);
@@ -282,7 +267,7 @@ static void item_unlink_q(hash_item *it) {
 
     if (it->next) it->next->prev = it->prev;
     if (it->prev) it->prev->next = it->next;
-    sizes[it->slabs_clsid]--;
+    engine->items.sizes[it->slabs_clsid]--;
     return;
 }
 
@@ -292,7 +277,7 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     assert(it->item.nbytes < (1024 * 1024));  /* 1MB max size */
     it->item.iflag |= ITEM_LINKED;
     it->time = engine->server.get_current_time();
-    assoc_insert(engine->server.hash(item_get_key(&it->item), it->item.nkey, 0),
+    assoc_insert(engine, engine->server.hash(item_get_key(&it->item), it->item.nkey, 0),
                  it);
 
     pthread_mutex_lock(&engine->stats.lock);
@@ -304,7 +289,7 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     /* Allocate a new CAS ID on link. */
     item_set_cas(&it->item, get_cas_id());
 
-    item_link_q(it);
+    item_link_q(engine, it);
 
     return 1;
 }
@@ -317,9 +302,9 @@ void do_item_unlink(struct default_engine *engine, hash_item *it) {
         engine->stats.curr_bytes -= ITEM_ntotal(engine, it);
         engine->stats.curr_items -= 1;
         pthread_mutex_unlock(&engine->stats.lock);
-        assoc_delete(engine->server.hash(item_get_key(&it->item), it->item.nkey, 0),
+        assoc_delete(engine, engine->server.hash(item_get_key(&it->item), it->item.nkey, 0),
                      item_get_key(&it->item), it->item.nkey);
-        item_unlink_q(it);
+        item_unlink_q(engine, it);
         if (it->refcount == 0) {
             item_free(engine, it);
         }
@@ -344,9 +329,9 @@ void do_item_update(struct default_engine *engine, hash_item *it) {
         assert((it->item.iflag & ITEM_SLABBED) == 0);
 
         if ((it->item.iflag & ITEM_LINKED) != 0) {
-            item_unlink_q(it);
+            item_unlink_q(engine, it);
             it->time = current_time;
-            item_link_q(it);
+            item_link_q(engine, it);
         }
     }
 }
@@ -375,7 +360,7 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
 
-    it = heads[slabs_clsid];
+    it = engine->items.heads[slabs_clsid];
 
     buffer = malloc((size_t)memlimit);
     if (buffer == 0) return NULL;
@@ -411,27 +396,28 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
     return NULL;
 }
 
-static void do_item_stats(ADD_STAT add_stats, void *c) {
+static void do_item_stats(struct default_engine *engine,
+                          ADD_STAT add_stats, void *c) {
     int i;
-    for (i = 0; i < LARGEST_ID; i++) {
-        if (tails[i] != NULL) {
+    for (i = 0; i < POWER_LARGEST; i++) {
+        if (engine->items.tails[i] != NULL) {
             const char *prefix = "items";
             add_statistics(c, add_stats, prefix, i, "number", "%u",
-                           sizes[i]);
+                           engine->items.sizes[i]);
             add_statistics(c, add_stats, prefix, i, "age", "%u",
-                           tails[i]->time);
+                           engine->items.tails[i]->time);
             add_statistics(c, add_stats, prefix, i, "evicted",
-                           "%u", itemstats[i].evicted);
+                           "%u", engine->items.itemstats[i].evicted);
             add_statistics(c, add_stats, prefix, i, "evicted_nonzero",
-                           "%u", itemstats[i].evicted_nonzero);
+                           "%u", engine->items.itemstats[i].evicted_nonzero);
             add_statistics(c, add_stats, prefix, i, "evicted_time",
-                           "%u", itemstats[i].evicted_time);
+                           "%u", engine->items.itemstats[i].evicted_time);
             add_statistics(c, add_stats, prefix, i, "outofmemory",
-                           "%u", itemstats[i].outofmemory);
+                           "%u", engine->items.itemstats[i].outofmemory);
             add_statistics(c, add_stats, prefix, i, "tailrepairs",
-                           "%u", itemstats[i].tailrepairs);;
+                           "%u", engine->items.itemstats[i].tailrepairs);;
             add_statistics(c, add_stats, prefix, i, "reclaimed",
-                           "%u", itemstats[i].reclaimed);;
+                           "%u", engine->items.itemstats[i].reclaimed);;
         }
     }
 
@@ -452,8 +438,8 @@ static void do_item_stats_sizes(struct default_engine *engine,
         int i;
 
         /* build the histogram */
-        for (i = 0; i < LARGEST_ID; i++) {
-            hash_item *iter = heads[i];
+        for (i = 0; i < POWER_LARGEST; i++) {
+            hash_item *iter = engine->items.heads[i];
             while (iter) {
                 int ntotal = ITEM_ntotal(engine, iter);
                 int bucket = ntotal / 32;
@@ -484,7 +470,7 @@ static void do_item_stats_sizes(struct default_engine *engine,
 hash_item *do_item_get(struct default_engine *engine,
                        const char *key, const size_t nkey) {
     rel_time_t current_time = engine->server.get_current_time();
-    hash_item *it = assoc_find(engine->server.hash(key, nkey, 0), key, nkey);
+    hash_item *it = assoc_find(engine, engine->server.hash(key, nkey, 0), key, nkey);
     int was_found = 0;
 
     if (engine->config.verbose > 2) {
@@ -822,7 +808,7 @@ void item_flush_expired(struct default_engine *engine, time_t when) {
     }
 
     if (engine->config.oldest_live != 0) {
-        for (i = 0; i < LARGEST_ID; i++) {
+        for (i = 0; i < POWER_LARGEST; i++) {
             /*
              * The LRU is sorted in decreasing time order, and an item's
              * timestamp is never newer than its last access time, so we
@@ -830,7 +816,7 @@ void item_flush_expired(struct default_engine *engine, time_t when) {
              * oldest_live time.
              * The oldest_live checking will auto-expire the remaining items.
              */
-            for (iter = heads[i]; iter != NULL; iter = next) {
+            for (iter = engine->items.heads[i]; iter != NULL; iter = next) {
                 if (iter->time >= engine->config.oldest_live) {
                     next = iter->next;
                     if ((iter->item.iflag & ITEM_SLABBED) == 0) {
@@ -865,7 +851,7 @@ void item_stats(struct default_engine *engine,
                    ADD_STAT add_stat, const void *cookie)
 {
     pthread_mutex_lock(&engine->cache_lock);
-    do_item_stats(add_stat, (void*)cookie);
+    do_item_stats(engine, add_stat, (void*)cookie);
     pthread_mutex_unlock(&engine->cache_lock);
 }
 

@@ -107,6 +107,10 @@ struct default_engine {
     */
    bool initialized;
 
+   struct assoc assoc;
+   struct slabs slabs;
+   struct items items;
+
    /**
     * The cache layer (item_* and assoc_*) is currently protected by
     * this single mutex
