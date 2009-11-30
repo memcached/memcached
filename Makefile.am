@@ -66,6 +66,8 @@ default_engine_la_LDFLAGS= -module -dynamic
 
 if INCLUDE_DEFAULT_ENGINE
 memcached_SOURCES += $(default_engine_la_SOURCES)
+memcached_DEPENDENCIES += libconfig.la
+memcached_LDADD += libconfig.la
 endif
 
 memcached_dtrace.h: memcached_dtrace.d
