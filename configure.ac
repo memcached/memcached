@@ -69,7 +69,7 @@ AC_DEFUN([DETECT_SUNCC],
 ])
 
 AS_IF(test "x$GCC" = "xyes",
-      DETECT_ICC([], [CFLAGS="-fvisibility=hidden $CFLAGS"]),
+      DETECT_ICC([CFLAGS="-pthread $CFLAGS"], [CFLAGS="-fvisibility=hidden -pthread $CFLAGS"]),
       ICC=no
       DETECT_SUNCC([CFLAGS="-xldscope=hidden -mt $CFLAGS"], []))
 
@@ -169,11 +169,9 @@ AC_ARG_ENABLE(coverage,
 if test "x$enable_coverage" = "xyes"; then
    if test "$ICC" = "yes"
    then
-      dnl ICC trying to be gcc, but not well
-      CFLAGS="$CFLAGS -pthread"
+      AC_MSG_WARN([icc doesn't support code coverage checking])
    elif test "$GCC" = "yes"
    then
-      CFLAGS="$CFLAGS -pthread"
       AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
       if test "x$PROFILER" != "xno"; then
          # Issue 97: The existense of gcov doesn't mean we have -lgcov
