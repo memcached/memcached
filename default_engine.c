@@ -335,9 +335,9 @@ static void default_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
    item_stats_reset(engine);
 
    pthread_mutex_lock(&engine->stats.lock);
-   default_engine.stats.evictions = 0;
-   default_engine.stats.reclaimed = 0;
-   default_engine.stats.total_items = 0;
+   engine->stats.evictions = 0;
+   engine->stats.reclaimed = 0;
+   engine->stats.total_items = 0;
    pthread_mutex_unlock(&engine->stats.lock);
 }
 
