@@ -36,7 +36,7 @@ memcached_SOURCES += sasl_defs.c
 endif
 
 memcached_LDADD = libutil.la @PROFILER_LDFLAGS@
-memcached_LDFLAGS =-R '$(libdir)' -export-dynamic
+memcached_LDFLAGS =-R '$(libdir)'
 memcached_CFLAGS = @PROFILER_FLAGS@
 memcached_DEPENDENCIES = libutil.la
 CLEANFILES=
