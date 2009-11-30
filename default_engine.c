@@ -64,48 +64,6 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response);
 
-static struct default_engine default_engine = {
-   .engine = {
-      .interface = {
-         .interface = 1
-      },
-      .get_info = default_get_info,
-      .initialize = default_initialize,
-      .destroy = default_destroy,
-      .allocate = default_item_allocate,
-      .remove = default_item_delete,
-      .release = default_item_release,
-      .get = default_get,
-      .get_stats = default_get_stats,
-      .reset_stats = default_reset_stats,
-      .store = default_store,
-      .arithmetic = default_arithmetic,
-      .flush = default_flush,
-      .unknown_command = default_unknown_command,
-      .item_get_cas = item_get_cas,
-      .item_set_cas = item_set_cas,
-      .item_get_key = item_get_key,
-      .item_get_data = item_get_data,
-      .item_get_clsid = item_get_clsid
-   },
-   .initialized = true,
-   .cache_lock = PTHREAD_MUTEX_INITIALIZER,
-   .stats = {
-      .lock = PTHREAD_MUTEX_INITIALIZER,
-   },
-   .config = {
-      .use_cas = true,
-      .verbose = 0,
-      .oldest_live = 0,
-      .evict_to_free = true,
-      .maxbytes = 64 * 1024 * 1024,
-      .preallocate = false,
-      .factor = 1.25,
-      .chunk_size = 48,
-      .item_size_max= 1024 * 1024,
-   }
-};
-
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle) {
@@ -114,9 +72,58 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
       return ENGINE_ENOTSUP;
    }
 
-   default_engine.server = *api;
+   struct default_engine *engine = malloc(sizeof(*engine));
+   if (engine == NULL) {
+      return ENGINE_ENOMEM;
+   }
 
-   *handle = (ENGINE_HANDLE*)&default_engine;
+   struct default_engine default_engine = {
+      .engine = {
+         .interface = {
+            .interface = 1
+         },
+         .get_info = default_get_info,
+         .initialize = default_initialize,
+         .destroy = default_destroy,
+         .allocate = default_item_allocate,
+         .remove = default_item_delete,
+         .release = default_item_release,
+         .get = default_get,
+         .get_stats = default_get_stats,
+         .reset_stats = default_reset_stats,
+         .store = default_store,
+         .arithmetic = default_arithmetic,
+         .flush = default_flush,
+         .unknown_command = default_unknown_command,
+         .item_get_cas = item_get_cas,
+         .item_set_cas = item_set_cas,
+         .item_get_key = item_get_key,
+         .item_get_data = item_get_data,
+         .item_get_clsid = item_get_clsid
+      },
+      .server = *api,
+      .initialized = true,
+      .cache_lock = PTHREAD_MUTEX_INITIALIZER,
+      .stats = {
+         .lock = PTHREAD_MUTEX_INITIALIZER,
+      },
+      .config = {
+         .use_cas = true,
+         .verbose = 0,
+         .oldest_live = 0,
+         .evict_to_free = true,
+         .maxbytes = 64 * 1024 * 1024,
+         .preallocate = false,
+         .factor = 1.25,
+         .chunk_size = 48,
+         .item_size_max= 1024 * 1024,
+      }
+   };
+
+   default_engine.server = *api;
+   *engine = default_engine;
+
+   *handle = (ENGINE_HANDLE*)&engine->engine;
    return ENGINE_SUCCESS;
 }
 
@@ -170,7 +177,7 @@ static void default_destroy(ENGINE_HANDLE* handle) {
       pthread_mutex_destroy(&se->cache_lock);
       pthread_mutex_destroy(&se->stats.lock);
       se->initialized = false;
-      /* @TODO clean up the other resources! */
+      free(se);
    }
 }
 
