@@ -104,7 +104,7 @@ ENGINE_ERROR_CODE slabs_init(struct default_engine *engine,
                              const double factor,
                              const bool prealloc) {
     int i = POWER_SMALLEST - 1;
-    unsigned int size = sizeof(item) + engine->config.chunk_size;
+    unsigned int size = sizeof(hash_item) + engine->config.chunk_size;
 
     mem_limit = limit;
 
