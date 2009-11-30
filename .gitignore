@@ -8,8 +8,6 @@
 *~
 .deps
 /.libs/
-/Doxyfile
-/Doxyfile-api
 /INSTALL
 /aclocal.m4
 /autom4te.cache
@@ -20,6 +18,8 @@
 /config.log
 /config.status
 /config.sub
+/config/Doxyfile
+/config/Doxyfile-api
 /configure
 /depcomp
 /doc/doxy

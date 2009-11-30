@@ -111,8 +111,8 @@ test:	memcached sizes testapp
 	else :; fi
 
 docs:
-	${DOXYGEN} Doxyfile-api
-	${DOXYGEN} Doxyfile
+	${DOXYGEN} config/Doxyfile-api
+	${DOXYGEN} config/Doxyfile
 
 dist-hook:
 	rm -f $(distdir)/*/*~ $(distdir)/t/lib/*~ $(distdir)/*~

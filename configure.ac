@@ -545,5 +545,5 @@ AC_SUBST(PROJECT_NUMBER)
 
 dnl Generate output files
 CPPFLAGS="-I\${top_srcdir}/include ${CPPFLAGS}"
-AC_CONFIG_FILES(Makefile doc/Makefile Doxyfile Doxyfile-api)
+AC_CONFIG_FILES(Makefile doc/Makefile config/Doxyfile config/Doxyfile-api)
 AC_OUTPUT
