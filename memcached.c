@@ -1739,6 +1739,7 @@ static bool binary_response_handler(const void *key, uint16_t keylen,
     }
 
     c->wbytes += need;
+    return true;
 }
 
 static void process_bin_packet(conn *c) {
