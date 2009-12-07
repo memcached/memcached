@@ -419,7 +419,7 @@ void item_set_cas(item* item, uint64_t val)
     }
 }
 
-char* item_get_key(const item* item)
+const char* item_get_key(const item* item)
 {
     char *ret = (void*)(item + 1);
     if (item->iflag & ITEM_WITH_CAS) {
@@ -431,7 +431,7 @@ char* item_get_key(const item* item)
 
 char* item_get_data(const item* item)
 {
-    return item_get_key(item) + item->nkey;
+    return ((char*)item_get_key(item)) + item->nkey;
 }
 
 uint8_t item_get_clsid(const item* item)

@@ -457,7 +457,7 @@ extern "C" {
         /**
          * Get the key from an item.
          */
-        char* (*item_get_key)(const item *item);
+        const char* (*item_get_key)(const item *item);
 
         /**
          * Get the data from an item.

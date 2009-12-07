@@ -123,7 +123,7 @@ struct default_engine {
 
 
 char* item_get_data(const item* item);
-char* item_get_key(const item* item);
+const char* item_get_key(const item* item);
 void item_set_cas(item* item, uint64_t val);
 uint64_t item_get_cas(const item* item);
 uint8_t item_get_clsid(const item* item);
