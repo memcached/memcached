@@ -76,6 +76,8 @@ static hash_item** _hashitem_before(struct default_engine *engine,
     return pos;
 }
 
+static void *assoc_maintenance_thread(void *arg);
+
 /* grows the hashtable to the next power of 2. */
 static void assoc_expand(struct default_engine *engine) {
     engine->assoc.old_hashtable = engine->assoc.primary_hashtable;
@@ -85,7 +87,18 @@ static void assoc_expand(struct default_engine *engine) {
         engine->assoc.hashpower++;
         engine->assoc.expanding = true;
         engine->assoc.expand_bucket = 0;
-        pthread_cond_signal(&engine->assoc.maintenance_cond);
+
+        /* start a thread to do the expansion */
+        int ret;
+        pthread_t tid;
+        if ((ret = pthread_create(&tid, NULL,
+                                  assoc_maintenance_thread, engine)) != 0) {
+            fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
+            engine->assoc.hashpower--;
+            engine->assoc.expanding = false;
+            free(engine->assoc.primary_hashtable);
+            engine->assoc.primary_hashtable =engine->assoc.old_hashtable;
+        }
     } else {
         engine->assoc.primary_hashtable = engine->assoc.old_hashtable;
         /* Bad news, but we can keep running. */
@@ -137,25 +150,24 @@ void assoc_delete(struct default_engine *engine, uint32_t hash, const char *key,
     assert(*before != 0);
 }
 
-static volatile int do_run_maintenance_thread = 1;
+
+
 #define DEFAULT_HASH_BULK_MOVE 1
-static int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
+int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 
 static void *assoc_maintenance_thread(void *arg) {
     struct default_engine *engine = arg;
-
-    while (do_run_maintenance_thread) {
-        int ii = 0;
-
-        /* Lock the cache, and bulk move multiple buckets to the new
-         * hash table. */
+    bool done = false;
+    do {
+        int ii;
         pthread_mutex_lock(&engine->cache_lock);
 
         for (ii = 0; ii < hash_bulk_move && engine->assoc.expanding; ++ii) {
             hash_item *it, *next;
             int bucket;
 
-            for (it = engine->assoc.old_hashtable[engine->assoc.expand_bucket]; NULL != it; it = next) {
+            for (it = engine->assoc.old_hashtable[engine->assoc.expand_bucket];
+                 NULL != it; it = next) {
                 next = it->h_next;
 
                 bucket = engine->server.hash(item_get_key(&it->item), it->item.nkey, 0) & hashmask(engine->assoc.hashpower);
@@ -164,7 +176,6 @@ static void *assoc_maintenance_thread(void *arg) {
             }
 
             engine->assoc.old_hashtable[engine->assoc.expand_bucket] = NULL;
-
             engine->assoc.expand_bucket++;
             if (engine->assoc.expand_bucket == hashsize(engine->assoc.hashpower - 1)) {
                 engine->assoc.expanding = false;
@@ -174,48 +185,12 @@ static void *assoc_maintenance_thread(void *arg) {
                 }
             }
         }
-
-        while (!engine->assoc.expanding) {
-            /* We are done expanding.. just wait for next invocation */
-            pthread_cond_wait(&engine->assoc.maintenance_cond, &engine->cache_lock);
+        if (!engine->assoc.expanding) {
+            done = true;
         }
-
-        if (engine->config.verbose > 1) {
-            fprintf(stderr, "Start hash table expansion\n");
-        }
-
         pthread_mutex_unlock(&engine->cache_lock);
-    }
+    } while (!done);
+
+    pthread_detach(pthread_self());
     return NULL;
 }
-
-static pthread_t maintenance_tid;
-
-int start_assoc_maintenance_thread(struct default_engine *engine) {
-    int ret;
-    char *env = getenv("MEMCACHED_HASH_BULK_MOVE");
-    if (env != NULL) {
-        hash_bulk_move = atoi(env);
-        if (hash_bulk_move == 0) {
-            hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
-        }
-    }
-    if ((ret = pthread_create(&maintenance_tid, NULL,
-                              assoc_maintenance_thread, engine)) != 0) {
-        fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
-        return -1;
-    }
-    return 0;
-}
-
-void stop_assoc_maintenance_thread(struct default_engine *engine) {
-    pthread_mutex_lock(&engine->cache_lock);
-    engine->assoc.do_run_maintenance_thread = 0;
-    pthread_cond_signal(&engine->assoc.maintenance_cond);
-    pthread_mutex_unlock(&engine->cache_lock);
-
-    /* Wait for the maintenance thread to stop */
-    pthread_join(maintenance_tid, NULL);
-}
-
-

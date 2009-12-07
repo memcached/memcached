@@ -104,9 +104,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
       .server = *api,
       .initialized = true,
       .assoc = {
-         .maintenance_cond = PTHREAD_COND_INITIALIZER,
          .hashpower = 16,
-         .do_run_maintenance_thread = 1
       },
       .slabs = {
          .lock = PTHREAD_MUTEX_INITIALIZER
@@ -169,10 +167,6 @@ static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
       return ret;
    }
 
-   if (start_assoc_maintenance_thread(se) != 0) {
-      return ENGINE_FAILED;
-   }
-
    return ENGINE_SUCCESS;
 }
 
@@ -180,8 +174,6 @@ static void default_destroy(ENGINE_HANDLE* handle) {
    struct default_engine* se = get_handle(handle);
 
    if (se->initialized) {
-      stop_assoc_maintenance_thread(se);
-
       pthread_mutex_destroy(&se->cache_lock);
       pthread_mutex_destroy(&se->stats.lock);
       se->initialized = false;

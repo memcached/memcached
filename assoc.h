@@ -2,8 +2,6 @@
 #define ASSOC_H
 
 struct assoc {
-   pthread_cond_t maintenance_cond;
-
    /* how many powers of 2's worth of buckets we use */
    unsigned int hashpower;
 
@@ -28,9 +26,6 @@ struct assoc {
     * far we've gotten so far. Ranges from 0 .. hashsize(hashpower - 1) - 1.
     */
    unsigned int expand_bucket;
-
-   volatile int do_run_maintenance_thread;
-
 };
 
 /* associative array */
