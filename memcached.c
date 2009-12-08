@@ -1517,6 +1517,12 @@ static void bin_list_sasl_mechs(conn *c) {
     write_bin_response(c, (char*)result_string, 0, 0, string_length);
 }
 
+struct sasl_tmp {
+    int ksize;
+    int vsize;
+    char data[]; /* data + ksize == value */
+};
+
 static void process_bin_sasl_auth(conn *c) {
     // Guard for handling disabled SASL on the server.
     if (!settings.sasl) {
@@ -1540,20 +1546,20 @@ static void process_bin_sasl_auth(conn *c) {
     char *key = binary_get_key(c);
     assert(key);
 
-    item *it;
-    ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->allocate(settings.engine.v0, c,
-                                       &it, key, nkey,
-                                       vlen, 0, 0);
-
-    if (ret != ENGINE_SUCCESS) {
+    size_t buffer_size = sizeof(struct sasl_tmp) + nkey + vlen + 2;
+    struct sasl_tmp *data = calloc(sizeof(struct sasl_tmp) + buffer_size, 1);
+    if (!data) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
         c->write_and_go = conn_swallow;
         return;
     }
 
-    c->item = it;
-    c->ritem = settings.engine.v1->item_get_data(it);
+    data->ksize = nkey;
+    data->vsize = vlen;
+    memcpy(data->data, key, nkey);
+
+    c->item = data;
+    c->ritem = data->data + nkey;
     c->rlbytes = vlen;
     conn_set_state(c, conn_nread);
     c->substate = bin_reading_sasl_auth_data;
@@ -1570,14 +1576,15 @@ static void process_bin_complete_sasl_auth(conn *c) {
     int nkey = c->binary_header.request.keylen;
     int vlen = c->binary_header.request.bodylen - nkey;
 
+    struct sasl_tmp *stmp = c->item;
     char mech[nkey+1];
-    memcpy(mech, settings.engine.v1->item_get_key((item*)c->item), nkey);
+    memcpy(mech, stmp->data, nkey);
     mech[nkey] = 0x00;
 
     if (settings.verbose)
         fprintf(stderr, "mech:  ``%s'' with %d bytes of data\n", mech, vlen);
 
-    const char *challenge = vlen == 0 ? NULL : settings.engine.v1->item_get_data((item*) c->item);
+    const char *challenge = vlen == 0 ? NULL : (stmp->data + nkey);
 
     int result=-1;
 
@@ -1603,8 +1610,9 @@ static void process_bin_complete_sasl_auth(conn *c) {
         break;
     }
 
-    settings.engine.v1->remove(settings.engine.v0, c, c->item);
-    settings.engine.v1->release(settings.engine.v0, c, c->item);
+    free(c->item);
+    c->item = NULL;
+    c->ritem = NULL;
 
     if (settings.verbose) {
         fprintf(stderr, "sasl result code:  %d\n", result);
