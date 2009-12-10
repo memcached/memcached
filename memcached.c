@@ -141,6 +141,16 @@ static enum transmit_result transmit(conn *c);
 #define REALTIME_MAXDELTA 60*60*24*30
 
 
+// Perform all callbacks of a given type for the given connection.
+static inline void perform_callbacks(ENGINE_EVENT_TYPE type,
+                                     const void *data,
+                                     conn *c) {
+    for (struct engine_event_handler *h = engine_event_handlers[type];
+         h; h = h->next) {
+        h->cb(c, type, data, h->cb_data);
+    }
+}
+
 /*
  * given time value that's either unix time or delta from current unix time,
  * return unix time. Use the fact that delta can't exceed one month
@@ -454,6 +464,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     MEMCACHED_CONN_ALLOCATE(c->sfd);
 
+    perform_callbacks(ON_CONNECT, NULL, c);
+
     return c;
 }
 
@@ -523,6 +535,8 @@ static void conn_close(conn *c) {
 
     if (settings.verbose > 1)
         fprintf(stderr, "<%d connection closed.\n", c->sfd);
+
+    perform_callbacks(ON_DISCONNECT, NULL, c);
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     close(c->sfd);
