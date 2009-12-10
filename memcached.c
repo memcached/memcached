@@ -1663,6 +1663,9 @@ static void process_bin_complete_sasl_auth(conn *c) {
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.auth_cmds++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
+        const void *uname = NULL;
+        sasl_getprop(c->sasl_conn, SASL_USERNAME, &uname);
+        perform_callbacks(ON_AUTH, uname, c);
         break;
     case SASL_CONTINUE:
         add_bin_header(c, PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE, 0, 0, outlen);
