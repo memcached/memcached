@@ -485,6 +485,8 @@ static void conn_cleanup(conn *c) {
         sasl_dispose(&c->sasl_conn);
         c->sasl_conn = NULL;
     }
+
+    c->engine_storage = NULL;
 }
 
 /*
@@ -4235,8 +4237,20 @@ static const char* get_auth_data(const void *cookie) {
     return (const char*)uname;
 }
 
-static void register_callback(ENGINE_EVENT_TYPE type, EVENT_CALLBACK cb) {
-    // Nothing yet.
+static void store_engine_specific(const void *cookie,
+                                  void *engine_data) {
+    conn *c = (conn*)cookie;
+    c->engine_storage = engine_data;
+}
+
+static void *get_engine_specific(const void *cookie) {
+    conn *c = (conn*)cookie;
+    return c->engine_storage;
+}
+
+static void register_callback(ENGINE_EVENT_TYPE type,
+                              EVENT_CALLBACK cb, const void *cb_data) {
+    // Nothing yet
 }
 
 static rel_time_t get_current_time(void)
@@ -4255,6 +4269,8 @@ static void *get_server_api(int interface)
     static struct server_interface_v1 server_api = {
         .register_callback = register_callback,
         .get_auth_data = get_auth_data,
+        .store_engine_specific = store_engine_specific,
+        .get_engine_specific = get_engine_specific,
         .server_version = get_server_version,
         .hash = hash,
         .realtime = realtime,

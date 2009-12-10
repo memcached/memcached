@@ -179,6 +179,29 @@ extern "C" {
         const char* (*get_auth_data)(const void *cookie);
 
         /**
+         * Store engine-specific session data on the given cookie.
+         *
+         * The engine interface allows for a single item to be
+         * attached to the connection that it can use to track
+         * connection-specific data throughout duration of the
+         * connection.
+         *
+         * @param cookie The cookie provided by the frontend
+         * @param engine_data pointer to opaque data
+         */
+        void (*store_engine_specific)(const void *cookie, void *engine_data);
+
+        /**
+         * Retrieve engine-specific session data for the given cookie.
+         *
+         * @param cookie The cookie provided by the frontend
+         *
+         * @return the data provied by store_engine_specific or NULL
+         *         if none was provided
+         */
+        void *(*get_engine_specific)(const void *cookie);
+
+        /**
          * Get the server's version number.
          *
          * @return the server's version number

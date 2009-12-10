@@ -329,6 +329,8 @@ struct conn {
         size_t offset;
     } stats;
 
+    void *engine_storage;
+
     /* Binary protocol stuff */
     /* This is where the binary header goes */
     protocol_binary_request_header binary_header;
