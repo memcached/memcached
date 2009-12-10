@@ -23,7 +23,7 @@
 #include "cache.h"
 #include "util.h"
 #include "memcached/protocol_binary.h"
-#include "config_parser.h"
+#include "memcached/config_parser.h"
 
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 

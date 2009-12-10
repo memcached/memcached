@@ -1,6 +1,8 @@
 bin_PROGRAMS = memcached
 pkginclude_HEADERS = include/memcached/protocol_binary.h \
-                     include/memcached/engine.h
+                     include/memcached/engine.h \
+                     include/memcached/config_parser.h
+
 noinst_PROGRAMS = sizes testapp timedrun
 
 BUILT_SOURCES=
@@ -19,7 +21,7 @@ memcached_SOURCES = memcached.c memcached.h \
                     trace.h cache.h sasl_defs.h
 
 noinst_LTLIBRARIES= libconfig.la libutil.la
-libconfig_la_SOURCES= config_parser.c config_parser.h
+libconfig_la_SOURCES= config_parser.c
 libutil_la_SOURCES= util.c util.h
 
 if BUILD_CACHE
