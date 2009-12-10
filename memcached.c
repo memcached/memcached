@@ -127,6 +127,8 @@ static time_t process_started;     /* when the process was started */
 static conn *listen_conn = NULL;
 static struct event_base *main_base;
 
+static struct engine_event_handler *engine_event_handlers[MAX_ENGINE_EVENT_TYPE + 1];
+
 enum transmit_result {
     TRANSMIT_COMPLETE,   /** All done writing. */
     TRANSMIT_INCOMPLETE, /** More data remaining to write. */
@@ -4250,7 +4252,13 @@ static void *get_engine_specific(const void *cookie) {
 
 static void register_callback(ENGINE_EVENT_TYPE type,
                               EVENT_CALLBACK cb, const void *cb_data) {
-    // Nothing yet
+    struct engine_event_handler *h =
+        calloc(sizeof(struct engine_event_handler), 1);
+    assert(h);
+    h->cb = cb;
+    h->cb_data = cb_data;
+    h->next = engine_event_handlers[type];
+    engine_event_handlers[type] = h;
 }
 
 static rel_time_t get_current_time(void)

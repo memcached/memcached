@@ -76,10 +76,12 @@ extern "C" {
      * changes in the server.
      */
     typedef enum {
-        ON_CONNECT,    /**< A new connection was established. */
-        ON_DISCONNECT, /**< A connection was terminated. */
-        ON_AUTH        /**< A connection was authenticated */
+        ON_CONNECT    = 0,      /**< A new connection was established. */
+        ON_DISCONNECT = 1,      /**< A connection was terminated. */
+        ON_AUTH       = 2       /**< A connection was authenticated */
     } ENGINE_EVENT_TYPE;
+
+    #define MAX_ENGINE_EVENT_TYPE 2
 
     /**
      * Time relative to server start. Smaller than time_t on 64-bit systems.
@@ -141,10 +143,12 @@ extern "C" {
      * @param cookie The cookie provided by the frontend
      * @param type the type of event
      * @param event_data additional event-specific data.
+     * @param cb_data data as registered
      */
     typedef void (*EVENT_CALLBACK)(const void *cookie,
                                    ENGINE_EVENT_TYPE type,
-                                   const void *event_data);
+                                   const void *event_data,
+                                   const void *cb_data);
 
     /**
      * Abstract interface to an engine.
@@ -163,9 +167,12 @@ extern "C" {
          *
          * @param type the type of event to register
          * @param cb the callback to fire when the event occurs
+         * @param cb_data opaque data to be given back to the caller
+         *        on event
          */
         void (*register_callback)(ENGINE_EVENT_TYPE type,
-                                  EVENT_CALLBACK cb);
+                                  EVENT_CALLBACK cb,
+                                  const void *cb_data);
 
         /**
          * Get the auth data for the connection associated with the

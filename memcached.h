@@ -227,6 +227,12 @@ struct settings {
     } engine;
 };
 
+struct engine_event_handler {
+    EVENT_CALLBACK cb;
+    const void *cb_data;
+    struct engine_event_handler *next;
+};
+
 extern struct stats stats;
 extern struct settings settings;
 
