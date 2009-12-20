@@ -73,7 +73,6 @@ static volatile rel_time_t current_time;
 /*
  * forward declarations
  */
-static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
 static int try_read_command(conn *c);
 
@@ -461,6 +460,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     stats.curr_conns++;
     stats.total_conns++;
     STATS_UNLOCK();
+
+    c->aiostat = ENGINE_SUCCESS;
+    c->ewouldblock = false;
 
     MEMCACHED_CONN_ALLOCATE(c->sfd);
 
@@ -1107,8 +1109,12 @@ static void complete_update_bin(conn *c) {
     *(settings.engine.v1->item_get_data(it) + it->nbytes - 2) = '\r';
     *(settings.engine.v1->item_get_data(it) + it->nbytes - 1) = '\n';
 
-    ENGINE_ERROR_CODE ret = settings.engine.v1->store(settings.engine.v0, c,
-                                                      it, &c->cas, c->store_op);
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->store(settings.engine.v0, c,
+                                        it, &c->cas, c->store_op);
+    }
 
 #ifdef ENABLE_DTRACE
     switch (c->cmd) {
@@ -1146,6 +1152,9 @@ static void complete_update_bin(conn *c) {
     case ENGINE_KEY_ENOENT:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
         break;
+    case ENGINE_EWOULDBLOCK:
+        c->ewouldblock = true;
+        break;
     default:
         if (c->store_op == OPERATION_ADD) {
             eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
@@ -1157,9 +1166,11 @@ static void complete_update_bin(conn *c) {
         write_bin_error(c, eno, 0);
     }
 
-    /* release the c->item reference */
-    settings.engine.v1->release(settings.engine.v0, c, c->item);
-    c->item = 0;
+    if (!c->ewouldblock) {
+        /* release the c->item reference */
+        settings.engine.v1->release(settings.engine.v0, c, c->item);
+        c->item = 0;
+    }
 }
 
 static void process_bin_get(conn *c) {
@@ -1178,7 +1189,11 @@ static void process_bin_get(conn *c) {
         fprintf(stderr, "\n");
     }
 
-    ENGINE_ERROR_CODE ret = settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey);
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey);
+    }
 
     if (ret == ENGINE_SUCCESS) {
         /* the length has two unnecessary bytes ("\r\n") */
@@ -1213,7 +1228,7 @@ static void process_bin_get(conn *c) {
         conn_set_state(c, conn_mwrite);
         /* Remember this command so we can garbage collect it later */
         c->item = it;
-    } else {
+    } else if (ret == ENGINE_KEY_ENOENT) {
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.get_cmds++;
         c->thread->stats.get_misses++;
@@ -1235,10 +1250,16 @@ static void process_bin_get(conn *c) {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
             }
         }
+    } else if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
+    } else {
+        /* @todo add proper error handling! */
+        fprintf(stderr, "Unknown error code: %d\n", ret);
+        abort();
     }
 
-    if (settings.detail_enabled) {
-        stats_prefix_record_get(key, nkey, NULL != it);
+    if (settings.detail_enabled && ret != ENGINE_EWOULDBLOCK) {
+        stats_prefix_record_get(key, nkey, ret == ENGINE_SUCCESS);
     }
 }
 
@@ -2010,12 +2031,17 @@ static void process_bin_update(conn *c) {
         stats_prefix_record_set(key, nkey);
     }
 
-    ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->allocate(settings.engine.v0, c,
-                                       &it, key, nkey,
-                                       vlen + 2,
-                                       req->message.body.flags,
-                                       realtime(req->message.body.expiration));
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    c->ewouldblock = false;
+
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->allocate(settings.engine.v0, c,
+                                           &it, key, nkey,
+                                           vlen + 2,
+                                           req->message.body.flags,
+                                           realtime(req->message.body.expiration));
+    }
 
     if (ret == ENGINE_SUCCESS) {
         settings.engine.v1->item_set_cas(it, c->binary_header.request.cas);
@@ -2043,6 +2069,8 @@ static void process_bin_update(conn *c) {
         c->rlbytes = vlen;
         conn_set_state(c, conn_nread);
         c->substate = bin_read_set_value;
+    } else if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
     } else {
         if (ret == ENGINE_E2BIG) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
@@ -2053,6 +2081,7 @@ static void process_bin_update(conn *c) {
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (c->cmd == PROTOCOL_BINARY_CMD_SET) {
+            /* @todo fix this for the ASYNC interface! */
             if (settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey) == ENGINE_SUCCESS) {
                 settings.engine.v1->remove(settings.engine.v0, c, it);
                 settings.engine.v1->release(settings.engine.v0, c, it);
@@ -2084,10 +2113,16 @@ static void process_bin_append_prepend(conn *c) {
         stats_prefix_record_set(key, nkey);
     }
 
-    ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->allocate(settings.engine.v0, c,
-                                       &it, key, nkey,
-                                       vlen + 2, 0, 0);
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    c->ewouldblock = false;
+
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->allocate(settings.engine.v0, c,
+                                           &it, key, nkey,
+                                           vlen + 2, 0, 0);
+    }
+
     if (ret == ENGINE_SUCCESS) {
         settings.engine.v1->item_set_cas(it, c->binary_header.request.cas);
 
@@ -2107,6 +2142,8 @@ static void process_bin_append_prepend(conn *c) {
         c->rlbytes = vlen;
         conn_set_state(c, conn_nread);
         c->substate = bin_read_set_value;
+    } else if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
     } else {
         if (ret == ENGINE_E2BIG) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
@@ -2784,10 +2821,16 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         stats_prefix_record_set(key, nkey);
     }
 
-    ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->allocate(settings.engine.v0, c,
-                                       &it, key, nkey,
-                                       vlen, flags, realtime(exptime));
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    c->ewouldblock = false;
+
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->allocate(settings.engine.v0, c,
+                                           &it, key, nkey,
+                                           vlen, flags, realtime(exptime));
+    }
+
     if (ret == ENGINE_SUCCESS) {
         settings.engine.v1->item_set_cas(it, req_cas_id);
 
@@ -2796,6 +2839,8 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         c->rlbytes = it->nbytes;
         c->store_op = store_op;
         conn_set_state(c, conn_nread);
+    } else if (ret == ENGINE_EWOULDBLOCK) {
+        c->ewouldblock = true;
     } else {
         if (ret == ENGINE_E2BIG) {
             out_string(c, "SERVER_ERROR object too large for cache");
@@ -3414,7 +3459,7 @@ static enum transmit_result transmit(conn *c) {
     }
 }
 
-static void drive_machine(conn *c) {
+void drive_machine(conn *c) {
     bool stop = false;
     int sfd, flags = 1;
     socklen_t addrlen;
@@ -3525,7 +3570,14 @@ static void drive_machine(conn *c) {
 
         case conn_nread:
             if (c->rlbytes == 0) {
+                c->ewouldblock = false;
+                pthread_mutex_lock(&c->thread->mutex);
                 complete_nread(c);
+                if (c->ewouldblock) {
+                    event_del(&c->event);
+                    stop = 1;
+                }
+                pthread_mutex_unlock(&c->thread->mutex);
                 break;
             }
             /* first check if we have leftovers in the conn_read buffer */

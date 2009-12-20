@@ -210,7 +210,8 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     }
     cq_init(me->new_conn_queue);
 
-    if (pthread_mutex_init(&me->stats.mutex, NULL) != 0) {
+    if ((pthread_mutex_init(&me->stats.mutex, NULL) != 0) ||
+        (pthread_mutex_init(&me->mutex, NULL) != 0)) {
         perror("Failed to initialize mutex");
         exit(EXIT_FAILURE);
     }
@@ -278,11 +279,42 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         }
         cqi_free(item);
     }
+
+    conn* pending = NULL;
+    pthread_mutex_lock(&me->mutex);
+    if (me->pending_io != NULL) {
+        pending = me->pending_io;
+        me->pending_io = NULL;
+    }
+    pthread_mutex_unlock(&me->mutex);
+    if (pending != NULL) {
+        do {
+            conn *c = pending;
+            pending = pending->next;
+            c->next = NULL;
+            assert(me == c->thread);
+            event_add(&c->event, 0);
+            drive_machine(c);
+        } while (pending != NULL);
+    }
 }
 
 void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
 {
-    /* @todo implement me */
+    struct conn *conn = (struct conn *)cookie;
+    conn->aiostat = status;
+    LIBEVENT_THREAD *thr = conn->thread;
+
+    pthread_mutex_lock(&thr->mutex);
+    assert(conn->next == NULL);
+    conn->next = thr->pending_io;
+    thr->pending_io = conn;
+    pthread_mutex_unlock(&thr->mutex);
+
+    /* kick the thread in the butt */
+    if (write(thr->notify_send_fd, "", 1) != 1) {
+        perror("Writing to thread notify pipe");
+    }
 }
 
 /* Which thread we assigned a connection to most recently. */
