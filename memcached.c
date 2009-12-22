@@ -4794,6 +4794,11 @@ int main (int argc, char **argv) {
     /* initialize main thread libevent instance */
     main_base = event_init();
 
+    // This will configure stdin checks if so configured
+    if (!do_daemonize) {
+        init_check_stdin(main_base);
+    }
+
     /* Load the storage engine */
     if (!load_engine(engine, engine_config)) {
         /* Error already reported */
@@ -4887,7 +4892,6 @@ int main (int argc, char **argv) {
     event_base_loop(main_base, 0);
 
     settings.engine.v1->destroy(settings.engine.v0);
-
 
     /* remove the PID file if we're a daemon */
     if (do_daemonize)

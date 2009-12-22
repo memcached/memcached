@@ -396,6 +396,7 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
 void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status);
 void drive_machine(conn *c);
 
+void init_check_stdin(struct event_base *base);
 
 #if HAVE_DROP_PRIVILEGES
 extern void drop_privileges(void);
