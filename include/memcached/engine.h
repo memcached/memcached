@@ -5,8 +5,10 @@
 #include <sys/types.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "memcached/protocol_binary.h"
+#include "memcached/config_parser.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -243,6 +245,11 @@ extern "C" {
          * The current time.
          */
         rel_time_t (*get_current_time)(void);
+
+        /**
+         * parser config options
+         */
+        int (*parse_config)(const char *str, struct config_item items[], FILE *error);
     } SERVER_HANDLE_V1;
 
     typedef void* (*GET_SERVER_API)(int interface);

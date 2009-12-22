@@ -4349,7 +4349,8 @@ static void *get_server_api(int interface)
         .hash = hash,
         .realtime = realtime,
         .notify_io_complete = notify_io_complete,
-        .get_current_time = get_current_time
+        .get_current_time = get_current_time,
+        .parse_config = parse_config
     };
 
     if (interface != 1) {

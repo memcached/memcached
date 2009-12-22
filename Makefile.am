@@ -37,10 +37,10 @@ if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
 
-memcached_LDADD = libutil.la @PROFILER_LDFLAGS@
+memcached_LDADD = libconfig.la libutil.la @PROFILER_LDFLAGS@
 memcached_LDFLAGS =-R '$(libdir)'
 memcached_CFLAGS = @PROFILER_FLAGS@
-memcached_DEPENDENCIES = libutil.la
+memcached_DEPENDENCIES = libconfig.la libutil.la
 CLEANFILES=
 
 
@@ -62,14 +62,12 @@ default_engine_la_SOURCES= \
                     items.c items.h \
                     slabs.c slabs.h
 
-default_engine_la_DEPENDENCIES= libconfig.la libutil.la
-default_engine_la_LIBADD= libconfig.la libutil.la
+default_engine_la_DEPENDENCIES= libutil.la
+default_engine_la_LIBADD=  libutil.la
 default_engine_la_LDFLAGS= -module -dynamic
 
 if INCLUDE_DEFAULT_ENGINE
 memcached_SOURCES += $(default_engine_la_SOURCES)
-memcached_DEPENDENCIES += libconfig.la
-memcached_LDADD += libconfig.la
 endif
 
 memcached_dtrace.h: memcached_dtrace.d
