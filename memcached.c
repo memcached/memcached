@@ -4131,7 +4131,7 @@ static void usage(void) {
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
     printf("-I            Override the size of each slab page. Adjusts max item size\n"
            "              (default: 1mb, min: 1k, max: 128m)\n");
-#ifdef ENABLE_SASL
+#if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
     printf("-S            Turn on Sasl authentication\n");
 #endif
     return;
@@ -4663,7 +4663,7 @@ int main (int argc, char **argv) {
             engine_config = optarg;
             break;
         case 'S': /* set Sasl authentication to true. Default is false */
-#ifndef ENABLE_SASL
+#if !(defined(ENABLE_SASL) || defined(ENABLE_ISASL))
             fprintf(stderr, "This server is not built with SASL support.\n");
             exit(EX_USAGE);
 #endif

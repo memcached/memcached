@@ -39,6 +39,11 @@ memcached_SOURCES += sasl_defs.c
 endif
 
 memcached_LDADD = libconfig.la libutil.la @PROFILER_LDFLAGS@
+
+if ENABLE_ISASL
+memcached_SOURCES += sasl_defs.c isasl.c
+endif
+
 memcached_LDFLAGS =-R '$(libdir)'
 memcached_CFLAGS = @PROFILER_FLAGS@
 memcached_DEPENDENCIES = libconfig.la libutil.la

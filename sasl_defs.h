@@ -4,9 +4,20 @@
 // Longest one I could find was ``9798-U-RSA-SHA1-ENC''
 #define MAX_SASL_MECH_LEN 32
 
+#if defined(HAVE_SASL_SASL_H) || defined(ENABLE_ISASL)
+#define HAVE_SASL_HDR 1
+#else
+#define HAVE_SASL_HDR 0
+#endif /* have some kind of sasl header */
+
 #if defined(HAVE_SASL_SASL_H) && defined(ENABLE_SASL)
 
 #include <sasl/sasl.h>
+void init_sasl(void);
+
+#elif defined(ENABLE_ISASL)
+
+#include "isasl.h"
 void init_sasl(void);
 
 #else /* End of SASL support */

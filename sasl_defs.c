@@ -102,6 +102,7 @@ static int sasl_getconf(void *context, const char **path)
 }
 #endif
 
+#ifdef ENABLE_SASL
 static int sasl_log(void *context, int level, const char *message)
 {
     bool log = true;
@@ -135,13 +136,16 @@ static int sasl_log(void *context, int level, const char *message)
 
     return SASL_OK;
 }
+#endif
 
 static sasl_callback_t sasl_callbacks[] = {
 #ifdef ENABLE_SASL_PWDB
    { SASL_CB_SERVER_USERDB_CHECKPASS, sasl_server_userdb_checkpass, NULL },
 #endif
 
+#ifdef ENABLE_SASL
    { SASL_CB_LOG, sasl_log, NULL },
+#endif
 
 #ifdef HAVE_SASL_CB_GETCONF
    { SASL_CB_GETCONF, sasl_getconf, NULL },
