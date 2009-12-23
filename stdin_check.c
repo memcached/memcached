@@ -14,7 +14,7 @@
 static void check_stdin_event(int fd, short event, void *arg)
 {
     char buf[100];
-    int bytesread = read(fd, buf, sizeof(buf));
+    int bytesread = read(STDIN_FILENO, buf, sizeof(buf));
     buf[bytesread] = '\0';
 
     if (settings.verbose > 1) {
@@ -48,6 +48,27 @@ static void init_check_stdin_event(struct event_base *base)
     }
 }
 
+static void* check_stdin_thread(void* arg)
+{
+    while (!feof(stdin)) {
+        getc(stdin);
+    }
+
+    fprintf(stderr, "EOF on stdin.  Exiting\n");
+    exit(0);
+    /* NOTREACHED */
+    return NULL;
+}
+
+static void init_check_stdin_thread(void)
+{
+    static pthread_t t;
+    if(pthread_create(&t, NULL, check_stdin_thread, NULL) != 0) {
+        perror("couldn't create stdin checking thread.");
+        exit(EX_OSERR);
+    }
+}
+
 void init_check_stdin(struct event_base *base)
 {
     char *type = getenv("MEMCACHED_CHECK_STDIN");
@@ -57,8 +78,11 @@ void init_check_stdin(struct event_base *base)
 
     if (strcmp(type, "event") == 0) {
         init_check_stdin_event(base);
+    } else if (strcmp(type, "thread") == 0) {
+        init_check_stdin_thread();
     } else {
-        fprintf(stderr, "Unknown stdin check type:  %s\n", type);
+        fprintf(stderr, "Unknown stdin check type:  %s "
+                "(supported types: event, thread)\n", type);
         exit(EX_USAGE);
     }
 }
