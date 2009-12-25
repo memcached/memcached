@@ -57,7 +57,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
                                             uint64_t *result);
 static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
                                        const void* cookie, time_t when);
-static ENGINE_ERROR_CODE initalize_configuration(struct config *config,
+static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
                                                  const char *cfg_str);
 static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  const void* cookie,
@@ -151,7 +151,7 @@ static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
                                             const char* config_str) {
    struct default_engine* se = get_handle(handle);
 
-   ENGINE_ERROR_CODE ret = initalize_configuration(&se->config, config_str);
+   ENGINE_ERROR_CODE ret = initalize_configuration(se, config_str);
    if (ret != ENGINE_SUCCESS) {
       return ret;
    }
@@ -348,7 +348,7 @@ static void default_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
    pthread_mutex_unlock(&engine->stats.lock);
 }
 
-static ENGINE_ERROR_CODE initalize_configuration(struct config *config,
+static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
                                                  const char *cfg_str) {
    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
@@ -356,34 +356,34 @@ static ENGINE_ERROR_CODE initalize_configuration(struct config *config,
       struct config_item items[] = {
          { .key = "use_cas",
            .datatype = DT_BOOL,
-           .value.dt_bool = &config->use_cas },
+           .value.dt_bool = &se->config.use_cas },
          { .key = "verbose",
            .datatype = DT_SIZE,
-           .value.dt_size = &config->verbose },
+           .value.dt_size = &se->config.verbose },
          { .key = "eviction",
            .datatype = DT_BOOL,
-           .value.dt_bool = &config->evict_to_free },
+           .value.dt_bool = &se->config.evict_to_free },
          { .key = "cache_size",
            .datatype = DT_SIZE,
-           .value.dt_size = &config->maxbytes },
+           .value.dt_size = &se->config.maxbytes },
          { .key = "preallocate",
            .datatype = DT_BOOL,
-           .value.dt_bool = &config->preallocate },
+           .value.dt_bool = &se->config.preallocate },
          { .key = "factor",
            .datatype = DT_FLOAT,
-           .value.dt_float = &config->factor },
+           .value.dt_float = &se->config.factor },
          { .key = "chunk_size",
            .datatype = DT_SIZE,
-           .value.dt_size = &config->chunk_size },
+           .value.dt_size = &se->config.chunk_size },
          { .key = "item_size_max",
            .datatype = DT_SIZE,
-           .value.dt_size = &config->item_size_max },
+           .value.dt_size = &se->config.item_size_max },
          { .key = "config_file",
            .datatype = DT_CONFIGFILE },
          { .key = NULL}
       };
 
-      ret = parse_config(cfg_str, items, stderr);
+      ret = se->server.parse_config(cfg_str, items, stderr);
    }
 
    return ENGINE_SUCCESS;
