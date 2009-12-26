@@ -5,7 +5,7 @@ Dependencies:
 If using Linux, you need a kernel with epoll.  Sure, libevent will
 work with normal select, but it sucks.
 
-epoll isn't in Linux 2.4 yet, but there's a backport at:
+epoll isn't in Linux 2.4, but there's a backport at:
 
     http://www.xmailserver.org/linux-patches/nio-improve.html
 
@@ -21,5 +21,5 @@ should never go to disk, or you've lost the whole point of it)
 
 The memcached website is at:
 
-    http://www.danga.com/memcached/
+    http://www.memcached.org
 
