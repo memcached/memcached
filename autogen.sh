@@ -19,7 +19,7 @@ AUTOHEADER=${AUTOHEADER:-autoheader}
 $AUTOHEADER || exit 1
 
 echo "automake..."
-AUTOMAKE=`which automake-1.10 || which automake-1.9 || which automake-1.7 || exit 1`
+AUTOMAKE=`which automake-1.11 || which automake-1.10 || which automake-1.9 || which automake-1.7 || exit 1`
 $AUTOMAKE --foreign --add-missing || automake --gnu --add-missing || exit 1
 
 echo "autoconf..."
