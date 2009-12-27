@@ -11,7 +11,7 @@
 perl version.pl
 
 echo "aclocal..."
-ACLOCAL=`which aclocal-1.10 || which aclocal-1.9 || which aclocal19 || which aclocal-1.7 || which aclocal17 || which aclocal-1.5 || which aclocal15 || which aclocal || exit 1`
+ACLOCAL=`which aclocal-1.11 || which aclocal-1.10 || which aclocal-1.9 || which aclocal19 || which aclocal-1.7 || which aclocal17 || which aclocal-1.5 || which aclocal15 || which aclocal || exit 1`
 $ACLOCAL || exit 1
 
 echo "autoheader..."
