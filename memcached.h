@@ -257,7 +257,7 @@ struct settings {
     int port;
     int udpport;
     char *inter;
-    int verbose;
+    unsigned int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
     int evict_to_free;
     char *socketpath;   /* path to unix socket if using local socket */

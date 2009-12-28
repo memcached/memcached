@@ -13,7 +13,7 @@ void init_sasl(void) {
         fprintf(stderr, "Error initializing sasl.\n");
         exit(EXIT_FAILURE);
     } else {
-        if (settings.verbose) {
+        if (unlikely(settings.verbose)) {
             fprintf(stderr, "Initialized SASL.\n");
         }
     }
