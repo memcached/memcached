@@ -257,7 +257,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     char buf[1];
 
     if (read(fd, buf, 1) != 1)
-        if (settings.verbose > 0)
+        if (unlikely(settings.verbose))
             fprintf(stderr, "Can't read from libevent pipe\n");
 
     item = cq_pop(me->new_conn_queue);
@@ -270,7 +270,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                 fprintf(stderr, "Can't listen for events on UDP socket\n");
                 exit(1);
             } else {
-                if (settings.verbose > 0) {
+                if (unlikely(settings.verbose)) {
                     fprintf(stderr, "Can't listen for events on fd %d\n",
                         item->sfd);
                 }

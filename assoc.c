@@ -121,7 +121,7 @@ static void assoc_expand(void) {
 
     primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));
     if (primary_hashtable) {
-        if (settings.verbose > 1)
+        if (unlikely(settings.verbose > 1))
             fprintf(stderr, "Hash table expansion starting\n");
         hashpower++;
         expanding = true;
@@ -213,7 +213,7 @@ static void *assoc_maintenance_thread(void *arg) {
             if (expand_bucket == hashsize(hashpower - 1)) {
                 expanding = false;
                 free(old_hashtable);
-                if (settings.verbose > 1)
+                if (unlikely(settings.verbose > 1))
                     fprintf(stderr, "Hash table expansion done\n");
             }
         }

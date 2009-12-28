@@ -377,7 +377,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->request_addr_size = 0;
     }
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         if (init_state == conn_listening) {
             fprintf(stderr, "<%d server listening (%s)\n", sfd,
                 prot_text(c->protocol));
@@ -503,7 +503,7 @@ static void conn_close(conn *c) {
     /* delete the event, the socket and the conn */
     event_del(&c->event);
 
-    if (settings.verbose > 1)
+    if (unlikely(settings.verbose > 1))
         fprintf(stderr, "<%d connection closed.\n", c->sfd);
 
     MEMCACHED_CONN_RELEASE(c->sfd);
@@ -608,7 +608,7 @@ static void conn_set_state(conn *c, enum conn_states state) {
     assert(state >= conn_listening && state < conn_max_state);
 
     if (state != c->state) {
-        if (settings.verbose > 2) {
+        if (unlikely(settings.verbose > 2)) {
             fprintf(stderr, "%d: going from %s to %s\n",
                     c->sfd, state_text(c->state),
                     state_text(state));
@@ -754,14 +754,14 @@ static void out_string(conn *c, const char *str) {
     assert(c != NULL);
 
     if (c->noreply) {
-        if (settings.verbose > 1)
+        if (unlikely(settings.verbose))
             fprintf(stderr, ">%d NOREPLY %s\n", c->sfd, str);
         c->noreply = false;
         conn_set_state(c, conn_new_cmd);
         return;
     }
 
-    if (settings.verbose > 1)
+    if (unlikely(settings.verbose > 1))
         fprintf(stderr, ">%d %s\n", c->sfd, str);
 
     /* Nuke a partial output... */
@@ -907,7 +907,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     header->response.opaque = c->opaque;
     header->response.cas = htonll(c->cas);
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         int ii;
         fprintf(stderr, ">%d Writing bin response:", c->sfd);
         for (ii = 0; ii < sizeof(header->bytes); ++ii) {
@@ -960,7 +960,7 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
         fprintf(stderr, ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
     }
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         fprintf(stderr, ">%d Writing an error: %s\n", c->sfd, errstr);
     }
 
@@ -1011,7 +1011,7 @@ static void complete_incr_bin(conn *c) {
     key = binary_get_key(c);
     nkey = c->binary_header.request.keylen;
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         int i;
         fprintf(stderr, "incr ");
 
@@ -1168,7 +1168,7 @@ static void process_bin_get(conn *c) {
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         int ii;
         fprintf(stderr, "<%d GET ", c->sfd);
         for (ii = 0; ii < nkey; ++ii) {
@@ -1350,7 +1350,7 @@ static void process_bin_stat(conn *c) {
     char *subcommand = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         int ii;
         fprintf(stderr, "<%d STATS ", c->sfd);
         for (ii = 0; ii < nkey; ++ii) {
@@ -1428,13 +1428,13 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
         }
 
         if (nsize != c->rsize) {
-            if (settings.verbose > 1) {
+            if (unlikely(settings.verbose > 1)) {
                 fprintf(stderr, "%d: Need to grow buffer from %lu to %lu\n",
                         c->sfd, (unsigned long)c->rsize, (unsigned long)nsize);
             }
             char *newm = realloc(c->rbuf, nsize);
             if (newm == NULL) {
-                if (settings.verbose) {
+                if (unlikely(settings.verbose)) {
                     fprintf(stderr, "%d: Failed to grow buffer.. closing connection\n",
                             c->sfd);
                 }
@@ -1450,7 +1450,7 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
         if (c->rbuf != c->rcurr) {
             memmove(c->rbuf, c->rcurr, c->rbytes);
             c->rcurr = c->rbuf;
-            if (settings.verbose > 1) {
+            if (unlikely(settings.verbose > 1)) {
                 fprintf(stderr, "%d: Repack input buffer\n", c->sfd);
             }
         }
@@ -1464,7 +1464,7 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
 /* Just write an error message and disconnect the client */
 static void handle_binary_protocol_error(conn *c) {
     write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
-    if (settings.verbose) {
+    if (unlikely(settings.verbose)) {
         fprintf(stderr, "Protocol error (opcode %02x), close connection %d\n",
                 c->binary_header.request.opcode, c->sfd);
     }
@@ -1482,7 +1482,7 @@ static void init_sasl_conn(conn *c) {
                                    NULL, NULL, NULL, NULL,
                                    NULL, 0, &c->sasl_conn);
         if (result != SASL_OK) {
-            if (settings.verbose) {
+            if (unlikely(settings.verbose)) {
                 fprintf(stderr, "Failed to initialize SASL conn.\n");
             }
             c->sasl_conn = NULL;
@@ -1510,7 +1510,7 @@ static void bin_list_sasl_mechs(conn *c) {
                              NULL);
     if (result != SASL_OK) {
         /* Perhaps there's a better error for this... */
-        if (settings.verbose) {
+        if (unlikely(settings.verbose)) {
             fprintf(stderr, "Failed to list SASL mechanisms.\n");
         }
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
@@ -1572,7 +1572,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
     memcpy(mech, ITEM_key((item*)c->item), nkey);
     mech[nkey] = 0x00;
 
-    if (settings.verbose)
+    if (unlikely(settings.verbose))
         fprintf(stderr, "mech:  ``%s'' with %d bytes of data\n", mech, vlen);
 
     const char *challenge = vlen == 0 ? NULL : ITEM_data((item*) c->item);
@@ -1594,7 +1594,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
         assert(false); /* CMD should be one of the above */
         /* This code is pretty much impossible, but makes the compiler
            happier */
-        if (settings.verbose) {
+        if (unlikely(settings.verbose)) {
             fprintf(stderr, "Unhandled command %d with challenge %s\n",
                     c->cmd, challenge);
         }
@@ -1603,7 +1603,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
 
     item_unlink(c->item);
 
-    if (settings.verbose) {
+    if (unlikely(settings.verbose)) {
         fprintf(stderr, "sasl result code:  %d\n", result);
     }
 
@@ -1623,7 +1623,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
         c->write_and_go = conn_new_cmd;
         break;
     default:
-        if (settings.verbose)
+        if (unlikely(settings.verbose))
             fprintf(stderr, "Unknown sasl response:  %d\n", result);
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
         pthread_mutex_lock(&c->thread->stats.mutex);
@@ -1652,7 +1652,7 @@ static bool authenticated(conn *c) {
         }
     }
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         fprintf(stderr, "authenticated() in cmd 0x%02x is %s\n",
                 c->cmd, rv ? "true" : "false");
     }
@@ -1846,7 +1846,7 @@ static void process_bin_update(conn *c) {
 
     vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         int ii;
         if (c->cmd == PROTOCOL_BINARY_CMD_ADD) {
             fprintf(stderr, "<%d ADD ", c->sfd);
@@ -1931,7 +1931,7 @@ static void process_bin_append_prepend(conn *c) {
     nkey = c->binary_header.request.keylen;
     vlen = c->binary_header.request.bodylen - nkey;
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         fprintf(stderr, "Value len is %d\n", vlen);
     }
 
@@ -2006,7 +2006,7 @@ static void process_bin_delete(conn *c) {
 
     assert(c != NULL);
 
-    if (settings.verbose > 1) {
+    if (unlikely(settings.verbose > 1)) {
         fprintf(stderr, "Deleting %s\n", key);
     }
 
@@ -2145,7 +2145,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c) {
             c->thread->stats.slab_stats[old_it->slabs_clsid].cas_badval++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
-            if(settings.verbose > 1) {
+            if (unlikely(settings.verbose > 1)) {
                 fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
                         (unsigned long long)ITEM_get_cas(old_it),
                         (unsigned long long)ITEM_get_cas(it));
@@ -2621,7 +2621,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 }
 
 
-                if (settings.verbose > 1)
+                if (unlikely(settings.verbose > 1))
                     fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
 
                 /* item_get() has incremented it->refcount for us */
@@ -2662,7 +2662,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         c->suffixleft = i;
     }
 
-    if (settings.verbose > 1)
+    if (unlikely(settings.verbose > 1))
         fprintf(stderr, ">%d END\n", c->sfd);
 
     /*
@@ -2958,7 +2958,7 @@ static void process_command(conn *c, char *command) {
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
 
-    if (settings.verbose > 1)
+    if (unlikely(settings.verbose > 1))
         fprintf(stderr, "<%d %s\n", c->sfd, command);
 
     /*
@@ -3082,7 +3082,7 @@ static int try_read_command(conn *c) {
             c->protocol = ascii_prot;
         }
 
-        if (settings.verbose > 1) {
+        if (unlikely(settings.verbose > 1)) {
             fprintf(stderr, "%d: Client using the %s protocol\n", c->sfd,
                     prot_text(c->protocol));
         }
@@ -3099,7 +3099,7 @@ static int try_read_command(conn *c) {
                 /* must realign input buffer */
                 memmove(c->rbuf, c->rcurr, c->rbytes);
                 c->rcurr = c->rbuf;
-                if (settings.verbose > 1) {
+                if (unlikely(settings.verbose > 1)) {
                     fprintf(stderr, "%d: Realign input buffer\n", c->sfd);
                 }
             }
@@ -3107,7 +3107,7 @@ static int try_read_command(conn *c) {
             protocol_binary_request_header* req;
             req = (protocol_binary_request_header*)c->rcurr;
 
-            if (settings.verbose > 1) {
+            if (unlikely(settings.verbose > 1)) {
                 /* Dump the packet before we convert it to host order */
                 int ii;
                 fprintf(stderr, "<%d Read binary protocol data:", c->sfd);
@@ -3126,7 +3126,7 @@ static int try_read_command(conn *c) {
             c->binary_header.request.cas = ntohll(req->request.cas);
 
             if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
-                if (settings.verbose) {
+                if (unlikely(settings.verbose)) {
                     fprintf(stderr, "Invalid magic:  %x\n",
                             c->binary_header.request.magic);
                 }
@@ -3269,7 +3269,7 @@ static enum try_read_result try_read_network(conn *c) {
             ++num_allocs;
             char *new_rbuf = realloc(c->rbuf, c->rsize * 2);
             if (!new_rbuf) {
-                if (settings.verbose > 0)
+                if (unlikely(settings.verbose > 0))
                     fprintf(stderr, "Couldn't realloc input buffer\n");
                 c->rbytes = 0; /* ignore what we read */
                 out_string(c, "SERVER_ERROR out of memory reading request");
@@ -3399,7 +3399,7 @@ static enum transmit_result transmit(conn *c) {
         }
         if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                if (settings.verbose > 0)
+                if (unlikely(settings.verbose > 0))
                     fprintf(stderr, "Couldn't update event\n");
                 conn_set_state(c, conn_closing);
                 return TRANSMIT_HARD_ERROR;
@@ -3408,7 +3408,7 @@ static enum transmit_result transmit(conn *c) {
         }
         /* if res == 0 or res == -1 and error is not EAGAIN or EWOULDBLOCK,
            we have a real error, on which we close the connection */
-        if (settings.verbose > 0)
+        if (unlikely(settings.verbose > 0))
             perror("Failed to write, and not due to blocking");
 
         if (IS_UDP(c->transport))
@@ -3441,7 +3441,7 @@ static void drive_machine(conn *c) {
                     /* these are transient, so don't log anything */
                     stop = true;
                 } else if (errno == EMFILE) {
-                    if (settings.verbose > 0)
+                    if (unlikely(settings.verbose > 0))
                         fprintf(stderr, "Too many open connections\n");
                     accept_new_conns(false);
                     stop = true;
@@ -3465,7 +3465,7 @@ static void drive_machine(conn *c) {
 
         case conn_waiting:
             if (!update_event(c, EV_READ | EV_PERSIST)) {
-                if (settings.verbose > 0)
+                if (unlikely(settings.verbose > 0))
                     fprintf(stderr, "Couldn't update event\n");
                 conn_set_state(c, conn_closing);
                 break;
@@ -3521,7 +3521,7 @@ static void drive_machine(conn *c) {
                        because that should be possible ;-)
                     */
                     if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                        if (settings.verbose > 0)
+                        if (unlikely(settings.verbose > 0))
                             fprintf(stderr, "Couldn't update event\n");
                         conn_set_state(c, conn_closing);
                     }
@@ -3569,7 +3569,7 @@ static void drive_machine(conn *c) {
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    if (settings.verbose > 0)
+                    if (unlikely(settings.verbose > 0))
                         fprintf(stderr, "Couldn't update event\n");
                     conn_set_state(c, conn_closing);
                     break;
@@ -3578,7 +3578,7 @@ static void drive_machine(conn *c) {
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */
-            if (settings.verbose > 0) {
+            if (unlikely(settings.verbose > 0)) {
                 fprintf(stderr, "Failed to read, and not due to blocking:\n"
                         "errno: %d %s \n"
                         "rcurr=%lx ritem=%lx rbuf=%lx rlbytes=%d rsize=%d\n",
@@ -3620,7 +3620,7 @@ static void drive_machine(conn *c) {
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    if (settings.verbose > 0)
+                    if (unlikely(settings.verbose > 0))
                         fprintf(stderr, "Couldn't update event\n");
                     conn_set_state(c, conn_closing);
                     break;
@@ -3629,7 +3629,7 @@ static void drive_machine(conn *c) {
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */
-            if (settings.verbose > 0)
+            if (unlikely(settings.verbose > 0))
                 fprintf(stderr, "Failed to read, and not due to blocking\n");
             conn_set_state(c, conn_closing);
             break;
@@ -3642,7 +3642,7 @@ static void drive_machine(conn *c) {
              */
             if (c->iovused == 0 || (IS_UDP(c->transport) && c->iovused == 1)) {
                 if (add_iov(c, c->wcurr, c->wbytes) != 0) {
-                    if (settings.verbose > 0)
+                    if (unlikely(settings.verbose > 0))
                         fprintf(stderr, "Couldn't build response\n");
                     conn_set_state(c, conn_closing);
                     break;
@@ -3653,7 +3653,7 @@ static void drive_machine(conn *c) {
 
         case conn_mwrite:
           if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
-            if (settings.verbose > 0)
+            if (unlikely(settings.verbose > 0))
               fprintf(stderr, "Failed to build UDP headers\n");
             conn_set_state(c, conn_closing);
             break;
@@ -3687,7 +3687,7 @@ static void drive_machine(conn *c) {
                     }
                     conn_set_state(c, c->write_and_go);
                 } else {
-                    if (settings.verbose > 0)
+                    if (unlikely(settings.verbose > 0))
                         fprintf(stderr, "Unexpected state %d\n", c->state);
                     conn_set_state(c, conn_closing);
                 }
@@ -3730,7 +3730,7 @@ void event_handler(const int fd, const short which, void *arg) {
 
     /* sanity */
     if (fd != c->sfd) {
-        if (settings.verbose > 0)
+        if (unlikely(settings.verbose > 0))
             fprintf(stderr, "Catastrophic: event fd doesn't match conn fd!\n");
         conn_close(c);
         return;
@@ -3771,7 +3771,7 @@ static void maximize_sndbuf(const int sfd) {
 
     /* Start with the default size. */
     if (getsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &old_size, &intsize) != 0) {
-        if (settings.verbose > 0)
+        if (unlikely(settings.verbose > 0))
             perror("getsockopt(SO_SNDBUF)");
         return;
     }
@@ -3790,7 +3790,7 @@ static void maximize_sndbuf(const int sfd) {
         }
     }
 
-    if (settings.verbose > 1)
+    if (unlikely(settings.verbose > 1))
         fprintf(stderr, "<%d send buffer was %d, now %d\n", sfd, old_size, last_good);
 }
 

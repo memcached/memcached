@@ -466,7 +466,7 @@ item *do_item_get(const char *key, const size_t nkey) {
     item *it = assoc_find(key, nkey);
     int was_found = 0;
 
-    if (settings.verbose > 2) {
+    if (unlikely(settings.verbose > 2)) {
         if (it == NULL) {
             fprintf(stderr, "> NOT FOUND %s", key);
         } else {
@@ -501,7 +501,7 @@ item *do_item_get(const char *key, const size_t nkey) {
         DEBUG_REFCNT(it, '+');
     }
 
-    if (settings.verbose > 2)
+    if (unlikely(settings.verbose > 2))
         fprintf(stderr, "\n");
 
     return it;
