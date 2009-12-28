@@ -229,12 +229,7 @@ struct thread_stats {
  */
 struct stats {
     pthread_mutex_t mutex;
-    unsigned int  curr_items;
-    unsigned int  total_items;
-    uint64_t      curr_bytes;
-    unsigned int  curr_conns;
-    unsigned int  total_conns;
-    unsigned int  conn_structs;
+    uint64_t      listen_disabled_num;
     uint64_t      get_cmds;
     uint64_t      set_cmds;
     uint64_t      get_hits;
@@ -242,8 +237,13 @@ struct stats {
     uint64_t      evictions;
     uint64_t      reclaimed;
     time_t        started;          /* when the process was started */
+    uint64_t      curr_bytes;
+    unsigned int  curr_items;
+    unsigned int  total_items;
+    unsigned int  curr_conns;
+    unsigned int  total_conns;
+    unsigned int  conn_structs;
     bool          accepting_conns;  /* whether we are currently accepting */
-    uint64_t      listen_disabled_num;
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -253,28 +253,28 @@ struct stats {
  * Globally accessible settings as derived from the commandline.
  */
 struct settings {
+    char *inter;
     size_t maxbytes;
     int maxconns;
     int port;
     int udpport;
-    char *inter;
     unsigned int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
     int evict_to_free;
-    char *socketpath;   /* path to unix socket if using local socket */
-    int access;  /* access mask (a la chmod) for unix domain socket */
-    double factor;          /* chunk size growth factor */
+    char *socketpath;       /* path to unix socket if using local socket */
+    int access;             /* access mask (a la chmod) for unix domain socket */
     int chunk_size;
+    double factor;          /* chunk size growth factor */
     int num_threads;        /* number of worker (without dispatcher) libevent threads to run */
-    char prefix_delimiter;  /* character that marks a key prefix (for stats) */
     int detail_enabled;     /* nonzero if we're collecting detailed stats */
     int reqs_per_event;     /* Maximum number of io to process on each
                                io-event. */
-    bool use_cas;
     enum protocol binding_protocol;
     int backlog;
-    int item_size_max;        /* Maximum item size, and upper end for slabs */
+    int item_size_max;      /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
+    bool use_cas;
+    char prefix_delimiter;  /* character that marks a key prefix (for stats) */
 };
 
 extern struct stats stats;
@@ -302,6 +302,7 @@ typedef struct _stritem {
     uint8_t         it_flags;   /* ITEM_* above */
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
+    /* NOTE: there is wasted space here due to alignment issues... 2 bytes on 32 bit, 6 bytes on 64 bit */
     void * end[];
     /* if it_flags & ITEM_CAS we have 8 bytes CAS */
     /* then null-terminated key */
@@ -330,13 +331,7 @@ typedef struct {
  */
 typedef struct conn conn;
 struct conn {
-    int    sfd;
     sasl_conn_t *sasl_conn;
-    enum conn_states  state;
-    enum bin_substates substate;
-    struct event event;
-    short  ev_flags;
-    short  which;   /** which events were just triggered */
 
     char   *rbuf;   /** buffer to read commands into */
     char   *rcurr;  /** but if we parsed some already, this is where we stopped */
@@ -347,12 +342,27 @@ struct conn {
     char   *wcurr;
     int    wsize;
     int    wbytes;
+
+    enum conn_states  state;
+    enum bin_substates substate;
+    struct event event;
+
+    int    sfd;
+    short  ev_flags;
+    short  which;   /** which events were just triggered */
+
+
     /** which state to go into after finishing current write */
     enum conn_states  write_and_go;
     void   *write_and_free; /** free this memory after finishing writing */
 
     char   *ritem;  /** when we read in an item's value, it goes here */
     int    rlbytes;
+
+
+
+    /* data for the swallow state */
+    int    sbytes;    /* how many bytes to swallow */
 
     /* data for the nread state */
 
@@ -363,9 +373,6 @@ struct conn {
      */
 
     void   *item;     /* for commands set/add/replace  */
-
-    /* data for the swallow state */
-    int    sbytes;    /* how many bytes to swallow */
 
     /* data for the mwrite state */
     struct iovec *iov;
@@ -379,13 +386,13 @@ struct conn {
     int    msgbytes;  /* number of bytes in current msg */
 
     item   **ilist;   /* list of items to write out */
-    int    isize;
     item   **icurr;
+    int    isize;
     int    ileft;
 
     char   **suffixlist;
-    int    suffixsize;
     char   **suffixcurr;
+    int    suffixsize;
     int    suffixleft;
 
     enum protocol protocol;   /* which protocol this connection speaks */
@@ -398,7 +405,6 @@ struct conn {
     unsigned char *hdrbuf; /* udp packet headers */
     int    hdrsize;   /* number of headers' worth of space is allocated */
 
-    bool   noreply;   /* True if the reply should not be sent. */
     /* current stats command */
     struct {
         char *buffer;
@@ -410,11 +416,14 @@ struct conn {
     /* This is where the binary header goes */
     protocol_binary_request_header binary_header;
     uint64_t cas; /* the cas to return */
-    short cmd; /* current command being processed */
     int opaque;
     int keylen;
+
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
+
+    short cmd; /* current command being processed */
+    bool   noreply;   /* True if the reply should not be sent. */
 };
 
 
