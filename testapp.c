@@ -271,7 +271,8 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
        overwrite each other
     */
     char coreadm[128];
-    sprintf(coreadm, "coreadm -p core.%%f.%%p %lu", (unsigned long)getpid());
+    snprintf(coreadm, sizeof(coreadm),
+             "coreadm -p core.%%f.%%p %lu", (unsigned long)getpid());
     system(coreadm);
 #endif
 
@@ -551,10 +552,11 @@ static enum test_return test_issue_102(void) {
     close(sock);
     sock = connect_server("127.0.0.1", port, false);
 
-    sprintf(buffer, "gets ");
+    snprintf(buffer, sizeof(buffer), "gets ");
     size_t offset = 5;
     while (offset < 4000) {
-        offset += sprintf(buffer + offset, "%010u ", (unsigned int)offset);
+        offset += snprintf(buffer + offset, sizeof(buffer) - offset,
+                           "%010u ", (unsigned int)offset);
     }
 
     send_ascii_command(buffer);
@@ -571,9 +573,10 @@ static enum test_return test_issue_102(void) {
     read_ascii_response(rsp, sizeof(rsp));
     assert(strncmp(rsp, "END", strlen("END")) == 0);
 
-
-    memset(buffer, ' ', 101);
-    strcat(buffer + 101, "gets foo");
+    memset(buffer, ' ', sizeof(buffer));
+    int len = snprintf(buffer + 101, sizeof(buffer) - 101, "gets foo");
+    buffer[101 + len] = ' ';
+    buffer[sizeof(buffer) - 1] = '\0';
     send_ascii_command(buffer);
     /* verify that the server closed the connection */
     assert(read(sock, buffer, sizeof(buffer)) == 0);
