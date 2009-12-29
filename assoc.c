@@ -71,8 +71,8 @@ item *assoc_find(const char *key, const size_t nkey) {
     item *it;
     unsigned int oldbucket;
 
-    if (expanding &&
-        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+    if (unlikely(expanding) &&
+        unlikely((oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket))
     {
         it = old_hashtable[oldbucket];
     } else {
@@ -101,7 +101,7 @@ static item** _hashitem_before (const char *key, const size_t nkey) {
     item **pos;
     unsigned int oldbucket;
 
-    if (expanding &&
+    if (unlikely(expanding) &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
     {
         pos = &old_hashtable[oldbucket];
@@ -141,7 +141,7 @@ int assoc_insert(item *it) {
     assert(assoc_find(ITEM_key(it), it->nkey) == 0);  /* shouldn't have duplicately named things defined */
 
     hv = hash(ITEM_key(it), it->nkey, 0);
-    if (expanding &&
+    if (unlikely(expanding) &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
     {
         it->h_next = old_hashtable[oldbucket];
@@ -152,7 +152,7 @@ int assoc_insert(item *it) {
     }
 
     hash_items++;
-    if (! expanding && hash_items > (hashsize(hashpower) * 3) / 2) {
+    if (! unlikely(expanding) && hash_items > (hashsize(hashpower) * 3) / 2) {
         assoc_expand();
     }
 
