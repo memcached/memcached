@@ -207,7 +207,7 @@ static int add_msghdr(conn *c)
 
     assert(c != NULL);
 
-    if (c->msgsize == c->msgused) {
+    if (unlikely(c->msgsize == c->msgused)) {
         msg = realloc(c->msglist, c->msgsize * 2 * sizeof(struct msghdr));
         if (! msg)
             return -1;
@@ -223,7 +223,7 @@ static int add_msghdr(conn *c)
 
     msg->msg_iov = &c->iov[c->iovused];
 
-    if (c->request_addr_size > 0) {
+    if (likely(c->request_addr_size > 0)) {
         msg->msg_name = &c->request_addr;
         msg->msg_namelen = c->request_addr_size;
     }
@@ -606,7 +606,7 @@ static void conn_set_state(conn *c, enum conn_states state) {
     assert(c != NULL);
     assert(state >= conn_listening && state < conn_max_state);
 
-    if (state != c->state) {
+    if (likely(state != c->state)) {
         if (unlikely(settings.verbose > 2)) {
             fprintf(stderr, "%d: going from %s to %s\n",
                     c->sfd, state_text(c->state),
@@ -880,7 +880,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     c->msgcurr = 0;
     c->msgused = 0;
     c->iovused = 0;
-    if (add_msghdr(c) != 0) {
+    if (unlikely(add_msghdr(c) != 0)) {
         /* XXX:  out_string is inappropriate here */
         out_string(c, "SERVER_ERROR out of memory");
         return;
@@ -1287,7 +1287,7 @@ static bool grow_stats_buf(conn *c, size_t needed) {
     bool rv = true;
 
     /* Special case: No buffer -- need to allocate fresh */
-    if (c->stats.buffer == NULL) {
+    if (unlikely(c->stats.buffer == NULL)) {
         nsize = 1024;
         available = c->stats.size = c->stats.offset = 0;
     }
