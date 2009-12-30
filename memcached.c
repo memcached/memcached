@@ -795,7 +795,7 @@ static void complete_nread_ascii(conn *c) {
     c->thread->stats.slab_stats[it->slabs_clsid].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
-    if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
+    if (unlikely(strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0)) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
       ret = store_item(it, comm, c);
@@ -2284,7 +2284,7 @@ static size_t tokenize_command(char *command, token_t *tokens, const size_t max_
 
 /* set up a connection to write a buffer then free it, used for stats */
 static void write_and_free(conn *c, char *buf, int bytes) {
-    if (buf) {
+    if (likely(buf != NULL)) {
         c->write_and_free = buf;
         c->wcurr = buf;
         c->wbytes = bytes;
@@ -2445,7 +2445,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     const char *subcommand = tokens[SUBCOMMAND_TOKEN].value;
     assert(c != NULL);
 
-    if (ntokens < 2) {
+    if (unlikely(ntokens < 2)) {
         out_string(c, "CLIENT_ERROR bad command line");
         return;
     }
@@ -2471,7 +2471,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         char *buf;
         unsigned int bytes, id, limit = 0;
 
-        if (ntokens < 5) {
+        if (unlikely(ntokens < 5)) {
             out_string(c, "CLIENT_ERROR bad command line");
             return;
         }
@@ -2482,7 +2482,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        if (id >= POWER_LARGEST) {
+        if (unlikely(id >= POWER_LARGEST)) {
             out_string(c, "CLIENT_ERROR Illegal slab id");
             return;
         }
@@ -2494,7 +2494,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         /* getting here means that the subcommand is either engine specific or
            is invalid. query the engine and see. */
         if (get_stats(subcommand, strlen(subcommand), &append_stats, c)) {
-            if (c->stats.buffer == NULL) {
+            if (unlikely(c->stats.buffer == NULL)) {
                 out_string(c, "SERVER_ERROR out of memory writing stats");
             } else {
                 write_and_free(c, c->stats.buffer, c->stats.offset);
@@ -2509,7 +2509,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     /* append terminator and start the transfer */
     append_stats(NULL, 0, NULL, 0, c);
 
-    if (c->stats.buffer == NULL) {
+    if (unlikely(c->stats.buffer == NULL)) {
         out_string(c, "SERVER_ERROR out of memory writing stats");
     } else {
         write_and_free(c, c->stats.buffer, c->stats.offset);
@@ -2533,7 +2533,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             key = key_token->value;
             nkey = key_token->length;
 
-            if(nkey > KEY_MAX_LENGTH) {
+            if (unlikely(nkey > KEY_MAX_LENGTH)) {
                 out_string(c, "CLIENT_ERROR bad command line format");
                 return;
             }
@@ -2580,7 +2580,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   }
 
                   suffix = cache_alloc(c->thread->suffix_cache);
-                  if (suffix == NULL) {
+                  if (unlikely(suffix == NULL)) {
                     out_string(c, "SERVER_ERROR out of memory making CAS suffix");
                     item_remove(it);
                     return;
@@ -2688,7 +2688,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
     set_noreply_maybe(c, tokens, ntokens);
 
-    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+    if (unlikely(tokens[KEY_TOKEN].length > KEY_MAX_LENGTH)) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -2715,7 +2715,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     }
 
     vlen += 2;
-    if (vlen < 0 || vlen - 2 < 0) {
+    if (unlikely(vlen < 0 || vlen - 2 < 0)) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -2767,7 +2767,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 
     set_noreply_maybe(c, tokens, ntokens);
 
-    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+    if (unlikely(tokens[KEY_TOKEN].length > KEY_MAX_LENGTH)) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -2775,7 +2775,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    if (!safe_strtoull(tokens[2].value, &delta)) {
+    if (unlikely(!safe_strtoull(tokens[2].value, &delta))) {
         out_string(c, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
@@ -2887,7 +2887,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         bool sets_noreply = set_noreply_maybe(c, tokens, ntokens);
         bool valid = (ntokens == 4 && (hold_is_zero || sets_noreply))
             || (ntokens == 5 && hold_is_zero && sets_noreply);
-        if (!valid) {
+        if (unlikely(!valid)) {
             out_string(c, "CLIENT_ERROR bad command line format.  "
                        "Usage: delete <key> [noreply]");
             return;
@@ -2898,7 +2898,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    if(nkey > KEY_MAX_LENGTH) {
+    if (unlikely(nkey > KEY_MAX_LENGTH)) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -2961,7 +2961,7 @@ static void process_command(conn *c, char *command) {
     c->msgcurr = 0;
     c->msgused = 0;
     c->iovused = 0;
-    if (add_msghdr(c) != 0) {
+    if (unlikely(add_msghdr(c) != 0)) {
         out_string(c, "SERVER_ERROR out of memory preparing response");
         return;
     }
@@ -3024,7 +3024,7 @@ static void process_command(conn *c, char *command) {
         }
 
         exptime = strtol(tokens[1].value, NULL, 10);
-        if(errno == ERANGE) {
+        if (unlikely(errno == ERANGE)) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
@@ -3129,7 +3129,7 @@ static int try_read_command(conn *c) {
             c->msgcurr = 0;
             c->msgused = 0;
             c->iovused = 0;
-            if (add_msghdr(c) != 0) {
+            if (unlikely(add_msghdr(c) != 0)) {
                 out_string(c, "SERVER_ERROR out of memory");
                 return 0;
             }
@@ -3213,7 +3213,7 @@ static enum try_read_result try_read_udp(conn *c) {
         c->request_id = buf[0] * 256 + buf[1];
 
         /* If this is a multi-packet request, drop it. */
-        if (buf[4] != 0 || buf[5] != 1) {
+        if (unlikely(buf[4] != 0 || buf[5] != 1)) {
             out_string(c, "SERVER_ERROR multi-packet request not supported");
             return READ_NO_DATA_RECEIVED;
         }
@@ -3260,7 +3260,7 @@ static enum try_read_result try_read_network(conn *c) {
             }
             ++num_allocs;
             char *new_rbuf = realloc(c->rbuf, c->rsize * 2);
-            if (!new_rbuf) {
+            if (unlikely(!new_rbuf)) {
                 if (unlikely(settings.verbose > 0))
                     fprintf(stderr, "Couldn't realloc input buffer\n");
                 c->rbytes = 0; /* ignore what we read */
