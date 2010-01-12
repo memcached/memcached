@@ -1,14 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <assert.h>
 #include <ctype.h>
 #include <stdint.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <sysexits.h>
+#include <sys/stat.h>
 
 #include "hash.h"
 #include "isasl.h"
+#include "memcached.h"
+
+static struct stat prev_stat = { 0 };
 
 static pthread_mutex_t uhash_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -79,9 +85,14 @@ static void free_user_ht(void)
     }
 }
 
+static const char *get_isasl_filename(void)
+{
+    return getenv("ISASL_PWFILE");
+}
+
 static int load_user_db(void)
 {
-    const char *filename = getenv("ISASL_PWFILE");
+    const char *filename = get_isasl_filename();
     if (!filename) {
         fprintf(stderr, "No ISASL_PWFILE defined.\n");
         return SASL_FAIL;
@@ -121,6 +132,10 @@ static int load_user_db(void)
 
     fclose(sfile);
 
+    if (settings.verbose) {
+        fprintf(stderr, "Loaded isasl db from %s\n", filename);
+    }
+
     pthread_mutex_lock(&uhash_lock);
     free_user_ht();
     user_ht = new_ut;
@@ -135,10 +150,54 @@ void sasl_dispose(sasl_conn_t **pconn)
     *pconn = NULL;
 }
 
+static bool isasl_is_fresh(void)
+{
+    bool rv = false;
+    struct stat st;
+
+    if (stat(get_isasl_filename(), &st) < 0) {
+        perror(get_isasl_filename());
+    } else {
+        rv = prev_stat.st_mtime == st.st_mtime;
+        prev_stat = st;
+    }
+    return rv;
+}
+
+static void* check_isasl_db_thread(void* arg)
+{
+    uint32_t sleep_time = *(int*)arg;
+    if (settings.verbose > 1) {
+        fprintf(stderr, "isasl checking DB every %ds\n", sleep_time);
+    }
+    for(;;) {
+        sleep(sleep_time);
+        if (!isasl_is_fresh()) {
+            load_user_db();
+        }
+    }
+    /* NOTREACHED */
+    return NULL;
+}
+
 int sasl_server_init(const sasl_callback_t *callbacks,
                      const char *appname)
 {
-    return load_user_db();
+    int rv = load_user_db();
+    if (rv == SASL_OK) {
+        static pthread_t t;
+        static uint32_t sleep_time;
+        const char *sleep_time_str = getenv("ISASL_DB_CHECK_TIME");
+        if (! (sleep_time_str && safe_strtoul(sleep_time_str, &sleep_time))) {
+            // If we can't find a more frequent sleep time, set it to 60s.
+            sleep_time = 60;
+        }
+        if(pthread_create(&t, NULL, check_isasl_db_thread, &sleep_time) != 0) {
+            perror("couldn't create isasl db update thread.");
+            exit(EX_OSERR);
+        }
+    }
+    return rv;
 }
 
 int sasl_server_new(const char *service,
