@@ -240,6 +240,7 @@ struct stats {
     uint64_t      get_hits;
     uint64_t      get_misses;
     uint64_t      evictions;
+    uint64_t      reclaimed;
     time_t        started;          /* when the process was started */
     bool          accepting_conns;  /* whether we are currently accepting */
     uint64_t      listen_disabled_num;

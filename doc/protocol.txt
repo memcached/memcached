@@ -401,6 +401,8 @@ integers separated by a colon (treat this as a floating point number).
 | auth_errors           | 64u     | Number of failed authentications.         |
 | evictions             | 64u     | Number of valid items removed from cache  |
 |                       |         | to free memory for new items              |
+| reclaimed             | 64u     | Number of times an entry was stored using |
+|                       |         | memory from an expired entry              |
 | bytes_read            | 64u     | Total number of bytes read by this server |
 |                       |         | from network                              |
 | bytes_written         | 64u     | Total number of bytes sent by this server |
@@ -490,6 +492,8 @@ outofmemory            Number of times the underlying slab class was unable to
 tailrepairs            Number of times we self-healed a slab with a refcount
                        leak. If this counter is increasing a lot, please
                        report your situation to the developers.
+reclaimed              Number of times an entry was stored using memory from
+                       an expired entry.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.

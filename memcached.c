@@ -149,7 +149,7 @@ static rel_time_t realtime(const time_t exptime) {
 
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
-    stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = 0;
+    stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = stats.reclaimed = 0;
     stats.curr_bytes = stats.listen_disabled_num = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
 
@@ -165,6 +165,7 @@ static void stats_reset(void) {
     STATS_LOCK();
     stats.total_items = stats.total_conns = 0;
     stats.evictions = 0;
+    stats.reclaimed = 0;
     stats.listen_disabled_num = 0;
     stats_prefix_clear();
     STATS_UNLOCK();
