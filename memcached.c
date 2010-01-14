@@ -4442,7 +4442,7 @@ static struct thread_stats *new_stats(void) {
     return thread_stats;
 }
 
-static inline struct thread_stats *get_thread_stats(conn *c) {
+static struct thread_stats *get_thread_stats(conn *c) {
     struct thread_stats *thread_stats;
     if (settings.engine.v1->get_stats_struct != NULL) {
         thread_stats = settings.engine.v1->get_stats_struct(settings.engine.v0, (const void *)c);
