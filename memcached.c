@@ -2636,6 +2636,38 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
+/**
+ * Get a suffix buffer and insert it into the list of used suffix buffers
+ * @param c the connection object
+ * @return a pointer to a new suffix buffer or NULL if allocation failed
+ */
+static char *get_suffix_buffer(conn *c) {
+    if (c->suffixleft == c->suffixsize) {
+        char **new_suffix_list;
+        size_t sz = sizeof(char*) * c->suffixsize * 2;
+
+        new_suffix_list = realloc(c->suffixlist, sz);
+        if (new_suffix_list) {
+            c->suffixsize *= 2;
+            c->suffixlist = new_suffix_list;
+        } else {
+            if (settings.verbose > 1) {
+                fprintf(stderr, "=%d Failed to resize suffix buffer\n", c->sfd);
+            }
+
+            return NULL;
+        }
+    }
+
+    char *suffix = cache_alloc(c->thread->suffix_cache);
+    if (suffix != NULL) {
+        *(c->suffixlist + c->suffixleft) = suffix;
+        ++c->suffixleft;
+    }
+
+    return suffix;
+}
+
 /* ntokens is overwritten here... shrug.. */
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
     char *key;
@@ -2680,28 +2712,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     }
                 }
 
-
-                /* Goofy mid-flight realloc. */
-                if ((i + 1) >= c->suffixsize) {
-                    char **new_suffix_list = realloc(c->suffixlist,
-                                                     sizeof(char *) * c->suffixsize * 2);
-                    if (new_suffix_list) {
-                        c->suffixsize *= 2;
-                        c->suffixlist  = new_suffix_list;
-                    } else {
-                        settings.engine.v1->release(settings.engine.v0, c, it);
-                        break;
-                    }
-                }
-
                 /* Rebuild the suffix */
-                char *suffix = cache_alloc(c->thread->suffix_cache);
+                char *suffix = get_suffix_buffer(c);
                 if (suffix == NULL) {
                     out_string(c, "SERVER_ERROR out of memory rebuilding suffix");
                     settings.engine.v1->release(settings.engine.v0, c, it);
                     return;
                 }
-                *(c->suffixlist + i) = suffix;
                 int suffix_len = snprintf(suffix, SUFFIX_SIZE,
                                           " %u %u\r\n",
                                           it->flags,
@@ -2720,13 +2737,12 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   MEMCACHED_COMMAND_GET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
                                         it->nbytes, settings.engine.v1->item_get_cas(it));
 
-                  char *cas = cache_alloc(c->thread->suffix_cache);
+                  char *cas = get_suffix_buffer(c);
                   if (cas == NULL) {
                     out_string(c, "SERVER_ERROR out of memory making CAS suffix");
                     settings.engine.v1->release(settings.engine.v0, c, it);
                     return;
                   }
-                  *(c->suffixlist + i) = cas;
                   int cas_len = snprintf(cas, SUFFIX_SIZE,
                                             " %"PRIu64"\r\n",
                                             settings.engine.v1->item_get_cas(it));
@@ -2790,10 +2806,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     c->icurr = c->ilist;
     c->ileft = i;
-    if (return_cas) {
-        c->suffixcurr = c->suffixlist;
-        c->suffixleft = i;
-    }
+    c->suffixcurr = c->suffixlist;
 
     if (settings.verbose > 1)
         fprintf(stderr, ">%d END\n", c->sfd);
