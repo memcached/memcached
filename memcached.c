@@ -1484,7 +1484,7 @@ static void process_bin_get(conn *c) {
         rsp->message.header.response.cas = htonll(settings.engine.v1->item_get_cas(it));
 
         // add the flags
-        rsp->message.body.flags = htonl(it->flags);
+        rsp->message.body.flags = it->flags;
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
         if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
@@ -2276,7 +2276,7 @@ static void process_bin_update(conn *c) {
     nkey = c->binary_header.request.keylen;
 
     /* fix byteorder in the request */
-    req->message.body.flags = ntohl(req->message.body.flags);
+    req->message.body.flags = req->message.body.flags;
     req->message.body.expiration = ntohl(req->message.body.expiration);
 
     vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
@@ -3040,7 +3040,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 }
                 int suffix_len = snprintf(suffix, SUFFIX_SIZE,
                                           " %u %u\r\n",
-                                          it->flags,
+                                          htonl(it->flags),
                                           it->nbytes - 2);
 
                 /*
@@ -3203,7 +3203,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     if (ret == ENGINE_SUCCESS) {
         ret = settings.engine.v1->allocate(settings.engine.v0, c,
                                            &it, key, nkey,
-                                           vlen, flags, realtime(exptime));
+                                           vlen, htonl(flags), realtime(exptime));
     }
 
     switch (ret) {

@@ -95,7 +95,7 @@ extern "C" {
         rel_time_t exptime; /**< When the item will expire (relative to process
                              * startup) */
         uint32_t   nbytes;  /**< The total size of the data (in bytes) */
-        uint32_t   flags;   /**< Flags associated with the item */
+        uint32_t   flags;   /**< Flags associated with the item (in network byte order)*/
         uint16_t   nkey;    /**< The total length of the key (in bytes) */
         uint16_t   iflag;   /**< Intermal flags. lower 8 bit is reserved for the core
                              * server, the upper 8 bits is reserved for engine
