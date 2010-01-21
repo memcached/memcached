@@ -131,8 +131,18 @@ extern "C"
         PROTOCOL_BINARY_CMD_RINCR     = 0x39,
         PROTOCOL_BINARY_CMD_RINCRQ    = 0x3a,
         PROTOCOL_BINARY_CMD_RDECR     = 0x3b,
-        PROTOCOL_BINARY_CMD_RDECRQ    = 0x3c
+        PROTOCOL_BINARY_CMD_RDECRQ    = 0x3c,
         /* End Range operations */
+
+        /* Replicaiton commands */
+        PROTOCOL_BINARY_CMD_TAP_CONNECT = 0x40,
+        PROTOCOL_BINARY_CMD_TAP_MUTATION = 0x41,
+        PROTOCOL_BINARY_CMD_TAP_DELETE = 0x42,
+        PROTOCOL_BINARY_CMD_TAP_FLUSH = 0x43,
+        PROTOCOL_BINARY_CMD_TAP_OPAQUE = 0x44,
+        /* End replication */
+
+        PROTOCOL_BINARY_CMD_LAST_RESERVED = 0xef
 
     } protocol_binary_command;
 
@@ -420,6 +430,66 @@ extern "C"
     typedef protocol_binary_request_rangeop protocol_binary_request_rincrq;
     typedef protocol_binary_request_rangeop protocol_binary_request_rdecr;
     typedef protocol_binary_request_rangeop protocol_binary_request_rdecrq;
+
+
+    /**
+     * Definition of tap commands
+     * See To be written
+     *
+     */
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                uint32_t flags;
+                uint16_t enginespecific_length;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
+    } protocol_binary_request_tap_connect;
+
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                struct {
+                    uint16_t enginespecific_length;
+                    uint16_t flags;
+                    uint8_t  ttl;
+                    uint8_t  res1;
+                    uint8_t  res2;
+                    uint8_t  res3;
+                } tap;
+                struct {
+                    uint32_t flags;
+                    uint32_t expiration;
+                } item;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 16];
+    } protocol_binary_request_tap_mutation;
+
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                struct {
+                    uint16_t enginespecific_length;
+                    uint16_t flags;
+                    uint8_t  ttl;
+                    uint8_t  res1;
+                    uint8_t  res2;
+                    uint8_t  res3;
+                } tap;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 8];
+    } protocol_binary_request_tap_no_extras;
+
+    typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_delete;
+    typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_flush;
+    typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_opaque;
+
 
     /**
      * @}

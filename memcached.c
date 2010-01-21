@@ -63,6 +63,7 @@
 #ifdef HAVE_LINK_H
 #include <link.h>
 #endif
+#include <sys/utsname.h>
 
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
@@ -140,6 +141,8 @@
     pthread_mutex_unlock(&thread_stats->mutex); \
 }
 
+static char *nodeid;
+
 /*
  * We keep the current time of day in a global variable that's updated by a
  * timer event. This saves us a bunch of time() system calls (we really only
@@ -157,6 +160,9 @@ static int new_socket(struct addrinfo *ai);
 static int try_read_command(conn *c);
 static inline struct independent_stats *get_independent_stats(conn *c);
 static inline struct thread_stats *get_thread_stats(conn *c);
+static void register_callback(ENGINE_EVENT_TYPE type,
+                              EVENT_CALLBACK cb, const void *cb_data);
+
 
 enum try_read_result {
     READ_DATA_RECEIVED,
@@ -262,9 +268,9 @@ EXTENSION_LOGGER_DESCRIPTOR null_logger_descriptor = {
 
 
 // Perform all callbacks of a given type for the given connection.
-static inline void perform_callbacks(ENGINE_EVENT_TYPE type,
-                                     const void *data,
-                                     conn *c) {
+static void perform_callbacks(ENGINE_EVENT_TYPE type,
+                              const void *data,
+                              const void *c) {
     for (struct engine_event_handler *h = engine_event_handlers[type];
          h; h = h->next) {
         h->cb(c, type, data, h->cb_data);
@@ -693,6 +699,7 @@ static void conn_cleanup(conn *c) {
     }
 
     c->engine_storage = NULL;
+    c->tap_iterator = NULL;
 }
 
 static void conn_close(conn *c) {
@@ -798,7 +805,9 @@ static const char *state_text(enum conn_states state) {
                                        "conn_nread",
                                        "conn_swallow",
                                        "conn_closing",
-                                       "conn_mwrite" };
+                                       "conn_mwrite",
+                                       "conn_create_tap_connect",
+                                       "conn_ship_log" };
     return statenames[state];
 }
 
@@ -1284,6 +1293,7 @@ static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen)
         conn_set_state(c, conn_new_cmd);
     }
 }
+
 
 static void complete_incr_bin(conn *c) {
     protocol_binary_response_incr* rsp = (protocol_binary_response_incr*)c->wbuf;
@@ -2070,7 +2080,186 @@ static bool binary_response_handler(const void *key, uint16_t keylen,
     return true;
 }
 
-static void process_bin_packet(conn *c) {
+static void send_tap_connect(conn *c) {
+    protocol_binary_request_tap_connect msg = {
+        .message.header.request.magic = (uint8_t)PROTOCOL_BINARY_REQ,
+        .message.header.request.opcode = (uint8_t)PROTOCOL_BINARY_CMD_TAP_CONNECT
+    };
+
+    size_t nodelen = 0;
+    size_t headersize = sizeof(msg.message.header) + msg.message.header.request.extlen;
+    if (nodeid != NULL) {
+        nodelen = strlen(nodeid);
+        msg.message.header.request.keylen = htons(nodelen);
+        msg.message.header.request.bodylen = htonl(nodelen + msg.message.header.request.extlen);
+    }
+
+    c->msgcurr = 0;
+    c->msgused = 0;
+    c->iovused = 0;
+    if (add_msghdr(c) != 0) {
+        if (settings.verbose) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                            "%d: Failed to create output headers\n", c->sfd);
+        }
+        conn_set_state(c, conn_closing);
+        return ;
+    }
+
+    c->wcurr = c->wbuf;
+    memcpy(c->wcurr, msg.bytes, headersize);
+    c->wbytes = headersize;
+
+    if (nodeid != NULL) {
+        memcpy(c->wcurr + headersize, nodeid, nodelen);
+        c->wbytes += nodelen;
+    }
+    conn_set_state(c, conn_write);
+    c->write_and_go = conn_new_cmd;
+}
+
+static void ship_tap_log(conn *c) {
+    c->msgcurr = 0;
+    c->msgused = 0;
+    c->iovused = 0;
+    if (add_msghdr(c) != 0) {
+        if (settings.verbose) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                            "%d: Failed to create output headers. Shutting down tap connection\n", c->sfd);
+        }
+        conn_set_state(c, conn_closing);
+        return ;
+    }
+    /* @todo add check for buffer overflow of c->wbuf) */
+    c->wcurr = c->wbuf;
+
+    bool more_data = true;
+    bool send_data = false;
+
+    item *it;
+    uint32_t bodylen;
+    int ii = 0;
+    do {
+        /* @todo fixme! */
+        if (ii++ == 10) {
+            break;
+        }
+
+        void *engine;
+        uint16_t nengine;
+        uint8_t ttl;
+        uint16_t tap_flags;
+        uint32_t seqno;
+
+        tap_event_t event = c->tap_iterator(settings.engine.v0, c, &it,
+                                            &engine, &nengine, &ttl,
+                                            &tap_flags, &seqno);
+        union {
+            protocol_binary_request_tap_mutation mutation;
+            protocol_binary_request_tap_delete delete;
+            protocol_binary_request_tap_flush flush;
+            protocol_binary_request_tap_opaque opaque;
+        } msg = {
+            .mutation.message.header.request.magic = (uint8_t)PROTOCOL_BINARY_REQ,
+        };
+
+        msg.opaque.message.header.request.opaque = htonl(seqno);
+        msg.opaque.message.body.tap.enginespecific_length = htons(nengine);
+        msg.opaque.message.body.tap.ttl = ttl;
+        msg.opaque.message.body.tap.flags = htons(tap_flags);
+        msg.opaque.message.header.request.extlen = 8;
+
+        switch (event) {
+        case TAP_PAUSE :
+            more_data = false;
+            break;
+        case TAP_MUTATION:
+            /* This is a store */
+            /* @todo check if I'm supposed to send the value! */
+            send_data = true;
+            c->ilist[c->ileft++] = it;
+
+            msg.mutation.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_MUTATION;
+            msg.mutation.message.header.request.cas = htonll(settings.engine.v1->item_get_cas(it));
+            msg.mutation.message.header.request.keylen = htons(it->nkey);
+            msg.mutation.message.header.request.extlen = 16;
+            bodylen = 16 + (it->nbytes - 2) + it->nkey + nengine;
+            msg.mutation.message.header.request.bodylen = htonl(bodylen);
+            msg.mutation.message.body.item.flags = it->flags;
+            msg.mutation.message.body.item.expiration = htonl(it->exptime);
+            msg.mutation.message.body.tap.enginespecific_length = htons(nengine);
+            msg.mutation.message.body.tap.ttl = ttl;
+            msg.mutation.message.body.tap.flags = htons(tap_flags);
+            memcpy(c->wcurr, msg.mutation.bytes, sizeof(msg.mutation.bytes));
+
+            add_iov(c, c->wcurr, sizeof(msg.mutation.bytes));
+            c->wcurr += sizeof(msg.mutation.bytes);
+            c->wbytes += sizeof(msg.mutation.bytes);
+
+            if (nengine > 0) {
+                memcpy(c->wcurr, engine, nengine);
+                add_iov(c, c->wcurr, nengine);
+                c->wcurr += nengine;
+                c->wbytes += nengine;
+            }
+
+            add_iov(c, settings.engine.v1->item_get_key(it), it->nkey);
+            add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes - 2);
+            break;
+        case TAP_DELETION:
+            /* This is a delete */
+            send_data = true;
+            c->ilist[c->ileft++] = it;
+            msg.mutation.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_DELETE;
+            msg.delete.message.header.request.keylen = htons(it->nkey);
+            msg.delete.message.header.request.bodylen = htonl(it->nkey + 8);
+            memcpy(c->wcurr, msg.delete.bytes, sizeof(msg.delete.bytes));
+            add_iov(c, c->wcurr, sizeof(msg.delete.bytes));
+            c->wcurr += sizeof(msg.delete.bytes);
+            c->wbytes += sizeof(msg.delete.bytes);
+            add_iov(c, settings.engine.v1->item_get_key(it), it->nkey);
+            break;
+
+        case TAP_FLUSH:
+        case TAP_OPAQUE:
+            send_data = true;
+            msg.flush.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_FLUSH;
+            if (event == TAP_OPAQUE) {
+                msg.flush.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_OPAQUE;
+            }
+            msg.flush.message.header.request.bodylen = htonl(8 + nengine);
+            memcpy(c->wcurr, msg.flush.bytes, sizeof(msg.flush.bytes));
+            add_iov(c, c->wcurr, sizeof(msg.flush.bytes));
+            c->wcurr += sizeof(msg.flush.bytes);
+            c->wbytes += sizeof(msg.flush.bytes);
+            if (nengine > 0) {
+                memcpy(c->wcurr, engine, nengine);
+                add_iov(c, c->wcurr, nengine);
+                c->wcurr += nengine;
+                c->wbytes += nengine;
+            }
+            break;
+        default:
+            abort();
+        }
+    } while (more_data);
+
+    c->ewouldblock = false;
+    if (send_data) {
+        conn_set_state(c, conn_mwrite);
+        c->write_and_go = conn_ship_log;
+    } else {
+        /* No more items to ship to the slave at this time.. suspend.. */
+        if (settings.verbose > 1) {
+            settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
+                                            "%d: No more items in tap log.. waiting\n",
+                                            c->sfd);
+        }
+        c->ewouldblock = true;
+    }
+}
+
+static void process_bin_unknown_packet(conn *c) {
     ENGINE_ERROR_CODE ret;
     void *packet = c->rcurr - (c->binary_header.request.bodylen +
                                sizeof(c->binary_header));
@@ -2085,6 +2274,108 @@ static void process_bin_packet(conn *c) {
     } else {
         /* FATAL ERROR, shut down connection */
         conn_set_state(c, conn_closing);
+    }
+}
+
+static void process_bin_tap_connect(conn *c) {
+    /* @todo I want to send some sort of ack-message to let the slave know the
+     * some info. For now, just ship log (the state machine doesn't expect to
+     * receive response messages...)
+     * The ack should also contain oldest-live so that we may expire items..
+     * we need to come up with a better feed as well.. we could add a check-item
+     * command the slave could feed to the master (sending key + cas), and the
+     * master could put in delete messages in the feed...
+     */
+
+    char *packet = (c->rcurr - (c->binary_header.request.bodylen +
+                                sizeof(c->binary_header)));
+    protocol_binary_request_tap_connect *req = (void*)packet;
+    const char *key = packet + sizeof(req->bytes);
+    const char *data = key + c->binary_header.request.keylen;
+    uint32_t flags = 0;
+
+    if (c->binary_header.request.extlen == 4) {
+        flags = ntohl(req->message.body.flags);
+    } else {
+        data -= 4;
+        key -= 4;
+    }
+
+    TAP_ITERATOR iterator = settings.engine.v1->get_tap_iterator(settings.engine.v0, c, key, c->binary_header.request.keylen, flags, data, c->binary_header.request.bodylen - sizeof(req->bytes) - c->binary_header.request.keylen);
+
+    if (iterator == NULL) {
+        /* TROND: SEND A NAK TO THE TAP */
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                        "%d: FATAL: The engine does not support tap\n",
+                                        c->sfd);
+        conn_set_state(c, conn_closing);
+    } else {
+        c->tap_iterator = iterator;
+        conn_set_state(c, conn_ship_log);
+    }
+}
+
+static void process_bin_tap_packet(tap_event_t event, conn *c) {
+    assert(c != NULL);
+    char *packet = (c->rcurr - (c->binary_header.request.bodylen +
+                                sizeof(c->binary_header)));
+    protocol_binary_request_tap_no_extras *tap = (void*)packet;
+    uint16_t nengine = ntohs(tap->message.body.tap.enginespecific_length);
+    uint16_t tap_flags = ntohs(tap->message.body.tap.flags);
+    uint32_t seqno = ntohl(tap->message.header.request.opaque);
+    uint8_t ttl = tap->message.body.tap.ttl;
+    assert(ttl > 0);
+    char *engine_specific = packet + sizeof(tap->bytes);
+    char *key = engine_specific + nengine;
+    uint16_t nkey = c->binary_header.request.keylen;
+    char *data = key + nkey;
+    uint32_t flags = 0;
+    uint32_t exptime = 0;
+    uint32_t ndata = c->binary_header.request.bodylen - nengine - nkey - 8;
+
+    if (event == TAP_MUTATION) {
+        protocol_binary_request_tap_mutation *mutation = (void*)tap;
+        flags = ntohl(mutation->message.body.item.flags);
+        exptime = ntohl(mutation->message.body.item.expiration);
+        key += 8;
+        data += 8;
+        ndata -= 8;
+    }
+
+    ENGINE_ERROR_CODE ret;
+    ret = settings.engine.v1->tap_notify(settings.engine.v0, c,
+                                         engine_specific, nengine,
+                                         ttl - 1, tap_flags,
+                                         event, seqno,
+                                         key, nkey,
+                                         flags, exptime,
+                                         ntohll(tap->message.header.request.cas),
+                                         data, ndata);
+
+    /* @todo we don't do acks at this time */
+    conn_set_state(c, conn_new_cmd);
+}
+
+static void process_bin_packet(conn *c) {
+    /* @todo this should be an array of funciton pointers and call through */
+    switch (c->binary_header.request.opcode) {
+    case PROTOCOL_BINARY_CMD_TAP_CONNECT:
+        process_bin_tap_connect(c);
+        break;
+    case PROTOCOL_BINARY_CMD_TAP_MUTATION:
+        process_bin_tap_packet(TAP_MUTATION, c);
+        break;
+    case PROTOCOL_BINARY_CMD_TAP_DELETE:
+        process_bin_tap_packet(TAP_DELETION, c);
+        break;
+    case PROTOCOL_BINARY_CMD_TAP_FLUSH:
+        process_bin_tap_packet(TAP_FLUSH, c);
+        break;
+    case PROTOCOL_BINARY_CMD_TAP_OPAQUE:
+        process_bin_tap_packet(TAP_OPAQUE, c);
+        break;
+    default:
+        process_bin_unknown_packet(c);
     }
 }
 
@@ -2231,6 +2522,26 @@ static void dispatch_bin_command(conn *c) {
                 }
             } else {
                 protocol_error = 1;
+            }
+            break;
+       case PROTOCOL_BINARY_CMD_TAP_CONNECT:
+            if (settings.engine.v1->get_tap_iterator == NULL) {
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
+                               bodylen);
+            } else {
+                bin_read_chunk(c, bin_reading_packet,
+                               c->binary_header.request.bodylen);
+            }
+            break;
+       case PROTOCOL_BINARY_CMD_TAP_MUTATION:
+       case PROTOCOL_BINARY_CMD_TAP_DELETE:
+       case PROTOCOL_BINARY_CMD_TAP_FLUSH:
+       case PROTOCOL_BINARY_CMD_TAP_OPAQUE:
+            if (settings.engine.v1->tap_notify == NULL) {
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
+                               bodylen);
+            } else {
+                bin_read_chunk(c, bin_reading_packet, c->binary_header.request.bodylen);
             }
             break;
 #ifdef SASL_ENABLED
@@ -3869,6 +4180,21 @@ void drive_machine(conn *c) {
             stop = true;
             break;
 
+        case conn_create_tap_connect:
+            send_tap_connect(c);
+            break;
+
+        case conn_ship_log:
+            c->ewouldblock = false;
+            pthread_mutex_lock(&c->thread->mutex);
+            ship_tap_log(c);
+            if (c->ewouldblock) {
+                event_del(&c->event);
+                stop = 1;
+            }
+            pthread_mutex_unlock(&c->thread->mutex);
+            break;
+
         case conn_waiting:
             if (!update_event(c, EV_READ | EV_PERSIST)) {
                 if (settings.verbose > 0) {
@@ -4222,6 +4548,8 @@ static void maximize_sndbuf(const int sfd) {
     }
 }
 
+
+
 /**
  * Create a socket and bind it to a specific port number
  * @param port the port number to bind to
@@ -4368,6 +4696,81 @@ static int server_socket(int port, enum network_transport transport,
 
     /* Return zero iff we detected no errors in starting up connections */
     return success == 0;
+}
+
+/**
+ * Create a connection to a remote host
+ * @todo document me...
+ */
+static int remote_connection(const char *remote, enum conn_states state) {
+    int ret = -1;
+    int sock;
+    int error;
+    int flags;
+    struct addrinfo *ai;
+    struct addrinfo *next;
+    struct addrinfo hints = { .ai_flags = AI_PASSIVE,
+                              .ai_socktype = SOCK_STREAM,
+                              .ai_family = AF_UNSPEC };
+    const char *default_port = "11211";
+    char *port;
+    char *host = (char*)remote;
+    if ((port = strchr(remote, ':')) != NULL) {
+        ++port;
+        host = strdup(remote);
+        *(strchr(host, ':')) = '\0';
+    } else {
+        port = (char*)default_port;
+    }
+
+    error= getaddrinfo(host, port, &hints, &ai);
+    if (error != 0) {
+        if (error != EAI_SYSTEM) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                     "getaddrinfo(): %s\n", gai_strerror(error));
+        } else {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                     "getaddrinfo(): %s\n", strerror(error));
+        }
+        return -1;
+    }
+
+    for (next= ai; next; next= next->ai_next) {
+        if ((sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to create socket: %s\n",
+                                            strerror(errno));
+            continue;
+        }
+
+        if (connect(sock, ai->ai_addr, ai->ai_addrlen) == -1) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to connect socket: %s\n",
+                                            strerror(errno));
+            close(sock);
+            sock = -1;
+            continue;
+        }
+
+        if ((flags = fcntl(sock, F_GETFL, 0)) < 0 ||
+            fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
+            perror("setting O_NONBLOCK");
+            close(sock);
+            continue;
+        }
+
+        dispatch_conn_new(sock, state, EV_WRITE |EV_READ | EV_PERSIST,
+                          DATA_BUFFER_SIZE, tcp_transport);
+        ret = 0;
+        break;
+    }
+
+    freeaddrinfo(ai);
+    if (host != remote) {
+        free(host);
+    }
+
+    return ret;
 }
 
 static int new_socket_unix(void) {
@@ -4545,6 +4948,7 @@ static void usage(void) {
     printf("-S            Require SASL authentication\n");
 #endif
     printf("-X module,cfg Load the module and initialize it with the config\n");
+    printf("-O ip:port    Tap ip:port\n");
     printf("\nEnvironment variables:\n"
            "MEMCACHED_PORT_FILENAME   File to write port information to\n"
            "MEMCACHED_TOP_KEYS        Number of top keys to keep track of\n");
@@ -4803,6 +5207,7 @@ static void register_callback(ENGINE_EVENT_TYPE type,
                               EVENT_CALLBACK cb, const void *cb_data) {
     struct engine_event_handler *h =
         calloc(sizeof(struct engine_event_handler), 1);
+
     assert(h);
     h->cb = cb;
     h->cb_data = cb_data;
@@ -4924,6 +5329,7 @@ static void *get_server_api(server_api_t interface)
 {
     static SERVER_HANDLE_V1 server_api_v1 = {
         .register_callback = register_callback,
+        .perform_callbacks = perform_callbacks,
         .get_auth_data = get_auth_data,
         .store_engine_specific = store_engine_specific,
         .get_engine_specific = get_engine_specific,
@@ -5101,6 +5507,8 @@ int main (int argc, char **argv) {
     char old_options[1024] = { [0] = '\0' };
     char *old_opts = old_options;
 
+    char *overlord = NULL; /* Master server ;-) */
+
 #ifndef __WIN32__
     /* handle SIGINT */
     signal(SIGINT, sig_handler);
@@ -5148,6 +5556,7 @@ int main (int argc, char **argv) {
           "e:"  /* Engine options */
           "q"   /* Disallow detailed stats */
           "X:"  /* Load extension */
+          "O:"  /* Master Server */
         ))) {
         switch (c) {
         case 'a':
@@ -5368,6 +5777,8 @@ int main (int argc, char **argv) {
                     *(ptr - 1) = ',';
                 }
             }
+        case 'O':
+            overlord = optarg;
             break;
         default:
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -5669,6 +6080,28 @@ int main (int argc, char **argv) {
             fclose(portnumber_file);
             rename(temp_portnumber_filename, portnumber_filename);
         }
+    }
+
+    if (overlord) {
+        struct utsname utsname;
+        if (uname(&utsname) != -1) {
+            char port[12];
+            snprintf(port, sizeof(port), ":%u", settings.port);
+            nodeid = malloc(strlen(utsname.nodename) + strlen(port) + 1);
+            if (nodeid) {
+                sprintf(nodeid, "%s%s", utsname.nodename, port);
+            }
+        } else {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to get uname: %s\n", strerror(errno));
+        }
+
+        if (remote_connection(overlord, conn_create_tap_connect) == -1) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to start tap consumer\n");
+        }
+        // @TODO we need an observer to determine when the socket close and
+        // when to switch state
     }
 
     /* Drop privileges no longer needed */

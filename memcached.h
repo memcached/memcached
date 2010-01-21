@@ -124,6 +124,8 @@ enum conn_states {
     conn_swallow,    /**< swallowing unnecessary bytes w/o storing */
     conn_closing,    /**< closing this connection */
     conn_mwrite,     /**< writing out many items sequentially */
+    conn_create_tap_connect, /**< Create the tap command message */
+    conn_ship_log, /**< Ship replication log */
     conn_max_state   /**< Max state value (used for assertion) */
 };
 
@@ -376,6 +378,7 @@ struct conn {
 
     ENGINE_ERROR_CODE aiostat;
     bool ewouldblock;
+    TAP_ITERATOR tap_iterator;
 };
 
 /*
