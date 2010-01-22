@@ -50,6 +50,7 @@ static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
  * can use to signal that they've put a new connection on its queue.
  */
 static LIBEVENT_THREAD *threads;
+LIBEVENT_THREAD tap_thread;
 
 /*
  * Number of worker threads that have finished setting themselves up.
@@ -60,6 +61,7 @@ static pthread_cond_t init_cond;
 
 
 static void thread_libevent_process(int fd, short which, void *arg);
+static void libevent_tap_process(int fd, short which, void *arg);
 
 /*
  * Initializes a connection queue.
@@ -179,7 +181,7 @@ static void create_worker(void *(*func)(void *), void *arg) {
 /*
  * Set up a thread's information.
  */
-static void setup_thread(LIBEVENT_THREAD *me) {
+static void setup_thread(LIBEVENT_THREAD *me, bool tap) {
     me->base = event_init();
     if (! me->base) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -189,7 +191,8 @@ static void setup_thread(LIBEVENT_THREAD *me) {
 
     /* Listen for notifications from other threads */
     event_set(&me->notify_event, me->notify_receive_fd,
-              EV_READ | EV_PERSIST, thread_libevent_process, me);
+              EV_READ | EV_PERSIST,
+              tap ? libevent_tap_process : thread_libevent_process, me);
     event_base_set(me->base, &me->notify_event);
 
     if (event_add(&me->notify_event, 0) == -1) {
@@ -198,13 +201,15 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(1);
     }
 
-    me->new_conn_queue = malloc(sizeof(struct conn_queue));
-    if (me->new_conn_queue == NULL) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                "Failed to allocate memory for connection queue");
-        exit(EXIT_FAILURE);
+    if (!tap) {
+        me->new_conn_queue = malloc(sizeof(struct conn_queue));
+        if (me->new_conn_queue == NULL) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to allocate memory for connection queue");
+            exit(EXIT_FAILURE);
+        }
+        cq_init(me->new_conn_queue);
     }
-    cq_init(me->new_conn_queue);
 
     if ((pthread_mutex_init(&me->mutex, NULL) != 0)) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -221,7 +226,6 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(EXIT_FAILURE);
     }
 }
-
 
 /*
  * Worker thread: main event loop
@@ -281,6 +285,33 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         }
         cqi_free(item);
     }
+
+    conn* pending = NULL;
+    pthread_mutex_lock(&me->mutex);
+    if (me->pending_io != NULL) {
+        pending = me->pending_io;
+        me->pending_io = NULL;
+    }
+    pthread_mutex_unlock(&me->mutex);
+    if (pending != NULL) {
+        do {
+            conn *c = pending;
+            pending = pending->next;
+            c->next = NULL;
+            assert(me == c->thread);
+            event_add(&c->event, 0);
+            drive_machine(c);
+        } while (pending != NULL);
+    }
+}
+
+static void libevent_tap_process(int fd, short which, void *arg) {
+    LIBEVENT_THREAD *me = arg;
+    char buf[1];
+
+    if (read(fd, buf, 1) != 1)
+        if (settings.verbose > 0)
+            fprintf(stderr, "Can't read from libevent pipe\n");
 
     conn* pending = NULL;
     pthread_mutex_lock(&me->mutex);
@@ -519,7 +550,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
         threads[i].notify_send_fd = fds[1];
         threads[i].index = i;
 
-        setup_thread(&threads[i]);
+        setup_thread(&threads[i], false);
 #ifdef __WIN32__
         if (i == (nthreads - 1)) {
             shutdown(sockfd, 2);
@@ -531,6 +562,18 @@ void thread_init(int nthreads, struct event_base *main_base) {
     for (i = 0; i < nthreads; i++) {
         create_worker(worker_libevent, &threads[i]);
     }
+
+    int fds[2];
+    if (pipe(fds)) {
+        perror("Can't create notify pipe");
+        exit(1);
+    }
+
+    tap_thread.notify_receive_fd = fds[0];
+    tap_thread.notify_send_fd = fds[1];
+    tap_thread.index = i;
+    setup_thread(&tap_thread, true);
+    create_worker(worker_libevent, &tap_thread);
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);

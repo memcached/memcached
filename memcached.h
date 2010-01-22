@@ -275,6 +275,8 @@ typedef struct {
     int index;                  /* index of this thread in the threads array */
 } LIBEVENT_THREAD;
 
+extern LIBEVENT_THREAD tap_thread;
+
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
