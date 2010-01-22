@@ -339,7 +339,12 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
     LIBEVENT_THREAD *thr = conn->thread;
 
     pthread_mutex_lock(&thr->mutex);
-    assert(conn->next == NULL);
+    // This means we're calling notify_io_complete too frequently and
+    // have nothing to do.
+    if (conn->next != NULL) {
+        pthread_mutex_unlock(&thr->mutex);
+        return;
+    }
     conn->next = thr->pending_io;
     thr->pending_io = conn;
     pthread_mutex_unlock(&thr->mutex);
