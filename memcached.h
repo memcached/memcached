@@ -262,6 +262,11 @@ struct engine_event_handler {
 extern struct stats stats;
 extern struct settings settings;
 
+enum thread_type {
+    GENERAL = 11,
+    TAP = 13
+};
+
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
@@ -271,9 +276,26 @@ typedef struct {
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *suffix_cache;      /* suffix cache */
     pthread_mutex_t mutex;      /* Mutex to lock protect access to the pending_io */
+    bool is_locked;
     struct conn *pending_io;    /* List of connection with pending async io ops */
     int index;                  /* index of this thread in the threads array */
+    enum thread_type type;      /* Type of IO this thread processes */
 } LIBEVENT_THREAD;
+
+#define LOCK_THREAD(t)                          \
+    if (pthread_mutex_lock(&t->mutex) != 0) {   \
+        abort();                                \
+    }                                           \
+    assert(t->is_locked == false);              \
+    t->is_locked = true;
+
+#define UNLOCK_THREAD(t)                         \
+    assert(t->is_locked == true);                \
+    t->is_locked = false;                        \
+    if (pthread_mutex_unlock(&t->mutex) != 0) {  \
+        abort();                                 \
+    }
+
 
 extern LIBEVENT_THREAD tap_thread;
 

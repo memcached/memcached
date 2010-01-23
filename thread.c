@@ -182,6 +182,7 @@ static void create_worker(void *(*func)(void *), void *arg) {
  * Set up a thread's information.
  */
 static void setup_thread(LIBEVENT_THREAD *me, bool tap) {
+    me->type = tap ? TAP : GENERAL;
     me->base = event_init();
     if (! me->base) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -253,6 +254,7 @@ static void *worker_libevent(void *arg) {
  */
 static void thread_libevent_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
+    assert(me->type == GENERAL);
     CQ_ITEM *item;
     char buf[1];
 
@@ -307,6 +309,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 
 static void libevent_tap_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
+    assert(me->type == TAP);
     char buf[1];
 
     if (read(fd, buf, 1) != 1)
@@ -338,16 +341,16 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
     conn->aiostat = status;
     LIBEVENT_THREAD *thr = conn->thread;
 
-    pthread_mutex_lock(&thr->mutex);
+    LOCK_THREAD(thr);
     // This means we're calling notify_io_complete too frequently and
     // have nothing to do.
     if (conn->next != NULL) {
-        pthread_mutex_unlock(&thr->mutex);
+        UNLOCK_THREAD(thr);
         return;
     }
     conn->next = thr->pending_io;
     thr->pending_io = conn;
-    pthread_mutex_unlock(&thr->mutex);
+    UNLOCK_THREAD(thr);
 
     /* kick the thread in the butt */
     if (write(thr->notify_send_fd, "", 1) != 1) {
