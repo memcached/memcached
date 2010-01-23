@@ -5183,22 +5183,28 @@ static int get_socket_fd(const void *cookie) {
     return c->sfd;
 }
 
+static int num_independent_stats() {
+    return settings.num_threads + 1;
+}
+
 static void *new_independent_stats(void) {
     int ii;
-    struct independent_stats *independent_stats = calloc(sizeof(independent_stats) + sizeof(struct thread_stats) * settings.num_threads, 1);
+    int nrecords = num_independent_stats();
+    struct independent_stats *independent_stats = calloc(sizeof(independent_stats) + sizeof(struct thread_stats) * nrecords, 1);
     if (settings.topkeys > 0)
         independent_stats->topkeys = topkeys_init(settings.topkeys);
-    for (ii = 0; ii < settings.num_threads; ii++)
+    for (ii = 0; ii < nrecords; ii++)
         pthread_mutex_init(&independent_stats->thread_stats[ii].mutex, NULL);
     return independent_stats;
 }
 
 static void release_independent_stats(void *stats) {
     int ii;
+    int nrecords = num_independent_stats();
     struct independent_stats *independent_stats = stats;
     if (independent_stats->topkeys)
         topkeys_free(independent_stats->topkeys);
-    for (ii = 0; ii < settings.num_threads; ii++)
+    for (ii = 0; ii < nrecords; ii++)
         pthread_mutex_destroy(&independent_stats->thread_stats[ii].mutex);
     free(independent_stats);
 }
@@ -5217,6 +5223,7 @@ static inline struct independent_stats *get_independent_stats(conn *c) {
 
 static inline struct thread_stats *get_thread_stats(conn *c) {
     struct independent_stats *independent_stats = get_independent_stats(c);
+    assert(c->thread->index < num_independent_stats());
     return &independent_stats->thread_stats[c->thread->index];
 }
 
