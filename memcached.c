@@ -4284,13 +4284,14 @@ void drive_machine(conn *c) {
         case conn_nread:
             if (c->rlbytes == 0) {
                 c->ewouldblock = false;
-                LOCK_THREAD(c->thread);
+                LIBEVENT_THREAD *t = c->thread;
+                LOCK_THREAD(t);
                 complete_nread(c);
                 if (c->ewouldblock) {
                     event_del(&c->event);
                     stop = 1;
                 }
-                UNLOCK_THREAD(c->thread);
+                UNLOCK_THREAD(t);
                 break;
             }
             /* first check if we have leftovers in the conn_read buffer */
