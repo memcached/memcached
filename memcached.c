@@ -1059,6 +1059,9 @@ static void complete_nread_ascii(conn *c) {
         case ENGINE_DISCONNECT:
             c->state = conn_closing;
             break;
+        case ENGINE_ENOTSUP:
+            out_string(c, "SERVER_ERROR not supported.");
+            break;
         default:
             out_string(c, "SERVER_ERROR Unhandled storage type.");
         }
@@ -1253,8 +1256,10 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
     case PROTOCOL_BINARY_RESPONSE_AUTH_ERROR:
         errstr = "Auth failure.";
         break;
+    case PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED:
+        errstr = "Not supported.";
+        break;
     default:
-        assert(false);
         errstr = "UNHANDLED ERROR";
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                 ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
@@ -1369,6 +1374,9 @@ static void complete_incr_bin(conn *c) {
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
         break;
+    case ENGINE_ENOTSUP:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
+        break;
     default:
         abort();
     }
@@ -1433,6 +1441,9 @@ static void complete_update_bin(conn *c) {
         break;
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
+        break;
+    case ENGINE_ENOTSUP:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
         break;
     default:
         if (c->store_op == OPERATION_ADD) {
@@ -1532,6 +1543,9 @@ static void process_bin_get(conn *c) {
         break;
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
+        break;
+    case ENGINE_ENOTSUP:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
         break;
     default:
         /* @todo add proper error handling! */
@@ -1738,6 +1752,9 @@ static void process_bin_stat(conn *c) {
             break;
         case ENGINE_DISCONNECT:
             c->state = conn_closing;
+            break;
+        case ENGINE_ENOTSUP:
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
             break;
         default:
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
@@ -2543,8 +2560,7 @@ static void dispatch_bin_command(conn *c) {
             break;
        case PROTOCOL_BINARY_CMD_TAP_CONNECT:
             if (settings.engine.v1->get_tap_iterator == NULL) {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
-                               bodylen);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, bodylen);
             } else {
                 bin_read_chunk(c, bin_reading_packet,
                                c->binary_header.request.bodylen);
@@ -2555,8 +2571,7 @@ static void dispatch_bin_command(conn *c) {
        case PROTOCOL_BINARY_CMD_TAP_FLUSH:
        case PROTOCOL_BINARY_CMD_TAP_OPAQUE:
             if (settings.engine.v1->tap_notify == NULL) {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
-                               bodylen);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, bodylen);
             } else {
                 bin_read_chunk(c, bin_reading_packet, c->binary_header.request.bodylen);
             }
@@ -2794,6 +2809,8 @@ static void process_bin_flush(conn *c) {
 
     if (ret == ENGINE_SUCCESS) {
         write_bin_response(c, NULL, 0, 0, 0);
+    } else if (ret == ENGINE_ENOTSUP) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
     } else {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
     }
@@ -3265,6 +3282,9 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         case ENGINE_DISCONNECT:
             c->state = conn_closing;
             break;
+        case ENGINE_ENOTSUP:
+            out_string(c, "SERVER_ERROR not supported");
+            break;
         default:
             out_string(c, "ERROR");
             break;
@@ -3629,6 +3649,9 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
         break;
+    case ENGINE_ENOTSUP:
+        out_string(c, "SERVER_ERROR Not supported");
+        break;
     default:
         abort();
     }
@@ -3785,6 +3808,8 @@ static void process_command(conn *c, char *command) {
         ret = settings.engine.v1->flush(settings.engine.v0, c, exptime);
         if (ret == ENGINE_SUCCESS) {
             out_string(c, "OK");
+        } else if (ret == ENGINE_ENOTSUP) {
+            out_string(c, "SERVER_ERROR not supported");
         } else {
             out_string(c, "SERVER_ERROR failed to flush cache");
         }

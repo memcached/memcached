@@ -975,6 +975,11 @@ static void validate_response_header(protocol_binary_response_no_extras *respons
     assert(response->message.header.response.magic == PROTOCOL_BINARY_RES);
     assert(response->message.header.response.opcode == cmd);
     assert(response->message.header.response.datatype == PROTOCOL_BINARY_RAW_BYTES);
+    if (status == PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND) {
+        if (response->message.header.response.status == PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED) {
+            response->message.header.response.status = PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND;
+        }
+    }
     assert(response->message.header.response.status == status);
     assert(response->message.header.response.opaque == 0xdeadbeef);
 
