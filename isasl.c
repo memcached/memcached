@@ -34,7 +34,7 @@ static int u_hash_key(const char *u)
     return h;
 }
 
-static char *find_pw(const char *u)
+static char *find_pw(const char *u, char **cfg)
 {
     assert(u);
     assert(user_ht);
@@ -46,10 +46,15 @@ static char *find_pw(const char *u)
         e = e->next;
     }
 
-    return e ? e->password : NULL;
+    if (e != NULL) {
+        *cfg = e->config;
+        return e->password;
+    } else {
+        return NULL;
+    }
 }
 
-static void store_pw(user_db_entry_t **ht, const char *u, const char *p)
+static void store_pw(user_db_entry_t **ht, const char *u, const char *p, const char *cfg)
 {
     assert(ht);
     assert(u);
@@ -60,6 +65,8 @@ static void store_pw(user_db_entry_t **ht, const char *u, const char *p)
     assert(e->username);
     e->password = strdup(p);
     assert(e->password);
+    e->config = cfg ? strdup(cfg) : NULL;
+    assert(!cfg || e->config);
 
     int h = u_hash_key(u);
 
@@ -76,6 +83,7 @@ static void free_user_ht(void)
                 user_db_entry_t *n = e->next;
                 free(e->username);
                 free(e->password);
+                free(e->config);
                 free(e);
                 user_ht[i] = n;
             }
@@ -111,21 +119,43 @@ static int load_user_db(void)
         return SASL_NOMEM;
     }
 
+    // File has lines that are newline terminated.
+    // File may have comment lines that must being with '#'.
+    // Lines should look like...
+    //   <NAME><whitespace><PASSWORD><whitespace><CONFIG><optional_whitespace>
+    //
     char up[128];
     while (fgets(up, sizeof(up), sfile)) {
         if (up[0] != '#') {
-            char *uname = up, *p = up;
+            char *uname = up, *p = up, *cfg = NULL;
             kill_whitey(up);
             while (*p && !isspace(p[0])) {
                 p++;
             }
             p[0] = '\0';
             p++;
+            // p now points to the first character after the (now)
+            // null-terminated username.
             while (isspace(*p)) {
                 p++;
             }
+            // p now points to the first non-whitespace character
+            // after the above
             if (p[0] != '\0') {
-                store_pw(new_ut, uname, p);
+                cfg = p;
+                // move cfg past the password
+                while (*cfg && !isspace(cfg[0])) {
+                    cfg++;
+                }
+                if (cfg[0] != '\0') {
+                    cfg[0] = '\0';
+                    cfg++;
+                    // Skip whitespace
+                    while (*cfg && isspace(cfg[0])) {
+                        cfg++;
+                    }
+                }
+                store_pw(new_ut, uname, p, cfg);
             }
         }
     }
@@ -146,6 +176,8 @@ static int load_user_db(void)
 
 void sasl_dispose(sasl_conn_t **pconn)
 {
+    free((*pconn)->username);
+    free((*pconn)->config);
     free(*pconn);
     *pconn = NULL;
 }
@@ -233,10 +265,10 @@ int sasl_listmech(sasl_conn_t *conn,
     return SASL_OK;
 }
 
-static bool check_up(const char *username, const char *password)
+static bool check_up(const char *username, const char *password, char **cfg)
 {
     pthread_mutex_lock(&uhash_lock);
-    char *pw = find_pw(username);
+    char *pw = find_pw(username, cfg);
     bool rv = pw && (strcmp(password, pw) == 0);
     pthread_mutex_unlock(&uhash_lock);
     return rv;
@@ -260,15 +292,23 @@ int sasl_server_start(sasl_conn_t *conn,
             char password[128];
             int pwlen = clientinlen - 2 - strlen(username);
             if (pwlen > 0) {
+                char *cfg = NULL;
                 password[pwlen] = '\0';
                 memcpy(password, clientin + 2 + strlen(username), pwlen);
 
-                if (check_up(username, password)) {
+                if (check_up(username, password, &cfg)) {
                     if (conn->username) {
                         free(conn->username);
                         conn->username = NULL;
                     }
+                    if (conn->config) {
+                        free(conn->config);
+                        conn->config = NULL;
+                    }
                     conn->username = strdup(username);
+                    assert(conn->username);
+                    conn->config = strdup(cfg);
+                    assert(conn->config);
                     rv = SASL_OK;
                 }
             }
@@ -292,9 +332,16 @@ int sasl_server_step(sasl_conn_t *conn,
 int sasl_getprop(sasl_conn_t *conn, int propnum,
                  const void **pvalue)
 {
-    if (propnum != SASL_USERNAME) {
-        return SASL_BADPARAM;
+    switch (propnum) {
+        case SASL_USERNAME:
+            *pvalue = conn->username;
+            break;
+        case ISASL_CONFIG:
+            *pvalue = conn->config;
+            break;
+        default:
+            return SASL_BADPARAM;
     }
-    *pvalue = conn->username;
+
     return SASL_OK;
 }

@@ -81,7 +81,7 @@ extern "C" {
         ON_CONNECT     = 0,     /**< A new connection was established. */
         ON_DISCONNECT  = 1,     /**< A connection was terminated. */
         ON_AUTH        = 2,     /**< A connection was authenticated. */
-        ON_SWITCH_CONN = 3      /**< Processing a different connection on this thread. */
+        ON_SWITCH_CONN = 3,     /**< Processing a different connection on this thread. */
     } ENGINE_EVENT_TYPE;
 
     #define MAX_ENGINE_EVENT_TYPE 3
@@ -104,6 +104,11 @@ extern "C" {
                              * server, the upper 8 bits is reserved for engine
                              * implementation. */
     } item;
+
+    typedef struct {
+        const char *username;
+        const char *config;
+    } auth_data_t;
 
     /**
      * Callback for any function producing stats.
@@ -185,11 +190,10 @@ extern "C" {
          * given cookie.
          *
          * @param cookie The cookie provided by the frontend
+         * @param data Pointer to auth_data_t structure for returning the values
          *
-         * @return a principal name, or NULL if the connection is not
-         *         authenticated
          */
-        const char* (*get_auth_data)(const void *cookie);
+        void (*get_auth_data)(const void *cookie, auth_data_t *data);
 
         /**
          * Store engine-specific session data on the given cookie.

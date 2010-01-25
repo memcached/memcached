@@ -1606,6 +1606,16 @@ static void init_sasl_conn(conn *c) {
     }
 }
 
+static void get_auth_data(const void *cookie, auth_data_t *data) {
+    conn *c = (conn*)cookie;
+    if (c->sasl_conn) {
+        sasl_getprop(c->sasl_conn, SASL_USERNAME, (void*)&data->username);
+#ifdef ENABLE_ISASL
+        sasl_getprop(c->sasl_conn, ISASL_CONFIG, (void*)&data->config);
+#endif
+    }
+}
+
 static void bin_list_sasl_mechs(conn *c) {
     // Guard against a disabled SASL.
     if (!settings.sasl) {
@@ -1739,9 +1749,9 @@ static void process_bin_complete_sasl_auth(conn *c) {
     switch(result) {
     case SASL_OK:
         write_bin_response(c, "Authenticated", 0, 0, strlen("Authenticated"));
-        const void *uname = NULL;
-        sasl_getprop(c->sasl_conn, SASL_USERNAME, &uname);
-        perform_callbacks(ON_AUTH, uname, c);
+        auth_data_t data;
+        get_auth_data(c, &data);
+        perform_callbacks(ON_AUTH, (const void*)&data, c);
         STATS_NOKEY(c, auth_cmds);
         break;
     case SASL_CONTINUE:
@@ -4438,15 +4448,6 @@ static int enable_large_pages(void) {
 
 static const char* get_server_version(void) {
     return VERSION;
-}
-
-static const char* get_auth_data(const void *cookie) {
-    const void *uname = NULL;
-    conn *c = (conn*)cookie;
-    if (c->sasl_conn) {
-        sasl_getprop(c->sasl_conn, SASL_USERNAME, &uname);
-    }
-    return (const char*)uname;
 }
 
 static void store_engine_specific(const void *cookie,

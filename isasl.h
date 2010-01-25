@@ -4,6 +4,7 @@
 #define SASL_CB_LIST_END   0  /* end of list */
 
 #define SASL_USERNAME     0 /* pointer to NUL terminated user name */
+#define ISASL_CONFIG      20 /* Just so we don't have to implement all the auxprop stuff */
 
 typedef struct sasl_callback {
     unsigned long id;
@@ -13,11 +14,13 @@ typedef struct sasl_callback {
 
 typedef struct sasl_conn {
     char *username;
+    char *config;
 } sasl_conn_t;
 
 typedef struct user_db_entry {
     char *username;
     char *password;
+    char *config;
     struct user_db_entry *next;
 } user_db_entry_t;
 
