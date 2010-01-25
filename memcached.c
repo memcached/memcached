@@ -4901,8 +4901,8 @@ int main (int argc, char **argv) {
         if (!protocol_specified) {
             settings.binding_protocol = binary_prot;
         } else {
-            if (settings.binding_protocol != binary_prot) {
-                fprintf(stderr, "ERROR: You cannot allow the ASCII protocol while using SASL.\n");
+            if (settings.binding_protocol == ascii_prot) {
+                fprintf(stderr, "ERROR: You cannot use only ASCII protocol while using SASL.\n");
                 exit(EX_USAGE);
             }
         }
