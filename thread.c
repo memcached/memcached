@@ -9,9 +9,13 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <stdint.h>
+#include <signal.h>
 #include <pthread.h>
 
 #define ITEMS_PER_ALLOC 64
+
+extern volatile sig_atomic_t memcached_shutdown;
 
 /* An item in the connection queue. */
 typedef struct conn_queue_item CQ_ITEM;
@@ -49,8 +53,11 @@ static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
  * Each libevent instance has a wakeup pipe, which other threads
  * can use to signal that they've put a new connection on its queue.
  */
+static int nthreads;
 static LIBEVENT_THREAD *threads;
+static pthread_t *thread_ids;
 LIBEVENT_THREAD tap_thread;
+static pthread_t tap_thread_id;
 
 /*
  * Number of worker threads that have finished setting themselves up.
@@ -161,14 +168,13 @@ static void cqi_free(CQ_ITEM *item) {
 /*
  * Creates a worker thread.
  */
-static void create_worker(void *(*func)(void *), void *arg) {
-    pthread_t       thread;
+static void create_worker(void *(*func)(void *), void *arg, pthread_t *id) {
     pthread_attr_t  attr;
     int             ret;
 
     pthread_attr_init(&attr);
 
-    if ((ret = pthread_create(&thread, &attr, func, arg)) != 0) {
+    if ((ret = pthread_create(id, &attr, func, arg)) != 0) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                         "Can't create thread: %s\n",
                                         strerror(ret));
@@ -258,6 +264,11 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     CQ_ITEM *item;
     char buf[1];
 
+    if (memcached_shutdown) {
+         event_base_loopbreak(me->base);
+         return ;
+    }
+
     if (read(fd, buf, 1) != 1)
         if (settings.verbose > 0)
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -312,9 +323,16 @@ static void libevent_tap_process(int fd, short which, void *arg) {
     assert(me->type == TAP);
     char buf[1];
 
-    if (read(fd, buf, 1) != 1)
-        if (settings.verbose > 0)
+    if (memcached_shutdown) {
+        event_base_loopbreak(me->base);
+        return ;
+    }
+
+    if (read(fd, buf, 1) != 1) {
+        if (settings.verbose > 0) {
             fprintf(stderr, "Can't read from libevent pipe\n");
+        }
+    }
 
     conn* pending = NULL;
     pthread_mutex_lock(&me->mutex);
@@ -508,9 +526,9 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  * nthreads  Number of worker event handler threads to spawn
  * main_base Event base for main thread
  */
-void thread_init(int nthreads, struct event_base *main_base) {
+void thread_init(int nthr, struct event_base *main_base) {
     int i;
-
+    nthreads = nthr;
 #ifdef __WIN32__
     struct sockaddr_in serv_addr;
     int sockfd;
@@ -532,6 +550,11 @@ void thread_init(int nthreads, struct event_base *main_base) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                         "Can't allocate thread descriptors: %s",
                                         strerror(errno));
+        exit(1);
+    }
+    thread_ids = calloc(nthreads, sizeof(pthread_t));
+    if (! thread_ids) {
+        perror("Can't allocate thread descriptors");
         exit(1);
     }
 
@@ -570,7 +593,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
 
     /* Create threads after we've done all the libevent setup. */
     for (i = 0; i < nthreads; i++) {
-        create_worker(worker_libevent, &threads[i]);
+        create_worker(worker_libevent, &threads[i], &thread_ids[i]);
     }
 
     int fds[2];
@@ -583,7 +606,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
     tap_thread.notify_send_fd = fds[1];
     tap_thread.index = i;
     setup_thread(&tap_thread, true);
-    create_worker(worker_libevent, &tap_thread);
+    create_worker(worker_libevent, &tap_thread, &tap_thread_id);
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);
@@ -593,3 +616,18 @@ void thread_init(int nthreads, struct event_base *main_base) {
     pthread_mutex_unlock(&init_lock);
 }
 
+void threads_shutdown(void)
+{
+    for (int ii = 0; ii < nthreads; ++ii) {
+        write(threads[ii].notify_send_fd, "", 1);
+        pthread_join(thread_ids[ii], NULL);
+    }
+    write(tap_thread.notify_send_fd, "", 1);
+    pthread_join(tap_thread_id, NULL);
+    close(tap_thread.notify_receive_fd);
+    close(tap_thread.notify_send_fd);
+    for (int ii = 0; ii < nthreads; ++ii) {
+        close(threads[ii].notify_send_fd);
+        close(threads[ii].notify_receive_fd);
+    }
+}

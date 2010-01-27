@@ -425,6 +425,8 @@ extern int daemonize(int nochdir, int noclose);
  */
 
 void thread_init(int nthreads, struct event_base *main_base);
+void threads_shutdown(void);
+
 int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 
