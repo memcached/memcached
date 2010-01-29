@@ -286,12 +286,17 @@ int sasl_server_start(sasl_conn_t *conn,
     *serveroutlen = 0;
 
     if(strcmp(mech, "PLAIN") == 0) {
-        // 256 is an arbitrary ``large enough'' number.
+        // The clientin string looks like "[authzid]\0username\0password"
+        while (clientinlen > 0 && clientin[0] != '\0') {
+            // Skip authzid
+            clientin++;
+            clientinlen--;
+        }
         if (clientinlen > 2 && clientinlen < 128 && clientin[0] == '\0') {
             const char *username = clientin + 1;
-            char password[128];
+            char password[256];
             int pwlen = clientinlen - 2 - strlen(username);
-            if (pwlen > 0) {
+            if (pwlen > 0 && pwlen < 256) {
                 char *cfg = NULL;
                 password[pwlen] = '\0';
                 memcpy(password, clientin + 2 + strlen(username), pwlen);
