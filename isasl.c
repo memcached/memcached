@@ -100,23 +100,25 @@ static const char *get_isasl_filename(void)
 
 static int load_user_db(void)
 {
-    const char *filename = get_isasl_filename();
-    if (!filename) {
-        fprintf(stderr, "No ISASL_PWFILE defined.\n");
-        return SASL_FAIL;
-    }
-
-    FILE *sfile = fopen(filename, "r");
-    if (!sfile) {
-        perror(filename);
-        return SASL_FAIL;
-    }
-
     user_db_entry_t **new_ut = calloc(n_uht_buckets,
                                       sizeof(user_db_entry_t*));
+
     if (!new_ut) {
-        fclose(sfile);
         return SASL_NOMEM;
+    }
+
+    pthread_mutex_lock(&uhash_lock);
+    free_user_ht();
+    user_ht = new_ut;
+    pthread_mutex_unlock(&uhash_lock);
+
+    const char *filename = get_isasl_filename();
+    if (!filename) {
+        return SASL_OK;
+    }
+    FILE *sfile = fopen(filename, "r");
+    if (!sfile) {
+        return SASL_OK;
     }
 
     // File has lines that are newline terminated.
@@ -166,11 +168,6 @@ static int load_user_db(void)
         fprintf(stderr, "Loaded isasl db from %s\n", filename);
     }
 
-    pthread_mutex_lock(&uhash_lock);
-    free_user_ht();
-    user_ht = new_ut;
-    pthread_mutex_unlock(&uhash_lock);
-
     return SASL_OK;
 }
 
@@ -186,12 +183,15 @@ static bool isasl_is_fresh(void)
 {
     bool rv = false;
     struct stat st;
+    const char *filename = get_isasl_filename();
 
-    if (stat(get_isasl_filename(), &st) < 0) {
-        perror(get_isasl_filename());
-    } else {
-        rv = prev_stat.st_mtime == st.st_mtime;
-        prev_stat = st;
+    if (filename) {
+        if (stat(get_isasl_filename(), &st) < 0) {
+            perror(get_isasl_filename());
+        } else {
+            rv = prev_stat.st_mtime == st.st_mtime;
+            prev_stat = st;
+        }
     }
     return rv;
 }
@@ -224,7 +224,7 @@ int sasl_server_init(const sasl_callback_t *callbacks,
             // If we can't find a more frequent sleep time, set it to 60s.
             sleep_time = 60;
         }
-        if(pthread_create(&t, NULL, check_isasl_db_thread, &sleep_time) != 0) {
+        if(get_isasl_filename() != NULL && pthread_create(&t, NULL, check_isasl_db_thread, &sleep_time) != 0) {
             perror("couldn't create isasl db update thread.");
             exit(EX_OSERR);
         }

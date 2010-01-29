@@ -15,6 +15,10 @@
  */
 #include "memcached.h"
 
+#if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
+#define SASL_ENABLED
+#endif
+
 #ifndef __WIN32__
 
 #include <sys/stat.h>
@@ -301,6 +305,7 @@ static void settings_init(void) {
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.topkeys = 0;
+    settings.require_sasl = false;
 }
 
 /*
@@ -578,7 +583,6 @@ static void conn_cleanup(conn *c) {
     }
 
     if (c->sasl_conn) {
-        assert(settings.sasl);
         sasl_dispose(&c->sasl_conn);
         c->sasl_conn = NULL;
     }
@@ -1589,10 +1593,6 @@ static void handle_binary_protocol_error(conn *c) {
 
 static void init_sasl_conn(conn *c) {
     assert(c);
-    /* should something else be returned? */
-    if (!settings.sasl)
-        return;
-
     if (!c->sasl_conn) {
         int result=sasl_server_new("memcached",
                                    NULL, NULL, NULL, NULL,
@@ -1616,15 +1616,8 @@ static void get_auth_data(const void *cookie, auth_data_t *data) {
     }
 }
 
+#ifdef SASL_ENABLED
 static void bin_list_sasl_mechs(conn *c) {
-    // Guard against a disabled SASL.
-    if (!settings.sasl) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
-                        c->binary_header.request.bodylen
-                        - c->binary_header.request.keylen);
-        return;
-    }
-
     init_sasl_conn(c);
     const char *result_string = NULL;
     unsigned int string_length = 0;
@@ -1644,6 +1637,7 @@ static void bin_list_sasl_mechs(conn *c) {
     }
     write_bin_response(c, (char*)result_string, 0, 0, string_length);
 }
+#endif
 
 struct sasl_tmp {
     int ksize;
@@ -1652,14 +1646,6 @@ struct sasl_tmp {
 };
 
 static void process_bin_sasl_auth(conn *c) {
-    // Guard for handling disabled SASL on the server.
-    if (!settings.sasl) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
-                        c->binary_header.request.bodylen
-                        - c->binary_header.request.keylen);
-        return;
-    }
-
     assert(c->binary_header.request.extlen == 0);
 
     int nkey = c->binary_header.request.keylen;
@@ -1694,7 +1680,6 @@ static void process_bin_sasl_auth(conn *c) {
 }
 
 static void process_bin_complete_sasl_auth(conn *c) {
-    assert(settings.sasl);
     const char *out = NULL;
     unsigned int outlen = 0;
 
@@ -1771,7 +1756,6 @@ static void process_bin_complete_sasl_auth(conn *c) {
 }
 
 static bool authenticated(conn *c) {
-    assert(settings.sasl);
     bool rv = false;
 
     switch (c->cmd) {
@@ -1913,7 +1897,7 @@ static void dispatch_bin_command(conn *c) {
     int keylen = c->binary_header.request.keylen;
     uint32_t bodylen = c->binary_header.request.bodylen;
 
-    if (settings.sasl && !authenticated(c)) {
+    if (settings.require_sasl && !authenticated(c)) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
         c->write_and_go = conn_closing;
         return;
@@ -2051,6 +2035,7 @@ static void dispatch_bin_command(conn *c) {
                 protocol_error = 1;
             }
             break;
+#ifdef SASL_ENABLED
         case PROTOCOL_BINARY_CMD_SASL_LIST_MECHS:
             if (extlen == 0 && keylen == 0 && bodylen == 0) {
                 bin_list_sasl_mechs(c);
@@ -2066,6 +2051,7 @@ static void dispatch_bin_command(conn *c) {
                 protocol_error = 1;
             }
             break;
+#endif
         default:
             if (settings.engine.v1->unknown_command == NULL) {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
@@ -2565,9 +2551,7 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("cmd_get", "%"PRIu64, thread_stats.cmd_get);
     APPEND_STAT("cmd_set", "%"PRIu64, slab_stats.cmd_set);
     APPEND_STAT("cmd_flush", "%"PRIu64, thread_stats.cmd_flush);
-#if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
     APPEND_STAT("auth_cmds", "%"PRIu64, thread_stats.auth_cmds);
-#endif
     APPEND_STAT("get_hits", "%"PRIu64, slab_stats.get_hits);
     APPEND_STAT("get_misses", "%"PRIu64, thread_stats.get_misses);
     APPEND_STAT("delete_misses", "%"PRIu64, thread_stats.delete_misses);
@@ -2615,7 +2599,20 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("tcp_backlog", "%d", settings.backlog);
     APPEND_STAT("binding_protocol", "%s",
                 prot_text(settings.binding_protocol));
-    APPEND_STAT("auth_enabled_sasl", "%s", settings.sasl ? "yes" : "no");
+#ifdef SASL_ENABLED
+    APPEND_STAT("auth_enabled_sasl", "%s", "yes");
+#else
+    APPEND_STAT("auth_enabled_sasl", "%s", "no");
+#endif
+
+#ifdef ENABLE_ISASL
+    APPEND_STAT("auth_sasl_engine", "%s", "isasl");
+#elif defined(ENABLE_SASL)
+    APPEND_STAT("auth_sasl_engine", "%s", "cyrus");
+#else
+    APPEND_STAT("auth_sasl_engine", "%s", "none");
+#endif
+    APPEND_STAT("auth_required_sasl", "%s", settings.require_sasl ? "yes" : "no");
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("topkeys", "%d", settings.topkeys);
 }
@@ -4249,10 +4246,9 @@ static void usage(void) {
     printf("-I            Override the size of each slab page. Adjusts max item size\n"
            "              (default: 1mb, min: 1k, max: 128m)\n");
     printf("-q            Disable detailed stats commands\n");
-#if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
-    printf("-S            Turn on Sasl authentication\n");
+#ifdef SASL_ENABLED
+    printf("-S            Require SASL authentication\n");
 #endif
-    printf("-q            Disallow detailed stats command\n");
     printf("\nEnvironment variables:\n"
            "MEMCACHED_PORT_FILENAME   File to write port information to\n"
            "MEMCACHED_TOP_KEYS        Number of top keys to keep track of\n");
@@ -4626,11 +4622,7 @@ int main (int argc, char **argv) {
     struct rlimit rlim;
     char unit = '\0';
     int size_max = 0;
-    /* listening sockets */
-    static int *l_socket = NULL;
 
-    /* udp socket */
-    static int *u_socket = NULL;
     bool protocol_specified = false;
     bool tcp_specified = false;
     bool udp_specified = false;
@@ -4878,11 +4870,11 @@ int main (int argc, char **argv) {
             settings.allow_detailed = false;
             break;
         case 'S': /* set Sasl authentication to true. Default is false */
-#if !(defined(ENABLE_SASL) || defined(ENABLE_ISASL))
+#ifndef SASL_ENABLED
             fprintf(stderr, "This server is not built with SASL support.\n");
             exit(EX_USAGE);
 #endif
-            settings.sasl = true;
+            settings.require_sasl = true;
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
@@ -4898,12 +4890,12 @@ int main (int argc, char **argv) {
         }
     }
 
-    if (settings.sasl) {
+    if (settings.require_sasl) {
         if (!protocol_specified) {
             settings.binding_protocol = binary_prot;
         } else {
             if (settings.binding_protocol == ascii_prot) {
-                fprintf(stderr, "ERROR: You cannot use only ASCII protocol while using SASL.\n");
+                fprintf(stderr, "ERROR: You cannot use only ASCII protocol while requiring SASL.\n");
                 exit(EX_USAGE);
             }
         }
@@ -4984,10 +4976,9 @@ int main (int argc, char **argv) {
         }
     }
 
-    /* Initialize Sasl if -S was specified */
-    if (settings.sasl) {
-        init_sasl();
-    }
+#ifdef SASL_ENABLED
+    init_sasl();
+#endif /* SASL */
 
 #ifndef __WIN32__
     /* daemonize if requested */
@@ -5165,10 +5156,6 @@ int main (int argc, char **argv) {
     /* Clean up strdup() call for bind() address */
     if (settings.inter)
       free(settings.inter);
-    if (l_socket)
-      free(l_socket);
-    if (u_socket)
-      free(u_socket);
 
     return EXIT_SUCCESS;
 }

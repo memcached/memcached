@@ -56,8 +56,13 @@ my $sock = $server->sock;
 
 my $stats = mem_stats($sock);
 
+my $sasl_enabled = 0;
 # Test number of keys
-is(scalar(keys(%$stats)), 37, "37 stats values");
+if ($stats->{'auth_sasl_enabled'} == 'yes') {
+    $sasl_enabled = 1;
+}
+
+is(scalar(keys(%$stats)), 38, "38 stats values");
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses
@@ -169,7 +174,7 @@ is(1024, $settings->{'maxconns'});
 is('NULL', $settings->{'domain_socket'});
 is('on', $settings->{'evictions'});
 is('yes', $settings->{'cas_enabled'});
-is('no', $settings->{'auth_enabled_sasl'});
+is('no', $settings->{'auth_required_sasl'});
 
 print $sock "stats reset\r\n";
 is(scalar <$sock>, "RESET\r\n", "good stats reset");

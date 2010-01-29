@@ -237,6 +237,7 @@ struct settings {
     int backlog;
     size_t item_size_max;   /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
+    bool require_sasl;      /* require SASL auth */
     int topkeys;            /* Number of top keys to track */
     union {
         ENGINE_HANDLE *v0;
