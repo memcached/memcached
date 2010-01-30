@@ -619,10 +619,14 @@ void thread_init(int nthr, struct event_base *main_base) {
 void threads_shutdown(void)
 {
     for (int ii = 0; ii < nthreads; ++ii) {
-        write(threads[ii].notify_send_fd, "", 1);
+        if (write(threads[ii].notify_send_fd, "", 1) < 0) {
+            perror("write failure shutting down.");
+        }
         pthread_join(thread_ids[ii], NULL);
     }
-    write(tap_thread.notify_send_fd, "", 1);
+    if (write(tap_thread.notify_send_fd, "", 1) < 0) {
+        perror("write failure shutting down.");
+    }
     pthread_join(tap_thread_id, NULL);
     close(tap_thread.notify_receive_fd);
     close(tap_thread.notify_send_fd);
