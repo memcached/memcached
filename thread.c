@@ -329,7 +329,9 @@ static void libevent_tap_process(int fd, short which, void *arg) {
             pending = pending->next;
             c->next = NULL;
             assert(me == c->thread);
+            LOCK_THREAD(me);
             event_add(&c->event, 0);
+            UNLOCK_THREAD(me);
             drive_machine(c);
         } while (pending != NULL);
     }
