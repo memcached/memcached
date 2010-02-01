@@ -4202,8 +4202,8 @@ void drive_machine(conn *c) {
             break;
 
         case conn_ship_log:
-            c->ewouldblock = false;
             LOCK_THREAD(c->thread);
+            c->ewouldblock = false;
             ship_tap_log(c);
             if (c->ewouldblock) {
                 event_del(&c->event);
@@ -4283,9 +4283,9 @@ void drive_machine(conn *c) {
 
         case conn_nread:
             if (c->rlbytes == 0) {
-                c->ewouldblock = false;
                 LIBEVENT_THREAD *t = c->thread;
                 LOCK_THREAD(t);
+                c->ewouldblock = false;
                 complete_nread(c);
                 if (c->ewouldblock) {
                     event_del(&c->event);
