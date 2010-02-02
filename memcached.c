@@ -2320,7 +2320,11 @@ static void process_bin_tap_connect(conn *c) {
         key -= 4;
     }
 
-    TAP_ITERATOR iterator = settings.engine.v1->get_tap_iterator(settings.engine.v0, c, key, c->binary_header.request.keylen, flags, data, c->binary_header.request.bodylen - sizeof(req->bytes) - c->binary_header.request.keylen);
+    TAP_ITERATOR iterator = settings.engine.v1->get_tap_iterator(
+        settings.engine.v0, c, key, c->binary_header.request.keylen,
+        flags, data,
+        c->binary_header.request.bodylen - sizeof(req->bytes)
+        - c->binary_header.request.keylen);
 
     if (iterator == NULL) {
         /* TROND: SEND A NAK TO THE TAP */
