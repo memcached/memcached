@@ -306,15 +306,13 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         me->pending_io = NULL;
     }
     pthread_mutex_unlock(&me->mutex);
-    if (pending != NULL) {
-        do {
-            conn *c = pending;
-            pending = pending->next;
-            c->next = NULL;
-            assert(me == c->thread);
-            event_add(&c->event, 0);
-            drive_machine(c);
-        } while (pending != NULL);
+    while (pending != NULL) {
+        conn *c = pending;
+        pending = pending->next;
+        c->next = NULL;
+        assert(me == c->thread);
+        event_add(&c->event, 0);
+        drive_machine(c);
     }
 }
 
@@ -341,17 +339,15 @@ static void libevent_tap_process(int fd, short which, void *arg) {
         me->pending_io = NULL;
     }
     pthread_mutex_unlock(&me->mutex);
-    if (pending != NULL) {
-        do {
-            conn *c = pending;
-            pending = pending->next;
-            c->next = NULL;
-            assert(me == c->thread);
-            LOCK_THREAD(me);
-            event_add(&c->event, 0);
-            UNLOCK_THREAD(me);
-            drive_machine(c);
-        } while (pending != NULL);
+    while (pending != NULL) {
+        conn *c = pending;
+        pending = pending->next;
+        c->next = NULL;
+        assert(me == c->thread);
+        LOCK_THREAD(me);
+        event_add(&c->event, 0);
+        UNLOCK_THREAD(me);
+        drive_machine(c);
     }
 }
 
