@@ -4318,6 +4318,11 @@ void drive_machine(conn *c) {
                 LOCK_THREAD(t);
                 c->ewouldblock = false;
                 complete_nread(c);
+                UNLOCK_THREAD(t);
+                /* Breaking this into two, as complete_nread may have
+                   moved us to a different thread */
+                t = c->thread;
+                LOCK_THREAD(t);
                 if (c->ewouldblock) {
                     event_del(&c->event);
                     stop = 1;
