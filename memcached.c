@@ -2346,6 +2346,7 @@ static void process_bin_tap_connect(conn *c) {
         c->thread = &tap_thread;
         c->event.ev_base = tap_thread.base;
         pthread_mutex_lock(&tap_thread.mutex);
+        assert(c->next == NULL);
         c->next = tap_thread.pending_io;
         tap_thread.pending_io = c;
         pthread_mutex_unlock(&tap_thread.mutex);
