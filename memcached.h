@@ -126,6 +126,7 @@ enum conn_states {
     conn_mwrite,     /**< writing out many items sequentially */
     conn_create_tap_connect, /**< Create the tap command message */
     conn_ship_log, /**< Ship replication log */
+    conn_add_tap_client, /**< Move the tap client into the tap thread */
     conn_max_state   /**< Max state value (used for assertion) */
 };
 
