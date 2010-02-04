@@ -451,6 +451,9 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
 void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status);
 void drive_machine(conn *c);
 
+// Number of times this connection is in the given pending list
+int number_of_pending(conn *c, conn *pending);
+
 void init_check_stdin(struct event_base *base);
 
 #if HAVE_DROP_PRIVILEGES

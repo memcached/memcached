@@ -4538,6 +4538,7 @@ void drive_machine(conn *c) {
                 assert(c->next == NULL);
                 c->next = tap_thread.pending_io;
                 tp->pending_io = c;
+                assert(number_of_pending(c, tp->pending_io) == 1);
                 if (write(tp->notify_send_fd, "", 1) != 1) {
                     perror("Writing to tap thread notify pipe");
                 }
