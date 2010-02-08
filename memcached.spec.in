@@ -38,8 +38,8 @@ make test
 rm -rf %{buildroot}
 make install DESTDIR=%{buildroot}
 
-# remove memcached-debug
-rm -f %{buildroot}/%{_bindir}/memcached-debug
+# Don't install the .la-files
+find $RPM_BUILD_ROOT -type f -name "*.la" -exec rm -f {} ';'
 
 # Perl script for monitoring memcached
 install -Dp -m0755 scripts/memcached-tool %{buildroot}%{_bindir}/memcached-tool
@@ -92,8 +92,13 @@ exit 0
 %{_mandir}/man1/memcached.1*
 %{_initrddir}/memcached
 %{_includedir}/memcached
+%dir %attr (0755, root, bin) %{_libdir}
+%attr (-, root, bin) %{_libdir}/default_engine.so*
 
 %changelog
+* Mon Feb  8 2010 Trond Norbye <trond.norbye@gmail.com> - 1.4.4-1
+- Added the default engine to the package.
+
 * Mon Nov  2 2009 Dormando <dormando@rydia.net> - 1.4.3-1
 - Fix autogen more.
 
