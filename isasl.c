@@ -17,6 +17,9 @@
 static struct stat prev_stat = { 0 };
 
 static pthread_mutex_t uhash_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t sasl_db_thread_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool run_sasl_db_thread;
+static pthread_t sasl_db_thread_tid;
 
 static user_db_entry_t **user_ht;
 static const int n_uht_buckets = 12289;
@@ -202,14 +205,32 @@ static void* check_isasl_db_thread(void* arg)
     if (settings.verbose > 1) {
         fprintf(stderr, "isasl checking DB every %ds\n", sleep_time);
     }
-    for(;;) {
+
+    run_sasl_db_thread = true;
+    bool run = true;
+    while (run) {
         sleep(sleep_time);
+
         if (!isasl_is_fresh()) {
             load_user_db();
         }
+
+        pthread_mutex_lock(&sasl_db_thread_lock);
+        if (!run_sasl_db_thread) {
+           run = false;
+        }
+        pthread_mutex_unlock(&sasl_db_thread_lock);
     }
-    /* NOTREACHED */
+
     return NULL;
+}
+
+void shutdown_sasl(void)
+{
+   pthread_mutex_lock(&sasl_db_thread_lock);
+   run_sasl_db_thread = false;
+   pthread_mutex_unlock(&sasl_db_thread_lock);
+   pthread_join(sasl_db_thread_tid, NULL);
 }
 
 int sasl_server_init(const sasl_callback_t *callbacks,
@@ -217,14 +238,16 @@ int sasl_server_init(const sasl_callback_t *callbacks,
 {
     int rv = load_user_db();
     if (rv == SASL_OK) {
-        static pthread_t t;
         static uint32_t sleep_time;
         const char *sleep_time_str = getenv("ISASL_DB_CHECK_TIME");
+
         if (! (sleep_time_str && safe_strtoul(sleep_time_str, &sleep_time))) {
             // If we can't find a more frequent sleep time, set it to 60s.
             sleep_time = 60;
         }
-        if(get_isasl_filename() != NULL && pthread_create(&t, NULL, check_isasl_db_thread, &sleep_time) != 0) {
+        if (get_isasl_filename() != NULL &&
+            pthread_create(&sasl_db_thread_tid, NULL, check_isasl_db_thread, &sleep_time) != 0)
+        {
             perror("couldn't create isasl db update thread.");
             exit(EX_OSERR);
         }
