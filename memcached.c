@@ -4169,13 +4169,13 @@ static void save_pid(const pid_t pid, const char *pid_file) {
         return;
 
     if ((fp = fopen(pid_file, "w")) == NULL) {
-        fprintf(stderr, "Could not open the pid file %s for writing\n", pid_file);
+        vperror("Could not open the pid file %s for writing", pid_file);
         return;
     }
 
     fprintf(fp,"%ld\n", (long)pid);
     if (fclose(fp) == -1) {
-        fprintf(stderr, "Could not close the pid file %s.\n", pid_file);
+        vperror("Could not close the pid file %s", pid_file);
         return;
     }
 }
@@ -4185,7 +4185,7 @@ static void remove_pidfile(const char *pid_file) {
       return;
 
   if (unlink(pid_file) != 0) {
-      fprintf(stderr, "Could not remove the pid file %s.\n", pid_file);
+      vperror("Could not remove the pid file %s", pid_file);
   }
 
 }
