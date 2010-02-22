@@ -92,11 +92,13 @@ bool safe_strtol(const char *str, int32_t *out) {
 
 void vperror(const char *fmt, ...) {
     int old_errno = errno;
-    char buf[80];
+    char buf[1024];
     va_list ap;
 
     va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
+    if (vsnprintf(buf, sizeof(buf), fmt, ap) == -1) {
+        buf[sizeof(buf) - 1] = '\0';
+    }
     va_end(ap);
 
     errno = old_errno;
