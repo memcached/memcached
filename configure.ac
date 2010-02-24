@@ -75,13 +75,48 @@ AC_PROG_INSTALL
 AC_ARG_ENABLE(sasl,
   [AS_HELP_STRING([--enable-sasl],[Enable SASL authentication])])
 
+AC_ARG_ENABLE(sasl_pwdb,
+  [AS_HELP_STRING([--enable-sasl-pwdb],[Enable plaintext password db])])
+
+AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
+      [enable_sasl=yes ])
+
+
+dnl **********************************************************************
+dnl DETECT_SASL_CB_GETCONF
+dnl
+dnl check if we can use SASL_CB_GETCONF
+dnl **********************************************************************
+AC_DEFUN([AC_C_DETECT_SASL_CB_GETCONF],
+[
+    AC_CACHE_CHECK([for SASL_CB_GETCONF],
+        [ac_cv_c_sasl_cb_getconf],
+        [AC_TRY_COMPILE(
+            [
+#include <sasl/sasl.h>
+            ], [
+unsigned long val = SASL_CB_GETCONF;
+            ],
+            [ ac_cv_c_sasl_cb_getconf=yes ],
+            [ ac_cv_c_sasl_cb_getconf=no ])
+        ])
+    AS_IF([test "$ac_cv_c_sasl_cb_getconf" = "yes"],
+          [AC_DEFINE([HAVE_SASL_CB_GETCONF], 1,
+                     [Set to nonzero if your SASL implementation supports SASL_CB_GETCONF])])
+])
+
 AC_CHECK_HEADERS([sasl/sasl.h])
 if test "x$enable_sasl" = "xyes"; then
+  AC_C_DETECT_SASL_CB_GETCONF
   AC_DEFINE([ENABLE_SASL],1,[Set to nonzero if you want to include SASL])
-  AC_SEARCH_LIBS([sasl_server_init], [sasl2], [],
+  AC_SEARCH_LIBS([sasl_server_init], [sasl2 sasl], [],
     [
       AC_MSG_ERROR([Failed to locate the library containing sasl_server_init])
     ])
+
+  AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
+        [AC_DEFINE([ENABLE_SASL_PWDB], 1,
+                   [Set to nonzero if you want to enable a SASL pwdb])])
 fi
 
 AC_ARG_ENABLE(dtrace,
