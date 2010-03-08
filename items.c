@@ -699,32 +699,21 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
 
     *result = value;
     char buf[80];
-    snprintf(buf, sizeof(buf), "%"PRIu64, value);
-    res = strlen(buf);
-    if (res + 2 > it->item.nbytes) { /* need to realloc */
-        hash_item *new_it;
-        new_it = do_item_alloc(engine, item_get_key(&it->item),
-                               it->item.nkey, it->item.flags,
-                               it->item.exptime, res + 2,
-                               cookie );
-        if (new_it == 0) {
-            return ENGINE_ENOMEM;
-        }
-        memcpy(item_get_data(&new_it->item), buf, res);
-        memcpy(item_get_data(&new_it->item) + res, "\r\n", 2);
-        do_item_replace(engine, it, new_it);
-        *rcas = item_get_cas(&new_it->item);
-        do_item_release(engine, new_it);       /* release our reference */
-    } else { /* replace in-place */
-        /* When changing the value without replacing the item, we
-           need to update the CAS on the existing item. */
-        item_set_cas(&it->item, get_cas_id());
-        *rcas = item_get_cas(&it->item);
-
-        memcpy(item_get_data(&it->item), buf, res);
-        memset(item_get_data(&it->item) + res, ' ',
-               it->item.nbytes - res - 2);
+    if ((res = snprintf(buf, sizeof(buf), "%" PRIu64 "\r\n", value)) == -1) {
+        return ENGINE_EINVAL;
     }
+    hash_item *new_it = do_item_alloc(engine, item_get_key(&it->item),
+                                      it->item.nkey, it->item.flags,
+                                      it->item.exptime, res,
+                                      cookie );
+    if (new_it == 0) {
+        do_item_unlink(engine, it);
+        return ENGINE_ENOMEM;
+    }
+    memcpy(item_get_data(&new_it->item), buf, res);
+    do_item_replace(engine, it, new_it);
+    *rcas = item_get_cas(&new_it->item);
+    do_item_release(engine, new_it);       /* release our reference */
 
     return ENGINE_SUCCESS;
 }
