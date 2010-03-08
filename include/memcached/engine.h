@@ -58,6 +58,7 @@ extern "C" {
         ENGINE_E2BIG       = 0x08, /**< The data is too big for the engine */
         ENGINE_WANT_MORE   = 0x09, /**< The engine want more data if the frontend
                                     * have more data available. */
+        ENGINE_DISCONNECT  = 0x0a, /**< Tell the server to disconnect this client */
         ENGINE_FAILED      = 0xff  /**< Generic failue. */
     } ENGINE_ERROR_CODE;
 
