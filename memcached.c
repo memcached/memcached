@@ -259,9 +259,9 @@ static rel_time_t realtime(const time_t exptime) {
 }
 
 static void stats_init(void) {
+    stats.daemon_conns = 0;
+    stats.rejected_conns = 0;
     stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
-    stats.listen_disabled_num = 0;
-    stats.accepting_conns = true; /* assuming we start in this state. */
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -274,7 +274,8 @@ static void stats_init(void) {
 static void stats_reset(const void *cookie) {
     struct conn *conn = (struct conn*)cookie;
     STATS_LOCK();
-    stats.listen_disabled_num = 0;
+    stats.rejected_conns = 0;
+    stats.total_conns = 0;
     stats_prefix_clear();
     STATS_UNLOCK();
     threadlocal_stats_reset(get_independent_stats(conn)->thread_stats);
@@ -627,7 +628,6 @@ static void conn_close(conn *c) {
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     close(c->sfd);
-    accept_new_conns(true);
     conn_cleanup(c);
 
     /* if the connection has big buffers, just free it */
@@ -2578,7 +2578,8 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
                 (long)usage.ru_stime.tv_usec);
 #endif
 
-    APPEND_STAT("curr_connections", "%u", stats.curr_conns - 1);
+    APPEND_STAT("daemon_connections", "%u", stats.daemon_conns);
+    APPEND_STAT("curr_connections", "%u", stats.curr_conns);
     APPEND_STAT("total_connections", "%u", stats.total_conns);
     APPEND_STAT("connection_structures", "%u", stats.conn_structs);
     APPEND_STAT("cmd_get", "%"PRIu64, thread_stats.cmd_get);
@@ -2599,8 +2600,7 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("bytes_read", "%"PRIu64, thread_stats.bytes_read);
     APPEND_STAT("bytes_written", "%"PRIu64, thread_stats.bytes_written);
     APPEND_STAT("limit_maxbytes", "%"PRIu64, settings.maxbytes);
-    APPEND_STAT("accepting_conns", "%u", stats.accepting_conns);
-    APPEND_STAT("listen_disabled_num", "%" PRIu64, (unsigned long long)stats.listen_disabled_num);
+    APPEND_STAT("rejected_conns", "%" PRIu64, (unsigned long long)stats.rejected_conns);
     APPEND_STAT("threads", "%d", settings.num_threads);
     APPEND_STAT("conn_yields", "%" PRIu64, (unsigned long long)thread_stats.conn_yields);
     STATS_UNLOCK();
@@ -3524,39 +3524,6 @@ static bool update_event(conn *c, const int new_flags) {
 }
 
 /*
- * Sets whether we are listening for new connections or not.
- */
-void do_accept_new_conns(const bool do_accept) {
-    conn *next;
-
-    for (next = listen_conn; next; next = next->next) {
-        if (do_accept) {
-            update_event(next, EV_READ | EV_PERSIST);
-            if (listen(next->sfd, settings.backlog) != 0) {
-                perror("listen");
-            }
-        }
-        else {
-            update_event(next, 0);
-            if (listen(next->sfd, 0) != 0) {
-                perror("listen");
-            }
-        }
-    }
-
-    if (do_accept) {
-        STATS_LOCK();
-        stats.accepting_conns = true;
-        STATS_UNLOCK();
-    } else {
-        STATS_LOCK();
-        stats.accepting_conns = false;
-        stats.listen_disabled_num++;
-        STATS_UNLOCK();
-    }
-}
-
-/*
  * Transmit the next chunk of data from our list of msgbuf structures.
  *
  * Returns:
@@ -3641,16 +3608,38 @@ void drive_machine(conn *c) {
                     /* these are transient, so don't log anything */
                     stop = true;
                 } else if (errno == EMFILE) {
-                    if (settings.verbose > 0)
+                    if (settings.verbose > 0) {
                         fprintf(stderr, "Too many open connections\n");
-                    accept_new_conns(false);
+                    }
+                    (void)close(sfd);
                     stop = true;
                 } else {
                     perror("accept()");
+                    (void)close(sfd);
                     stop = true;
                 }
                 break;
             }
+
+            {
+                STATS_LOCK();
+                int curr_conns = stats.curr_conns;
+                STATS_UNLOCK();
+
+                if (curr_conns >= settings.maxconns) {
+                    STATS_LOCK();
+                    ++stats.rejected_conns;
+                    STATS_UNLOCK();
+
+                    if (settings.verbose > 0) {
+                        fprintf(stderr, "Too many open connections\n");
+                    }
+                    (void)close(sfd);
+                    stop = true;
+                    break;
+                }
+            }
+
             if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
                 fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
                 perror("setting O_NONBLOCK");
@@ -4114,6 +4103,9 @@ static int server_socket(int port, enum network_transport transport,
                 /* this is guaranteed to hit all threads because we round-robin */
                 dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
                                   UDP_READ_BUFFER_SIZE, transport);
+                STATS_LOCK();
+                ++stats.daemon_conns;
+                STATS_UNLOCK();
             }
         } else {
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
@@ -4124,6 +4116,9 @@ static int server_socket(int port, enum network_transport transport,
             }
             listen_conn_add->next = listen_conn;
             listen_conn = listen_conn_add;
+            STATS_LOCK();
+            ++stats.daemon_conns;
+            STATS_UNLOCK();
         }
     }
 
@@ -4208,6 +4203,10 @@ static int server_socket_unix(const char *path, int access_mask) {
         fprintf(stderr, "failed to create listening connection\n");
         exit(EXIT_FAILURE);
     }
+
+    STATS_LOCK();
+    ++stats.daemon_conns;
+    STATS_UNLOCK();
 
     return 0;
 }
@@ -5013,6 +5012,23 @@ int main (int argc, char **argv) {
         }
     }
 
+    /* Sanity check for the connection structures */
+    int nfiles = 0;
+    if (settings.port != 0) {
+        nfiles += 2;
+    }
+    if (settings.udpport != 0) {
+        nfiles += settings.num_threads * 2;
+    }
+
+    if (settings.maxconns <= nfiles) {
+        fprintf(stderr, "Configuratioin error. \n"
+                "You specified %d connections, but the system will use at "
+                "least %d\nconnection structures to start.\n",
+                settings.maxconns, nfiles);
+        exit(EX_USAGE);
+    }
+
     /* lose root privileges if we have them */
     if (getuid() == 0 || geteuid() == 0) {
         if (username == 0 || *username == '\0') {
@@ -5198,6 +5214,7 @@ int main (int argc, char **argv) {
         ServiceRun();
     } else
 #endif
+
     /* enter the event loop */
     event_base_loop(main_base, 0);
 

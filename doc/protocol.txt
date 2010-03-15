@@ -374,11 +374,14 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | the server started                        |
 | bytes                 | 64u     | Current number of bytes used              |
 |                       |         | to store items                            |
+| daemon_connections    | 32u     | Number of connection structures used by   |
+|                       |         | the server internally                     |
 | curr_connections      | 32u     | Number of open connections                |
 | total_connections     | 32u     | Total number of connections opened since  |
 |                       |         | the server started running                |
 | connection_structures | 32u     | Number of connection structures allocated |
 |                       |         | by the server                             |
+| rejected_conns        | 64u     | Cumulative number of times connection nack|
 | cmd_get               | 64u     | Cumulative number of retrieval reqs       |
 | cmd_set               | 64u     | Cumulative number of storage reqs         |
 | get_hits              | 64u     | Number of keys that have been requested   |

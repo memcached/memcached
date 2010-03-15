@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 83;
+use Test::More tests => 81;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -41,8 +41,6 @@ my $sock = $server->sock;
 ## STAT bytes_read 7
 ## STAT bytes_written 0
 ## STAT limit_maxbytes 67108864
-## STAT accepting_conns 1
-## STAT listen_disabled_num 0
 ## STAT threads 4
 ## STAT conn_yields 0
 ## STAT bytes 0
@@ -67,10 +65,9 @@ is(scalar(keys(%$stats)), 38, "38 stats values");
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses
                  bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits
-                 decr_misses listen_disabled_num)) {
+                 decr_misses)) {
     is($stats->{$key}, 0, "initial $key is zero");
 }
-is($stats->{accepting_conns}, 1, "initial accepting_conns is one");
 
 # Do some operations
 

@@ -199,12 +199,12 @@ struct independent_stats {
  */
 struct stats {
     pthread_mutex_t mutex;
+    unsigned int  daemon_conns; /* conns used by the server */
     unsigned int  curr_conns;
     unsigned int  total_conns;
     unsigned int  conn_structs;
     time_t        started;          /* when the process was started */
-    bool          accepting_conns;  /* whether we are currently accepting */
-    uint64_t      listen_disabled_num;
+    uint64_t      rejected_conns; /* number of times I reject a client */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -374,7 +374,6 @@ struct conn {
 /*
  * Functions
  */
-void do_accept_new_conns(const bool do_accept);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 extern int daemonize(int nochdir, int noclose);
 

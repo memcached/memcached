@@ -11,7 +11,7 @@ use MemcachedTest;
 
 
 # start up a server with 10 maximum connections
-my $server = new_memcached('-c 10');
+my $server = new_memcached('-c 20');
 my $sock = $server->sock;
 my @sockets;
 
