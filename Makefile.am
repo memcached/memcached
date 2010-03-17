@@ -23,7 +23,7 @@ memcached_SOURCES = memcached.c memcached.h \
                     thread.c daemon.c \
                     stats.c stats.h \
                     trace.h cache.h sasl_defs.h \
-                    stdin_check.c topkeys.c topkeys.h
+                    topkeys.c topkeys.h
 
 libmcd_util_la_SOURCES= config_parser.c include/memcached/config_parser.h \
                         util.c include/memcached/util.h \
@@ -69,7 +69,9 @@ CLEANFILES += memcached_dtrace.o
 endif
 
 noinst_LTLIBRARIES = libmcd_util.la
-lib_LTLIBRARIES = default_engine.la
+lib_LTLIBRARIES = default_engine.la \
+                  stdin_term_handler.la
+
 
 default_engine_la_SOURCES= \
                     assoc.c assoc.h \
@@ -81,6 +83,14 @@ default_engine_la_SOURCES += $(libmcd_util_la_SOURCES)
 default_engine_la_DEPENDENCIES=
 default_engine_la_LIBADD=
 default_engine_la_LDFLAGS= -module -dynamic
+
+
+stdin_term_handler_la_SOURCES= stdin_check.c stdin_check.h
+stdin_term_handler_la_SOURCES += $(libmcd_util_la_SOURCES)
+stdin_term_handler_la_DEPENDENCIES=
+stdin_term_handler_la_LIBADD=
+stdin_term_handler_la_LDFLAGS= -module -dynamic
+
 
 if INCLUDE_DEFAULT_ENGINE
 memcached_SOURCES += $(default_engine_la_SOURCES)
