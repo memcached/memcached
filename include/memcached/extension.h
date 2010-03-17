@@ -36,6 +36,10 @@ extern "C" {
          * memcached core, but lives in the memcached address space.
          */
         EXTENSION_DAEMON = 0x00,
+        /**
+         * A log consumer
+         */
+        EXTENSION_LOGGER
     } extension_type_t;
 
     /**
@@ -58,6 +62,43 @@ extern "C" {
          */
         struct extension_daemon_descriptor *next;
     } EXTENSION_DAEMON_DESCRIPTOR;
+
+    typedef enum {
+        EXTENSION_LOG_DETAIL,
+        EXTENSION_LOG_DEBUG,
+        EXTENSION_LOG_INFO,
+        EXTENSION_LOG_WARNING
+    } EXTENSION_LOG_LEVEL;
+
+    /**
+     * Log extensions should provide the following rescriptor when
+     * they register themselves. Please note that if you register a log
+     * extension it will <u>replace</u> old one. If you want to be nice to
+     * the user you should allow your logger to be chained.
+     *
+     * Please note that the memcached server will <b>not</b> call the log
+     * function if the verbosity level is too low. This is a perfomance
+     * optimization from the core to avoid potential formatting of output
+     * that may be thrown away.
+     */
+    typedef struct {
+        /**
+         * Get the name of the descriptor. The memory area returned by this
+         * function has to be valid until the descriptor is unregistered.
+         */
+        const char* (*get_name)(void);
+
+        /**
+         * Add an entry to the log.
+         * @param severity the severity for this log entry
+         * @param client_cookie the client we're serving (may be NULL if not
+         *                      known)
+         * @param fmt format string to add to the log
+         */
+        void (*log)(EXTENSION_LOG_LEVEL severity,
+                    const void* client_cookie,
+                    const char *fmt, ...);
+    } EXTENSION_LOGGER_DESCRIPTOR;
 
     /**
      * The signature for the "memcached_extensions_initialize" function

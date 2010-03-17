@@ -247,6 +247,7 @@ struct settings {
     } engine;
     struct {
         EXTENSION_DAEMON_DESCRIPTOR *daemons;
+        EXTENSION_LOGGER_DESCRIPTOR *logger;
     } extensions;
 };
 

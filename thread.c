@@ -167,8 +167,9 @@ static void create_worker(void *(*func)(void *), void *arg) {
     pthread_attr_init(&attr);
 
     if ((ret = pthread_create(&thread, &attr, func, arg)) != 0) {
-        fprintf(stderr, "Can't create thread: %s\n",
-                strerror(ret));
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Can't create thread: %s\n",
+                                        strerror(ret));
         exit(1);
     }
 }
@@ -181,7 +182,8 @@ static void create_worker(void *(*func)(void *), void *arg) {
 static void setup_thread(LIBEVENT_THREAD *me) {
     me->base = event_init();
     if (! me->base) {
-        fprintf(stderr, "Can't allocate event base\n");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Can't allocate event base\n");
         exit(1);
     }
 
@@ -191,26 +193,31 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     event_base_set(me->base, &me->notify_event);
 
     if (event_add(&me->notify_event, 0) == -1) {
-        fprintf(stderr, "Can't monitor libevent notify pipe\n");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Can't monitor libevent notify pipe\n");
         exit(1);
     }
 
     me->new_conn_queue = malloc(sizeof(struct conn_queue));
     if (me->new_conn_queue == NULL) {
-        perror("Failed to allocate memory for connection queue");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                "Failed to allocate memory for connection queue");
         exit(EXIT_FAILURE);
     }
     cq_init(me->new_conn_queue);
 
     if ((pthread_mutex_init(&me->mutex, NULL) != 0)) {
-        perror("Failed to initialize mutex");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Failed to initialize mutex: %s\n",
+                                        strerror(errno));
         exit(EXIT_FAILURE);
     }
 
     me->suffix_cache = cache_create("suffix", SUFFIX_SIZE, sizeof(char*),
                                     NULL, NULL);
     if (me->suffix_cache == NULL) {
-        fprintf(stderr, "Failed to create suffix cache\n");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Failed to create suffix cache\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -247,7 +254,9 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 
     if (read(fd, buf, 1) != 1)
         if (settings.verbose > 0)
-            fprintf(stderr, "Can't read from libevent pipe\n");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Can't read from libevent pipe: %s\n",
+                                        strerror(errno));
 
     item = cq_pop(me->new_conn_queue);
 
@@ -256,12 +265,14 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                            item->read_buffer_size, item->transport, me->base);
         if (c == NULL) {
             if (IS_UDP(item->transport)) {
-                fprintf(stderr, "Can't listen for events on UDP socket\n");
+                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                         "Can't listen for events on UDP socket\n");
                 exit(1);
             } else {
                 if (settings.verbose > 0) {
-                    fprintf(stderr, "Can't listen for events on fd %d\n",
-                        item->sfd);
+                    settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                            "Can't listen for events on fd %d\n",
+                            item->sfd);
                 }
                 close(item->sfd);
             }
@@ -304,7 +315,9 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
 
     /* kick the thread in the butt */
     if (write(thr->notify_send_fd, "", 1) != 1) {
-        perror("Writing to thread notify pipe");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Writing to thread notify pipe: %s",
+                                        strerror(errno));
     }
 }
 
@@ -335,7 +348,9 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 
     MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
     if (write(thread->notify_send_fd, "", 1) != 1) {
-        perror("Writing to thread notify pipe");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Writing to thread notify pipe: %s",
+                                        strerror(errno));
     }
 }
 
@@ -473,7 +488,9 @@ void thread_init(int nthreads, struct event_base *main_base) {
 
     threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
     if (! threads) {
-        perror("Can't allocate thread descriptors");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Can't allocate thread descriptors: %s",
+                                        strerror(errno));
         exit(1);
     }
 
@@ -484,12 +501,16 @@ void thread_init(int nthreads, struct event_base *main_base) {
         int fds[2];
 #ifdef __WIN32__
         if (createLocalSocketPair(sockfd,fds,&serv_addr) == -1) {
-            perror("Can't create notify pipe");
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Can't create notify pipe: %s",
+                                            strerror(errno));
             exit(1);
         }
 #else
         if (pipe(fds)) {
-            perror("Can't create notify pipe");
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Can't create notify pipe: %s",
+                                            strerror(errno));
             exit(1);
         }
 #endif
