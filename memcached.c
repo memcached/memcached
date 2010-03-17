@@ -1409,20 +1409,31 @@ static void append_bin_stats(const char *key, const uint16_t klen,
     c->stats.offset += sizeof(header.response) + bodylen;
 }
 
+/**
+ * Append a key-value pair to the stats output buffer. This function assumes
+ * that the output buffer is big enough (it will be if you call it through
+ * append_stats)
+ */
 static void append_ascii_stats(const char *key, const uint16_t klen,
                                const char *val, const uint32_t vlen,
                                conn *c) {
     char *pos = c->stats.buffer + c->stats.offset;
-    uint32_t nbytes = 0;
-    int remaining = c->stats.size - c->stats.offset;
-    int room = remaining - 1;
+    uint32_t nbytes = 5; /* "END\r\n" or "STAT " */
 
     if (klen == 0 && vlen == 0) {
-        nbytes = snprintf(pos, room, "END\r\n");
-    } else if (vlen == 0) {
-        nbytes = snprintf(pos, room, "STAT %s\r\n", key);
+        memcpy(pos, "END\r\n", 5);
     } else {
-        nbytes = snprintf(pos, room, "STAT %s %s\r\n", key, val);
+        memcpy(pos, "STAT ", 5);
+        memcpy(pos + nbytes, key, klen);
+        nbytes += klen;
+        if (vlen != 0) {
+            pos[nbytes] = ' ';
+            ++nbytes;
+            memcpy(pos + nbytes, val, vlen);
+            nbytes += vlen;
+        }
+        memcpy(pos + nbytes, "\r\n", 2);
+        nbytes += 2;
     }
 
     c->stats.offset += nbytes;
