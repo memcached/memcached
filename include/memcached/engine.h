@@ -9,6 +9,7 @@
 
 #include "memcached/protocol_binary.h"
 #include "memcached/config_parser.h"
+#include "memcached/server_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,11 +87,6 @@ extern "C" {
     } ENGINE_EVENT_TYPE;
 
     #define MAX_ENGINE_EVENT_TYPE 3
-
-    /**
-     * Time relative to server start. Smaller than time_t on 64-bit systems.
-     */
-    typedef uint32_t rel_time_t;
 
     /**
      * Data common to any item stored in memcached.
@@ -274,8 +270,6 @@ extern "C" {
                                int nkey);
 
     } SERVER_HANDLE_V1;
-
-    typedef void* (*GET_SERVER_API)(int interface);
 
     /**
      * The signature for the "create_instance" function exported from the module.

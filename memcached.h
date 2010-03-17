@@ -31,6 +31,8 @@ void continue_server(void);
 
 #include <memcached/protocol_binary.h>
 #include <memcached/engine.h>
+#include <memcached/extension.h>
+
 #include "cache.h"
 #include "topkeys.h"
 
@@ -243,6 +245,9 @@ struct settings {
         ENGINE_HANDLE *v0;
         ENGINE_HANDLE_V1 *v1;
     } engine;
+    struct {
+        EXTENSION_DAEMON_DESCRIPTOR *daemons;
+    } extensions;
 };
 
 struct engine_event_handler {

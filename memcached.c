@@ -2690,6 +2690,12 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("auth_required_sasl", "%s", settings.require_sasl ? "yes" : "no");
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("topkeys", "%d", settings.topkeys);
+
+    for (EXTENSION_DAEMON_DESCRIPTOR *ptr = settings.extensions.daemons;
+         ptr != NULL;
+         ptr = ptr->next) {
+        APPEND_STAT("extension", "%s", ptr->get_name());
+    }
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4343,6 +4349,7 @@ static void usage(void) {
 #ifdef SASL_ENABLED
     printf("-S            Require SASL authentication\n");
 #endif
+    printf("-X module,cfg Load the module and initialize it with the config\n");
     printf("\nEnvironment variables:\n"
            "MEMCACHED_PORT_FILENAME   File to write port information to\n"
            "MEMCACHED_TOP_KEYS        Number of top keys to keep track of\n");
@@ -4610,14 +4617,81 @@ static void count_eviction(const void *cookie, const void *key, const int nkey) 
 }
 
 /**
+ * Register an extension if it's not already registered
+ *
+ * @param type the type of the extension to register
+ * @param extension the extension to register
+ * @return true if success, false otherwise
+ */
+static bool register_extension(extension_type_t type, void *extension)
+{
+    switch (type) {
+    case EXTENSION_DAEMON:
+        for (EXTENSION_DAEMON_DESCRIPTOR *ptr = settings.extensions.daemons;
+             ptr != NULL;
+             ptr = ptr->next) {
+            if (ptr == extension) {
+                return false;
+            }
+        }
+        ((EXTENSION_DAEMON_DESCRIPTOR *)(extension))->next = settings.extensions.daemons;
+        settings.extensions.daemons = extension;
+        return true;
+    default:
+        return false;
+    }
+}
+
+/**
+ * Unregister an extension
+ *
+ * @param type the type of the extension to remove
+ * @param extension the extension to remove
+ */
+static void unregister_extension(extension_type_t type, void *extension)
+{
+    if (type == EXTENSION_DAEMON) {
+        EXTENSION_DAEMON_DESCRIPTOR *prev = NULL;
+        EXTENSION_DAEMON_DESCRIPTOR *ptr = settings.extensions.daemons;
+
+        while (ptr != NULL && ptr != extension) {
+            prev = ptr;
+            ptr = ptr->next;
+        }
+
+        if (ptr != NULL && prev != NULL) {
+            prev->next = ptr->next;
+        }
+
+        if (settings.extensions.daemons == ptr) {
+            settings.extensions.daemons = ptr->next;
+        }
+    }
+}
+
+/**
+ * Get the named extension
+ */
+static void* get_extension(extension_type_t type)
+{
+    switch (type) {
+    case EXTENSION_DAEMON:
+        return settings.extensions.daemons;
+
+    default:
+        return NULL;
+    }
+}
+
+/**
  * Callback the engines may call to get the public server interface
  * @param interface the requested interface from the server
  * @return pointer to a structure containing the interface. The client should
  *         know the layout and perform the proper casts.
  */
-static void *get_server_api(int interface)
+static void *get_server_api(server_api_t interface)
 {
-    static struct server_interface_v1 server_api = {
+    static SERVER_HANDLE_V1 server_api_v1 = {
         .register_callback = register_callback,
         .get_auth_data = get_auth_data,
         .store_engine_specific = store_engine_specific,
@@ -4633,11 +4707,20 @@ static void *get_server_api(int interface)
         .count_eviction = count_eviction,
     };
 
-    if (interface != 1) {
+    static SERVER_EXTENSION_API extension_api = {
+        .register_extension = register_extension,
+        .unregister_extension = unregister_extension,
+        .get_extension = get_extension
+    };
+
+    switch (interface) {
+    case server_handle_v1:
+        return &server_api_v1;
+    case server_extension_api:
+        return &extension_api;
+    default:
         return NULL;
     }
-
-    return &server_api;
 }
 
 static bool load_engine(const char *soname, const char *config_str) {
@@ -4695,6 +4778,59 @@ static bool load_engine(const char *soname, const char *config_str) {
     if (settings.verbose > 0) {
         fprintf(stderr, "Loaded engine: %s\n",
                 settings.engine.v1->get_info(settings.engine.v0));
+    }
+
+    return true;
+}
+
+/**
+ * Load a shared object and initialize all the extensions in there.
+ *
+ * @param soname the name of the shared object (may not be NULL)
+ * @param config optional configuration parameters
+ * @return true if success, false otherwise
+ */
+static bool load_extension(const char *soname, const char *config) {
+    if (soname == NULL) {
+        return false;
+    }
+
+    /* Hack to remove the warning from C99 */
+    union my_hack {
+        MEMCACHED_EXTENSIONS_INITIALIZE initialize;
+        void* voidptr;
+    } funky = {.initialize = NULL };
+
+    void *handle = dlopen(soname, RTLD_NOW | RTLD_LOCAL);
+    if (handle == NULL) {
+        const char *msg = dlerror();
+        fprintf(stderr, "Failed to open library \"%s\": %s\n",
+                soname, msg ? msg : "unknown error");
+        return false;
+    }
+
+    void *symbol = dlsym(handle, "memcached_extensions_initialize");
+    if (symbol == NULL) {
+        const char *msg = dlerror();
+        fprintf(stderr,
+                "Could not find symbol \"memcached_extensions_initialize\" in %s: %s\n",
+                soname, msg ? msg : "unknown error");
+        return false;
+    }
+    funky.voidptr = symbol;
+
+    EXTENSION_ERROR_CODE error = (*funky.initialize)(config, get_server_api);
+
+    if (error != EXTENSION_SUCCESS) {
+        fprintf(stderr,
+                "Failed to initalize extensions from %s. Error code: %d\n",
+                soname, error);
+        dlclose(handle);
+        return false;
+    }
+
+    if (settings.verbose > 0) {
+        fprintf(stderr, "Loaded extensions from: %s\n", soname);
     }
 
     return true;
@@ -4772,6 +4908,7 @@ int main (int argc, char **argv) {
           "E:"  /* Engine to load */
           "e:"  /* Engine options */
           "q"   /* Disallow detailed stats */
+          "X:"  /* Load extension */
         ))) {
         switch (c) {
         case 'a':
@@ -4969,6 +5106,21 @@ int main (int argc, char **argv) {
             exit(EX_USAGE);
 #endif
             settings.require_sasl = true;
+            break;
+        case 'X' :
+            {
+                char *ptr = strchr(optarg, ',');
+                if (ptr != NULL) {
+                    *ptr = '\0';
+                    ++ptr;
+                }
+                if (!load_extension(optarg, ptr)) {
+                    exit(EXIT_FAILURE);
+                }
+                if (ptr != NULL) {
+                    *(ptr - 1) = ',';
+                }
+            }
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
