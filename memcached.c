@@ -182,7 +182,6 @@ static void settings_init(void);
 /* event handling, network IO */
 static void event_handler(const int fd, const short which, void *arg);
 static void conn_close(conn *c);
-static void conn_init(void);
 static bool update_event(conn *c, const int new_flags);
 static void complete_nread(conn *c);
 static void process_command(conn *c, char *command);
@@ -196,8 +195,6 @@ static int add_msghdr(conn *c);
 static void set_current_time(void);  /* update the global variable holding
                               global 32-bit seconds-since-start time
                               (to avoid 64 bit time_t) */
-
-static void conn_free(conn *c);
 
 /** exported globals **/
 struct stats stats;
@@ -352,68 +349,6 @@ static int add_msghdr(conn *c)
     return 0;
 }
 
-
-/*
- * Free list management for connections.
- */
-
-static conn **freeconns;
-static int freetotal;
-static int freecurr;
-/* Lock for connection freelist */
-static pthread_mutex_t conn_lock = PTHREAD_MUTEX_INITIALIZER;
-
-
-static void conn_init(void) {
-    freetotal = 200;
-    freecurr = 0;
-    if ((freeconns = calloc(freetotal, sizeof(conn *))) == NULL) {
-        fprintf(stderr, "Failed to allocate connection structures\n");
-    }
-    return;
-}
-
-/*
- * Returns a connection from the freelist, if any.
- */
-conn *conn_from_freelist() {
-    conn *c;
-
-    pthread_mutex_lock(&conn_lock);
-    if (freecurr > 0) {
-        c = freeconns[--freecurr];
-    } else {
-        c = NULL;
-    }
-    pthread_mutex_unlock(&conn_lock);
-
-    return c;
-}
-
-/*
- * Adds a connection to the freelist. 0 = success.
- */
-bool conn_add_to_freelist(conn *c) {
-    bool ret = true;
-    pthread_mutex_lock(&conn_lock);
-    if (freecurr < freetotal) {
-        freeconns[freecurr++] = c;
-        ret = false;
-    } else {
-        /* try to enlarge free connections array */
-        size_t newsize = freetotal * 2;
-        conn **new_freeconns = realloc(freeconns, sizeof(conn *) * newsize);
-        if (new_freeconns) {
-            freetotal = newsize;
-            freeconns = new_freeconns;
-            freeconns[freecurr++] = c;
-            ret = false;
-        }
-    }
-    pthread_mutex_unlock(&conn_lock);
-    return ret;
-}
-
 static const char *prot_text(enum protocol prot) {
     char *rv = "unknown";
     switch(prot) {
@@ -430,51 +365,170 @@ static const char *prot_text(enum protocol prot) {
     return rv;
 }
 
+/*
+ * Free list management for connections.
+ */
+cache_t *conn_cache;      /* suffix cache */
+
+/**
+ * Reset all of the dynamic buffers used by a connection back to their
+ * default sizes. The strategy for resizing the buffers is to allocate a
+ * new one of the correct size and free the old one if the allocation succeeds
+ * instead of using realloc to change the buffer size (because realloc may
+ * not shrink the buffers, and will also copy the memory). If the allocation
+ * fails the buffer will be unchanged.
+ *
+ * @param c the connection to resize the buffers for
+ * @return true if all allocations succeeded, false if one or more of the
+ *         allocations failed.
+ */
+static bool conn_reset_buffersize(conn *c) {
+    bool ret = true;
+
+    if (c->rsize != DATA_BUFFER_SIZE) {
+        void *ptr = malloc(DATA_BUFFER_SIZE);
+        if (ptr != NULL) {
+            free(c->rbuf);
+            c->rbuf = ptr;
+            c->rsize = DATA_BUFFER_SIZE;
+        } else {
+            ret = false;
+        }
+    }
+
+    if (c->wsize != DATA_BUFFER_SIZE) {
+        void *ptr = malloc(DATA_BUFFER_SIZE);
+        if (ptr != NULL) {
+            free(c->wbuf);
+            c->wbuf = ptr;
+            c->wsize = DATA_BUFFER_SIZE;
+        } else {
+            ret = false;
+        }
+    }
+
+    if (c->isize != ITEM_LIST_INITIAL) {
+        void *ptr = malloc(sizeof(item *) * ITEM_LIST_INITIAL);
+        if (ptr != NULL) {
+            free(c->ilist);
+            c->ilist = ptr;
+            c->isize = ITEM_LIST_INITIAL;
+        } else {
+            ret = false;
+        }
+    }
+
+    if (c->suffixsize != SUFFIX_LIST_INITIAL) {
+        void *ptr = malloc(sizeof(char *) * SUFFIX_LIST_INITIAL);
+        if (ptr != NULL) {
+            free(c->suffixlist);
+            c->suffixlist = ptr;
+            c->suffixsize = SUFFIX_LIST_INITIAL;
+        } else {
+            ret = false;
+        }
+    }
+
+    if (c->iovsize != IOV_LIST_INITIAL) {
+        void *ptr = malloc(sizeof(struct iovec) * IOV_LIST_INITIAL);
+        if (ptr != NULL) {
+            free(c->iov);
+            c->iov = ptr;
+            c->iovsize = IOV_LIST_INITIAL;
+        } else {
+            ret = false;
+        }
+    }
+
+    if (c->msgsize != MSG_LIST_INITIAL) {
+        void *ptr = malloc(sizeof(struct msghdr) * MSG_LIST_INITIAL);
+        if (ptr != NULL) {
+            free(c->msglist);
+            c->msglist = ptr;
+            c->msgsize = MSG_LIST_INITIAL;
+        } else {
+            ret = false;
+        }
+    }
+
+    return ret;
+}
+
+/**
+ * Constructor for all memory allocations of connection objects. Initialize
+ * all members and allocate the transfer buffers.
+ *
+ * @param buffer The memory allocated by the object cache
+ * @param unused1 not used
+ * @param unused2 not used
+ * @return 0 on success, 1 if we failed to allocate memory
+ */
+static int conn_constructor(void *buffer, void *unused1, int unused2) {
+    (void)unused1; (void)unused2;
+
+    conn *c = buffer;
+    memset(c, 0, sizeof(*c));
+    MEMCACHED_CONN_CREATE(c);
+
+    if (!conn_reset_buffersize(c)) {
+        free(c->rbuf);
+        free(c->wbuf);
+        free(c->ilist);
+        free(c->suffixlist);
+        free(c->iov);
+        free(c->msglist);
+        fprintf(stderr, "Failed to allocate buffers for connection\n");
+        return 1;
+    }
+
+    STATS_LOCK();
+    stats.conn_structs++;
+    STATS_UNLOCK();
+
+    return 0;
+}
+
+/**
+ * Destructor for all connection objects. Release all allocated resources.
+ *
+ * @param buffer The memory allocated by the objec cache
+ * @param unused not used
+ */
+static void conn_destructor(void *buffer, void *unused) {
+    (void)unused;
+    conn *c = buffer;
+    free(c->rbuf);
+    free(c->wbuf);
+    free(c->ilist);
+    free(c->suffixlist);
+    free(c->iov);
+    free(c->msglist);
+
+    STATS_LOCK();
+    stats.conn_structs--;
+    STATS_UNLOCK();
+}
+
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
                 struct event_base *base) {
-    conn *c = conn_from_freelist();
+    conn *c = cache_alloc(conn_cache);
 
-    if (NULL == c) {
-        if (!(c = (conn *)calloc(1, sizeof(conn)))) {
-            fprintf(stderr, "calloc()\n");
+    if (c == NULL) {
+        return NULL;
+    }
+
+    if (c->rsize < read_buffer_size) {
+        void *mem = malloc(read_buffer_size);
+        if (mem) {
+            c->rsize = read_buffer_size;
+            free(c->rbuf);
+            c->rbuf = mem;
+        } else {
+            cache_free(conn_cache, c);
             return NULL;
         }
-        MEMCACHED_CONN_CREATE(c);
-
-        c->rbuf = c->wbuf = 0;
-        c->ilist = 0;
-        c->suffixlist = 0;
-        c->iov = 0;
-        c->msglist = 0;
-        c->hdrbuf = 0;
-
-        c->rsize = read_buffer_size;
-        c->wsize = DATA_BUFFER_SIZE;
-        c->isize = ITEM_LIST_INITIAL;
-        c->suffixsize = SUFFIX_LIST_INITIAL;
-        c->iovsize = IOV_LIST_INITIAL;
-        c->msgsize = MSG_LIST_INITIAL;
-        c->hdrsize = 0;
-
-        c->rbuf = (char *)malloc((size_t)c->rsize);
-        c->wbuf = (char *)malloc((size_t)c->wsize);
-        c->ilist = (item **)malloc(sizeof(item *) * c->isize);
-        c->suffixlist = (char **)malloc(sizeof(char *) * c->suffixsize);
-        c->iov = (struct iovec *)malloc(sizeof(struct iovec) * c->iovsize);
-        c->msglist = (struct msghdr *)malloc(sizeof(struct msghdr) * c->msgsize);
-
-        if (c->rbuf == 0 || c->wbuf == 0 || c->ilist == 0 || c->iov == 0 ||
-                c->msglist == 0 || c->suffixlist == 0) {
-            conn_free(c);
-            fprintf(stderr, "malloc()\n");
-            return NULL;
-        }
-
-        STATS_LOCK();
-        stats.conn_structs++;
-        STATS_UNLOCK();
     }
 
     c->transport = transport;
@@ -536,10 +590,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->ev_flags = event_flags;
 
     if (event_add(&c->event, 0) == -1) {
-        if (conn_add_to_freelist(c)) {
-            conn_free(c);
-        }
         perror("event_add");
+        cache_free(conn_cache, c);
         return NULL;
     }
 
@@ -591,30 +643,6 @@ static void conn_cleanup(conn *c) {
     c->engine_storage = NULL;
 }
 
-/*
- * Frees a connection.
- */
-void conn_free(conn *c) {
-    if (c) {
-        MEMCACHED_CONN_DESTROY(c);
-        if (c->hdrbuf)
-            free(c->hdrbuf);
-        if (c->msglist)
-            free(c->msglist);
-        if (c->rbuf)
-            free(c->rbuf);
-        if (c->wbuf)
-            free(c->wbuf);
-        if (c->ilist)
-            free(c->ilist);
-        if (c->suffixlist)
-            free(c->suffixlist);
-        if (c->iov)
-            free(c->iov);
-        free(c);
-    }
-}
-
 static void conn_close(conn *c) {
     assert(c != NULL);
 
@@ -630,10 +658,13 @@ static void conn_close(conn *c) {
     close(c->sfd);
     conn_cleanup(c);
 
-    /* if the connection has big buffers, just free it */
-    if (c->rsize > READ_BUFFER_HIGHWAT || conn_add_to_freelist(c)) {
-        conn_free(c);
-    }
+    /*
+     * The contract with the object cache is that we should return the
+     * object in a constructed state. Reset the buffers to the default
+     * size
+     */
+    conn_reset_buffersize(c);
+    cache_free(conn_cache, c);
 
     STATS_LOCK();
     stats.curr_conns--;
@@ -5126,7 +5157,13 @@ int main (int argc, char **argv) {
 
     /* initialize other stuff */
     stats_init();
-    conn_init();
+
+    if (!(conn_cache = cache_create("conn", sizeof(conn), sizeof(void*),
+                                    conn_constructor, conn_destructor))) {
+        fprintf(stderr, "Failed to create connection cache\n");
+        exit(EXIT_FAILURE);
+    }
+
     default_independent_stats = new_independent_stats();
 
 #ifndef __WIN32__
