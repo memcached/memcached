@@ -14,7 +14,7 @@ CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
  ${INCLUDE} -Iinclude -Iwin32 -I.libs -DHAVE_CONFIG_H
 
 MEMCACHED_SRC = cache.c config_parser.c globals.c hash.c isasl.c memcached.c \
- sasl_defs.c stats.c stdin_check.c thread.c util.c \
+ sasl_defs.c stats.c stdin_check.c thread.c util.c genhash.c \
  win32/defs.c win32/dlfcn.c \
  win32/ntservice.c win32/win32.c
 

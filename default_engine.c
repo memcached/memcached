@@ -9,8 +9,8 @@
 #include <inttypes.h>
 
 #include "default_engine.h"
-#include "util.h"
-#include "memcached/config_parser.h"
+#include <memcached/util.h>
+#include <memcached/config_parser.h>
 
 static const char* default_get_info(ENGINE_HANDLE* handle);
 static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,

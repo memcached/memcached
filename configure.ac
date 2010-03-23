@@ -310,6 +310,7 @@ AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(umem_cache_create, umem)
 AC_SEARCH_LIBS(gethugepagesizes, hugetlbfs)
 AC_SEARCH_LIBS(dlopen, dl)
+AC_SEARCH_LIBS(log, m)
 AC_CHECK_HEADERS(link.h dlfcn.h)
 AC_HEADER_STDBOOL
 AH_BOTTOM([#if HAVE_STDBOOL_H

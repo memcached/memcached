@@ -7,8 +7,8 @@
 #include <ctype.h>
 #include <stdbool.h>
 
-#include "memcached/config_parser.h"
-#include "util.h"
+#include <memcached/config_parser.h>
+#include <memcached/util.h>
 
 static int read_config_file(const char *fname, struct config_item items[],
                             FILE *error);

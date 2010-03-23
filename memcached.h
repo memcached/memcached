@@ -29,8 +29,8 @@ void continue_server(void);
 #include <event.h>
 #include <pthread.h>
 
-#include "memcached/protocol_binary.h"
-#include "memcached/engine.h"
+#include <memcached/protocol_binary.h>
+#include <memcached/engine.h>
 #include "cache.h"
 
 #include "sasl_defs.h"
@@ -370,7 +370,7 @@ extern int daemonize(int nochdir, int noclose);
 #include "stats.h"
 #include "trace.h"
 #include "hash.h"
-#include "util.h"
+#include <memcached/util.h>
 
 /*
  * Functions such as the libevent-related calls that need to do cross-thread

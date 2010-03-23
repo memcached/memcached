@@ -21,9 +21,9 @@
 
 #include "config.h"
 #include "cache.h"
-#include "util.h"
-#include "memcached/protocol_binary.h"
-#include "memcached/config_parser.h"
+#include <memcached/util.h>
+#include <memcached/protocol_binary.h>
+#include <memcached/config_parser.h>
 
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 

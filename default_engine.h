@@ -15,7 +15,7 @@
 
 #include <memcached/engine.h>
 
-#include "util.h"
+#include <memcached/util.h>
 
 #ifndef PUBLIC
 
