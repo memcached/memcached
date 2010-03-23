@@ -191,30 +191,28 @@ int sasl_server_start(sasl_conn_t *conn,
                       unsigned *serveroutlen)
 {
     int rv = SASL_FAIL;
-
-    assert(strcmp(mech, "PLAIN") == 0);
-
     *serverout = "";
     *serveroutlen = 0;
 
-    // 256 is an arbitrary ``large enough'' number.
-    if (clientinlen > 2 && clientinlen < 128 && clientin[0] == '\0') {
-        const char *username = clientin + 1;
-        char password[128];
-        int pwlen = clientinlen - 2 - strlen(username);
-        assert(pwlen > 0);
-        password[pwlen] = '\0';
-        memcpy(password, clientin + 2 + strlen(username), pwlen);
-        fprintf(stderr, "username:  ``%s'' (%d), password=``%s'' (%d)\n",
-                username, (int)strlen(username), password, pwlen);
+    if(strcmp(mech, "PLAIN") == 0) {
+        // 256 is an arbitrary ``large enough'' number.
+        if (clientinlen > 2 && clientinlen < 128 && clientin[0] == '\0') {
+            const char *username = clientin + 1;
+            char password[128];
+            int pwlen = clientinlen - 2 - strlen(username);
+            if (pwlen > 0) {
+                password[pwlen] = '\0';
+                memcpy(password, clientin + 2 + strlen(username), pwlen);
 
-        if (check_up(username, password)) {
-            if (conn->username) {
-                free(conn->username);
-                conn->username = NULL;
+                if (check_up(username, password)) {
+                    if (conn->username) {
+                        free(conn->username);
+                        conn->username = NULL;
+                    }
+                    conn->username = strdup(username);
+                    rv = SASL_OK;
+                }
             }
-            conn->username = strdup(username);
-            rv = SASL_OK;
         }
     }
 
