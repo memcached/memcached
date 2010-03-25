@@ -2124,6 +2124,24 @@ static bool binary_response_handler(const void *key, uint16_t keylen,
     return true;
 }
 
+/**
+ * Tap stats (these are only used by the tap thread, so they don't need
+ * to be in the threadlocal struct right now...
+ */
+struct tap_cmd_stats {
+    uint64_t connect;
+    uint64_t mutation;
+    uint64_t delete;
+    uint64_t flush;
+    uint64_t opaque;
+};
+
+struct tap_stats {
+    pthread_mutex_t mutex;
+    struct tap_cmd_stats sent;
+    struct tap_cmd_stats received;
+} tap_stats = { .mutex = PTHREAD_MUTEX_INITIALIZER };
+
 static void send_tap_connect(conn *c) {
     protocol_binary_request_tap_connect msg = {
         .message.header.request.magic = (uint8_t)PROTOCOL_BINARY_REQ,
@@ -2160,6 +2178,10 @@ static void send_tap_connect(conn *c) {
     }
     conn_set_state(c, conn_write);
     c->write_and_go = conn_new_cmd;
+
+    pthread_mutex_lock(&tap_stats.mutex);
+    tap_stats.sent.connect++;
+    pthread_mutex_unlock(&tap_stats.mutex);
 }
 
 static void ship_tap_log(conn *c) {
@@ -2251,6 +2273,11 @@ static void ship_tap_log(conn *c) {
 
             add_iov(c, settings.engine.v1->item_get_key(it), it->nkey);
             add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes - 2);
+
+            pthread_mutex_lock(&tap_stats.mutex);
+            tap_stats.sent.mutation++;
+            pthread_mutex_unlock(&tap_stats.mutex);
+
             break;
         case TAP_DELETION:
             /* This is a delete */
@@ -2264,15 +2291,29 @@ static void ship_tap_log(conn *c) {
             c->wcurr += sizeof(msg.delete.bytes);
             c->wbytes += sizeof(msg.delete.bytes);
             add_iov(c, settings.engine.v1->item_get_key(it), it->nkey);
+
+            pthread_mutex_lock(&tap_stats.mutex);
+            tap_stats.sent.delete++;
+            pthread_mutex_unlock(&tap_stats.mutex);
             break;
 
         case TAP_FLUSH:
         case TAP_OPAQUE:
             send_data = true;
-            msg.flush.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_FLUSH;
+
             if (event == TAP_OPAQUE) {
                 msg.flush.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_OPAQUE;
+                pthread_mutex_lock(&tap_stats.mutex);
+                tap_stats.sent.opaque++;
+                pthread_mutex_unlock(&tap_stats.mutex);
+
+            } else {
+                msg.flush.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_FLUSH;
+                pthread_mutex_lock(&tap_stats.mutex);
+                tap_stats.sent.flush++;
+                pthread_mutex_unlock(&tap_stats.mutex);
             }
+
             msg.flush.message.header.request.bodylen = htonl(8 + nengine);
             memcpy(c->wcurr, msg.flush.bytes, sizeof(msg.flush.bytes));
             add_iov(c, c->wcurr, sizeof(msg.flush.bytes));
@@ -2284,6 +2325,9 @@ static void ship_tap_log(conn *c) {
                 c->wcurr += nengine;
                 c->wbytes += nengine;
             }
+
+
+
             break;
         default:
             abort();
@@ -2410,18 +2454,33 @@ static void process_bin_packet(conn *c) {
     /* @todo this should be an array of funciton pointers and call through */
     switch (c->binary_header.request.opcode) {
     case PROTOCOL_BINARY_CMD_TAP_CONNECT:
+        pthread_mutex_lock(&tap_stats.mutex);
+        tap_stats.received.connect++;
+        pthread_mutex_unlock(&tap_stats.mutex);
         process_bin_tap_connect(c);
         break;
     case PROTOCOL_BINARY_CMD_TAP_MUTATION:
+        pthread_mutex_lock(&tap_stats.mutex);
+        tap_stats.received.mutation++;
+        pthread_mutex_unlock(&tap_stats.mutex);
         process_bin_tap_packet(TAP_MUTATION, c);
         break;
     case PROTOCOL_BINARY_CMD_TAP_DELETE:
+        pthread_mutex_lock(&tap_stats.mutex);
+        tap_stats.received.delete++;
+        pthread_mutex_unlock(&tap_stats.mutex);
         process_bin_tap_packet(TAP_DELETION, c);
         break;
     case PROTOCOL_BINARY_CMD_TAP_FLUSH:
+        pthread_mutex_lock(&tap_stats.mutex);
+        tap_stats.received.flush++;
+        pthread_mutex_unlock(&tap_stats.mutex);
         process_bin_tap_packet(TAP_FLUSH, c);
         break;
     case PROTOCOL_BINARY_CMD_TAP_OPAQUE:
+        pthread_mutex_lock(&tap_stats.mutex);
+        tap_stats.received.opaque++;
+        pthread_mutex_unlock(&tap_stats.mutex);
         process_bin_tap_packet(TAP_OPAQUE, c);
         break;
     default:
@@ -3163,6 +3222,45 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("threads", "%d", settings.num_threads);
     APPEND_STAT("conn_yields", "%" PRIu64, (unsigned long long)thread_stats.conn_yields);
     STATS_UNLOCK();
+
+    /*
+     * Add tap stats (only if non-zero)
+     */
+    struct tap_stats ts;
+    pthread_mutex_lock(&tap_stats.mutex);
+    ts = tap_stats;
+    pthread_mutex_unlock(&tap_stats.mutex);
+
+    if (ts.sent.connect) {
+        APPEND_STAT("tap_connect_sent", "%"PRIu64, ts.sent.connect);
+    }
+    if (ts.sent.mutation) {
+        APPEND_STAT("tap_mutation_sent", "%"PRIu64, ts.sent.mutation);
+    }
+    if (ts.sent.delete) {
+        APPEND_STAT("tap_delete_sent", "%"PRIu64, ts.sent.delete);
+    }
+    if (ts.sent.flush) {
+        APPEND_STAT("tap_flush_sent", "%"PRIu64, ts.sent.flush);
+    }
+    if (ts.sent.opaque) {
+        APPEND_STAT("tap_opaque_sent", "%"PRIu64, ts.sent.opaque);
+    }
+    if (ts.received.connect) {
+        APPEND_STAT("tap_connect_received", "%"PRIu64, ts.received.connect);
+    }
+    if (ts.received.mutation) {
+        APPEND_STAT("tap_mutation_received", "%"PRIu64, ts.received.mutation);
+    }
+    if (ts.received.delete) {
+        APPEND_STAT("tap_delete_received", "%"PRIu64, ts.received.delete);
+    }
+    if (ts.received.flush) {
+        APPEND_STAT("tap_flush_received", "%"PRIu64, ts.received.flush);
+    }
+    if (ts.received.opaque) {
+        APPEND_STAT("tap_opaque_received", "%"PRIu64, ts.received.opaque);
+    }
 }
 
 static void process_stat_settings(ADD_STAT add_stats, void *c) {

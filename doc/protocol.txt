@@ -416,6 +416,8 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | (see doc/threads.txt)                     |
 | conn_yields           | 64u     | Number of times any connection yielded to |
 |                       |         | another due to hitting the -R limit.      |
+| tap_<....>_sent       | 64u     | Number of times we sent a certain tap msg |
+| tap_<....>_received   | 64u     | Number of times we received the tap msg   |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics
