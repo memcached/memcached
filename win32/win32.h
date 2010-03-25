@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <process.h>
+#include "ntservice.h"
 
 #define EWOULDBLOCK        EAGAIN
 #define EAFNOSUPPORT       47

@@ -20,6 +20,10 @@
 #include <unistd.h>
 #else
 #include "win32.h"
+void run_server(void);
+void stop_server(void);
+void pause_server(void);
+void continue_server(void);
 #endif
 
 #include <event.h>

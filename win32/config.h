@@ -45,6 +45,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ntservice.h"
+
 /*******************************/
 /* HACKS to compile under UNIX */
 

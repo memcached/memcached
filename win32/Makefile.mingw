@@ -15,7 +15,8 @@ CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
 
 MEMCACHED_SRC = cache.c config_parser.c globals.c hash.c isasl.c memcached.c \
  sasl_defs.c stats.c stdin_check.c thread.c util.c \
- win32/defs.c win32/dlfcn.c win32/win32.c
+ win32/defs.c win32/dlfcn.c \
+ win32/ntservice.c win32/win32.c
 
 MEMCACHED_OBJS = ${MEMCACHED_SRC:%.c=.libs/%.o}
 
