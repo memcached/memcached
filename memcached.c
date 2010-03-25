@@ -2148,13 +2148,30 @@ static void send_tap_connect(conn *c) {
         .message.header.request.opcode = (uint8_t)PROTOCOL_BINARY_CMD_TAP_CONNECT
     };
 
+    char *backfill;
+    uint64_t backfillage;
+    size_t nuserdata = 0;
+
+    if ((backfill = getenv("MEMCACHED_TAP_BACKFILL_AGE")) != NULL) {
+        if (safe_strtoull(backfill, &backfillage)) {
+            msg.message.header.request.extlen = 4;
+            msg.message.body.flags = htonl(TAP_CONNECT_FLAG_BACKFILL);
+            backfillage = ntohll(backfillage);
+            nuserdata = sizeof(backfillage);
+        } else {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                            "Failed to parse backfill age: %s\n", backfill);
+        }
+    }
+
     size_t nodelen = 0;
     size_t headersize = sizeof(msg.message.header) + msg.message.header.request.extlen;
     if (nodeid != NULL) {
         nodelen = strlen(nodeid);
-        msg.message.header.request.keylen = htons(nodelen);
-        msg.message.header.request.bodylen = htonl(nodelen + msg.message.header.request.extlen);
     }
+
+    msg.message.header.request.keylen = htons(nodelen);
+    msg.message.header.request.bodylen = htonl(nodelen + msg.message.header.request.extlen + nuserdata);
 
     c->msgcurr = 0;
     c->msgused = 0;
@@ -2173,9 +2190,17 @@ static void send_tap_connect(conn *c) {
     c->wbytes = headersize;
 
     if (nodeid != NULL) {
-        memcpy(c->wcurr + headersize, nodeid, nodelen);
+        memcpy(c->wcurr + c->wbytes, nodeid, nodelen);
         c->wbytes += nodelen;
     }
+
+    if (nuserdata != 0) {
+        if (ntohl(msg.message.body.flags) & TAP_CONNECT_FLAG_BACKFILL) {
+            memcpy(c->wcurr + c->wbytes, &backfillage, sizeof(backfillage));
+            c->wbytes += sizeof(backfillage);
+        }
+    }
+
     conn_set_state(c, conn_write);
     c->write_and_go = conn_new_cmd;
 
@@ -2383,9 +2408,23 @@ static void process_bin_tap_connect(conn *c) {
     const char *key = packet + sizeof(req->bytes);
     const char *data = key + c->binary_header.request.keylen;
     uint32_t flags = 0;
+    size_t ndata = c->binary_header.request.bodylen -
+        c->binary_header.request.extlen -
+        c->binary_header.request.keylen;
 
     if (c->binary_header.request.extlen == 4) {
         flags = ntohl(req->message.body.flags);
+
+        if (flags & TAP_CONNECT_FLAG_BACKFILL) {
+            /* the userdata has to be at least 8 bytes! */
+            if (ndata < 8) {
+                settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                                "%d: ERROR: Invalid tap connect message\n",
+                                                c->sfd);
+                conn_set_state(c, conn_closing);
+                return ;
+            }
+        }
     } else {
         data -= 4;
         key -= 4;
@@ -2393,9 +2432,7 @@ static void process_bin_tap_connect(conn *c) {
 
     TAP_ITERATOR iterator = settings.engine.v1->get_tap_iterator(
         settings.engine.v0, c, key, c->binary_header.request.keylen,
-        flags, data,
-        c->binary_header.request.bodylen - sizeof(req->bytes)
-        - c->binary_header.request.keylen);
+        flags, data, ndata);
 
     if (iterator == NULL) {
         /* TROND: SEND A NAK TO THE TAP */

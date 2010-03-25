@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
  * Copyright (c) <2008>, Sun Microsystems, Inc.
  * All rights reserved.
@@ -438,12 +439,40 @@ extern "C"
      * See To be written
      *
      */
+
     typedef union {
         struct {
             protocol_binary_request_header header;
             struct {
+                /**
+                 * flags is a bitmask used to set properties for the
+                 * the connection. Please In order to be forward compatible
+                 * you should set all undefined bits to 0.
+                 *
+                 * If the bit require extra userdata, it will be stored
+                 * in the user-data field of the body (passed to the engine
+                 * as enginespeciffic). That means that when you parse the
+                 * flags and the engine-specific data, you have to work your
+                 * way from bit 0 and upwards to find the correct offset for
+                 * the data.
+                 *
+                 */
                 uint32_t flags;
-                uint16_t enginespecific_length;
+
+                /**
+                 * Backfill age
+                 *
+                 * By using this flag you can limit the amount of data being
+                 * transmitted. If you don't specify a backfill age, the
+                 * server will transmit everything it contains.
+                 *
+                 * The first 8 bytes in the engine specific data contains
+                 * the oldest entry (from epoc) you're interested in.
+                 * Specifying a time in the future (for the server you are
+                 * connecting to), will cause it to start streaming current
+                 * changes.
+                 */
+#define TAP_CONNECT_FLAG_BACKFILL 0x01
             } body;
         } message;
         uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
