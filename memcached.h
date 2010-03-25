@@ -11,14 +11,19 @@
 #include "config.h"
 #endif
 
+#ifndef __WIN32__
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <netinet/in.h>
-#include <event.h>
 #include <netdb.h>
-#include <pthread.h>
 #include <unistd.h>
+#else
+#include "win32.h"
+#endif
+
+#include <event.h>
+#include <pthread.h>
 
 #include "memcached/protocol_binary.h"
 #include "memcached/engine.h"

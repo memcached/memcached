@@ -14,14 +14,17 @@
  *      Brad Fitzpatrick <brad@danga.com>
  */
 #include "memcached.h"
+
+#ifndef __WIN32__
+
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <signal.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
-#include <ctype.h>
-#include <stdarg.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <signal.h>
 
 /* some POSIX systems need the following definition
  * to get mlockall flags out of sys/mman.h.  */
@@ -34,9 +37,10 @@
 #endif
 #include <pwd.h>
 #include <sys/mman.h>
+#endif /* !__WIN32__ */
+
+#include <getopt.h>
 #include <fcntl.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -44,6 +48,9 @@
 #include <time.h>
 #include <assert.h>
 #include <limits.h>
+#include <ctype.h>
+#include <stdarg.h>
+
 #include <sysexits.h>
 #include <stddef.h>
 #ifdef HAVE_DLFCN_H
@@ -1045,10 +1052,10 @@ static void complete_incr_bin(conn *c) {
         for (i = 0; i < nkey; i++) {
             fprintf(stderr, "%c", key[i]);
         }
-        fprintf(stderr, " %lld, %llu, %d\n",
-                (long long)req->message.body.delta,
-                (long long)req->message.body.initial,
-                req->message.body.expiration);
+        fprintf(stderr, " %" PRIu64 ", %" PRIu64 ", %" PRIu64 "\n",
+                (uint64_t)req->message.body.delta,
+                (uint64_t)req->message.body.initial,
+                (uint64_t)req->message.body.expiration);
     }
 
     ENGINE_ERROR_CODE ret;
@@ -2469,10 +2476,10 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     struct slab_stats slab_stats;
     slab_stats_aggregate(&thread_stats, &slab_stats);
 
-#ifndef WIN32
+#ifndef __WIN32__
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
-#endif /* !WIN32 */
+#endif
 
     STATS_LOCK();
 
@@ -2482,14 +2489,14 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("version", "%s", VERSION);
     APPEND_STAT("pointer_size", "%d", (int)(8 * sizeof(void *)));
 
-#ifndef WIN32
+#ifndef __WIN32__
     append_stat("rusage_user", add_stats, c, "%ld.%06ld",
                 (long)usage.ru_utime.tv_sec,
                 (long)usage.ru_utime.tv_usec);
     append_stat("rusage_system", add_stats, c, "%ld.%06ld",
                 (long)usage.ru_stime.tv_sec,
                 (long)usage.ru_stime.tv_usec);
-#endif /* !WIN32 */
+#endif
 
     APPEND_STAT("curr_connections", "%u", stats.curr_conns - 1);
     APPEND_STAT("total_connections", "%u", stats.total_conns);
@@ -2512,9 +2519,9 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("bytes_written", "%"PRIu64, thread_stats.bytes_written);
     APPEND_STAT("limit_maxbytes", "%"PRIu64, settings.maxbytes);
     APPEND_STAT("accepting_conns", "%u", stats.accepting_conns);
-    APPEND_STAT("listen_disabled_num", "%"PRIu64, stats.listen_disabled_num);
+    APPEND_STAT("listen_disabled_num", "%" PRIu64, (unsigned long long)stats.listen_disabled_num);
     APPEND_STAT("threads", "%d", settings.num_threads);
-    APPEND_STAT("conn_yields", "%"PRIu64, thread_stats.conn_yields);
+    APPEND_STAT("conn_yields", "%" PRIu64, (unsigned long long)thread_stats.conn_yields);
     STATS_UNLOCK();
 }
 
@@ -3882,7 +3889,7 @@ static void maximize_sndbuf(const int sfd) {
     int old_size;
 
     /* Start with the default size. */
-    if (getsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &old_size, &intsize) != 0) {
+    if (getsockopt(sfd, SOL_SOCKET, SO_SNDBUF, (void *)&old_size, &intsize) != 0) {
         if (settings.verbose > 0)
             perror("getsockopt(SO_SNDBUF)");
         return;
@@ -4062,6 +4069,7 @@ static int new_socket_unix(void) {
     return sfd;
 }
 
+/* this will probably not work on windows */
 static int server_socket_unix(const char *path, int access_mask) {
     int sfd;
     struct linger ling = {0, 0};
@@ -4301,6 +4309,8 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
+#ifndef __WIN32__
+
 static void sig_handler(const int sig) {
     printf("SIGINT handled.\n");
     exit(EXIT_SUCCESS);
@@ -4315,7 +4325,9 @@ static int sigignore(int sig) {
     }
     return 0;
 }
-#endif
+#endif /* !HAVE_SIGIGNORE */
+
+#endif /* !__WIN32__ */
 
 
 /*
@@ -4361,7 +4373,7 @@ static int enable_large_pages(void) {
 #endif
 }
 
-static const char* get_server_version() {
+static const char* get_server_version(void) {
     return VERSION;
 }
 
@@ -4544,10 +4556,10 @@ int main (int argc, char **argv) {
     char old_options[1024] = { [0] = '\0' };
     char *old_opts = old_options;
 
-
-
-   /* handle SIGINT */
+#ifndef __WIN32__
+    /* handle SIGINT */
     signal(SIGINT, sig_handler);
+#endif
 
     /* init settings */
     settings_init();
@@ -4568,7 +4580,9 @@ int main (int argc, char **argv) {
           "hi"  /* help, licence info */
           "r"   /* maximize core file limit */
           "v"   /* verbose */
+#ifndef __WIN32__
           "d"   /* daemon mode */
+#endif
           "l:"  /* interface to listen on */
           "u:"  /* user identity to run as */
           "P:"  /* save PID in file */
@@ -4749,8 +4763,13 @@ int main (int argc, char **argv) {
                     " and will decrease your memory efficiency.\n"
                 );
             }
+#ifndef __WIN32__
             old_opts += sprintf(old_opts, "item_size_max=%zu;",
                                 settings.item_size_max);
+#else
+            old_opts += sprintf(old_opts, "item_size_max=%lu;", (long unsigned)
+                                settings.item_size_max);
+#endif
             break;
         case 'E':
             engine = optarg;
@@ -4865,6 +4884,7 @@ int main (int argc, char **argv) {
         init_sasl();
     }
 
+#ifndef __WIN32__
     /* daemonize if requested */
     /* if we want to ensure our ability to dump core, don't chdir to / */
     if (do_daemonize) {
@@ -4876,6 +4896,7 @@ int main (int argc, char **argv) {
             exit(EXIT_FAILURE);
         }
     }
+#endif
 
     /* lock paged memory if needed */
     if (lock_memory) {
@@ -4909,6 +4930,7 @@ int main (int argc, char **argv) {
     conn_init();
     default_thread_stats = new_stats();
 
+#ifndef __WIN32__
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
@@ -4917,6 +4939,8 @@ int main (int argc, char **argv) {
         perror("failed to ignore SIGPIPE; sigaction");
         exit(EX_OSERR);
     }
+#endif
+
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
     /* save the PID in if we're a daemon, do this after thread_init due to
@@ -4929,7 +4953,6 @@ int main (int argc, char **argv) {
 
     /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
-        errno = 0;
         if (server_socket_unix(settings.socketpath,settings.access)) {
             vperror("failed to listen on UNIX socket: %s", settings.socketpath);
             exit(EX_OSERR);
@@ -4956,7 +4979,6 @@ int main (int argc, char **argv) {
             }
         }
 
-        errno = 0;
         if (settings.port && server_socket(settings.port, tcp_transport,
                                            portnumber_file)) {
             vperror("failed to listen on TCP port %d", settings.port);
@@ -4972,7 +4994,6 @@ int main (int argc, char **argv) {
         udp_port = settings.udpport ? settings.udpport : settings.port;
 
         /* create the UDP listening socket and bind it */
-        errno = 0;
         if (settings.udpport && server_socket(settings.udpport, udp_transport,
                                               portnumber_file)) {
             vperror("failed to listen on UDP port %d", settings.udpport);

@@ -7,7 +7,7 @@
 
 typedef struct sasl_callback {
     unsigned long id;
-    int (*proc)();
+    int (*proc)(void);
     void *context;
 } sasl_callback_t;
 

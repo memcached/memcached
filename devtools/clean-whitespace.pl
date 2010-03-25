@@ -2,7 +2,8 @@
 use strict;
 use FindBin qw($Bin);
 chdir "$Bin/.." or die;
-my @files = (glob("*.h"), glob("*.c"), glob("*.ac"));
+my @files = (glob("*.h"), glob("*.c"), glob("*.ac"), glob("./win32/*.c"), glob("./win32/*.h"), glob("./m4/*.m4"));
+
 foreach my $f (@files) {
     open(my $fh, $f) or die;
     my $before = do { local $/; <$fh>; };

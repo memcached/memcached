@@ -1,0 +1,49 @@
+# Hard coded Makefile for windows
+
+CC = gcc
+
+OBJDIR = .libs .libs/win32
+BINARIES= memcached.exe .libs/default_engine.so
+LIB=-L/lib -L/usr/lib -L/usr/local/lib
+INCLUDE=-I/include -I/usr/include -I/usr/local/include
+
+all: ${BINARIES}
+
+CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
+ -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls \
+ ${INCLUDE} -Iinclude -Iwin32 -I.libs -DHAVE_CONFIG_H
+
+MEMCACHED_SRC = cache.c config_parser.c globals.c hash.c isasl.c memcached.c \
+ sasl_defs.c stats.c stdin_check.c thread.c util.c \
+ win32/defs.c win32/dlfcn.c win32/win32.c
+
+MEMCACHED_OBJS = ${MEMCACHED_SRC:%.c=.libs/%.o}
+
+DEFAULT_ENGINE_SRC = assoc.c default_engine.c items.c slabs.c util.c
+DEFAULT_ENGINE_OBJS = ${DEFAULT_ENGINE_SRC:%.c=.libs/%.o}
+
+GENFILES=.libs/config_version.h
+
+memcached.exe: ${OBJDIR} ${GENFILES} $(MEMCACHED_OBJS)
+	${LINK.c} -o memcached.exe $(MEMCACHED_OBJS) \
+                  ${LIB} -levent -lmswsock \
+                  -lws2_32 -lpthread
+
+.libs/default_engine.so: ${OBJDIR} $(DEFAULT_ENGINE_OBJS)
+	${LINK.c} -o $@ -shared ${DEFAULT_ENGINE_OBJS} \
+                  ${LIB} -lpthread
+
+.libs/config_version.h:
+	./win32/config.sh
+
+.libs .libs/win32:; -@mkdir $@
+
+.libs/%.o: %.c
+	${COMPILE.c} -MMD $< -o $@
+
+clean:
+	$(RM) ${MEMCACHED_OBJS} ${DEFAULT_ENGINE_OBJS} \
+              ${BINARIES} ${MEMCACHED_OBJS:.o=.d} ${DEFAULT_ENGINE_OBJS:.o=.d} \
+              ${GENFILES}
+
+-include ${MEMCACHED_OBJS:.o=.d} ${DEFAULT_ENGINE_OBJS:.o=.d}

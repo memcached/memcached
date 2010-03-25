@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <stddef.h>
+#include <inttypes.h>
 
 #include "default_engine.h"
 #include "util.h"
@@ -252,13 +253,13 @@ static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
       int len;
 
       pthread_mutex_lock(&engine->stats.lock);
-      len = sprintf(val, "%llu", (unsigned long long)engine->stats.evictions);
+      len = sprintf(val, "%"PRIu64, (uint64_t)engine->stats.evictions);
       add_stat("evictions", 9, val, len, cookie);
-      len = sprintf(val, "%llu", (unsigned long long)engine->stats.curr_items);
+      len = sprintf(val, "%"PRIu64, (uint64_t)engine->stats.curr_items);
       add_stat("curr_items", 10, val, len, cookie);
-      len = sprintf(val, "%llu", (unsigned long long)engine->stats.total_items);
+      len = sprintf(val, "%"PRIu64, (uint64_t)engine->stats.total_items);
       add_stat("total_items", 11, val, len, cookie);
-      len = sprintf(val, "%llu", (unsigned long long)engine->stats.curr_bytes);
+      len = sprintf(val, "%"PRIu64, (uint64_t)engine->stats.curr_bytes);
       add_stat("bytes", 5, val, len, cookie);
       len = sprintf(val, "%"PRIu64, engine->stats.reclaimed);
       add_stat("reclaimed", 9, val, len, cookie);
@@ -304,8 +305,8 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
          return ENGINE_KEY_ENOENT;
       } else {
          char buffer[1023];
-         int len = snprintf(buffer, sizeof(buffer), "%llu\r\n",
-                            (unsigned long long)initial);
+         int len = snprintf(buffer, sizeof(buffer), "%"PRIu64"\r\n",
+                            (uint64_t)initial);
 
          item = item_alloc(engine, key, nkey, 0, exptime, len);
          if (item == NULL) {

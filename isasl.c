@@ -61,7 +61,7 @@ static void store_pw(user_db_entry_t **ht, const char *u, const char *p)
     ht[h] = e;
 }
 
-static void free_user_ht()
+static void free_user_ht(void)
 {
     if (user_ht) {
         for (int i = 0; i < n_uht_buckets; i++) {
@@ -79,7 +79,7 @@ static void free_user_ht()
     }
 }
 
-static int load_user_db()
+static int load_user_db(void)
 {
     const char *filename = getenv("ISASL_PWFILE");
     if (!filename) {

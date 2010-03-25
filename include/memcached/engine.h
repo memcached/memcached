@@ -156,6 +156,9 @@ extern "C" {
     /**
      * Abstract interface to an engine.
      */
+#ifdef __WIN32__
+#undef interface
+#endif
     typedef struct engine_interface {
         uint64_t interface; /**< The version number on the engine structure */
     } ENGINE_HANDLE;
@@ -217,7 +220,7 @@ extern "C" {
          *
          * @return the server's version number
          */
-        const char* (*server_version)();
+        const char* (*server_version)(void);
 
         /**
          * Generate a simple hash value of a piece of data.
