@@ -2024,76 +2024,49 @@ static bool binary_response_handler(const void *key, uint16_t keylen,
                                     uint64_t cas, const void *cookie)
 {
     conn *c = (conn*)cookie;
-    protocol_binary_response_header* header = (void *)c->wcurr;
-    uint32_t need = bodylen + extlen + keylen + sizeof(*header);
-    if (c->wbytes + need > c->wsize) {
+    /* Look at append_bin_stats */
+    size_t needed = keylen + extlen + bodylen + sizeof(protocol_binary_response_header);
+    if (!grow_dynamic_buffer(c, needed)) {
         if (settings.verbose > 0) {
             settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                    "<%d ERROR: Response exceeds available buffer size\n",
+                    "<%d ERROR: Failed to allocate memory for response\n",
                     c->sfd);
         }
         return false;
     }
 
-    header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
-    header->response.opcode = c->binary_header.request.opcode;
-    header->response.keylen = (uint16_t)htons(keylen);
-    header->response.extlen = extlen;
-    header->response.datatype = datatype;
-    header->response.status = (uint16_t)htons(status);
-    header->response.bodylen = htonl(bodylen + keylen + extlen);
-    header->response.opaque = c->opaque;
-    header->response.cas = htonll(cas);
+    char *buf = c->dynamic_buffer.buffer + c->dynamic_buffer.offset;
+    protocol_binary_response_header header = {
+        .response.magic = (uint8_t)PROTOCOL_BINARY_RES,
+        .response.opcode = c->binary_header.request.opcode,
+        .response.keylen = (uint16_t)htons(keylen),
+        .response.extlen = extlen,
+        .response.datatype = datatype,
+        .response.status = (uint16_t)htons(status),
+        .response.bodylen = htonl(bodylen + keylen + extlen),
+        .response.opaque = c->opaque,
+        .response.cas = htonll(cas),
+    };
 
-    if (add_iov(c, c->wcurr, sizeof(header->response)) == -1) {
-        if (settings.verbose > 0) {
-            settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                    "<%d ERROR: Failed to allocate response buffer\n",
-                    c->sfd);
-        }
-        return false;
-    }
-    c->wcurr += sizeof(*header);
-    if (extlen) {
-        memcpy(c->wcurr, ext, extlen);
-        if (add_iov(c, c->wcurr, extlen) == -1) {
-            if (settings.verbose > 0) {
-                settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                        "<%d ERROR: Failed to allocate response buffer\n",
-                        c->sfd);
-            }
-            return false;
-        }
-        c->wcurr += extlen;
+    memcpy(buf, header.bytes, sizeof(header.response));
+    buf += sizeof(header.response);
+
+    if (extlen > 0) {
+        memcpy(buf, ext, extlen);
+        buf += extlen;
     }
 
-    if (keylen) {
-        memcpy(c->wcurr, key, keylen);
-        if (add_iov(c, c->wcurr, keylen) == -1) {
-            if (settings.verbose > 0) {
-                settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                        "<%d ERROR: Failed to allocate response buffer\n",
-                        c->sfd);
-            }
-            return false;
-        }
-        c->wcurr += keylen;
+    if (keylen > 0) {
+        memcpy(buf, key, keylen);
+        buf += keylen;
     }
 
-    if (bodylen) {
-        memcpy(c->wcurr, body, bodylen);
-        if (add_iov(c, c->wcurr, bodylen) == -1) {
-            if (settings.verbose > 0) {
-                settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                        "<%d ERROR: Failed to allocate response buffer\n",
-                        c->sfd);
-            }
-            return false;
-        }
-        c->wcurr += bodylen;
+    if (bodylen > 0) {
+        memcpy(buf, body, bodylen);
     }
 
-    c->wbytes += need;
+    c->dynamic_buffer.offset += needed;
+
     return true;
 }
 
@@ -2102,24 +2075,11 @@ static void process_bin_packet(conn *c) {
     void *packet = c->rcurr - (c->binary_header.request.bodylen +
                                sizeof(c->binary_header));
 
-    c->msgcurr = 0;
-    c->msgused = 0;
-    c->iovused = 0;
-    if (add_msghdr(c) != 0) {
-        if (settings.verbose > 0) {
-            settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                     "%d: Failed to create output headers\n", c->sfd);
-        }
-        conn_set_state(c, conn_closing);
-        return ;
-    }
-    c->wcurr = c->wbuf;
-    c->wbytes = 0;
     ret = settings.engine.v1->unknown_command(settings.engine.v0, c, packet,
                                               binary_response_handler);
     if (ret == ENGINE_SUCCESS) {
-        conn_set_state(c, conn_mwrite);
-        c->write_and_go = conn_new_cmd;
+        write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
+        c->dynamic_buffer.buffer = NULL;
     } else if (ret == ENGINE_ENOTSUP) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, 0);
     } else {
