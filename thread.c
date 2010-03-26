@@ -371,7 +371,7 @@ void STATS_UNLOCK() {
 }
 
 void threadlocal_stats_clear(struct thread_stats *stats) {
-    stats->get_cmds = 0;
+    stats->cmd_get = 0;
     stats->get_misses = 0;
     stats->delete_misses = 0;
     stats->incr_misses = 0;
@@ -381,7 +381,7 @@ void threadlocal_stats_clear(struct thread_stats *stats) {
     stats->cas_misses = 0;
     stats->bytes_written = 0;
     stats->bytes_read = 0;
-    stats->flush_cmds = 0;
+    stats->cmd_flush = 0;
     stats->conn_yields = 0;
     stats->auth_cmds = 0;
     stats->auth_errors = 0;
@@ -404,7 +404,7 @@ void threadlocal_stats_aggregate(struct thread_stats *thread_stats, struct threa
     for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&thread_stats[ii].mutex);
 
-        stats->get_cmds += thread_stats[ii].get_cmds;
+        stats->cmd_get += thread_stats[ii].cmd_get;
         stats->get_misses += thread_stats[ii].get_misses;
         stats->delete_misses += thread_stats[ii].delete_misses;
         stats->decr_misses += thread_stats[ii].decr_misses;
@@ -414,14 +414,14 @@ void threadlocal_stats_aggregate(struct thread_stats *thread_stats, struct threa
         stats->cas_misses += thread_stats[ii].cas_misses;
         stats->bytes_read += thread_stats[ii].bytes_read;
         stats->bytes_written += thread_stats[ii].bytes_written;
-        stats->flush_cmds += thread_stats[ii].flush_cmds;
+        stats->cmd_flush += thread_stats[ii].cmd_flush;
         stats->conn_yields += thread_stats[ii].conn_yields;
         stats->auth_cmds += thread_stats[ii].auth_cmds;
         stats->auth_errors += thread_stats[ii].auth_errors;
 
         for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
-            stats->slab_stats[sid].set_cmds +=
-                thread_stats[ii].slab_stats[sid].set_cmds;
+            stats->slab_stats[sid].cmd_set +=
+                thread_stats[ii].slab_stats[sid].cmd_set;
             stats->slab_stats[sid].get_hits +=
                 thread_stats[ii].slab_stats[sid].get_hits;
             stats->slab_stats[sid].delete_hits +=
@@ -439,14 +439,14 @@ void threadlocal_stats_aggregate(struct thread_stats *thread_stats, struct threa
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     int sid;
 
-    out->set_cmds = 0;
+    out->cmd_set = 0;
     out->get_hits = 0;
     out->delete_hits = 0;
     out->cas_hits = 0;
     out->cas_badval = 0;
 
     for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
-        out->set_cmds += stats->slab_stats[sid].set_cmds;
+        out->cmd_set += stats->slab_stats[sid].cmd_set;
         out->get_hits += stats->slab_stats[sid].get_hits;
         out->delete_hits += stats->slab_stats[sid].delete_hits;
         out->cas_hits += stats->slab_stats[sid].cas_hits;

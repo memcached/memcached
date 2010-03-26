@@ -27,7 +27,8 @@ static void item_unlink_q(struct default_engine *engine, hash_item *it);
 static hash_item *do_item_alloc(struct default_engine *engine,
                                 const void *key, const size_t nkey,
                                 const int flags, const rel_time_t exptime,
-                                const int nbytes);
+                                const int nbytes,
+                                const void *cookie);
 static hash_item *do_item_get(struct default_engine *engine,
                               const char *key, const size_t nkey);
 static int do_item_link(struct default_engine *engine, hash_item *it);
@@ -88,7 +89,8 @@ hash_item *do_item_alloc(struct default_engine *engine,
                          const size_t nkey,
                          const int flags,
                          const rel_time_t exptime,
-                         const int nbytes) {
+                         const int nbytes,
+                         const void *cookie) {
     hash_item *it = NULL;
     size_t ntotal = sizeof(hash_item) + nkey + nbytes;
     if (engine->config.use_cas) {
@@ -166,6 +168,9 @@ hash_item *do_item_alloc(struct default_engine *engine,
                     pthread_mutex_lock(&engine->stats.lock);
                     engine->stats.evictions++;
                     pthread_mutex_unlock(&engine->stats.lock);
+                    engine->server.count_eviction(cookie,
+                                                  item_get_key(&search->item),
+                                                  search->item.nkey);
                 } else {
                     engine->items.itemstats[id].reclaimed++;
                     pthread_mutex_lock(&engine->stats.lock);
@@ -529,7 +534,8 @@ hash_item *do_item_get(struct default_engine *engine,
  */
 static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                                        hash_item *it, uint64_t *cas,
-                                       ENGINE_STORE_OPERATION operation) {
+                                       ENGINE_STORE_OPERATION operation,
+                                       const void *cookie) {
     const char *key = item_get_key(&it->item);
     hash_item *old_it = do_item_get(engine, key, it->item.nkey);
     ENGINE_ERROR_CODE stored = ENGINE_NOT_STORED;
@@ -601,7 +607,8 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                 new_it = do_item_alloc(engine, key, it->item.nkey,
                                        old_it->item.flags,
                                        old_it->item.exptime,
-                                       it->item.nbytes + old_it->item.nbytes - 2 /* CRLF */);
+                                       it->item.nbytes + old_it->item.nbytes - 2 /* CRLF */,
+                                       cookie);
 
                 if (new_it == NULL) {
                     /* SERVER_ERROR out of memory */
@@ -669,7 +676,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
 static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
                                       hash_item *it, const bool incr,
                                       const int64_t delta, uint64_t *rcas,
-                                      uint64_t *result) {
+                                      uint64_t *result, const void *cookie) {
     const char *ptr;
     uint64_t value;
     int res;
@@ -698,7 +705,8 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
         hash_item *new_it;
         new_it = do_item_alloc(engine, item_get_key(&it->item),
                                it->item.nkey, it->item.flags,
-                               it->item.exptime, res + 2 );
+                               it->item.exptime, res + 2,
+                               cookie );
         if (new_it == 0) {
             return ENGINE_ENOMEM;
         }
@@ -729,10 +737,10 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
  */
 hash_item *item_alloc(struct default_engine *engine,
                       const void *key, size_t nkey, int flags,
-                      rel_time_t exptime, int nbytes) {
+                      rel_time_t exptime, int nbytes, const void *cookie) {
     hash_item *it;
     pthread_mutex_lock(&engine->cache_lock);
-    it = do_item_alloc(engine, key, nkey, flags, exptime, nbytes);
+    it = do_item_alloc(engine, key, nkey, flags, exptime, nbytes, cookie);
     pthread_mutex_unlock(&engine->cache_lock);
     return it;
 }
@@ -775,11 +783,11 @@ void item_unlink(struct default_engine *engine, hash_item *item) {
 ENGINE_ERROR_CODE add_delta(struct default_engine *engine,
                             hash_item *item, const bool incr,
                             const int64_t delta, uint64_t *rcas,
-                            uint64_t *result) {
+                            uint64_t *result, const void *cookie) {
     ENGINE_ERROR_CODE ret;
 
     pthread_mutex_lock(&engine->cache_lock);
-    ret = do_add_delta(engine, item, incr, delta, rcas, result);
+    ret = do_add_delta(engine, item, incr, delta, rcas, result, cookie);
     pthread_mutex_unlock(&engine->cache_lock);
     return ret;
 }
@@ -789,11 +797,12 @@ ENGINE_ERROR_CODE add_delta(struct default_engine *engine,
  */
 ENGINE_ERROR_CODE store_item(struct default_engine *engine,
                              hash_item *item, uint64_t *cas,
-                             ENGINE_STORE_OPERATION operation) {
+                             ENGINE_STORE_OPERATION operation,
+                             const void *cookie) {
     ENGINE_ERROR_CODE ret;
 
     pthread_mutex_lock(&engine->cache_lock);
-    ret = do_store_item(engine, item, cas, operation);
+    ret = do_store_item(engine, item, cas, operation, cookie);
     pthread_mutex_unlock(&engine->cache_lock);
     return ret;
 }

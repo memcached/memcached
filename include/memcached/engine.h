@@ -166,7 +166,6 @@ extern "C" {
     /**
      * Interface to the server.
      */
-    struct thread_stats;
     typedef struct server_interface_v1 {
 
         /**
@@ -259,8 +258,15 @@ extern "C" {
         /**
          * Allocate and deallocate thread-specific stats arrays for engine-maintained separate stats
          */
-        struct thread_stats *(*new_stats)(void);
-        void (*release_stats)(struct thread_stats *stats);
+        void *(*new_stats)(void);
+        void (*release_stats)(void*);
+
+        /**
+         * Tell the server we've evicted an item.
+         */
+        void (*count_eviction)(const void *cookie,
+                               const void *key,
+                               int nkey);
 
     } SERVER_HANDLE_V1;
 
@@ -477,16 +483,16 @@ extern "C" {
         /**
          * Get an array of per-thread stats. Set to NULL if you don't need it.
          */
-        struct thread_stats *(*get_stats_struct)(ENGINE_HANDLE* handle,
-                                                 const void* cookie);
+        void *(*get_stats_struct)(ENGINE_HANDLE* handle,
+                                  const void* cookie);
 
         /**
          * Aggregate stats among all per-connection stats. Set to NULL if you don't need it.
          */
         ENGINE_ERROR_CODE (*aggregate_stats)(ENGINE_HANDLE* handle,
                                              const void* cookie,
-                                             void (*callback)(struct thread_stats*, struct thread_stats*),
-                                             struct thread_stats*);
+                                             void (*callback)(void*, void*),
+                                             void*);
 
 
         /**

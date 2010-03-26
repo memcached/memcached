@@ -32,6 +32,7 @@ void continue_server(void);
 #include <memcached/protocol_binary.h>
 #include <memcached/engine.h>
 #include "cache.h"
+#include "topkeys.h"
 
 #include "sasl_defs.h"
 
@@ -155,7 +156,7 @@ enum network_transport {
 
 /** Stats stored per slab (and per thread). */
 struct slab_stats {
-    uint64_t  set_cmds;
+    uint64_t  cmd_set;
     uint64_t  get_hits;
     uint64_t  delete_hits;
     uint64_t  cas_hits;
@@ -167,7 +168,7 @@ struct slab_stats {
  */
 struct thread_stats {
     pthread_mutex_t   mutex;
-    uint64_t          get_cmds;
+    uint64_t          cmd_get;
     uint64_t          get_misses;
     uint64_t          delete_misses;
     uint64_t          incr_misses;
@@ -177,11 +178,20 @@ struct thread_stats {
     uint64_t          cas_misses;
     uint64_t          bytes_read;
     uint64_t          bytes_written;
-    uint64_t          flush_cmds;
+    uint64_t          cmd_flush;
     uint64_t          conn_yields; /* # of yields for connections (-R option)*/
     uint64_t          auth_cmds;
     uint64_t          auth_errors;
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
+};
+
+
+/**
+ * The stats structure the engine keeps track of
+ */
+struct independent_stats {
+    topkeys_t *topkeys;
+    struct thread_stats thread_stats[];
 };
 
 /**
@@ -227,6 +237,7 @@ struct settings {
     int backlog;
     size_t item_size_max;   /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
+    int topkeys;            /* Number of top keys to track */
     union {
         ENGINE_HANDLE *v0;
         ENGINE_HANDLE_V1 *v1;

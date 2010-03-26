@@ -21,7 +21,7 @@ memcached_SOURCES = memcached.c memcached.h \
                     thread.c daemon.c \
                     stats.c stats.h \
                     trace.h cache.h sasl_defs.h \
-					stdin_check.c
+                    stdin_check.c topkeys.c topkeys.h
 
 libmcd_util_la_SOURCES= config_parser.c include/memcached/config_parser.h \
                         util.c include/memcached/util.h \
@@ -101,29 +101,31 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
-test:	memcached sizes testapp
+test:	memcached sizes testapp timedrun
 	./sizes
 	./testapp
 	prove $(srcdir)/t
-	@if test `basename $(PROFILER)` = "gcov"; then \
-	  for file in memcached-*.gc??; do \
-	    mv -f $$file `echo $$file | sed 's/memcached-//'`; \
-	  done && \
-	  for file in *.gcda; do \
-	    srcfile=`echo $$file | sed 's/.gcda/.c/'`; \
-	    if test -n "`echo $(memcached_SOURCES) | grep $$srcfile`"; then \
-	      echo `$(PROFILER) $$srcfile` | sed 's/'$$srcfile':.*//'; \
-	    fi \
-	  done \
-	elif test `basename $(PROFILER)` = "tcov"; then \
-	  files=`grep SRCFILE memcached.profile/tcovd | sed 's/SRCFILE://' | sort | uniq` && \
-	  $(PROFILER) -x memcached.profile $$files 2>&1; \
-	  for file in *.tcov; do \
-	    srcfile=`echo $$file | sed 's/.tcov//'`; \
-	    if test -n "`echo $(memcached_SOURCES) | grep $$srcfile`"; then \
-	      echo $$srcfile : `grep 'Percent of the file executed' $$file`; \
-	    fi \
-	  done \
+	@if test -n "$(PROFILER)"; then \
+	  if test `basename $(PROFILER)` = "gcov"; then \
+	    for file in memcached-*.gc??; do \
+	      mv -f $$file `echo $$file | sed 's/memcached-//'`; \
+	    done && \
+	    for file in *.gcda; do \
+	      srcfile=`echo $$file | sed 's/.gcda/.c/'`; \
+	      if test -n "`echo $(memcached_SOURCES) | grep $$srcfile`"; then \
+	        echo `$(PROFILER) $$srcfile` | sed 's/'$$srcfile':.*//'; \
+	      fi \
+	    done \
+	  elif test `basename $(PROFILER)` = "tcov"; then \
+	    files=`grep SRCFILE memcached.profile/tcovd | sed 's/SRCFILE://' | sort | uniq` && \
+	    $(PROFILER) -x memcached.profile $$files 2>&1; \
+	    for file in *.tcov; do \
+	      srcfile=`echo $$file | sed 's/.tcov//'`; \
+	      if test -n "`echo $(memcached_SOURCES) | grep $$srcfile`"; then \
+	        echo $$srcfile : `grep 'Percent of the file executed' $$file`; \
+	      fi \
+	    done \
+	  else :; fi \
 	else :; fi
 
 docs:
