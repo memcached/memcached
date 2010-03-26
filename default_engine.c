@@ -263,6 +263,8 @@ static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
       add_stat("bytes", 5, val, len, cookie);
       len = sprintf(val, "%"PRIu64, engine->stats.reclaimed);
       add_stat("reclaimed", 9, val, len, cookie);
+      len = sprintf(val, "%"PRIu64, (uint64_t)engine->config.maxbytes);
+      add_stat("engine_maxbytes", 15, val, len, cookie);
       pthread_mutex_unlock(&engine->stats.lock);
    } else if (strncmp(stat_key, "slabs", 5) == 0) {
       slabs_stats(engine, add_stat, cookie);
