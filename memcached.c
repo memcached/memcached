@@ -1538,7 +1538,7 @@ static void process_bin_get(conn *c) {
 static void append_bin_stats(const char *key, const uint16_t klen,
                              const char *val, const uint32_t vlen,
                              conn *c) {
-    char *buf = c->stats.buffer + c->stats.offset;
+    char *buf = c->dynamic_buffer.buffer + c->dynamic_buffer.offset;
     uint32_t bodylen = klen + vlen;
     protocol_binary_response_header header = {
         .response.magic = (uint8_t)PROTOCOL_BINARY_RES,
@@ -1561,7 +1561,7 @@ static void append_bin_stats(const char *key, const uint16_t klen,
         }
     }
 
-    c->stats.offset += sizeof(header.response) + bodylen;
+    c->dynamic_buffer.offset += sizeof(header.response) + bodylen;
 }
 
 /**
@@ -1572,7 +1572,7 @@ static void append_bin_stats(const char *key, const uint16_t klen,
 static void append_ascii_stats(const char *key, const uint16_t klen,
                                const char *val, const uint32_t vlen,
                                conn *c) {
-    char *pos = c->stats.buffer + c->stats.offset;
+    char *pos = c->dynamic_buffer.buffer + c->dynamic_buffer.offset;
     uint32_t nbytes = 5; /* "END\r\n" or "STAT " */
 
     if (klen == 0 && vlen == 0) {
@@ -1591,31 +1591,31 @@ static void append_ascii_stats(const char *key, const uint16_t klen,
         nbytes += 2;
     }
 
-    c->stats.offset += nbytes;
+    c->dynamic_buffer.offset += nbytes;
 }
 
-static bool grow_stats_buf(conn *c, size_t needed) {
-    size_t nsize = c->stats.size;
-    size_t available = nsize - c->stats.offset;
+static bool grow_dynamic_buffer(conn *c, size_t needed) {
+    size_t nsize = c->dynamic_buffer.size;
+    size_t available = nsize - c->dynamic_buffer.offset;
     bool rv = true;
 
     /* Special case: No buffer -- need to allocate fresh */
-    if (c->stats.buffer == NULL) {
+    if (c->dynamic_buffer.buffer == NULL) {
         nsize = 1024;
-        available = c->stats.size = c->stats.offset = 0;
+        available = c->dynamic_buffer.size = c->dynamic_buffer.offset = 0;
     }
 
     while (needed > available) {
         assert(nsize > 0);
         nsize = nsize << 1;
-        available = nsize - c->stats.offset;
+        available = nsize - c->dynamic_buffer.offset;
     }
 
-    if (nsize != c->stats.size) {
-        char *ptr = realloc(c->stats.buffer, nsize);
+    if (nsize != c->dynamic_buffer.size) {
+        char *ptr = realloc(c->dynamic_buffer.buffer, nsize);
         if (ptr) {
-            c->stats.buffer = ptr;
-            c->stats.size = nsize;
+            c->dynamic_buffer.buffer = ptr;
+            c->dynamic_buffer.size = nsize;
         } else {
             rv = false;
         }
@@ -1637,19 +1637,19 @@ static void append_stats(const char *key, const uint16_t klen,
 
     if (c->protocol == binary_prot) {
         size_t needed = vlen + klen + sizeof(protocol_binary_response_header);
-        if (!grow_stats_buf(c, needed)) {
+        if (!grow_dynamic_buffer(c, needed)) {
             return ;
         }
         append_bin_stats(key, klen, val, vlen, c);
     } else {
         size_t needed = vlen + klen + 10; // 10 == "STAT = \r\n"
-        if (!grow_stats_buf(c, needed)) {
+        if (!grow_dynamic_buffer(c, needed)) {
             return ;
         }
         append_ascii_stats(key, klen, val, vlen, c);
     }
 
-    assert(c->stats.offset <= c->stats.size);
+    assert(c->dynamic_buffer.offset <= c->dynamic_buffer.size);
 }
 
 static void process_bin_stat(conn *c) {
@@ -1717,8 +1717,8 @@ static void process_bin_stat(conn *c) {
         switch (ret) {
         case ENGINE_SUCCESS:
             append_stats(NULL, 0, NULL, 0, c);
-            write_and_free(c, c->stats.buffer, c->stats.offset);
-            c->stats.buffer = NULL;
+            write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
+            c->dynamic_buffer.buffer = NULL;
             break;
         case ENGINE_ENOMEM:
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
@@ -1737,11 +1737,11 @@ static void process_bin_stat(conn *c) {
 
     /* Append termination package and start the transfer */
     append_stats(NULL, 0, NULL, 0, c);
-    if (c->stats.buffer == NULL) {
+    if (c->dynamic_buffer.buffer == NULL) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
     } else {
-        write_and_free(c, c->stats.buffer, c->stats.offset);
-        c->stats.buffer = NULL;
+        write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
+        c->dynamic_buffer.buffer = NULL;
     }
 }
 
@@ -2967,8 +2967,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
         switch (ret) {
         case ENGINE_SUCCESS:
-            write_and_free(c, c->stats.buffer, c->stats.offset);
-            c->stats.buffer = NULL;
+            write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
+            c->dynamic_buffer.buffer = NULL;
             break;
         case ENGINE_ENOMEM:
             out_string(c, "SERVER_ERROR out of memory writing stats");
@@ -2986,11 +2986,11 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     /* append terminator and start the transfer */
     append_stats(NULL, 0, NULL, 0, c);
 
-    if (c->stats.buffer == NULL) {
+    if (c->dynamic_buffer.buffer == NULL) {
         out_string(c, "SERVER_ERROR out of memory writing stats");
     } else {
-        write_and_free(c, c->stats.buffer, c->stats.offset);
-        c->stats.buffer = NULL;
+        write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
+        c->dynamic_buffer.buffer = NULL;
     }
 }
 

@@ -355,11 +355,12 @@ struct conn {
 
     bool   noreply;   /* True if the reply should not be sent. */
     /* current stats command */
+
     struct {
         char *buffer;
         size_t size;
         size_t offset;
-    } stats;
+    } dynamic_buffer;
 
     void *engine_storage;
 
