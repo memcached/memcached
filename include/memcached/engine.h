@@ -78,12 +78,13 @@ extern "C" {
      * changes in the server.
      */
     typedef enum {
-        ON_CONNECT    = 0,      /**< A new connection was established. */
-        ON_DISCONNECT = 1,      /**< A connection was terminated. */
-        ON_AUTH       = 2       /**< A connection was authenticated */
+        ON_CONNECT     = 0,     /**< A new connection was established. */
+        ON_DISCONNECT  = 1,     /**< A connection was terminated. */
+        ON_AUTH        = 2,     /**< A connection was authenticated. */
+        ON_SWITCH_CONN = 3      /**< Processing a different connection on this thread. */
     } ENGINE_EVENT_TYPE;
 
-    #define MAX_ENGINE_EVENT_TYPE 2
+    #define MAX_ENGINE_EVENT_TYPE 3
 
     /**
      * Time relative to server start. Smaller than time_t on 64-bit systems.

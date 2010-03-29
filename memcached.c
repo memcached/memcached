@@ -3783,6 +3783,7 @@ void event_handler(const int fd, const short which, void *arg) {
         return;
     }
 
+    perform_callbacks(ON_SWITCH_CONN, c, c);
     drive_machine(c);
 
     /* wait for next event */
