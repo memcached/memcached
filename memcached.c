@@ -218,6 +218,7 @@ static void settings_init(void) {
     settings.num_threads = 4;         /* N workers */
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
+    settings.allow_detailed = true;
     settings.reqs_per_event = 20;
     settings.backlog = 1024;
     settings.binding_protocol = negotiating_prot;
@@ -1399,22 +1400,27 @@ static void process_bin_stat(conn *c) {
         process_stat_settings(&append_stats, c);
     } else if (strncmp(subcommand, "detail", 6) == 0) {
         char *subcmd_pos = subcommand + 6;
-        if (strncmp(subcmd_pos, " dump", 5) == 0) {
-            int len;
-            char *dump_buf = stats_prefix_dump(&len);
-            if (dump_buf == NULL || len <= 0) {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
-                return ;
+        if (settings.allow_detailed) {
+            if (strncmp(subcmd_pos, " dump", 5) == 0) {
+                int len;
+                char *dump_buf = stats_prefix_dump(&len);
+                if (dump_buf == NULL || len <= 0) {
+                    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                    return ;
+                } else {
+                    append_stats("detailed", strlen("detailed"), dump_buf, len, c);
+                    free(dump_buf);
+                }
+            } else if (strncmp(subcmd_pos, " on", 3) == 0) {
+                settings.detail_enabled = 1;
+            } else if (strncmp(subcmd_pos, " off", 4) == 0) {
+                settings.detail_enabled = 0;
             } else {
-                append_stats("detailed", strlen("detailed"), dump_buf, len, c);
-                free(dump_buf);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+                return;
             }
-        } else if (strncmp(subcmd_pos, " on", 3) == 0) {
-            settings.detail_enabled = 1;
-        } else if (strncmp(subcmd_pos, " off", 4) == 0) {
-            settings.detail_enabled = 0;
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
             return;
         }
     } else if (strncmp(subcommand, "aggregate", 9) == 0) {
@@ -2416,21 +2422,26 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
 inline static void process_stats_detail(conn *c, const char *command) {
     assert(c != NULL);
 
-    if (strcmp(command, "on") == 0) {
-        settings.detail_enabled = 1;
-        out_string(c, "OK");
-    }
-    else if (strcmp(command, "off") == 0) {
-        settings.detail_enabled = 0;
-        out_string(c, "OK");
-    }
-    else if (strcmp(command, "dump") == 0) {
-        int len;
-        char *stats = stats_prefix_dump(&len);
-        write_and_free(c, stats, len);
+    if (settings.allow_detailed) {
+        if (strcmp(command, "on") == 0) {
+            settings.detail_enabled = 1;
+            out_string(c, "OK");
+        }
+        else if (strcmp(command, "off") == 0) {
+            settings.detail_enabled = 0;
+            out_string(c, "OK");
+        }
+        else if (strcmp(command, "dump") == 0) {
+            int len;
+            char *stats = stats_prefix_dump(&len);
+            write_and_free(c, stats, len);
+        }
+        else {
+            out_string(c, "CLIENT_ERROR usage: stats detail on|off|dump");
+        }
     }
     else {
-        out_string(c, "CLIENT_ERROR usage: stats detail on|off|dump");
+        out_string(c, "CLIENT_ERROR detailed stats disabled");
     }
 }
 
@@ -2526,6 +2537,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("stat_key_prefix", "%c", settings.prefix_delimiter);
     APPEND_STAT("detail_enabled", "%s",
                 settings.detail_enabled ? "yes" : "no");
+    APPEND_STAT("allow_detailed", "%s",
+                settings.allow_detailed ? "yes" : "no");
     APPEND_STAT("reqs_per_event", "%d", settings.reqs_per_event);
     APPEND_STAT("cas_enabled", "%s", settings.use_cas ? "yes" : "no");
     APPEND_STAT("tcp_backlog", "%d", settings.backlog);
@@ -4170,6 +4183,7 @@ static void usage(void) {
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
     printf("-I            Override the size of each slab page. Adjusts max item size\n"
            "              (default: 1mb, min: 1k, max: 128m)\n");
+    printf("-q            Disable detailed stats commands\n");
 #if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
     printf("-S            Turn on Sasl authentication\n");
 #endif
@@ -4558,6 +4572,7 @@ int main (int argc, char **argv) {
           "S"   /* Sasl ON */
           "E:"  /* Engine to load */
           "e:"  /* Engine options */
+          "q"   /* Disallow detailed stats */
         ))) {
         switch (c) {
         case 'a':
@@ -4729,6 +4744,9 @@ int main (int argc, char **argv) {
             break;
         case 'e':
             engine_config = optarg;
+            break;
+        case 'q':
+            settings.allow_detailed = false;
             break;
         case 'S': /* set Sasl authentication to true. Default is false */
 #if !(defined(ENABLE_SASL) || defined(ENABLE_ISASL))

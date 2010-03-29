@@ -210,6 +210,7 @@ struct settings {
     int num_threads;        /* number of worker (without dispatcher) libevent threads to run */
     char prefix_delimiter;  /* character that marks a key prefix (for stats) */
     int detail_enabled;     /* nonzero if we're collecting detailed stats */
+    bool allow_detailed;    /* detailed stats commands are allowed */
     int reqs_per_event;     /* Maximum number of io to process on each
                                io-event. */
     bool use_cas;
