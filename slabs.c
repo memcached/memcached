@@ -299,8 +299,9 @@ static void do_slabs_stats(struct default_engine *engine, ADD_STAT add_stats, co
     int i, total;
     /* Get the per-thread stats which contain some interesting aggregates */
 #ifdef FUTURE
+    struct conn *conn = (struct conn*)cookie;
     struct thread_stats thread_stats;
-    threadlocal_stats_aggregate(&thread_stats);
+    threadlocal_stats_aggregate(c, &thread_stats);
 #endif
 
     total = 0;

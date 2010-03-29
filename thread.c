@@ -210,8 +210,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     }
     cq_init(me->new_conn_queue);
 
-    if ((pthread_mutex_init(&me->stats.mutex, NULL) != 0) ||
-        (pthread_mutex_init(&me->mutex, NULL) != 0)) {
+    if ((pthread_mutex_init(&me->mutex, NULL) != 0)) {
         perror("Failed to initialize mutex");
         exit(EXIT_FAILURE);
     }
@@ -366,41 +365,7 @@ void STATS_UNLOCK() {
     pthread_mutex_unlock(&stats_lock);
 }
 
-void threadlocal_stats_reset(void) {
-    int ii, sid;
-    for (ii = 0; ii < settings.num_threads; ++ii) {
-        pthread_mutex_lock(&threads[ii].stats.mutex);
-
-        threads[ii].stats.get_cmds = 0;
-        threads[ii].stats.get_misses = 0;
-        threads[ii].stats.delete_misses = 0;
-        threads[ii].stats.incr_misses = 0;
-        threads[ii].stats.decr_misses = 0;
-        threads[ii].stats.incr_hits = 0;
-        threads[ii].stats.decr_hits = 0;
-        threads[ii].stats.cas_misses = 0;
-        threads[ii].stats.bytes_read = 0;
-        threads[ii].stats.bytes_written = 0;
-        threads[ii].stats.flush_cmds = 0;
-        threads[ii].stats.conn_yields = 0;
-        threads[ii].stats.auth_cmds = 0;
-        threads[ii].stats.auth_errors = 0;
-
-        for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
-            threads[ii].stats.slab_stats[sid].set_cmds = 0;
-            threads[ii].stats.slab_stats[sid].get_hits = 0;
-            threads[ii].stats.slab_stats[sid].delete_hits = 0;
-            threads[ii].stats.slab_stats[sid].cas_hits = 0;
-            threads[ii].stats.slab_stats[sid].cas_badval = 0;
-        }
-
-        pthread_mutex_unlock(&threads[ii].stats.mutex);
-    }
-}
-
-void threadlocal_stats_aggregate(struct thread_stats *stats) {
-    int ii, sid;
-    /* The struct contains a mutex, so I should probably not memset it.. */
+void threadlocal_stats_clear(struct thread_stats *stats) {
     stats->get_cmds = 0;
     stats->get_misses = 0;
     stats->delete_misses = 0;
@@ -418,39 +383,51 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
 
     memset(stats->slab_stats, 0,
            sizeof(struct slab_stats) * MAX_NUMBER_OF_SLAB_CLASSES);
+}
 
+void threadlocal_stats_reset(struct thread_stats *thread_stats) {
+    int ii;
     for (ii = 0; ii < settings.num_threads; ++ii) {
-        pthread_mutex_lock(&threads[ii].stats.mutex);
+        pthread_mutex_lock(&thread_stats[ii].mutex);
+        threadlocal_stats_clear(&thread_stats[ii]);
+        pthread_mutex_unlock(&thread_stats[ii].mutex);
+    }
+}
 
-        stats->get_cmds += threads[ii].stats.get_cmds;
-        stats->get_misses += threads[ii].stats.get_misses;
-        stats->delete_misses += threads[ii].stats.delete_misses;
-        stats->decr_misses += threads[ii].stats.decr_misses;
-        stats->incr_misses += threads[ii].stats.incr_misses;
-        stats->decr_hits += threads[ii].stats.decr_hits;
-        stats->incr_hits += threads[ii].stats.incr_hits;
-        stats->cas_misses += threads[ii].stats.cas_misses;
-        stats->bytes_read += threads[ii].stats.bytes_read;
-        stats->bytes_written += threads[ii].stats.bytes_written;
-        stats->flush_cmds += threads[ii].stats.flush_cmds;
-        stats->conn_yields += threads[ii].stats.conn_yields;
-        stats->auth_cmds += threads[ii].stats.auth_cmds;
-        stats->auth_errors += threads[ii].stats.auth_errors;
+void threadlocal_stats_aggregate(struct thread_stats *thread_stats, struct thread_stats *stats) {
+    int ii, sid;
+    for (ii = 0; ii < settings.num_threads; ++ii) {
+        pthread_mutex_lock(&thread_stats[ii].mutex);
+
+        stats->get_cmds += thread_stats[ii].get_cmds;
+        stats->get_misses += thread_stats[ii].get_misses;
+        stats->delete_misses += thread_stats[ii].delete_misses;
+        stats->decr_misses += thread_stats[ii].decr_misses;
+        stats->incr_misses += thread_stats[ii].incr_misses;
+        stats->decr_hits += thread_stats[ii].decr_hits;
+        stats->incr_hits += thread_stats[ii].incr_hits;
+        stats->cas_misses += thread_stats[ii].cas_misses;
+        stats->bytes_read += thread_stats[ii].bytes_read;
+        stats->bytes_written += thread_stats[ii].bytes_written;
+        stats->flush_cmds += thread_stats[ii].flush_cmds;
+        stats->conn_yields += thread_stats[ii].conn_yields;
+        stats->auth_cmds += thread_stats[ii].auth_cmds;
+        stats->auth_errors += thread_stats[ii].auth_errors;
 
         for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
             stats->slab_stats[sid].set_cmds +=
-                threads[ii].stats.slab_stats[sid].set_cmds;
+                thread_stats[ii].slab_stats[sid].set_cmds;
             stats->slab_stats[sid].get_hits +=
-                threads[ii].stats.slab_stats[sid].get_hits;
+                thread_stats[ii].slab_stats[sid].get_hits;
             stats->slab_stats[sid].delete_hits +=
-                threads[ii].stats.slab_stats[sid].delete_hits;
+                thread_stats[ii].slab_stats[sid].delete_hits;
             stats->slab_stats[sid].cas_hits +=
-                threads[ii].stats.slab_stats[sid].cas_hits;
+                thread_stats[ii].slab_stats[sid].cas_hits;
             stats->slab_stats[sid].cas_badval +=
-                threads[ii].stats.slab_stats[sid].cas_badval;
+                thread_stats[ii].slab_stats[sid].cas_badval;
         }
 
-        pthread_mutex_unlock(&threads[ii].stats.mutex);
+        pthread_mutex_unlock(&thread_stats[ii].mutex);
     }
 }
 
@@ -507,6 +484,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
 
         threads[i].notify_receive_fd = fds[0];
         threads[i].notify_send_fd = fds[1];
+        threads[i].index = i;
 
         setup_thread(&threads[i]);
     }

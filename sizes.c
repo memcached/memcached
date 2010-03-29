@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
     display("Item (no cas)", sizeof(item));
     display("Item (cas)", sizeof(item) + sizeof(uint64_t));
     display("Libevent thread",
-            sizeof(LIBEVENT_THREAD) - sizeof(struct thread_stats));
+            sizeof(LIBEVENT_THREAD));
     display("Connection", sizeof(conn));
 
     printf("----------------------------------------\n");

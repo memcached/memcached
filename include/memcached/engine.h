@@ -163,6 +163,7 @@ extern "C" {
     /**
      * Interface to the server.
      */
+    struct thread_stats;
     typedef struct server_interface_v1 {
 
         /**
@@ -251,6 +252,13 @@ extern "C" {
          * parser config options
          */
         int (*parse_config)(const char *str, struct config_item items[], FILE *error);
+
+        /**
+         * Allocate and deallocate thread-specific stats arrays for engine-maintained separate stats
+         */
+        struct thread_stats *(*new_stats)(void);
+        void (*release_stats)(struct thread_stats *stats);
+
     } SERVER_HANDLE_V1;
 
     typedef void* (*GET_SERVER_API)(int interface);
@@ -462,6 +470,21 @@ extern "C" {
          * @param cookie The cookie provided by the frontend
          */
         void (*reset_stats)(ENGINE_HANDLE* handle, const void *cookie);
+
+        /**
+         * Get an array of per-thread stats. Set to NULL if you don't need it.
+         */
+        struct thread_stats *(*get_stats_struct)(ENGINE_HANDLE* handle,
+                                                 const void* cookie);
+
+        /**
+         * Aggregate stats among all per-connection stats. Set to NULL if you don't need it.
+         */
+        ENGINE_ERROR_CODE (*aggregate_stats)(ENGINE_HANDLE* handle,
+                                             const void* cookie,
+                                             void (*callback)(struct thread_stats*, struct thread_stats*),
+                                             struct thread_stats*);
+
 
         /**
          * Any unknown command will be considered engine specific.
