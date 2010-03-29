@@ -91,7 +91,7 @@ static void conn_set_state(conn *c, enum conn_states state);
 
 /* stats */
 static void stats_init(void);
-static void server_stats(ADD_STAT add_stats, conn *c);
+static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate);
 static void process_stat_settings(ADD_STAT add_stats, void *c);
 
 
@@ -1390,7 +1390,7 @@ static void process_bin_stat(conn *c) {
 
     if (nkey == 0) {
         /* request all statistics */
-        server_stats(&append_stats, c);
+        server_stats(&append_stats, c, false);
         settings.engine.v1->get_stats(settings.engine.v0, c, NULL, 0, append_stats);
     } else if (strncmp(subcommand, "reset", 5) == 0) {
         stats_reset(c);
@@ -1417,6 +1417,8 @@ static void process_bin_stat(conn *c) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
             return;
         }
+    } else if (strncmp(subcommand, "aggregate", 9) == 0) {
+        server_stats(&append_stats, c, true);
     } else {
         ENGINE_ERROR_CODE ret;
         ret = settings.engine.v1->get_stats(settings.engine.v0, c,
@@ -2433,13 +2435,25 @@ inline static void process_stats_detail(conn *c, const char *command) {
 }
 
 /* return server specific stats only */
-static void server_stats(ADD_STAT add_stats, conn *c) {
+static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     pid_t pid = getpid();
     rel_time_t now = current_time;
 
     struct thread_stats thread_stats;
     threadlocal_stats_clear(&thread_stats);
-    threadlocal_stats_aggregate(get_thread_stats(c), &thread_stats);
+
+    if (aggregate) {
+        if (settings.engine.v1->aggregate_stats != NULL) {
+            settings.engine.v1->aggregate_stats(settings.engine.v0,
+                                                (const void *)c,
+                                                threadlocal_stats_aggregate,
+                                                &thread_stats);
+        } else {
+            threadlocal_stats_aggregate(get_thread_stats(c), &thread_stats);
+        }
+    } else {
+        threadlocal_stats_aggregate(get_thread_stats(c), &thread_stats);
+    }
 
     struct slab_stats slab_stats;
     slab_stats_aggregate(&thread_stats, &slab_stats);
@@ -2531,7 +2545,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 
     if (ntokens == 2) {
-        server_stats(&append_stats, c);
+        server_stats(&append_stats, c, false);
         (void)settings.engine.v1->get_stats(settings.engine.v0, c,
                                             NULL, 0, &append_stats);
     } else if (strcmp(subcommand, "reset") == 0) {
@@ -2573,6 +2587,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 #endif
         write_and_free(c, buf, bytes);
         return ;
+    } else if (strcmp(subcommand, "aggregate") == 0) {
+        server_stats(&append_stats, c, true);
     } else {
         /* getting here means that the subcommand is either engine specific or
            is invalid. query the engine and see. */
