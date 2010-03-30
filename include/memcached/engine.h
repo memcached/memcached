@@ -355,13 +355,16 @@ extern "C" {
          *
          * @param handle the engine handle
          * @param cookie The cookie provided by the frontend
-         * @param item the item to be removed
+         * @param key the key identifying the item to be removed
+         * @param nkey the length of the key
          *
          * @return ENGINE_SUCCESS if all goes well
          */
         ENGINE_ERROR_CODE (*remove)(ENGINE_HANDLE* handle,
                                     const void* cookie,
-                                    item* item);
+                                    const void* key,
+                                    const size_t nkey,
+                                    uint64_t cas);
 
         /**
          * Indicate that a caller who received an item no longer needs

@@ -2362,14 +2362,15 @@ static void process_bin_update(conn *c) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
         }
 
-        /* Avoid stale data persisting in cache because we failed alloc.
-         * Unacceptable for SET. Anywhere else too? */
+        /*
+         * Avoid stale data persisting in cache because we failed alloc.
+         * Unacceptable for SET (but only if cas matches).
+         * Anywhere else too?
+         */
         if (c->cmd == PROTOCOL_BINARY_CMD_SET) {
             /* @todo fix this for the ASYNC interface! */
-            if (settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey) == ENGINE_SUCCESS) {
-                settings.engine.v1->remove(settings.engine.v0, c, it);
-                settings.engine.v1->release(settings.engine.v0, c, it);
-            }
+            settings.engine.v1->remove(settings.engine.v0, c, key, nkey,
+                                       ntohll(req->message.header.request.cas));
         }
 
         /* swallow the data line */
@@ -2472,8 +2473,6 @@ static void process_bin_flush(conn *c) {
 }
 
 static void process_bin_delete(conn *c) {
-    item *it;
-
     protocol_binary_request_delete* req = binary_get_request(c);
 
     char* key = binary_get_key(c);
@@ -2494,19 +2493,21 @@ static void process_bin_delete(conn *c) {
         stats_prefix_record_delete(key, nkey);
     }
 
-    if (settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey) == ENGINE_SUCCESS) {
-        uint64_t cas = ntohll(req->message.header.request.cas);
-        if (cas == 0 || cas == settings.engine.v1->item_get_cas(it)) {
-            MEMCACHED_COMMAND_DELETE(c->sfd, settings.engine.v1->item_get_key(it), it->nkey);
-            settings.engine.v1->remove(settings.engine.v0, c, it);
-            write_bin_response(c, NULL, 0, 0, 0);
-        } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
-        }
-        /* release our reference */
-        settings.engine.v1->release(settings.engine.v0, c, it);
-    } else {
+    ENGINE_ERROR_CODE ret;
+    ret = settings.engine.v1->remove(settings.engine.v0, c, key, nkey,
+                                     ntohll(req->message.header.request.cas));
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        write_bin_response(c, NULL, 0, 0, 0);
+        break;
+    case ENGINE_KEY_EEXISTS:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
+        break;
+    case ENGINE_KEY_ENOENT:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        break;
+    default:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
     }
 }
 
@@ -3234,11 +3235,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (store_op == OPERATION_SET) {
-            if (settings.engine.v1->get(settings.engine.v0, c, &it,
-                                        key, nkey) == ENGINE_SUCCESS) {
-                settings.engine.v1->remove(settings.engine.v0, c, it);
-                settings.engine.v1->release(settings.engine.v0, c, it);
-            }
+            settings.engine.v1->remove(settings.engine.v0, c, key, nkey, 0);
         }
     }
 }
@@ -3312,7 +3309,6 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
-    item *it;
 
     assert(c != NULL);
 
@@ -3341,12 +3337,10 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         stats_prefix_record_delete(key, nkey);
     }
 
-    if (settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey) == ENGINE_SUCCESS) {
-        MEMCACHED_COMMAND_DELETE(c->sfd, settings.engine.v1->item_get_key(it), it->nkey);
+    ENGINE_ERROR_CODE ret;
+    ret = settings.engine.v1->remove(settings.engine.v0, c, key, nkey, 0);
 
-        settings.engine.v1->remove(settings.engine.v0, c, it);
-        /* release our reference */
-        settings.engine.v1->release(settings.engine.v0, c, it);
+    if (ret == ENGINE_SUCCESS) {
         out_string(c, "DELETED");
         SLAB_INCR(c, delete_hits, key, nkey);
     } else {

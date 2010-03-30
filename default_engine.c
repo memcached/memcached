@@ -26,7 +26,10 @@ static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
                                                const rel_time_t exptime);
 static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
                                              const void* cookie,
-                                             item* item);
+                                             const void* key,
+                                             const size_t nkey,
+                                             uint64_t cas);
+
 static void default_item_release(ENGINE_HANDLE* handle, const void *cookie,
                                  item* item);
 static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
@@ -213,8 +216,23 @@ static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
 
 static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
                                              const void* cookie,
-                                             item* item) {
-   item_unlink(get_handle(handle), get_real_item(item));
+                                             const void* key,
+                                             const size_t nkey,
+                                             uint64_t cas)
+{
+   struct default_engine* engine = get_handle(handle);
+   hash_item *it = item_get(engine, key, nkey);
+   if (it == NULL) {
+      return ENGINE_KEY_ENOENT;
+   }
+
+   if (cas == 0 || cas == item_get_cas(&it->item)) {
+      item_unlink(engine, it);
+      item_release(engine, it);
+   } else {
+      return ENGINE_KEY_EEXISTS;
+   }
+
    return ENGINE_SUCCESS;
 }
 
