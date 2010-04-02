@@ -216,6 +216,15 @@ extern "C" {
         void *(*get_engine_specific)(const void *cookie);
 
         /**
+         * Retrieve socket file descriptor of the session for the given cookie.
+         *
+         * @param cookie The cookie provided by the frontend
+         *
+         * @return the socket file descriptor of the session for the given cookie.
+         */
+        int (*get_socket_fd)(const void *cookie);
+
+        /**
          * Get the server's version number.
          *
          * @return the server's version number

@@ -4757,6 +4757,11 @@ static void *get_engine_specific(const void *cookie) {
     return c->engine_storage;
 }
 
+static int get_socket_fd(const void *cookie) {
+    conn *c = (conn *)cookie;
+    return c->sfd;
+}
+
 static void *new_independent_stats(void) {
     int ii;
     struct independent_stats *independent_stats = calloc(sizeof(independent_stats) + sizeof(struct thread_stats) * settings.num_threads, 1);
@@ -4922,6 +4927,7 @@ static void *get_server_api(server_api_t interface)
         .get_auth_data = get_auth_data,
         .store_engine_specific = store_engine_specific,
         .get_engine_specific = get_engine_specific,
+        .get_socket_fd = get_socket_fd,
         .server_version = get_server_version,
         .hash = hash,
         .realtime = realtime,
