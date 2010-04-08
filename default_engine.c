@@ -226,7 +226,7 @@ static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
       return ENGINE_KEY_ENOENT;
    }
 
-   if (cas == 0 || cas == item_get_cas(&it->item)) {
+   if (cas == 0 || cas == item_get_cas(handle, &it->item)) {
       item_unlink(engine, it);
       item_release(engine, it);
    } else {
@@ -333,7 +333,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
          if (item == NULL) {
             return ENGINE_ENOMEM;
          }
-         memcpy((void*)item_get_data(&item->item), buffer, len);
+         memcpy((void*)item_get_data(handle, &item->item), buffer, len);
          if ((ret = store_item(engine, item, cas,
                                OPERATION_ADD, cookie)) == ENGINE_KEY_EEXISTS) {
             item_release(engine, item);
@@ -343,7 +343,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
          }
 
          *result = initial;
-         *cas = item_get_cas(&item->item);
+         *cas = item_get_cas(handle, &item->item);
          item_release(engine, item);
       }
    } else {
@@ -428,7 +428,7 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
 }
 
 
-uint64_t item_get_cas(const item* item)
+uint64_t item_get_cas(ENGINE_HANDLE *handle, const item* item)
 {
     if (item->iflag & ITEM_WITH_CAS) {
         return *(uint64_t*)(item + 1);
@@ -436,14 +436,14 @@ uint64_t item_get_cas(const item* item)
     return 0;
 }
 
-void item_set_cas(item* item, uint64_t val)
+void item_set_cas(ENGINE_HANDLE *handle, item* item, uint64_t val)
 {
     if (item->iflag & ITEM_WITH_CAS) {
         *(uint64_t*)(item + 1) = val;
     }
 }
 
-const char* item_get_key(const item* item)
+const void* item_get_key(ENGINE_HANDLE *handle, const item* item)
 {
     char *ret = (void*)(item + 1);
     if (item->iflag & ITEM_WITH_CAS) {
@@ -453,12 +453,12 @@ const char* item_get_key(const item* item)
     return ret;
 }
 
-char* item_get_data(const item* item)
+void* item_get_data(ENGINE_HANDLE *handle, const item* item)
 {
-    return ((char*)item_get_key(item)) + item->nkey;
+    return ((char*)item_get_key(handle, item)) + item->nkey;
 }
 
-uint8_t item_get_clsid(const item* item)
+uint8_t item_get_clsid(ENGINE_HANDLE *handle, const item* item)
 {
     return 0;
 }

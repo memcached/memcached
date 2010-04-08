@@ -72,9 +72,30 @@
 #endif
 #endif
 
+/* Wrapper functions to avoid too long lines.. */
+static inline const void* item_get_key(item *it) {
+    return settings.engine.v1->item_get_key(settings.engine.v0, it);
+}
+
+static inline char* item_get_data(item *it) {
+    return settings.engine.v1->item_get_data(settings.engine.v0, it);
+}
+
+static inline void item_set_cas(item *it, uint64_t cas) {
+    settings.engine.v1->item_set_cas(settings.engine.v0, it, cas);
+}
+
+static inline uint64_t item_get_cas(item *it) {
+    return settings.engine.v1->item_get_cas(settings.engine.v0, it);
+}
+
+static inline uint8_t item_get_clsid(const item* it) {
+    return settings.engine.v1->item_get_clsid(settings.engine.v0, it);
+}
+
 /* The item must always be called "it" */
 #define SLAB_GUTS(conn, thread_stats, slab_op, thread_op) \
-    thread_stats->slab_stats[settings.engine.v1->item_get_clsid(conn->item)].slab_op++;
+    thread_stats->slab_stats[item_get_clsid(conn->item)].slab_op++;
 
 #define THREAD_GUTS(conn, thread_stats, slab_op, thread_op) \
     thread_stats->thread_op++;
@@ -1034,9 +1055,9 @@ static void complete_nread_ascii(conn *c) {
     assert(c != NULL);
 
     item *it = c->item;
-    const void *key = settings.engine.v1->item_get_key(it);
+    const void *key = item_get_key(it);
 
-    if (strncmp(settings.engine.v1->item_get_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
+    if (strncmp(item_get_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
         ENGINE_ERROR_CODE ret = settings.engine.v1->store(settings.engine.v0, c,
@@ -1417,8 +1438,8 @@ static void complete_update_bin(conn *c) {
 
     /* We don't actually receive the trailing two characters in the bin
      * protocol, so we're going to just set them here */
-    *(settings.engine.v1->item_get_data(it) + it->nbytes - 2) = '\r';
-    *(settings.engine.v1->item_get_data(it) + it->nbytes - 1) = '\n';
+    *(item_get_data(it) + it->nbytes - 2) = '\r';
+    *(item_get_data(it) + it->nbytes - 1) = '\n';
 
     ENGINE_ERROR_CODE ret = c->aiostat;
     c->aiostat = ENGINE_SUCCESS;
@@ -1430,23 +1451,23 @@ static void complete_update_bin(conn *c) {
 #ifdef ENABLE_DTRACE
     switch (c->cmd) {
     case OPERATION_ADD:
-        MEMCACHED_COMMAND_ADD(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
+        MEMCACHED_COMMAND_ADD(c->sfd, item_get_key(it), it->nkey,
                               (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     case OPERATION_REPLACE:
-        MEMCACHED_COMMAND_REPLACE(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
+        MEMCACHED_COMMAND_REPLACE(c->sfd, item_get_key(it), it->nkey,
                                   (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     case OPERATION_APPEND:
-        MEMCACHED_COMMAND_APPEND(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
+        MEMCACHED_COMMAND_APPEND(c->sfd, item_get_key(it), it->nkey,
                                  (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     case OPERATION_PREPEND:
-        MEMCACHED_COMMAND_PREPEND(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
+        MEMCACHED_COMMAND_PREPEND(c->sfd, item_get_key(it), it->nkey,
                                  (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     case OPERATION_SET:
-        MEMCACHED_COMMAND_SET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
+        MEMCACHED_COMMAND_SET(c->sfd, item_get_key(it), it->nkey,
                               (ret == ENGINE_SUCCESS) ? it->nbytes : -1, c->cas);
         break;
     }
@@ -1483,7 +1504,7 @@ static void complete_update_bin(conn *c) {
         write_bin_error(c, eno, 0);
     }
 
-    SLAB_INCR(c, cmd_set, settings.engine.v1->item_get_key(it), it->nkey);
+    SLAB_INCR(c, cmd_set, item_get_key(it), it->nkey);
 
     if (!c->ewouldblock) {
         /* release the c->item reference */
@@ -1529,18 +1550,18 @@ static void process_bin_get(conn *c) {
             keylen = nkey;
         }
         add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
-        rsp->message.header.response.cas = htonll(settings.engine.v1->item_get_cas(it));
+        rsp->message.header.response.cas = htonll(item_get_cas(it));
 
         // add the flags
         rsp->message.body.flags = it->flags;
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
         if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
-            add_iov(c, settings.engine.v1->item_get_key(it), nkey);
+            add_iov(c, item_get_key(it), nkey);
         }
 
         /* Add the data minus the CRLF */
-        add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes - 2);
+        add_iov(c, item_get_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
         /* Remember this command so we can garbage collect it later */
         c->item = it;
@@ -2273,7 +2294,7 @@ static void ship_tap_log(conn *c) {
             c->ilist[c->ileft++] = it;
 
             msg.mutation.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_MUTATION;
-            msg.mutation.message.header.request.cas = htonll(settings.engine.v1->item_get_cas(it));
+            msg.mutation.message.header.request.cas = htonll(item_get_cas(it));
             msg.mutation.message.header.request.keylen = htons(it->nkey);
             msg.mutation.message.header.request.extlen = 16;
             bodylen = 16 + (it->nbytes - 2) + it->nkey + nengine;
@@ -2296,8 +2317,8 @@ static void ship_tap_log(conn *c) {
                 c->wbytes += nengine;
             }
 
-            add_iov(c, settings.engine.v1->item_get_key(it), it->nkey);
-            add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes - 2);
+            add_iov(c, item_get_key(it), it->nkey);
+            add_iov(c, item_get_data(it), it->nbytes - 2);
 
             pthread_mutex_lock(&tap_stats.mutex);
             tap_stats.sent.mutation++;
@@ -2315,7 +2336,7 @@ static void ship_tap_log(conn *c) {
             add_iov(c, c->wcurr, sizeof(msg.delete.bytes));
             c->wcurr += sizeof(msg.delete.bytes);
             c->wbytes += sizeof(msg.delete.bytes);
-            add_iov(c, settings.engine.v1->item_get_key(it), it->nkey);
+            add_iov(c, item_get_key(it), it->nkey);
 
             pthread_mutex_lock(&tap_stats.mutex);
             tap_stats.sent.delete++;
@@ -2778,7 +2799,7 @@ static void process_bin_update(conn *c) {
 
     switch (ret) {
     case ENGINE_SUCCESS:
-        settings.engine.v1->item_set_cas(it, c->binary_header.request.cas);
+        item_set_cas(it, c->binary_header.request.cas);
 
         switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_ADD:
@@ -2794,12 +2815,12 @@ static void process_bin_update(conn *c) {
             assert(0);
         }
 
-        if (settings.engine.v1->item_get_cas(it) != 0) {
+        if (item_get_cas(it) != 0) {
             c->store_op = OPERATION_CAS;
         }
 
         c->item = it;
-        c->ritem = settings.engine.v1->item_get_data(it);
+        c->ritem = item_get_data(it);
         c->rlbytes = vlen;
         conn_set_state(c, conn_nread);
         c->substate = bin_read_set_value;
@@ -2866,7 +2887,7 @@ static void process_bin_append_prepend(conn *c) {
 
     switch (ret) {
     case ENGINE_SUCCESS:
-        settings.engine.v1->item_set_cas(it, c->binary_header.request.cas);
+        item_set_cas(it, c->binary_header.request.cas);
 
         switch (c->cmd) {
         case PROTOCOL_BINARY_CMD_APPEND:
@@ -2880,7 +2901,7 @@ static void process_bin_append_prepend(conn *c) {
         }
 
         c->item = it;
-        c->ritem = settings.engine.v1->item_get_data(it);
+        c->ritem = item_get_data(it);
         c->rlbytes = vlen;
         conn_set_state(c, conn_nread);
         c->substate = bin_read_set_value;
@@ -3517,7 +3538,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             }
 
             if (it) {
-                assert(memcmp(settings.engine.v1->item_get_data(it) + it->nbytes - 2, "\r\n", 2) == 0);
+                assert(memcmp(item_get_data(it) + it->nbytes - 2, "\r\n", 2) == 0);
 
                 if (i >= c->isize) {
                     item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
@@ -3552,8 +3573,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                 if (return_cas)
                 {
-                  MEMCACHED_COMMAND_GET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
-                                        it->nbytes, settings.engine.v1->item_get_cas(it));
+                  MEMCACHED_COMMAND_GET(c->sfd, item_get_key(it), it->nkey,
+                                        it->nbytes, item_get_cas(it));
 
                   char *cas = get_suffix_buffer(c);
                   if (cas == NULL) {
@@ -3563,12 +3584,12 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   }
                   int cas_len = snprintf(cas, SUFFIX_SIZE,
                                             " %"PRIu64"\r\n",
-                                            settings.engine.v1->item_get_cas(it));
+                                            item_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, settings.engine.v1->item_get_key(it), it->nkey) != 0 ||
+                      add_iov(c, item_get_key(it), it->nkey) != 0 ||
                       add_iov(c, suffix, suffix_len - 2) != 0 ||
                       add_iov(c, cas, cas_len) != 0 ||
-                      add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes) != 0)
+                      add_iov(c, item_get_data(it), it->nbytes) != 0)
                       {
                           settings.engine.v1->release(settings.engine.v0, c, it);
                           break;
@@ -3576,12 +3597,12 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 }
                 else
                 {
-                  MEMCACHED_COMMAND_GET(c->sfd, settings.engine.v1->item_get_key(it), it->nkey,
-                                        it->nbytes, settings.engine.v1->item_get_cas(it));
+                  MEMCACHED_COMMAND_GET(c->sfd, item_get_key(it), it->nkey,
+                                        it->nbytes, item_get_cas(it));
                   if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, settings.engine.v1->item_get_key(it), it->nkey) != 0 ||
+                      add_iov(c, item_get_key(it), it->nkey) != 0 ||
                       add_iov(c, suffix, suffix_len) != 0 ||
-                      add_iov(c, settings.engine.v1->item_get_data(it), it->nbytes) != 0)
+                      add_iov(c, item_get_data(it), it->nbytes) != 0)
                       {
                           settings.engine.v1->release(settings.engine.v0, c, it);
                           break;
@@ -3592,7 +3613,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 if (settings.verbose > 1) {
                     settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
                              ">%d sending key %s\n", c->sfd,
-                             settings.engine.v1->item_get_key(it));
+                             item_get_key(it));
                 }
 
                 /* item_get() has incremented it->refcount for us */
@@ -3707,10 +3728,10 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
     switch (ret) {
     case ENGINE_SUCCESS:
-        settings.engine.v1->item_set_cas(it, req_cas_id);
+        item_set_cas(it, req_cas_id);
 
         c->item = it;
-        c->ritem = settings.engine.v1->item_get_data(it);
+        c->ritem = item_get_data(it);
         c->rlbytes = it->nbytes;
         c->store_op = store_op;
         conn_set_state(c, conn_nread);

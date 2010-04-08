@@ -44,7 +44,7 @@ hash_item *assoc_find(struct default_engine *engine, uint32_t hash, const char *
     hash_item *ret = NULL;
     int depth = 0;
     while (it) {
-        if ((nkey == it->item.nkey) && (memcmp(key, item_get_key(&it->item), nkey) == 0)) {
+        if ((nkey == it->item.nkey) && (memcmp(key, item_get_key(NULL, &it->item), nkey) == 0)) {
             ret = it;
             break;
         }
@@ -73,7 +73,7 @@ static hash_item** _hashitem_before(struct default_engine *engine,
         pos = &engine->assoc.primary_hashtable[hash & hashmask(engine->assoc.hashpower)];
     }
 
-    while (*pos && ((nkey != (*pos)->item.nkey) || memcmp(key, item_get_key(&(*pos)->item), nkey))) {
+    while (*pos && ((nkey != (*pos)->item.nkey) || memcmp(key, item_get_key(NULL, &(*pos)->item), nkey))) {
         pos = &(*pos)->h_next;
     }
     return pos;
@@ -112,7 +112,7 @@ static void assoc_expand(struct default_engine *engine) {
 int assoc_insert(struct default_engine *engine, uint32_t hash, hash_item *it) {
     unsigned int oldbucket;
 
-    assert(assoc_find(engine, hash, item_get_key(&it->item), it->item.nkey) == 0);  /* shouldn't have duplicately named things defined */
+    assert(assoc_find(engine, hash, item_get_key(NULL, &it->item), it->item.nkey) == 0);  /* shouldn't have duplicately named things defined */
 
     if (engine->assoc.expanding &&
         (oldbucket = (hash & hashmask(engine->assoc.hashpower - 1))) >= engine->assoc.expand_bucket)
@@ -129,7 +129,7 @@ int assoc_insert(struct default_engine *engine, uint32_t hash, hash_item *it) {
         assoc_expand(engine);
     }
 
-    MEMCACHED_ASSOC_INSERT(item_get_key(&it->item), it->item.nkey, hash_items);
+    MEMCACHED_ASSOC_INSERT(item_get_key(NULL, &it->item), it->item.nkey, hash_items);
     return 1;
 }
 
@@ -173,7 +173,7 @@ static void *assoc_maintenance_thread(void *arg) {
                  NULL != it; it = next) {
                 next = it->h_next;
 
-                bucket = engine->server.hash(item_get_key(&it->item), it->item.nkey, 0) & hashmask(engine->assoc.hashpower);
+                bucket = engine->server.hash(item_get_key(NULL, &it->item), it->item.nkey, 0) & hashmask(engine->assoc.hashpower);
                 it->h_next = engine->assoc.primary_hashtable[bucket];
                 engine->assoc.primary_hashtable[bucket] = it;
             }

@@ -638,27 +638,27 @@ extern "C" {
         /**
          * Get the CAS ID from an item.
          */
-        uint64_t (*item_get_cas)(const item *item);
+        uint64_t (*item_get_cas)(ENGINE_HANDLE *handle, const item *item);
 
         /**
          * Set the CAS id on an item.
          */
-        void (*item_set_cas)(item *item, uint64_t cas);
+        void (*item_set_cas)(ENGINE_HANDLE *handle, item *item, uint64_t cas);
 
         /**
          * Get the key from an item.
          */
-        const char* (*item_get_key)(const item *item);
+        const void* (*item_get_key)(ENGINE_HANDLE *handle, const item *item);
 
         /**
          * Get the data from an item.
          */
-        char* (*item_get_data)(const item *item);
+        void* (*item_get_data)(ENGINE_HANDLE *handle, const item *item);
 
         /**
          * Get an item's class ID.
          */
-        uint8_t (*item_get_clsid)(const item* item);
+        uint8_t (*item_get_clsid)(ENGINE_HANDLE *handle, const item* item);
     } ENGINE_HANDLE_V1;
 
     /**
