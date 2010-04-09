@@ -13,7 +13,8 @@ extern "C" {
 
     typedef enum {
         server_handle_v1 = 1,
-        server_extension_api
+        server_extension_api,
+        server_callback_api
     } server_api_t;
 
 #ifdef __WIN32__

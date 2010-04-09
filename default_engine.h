@@ -101,6 +101,7 @@ struct engine_stats {
 struct default_engine {
    ENGINE_HANDLE_V1 engine;
    SERVER_HANDLE_V1 server;
+   GET_SERVER_API get_server_api;
 
    /**
     * Is the engine initalized or not

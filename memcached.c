@@ -5598,8 +5598,6 @@ static void* get_extension(extension_type_t type)
 static void *get_server_api(server_api_t interface)
 {
     static SERVER_HANDLE_V1 server_api_v1 = {
-        .register_callback = register_callback,
-        .perform_callbacks = perform_callbacks,
         .get_auth_data = get_auth_data,
         .store_engine_specific = store_engine_specific,
         .get_engine_specific = get_engine_specific,
@@ -5621,11 +5619,18 @@ static void *get_server_api(server_api_t interface)
         .get_extension = get_extension
     };
 
+    static SERVER_CALLBACK_API callback_api = {
+        .register_callback = register_callback,
+        .perform_callbacks = perform_callbacks,
+    };
+
     switch (interface) {
     case server_handle_v1:
         return &server_api_v1;
     case server_extension_api:
         return &extension_api;
+    case server_callback_api:
+        return &callback_api;
     default:
         return NULL;
     }

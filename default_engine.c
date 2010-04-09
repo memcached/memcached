@@ -71,7 +71,7 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle) {
-   SERVER_HANDLE_V1 *api = get_server_api(1);
+   SERVER_HANDLE_V1 *api = get_server_api(server_handle_v1);
    if (interface != 1 || api == NULL) {
       return ENGINE_ENOTSUP;
    }
@@ -106,6 +106,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
          .item_get_clsid = item_get_clsid
       },
       .server = *api,
+      .get_server_api = get_server_api,
       .initialized = true,
       .assoc = {
          .hashpower = 16,

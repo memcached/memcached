@@ -1,5 +1,6 @@
 bin_PROGRAMS = memcached
 pkginclude_HEADERS = include/memcached/protocol_binary.h \
+                     include/memcached/callback.h \
                      include/memcached/engine.h \
                      include/memcached/extension.h \
                      include/memcached/server_api.h \

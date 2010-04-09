@@ -10,6 +10,7 @@
 #include "memcached/protocol_binary.h"
 #include "memcached/config_parser.h"
 #include "memcached/server_api.h"
+#include "memcached/callback.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -76,19 +77,6 @@ extern "C" {
     } ENGINE_STORE_OPERATION;
 
     /**
-     * Event types for callbacks to the engine indicating state
-     * changes in the server.
-     */
-    typedef enum {
-        ON_CONNECT     = 0,     /**< A new connection was established. */
-        ON_DISCONNECT  = 1,     /**< A connection was terminated. */
-        ON_AUTH        = 2,     /**< A connection was authenticated. */
-        ON_SWITCH_CONN = 3     /**< Processing a different connection on this thread. */
-    } ENGINE_EVENT_TYPE;
-
-    #define MAX_ENGINE_EVENT_TYPE 7
-
-    /**
      * Data common to any item stored in memcached.
      */
     typedef struct {
@@ -142,18 +130,6 @@ extern "C" {
                                  uint8_t datatype, uint16_t status,
                                  uint64_t cas, const void *cookie);
 
-    /**
-     * Callback for server events.
-     *
-     * @param cookie The cookie provided by the frontend
-     * @param type the type of event
-     * @param event_data additional event-specific data.
-     * @param cb_data data as registered
-     */
-    typedef void (*EVENT_CALLBACK)(const void *cookie,
-                                   ENGINE_EVENT_TYPE type,
-                                   const void *event_data,
-                                   const void *cb_data);
 
     /**
      * Abstract interface to an engine.
@@ -169,22 +145,6 @@ extern "C" {
      * Interface to the server.
      */
     typedef struct server_interface_v1 {
-
-        /**
-         * Register an event callback.
-         *
-         * @param type the type of event to register
-         * @param cb the callback to fire when the event occurs
-         * @param cb_data opaque data to be given back to the caller
-         *        on event
-         */
-        void (*register_callback)(ENGINE_EVENT_TYPE type,
-                                  EVENT_CALLBACK cb,
-                                  const void *cb_data);
-
-        void (*perform_callbacks)(ENGINE_EVENT_TYPE type,
-                                 const void *data,
-                                 const void *cookie);
 
         /**
          * Get the auth data for the connection associated with the
