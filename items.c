@@ -39,11 +39,6 @@ static int do_item_replace(struct default_engine *engine,
                             hash_item *it, hash_item *new_it);
 static void item_free(struct default_engine *engine, hash_item *it);
 
-static inline char *get_item_data(const item *it)
-{
-    return item_get_data(NULL, it);
-}
-
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned
  * in this many seconds. That saves us from churning on frequently-accessed
@@ -61,7 +56,7 @@ void item_stats_reset(struct default_engine *engine) {
 /* warning: don't use these macros with a function, as it evals its arg twice */
 static inline size_t ITEM_ntotal(struct default_engine *engine,
                                  const hash_item *item) {
-    size_t ret = sizeof(*item) + item->item.nkey + item->item.nbytes;
+    size_t ret = sizeof(*item) + item->nkey + item->nbytes;
     if (engine->config.use_cas) {
         ret += sizeof(uint64_t);
     }
@@ -115,7 +110,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
          tries > 0 && search != NULL;
          tries--, search=search->prev) {
         if (search->refcount == 0 &&
-            (search->item.exptime != 0 && search->item.exptime < current_time)) {
+            (search->exptime != 0 && search->exptime < current_time)) {
             it = search;
             /* I don't want to actually free the object, just steal
              * the item to avoid to grab the slab mutex twice ;-)
@@ -163,18 +158,18 @@ hash_item *do_item_alloc(struct default_engine *engine,
 
         for (search = engine->items.tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
             if (search->refcount == 0) {
-                if (search->item.exptime == 0 || search->item.exptime > current_time) {
+                if (search->exptime == 0 || search->exptime > current_time) {
                     engine->items.itemstats[id].evicted++;
                     engine->items.itemstats[id].evicted_time = current_time - search->time;
-                    if (search->item.exptime != 0) {
+                    if (search->exptime != 0) {
                         engine->items.itemstats[id].evicted_nonzero++;
                     }
                     pthread_mutex_lock(&engine->stats.lock);
                     engine->stats.evictions++;
                     pthread_mutex_unlock(&engine->stats.lock);
                     engine->server.count_eviction(cookie,
-                                                  item_get_key(NULL, &search->item),
-                                                  search->item.nkey);
+                                                  item_get_key(search),
+                                                  search->nkey);
                 } else {
                     engine->items.itemstats[id].reclaimed++;
                     pthread_mutex_lock(&engine->stats.lock);
@@ -220,19 +215,19 @@ hash_item *do_item_alloc(struct default_engine *engine,
     it->next = it->prev = it->h_next = 0;
     it->refcount = 1;     /* the caller will have a reference */
     DEBUG_REFCNT(it, '*');
-    it->item.iflag = engine->config.use_cas ? ITEM_WITH_CAS : 0;
-    it->item.nkey = nkey;
-    it->item.nbytes = nbytes;
-    it->item.flags = flags;
-    memcpy((void*)item_get_key(NULL, &it->item), key, nkey);
-    it->item.exptime = exptime;
+    it->iflag = engine->config.use_cas ? ITEM_WITH_CAS : 0;
+    it->nkey = nkey;
+    it->nbytes = nbytes;
+    it->flags = flags;
+    memcpy((void*)item_get_key(it), key, nkey);
+    it->exptime = exptime;
     return it;
 }
 
 static void item_free(struct default_engine *engine, hash_item *it) {
     size_t ntotal = ITEM_ntotal(engine, it);
     unsigned int clsid;
-    assert((it->item.iflag & ITEM_LINKED) == 0);
+    assert((it->iflag & ITEM_LINKED) == 0);
     assert(it != engine->items.heads[it->slabs_clsid]);
     assert(it != engine->items.tails[it->slabs_clsid]);
     assert(it->refcount == 0);
@@ -240,7 +235,7 @@ static void item_free(struct default_engine *engine, hash_item *it) {
     /* so slab size changer can tell later if item is already free or not */
     clsid = it->slabs_clsid;
     it->slabs_clsid = 0;
-    it->item.iflag |= ITEM_SLABBED;
+    it->iflag |= ITEM_SLABBED;
     DEBUG_REFCNT(it, 'F');
     slabs_free(engine, it, ntotal, clsid);
 }
@@ -248,7 +243,7 @@ static void item_free(struct default_engine *engine, hash_item *it) {
 static void item_link_q(struct default_engine *engine, hash_item *it) { /* item is the new head */
     hash_item **head, **tail;
     assert(it->slabs_clsid < POWER_LARGEST);
-    assert((it->item.iflag & ITEM_SLABBED) == 0);
+    assert((it->iflag & ITEM_SLABBED) == 0);
 
     head = &engine->items.heads[it->slabs_clsid];
     tail = &engine->items.tails[it->slabs_clsid];
@@ -287,12 +282,12 @@ static void item_unlink_q(struct default_engine *engine, hash_item *it) {
 }
 
 int do_item_link(struct default_engine *engine, hash_item *it) {
-    MEMCACHED_ITEM_LINK(item_get_key(NULL, &it->item), it->item.nkey, it->item.nbytes);
-    assert((it->item.iflag & (ITEM_LINKED|ITEM_SLABBED)) == 0);
-    assert(it->item.nbytes < (1024 * 1024));  /* 1MB max size */
-    it->item.iflag |= ITEM_LINKED;
+    MEMCACHED_ITEM_LINK(item_get_key(it), it->nkey, it->nbytes);
+    assert((it->iflag & (ITEM_LINKED|ITEM_SLABBED)) == 0);
+    assert(it->nbytes < (1024 * 1024));  /* 1MB max size */
+    it->iflag |= ITEM_LINKED;
     it->time = engine->server.get_current_time();
-    assoc_insert(engine, engine->server.hash(item_get_key(NULL, &it->item), it->item.nkey, 0),
+    assoc_insert(engine, engine->server.hash(item_get_key(it), it->nkey, 0),
                  it);
 
     pthread_mutex_lock(&engine->stats.lock);
@@ -302,7 +297,7 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     pthread_mutex_unlock(&engine->stats.lock);
 
     /* Allocate a new CAS ID on link. */
-    item_set_cas(NULL, &it->item, get_cas_id());
+    item_set_cas(NULL, it, get_cas_id());
 
     item_link_q(engine, it);
 
@@ -310,15 +305,15 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
 }
 
 void do_item_unlink(struct default_engine *engine, hash_item *it) {
-    MEMCACHED_ITEM_UNLINK(item_get_key(NULL, &it->item), it->item.nkey, it->item.nbytes);
-    if ((it->item.iflag & ITEM_LINKED) != 0) {
-        it->item.iflag &= ~ITEM_LINKED;
+    MEMCACHED_ITEM_UNLINK(item_get_key(it), it->nkey, it->nbytes);
+    if ((it->iflag & ITEM_LINKED) != 0) {
+        it->iflag &= ~ITEM_LINKED;
         pthread_mutex_lock(&engine->stats.lock);
         engine->stats.curr_bytes -= ITEM_ntotal(engine, it);
         engine->stats.curr_items -= 1;
         pthread_mutex_unlock(&engine->stats.lock);
-        assoc_delete(engine, engine->server.hash(item_get_key(NULL, &it->item), it->item.nkey, 0),
-                     item_get_key(NULL, &it->item), it->item.nkey);
+        assoc_delete(engine, engine->server.hash(item_get_key(it), it->nkey, 0),
+                     item_get_key(it), it->nkey);
         item_unlink_q(engine, it);
         if (it->refcount == 0) {
             item_free(engine, it);
@@ -327,23 +322,23 @@ void do_item_unlink(struct default_engine *engine, hash_item *it) {
 }
 
 void do_item_release(struct default_engine *engine, hash_item *it) {
-    MEMCACHED_ITEM_REMOVE(item_get_key(NULL, &it->item), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_REMOVE(item_get_key(it), it->nkey, it->nbytes);
     if (it->refcount != 0) {
         it->refcount--;
         DEBUG_REFCNT(it, '-');
     }
-    if (it->refcount == 0 && (it->item.iflag & ITEM_LINKED) == 0) {
+    if (it->refcount == 0 && (it->iflag & ITEM_LINKED) == 0) {
         item_free(engine, it);
     }
 }
 
 void do_item_update(struct default_engine *engine, hash_item *it) {
     rel_time_t current_time = engine->server.get_current_time();
-    MEMCACHED_ITEM_UPDATE(item_get_key(NULL, &it->item), it->item.nkey, it->item.nbytes);
+    MEMCACHED_ITEM_UPDATE(item_get_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
-        assert((it->item.iflag & ITEM_SLABBED) == 0);
+        assert((it->iflag & ITEM_SLABBED) == 0);
 
-        if ((it->item.iflag & ITEM_LINKED) != 0) {
+        if ((it->iflag & ITEM_LINKED) != 0) {
             item_unlink_q(engine, it);
             it->time = current_time;
             item_link_q(engine, it);
@@ -353,9 +348,9 @@ void do_item_update(struct default_engine *engine, hash_item *it) {
 
 int do_item_replace(struct default_engine *engine,
                     hash_item *it, hash_item *new_it) {
-    MEMCACHED_ITEM_REPLACE(item_get_key(NULL, &it->item), it->item.nkey, it->item.nbytes,
-                           item_get_key(NULL, &new_it->item), new_it->item.nkey, new_it->item.nbytes);
-    assert((it->item.iflag & ITEM_SLABBED) == 0);
+    MEMCACHED_ITEM_REPLACE(item_get_key(it), it->nkey, it->nbytes,
+                           item_get_key(new_it), new_it->nkey, new_it->nbytes);
+    assert((it->iflag & ITEM_SLABBED) == 0);
 
     do_item_unlink(engine, it);
     return do_item_link(engine, new_it);
@@ -383,13 +378,13 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
 
 
     while (it != NULL && (limit == 0 || shown < limit)) {
-        assert(it->item.nkey <= KEY_MAX_LENGTH);
+        assert(it->nkey <= KEY_MAX_LENGTH);
         /* Copy the key since it may not be null-terminated in the struct */
-        strncpy(key_temp, item_get_key(NULL, &it->item), it->item.nkey);
-        key_temp[it->item.nkey] = 0x00; /* terminate */
+        strncpy(key_temp, item_get_key(it), it->nkey);
+        key_temp[it->nkey] = 0x00; /* terminate */
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n",
-                       key_temp, it->item.nbytes - 2,
-                       (unsigned long)it->item.exptime + process_started);
+                       key_temp, it->nbytes - 2,
+                       (unsigned long)it->exptime + process_started);
         if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;
         memcpy(buffer + bufcurr, temp, len);
@@ -492,7 +487,7 @@ hash_item *do_item_get(struct default_engine *engine,
         if (it == NULL) {
             fprintf(stderr, "> NOT FOUND %s", key);
         } else {
-            fprintf(stderr, "> FOUND KEY %s", (const char*)item_get_key(NULL, &it->item));
+            fprintf(stderr, "> FOUND KEY %s", (const char*)item_get_key(it));
             was_found++;
         }
     }
@@ -509,7 +504,7 @@ hash_item *do_item_get(struct default_engine *engine,
         was_found--;
     }
 
-    if (it != NULL && it->item.exptime != 0 && it->item.exptime <= current_time) {
+    if (it != NULL && it->exptime != 0 && it->exptime <= current_time) {
         do_item_unlink(engine, it);           /* MTSAFE - cache_lock held */
         it = NULL;
     }
@@ -540,8 +535,8 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                                        hash_item *it, uint64_t *cas,
                                        ENGINE_STORE_OPERATION operation,
                                        const void *cookie) {
-    const char *key = item_get_key(NULL, &it->item);
-    hash_item *old_it = do_item_get(engine, key, it->item.nkey);
+    const char *key = item_get_key(it);
+    hash_item *old_it = do_item_get(engine, key, it->nkey);
     ENGINE_ERROR_CODE stored = ENGINE_NOT_STORED;
 
     hash_item *new_it = NULL;
@@ -564,7 +559,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
             pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
         }
-        else if (item_get_cas(NULL, &it->item) == item_get_cas(NULL, &old_it->item)) {
+        else if (item_get_cas(it) == item_get_cas(old_it)) {
             // cas validates
             // it and old_it may belong to different classes.
             // I'm updating the stats for the one that's getting pushed out
@@ -585,8 +580,8 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
             if (engine->config.verbose > 1) {
                 fprintf(stderr,
                         "CAS:  failure: expected %"PRIu64", got %"PRIu64"\n",
-                        item_get_cas(NULL, &old_it->item),
-                        item_get_cas(NULL, &it->item));
+                        item_get_cas(old_it),
+                        item_get_cas(it));
             }
             stored = ENGINE_KEY_EEXISTS;
         }
@@ -599,19 +594,19 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
             /*
              * Validate CAS
              */
-            if (item_get_cas(NULL, &it->item) != 0) {
+            if (item_get_cas(it) != 0) {
                 // CAS much be equal
-                if (item_get_cas(NULL, &it->item) != item_get_cas(NULL, &old_it->item)) {
+                if (item_get_cas(it) != item_get_cas(old_it)) {
                     stored = ENGINE_KEY_EEXISTS;
                 }
             }
 
             if (stored == ENGINE_NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
-                new_it = do_item_alloc(engine, key, it->item.nkey,
-                                       old_it->item.flags,
-                                       old_it->item.exptime,
-                                       it->item.nbytes + old_it->item.nbytes - 2 /* CRLF */,
+                new_it = do_item_alloc(engine, key, it->nkey,
+                                       old_it->flags,
+                                       old_it->exptime,
+                                       it->nbytes + old_it->nbytes - 2 /* CRLF */,
                                        cookie);
 
                 if (new_it == NULL) {
@@ -626,12 +621,12 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                 /* copy data from it and old_it to new_it */
 
                 if (operation == OPERATION_APPEND) {
-                    memcpy(get_item_data(&new_it->item), get_item_data(&old_it->item), old_it->item.nbytes);
-                    memcpy(get_item_data(&new_it->item) + old_it->item.nbytes - 2 /* CRLF */, get_item_data(&it->item), it->item.nbytes);
+                    memcpy(item_get_data(new_it), item_get_data(old_it), old_it->nbytes);
+                    memcpy(item_get_data(new_it) + old_it->nbytes - 2 /* CRLF */, item_get_data(it), it->nbytes);
                 } else {
                     /* OPERATION_PREPEND */
-                    memcpy(get_item_data(&new_it->item), get_item_data(&it->item), it->item.nbytes);
-                    memcpy(get_item_data(&new_it->item) + it->item.nbytes - 2 /* CRLF */, get_item_data(&old_it->item), old_it->item.nbytes);
+                    memcpy(item_get_data(new_it), item_get_data(it), it->nbytes);
+                    memcpy(item_get_data(new_it) + it->nbytes - 2 /* CRLF */, item_get_data(old_it), old_it->nbytes);
                 }
 
                 it = new_it;
@@ -645,7 +640,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                 do_item_link(engine, it);
             }
 
-            *cas = item_get_cas(NULL, &it->item);
+            *cas = item_get_cas(it);
             stored = ENGINE_SUCCESS;
         }
     }
@@ -659,7 +654,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
     }
 
     if (stored == ENGINE_SUCCESS) {
-        *cas = item_get_cas(NULL, &it->item);
+        *cas = item_get_cas(it);
     }
 
     return stored;
@@ -685,7 +680,7 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
     uint64_t value;
     int res;
 
-    ptr = get_item_data(&it->item);
+    ptr = item_get_data(it);
 
     if (!safe_strtoull(ptr, &value)) {
         return ENGINE_EINVAL;
@@ -706,17 +701,17 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
     if ((res = snprintf(buf, sizeof(buf), "%" PRIu64 "\r\n", value)) == -1) {
         return ENGINE_EINVAL;
     }
-    hash_item *new_it = do_item_alloc(engine, item_get_key(NULL, &it->item),
-                                      it->item.nkey, it->item.flags,
-                                      it->item.exptime, res,
+    hash_item *new_it = do_item_alloc(engine, item_get_key(it),
+                                      it->nkey, it->flags,
+                                      it->exptime, res,
                                       cookie );
     if (new_it == 0) {
         do_item_unlink(engine, it);
         return ENGINE_ENOMEM;
     }
-    memcpy(get_item_data(&new_it->item), buf, res);
+    memcpy(item_get_data(new_it), buf, res);
     do_item_replace(engine, it, new_it);
-    *rcas = item_get_cas(NULL, &new_it->item);
+    *rcas = item_get_cas(new_it);
     do_item_release(engine, new_it);       /* release our reference */
 
     return ENGINE_SUCCESS;
@@ -826,7 +821,7 @@ void item_flush_expired(struct default_engine *engine, time_t when) {
             for (iter = engine->items.heads[i]; iter != NULL; iter = next) {
                 if (iter->time >= engine->config.oldest_live) {
                     next = iter->next;
-                    if ((iter->item.iflag & ITEM_SLABBED) == 0) {
+                    if ((iter->iflag & ITEM_SLABBED) == 0) {
                         do_item_unlink(engine, iter);
                     }
                 } else {

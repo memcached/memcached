@@ -122,9 +122,9 @@ struct default_engine {
    struct engine_stats stats;
 };
 
-void* item_get_data(ENGINE_HANDLE *handle, const item* item);
-const void* item_get_key(ENGINE_HANDLE *handle, const item* item);
+char* item_get_data(const hash_item* item);
+const void* item_get_key(const hash_item* item);
 void item_set_cas(ENGINE_HANDLE *handle, item* item, uint64_t val);
-uint64_t item_get_cas(ENGINE_HANDLE *handle, const item* item);
-uint8_t item_get_clsid(ENGINE_HANDLE *handle, const item* item);
+uint64_t item_get_cas(const hash_item* item);
+uint8_t item_get_clsid(const hash_item* item);
 #endif

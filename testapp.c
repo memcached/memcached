@@ -1168,7 +1168,6 @@ static enum test_return test_binary_setq(void) {
     return test_binary_set_impl("test_binary_setq", PROTOCOL_BINARY_CMD_SETQ);
 }
 
-
 static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
     uint64_t value = 0xdeadbeefdeadcafe;
     union {
@@ -1585,6 +1584,50 @@ static enum test_return test_binary_flushq(void) {
                                   PROTOCOL_BINARY_CMD_FLUSHQ);
 }
 
+static enum test_return test_binary_cas(void) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+
+    size_t len = flush_command(send.bytes, sizeof(send.bytes), PROTOCOL_BINARY_CMD_FLUSH,
+                               0, false);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_FLUSH,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    uint64_t value = 0xdeadbeefdeadcafe;
+    len = storage_command(send.bytes, sizeof(send.bytes), PROTOCOL_BINARY_CMD_SET,
+                          "FOO", 3, &value, sizeof(value), 0, 0);
+
+    send.request.message.header.request.cas = 0x7ffffff;
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_SET,
+                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+
+    send.request.message.header.request.cas = 0x0;
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_SET,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    send.request.message.header.request.cas = receive.response.message.header.response.cas;
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_SET,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    send.request.message.header.request.cas = receive.response.message.header.response.cas - 1;
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_SET,
+                             PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS);
+    return TEST_PASS;
+}
+
 static enum test_return test_binary_concat_impl(const char *key, uint8_t cmd) {
     union {
         protocol_binary_request_no_extras request;
@@ -1981,6 +2024,7 @@ struct testcase testcases[] = {
     { "binary_version", test_binary_version },
     { "binary_flush", test_binary_flush },
     { "binary_flushq", test_binary_flushq },
+    { "binary_cas", test_binary_cas },
     { "binary_append", test_binary_append },
     { "binary_appendq", test_binary_appendq },
     { "binary_prepend", test_binary_prepend },

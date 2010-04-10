@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/uio.h>
 
 #include "memcached/protocol_binary.h"
 #include "memcached/config_parser.h"
@@ -79,16 +80,21 @@ extern "C" {
     /**
      * Data common to any item stored in memcached.
      */
+    typedef void item;
+
     typedef struct {
+        uint64_t cas;
         rel_time_t exptime; /**< When the item will expire (relative to process
                              * startup) */
-        uint32_t   nbytes;  /**< The total size of the data (in bytes) */
-        uint32_t   flags;   /**< Flags associated with the item (in network byte order)*/
-        uint16_t   nkey;    /**< The total length of the key (in bytes) */
-        uint16_t   iflag;   /**< Intermal flags. lower 8 bit is reserved for the core
-                             * server, the upper 8 bits is reserved for engine
-                             * implementation. */
-    } item;
+        uint32_t nbytes; /**< The total size of the data (in bytes) */
+        uint32_t flags; /**< Flags associated with the item (in network byte order)*/
+        uint8_t clsid; /** class id for the object */
+        uint16_t nkey; /**< The total length of the key (in bytes) */
+        uint16_t nvalue; /** < IN: The number of elements available in value
+                          * OUT: the number of elements used in value */
+        const void *key;
+        struct iovec value[1];
+    } item_info;
 
     typedef struct {
         const char *username;
@@ -590,35 +596,26 @@ extern "C" {
                                          uint32_t flags,
                                          const void* userdata, size_t nuserdata);
 
-
-        /*
-         * It is up to the engine writers how to store the data in the engine
-         */
-
-        /**
-         * Get the CAS ID from an item.
-         */
-        uint64_t (*item_get_cas)(ENGINE_HANDLE *handle, const item *item);
-
         /**
          * Set the CAS id on an item.
          */
         void (*item_set_cas)(ENGINE_HANDLE *handle, item *item, uint64_t cas);
 
         /**
-         * Get the key from an item.
+         * Get information about an item.
+         *
+         * The loader of the module may need the pointers to the actual data within
+         * an item. Instead of having to create multiple functions to get each
+         * individual item, this function will get all of them.
+         *
+         * @param handle the engine that owns the object
+         * @param item the item to request information about
+         * @param item_info
+         * @return true if successful
          */
-        const void* (*item_get_key)(ENGINE_HANDLE *handle, const item *item);
-
-        /**
-         * Get the data from an item.
-         */
-        void* (*item_get_data)(ENGINE_HANDLE *handle, const item *item);
-
-        /**
-         * Get an item's class ID.
-         */
-        uint8_t (*item_get_clsid)(ENGINE_HANDLE *handle, const item* item);
+        bool (*get_item_info)(ENGINE_HANDLE *handle,
+                              const item* item,
+                              item_info *item_info);
     } ENGINE_HANDLE_V1;
 
     /**

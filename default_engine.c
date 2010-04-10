@@ -68,6 +68,8 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response);
 
+static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info);
+
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle) {
@@ -99,11 +101,8 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
          .arithmetic = default_arithmetic,
          .flush = default_flush,
          .unknown_command = default_unknown_command,
-         .item_get_cas = item_get_cas,
          .item_set_cas = item_set_cas,
-         .item_get_key = item_get_key,
-         .item_get_data = item_get_data,
-         .item_get_clsid = item_get_clsid
+         .get_item_info = get_item_info
       },
       .server = *api,
       .get_server_api = get_server_api,
@@ -143,9 +142,7 @@ static inline struct default_engine* get_handle(ENGINE_HANDLE* handle) {
 }
 
 static inline hash_item* get_real_item(item* item) {
-   hash_item it;
-   ptrdiff_t offset = (caddr_t)&it.item - (caddr_t)&it;
-   return (hash_item*) (((caddr_t) item) - (offset));
+    return (hash_item*)item;
 }
 
 static const char* default_get_info(ENGINE_HANDLE* handle) {
@@ -208,7 +205,7 @@ static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
    it = item_alloc(engine, key, nkey, flags, exptime, nbytes, cookie);
 
    if (it != NULL) {
-      *item = &it->item;
+      *item = it;
       return ENGINE_SUCCESS;
    } else {
       return ENGINE_ENOMEM;
@@ -227,7 +224,7 @@ static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
       return ENGINE_KEY_ENOENT;
    }
 
-   if (cas == 0 || cas == item_get_cas(handle, &it->item)) {
+   if (cas == 0 || cas == item_get_cas(it)) {
       item_unlink(engine, it);
       item_release(engine, it);
    } else {
@@ -248,12 +245,10 @@ static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
                                      item** item,
                                      const void* key,
                                      const int nkey) {
-   hash_item *it = item_get(get_handle(handle), key, nkey);
-   if (it != NULL) {
-      *item = &it->item;
+   *item = item_get(get_handle(handle), key, nkey);
+   if (*item != NULL) {
       return ENGINE_SUCCESS;
    } else {
-      *item = NULL;
       return ENGINE_KEY_ENOENT;
    }
 }
@@ -334,7 +329,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
          if (item == NULL) {
             return ENGINE_ENOMEM;
          }
-         memcpy((void*)item_get_data(handle, &item->item), buffer, len);
+         memcpy((void*)item_get_data(item), buffer, len);
          if ((ret = store_item(engine, item, cas,
                                OPERATION_ADD, cookie)) == ENGINE_KEY_EEXISTS) {
             item_release(engine, item);
@@ -344,7 +339,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
          }
 
          *result = initial;
-         *cas = item_get_cas(handle, &item->item);
+         *cas = item_get_cas(item);
          item_release(engine, item);
       }
    } else {
@@ -429,7 +424,7 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
 }
 
 
-uint64_t item_get_cas(ENGINE_HANDLE *handle, const item* item)
+uint64_t item_get_cas(const hash_item* item)
 {
     if (item->iflag & ITEM_WITH_CAS) {
         return *(uint64_t*)(item + 1);
@@ -439,12 +434,13 @@ uint64_t item_get_cas(ENGINE_HANDLE *handle, const item* item)
 
 void item_set_cas(ENGINE_HANDLE *handle, item* item, uint64_t val)
 {
-    if (item->iflag & ITEM_WITH_CAS) {
-        *(uint64_t*)(item + 1) = val;
+    hash_item* it = get_real_item(item);
+    if (it->iflag & ITEM_WITH_CAS) {
+        *(uint64_t*)(it + 1) = val;
     }
 }
 
-const void* item_get_key(ENGINE_HANDLE *handle, const item* item)
+const void* item_get_key(const hash_item* item)
 {
     char *ret = (void*)(item + 1);
     if (item->iflag & ITEM_WITH_CAS) {
@@ -454,12 +450,31 @@ const void* item_get_key(ENGINE_HANDLE *handle, const item* item)
     return ret;
 }
 
-void* item_get_data(ENGINE_HANDLE *handle, const item* item)
+char* item_get_data(const hash_item* item)
 {
-    return ((char*)item_get_key(handle, item)) + item->nkey;
+    return ((char*)item_get_key(item)) + item->nkey;
 }
 
-uint8_t item_get_clsid(ENGINE_HANDLE *handle, const item* item)
+uint8_t item_get_clsid(const hash_item* item)
 {
     return 0;
+}
+
+static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info)
+{
+    hash_item* it = (hash_item*)item;
+    if (item_info->nvalue < 1) {
+        return false;
+    }
+    item_info->cas = item_get_cas(it);
+    item_info->exptime = it->exptime;
+    item_info->nbytes = it->nbytes;
+    item_info->flags = it->flags;
+    item_info->clsid = it->slabs_clsid;
+    item_info->nkey = it->nkey;
+    item_info->nvalue = 1;
+    item_info->key = item_get_key(it);
+    item_info->value[0].iov_base = item_get_data(it);
+    item_info->value[0].iov_len = it->nbytes;
+    return true;
 }
