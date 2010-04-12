@@ -12,7 +12,7 @@
 #include <memcached/util.h>
 #include <memcached/config_parser.h>
 
-static const char* default_get_info(ENGINE_HANDLE* handle);
+static const engine_info* default_get_info(ENGINE_HANDLE* handle);
 static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
                                             const char* config_str);
 static void default_destroy(ENGINE_HANDLE* handle);
@@ -145,8 +145,13 @@ static inline hash_item* get_real_item(item* item) {
     return (hash_item*)item;
 }
 
-static const char* default_get_info(ENGINE_HANDLE* handle) {
-   return "Default engine v0.1";
+static const engine_info* default_get_info(ENGINE_HANDLE* handle) {
+    static engine_info info = {
+        .description = "Default engine v0.1",
+        .num_features = 0
+    };
+
+    return &info;
 }
 
 static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,

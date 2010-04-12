@@ -314,6 +314,33 @@ extern "C" {
                                                  GET_SERVER_API get_server_api,
                                                  ENGINE_HANDLE** handle);
 
+    typedef struct {
+        /**
+         * The identifier of this feature. All values with the most significant bit cleared is reserved
+         * for "registered" features.
+         */
+        uint32_t feature;
+        /**
+         * A textual description of the feature. (null will print the registered name for the feature
+         * (or "Unknown feature"))
+         */
+        const char *description;
+    } feature_info;
+
+    typedef struct {
+        /**
+         * Textual description of this engine
+         */
+        const char *description;
+        /**
+         * The number of features the server provides
+         */
+        uint32_t num_features;
+        /**
+         * An array containing all of the features the engine supports
+         */
+        feature_info features[1];
+    } engine_info;
 
     /**
      * Definition of the first version of the engine interface
@@ -330,7 +357,7 @@ extern "C" {
          * @param handle the engine handle
          * @return a stringz description of this engine
          */
-        const char* (*get_info)(ENGINE_HANDLE* handle);
+        const engine_info* (*get_info)(ENGINE_HANDLE* handle);
 
         /**
          * Initialize an engine instance.

@@ -5741,9 +5741,33 @@ static bool load_engine(const char *soname, const char *config_str) {
     }
 
     if (settings.verbose > 0) {
-        settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
-                "Loaded engine: %s\n",
-                settings.engine.v1->get_info(settings.engine.v0));
+        const engine_info *info;
+        info = settings.engine.v1->get_info(settings.engine.v0);
+        if (info) {
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                            "Loaded engine: %s\n",
+                                            info->description ?
+                                            info->description : "Unknown");
+
+            if (info->num_features > 0) {
+                settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                                "Supplying the following features:\n");
+            }
+            for (int ii = 0; ii < info->num_features; ++ii) {
+                if (info->features[ii].description != NULL) {
+                    settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                                    "%s\n", info->features[ii].description);
+
+                } else {
+                    settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                                    "Unknown feature: %d\n",
+                                                    info->features[ii].feature);
+                }
+            }
+        } else {
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                            "Loaded engine: Unknown\n");
+        }
     }
 
     return true;
