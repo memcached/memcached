@@ -62,6 +62,7 @@ extern "C" {
         ENGINE_WANT_MORE   = 0x09, /**< The engine want more data if the frontend
                                     * have more data available. */
         ENGINE_DISCONNECT  = 0x0a, /**< Tell the server to disconnect this client */
+        ENGINE_EACCESS     = 0x0b, /**< Access control violations */
         ENGINE_FAILED      = 0xff  /**< Generic failue. */
     } ENGINE_ERROR_CODE;
 
