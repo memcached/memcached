@@ -127,7 +127,14 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
          .factor = 1.25,
          .chunk_size = 48,
          .item_size_max= 1024 * 1024,
-      }
+       },
+      .info.engine_info = {
+           .description = "Default engine v0.1",
+           .num_features = 1,
+           .features = {
+               [0].feature = ENGINE_FEATURE_LRU
+           }
+       }
    };
 
    default_engine.server = *api;
@@ -146,12 +153,7 @@ static inline hash_item* get_real_item(item* item) {
 }
 
 static const engine_info* default_get_info(ENGINE_HANDLE* handle) {
-    static engine_info info = {
-        .description = "Default engine v0.1",
-        .num_features = 0
-    };
-
-    return &info;
+    return &get_handle(handle)->info.engine_info;
 }
 
 static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
@@ -161,6 +163,11 @@ static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
    ENGINE_ERROR_CODE ret = initalize_configuration(se, config_str);
    if (ret != ENGINE_SUCCESS) {
       return ret;
+   }
+
+   /* fixup feature_info */
+   if (se->config.use_cas) {
+       se->info.engine_info.features[se->info.engine_info.num_features++].feature = ENGINE_FEATURE_CAS;
    }
 
    ret = assoc_init(se);

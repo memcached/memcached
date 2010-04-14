@@ -120,6 +120,11 @@ struct default_engine {
 
    struct config config;
    struct engine_stats stats;
+   union {
+       engine_info engine_info;
+       char buffer[sizeof(engine_info) +
+                   (sizeof(feature_info) * LAST_REGISTERED_ENGINE_FEATURE)];
+   } info;
 };
 
 char* item_get_data(const hash_item* item);

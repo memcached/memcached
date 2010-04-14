@@ -230,6 +230,15 @@ enum transmit_result {
     TRANSMIT_HARD_ERROR  /** Can't write (c->state is set to conn_closing) */
 };
 
+static const char * const feature_descriptions[] = {
+    "compare and swap",
+    "persistent storage",
+    "secondary engine",
+    "access control",
+    "multi tenancy",
+    "LRU"
+};
+
 static enum transmit_result transmit(conn *c);
 
 #define REALTIME_MAXDELTA 60*60*24*30
@@ -5744,25 +5753,47 @@ static bool load_engine(const char *soname, const char *config_str) {
         const engine_info *info;
         info = settings.engine.v1->get_info(settings.engine.v0);
         if (info) {
-            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
-                                            "Loaded engine: %s\n",
+            char message[4096];
+            ssize_t nw = snprintf(message, sizeof(message), "Loaded engine: %s\n",
                                             info->description ?
                                             info->description : "Unknown");
+            if (nw == -1) {
+                return true;
+            }
+            ssize_t offset = nw;
+            bool comma = false;
 
             if (info->num_features > 0) {
-                settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
-                                                "Supplying the following features:\n");
-            }
-            for (int ii = 0; ii < info->num_features; ++ii) {
-                if (info->features[ii].description != NULL) {
-                    settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
-                                                    "%s\n", info->features[ii].description);
-
-                } else {
-                    settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
-                                                    "Unknown feature: %d\n",
-                                                    info->features[ii].feature);
+                nw = snprintf(message + offset, sizeof(message) - offset,
+                              "Supplying the following features: ");
+                if (nw == -1) {
+                    return true;
                 }
+                offset += nw;
+                for (int ii = 0; ii < info->num_features; ++ii) {
+                    if (info->features[ii].description != NULL) {
+                        nw = snprintf(message + offset, sizeof(message) - offset,
+                                      "%s%s", comma ? ", " : "",
+                                      info->features[ii].description);
+                    } else {
+                        if (info->features[ii].feature <= LAST_REGISTERED_ENGINE_FEATURE) {
+                            nw = snprintf(message + offset, sizeof(message) - offset,
+                                          "%s%s", comma ? ", " : "",
+                                          feature_descriptions[info->features[ii].feature]);
+                        } else {
+                            nw = snprintf(message + offset, sizeof(message) - offset,
+                                          "%sUnknown feature: %d", comma ? ", " : "",
+                                          info->features[ii].feature);
+                        }
+                    }
+                    comma = true;
+                    if (nw == -1) {
+                        return true;
+                    }
+                    offset += nw;
+                }
+                settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                                "%s\n", message);
             }
         } else {
             settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,

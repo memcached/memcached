@@ -315,6 +315,16 @@ extern "C" {
                                                  GET_SERVER_API get_server_api,
                                                  ENGINE_HANDLE** handle);
 
+    typedef enum {
+        ENGINE_FEATURE_CAS, /**< has compare-and-set operation */
+        ENGINE_FEATURE_PERSISTENT_STORAGE, /**< has persistent storage support*/
+        ENGINE_FEATURE_SECONDARY_ENGINE, /**< performs as pseudo engine */
+        ENGINE_FEATURE_ACCESS_CONTROL, /**< has access control feature */
+        ENGINE_FEATURE_MULTI_TENANCY,
+        ENGINE_FEATURE_LRU /* Cache implements an LRU */
+#define LAST_REGISTERED_ENGINE_FEATURE ENGINE_FEATURE_LRU
+    } engine_feature_t;
+
     typedef struct {
         /**
          * The identifier of this feature. All values with the most significant bit cleared is reserved
