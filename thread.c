@@ -582,8 +582,8 @@ void thread_init(int nthr, struct event_base *main_base) {
     dispatcher_thread.base = main_base;
     dispatcher_thread.thread_id = pthread_self();
 
+    int fds[2];
     for (i = 0; i < nthreads; i++) {
-        int fds[2];
 #ifdef __WIN32__
         if (createLocalSocketPair(sockfd,fds,&serv_addr) == -1) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -617,11 +617,21 @@ void thread_init(int nthr, struct event_base *main_base) {
         create_worker(worker_libevent, &threads[i], &thread_ids[i]);
     }
 
-    int fds[2];
-    if (pipe(fds)) {
-        perror("Can't create notify pipe");
+#ifdef __WIN32__
+    if (createLocalSocketPair(sockfd, fds, &serv_addr) == -1) {
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Can't create notify pipe: %s",
+                                        strerror(errno));
         exit(1);
     }
+#else
+    if (pipe(fds)) {
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Can't create notify pipe: %s",
+                                        strerror(errno));
+        exit(1);
+    }
+#endif
 
     tap_thread.notify_receive_fd = fds[0];
     tap_thread.notify_send_fd = fds[1];

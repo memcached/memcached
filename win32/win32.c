@@ -53,6 +53,7 @@
 #include <limits.h>
 #include <ctype.h>
 #include <time.h>
+#include <signal.h>
 
 int fcntl(SOCKET s, int cmd, int val)
 {
@@ -392,4 +393,40 @@ int kill(int pid, int sig) {
     if (TerminateProcess((HANDLE)pid, 0))
         return 0;
     return -1;
+}
+
+int spawn_memcached(int argc, char **argv) {
+    char buffer[4096];
+    int offset=0;
+
+    for (int ii = 1; ii < argc; ++ii) {
+        if (strcmp("-d", argv[ii]) != 0) {
+            offset += snprintf(buffer + offset, sizeof(buffer) - offset,
+                               "%s ", argv[ii]);
+        }
+    }
+
+    STARTUPINFO sinfo = { .cb = sizeof(sinfo) };
+    PROCESS_INFORMATION pinfo;
+
+    if (CreateProcess(argv[0], buffer, NULL, NULL, FALSE,
+                      CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
+                      NULL, NULL, &sinfo, &pinfo)) {
+        exit(0);
+    }
+
+    return -1;
+}
+
+extern int sigaction(int sig, struct sigaction *act, struct sigaction *oact)
+{
+    void (*ret)(int) = signal(sig, act->sa_handler);
+    if (oact != NULL) {
+        oact->sa_handler = ret;
+    }
+    if (ret == SIG_ERR) {
+        return -1;
+    }
+
+    return 0;
 }

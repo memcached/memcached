@@ -18,12 +18,15 @@
 #include <errno.h>
 #include <stdint.h>
 #include <process.h>
-#include "ntservice.h"
 
 #define EWOULDBLOCK        EAGAIN
 #define EAFNOSUPPORT       47
 #define EADDRINUSE         WSAEADDRINUSE
 #define EAI_SYSTEM         -11
+
+#ifndef SIGHUP
+#define SIGHUP -1
+#endif
 
 typedef char *caddr_t;
 
@@ -199,4 +202,14 @@ static inline void _set_errno(int err)
 }
 #endif
 
+struct sigaction {
+    void (*sa_handler)(int);
+    int sa_mask;
+    int sa_flags;
+};
+
+#define sigemptyset(a) 0
+extern int sigaction(int sig, struct sigaction *act, struct sigaction *oact);
+#define daemonize(a,b) spawn_memcached(argc, argv)
+extern int spawn_memcached(int argc, char **argv);
 #endif

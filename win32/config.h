@@ -45,8 +45,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "ntservice.h"
-
 /*******************************/
 /* HACKS to compile under UNIX */
 
@@ -83,7 +81,6 @@ struct rlimit {
  */
 
 int lstat(const char *path, struct stat *tstat);
-int sigignore(int sig);
 int getrlimit(int __resource, struct rlimit * __rlimits);
 int setrlimit(int __resource, struct rlimit * __rlimits);
 _uid_t getuid(void);

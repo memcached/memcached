@@ -28,7 +28,6 @@
 #include <sys/uio.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
-#include <signal.h>
 
 /* some POSIX systems need the following definition
  * to get mlockall flags out of sys/mman.h.  */
@@ -43,6 +42,7 @@
 #include <sys/mman.h>
 #endif /* !__WIN32__ */
 
+#include <signal.h>
 #include <getopt.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -5202,20 +5202,8 @@ static void usage(void) {
            "-s <file>     UNIX socket path to listen on (disables network support)\n"
            "-a <mask>     access mask for UNIX socket, in octal (default: 0700)\n"
            "-l <ip_addr>  interface to listen on (default: INADDR_ANY, all addresses)\n"
-           "-s <file>     unix socket path to listen on (disables network support)\n"
-           "-a <mask>     access mask for unix socket, in octal (default 0700)\n"
-           "-l <ip_addr>  interface to listen on, default is INADDR_ANY\n");
-
-#ifndef __WIN32__
-    printf("-d            run as a daemon\n");
-#else
-    printf("-d start          tell memcached to start\n"
-           "-d restart        tell running memcached to do a graceful restart\n"
-           "-d stop|shutdown  tell running memcached to shutdown\n"
-           "-d install        install memcached service\n"
-           "-d uninstall      uninstall memcached service\n");
-#endif
-    printf("-r            maximize core file limit\n"
+           "-d            run as a daemon\n"
+           "-r            maximize core file limit\n"
            "-u <username> assume identity of <username> (only when run as root)\n"
            "-m <num>      max memory to use for items in megabytes (default: 64 MB)\n"
            "-M            return error on memory exhausted (rather than removing items)\n"
@@ -5367,33 +5355,6 @@ static void remove_pidfile(const char *pid_file) {
     }
 }
 
-#ifdef __WIN32__
-void run_server(void)
-{
-    /* enter the loop */
-    //event_loop(0);
-    event_base_loop(main_base, 0);
-}
-
-void stop_server(void)
-{
-    const struct timeval t = {.tv_sec = 1, .tv_usec = 0};
-    /* exit the loop */
-    event_base_loopexit(main_base, &t);
-}
-void pause_server(void)
-{
-    /* not implemented yet */
-}
-
-void continue_server(void)
-{
-    /* not implemented yet */
-}
-#endif
-
-#ifndef __WIN32__
-
 #ifndef HAVE_SIGIGNORE
 static int sigignore(int sig) {
     struct sigaction sa = { .sa_handler = SIG_IGN, .sa_flags = 0 };
@@ -5404,8 +5365,6 @@ static int sigignore(int sig) {
     return 0;
 }
 #endif /* !HAVE_SIGIGNORE */
-
-#endif /* !__WIN32__ */
 
 static void sigterm_handler(int sig) {
     assert(sig == SIGTERM || sig == SIGINT);
@@ -5486,7 +5445,7 @@ static int get_socket_fd(const void *cookie) {
     return c->sfd;
 }
 
-static int num_independent_stats() {
+static int num_independent_stats(void) {
     return settings.num_threads + 1;
 }
 
@@ -5977,11 +5936,7 @@ static bool load_extension(const char *soname, const char *config) {
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
-#ifdef __WIN32__
-    unsigned int do_daemonize = 0;
-#else
     bool do_daemonize = false;
-#endif /* __WIN32__ which has different meanings of daemonize */
     bool preallocate = false;
     int maxcore = 0;
     char *username = NULL;
@@ -6021,11 +5976,7 @@ int main (int argc, char **argv) {
           "hi"  /* help, licence info */
           "r"   /* maximize core file limit */
           "v"   /* verbose */
-#ifndef __WIN32__
           "d"   /* daemon mode */
-#else
-          "d:"
-#endif
           "l:"  /* interface to listen on */
           "u:"  /* user identity to run as */
           "P:"  /* save PID in file */
@@ -6091,21 +6042,7 @@ int main (int argc, char **argv) {
             settings.inter= strdup(optarg);
             break;
         case 'd':
-#ifndef __WIN32__
             do_daemonize = true;
-#else
-            if(!optarg || !strcmpi(optarg, "runservice")) do_daemonize = 1;
-            else if(!strcmpi(optarg, "start")) do_daemonize = 2;
-            else if(!strcmpi(optarg, "restart")) do_daemonize = 3;
-            else if(!strcmpi(optarg, "stop")) do_daemonize = 4;
-            else if(!strcmpi(optarg, "shutdown")) do_daemonize = 5;
-            else if(!strcmpi(optarg, "install")) do_daemonize = 6;
-            else if(!strcmpi(optarg, "uninstall")) do_daemonize = 7;
-            else {
-                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                         "Illegal argument: \"%s\"\n", optarg);
-            }
-#endif
             break;
         case 'r':
             maxcore = 1;
@@ -6407,7 +6344,6 @@ int main (int argc, char **argv) {
     init_sasl();
 #endif /* SASL */
 
-#ifndef __WIN32__
     /* daemonize if requested */
     /* if we want to ensure our ability to dump core, don't chdir to / */
     if (do_daemonize) {
@@ -6421,46 +6357,6 @@ int main (int argc, char **argv) {
             exit(EXIT_FAILURE);
         }
     }
-#else
-    switch(do_daemonize) {
-        case 2:
-            if(!ServiceStart()) {
-                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                         "failed to start service\n");
-                return 1;
-            }
-            exit(0);
-        case 3:
-            if(!ServiceRestart()) {
-                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                         "failed to restart service\n");
-                return 1;
-            }
-            exit(0);
-        case 4:
-        case 5:
-            if(!ServiceStop()) {
-                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                         "failed to stop service\n");
-                return 1;
-            }
-            exit(0);
-        case 6:
-            if(!ServiceInstall()) {
-                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                         "failed to install service or service already installed\n");
-                return 1;
-            }
-            exit(0);
-        case 7:
-            if(!ServiceUninstall()) {
-                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                         "failed to uninstall service or service not installed\n");
-                return 1;
-            }
-            exit(0);
-    }
-#endif
 
     /* lock paged memory if needed */
     if (lock_memory) {
@@ -6577,6 +6473,7 @@ int main (int argc, char **argv) {
     }
 
     if (overlord) {
+#ifndef __WIN32__
         struct utsname utsname;
         if (uname(&utsname) != -1) {
             char port[12];
@@ -6596,17 +6493,11 @@ int main (int argc, char **argv) {
         }
         // @TODO we need an observer to determine when the socket close and
         // when to switch state
+#endif
     }
 
     /* Drop privileges no longer needed */
     drop_privileges();
-
-#ifdef __WIN32__
-    if (do_daemonize) {
-        ServiceSetFunc(run_server, pause_server, continue_server, stop_server);
-        ServiceRun();
-    } else
-#endif
 
     /* enter the event loop */
     event_base_loop(main_base, 0);
