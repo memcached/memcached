@@ -35,10 +35,6 @@ typedef char *caddr_t;
 #define RUSAGE_SELF    0
 
 #define IOV_MAX 1024
-struct iovec {
-    u_long iov_len;
-    char FAR* iov_base;
-};
 
 struct msghdr {
     void         *msg_name;         /* Socket name            */

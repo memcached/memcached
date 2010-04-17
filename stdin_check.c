@@ -2,8 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include "stdin_check.h"
 
+#include "stdin_check.h"
 
 static void* check_stdin_thread(void* arg)
 {
@@ -35,19 +35,19 @@ __attribute__ ((visibility("default")))
 EXTENSION_ERROR_CODE memcached_extensions_initialize(const char *config,
                                                      GET_SERVER_API get_server_api) {
 
-    SERVER_EXTENSION_API *server = get_server_api(server_extension_api);
+    SERVER_HANDLE_V1 *server = get_server_api();
     if (server == NULL) {
         return EXTENSION_FATAL;
     }
 
-    if (!server->register_extension(EXTENSION_DAEMON, &descriptor)) {
+    if (!server->extension->register_extension(EXTENSION_DAEMON, &descriptor)) {
         return EXTENSION_FATAL;
     }
 
     pthread_t t;
     if (pthread_create(&t, NULL, check_stdin_thread, NULL) != 0) {
         perror("couldn't create stdin checking thread.");
-        server->unregister_extension(EXTENSION_DAEMON, &descriptor);
+        server->extension->unregister_extension(EXTENSION_DAEMON, &descriptor);
         return EXTENSION_FATAL;
     }
 

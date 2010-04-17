@@ -173,7 +173,8 @@ static void *assoc_maintenance_thread(void *arg) {
                  NULL != it; it = next) {
                 next = it->h_next;
 
-                bucket = engine->server.hash(item_get_key(it), it->nkey, 0) & hashmask(engine->assoc.hashpower);
+                bucket = engine->server.core->hash(item_get_key(it), it->nkey, 0)
+                    & hashmask(engine->assoc.hashpower);
                 it->h_next = engine->assoc.primary_hashtable[bucket];
                 engine->assoc.primary_hashtable[bucket] = it;
             }

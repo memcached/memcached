@@ -6,12 +6,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <sys/uio.h>
 
+#include "memcached/types.h"
 #include "memcached/protocol_binary.h"
 #include "memcached/config_parser.h"
 #include "memcached/server_api.h"
 #include "memcached/callback.h"
+#include "memcached/extension.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,62 +46,6 @@ extern "C" {
  */
 
 #define ENGINE_INTERFACE_VERSION 1
-
-    /**
-     * Response codes for engine operations.
-     */
-    typedef enum {
-        ENGINE_SUCCESS     = 0x00, /**< The command executed successfully */
-        ENGINE_KEY_ENOENT  = 0x01, /**< The key does not exists */
-        ENGINE_KEY_EEXISTS = 0x02, /**< The key already exists */
-        ENGINE_ENOMEM      = 0x03, /**< Could not allocate memory */
-        ENGINE_NOT_STORED  = 0x04, /**< The item was not stored */
-        ENGINE_EINVAL      = 0x05, /**< Invalid arguments */
-        ENGINE_ENOTSUP     = 0x06, /**< The engine does not support this */
-        ENGINE_EWOULDBLOCK = 0x07, /**< This would cause the engine to block */
-        ENGINE_E2BIG       = 0x08, /**< The data is too big for the engine */
-        ENGINE_WANT_MORE   = 0x09, /**< The engine want more data if the frontend
-                                    * have more data available. */
-        ENGINE_DISCONNECT  = 0x0a, /**< Tell the server to disconnect this client */
-        ENGINE_EACCESS     = 0x0b, /**< Access control violations */
-        ENGINE_FAILED      = 0xff  /**< Generic failue. */
-    } ENGINE_ERROR_CODE;
-
-    /**
-     * Engine storage operations.
-     */
-    typedef enum {
-        OPERATION_ADD = 1, /**< Store with add semantics */
-        OPERATION_SET,     /**< Store with set semantics */
-        OPERATION_REPLACE, /**< Store with replace semantics */
-        OPERATION_APPEND,  /**< Store with append semantics */
-        OPERATION_PREPEND, /**< Store with prepend semantics */
-        OPERATION_CAS      /**< Store with set semantics. */
-    } ENGINE_STORE_OPERATION;
-
-    /**
-     * Data common to any item stored in memcached.
-     */
-    typedef void item;
-
-    typedef struct {
-        uint64_t cas;
-        rel_time_t exptime; /**< When the item will expire (relative to process
-                             * startup) */
-        uint32_t nbytes; /**< The total size of the data (in bytes) */
-        uint32_t flags; /**< Flags associated with the item (in network byte order)*/
-        uint8_t clsid; /** class id for the object */
-        uint16_t nkey; /**< The total length of the key (in bytes) */
-        uint16_t nvalue; /** < IN: The number of elements available in value
-                          * OUT: the number of elements used in value */
-        const void *key;
-        struct iovec value[1];
-    } item_info;
-
-    typedef struct {
-        const char *username;
-        const char *config;
-    } auth_data_t;
 
     /**
      * Callback for any function producing stats.
@@ -148,112 +93,18 @@ extern "C" {
         uint64_t interface; /**< The version number on the engine structure */
     } ENGINE_HANDLE;
 
-    /**
-     * Interface to the server.
-     */
-    typedef struct server_interface_v1 {
-
-        /**
-         * Get the auth data for the connection associated with the
-         * given cookie.
-         *
-         * @param cookie The cookie provided by the frontend
-         * @param data Pointer to auth_data_t structure for returning the values
-         *
-         */
-        void (*get_auth_data)(const void *cookie, auth_data_t *data);
-
-        /**
-         * Store engine-specific session data on the given cookie.
-         *
-         * The engine interface allows for a single item to be
-         * attached to the connection that it can use to track
-         * connection-specific data throughout duration of the
-         * connection.
-         *
-         * @param cookie The cookie provided by the frontend
-         * @param engine_data pointer to opaque data
-         */
-        void (*store_engine_specific)(const void *cookie, void *engine_data);
-
-        /**
-         * Retrieve engine-specific session data for the given cookie.
-         *
-         * @param cookie The cookie provided by the frontend
-         *
-         * @return the data provied by store_engine_specific or NULL
-         *         if none was provided
-         */
-        void *(*get_engine_specific)(const void *cookie);
-
-        /**
-         * Retrieve socket file descriptor of the session for the given cookie.
-         *
-         * @param cookie The cookie provided by the frontend
-         *
-         * @return the socket file descriptor of the session for the given cookie.
-         */
-        int (*get_socket_fd)(const void *cookie);
-
-        /**
-         * Get the server's version number.
-         *
-         * @return the server's version number
-         */
-        const char* (*server_version)(void);
-
-        /**
-         * Generate a simple hash value of a piece of data.
-         *
-         * @param data pointer to data to hash
-         * @param size size of the data to generate the hash value of
-         * @param seed an extra seed value for the hash function
-         * @return hash value of the data.
-         */
-        uint32_t (*hash)(const void *data, size_t size, uint32_t seed);
-
-        /**
-         * Get the relative time for the given time_t value.
-         */
-        rel_time_t (*realtime)(const time_t exptime);
-
-
-        /**
-         * Let a connection know that IO has completed.
-         * @param cookie cookie representing the connection
-         * @param status the status for the io operation
-         */
-        void (*notify_io_complete)(const void *cookie,
-                                   ENGINE_ERROR_CODE status);
-
-        /**
-         * The current time.
-         */
-        rel_time_t (*get_current_time)(void);
-
-        /**
-         * parser config options
-         */
-        int (*parse_config)(const char *str, struct config_item items[], FILE *error);
-
-        /**
-         * Allocate and deallocate thread-specific stats arrays for engine-maintained separate stats
-         */
-        void *(*new_stats)(void);
-        void (*release_stats)(void*);
-
-        /**
-         * Tell the server we've evicted an item.
-         */
-        void (*count_eviction)(const void *cookie,
-                               const void *key,
-                               int nkey);
-
-    } SERVER_HANDLE_V1;
-
     struct item_observer_cb_data {
         const void *key; /* THis isn't going to work from a memory management perspective */
         size_t nkey;
+    };
+
+    /* This is typedefed in types.h */
+    struct server_handle_v1_t {
+        uint64_t interface; /**< The version number on the server structure */
+        SERVER_CORE_API *core;
+        SERVER_STAT_API *stat;
+        SERVER_EXTENSION_API *extension;
+        SERVER_CALLBACK_API *callback;
     };
 
     /* tap flags */

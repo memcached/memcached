@@ -73,7 +73,7 @@ static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *it
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle) {
-   SERVER_HANDLE_V1 *api = get_server_api(server_handle_v1);
+   SERVER_HANDLE_V1 *api = get_server_api();
    if (interface != 1 || api == NULL) {
       return ENGINE_ENOTSUP;
    }
@@ -415,7 +415,7 @@ static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
          { .key = NULL}
       };
 
-      ret = se->server.parse_config(cfg_str, items, stderr);
+      ret = se->server.core->parse_config(cfg_str, items, stderr);
    }
 
    return ENGINE_SUCCESS;

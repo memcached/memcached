@@ -5758,13 +5758,12 @@ static void* get_extension(extension_type_t type)
 
 /**
  * Callback the engines may call to get the public server interface
- * @param interface the requested interface from the server
  * @return pointer to a structure containing the interface. The client should
  *         know the layout and perform the proper casts.
  */
-static void *get_server_api(server_api_t interface)
+static SERVER_HANDLE_V1 *get_server_api(void)
 {
-    static SERVER_HANDLE_V1 server_api_v1 = {
+    static SERVER_CORE_API core_api = {
         .get_auth_data = get_auth_data,
         .store_engine_specific = store_engine_specific,
         .get_engine_specific = get_engine_specific,
@@ -5774,10 +5773,13 @@ static void *get_server_api(server_api_t interface)
         .realtime = realtime,
         .notify_io_complete = notify_io_complete,
         .get_current_time = get_current_time,
-        .parse_config = parse_config,
+        .parse_config = parse_config
+    };
+
+    static SERVER_STAT_API server_stat_api = {
         .new_stats = new_independent_stats,
         .release_stats = release_independent_stats,
-        .count_eviction = count_eviction,
+        .evicting = count_eviction
     };
 
     static SERVER_EXTENSION_API extension_api = {
@@ -5791,16 +5793,15 @@ static void *get_server_api(server_api_t interface)
         .perform_callbacks = perform_callbacks,
     };
 
-    switch (interface) {
-    case server_handle_v1:
-        return &server_api_v1;
-    case server_extension_api:
-        return &extension_api;
-    case server_callback_api:
-        return &callback_api;
-    default:
-        return NULL;
-    }
+    static SERVER_HANDLE_V1 rv = {
+        .interface = 1,
+        .core = &core_api,
+        .stat = &server_stat_api,
+        .extension = &extension_api,
+        .callback = &callback_api
+    };
+
+    return &rv;
 }
 
 static bool load_engine(const char *soname, const char *config_str) {

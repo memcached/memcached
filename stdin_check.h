@@ -1,7 +1,7 @@
 #ifndef STDIN_CHECK_H
 #define STDIN_CHECK_H
 
-#include "memcached/extension.h"
+#include "memcached/engine.h"
 
 /* prototype required to avoid warnings treated as failures on some *NIX */
 EXTENSION_ERROR_CODE memcached_extensions_initialize(const char *config,

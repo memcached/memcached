@@ -104,7 +104,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
     int tries = 50;
     hash_item *search;
 
-    rel_time_t current_time = engine->server.get_current_time();
+    rel_time_t current_time = engine->server.core->get_current_time();
 
     for (search = engine->items.tails[id];
          tries > 0 && search != NULL;
@@ -167,7 +167,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
                     pthread_mutex_lock(&engine->stats.lock);
                     engine->stats.evictions++;
                     pthread_mutex_unlock(&engine->stats.lock);
-                    engine->server.count_eviction(cookie,
+                    engine->server.stat->evicting(cookie,
                                                   item_get_key(search),
                                                   search->nkey);
                 } else {
@@ -286,8 +286,9 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     assert((it->iflag & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     assert(it->nbytes < (1024 * 1024));  /* 1MB max size */
     it->iflag |= ITEM_LINKED;
-    it->time = engine->server.get_current_time();
-    assoc_insert(engine, engine->server.hash(item_get_key(it), it->nkey, 0),
+    it->time = engine->server.core->get_current_time();
+    assoc_insert(engine, engine->server.core->hash(item_get_key(it),
+                                                        it->nkey, 0),
                  it);
 
     pthread_mutex_lock(&engine->stats.lock);
@@ -312,7 +313,8 @@ void do_item_unlink(struct default_engine *engine, hash_item *it) {
         engine->stats.curr_bytes -= ITEM_ntotal(engine, it);
         engine->stats.curr_items -= 1;
         pthread_mutex_unlock(&engine->stats.lock);
-        assoc_delete(engine, engine->server.hash(item_get_key(it), it->nkey, 0),
+        assoc_delete(engine, engine->server.core->hash(item_get_key(it),
+                                                            it->nkey, 0),
                      item_get_key(it), it->nkey);
         item_unlink_q(engine, it);
         if (it->refcount == 0) {
@@ -333,7 +335,7 @@ void do_item_release(struct default_engine *engine, hash_item *it) {
 }
 
 void do_item_update(struct default_engine *engine, hash_item *it) {
-    rel_time_t current_time = engine->server.get_current_time();
+    rel_time_t current_time = engine->server.core->get_current_time();
     MEMCACHED_ITEM_UPDATE(item_get_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->iflag & ITEM_SLABBED) == 0);
@@ -479,8 +481,10 @@ static void do_item_stats_sizes(struct default_engine *engine,
 /** wrapper around assoc_find which does the lazy expiration logic */
 hash_item *do_item_get(struct default_engine *engine,
                        const char *key, const size_t nkey) {
-    rel_time_t current_time = engine->server.get_current_time();
-    hash_item *it = assoc_find(engine, engine->server.hash(key, nkey, 0), key, nkey);
+    rel_time_t current_time = engine->server.core->get_current_time();
+    hash_item *it = assoc_find(engine, engine->server.core->hash(key,
+                                                                      nkey, 0),
+                               key, nkey);
     int was_found = 0;
 
     if (engine->config.verbose > 2) {
@@ -804,9 +808,9 @@ void item_flush_expired(struct default_engine *engine, time_t when) {
     pthread_mutex_lock(&engine->cache_lock);
 
     if (when == 0) {
-        engine->config.oldest_live = engine->server.get_current_time() - 1;
+        engine->config.oldest_live = engine->server.core->get_current_time() - 1;
     } else {
-        engine->config.oldest_live = engine->server.realtime(when) - 1;
+        engine->config.oldest_live = engine->server.core->realtime(when) - 1;
     }
 
     if (engine->config.oldest_live != 0) {
