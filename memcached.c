@@ -5553,6 +5553,116 @@ static void count_eviction(const void *cookie, const void *key, const int nkey) 
 }
 
 /**
+ * To make it easy for engine implementors that doesn't want to care about
+ * writing their own incr/decr code, they can just set the arithmetic function
+ * to NULL and use this implementation. It is not efficient, due to the fact
+ * that it does multiple calls through the interface (get and then cas store).
+ * If you don't care, feel free to use it..
+ */
+static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
+                                             const void* cookie,
+                                             const void* key,
+                                             const int nkey,
+                                             const bool increment,
+                                             const bool create,
+                                             const uint64_t delta,
+                                             const uint64_t initial,
+                                             const rel_time_t exptime,
+                                             uint64_t *cas,
+                                             uint64_t *result)
+{
+    ENGINE_HANDLE_V1 *e = (ENGINE_HANDLE_V1*)handle;
+
+    item *it = NULL;
+
+    ENGINE_ERROR_CODE ret;
+    ret = e->get(handle, cookie, &it, key, nkey);
+
+    if (ret == ENGINE_SUCCESS) {
+        item_info info = { .nvalue = 1 };
+
+        if (!e->get_item_info(handle, it, &info)) {
+            e->release(handle, cookie, it);
+            return ENGINE_FAILED;
+        }
+
+        /* Ensure that we don't run away into random memory */
+        char *endptr = info.value[0].iov_base;
+        int ii;
+        for (ii = 0; ii < info.value[0].iov_len; ++ii) {
+            if (isdigit(endptr[ii]) == 0) {
+                break;
+            }
+        }
+
+        uint64_t val;
+        if (ii == info.value[0].iov_len || !safe_strtoull((const char*)info.value[0].iov_base, &val)) {
+            e->release(handle, cookie, it);
+            return ENGINE_EINVAL;
+        }
+
+        if (increment) {
+            val += delta;
+        } else {
+            if (delta > val) {
+                val = 0;
+            } else {
+                val -= delta;
+            }
+        }
+
+        char value[80];
+        size_t nb = snprintf(value, sizeof(value), "%"PRIu64"\r\n", val);
+        *result = val;
+        item *nit = NULL;
+        if (e->allocate(handle, cookie, &nit, key,
+                        nkey, nb, info.flags, info.exptime) != ENGINE_SUCCESS) {
+            e->release(handle, cookie, it);
+            return ENGINE_ENOMEM;
+        }
+
+        item_info i2 = { .nvalue = 1 };
+        if (!e->get_item_info(handle, nit, &i2)) {
+            e->release(handle, cookie, it);
+            e->release(handle, cookie, nit);
+            return ENGINE_FAILED;
+        }
+
+        memcpy(i2.value[0].iov_base, value, nb);
+        e->item_set_cas(handle, nit, info.cas);
+        ret = e->store(handle, cookie, nit, cas, OPERATION_CAS);
+        e->release(handle, cookie, it);
+        e->release(handle, cookie, nit);
+    } else if (ret == ENGINE_KEY_ENOENT && create) {
+        char value[80];
+        size_t nb = snprintf(value, sizeof(value), "%"PRIu64"\r\n", initial);
+        *result = initial;
+        if (e->allocate(handle, cookie, &it, key, nkey, nb, 0, exptime) != ENGINE_SUCCESS) {
+            e->release(handle, cookie, it);
+            return ENGINE_ENOMEM;
+        }
+
+        item_info info = { .nvalue = 1 };
+        if (!e->get_item_info(handle, it, &info)) {
+            e->release(handle, cookie, it);
+            return ENGINE_FAILED;
+        }
+
+        memcpy(info.value[0].iov_base, value, nb);
+        ret = e->store(handle, cookie, it, cas, OPERATION_CAS);
+        e->release(handle, cookie, it);
+    }
+
+    /* We had a race condition.. just call ourself recursively to retry */
+    if (ret == ENGINE_KEY_EEXISTS) {
+        return internal_arithmetic(handle, cookie, key, nkey, increment, create, delta,
+                                   initial, exptime, cas, result);
+    }
+
+    return ret;
+}
+
+/**
  * Register an extension if it's not already registered
  *
  * @param type the type of the extension to register
@@ -5741,6 +5851,10 @@ static bool load_engine(const char *soname, const char *config_str) {
                     error);
             dlclose(handle);
             return false;
+        }
+
+        if (settings.engine.v1->arithmetic == NULL) {
+            settings.engine.v1->arithmetic = internal_arithmetic;
         }
     } else {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
