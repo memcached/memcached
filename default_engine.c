@@ -137,7 +137,6 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
        }
    };
 
-   default_engine.server = *api;
    *engine = default_engine;
 
    *handle = (ENGINE_HANDLE*)&engine->engine;
