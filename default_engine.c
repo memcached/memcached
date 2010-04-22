@@ -189,6 +189,7 @@ static void default_destroy(ENGINE_HANDLE* handle) {
    if (se->initialized) {
       pthread_mutex_destroy(&se->cache_lock);
       pthread_mutex_destroy(&se->stats.lock);
+      pthread_mutex_destroy(&se->slabs.lock);
       se->initialized = false;
       free(se);
    }
