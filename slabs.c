@@ -252,7 +252,7 @@ static void do_slabs_free(struct default_engine *engine, void *ptr, const size_t
     p = &engine->slabs.slabclass[id];
 
 #ifdef USE_SYSTEM_MALLOC
-    mem_malloced -= size;
+    engine->slabs.mem_malloced -= size;
     free(ptr);
     return;
 #endif
