@@ -2269,6 +2269,7 @@ static void ship_tap_log(conn *c) {
 
     bool more_data = true;
     bool send_data = false;
+    bool disconnect = false;
 
     item *it;
     uint32_t bodylen;
@@ -2377,6 +2378,9 @@ static void ship_tap_log(conn *c) {
             pthread_mutex_unlock(&tap_stats.mutex);
             break;
 
+        case TAP_DISCONNECT:
+            disconnect = true;
+            /* FALLTHROUGH */
         case TAP_FLUSH:
         case TAP_OPAQUE:
             send_data = true;
@@ -2405,9 +2409,6 @@ static void ship_tap_log(conn *c) {
                 c->wcurr += nengine;
                 c->wbytes += nengine;
             }
-
-
-
             break;
         default:
             abort();
@@ -2417,7 +2418,11 @@ static void ship_tap_log(conn *c) {
     c->ewouldblock = false;
     if (send_data) {
         conn_set_state(c, conn_mwrite);
-        c->write_and_go = conn_ship_log;
+        if (disconnect) {
+            c->write_and_go = conn_closing;
+        } else {
+            c->write_and_go = conn_ship_log;
+        }
     } else {
         /* No more items to ship to the slave at this time.. suspend.. */
         if (settings.verbose > 1) {

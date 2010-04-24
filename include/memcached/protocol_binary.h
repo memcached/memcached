@@ -474,6 +474,11 @@ extern "C"
                  * changes.
                  */
 #define TAP_CONNECT_FLAG_BACKFILL 0x01
+                /**
+                 * Dump will cause the server to send the data stored on the server, but
+                 * disconnect when the keys stored in the server are transmitted.
+                 */
+#define TAP_CONNECT_FLAG_DUMP 0x02
             } body;
         } message;
         uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
