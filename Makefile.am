@@ -1,12 +1,15 @@
 bin_PROGRAMS = memcached
-pkginclude_HEADERS = include/memcached/protocol_binary.h \
+pkginclude_HEADERS = \
                      include/memcached/callback.h \
+                     include/memcached/config_parser.h \
                      include/memcached/engine.h \
                      include/memcached/extension.h \
+                     include/memcached/genhash.h \
+                     include/memcached/protocol_binary.h \
+                     include/memcached/protocol_plugin.h \
                      include/memcached/server_api.h \
-                     include/memcached/config_parser.h \
-                     include/memcached/util.h \
-                     include/memcached/genhash.h
+                     include/memcached/types.h \
+                     include/memcached/util.h
 
 noinst_PROGRAMS = sizes testapp timedrun
 
