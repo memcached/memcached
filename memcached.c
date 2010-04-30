@@ -230,15 +230,6 @@ enum transmit_result {
     TRANSMIT_HARD_ERROR  /** Can't write (c->state is set to conn_closing) */
 };
 
-static const char * const feature_descriptions[] = {
-    "compare and swap",
-    "persistent storage",
-    "secondary engine",
-    "access control",
-    "multi tenancy",
-    "LRU"
-};
-
 static enum transmit_result transmit(conn *c);
 
 #define REALTIME_MAXDELTA 60*60*24*30
@@ -5942,128 +5933,6 @@ static SERVER_HANDLE_V1 *get_server_api(void)
     return &rv;
 }
 
-static bool load_engine(const char *soname, const char *config_str) {
-    ENGINE_HANDLE *engine = NULL;
-    /* Hack to remove the warning from C99 */
-    union my_hack {
-        CREATE_INSTANCE create;
-        void* voidptr;
-    } my_create = {.create = NULL };
-
-    void *handle = dlopen(soname, RTLD_NOW | RTLD_LOCAL);
-    if (handle == NULL) {
-        const char *msg = dlerror();
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                "Failed to open library \"%s\": %s\n",
-                soname ? soname : "self",
-                msg ? msg : "unknown error");
-        return false;
-    }
-
-    void *symbol = dlsym(handle, "create_instance");
-    if (symbol == NULL) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                "Could not find symbol \"create_instance\" in %s: %s\n",
-                soname ? soname : "self",
-                dlerror());
-        return false;
-    }
-    my_create.voidptr = symbol;
-
-    /* request a instance with protocol version 1 */
-    ENGINE_ERROR_CODE error = (*my_create.create)(1, get_server_api, &engine);
-
-    if (error != ENGINE_SUCCESS || engine == NULL) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                "Failed to create instance. Error code: %d\n", error);
-        dlclose(handle);
-        return false;
-    }
-
-    if (engine->interface == 1) {
-        settings.engine.v0 = engine;
-        settings.engine.v1 = (ENGINE_HANDLE_V1*)engine;
-
-        /*
-        ** Initialize the engine-member in te struct returned from
-        ** get_server_api
-        */
-        (void)get_server_api();
-
-        if (settings.engine.v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
-            settings.engine.v1->destroy(engine);
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                    "Failed to initialize instance. Error code: %d\n",
-                    error);
-            dlclose(handle);
-            return false;
-        }
-
-        if (settings.engine.v1->arithmetic == NULL) {
-            settings.engine.v1->arithmetic = internal_arithmetic;
-        }
-    } else {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                 "Unsupported interface level\n");
-        dlclose(handle);
-        return false;
-    }
-
-    if (settings.verbose > 0) {
-        const engine_info *info;
-        info = settings.engine.v1->get_info(settings.engine.v0);
-        if (info) {
-            char message[4096];
-            ssize_t nw = snprintf(message, sizeof(message), "Loaded engine: %s\n",
-                                            info->description ?
-                                            info->description : "Unknown");
-            if (nw == -1) {
-                return true;
-            }
-            ssize_t offset = nw;
-            bool comma = false;
-
-            if (info->num_features > 0) {
-                nw = snprintf(message + offset, sizeof(message) - offset,
-                              "Supplying the following features: ");
-                if (nw == -1) {
-                    return true;
-                }
-                offset += nw;
-                for (int ii = 0; ii < info->num_features; ++ii) {
-                    if (info->features[ii].description != NULL) {
-                        nw = snprintf(message + offset, sizeof(message) - offset,
-                                      "%s%s", comma ? ", " : "",
-                                      info->features[ii].description);
-                    } else {
-                        if (info->features[ii].feature <= LAST_REGISTERED_ENGINE_FEATURE) {
-                            nw = snprintf(message + offset, sizeof(message) - offset,
-                                          "%s%s", comma ? ", " : "",
-                                          feature_descriptions[info->features[ii].feature]);
-                        } else {
-                            nw = snprintf(message + offset, sizeof(message) - offset,
-                                          "%sUnknown feature: %d", comma ? ", " : "",
-                                          info->features[ii].feature);
-                        }
-                    }
-                    comma = true;
-                    if (nw == -1) {
-                        return true;
-                    }
-                    offset += nw;
-                }
-            }
-            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
-                                            "%s\n", message);
-        } else {
-            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
-                                            "Loaded engine: Unknown\n");
-        }
-    }
-
-    return true;
-}
-
 /**
  * Load a shared object and initialize all the extensions in there.
  *
@@ -6564,9 +6433,23 @@ int main (int argc, char **argv) {
     main_base = event_init();
 
     /* Load the storage engine */
-    if (!load_engine(engine, engine_config)) {
+    ENGINE_HANDLE *engine_handle = NULL;
+    if (!load_engine(engine,get_server_api,settings.extensions.logger,&engine_handle)) {
         /* Error already reported */
         exit(EXIT_FAILURE);
+    }
+
+    if(!init_engine(engine_handle,engine_config,settings.extensions.logger)) {
+        return false;
+    }
+
+    if(settings.verbose > 0) {
+        log_engine_details(engine_handle,settings.extensions.logger);
+    }
+    settings.engine.v1 = (ENGINE_HANDLE_V1 *) engine_handle;
+
+    if (settings.engine.v1->arithmetic == NULL) {
+        settings.engine.v1->arithmetic = internal_arithmetic;
     }
 
     /* initialize other stuff */

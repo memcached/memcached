@@ -33,7 +33,8 @@ memcached_SOURCES = memcached.c memcached.h \
 libmcd_util_la_SOURCES= config_parser.c include/memcached/config_parser.h \
                         util.c include/memcached/util.h \
                         genhash.c genhash_int.h \
-                        include/memcached/genhash.h
+                        include/memcached/genhash.h \
+                        engine_loader.h engine_loader.c
 libmcd_util_la_LDFLAGS= -dynamic
 
 if BUILD_CACHE
@@ -73,11 +74,11 @@ memcached_DEPENDENCIES += memcached_dtrace.o
 CLEANFILES += memcached_dtrace.o
 endif
 
-noinst_LTLIBRARIES = libmcd_util.la
 lib_LTLIBRARIES = default_engine.la \
                   example_protocol.la \
                   stdin_term_handler.la
 
+noinst_LTLIBRARIES=libmcd_util.la
 
 default_engine_la_SOURCES= \
                     assoc.c assoc.h \

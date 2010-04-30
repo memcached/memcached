@@ -31,6 +31,7 @@
 
 #include "cache.h"
 #include "topkeys.h"
+#include "engine_loader.h"
 
 #include "sasl_defs.h"
 
