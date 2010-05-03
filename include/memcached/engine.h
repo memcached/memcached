@@ -105,6 +105,7 @@ extern "C" {
         SERVER_STAT_API *stat;
         SERVER_EXTENSION_API *extension;
         SERVER_CALLBACK_API *callback;
+        ENGINE_HANDLE *engine;
     };
 
     /* tap flags */

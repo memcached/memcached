@@ -5793,6 +5793,10 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .callback = &callback_api
     };
 
+    if (rv.engine == NULL) {
+        rv.engine = settings.engine.v0;
+    }
+
     return &rv;
 }
 
@@ -5837,6 +5841,13 @@ static bool load_engine(const char *soname, const char *config_str) {
     if (engine->interface == 1) {
         settings.engine.v0 = engine;
         settings.engine.v1 = (ENGINE_HANDLE_V1*)engine;
+
+        /*
+        ** Initialize the engine-member in te struct returned from
+        ** get_server_api
+        */
+        (void)get_server_api();
+
         if (settings.engine.v1->initialize(engine, config_str) != ENGINE_SUCCESS) {
             settings.engine.v1->destroy(engine);
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
