@@ -6246,6 +6246,7 @@ int main (int argc, char **argv) {
                     *(ptr - 1) = ',';
                 }
             }
+            break;
         case 'O':
             overlord = optarg;
             break;
