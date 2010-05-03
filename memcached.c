@@ -3180,6 +3180,31 @@ static size_t tokenize_command(char *command, token_t *tokens, const size_t max_
     return ntokens;
 }
 
+static void detokenize(token_t *tokens, int ntokens, char **out, int *nbytes) {
+    int i, nb;
+    char *buf, *p;
+
+    nb = ntokens; // account for spaces, which is ntokens-1, plus the null
+    for (i = 0; i < ntokens; ++i) {
+        nb += tokens[i].length;
+    }
+
+    buf = malloc(nb * sizeof(char));
+    if (buf != NULL) {
+        p = buf;
+        for (i = 0; i < ntokens; ++i) {
+            memcpy(p, tokens[i].value, tokens[i].length);
+            p += tokens[i].length;
+            *p = ' ';
+            p++;
+        }
+        buf[nb - 1] = '\0';
+        *nbytes = nb - 1;
+        *out = buf;
+    }
+}
+
+
 /* set up a connection to write a buffer then free it, used for stats */
 static void write_and_free(conn *c, char *buf, int bytes) {
     if (buf) {
@@ -3490,9 +3515,12 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         /* getting here means that the subcommand is either engine specific or
            is invalid. query the engine and see. */
         ENGINE_ERROR_CODE ret;
-        ret = settings.engine.v1->get_stats(settings.engine.v0, c, subcommand,
-                                            strlen(subcommand),
-                                            append_stats);
+        char *buf = NULL;
+        int nb = -1;
+        detokenize(&tokens[1], ntokens - 2, &buf, &nb);
+        ret = settings.engine.v1->get_stats(settings.engine.v0, c, buf,
+                                            nb, append_stats);
+        free(buf);
 
         switch (ret) {
         case ENGINE_SUCCESS:
