@@ -74,6 +74,7 @@ endif
 
 noinst_LTLIBRARIES = libmcd_util.la
 lib_LTLIBRARIES = default_engine.la \
+                  example_protocol.la \
                   stdin_term_handler.la
 
 
@@ -95,6 +96,8 @@ stdin_term_handler_la_DEPENDENCIES=
 stdin_term_handler_la_LIBADD=
 stdin_term_handler_la_LDFLAGS= -module -dynamic
 
+example_protocol_la_SOURCES= example_protocol.c example_protocol.h
+example_protocol_la_LDFLAGS= -module -dynamic
 
 if INCLUDE_DEFAULT_ENGINE
 memcached_SOURCES += $(default_engine_la_SOURCES)

@@ -39,7 +39,11 @@ extern "C" {
         /**
          * A log consumer
          */
-        EXTENSION_LOGGER
+        EXTENSION_LOGGER,
+        /**
+         * Command extension for the ASCII protocol
+         */
+        EXTENSION_ASCII_PROTOCOL
     } extension_type_t;
 
     /**
@@ -99,6 +103,100 @@ extern "C" {
                     const void* client_cookie,
                     const char *fmt, ...);
     } EXTENSION_LOGGER_DESCRIPTOR;
+
+    typedef struct {
+        char *value;
+        size_t length;
+    } token_t;
+
+    /**
+     * ASCII protocol extensions must provide the following descriptor to
+     * extend the capabilities of the ascii protocol. The memcached core
+     * will probe each command in the order they are registered, so you should
+     * register the most likely command to be used first (or you could register
+     * only one descriptor and do a better dispatch routine inside your own
+     * implementation of accept / execute).
+     */
+    typedef struct extension_ascii_protocol_descriptor {
+        /**
+         * Get the name of the descriptor. The memory area returned by this
+         * function has to be valid until the descriptor is unregistered.
+         *
+         * @param cmd_cookie cookie registered with the command
+         */
+        const char* (*get_name)(const void *cmd_cookie);
+
+        /**
+         * Called by the server to determine if the command in argc, argv should
+         * be process by this handler.
+         *
+         * If the command accepts out-of-band data (like add / append / prepend
+         * / replace / set), the command must set the datapointer and ndata
+         * to the number of bytes it want to read (remember to account for
+         * the trailing "\r\n" ;-))
+         *
+         * If you need extra data, you should copy all of the argc/argv info
+         * you may need to execute the command, because those parameters will
+         * be 0 and NULL when execute is invoked...
+         *
+         * @param cmd_cookie cookie registered with the command
+         * @param cookie identifying the client connection
+         * @param argc the number of arguments
+         * @param argv the argument vector
+         * @param ndata the number of bytes in out-of-band data (OUT)
+         * @param ptr where the core shall write the data (OUT)
+         * @param noreply is this a noreply command or not...
+         * @return true if the command should be handled by this command handler
+         */
+        bool (*accept)(const void *cmd_cookie,
+                       void *cookie,
+                       int argc,
+                       token_t *argv,
+                       size_t *ndata,
+                       char **ptr);
+
+        /**
+         * execute the command.
+         *
+         * @param cmd_cookie cookie registered with the command
+         * @param cookie identifying the client connection
+         * @param argc the number of arguments
+         * @param argv the argument vector
+         * @param response_handler callback to add data to the return buffer
+         * @return true if "success" or false if the client should be
+         *              disconnected.
+         */
+        bool (*execute)(const void *cmd_cookie,
+                        const void *cookie,
+                        int argc, token_t *argv,
+                        bool (*response_handler)(const void *cookie,
+                                                int nbytes,
+                                                const char *dta));
+
+        /**
+         * abort the command.
+         *
+         * @param cmd_cookie cookie registered with the command
+         * @param cookie identifying the client connection
+         */
+        void (*abort)(const void *cmd_cookie, const void *cookie);
+
+        /**
+         * cookie for the command. This is the cookie passed to accept and
+         * execute, so that you can register the same functions for multiple
+         * commands (but tell them apart during invokations).
+         */
+        const void *cookie;
+
+        /**
+         * Deamon descriptors are stored in a linked list in the memcached
+         * core by using this pointer. Please do not modify this pointer
+         * by yourself until you have unregistered the descriptor.
+         * The <b>only</b> time it is safe for an extension to walk this
+         * list is during initialization of the modules.
+         */
+        struct extension_ascii_protocol_descriptor *next;
+    } EXTENSION_ASCII_PROTOCOL_DESCRIPTOR;
 
     /**
      * The signature for the "memcached_extensions_initialize" function

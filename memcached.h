@@ -247,6 +247,7 @@ struct settings {
     struct {
         EXTENSION_DAEMON_DESCRIPTOR *daemons;
         EXTENSION_LOGGER_DESCRIPTOR *logger;
+        EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *ascii;
     } extensions;
 };
 
@@ -386,6 +387,10 @@ struct conn {
     } dynamic_buffer;
 
     void *engine_storage;
+
+    /** Current ascii protocol */
+    EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *ascii_cmd;
+
 
     /* Binary protocol stuff */
     /* This is where the binary header goes */

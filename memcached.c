@@ -641,6 +641,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->state = init_state;
     c->rlbytes = 0;
     c->cmd = -1;
+    c->ascii_cmd = NULL;
     c->rbytes = c->wbytes = 0;
     c->wcurr = c->wbuf;
     c->rcurr = c->rbuf;
@@ -721,6 +722,7 @@ static void conn_cleanup(conn *c) {
     c->tap_iterator = NULL;
     c->thread = NULL;
     c->next = NULL;
+    c->ascii_cmd = NULL;
 }
 
 static void conn_close(conn *c) {
@@ -732,6 +734,10 @@ static void conn_close(conn *c) {
     if (settings.verbose > 1) {
         settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
                                         "<%d connection closed.\n", c->sfd);
+    }
+
+    if (c->ascii_cmd != NULL) {
+        c->ascii_cmd->abort(c->ascii_cmd, c);
     }
 
     perform_callbacks(ON_DISCONNECT, NULL, c);
@@ -1047,7 +1053,7 @@ static void out_string(conn *c, const char *str) {
  * we get here after reading the value in set/add/replace commands. The command
  * has been stored in c->cmd, and the item is ready in c->item.
  */
-static void complete_nread_ascii(conn *c) {
+static void complete_update_ascii(conn *c) {
     assert(c != NULL);
 
     item *it = c->item;
@@ -3088,6 +3094,7 @@ static void complete_nread_binary(conn *c) {
 }
 
 static void reset_cmd_handler(conn *c) {
+    c->ascii_cmd = NULL;
     c->cmd = -1;
     c->substate = bin_no_state;
     if(c->item != NULL) {
@@ -3099,6 +3106,44 @@ static void reset_cmd_handler(conn *c) {
         conn_set_state(c, conn_parse_cmd);
     } else {
         conn_set_state(c, conn_waiting);
+    }
+}
+
+static bool ascii_response_handler(const void *cookie,
+                                   int nbytes,
+                                   const char *dta)
+{
+    conn *c = (conn*)cookie;
+    if (!grow_dynamic_buffer(c, nbytes)) {
+        if (settings.verbose > 0) {
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                    "<%d ERROR: Failed to allocate memory for response\n",
+                    c->sfd);
+        }
+        return false;
+    }
+
+    char *buf = c->dynamic_buffer.buffer + c->dynamic_buffer.offset;
+    memcpy(buf, dta, nbytes);
+    c->dynamic_buffer.offset += nbytes;
+
+    return true;
+}
+
+static void complete_nread_ascii(conn *c) {
+    if (c->ascii_cmd != NULL) {
+        if (!c->ascii_cmd->execute(c->ascii_cmd->cookie, c, 0, NULL,
+                                   ascii_response_handler)) {
+            conn_set_state(c, conn_closing);
+        } else if (c->dynamic_buffer.buffer != NULL) {
+            write_and_free(c, c->dynamic_buffer.buffer,
+                           c->dynamic_buffer.offset);
+            c->dynamic_buffer.buffer = NULL;
+        } else {
+            conn_set_state(c, conn_new_cmd);
+        }
+    } else {
+        complete_update_ascii(c);
     }
 }
 
@@ -3114,16 +3159,11 @@ static void complete_nread(conn *c) {
     }
 }
 
-typedef struct token_s {
-    char *value;
-    size_t length;
-} token_t;
-
 #define COMMAND_TOKEN 0
 #define SUBCOMMAND_TOKEN 1
 #define KEY_TOKEN 1
 
-#define MAX_TOKENS 8
+#define MAX_TOKENS 30
 
 /*
  * Tokenize the command string by replacing whitespace with '\0' and update
@@ -3447,6 +3487,12 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     }
 
     APPEND_STAT("logger", "%s", settings.extensions.logger->get_name());
+
+    for (EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *ptr = settings.extensions.ascii;
+         ptr != NULL;
+         ptr = ptr->next) {
+        APPEND_STAT("ascii_extension", "%s", ptr->get_name(ptr->cookie));
+    }
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4088,6 +4134,50 @@ static void process_command(conn *c, char *command) {
 
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
+    } else if (settings.extensions.ascii != NULL) {
+        EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *cmd;
+        size_t nbytes = 0;
+        char *ptr;
+
+        if (ntokens > 0) {
+            if (ntokens == MAX_TOKENS) {
+                out_string(c, "ERROR too many arguments");
+                return;
+            }
+
+            if (tokens[ntokens - 1].length == 0) {
+                --ntokens;
+            }
+        }
+
+        for (cmd = settings.extensions.ascii; cmd != NULL; cmd = cmd->next) {
+            if (cmd->accept(cmd->cookie, c, ntokens, tokens, &nbytes, &ptr)) {
+                break;
+            }
+        }
+
+        if (cmd == NULL) {
+            out_string(c, "ERROR unknown command");
+        } else if (nbytes == 0) {
+            if (!cmd->execute(cmd->cookie, c, ntokens, tokens,
+                              ascii_response_handler)) {
+                conn_set_state(c, conn_closing);
+            } else {
+                if (c->dynamic_buffer.buffer != NULL) {
+                    write_and_free(c, c->dynamic_buffer.buffer,
+                                   c->dynamic_buffer.offset);
+                    c->dynamic_buffer.buffer = NULL;
+                } else {
+                    conn_set_state(c, conn_new_cmd);
+                }
+            }
+        } else {
+            c->rlbytes = nbytes;
+            c->ritem = ptr;
+            c->ascii_cmd = cmd;
+            /* NOT SUPPORTED YET! */
+            conn_set_state(c, conn_nread);
+        }
     } else {
         out_string(c, "ERROR");
     }
@@ -5682,6 +5772,26 @@ static bool register_extension(extension_type_t type, void *extension)
     case EXTENSION_LOGGER:
         settings.extensions.logger = extension;
         return true;
+    case EXTENSION_ASCII_PROTOCOL:
+        if (settings.extensions.ascii != NULL) {
+            EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *last;
+            for (last = settings.extensions.ascii; last->next != NULL;
+                 last = last->next) {
+                if (last == extension) {
+                    return false;
+                }
+            }
+            if (last == extension) {
+                return false;
+            }
+            last->next = extension;
+            last->next->next = NULL;
+        } else {
+            settings.extensions.ascii = extension;
+            settings.extensions.ascii->next = NULL;
+        }
+        return true;
+
     default:
         return false;
     }
@@ -5724,6 +5834,25 @@ static void unregister_extension(extension_type_t type, void *extension)
             }
         }
         break;
+    case EXTENSION_ASCII_PROTOCOL:
+        {
+            EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *prev = NULL;
+            EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *ptr = settings.extensions.ascii;
+
+            while (ptr != NULL && ptr != extension) {
+                prev = ptr;
+                ptr = ptr->next;
+            }
+
+            if (ptr != NULL && prev != NULL) {
+                prev->next = ptr->next;
+            }
+
+            if (settings.extensions.ascii == ptr) {
+                settings.extensions.ascii = ptr->next;
+            }
+        }
+        break;
 
     default:
         ;
@@ -5742,6 +5871,9 @@ static void* get_extension(extension_type_t type)
 
     case EXTENSION_LOGGER:
         return settings.extensions.logger;
+
+    case EXTENSION_ASCII_PROTOCOL:
+        return settings.extensions.ascii;
 
     default:
         return NULL;
