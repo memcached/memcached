@@ -318,10 +318,6 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
         snprintf(tmo, sizeof(tmo), "%u", timeout);
 
         putenv(environment);
-#ifdef __sun
-        putenv("LD_PRELOAD=watchmalloc.so.1");
-        putenv("MALLOC_DEBUG=WATCH");
-#endif
 
         if (!daemon) {
             argv[arg++] = "./timedrun";
