@@ -1,11 +1,13 @@
-bin_PROGRAMS = memcached
+bin_PROGRAMS = memcached engine_testapp
 pkginclude_HEADERS = \
                      include/memcached/callback.h \
                      include/memcached/config_parser.h \
                      include/memcached/engine.h \
+                     include/memcached/engine_testapp.h \
                      include/memcached/extension.h \
                      include/memcached/extension_loggers.h \
                      include/memcached/genhash.h \
+                     include/memcached/mock_server.h \
                      include/memcached/protocol_binary.h \
                      include/memcached/protocol_plugin.h \
                      include/memcached/server_api.h \
@@ -22,6 +24,10 @@ testapp_SOURCES = testapp.c
 testapp_DEPENDENCIES= libmcd_util.la
 testapp_LDADD= libmcd_util.la
 
+engine_testapp_SOURCES = engine_testapp.c include/memcached/engine_testapp.h
+engine_testapp_DEPENDENCIES= libmcd_util.a
+engine_testapp_LDADD= libmcd_util.a
+
 timedrun_SOURCES = timedrun.c
 
 memcached_SOURCES = memcached.c memcached.h \
@@ -36,7 +42,8 @@ libmcd_util_la_SOURCES= config_parser.c include/memcached/config_parser.h \
                         genhash.c genhash_int.h \
                         include/memcached/genhash.h \
                         engine_loader.h engine_loader.c \
-                        extension_loggers.c
+                        extension_loggers.c \
+                        mock_server.c
 libmcd_util_la_LDFLAGS= -dynamic
 
 if BUILD_CACHE
@@ -92,7 +99,6 @@ default_engine_la_SOURCES += $(libmcd_util_la_SOURCES)
 default_engine_la_DEPENDENCIES=
 default_engine_la_LIBADD=
 default_engine_la_LDFLAGS= -module -dynamic
-
 
 stdin_term_handler_la_SOURCES= stdin_check.c stdin_check.h
 stdin_term_handler_la_SOURCES += $(libmcd_util_la_SOURCES)

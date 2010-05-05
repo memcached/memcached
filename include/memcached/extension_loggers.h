@@ -7,9 +7,9 @@
 extern "C" {
 #endif
 
-EXTENSION_LOGGER_DESCRIPTOR* get_null_logger(void);
+MEMCACHED_PUBLIC_API EXTENSION_LOGGER_DESCRIPTOR* get_null_logger(void);
 
-EXTENSION_LOGGER_DESCRIPTOR* get_stderr_logger(void);
+MEMCACHED_PUBLIC_API EXTENSION_LOGGER_DESCRIPTOR* get_stderr_logger(void);
 
 #ifdef  __cplusplus
 }

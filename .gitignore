@@ -28,6 +28,7 @@
 /doc/engine-interface.txt
 /doc/protocol-binary-range.txt
 /doc/protocol-binary.txt
+/engine_testapp
 /install-sh
 /libtool
 /ltmain.sh
