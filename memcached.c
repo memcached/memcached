@@ -14,6 +14,7 @@
  *      Brad Fitzpatrick <brad@danga.com>
  */
 #include "memcached.h"
+#include "memcached/extension_loggers.h"
 
 #if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
 #define SASL_ENABLED
@@ -234,48 +235,6 @@ static enum transmit_result transmit(conn *c);
 
 #define REALTIME_MAXDELTA 60*60*24*30
 
-static const char *stderror_get_name(void) {
-    return "standard error";
-}
-
-static void stderror_logger_log(EXTENSION_LOG_LEVEL severity,
-                                 const void* client_cookie,
-                                 const char *fmt, ...)
-{
-    (void)severity;
-    (void)client_cookie;
-
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
-}
-
-EXTENSION_LOGGER_DESCRIPTOR stderror_logger_descriptor = {
-    .get_name = stderror_get_name,
-    .log = stderror_logger_log
-};
-
-static const char *null_get_name(void) {
-    return "/dev/null";
-}
-
-static void null_logger_log(EXTENSION_LOG_LEVEL severity,
-                            const void* client_cookie,
-                            const char *fmt, ...)
-{
-    (void)severity;
-    (void)client_cookie;
-    (void)fmt;
-    /* EMPTY */
-}
-
-EXTENSION_LOGGER_DESCRIPTOR null_logger_descriptor = {
-    .get_name = null_get_name,
-    .log = null_logger_log
-};
-
-
 // Perform all callbacks of a given type for the given connection.
 static void perform_callbacks(ENGINE_EVENT_TYPE type,
                               const void *data,
@@ -360,7 +319,7 @@ static void settings_init(void) {
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.topkeys = 0;
     settings.require_sasl = false;
-    settings.extensions.logger = &stderror_logger_descriptor;
+    settings.extensions.logger = get_stderr_logger();
 }
 
 /*
@@ -5828,10 +5787,10 @@ static void unregister_extension(extension_type_t type, void *extension)
         break;
     case EXTENSION_LOGGER:
         if (settings.extensions.logger == extension) {
-            if (&stderror_logger_descriptor == extension) {
-                settings.extensions.logger = &null_logger_descriptor;
+            if (get_stderr_logger() == extension) {
+                settings.extensions.logger = get_null_logger();
             } else {
-                settings.extensions.logger = &stderror_logger_descriptor;
+                settings.extensions.logger = get_stderr_logger();
             }
         }
         break;

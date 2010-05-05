@@ -4,6 +4,7 @@ pkginclude_HEADERS = \
                      include/memcached/config_parser.h \
                      include/memcached/engine.h \
                      include/memcached/extension.h \
+                     include/memcached/extension_loggers.h \
                      include/memcached/genhash.h \
                      include/memcached/protocol_binary.h \
                      include/memcached/protocol_plugin.h \
@@ -34,7 +35,8 @@ libmcd_util_la_SOURCES= config_parser.c include/memcached/config_parser.h \
                         util.c include/memcached/util.h \
                         genhash.c genhash_int.h \
                         include/memcached/genhash.h \
-                        engine_loader.h engine_loader.c
+                        engine_loader.h engine_loader.c \
+                        extension_loggers.c
 libmcd_util_la_LDFLAGS= -dynamic
 
 if BUILD_CACHE
