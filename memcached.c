@@ -1764,86 +1764,86 @@ static void process_bin_stat(conn *c) {
         }
     }
 
-    if (nkey == 0) {
-        /* request all statistics */
-        server_stats(&append_stats, c, false);
-        settings.engine.v1->get_stats(settings.engine.v0, c, NULL, 0, append_stats);
-    } else if (strncmp(subcommand, "reset", 5) == 0) {
-        stats_reset(c);
-        settings.engine.v1->reset_stats(settings.engine.v0, c);
-    } else if (strncmp(subcommand, "settings", 8) == 0) {
-        process_stat_settings(&append_stats, c);
-    } else if (strncmp(subcommand, "detail", 6) == 0) {
-        char *subcmd_pos = subcommand + 6;
-        if (settings.allow_detailed) {
-            if (strncmp(subcmd_pos, " dump", 5) == 0) {
-                int len;
-                char *dump_buf = stats_prefix_dump(&len);
-                if (dump_buf == NULL || len <= 0) {
-                    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
-                    return ;
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    c->ewouldblock = false;
+
+    if (ret == ENGINE_SUCCESS) {
+        if (nkey == 0) {
+            /* request all statistics */
+            ret = settings.engine.v1->get_stats(settings.engine.v0, c, NULL, 0, append_stats);
+            if (ret == ENGINE_SUCCESS) {
+                server_stats(&append_stats, c, false);
+            }
+        } else if (strncmp(subcommand, "reset", 5) == 0) {
+            stats_reset(c);
+            settings.engine.v1->reset_stats(settings.engine.v0, c);
+        } else if (strncmp(subcommand, "settings", 8) == 0) {
+            process_stat_settings(&append_stats, c);
+        } else if (strncmp(subcommand, "detail", 6) == 0) {
+            char *subcmd_pos = subcommand + 6;
+            if (settings.allow_detailed) {
+                if (strncmp(subcmd_pos, " dump", 5) == 0) {
+                    int len;
+                    char *dump_buf = stats_prefix_dump(&len);
+                    if (dump_buf == NULL || len <= 0) {
+                        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                        return ;
+                    } else {
+                        append_stats("detailed", strlen("detailed"), dump_buf, len, c);
+                        free(dump_buf);
+                    }
+                } else if (strncmp(subcmd_pos, " on", 3) == 0) {
+                    settings.detail_enabled = 1;
+                } else if (strncmp(subcmd_pos, " off", 4) == 0) {
+                    settings.detail_enabled = 0;
                 } else {
-                    append_stats("detailed", strlen("detailed"), dump_buf, len, c);
-                    free(dump_buf);
+                    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+                    return;
                 }
-            } else if (strncmp(subcmd_pos, " on", 3) == 0) {
-                settings.detail_enabled = 1;
-            } else if (strncmp(subcmd_pos, " off", 4) == 0) {
-                settings.detail_enabled = 0;
             } else {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
                 return;
             }
+        } else if (strncmp(subcommand, "aggregate", 9) == 0) {
+            server_stats(&append_stats, c, true);
+        } else if (strncmp(subcommand, "topkeys", 7) == 0) {
+            topkeys_t *tk = get_independent_stats(c)->topkeys;
+            if (tk != NULL) {
+                topkeys_stats(tk, c, current_time, append_stats);
+            } else {
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            }
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
-            return;
+            ret = settings.engine.v1->get_stats(settings.engine.v0, c,
+                                                subcommand, nkey,
+                                                append_stats);
         }
-    } else if (strncmp(subcommand, "aggregate", 9) == 0) {
-        server_stats(&append_stats, c, true);
-    } else if (strncmp(subcommand, "topkeys", 7) == 0) {
-        topkeys_t *tk = get_independent_stats(c)->topkeys;
-        if (tk != NULL) {
-            topkeys_stats(tk, c, current_time, append_stats);
-        } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
-        }
-    } else {
-        ENGINE_ERROR_CODE ret;
-        ret = settings.engine.v1->get_stats(settings.engine.v0, c,
-                                            subcommand, nkey,
-                                            append_stats);
-
-        switch (ret) {
-        case ENGINE_SUCCESS:
-            append_stats(NULL, 0, NULL, 0, c);
-            write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
-            c->dynamic_buffer.buffer = NULL;
-            break;
-        case ENGINE_ENOMEM:
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
-            break;
-        case ENGINE_KEY_ENOENT:
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
-            break;
-        case ENGINE_DISCONNECT:
-            c->state = conn_closing;
-            break;
-        case ENGINE_ENOTSUP:
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
-            break;
-        default:
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
-        }
-        return ;
     }
 
-    /* Append termination package and start the transfer */
-    append_stats(NULL, 0, NULL, 0, c);
-    if (c->dynamic_buffer.buffer == NULL) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
-    } else {
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        append_stats(NULL, 0, NULL, 0, c);
         write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
         c->dynamic_buffer.buffer = NULL;
+        break;
+    case ENGINE_ENOMEM:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        break;
+    case ENGINE_KEY_ENOENT:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        break;
+    case ENGINE_DISCONNECT:
+        c->state = conn_closing;
+        break;
+    case ENGINE_ENOTSUP:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
+        break;
+    case ENGINE_EWOULDBLOCK:
+        c->ewouldblock = true;
+        break;
+    default:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
     }
 }
 
