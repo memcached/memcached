@@ -2334,7 +2334,7 @@ static void ship_tap_log(conn *c) {
             msg.mutation.message.header.request.extlen = 16;
             bodylen = 16 + (info.nbytes - 2) + info.nkey + nengine;
             msg.mutation.message.header.request.bodylen = htonl(bodylen);
-            msg.mutation.message.body.item.flags = info.flags;
+            msg.mutation.message.body.item.flags = htonl(info.flags);
             msg.mutation.message.body.item.expiration = htonl(info.exptime);
             msg.mutation.message.body.tap.enginespecific_length = htons(nengine);
             msg.mutation.message.body.tap.ttl = ttl;
