@@ -1813,6 +1813,7 @@ static void process_bin_stat(conn *c) {
                 topkeys_stats(tk, c, current_time, append_stats);
             } else {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+                return;
             }
         } else {
             ret = settings.engine.v1->get_stats(settings.engine.v0, c,
