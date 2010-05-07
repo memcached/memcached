@@ -321,7 +321,6 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         assert(me == c->thread);
         pending = pending->next;
         c->next = NULL;
-        assert(number_of_pending(c, me->pending_io) == 1);
         event_add(&c->event, 0);
         drive_machine(c);
     }
