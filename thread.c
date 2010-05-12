@@ -338,7 +338,9 @@ static void libevent_tap_process(int fd, short which, void *arg) {
 
     if (read(fd, buf, 1) != 1) {
         if (settings.verbose > 0) {
-            fprintf(stderr, "Can't read from libevent pipe\n");
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Can't read from libevent pipe: %s\n",
+                                            strerror(errno));
         }
     }
 
