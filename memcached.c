@@ -6052,9 +6052,9 @@ static bool load_engine(const char *soname, const char *config_str) {
                     }
                     offset += nw;
                 }
-                settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
-                                                "%s\n", message);
             }
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                            "%s\n", message);
         } else {
             settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
                                             "Loaded engine: Unknown\n");
