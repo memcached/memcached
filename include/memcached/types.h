@@ -7,8 +7,8 @@
 
 #ifdef __WIN32__
 struct iovec {
-    u_long iov_len;
-    char FAR* iov_base;
+    size_t iov_len;
+    void* iov_base;
 };
 #else
 #include <sys/uio.h>
