@@ -9,7 +9,8 @@ pkginclude_HEADERS = \
                      include/memcached/protocol_plugin.h \
                      include/memcached/server_api.h \
                      include/memcached/types.h \
-                     include/memcached/util.h
+                     include/memcached/util.h \
+                     include/memcached/visibility.h
 
 noinst_PROGRAMS = sizes testapp timedrun
 

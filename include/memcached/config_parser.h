@@ -2,18 +2,7 @@
 #define CONFIG_PARSER_H
 
 #include <stdint.h>
-
-#ifndef PUBLIC
-
-#if defined (__SUNPRO_C) && (__SUNPRO_C >= 0x550)
-#define PUBLIC __global
-#elif defined __GNUC__
-#define PUBLIC __attribute__ ((visibility("default")))
-#else
-#define PUBLIC
-#endif
-
-#endif
+#include <memcached/visibility.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,7 +54,7 @@ struct config_item {
  *         1 if config successfully parsed, but unknown tokens found
  *        -1 if illegal values was found in the config
  */
-PUBLIC int parse_config(const char *str, struct config_item items[], FILE *error);
+MEMCACHED_PUBLIC_API int parse_config(const char *str, struct config_item items[], FILE *error);
 
 #ifdef __cplusplus
 }

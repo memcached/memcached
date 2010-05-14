@@ -7,17 +7,7 @@
 #ifndef GENHASH_H
 #define GENHASH_H 1
 
-#ifndef PUBLIC
-
-#if defined (__SUNPRO_C) && (__SUNPRO_C >= 0x550)
-#define PUBLIC __global
-#elif defined __GNUC__
-#define PUBLIC __attribute__ ((visibility("default")))
-#else
-#define PUBLIC
-#endif
-
-#endif
+#include <memcached/visibility.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -95,7 +85,7 @@ enum update_type {
  *
  * @return the new genhash_t or NULL if one cannot be created
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 genhash_t* genhash_init(int est, struct hash_ops ops);
 
 /**
@@ -103,7 +93,7 @@ genhash_t* genhash_init(int est, struct hash_ops ops);
  *
  * @param h the genhash to free (may be NULL)
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 void genhash_free(genhash_t *h);
 
 /**
@@ -113,7 +103,7 @@ void genhash_free(genhash_t *h);
  * @param k the key
  * @param v the value
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 void genhash_store(genhash_t *h, const void *k, size_t klen,
                    const void *v, size_t vlen);
 
@@ -125,7 +115,7 @@ void genhash_store(genhash_t *h, const void *k, size_t klen,
  *
  * @return the value, or NULL if one cannot be found
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 void* genhash_find(genhash_t *h, const void *k, size_t klen);
 
 /**
@@ -136,7 +126,7 @@ void* genhash_find(genhash_t *h, const void *k, size_t klen);
  *
  * @return the number of items deleted
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 int genhash_delete(genhash_t *h, const void *k, size_t klen);
 
 /**
@@ -147,7 +137,7 @@ int genhash_delete(genhash_t *h, const void *k, size_t klen);
  *
  * @return the number of items deleted
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 int genhash_delete_all(genhash_t *h, const void *k, size_t klen);
 
 /**
@@ -160,7 +150,7 @@ int genhash_delete_all(genhash_t *h, const void *k, size_t klen);
  * @return an indicator of whether this created a new item or updated
  *         an existing one
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 enum update_type genhash_update(genhash_t *h, const void *k, size_t klen,
                                 const void *v, size_t vlen);
 
@@ -178,7 +168,7 @@ enum update_type genhash_update(genhash_t *h, const void *k, size_t klen,
  * @return an indicator of whether this created a new item or updated
  *         an existing one
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 enum update_type genhash_fun_update(genhash_t *h, const void *key, size_t klen,
                                     void *(*upd)(const void *k, const void *oldv,
                                                  size_t *ns, void *a),
@@ -193,7 +183,7 @@ enum update_type genhash_fun_update(genhash_t *h, const void *key, size_t klen,
  * @param iterfunc a function that will be called once for every k/v pair
  * @param arg an argument to be passed to the iterfunc on each iteration
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 void genhash_iter(genhash_t *h,
                   void (*iterfunc)(const void* key, size_t nkey,
                                    const void* val, size_t nval,
@@ -208,7 +198,7 @@ void genhash_iter(genhash_t *h,
  * @param iterfunc a function that will be called once for every k/v pair
  * @param arg an argument to be passed to the iterfunc on each iteration
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 void genhash_iter_key(genhash_t *h, const void* key, size_t nkey,
                       void (*iterfunc)(const void* key, size_t inkey,
                                        const void* val, size_t inval,
@@ -222,7 +212,7 @@ void genhash_iter_key(genhash_t *h, const void* key, size_t nkey,
  *
  * @return the number of entries in the hash table
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 int genhash_size(genhash_t *h);
 
 /**
@@ -232,7 +222,7 @@ int genhash_size(genhash_t *h);
  *
  * @return the number of items removed
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 int genhash_clear(genhash_t *h);
 
 /**
@@ -244,7 +234,7 @@ int genhash_clear(genhash_t *h);
  *
  * @return the number of entries keyed with the given key
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 int genhash_size_for_key(genhash_t *h, const void *k, size_t nkey);
 
 /**
@@ -254,7 +244,7 @@ int genhash_size_for_key(genhash_t *h, const void *k, size_t nkey);
  *
  * @return a hash value for this string.
  */
-PUBLIC
+MEMCACHED_PUBLIC_API
 int genhash_string_hash(const void *k, size_t nkey);
 
 /**

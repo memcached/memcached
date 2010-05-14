@@ -14,21 +14,8 @@
 #include <stdbool.h>
 
 #include <memcached/engine.h>
-
 #include <memcached/util.h>
-
-#ifndef PUBLIC
-
-#if defined (__SUNPRO_C) && (__SUNPRO_C >= 0x550)
-#define PUBLIC __global
-#elif defined __GNUC__
-#define PUBLIC __attribute__ ((visibility("default")))
-#else
-#define PUBLIC
-#endif
-
-#endif
-
+#include <memcached/visibility.h>
 
 /* Slab sizing definitions. */
 #define POWER_SMALLEST 1
@@ -75,7 +62,7 @@ struct config {
    size_t item_size_max;
 };
 
-PUBLIC
+MEMCACHED_PUBLIC_API
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle);
