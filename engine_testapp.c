@@ -81,6 +81,7 @@ static ENGINE_HANDLE_V1 *start_your_engines(const char* engine, const char* cfg)
 
     ENGINE_HANDLE *engine_handle = NULL;
 
+    init_mock_server(engine_handle);
     if(!load_engine(engine, &get_mock_server_api, logger_descriptor, &engine_handle)) {
         fprintf(stderr, "Failed to load engine %s.\n", engine);
         return NULL;
