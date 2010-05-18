@@ -1,4 +1,8 @@
-bin_PROGRAMS = memcached engine_testapp
+# Please list files alphabetically in the lists to reduce the risk for
+# a merge conflict.
+#
+bin_PROGRAMS = engine_testapp memcached
+noinst_PROGRAMS = sizes testapp timedrun
 pkginclude_HEADERS = \
                      include/memcached/callback.h \
                      include/memcached/config_parser.h \
@@ -15,36 +19,61 @@ pkginclude_HEADERS = \
                      include/memcached/util.h \
                      include/memcached/visibility.h
 
-noinst_PROGRAMS = sizes testapp timedrun
+lib_LTLIBRARIES = default_engine.la \
+                  example_protocol.la \
+                  stdin_term_handler.la
 
-BUILT_SOURCES=
+noinst_LTLIBRARIES=libmcd_util.la
 
+
+# Test application to test stuff from C
 testapp_SOURCES = testapp.c
-
 testapp_DEPENDENCIES= libmcd_util.la
 testapp_LDADD= libmcd_util.la
 
-engine_testapp_SOURCES = engine_testapp.c include/memcached/engine_testapp.h
-engine_testapp_DEPENDENCIES= libmcd_util.a
-engine_testapp_LDADD= libmcd_util.a
+# New and fancy test program to test engines without the need to run
+# everything through the network layer
+engine_testapp_SOURCES = \
+                        engine_testapp.c \
+                        include/memcached/engine_testapp.h
+engine_testapp_DEPENDENCIES= libmcd_util.la
+engine_testapp_LDADD= libmcd_util.la
 
+# Small application used start another application and terminate it after
+# a certain amount of time
 timedrun_SOURCES = timedrun.c
 
-memcached_SOURCES = memcached.c memcached.h \
-                    hash.c hash.h \
-                    thread.c daemon.c \
-                    stats.c stats.h \
-                    trace.h cache.h sasl_defs.h \
-                    topkeys.c topkeys.h
-
-libmcd_util_la_SOURCES= config_parser.c include/memcached/config_parser.h \
-                        util.c include/memcached/util.h \
-                        genhash.c genhash_int.h \
-                        include/memcached/genhash.h \
+# A collection of functions used by the various modules in memcached
+libmcd_util_la_SOURCES= \
+                        config_parser.c \
                         engine_loader.h engine_loader.c \
                         extension_loggers.c \
-                        mock_server.c
+                        genhash.c \
+                        genhash_int.h \
+                        include/memcached/config_parser.h \
+                        include/memcached/genhash.h \
+                        include/memcached/util.h \
+                        mock_server.c \
+                        util.c
 libmcd_util_la_LDFLAGS= -dynamic
+
+memcached_SOURCES = \
+                    cache.h \
+                    daemon.c \
+                    hash.c \
+                    hash.h \
+                    memcached.c\
+                    memcached.h \
+                    sasl_defs.h \
+                    stats.c stats.h \
+                    thread.c \
+                    topkeys.c \
+                    topkeys.h \
+                    trace.h
+memcached_LDFLAGS =-R '$(libdir)'
+memcached_CFLAGS = @PROFILER_FLAGS@
+memcached_DEPENDENCIES = libmcd_util.la
+memcached_LDADD = @PROFILER_LDFLAGS@ libmcd_util.la
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c
@@ -59,18 +88,16 @@ if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
 
-memcached_LDADD = @PROFILER_LDFLAGS@
-
 if ENABLE_ISASL
 memcached_SOURCES += sasl_defs.c isasl.c
 endif
 
-memcached_LDFLAGS =-R '$(libdir)'
-memcached_CFLAGS = @PROFILER_FLAGS@
-memcached_DEPENDENCIES =
+if INCLUDE_DEFAULT_ENGINE
+memcached_SOURCES += $(default_engine_la_SOURCES)
+endif
 
 CLEANFILES=
-
+BUILT_SOURCES=
 
 if BUILD_DTRACE
 BUILT_SOURCES += memcached_dtrace.h
@@ -83,37 +110,27 @@ memcached_DEPENDENCIES += memcached_dtrace.o
 CLEANFILES += memcached_dtrace.o
 endif
 
-lib_LTLIBRARIES = default_engine.la \
-                  example_protocol.la \
-                  stdin_term_handler.la
-
-noinst_LTLIBRARIES=libmcd_util.la
-
+# The default storage engine
 default_engine_la_SOURCES= \
-                    assoc.c assoc.h \
-                    default_engine.c default_engine.h \
-                    items.c items.h \
-                    slabs.c slabs.h
-
-default_engine_la_SOURCES += $(libmcd_util_la_SOURCES)
-default_engine_la_DEPENDENCIES=
-default_engine_la_LIBADD=
+                    assoc.c \
+                    assoc.h \
+                    default_engine.c \
+                    default_engine.h \
+                    items.c \
+                    items.h \
+                    slabs.c \
+                    slabs.h
+default_engine_la_DEPENDENCIES= libmcd_util.la
+default_engine_la_LIBADD= libmcd_util.la
 default_engine_la_LDFLAGS= -module -dynamic
 
+# An extension that will shut down memcached if standard input is closed
 stdin_term_handler_la_SOURCES= stdin_check.c stdin_check.h
-stdin_term_handler_la_SOURCES += $(libmcd_util_la_SOURCES)
-stdin_term_handler_la_DEPENDENCIES=
-stdin_term_handler_la_LIBADD=
 stdin_term_handler_la_LDFLAGS= -module -dynamic
 
+# An example extension that extends the ascii protocol with noop and echo
 example_protocol_la_SOURCES= example_protocol.c example_protocol.h
 example_protocol_la_LDFLAGS= -module -dynamic
-
-if INCLUDE_DEFAULT_ENGINE
-memcached_SOURCES += $(default_engine_la_SOURCES)
-endif
-
-memcached_SOURCES += $(libmcd_util_la_SOURCES)
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d
