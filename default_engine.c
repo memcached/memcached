@@ -28,7 +28,8 @@ static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
                                              const void* cookie,
                                              const void* key,
                                              const size_t nkey,
-                                             uint64_t cas);
+                                             uint64_t cas,
+                                             uint16_t vbucket);
 
 static void default_item_release(ENGINE_HANDLE* handle, const void *cookie,
                                  item* item);
@@ -36,7 +37,8 @@ static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
                                      const void* cookie,
                                      item** item,
                                      const void* key,
-                                     const int nkey);
+                                     const int nkey,
+                                     uint16_t vbucket);
 static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
                   const void *cookie,
                   const char *stat_key,
@@ -47,7 +49,8 @@ static ENGINE_ERROR_CODE default_store(ENGINE_HANDLE* handle,
                                        const void *cookie,
                                        item* item,
                                        uint64_t *cas,
-                                       ENGINE_STORE_OPERATION operation);
+                                       ENGINE_STORE_OPERATION operation,
+                                       uint16_t vbucket);
 static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
                                             const void* cookie,
                                             const void* key,
@@ -58,7 +61,8 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
                                             const uint64_t initial,
                                             const rel_time_t exptime,
                                             uint64_t *cas,
-                                            uint64_t *result);
+                                            uint64_t *result,
+                                            uint16_t vbucket);
 static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
                                        const void* cookie, time_t when);
 static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
@@ -228,8 +232,12 @@ static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
                                              const void* cookie,
                                              const void* key,
                                              const size_t nkey,
-                                             uint64_t cas)
+                                             uint64_t cas,
+                                             uint16_t vbucket)
 {
+   if (vbucket != 0) {
+      return ENGINE_ENOTSUP;
+   }
    struct default_engine* engine = get_handle(handle);
    hash_item *it = item_get(engine, key, nkey);
    if (it == NULL) {
@@ -256,7 +264,11 @@ static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
                                      const void* cookie,
                                      item** item,
                                      const void* key,
-                                     const int nkey) {
+                                     const int nkey,
+                                     uint16_t vbucket) {
+   if (vbucket != 0) {
+      return ENGINE_ENOTSUP;
+   }
    *item = item_get(get_handle(handle), key, nkey);
    if (*item != NULL) {
       return ENGINE_SUCCESS;
@@ -309,7 +321,12 @@ static ENGINE_ERROR_CODE default_store(ENGINE_HANDLE* handle,
                                        const void *cookie,
                                        item* item,
                                        uint64_t *cas,
-                                       ENGINE_STORE_OPERATION operation) {
+                                       ENGINE_STORE_OPERATION operation,
+                                       uint16_t vbucket) {
+   if (vbucket != 0) {
+      return ENGINE_ENOTSUP;
+   }
+
    return store_item(get_handle(handle), get_real_item(item), cas, operation,
                      cookie);
 }
@@ -324,7 +341,12 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
                                             const uint64_t initial,
                                             const rel_time_t exptime,
                                             uint64_t *cas,
-                                            uint64_t *result) {
+                                            uint64_t *result,
+                                            uint16_t vbucket) {
+   if (vbucket != 0) {
+      return ENGINE_ENOTSUP;
+   }
+
    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
    struct default_engine *engine = get_handle(handle);
    hash_item *item = item_get(engine, key, nkey);
@@ -347,7 +369,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
             item_release(engine, item);
             return default_arithmetic(handle, cookie, key, nkey, increment,
                                       create, delta, initial, exptime, cas,
-                                      result);
+                                      result, vbucket);
          }
 
          *result = initial;

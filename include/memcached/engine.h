@@ -141,6 +141,7 @@ extern "C" {
      * @param ttl ttl for this item (Tap stream hops)
      * @param flags tap flags for this object
      * @param seqno sequence number to send
+     * @param vbucket the virtual bucket id
      * @return the tap event to send (or TAP_PAUSE if there isn't any events)
      */
     typedef tap_event_t (*TAP_ITERATOR)(ENGINE_HANDLE* handle,
@@ -150,7 +151,8 @@ extern "C" {
                                         uint16_t *nengine_specific,
                                         uint8_t *ttl,
                                         uint16_t *flags,
-                                        uint32_t *seqno);
+                                        uint32_t *seqno,
+                                        uint16_t *vbucket);
 
     /**
      * The signature for the "create_instance" function exported from the module.
@@ -174,8 +176,10 @@ extern "C" {
         ENGINE_FEATURE_SECONDARY_ENGINE, /**< performs as pseudo engine */
         ENGINE_FEATURE_ACCESS_CONTROL, /**< has access control feature */
         ENGINE_FEATURE_MULTI_TENANCY,
-        ENGINE_FEATURE_LRU /* Cache implements an LRU */
-#define LAST_REGISTERED_ENGINE_FEATURE ENGINE_FEATURE_LRU
+        ENGINE_FEATURE_LRU, /* Cache implements an LRU */
+        ENGINE_FEATURE_VBUCKET /* Cache implements virtual buckets */
+
+#define LAST_REGISTERED_ENGINE_FEATURE ENGINE_FEATURE_VBUCKET
     } engine_feature_t;
 
     typedef struct {
@@ -275,6 +279,7 @@ extern "C" {
          * @param cookie The cookie provided by the frontend
          * @param key the key identifying the item to be removed
          * @param nkey the length of the key
+         * @param vbucket the virtual bucket id
          *
          * @return ENGINE_SUCCESS if all goes well
          */
@@ -282,7 +287,8 @@ extern "C" {
                                     const void* cookie,
                                     const void* key,
                                     const size_t nkey,
-                                    uint64_t cas);
+                                    uint64_t cas,
+                                    uint16_t vbucket);
 
         /**
          * Indicate that a caller who received an item no longer needs
@@ -304,6 +310,7 @@ extern "C" {
          * @param item output variable that will receive the located item
          * @param key the key to look up
          * @param nkey the length of the key
+         * @param vbucket the virtual bucket id
          *
          * @return ENGINE_SUCCESS if all goes well
          */
@@ -311,7 +318,8 @@ extern "C" {
                                  const void* cookie,
                                  item** item,
                                  const void* key,
-                                 const int nkey);
+                                 const int nkey,
+                                 uint16_t vbucket);
 
         /**
          * Store an item.
@@ -321,6 +329,7 @@ extern "C" {
          * @param item the item to store
          * @param cas the CAS value for conditional sets
          * @param operation the type of store operation to perform.
+         * @param vbucket the virtual bucket id
          *
          * @return ENGINE_SUCCESS if all goes well
          */
@@ -328,7 +337,8 @@ extern "C" {
                                    const void *cookie,
                                    item* item,
                                    uint64_t *cas,
-                                   ENGINE_STORE_OPERATION operation);
+                                   ENGINE_STORE_OPERATION operation,
+                                   uint16_t vbucket);
 
         /**
          * Perform an increment or decrement operation on an item.
@@ -344,6 +354,7 @@ extern "C" {
          * @param exptime when creating, specifies the expiration time
          * @param cas output CAS value
          * @param result output arithmetic value
+         * @param vbucket the virtual bucket id
          *
          * @return ENGINE_SUCCESS if all goes well
          */
@@ -357,7 +368,8 @@ extern "C" {
                                         const uint64_t initial,
                                         const rel_time_t exptime,
                                         uint64_t *cas,
-                                        uint64_t *result);
+                                        uint64_t *result,
+                                        uint16_t vbucket);
 
         /**
          * Flush the cache.
@@ -453,6 +465,7 @@ extern "C" {
          * @param cas the cas for the item
          * @param data the data for the item
          * @param ndata the number of bytes in the object
+         * @param vbucket the virtual bucket for the object
          * @return ENGINE_SUCCESS for success
          */
         ENGINE_ERROR_CODE (*tap_notify)(ENGINE_HANDLE* handle,
@@ -469,7 +482,8 @@ extern "C" {
                                         uint32_t exptime,
                                         uint64_t cas,
                                         const void *data,
-                                        size_t ndata);
+                                        size_t ndata,
+                                        uint16_t vbucket);
 
         /**
          * Get (or create) a Tap iterator for this connection.
@@ -507,6 +521,22 @@ extern "C" {
         bool (*get_item_info)(ENGINE_HANDLE *handle,
                               const item* item,
                               item_info *item_info);
+
+
+        /**
+         * Get extra error information for an operation.
+         *
+         * @param handle the engine handle
+         * @param cookie The connection cookie
+         * @param buffer Where to store the info
+         * @param buffsz The size of the buffer
+         * @return the number of bytes written to the buffer
+         */
+        size_t (*errinfo)(ENGINE_HANDLE *handle, const void* cookie,
+                          char *buffer, size_t buffsz);
+
+
+
     } ENGINE_HANDLE_V1;
 
     /**

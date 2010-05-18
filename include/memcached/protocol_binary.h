@@ -73,6 +73,7 @@ extern "C"
         PROTOCOL_BINARY_RESPONSE_EINVAL = 0x04,
         PROTOCOL_BINARY_RESPONSE_NOT_STORED = 0x05,
         PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL = 0x06,
+        PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET = 0x07,
         PROTOCOL_BINARY_RESPONSE_AUTH_ERROR = 0x20,
         PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE = 0x21,
         PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND = 0x81,
@@ -168,7 +169,7 @@ extern "C"
             uint16_t keylen;
             uint8_t extlen;
             uint8_t datatype;
-            uint16_t reserved;
+            uint16_t vbucket;
             uint32_t bodylen;
             uint32_t opaque;
             uint64_t cas;

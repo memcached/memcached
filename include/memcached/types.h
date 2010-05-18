@@ -40,6 +40,7 @@ extern "C" {
                                     * have more data available. */
         ENGINE_DISCONNECT  = 0x0a, /**< Tell the server to disconnect this client */
         ENGINE_EACCESS     = 0x0b, /**< Access control violations */
+        ENGINE_NOT_MY_VBUCKET = 0x0c, /** < This vbucket doesn't belong to me */
         ENGINE_FAILED      = 0xff  /**< Generic failue. */
     } ENGINE_ERROR_CODE;
 

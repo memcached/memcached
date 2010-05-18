@@ -1036,7 +1036,7 @@ static void complete_update_ascii(conn *c) {
     } else {
         ENGINE_ERROR_CODE ret = settings.engine.v1->store(settings.engine.v0, c,
                                                           it, &c->cas,
-                                                          c->store_op);
+                                                          c->store_op, 0);
 #ifdef ENABLE_DTRACE
         switch (c->store_op) {
         case OPERATION_ADD:
@@ -1247,58 +1247,72 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
 }
 
 static void write_bin_error(conn *c, protocol_binary_response_status err, int swallow) {
-    const char *errstr = "Unknown error";
-    size_t len;
+    ssize_t len;
+    char buffer[1024];
 
     switch (err) {
     case PROTOCOL_BINARY_RESPONSE_ENOMEM:
-        errstr = "Out of memory";
+        len = snprintf(buffer, sizeof(buffer), "Out of memory");
         break;
     case PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND:
-        errstr = "Unknown command";
+        len = snprintf(buffer, sizeof(buffer), "Unknown command");
         break;
     case PROTOCOL_BINARY_RESPONSE_KEY_ENOENT:
-        errstr = "Not found";
+        len = snprintf(buffer, sizeof(buffer), "Not found");
         break;
     case PROTOCOL_BINARY_RESPONSE_EINVAL:
-        errstr = "Invalid arguments";
+        len = snprintf(buffer, sizeof(buffer), "Invalid arguments");
         break;
     case PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS:
-        errstr = "Data exists for key.";
+        len = snprintf(buffer, sizeof(buffer), "Data exists for key");
         break;
     case PROTOCOL_BINARY_RESPONSE_E2BIG:
-        errstr = "Too large.";
+        len = snprintf(buffer, sizeof(buffer), "Too large");
         break;
     case PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL:
-        errstr = "Non-numeric server-side value for incr or decr";
+        len = snprintf(buffer, sizeof(buffer),
+                       "Non-numeric server-side value for incr or decr");
         break;
     case PROTOCOL_BINARY_RESPONSE_NOT_STORED:
-        errstr = "Not stored.";
+        len = snprintf(buffer, sizeof(buffer), "Not stored");
         break;
     case PROTOCOL_BINARY_RESPONSE_AUTH_ERROR:
-        errstr = "Auth failure.";
+        len = snprintf(buffer, sizeof(buffer), "Auth failure");
         break;
     case PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED:
-        errstr = "Not supported.";
+        len = snprintf(buffer, sizeof(buffer), "Not supported");
         break;
+    case PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET:
+        len = snprintf(buffer, sizeof(buffer),
+                       "I'm not responsible for this vbucket");
+        break;
+
     default:
-        errstr = "UNHANDLED ERROR";
+        len = snprintf(buffer, sizeof(buffer), "UNHANDLED ERROR (%d)", err);
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
-                ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
+                                        ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
+    }
+
+    /* Allow the engine to pass extra error information */
+    if (settings.engine.v1->errinfo != NULL) {
+        buffer[len++] = ':';
+        buffer[len++] = ' ';
+        len += settings.engine.v1->errinfo(settings.engine.v0, c, buffer + len,
+                                           sizeof(buffer) - len - 1);
     }
 
     if (settings.verbose > 1) {
         settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
-                                        ">%d Writing an error: %s\n", c->sfd, errstr);
+                                        ">%d Writing an error: %s\n", c->sfd,
+                                        buffer);
     }
 
-    len = strlen(errstr);
     add_bin_header(c, err, 0, 0, len);
     if (len > 0) {
-        add_iov(c, errstr, len);
+        add_iov(c, buffer, len);
     }
     conn_set_state(c, conn_mwrite);
-    if(swallow > 0) {
+    if (swallow > 0) {
         c->sbytes = swallow;
         c->write_and_go = conn_swallow;
     } else {
@@ -1359,8 +1373,12 @@ static void complete_incr_bin(conn *c) {
     ret = settings.engine.v1->arithmetic(settings.engine.v0,
                                          c, key, nkey, incr,
                                          req->message.body.expiration != 0xffffffff,
-                                         req->message.body.delta, req->message.body.initial,
-                                         req->message.body.expiration, &c->cas, &rsp->message.body.value);
+                                         req->message.body.delta,
+                                         req->message.body.initial,
+                                         req->message.body.expiration,
+                                         &c->cas,
+                                         &rsp->message.body.value,
+                                         c->binary_header.request.vbucket);
 
     switch (ret) {
     case ENGINE_SUCCESS:
@@ -1399,6 +1417,9 @@ static void complete_incr_bin(conn *c) {
     case ENGINE_ENOTSUP:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
         break;
+    case ENGINE_NOT_MY_VBUCKET:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET, 0);
+        break;
     default:
         abort();
     }
@@ -1425,7 +1446,8 @@ static void complete_update_bin(conn *c) {
     c->aiostat = ENGINE_SUCCESS;
     if (ret == ENGINE_SUCCESS) {
         ret = settings.engine.v1->store(settings.engine.v0, c,
-                                        it, &c->cas, c->store_op);
+                                        it, &c->cas, c->store_op,
+                                        c->binary_header.request.vbucket);
     }
 
 #ifdef ENABLE_DTRACE
@@ -1473,6 +1495,9 @@ static void complete_update_bin(conn *c) {
     case ENGINE_ENOTSUP:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
         break;
+    case ENGINE_NOT_MY_VBUCKET:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET, 0);
+        break;
     default:
         if (c->store_op == OPERATION_ADD) {
             eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
@@ -1512,7 +1537,8 @@ static void process_bin_get(conn *c) {
     ENGINE_ERROR_CODE ret = c->aiostat;
     c->aiostat = ENGINE_SUCCESS;
     if (ret == ENGINE_SUCCESS) {
-        ret = settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey);
+        ret = settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey,
+                                      c->binary_header.request.vbucket);
     }
 
     uint16_t keylen;
@@ -1585,6 +1611,9 @@ static void process_bin_get(conn *c) {
         break;
     case ENGINE_ENOTSUP:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
+        break;
+    case ENGINE_NOT_MY_VBUCKET:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET, 0);
         break;
     default:
         /* @todo add proper error handling! */
@@ -2257,10 +2286,11 @@ static void ship_tap_log(conn *c) {
         uint8_t ttl;
         uint16_t tap_flags;
         uint32_t seqno;
+        uint16_t vbucket;
 
         tap_event_t event = c->tap_iterator(settings.engine.v0, c, &it,
                                             &engine, &nengine, &ttl,
-                                            &tap_flags, &seqno);
+                                            &tap_flags, &seqno, &vbucket);
         union {
             protocol_binary_request_tap_mutation mutation;
             protocol_binary_request_tap_delete delete;
@@ -2520,7 +2550,8 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
                                          key, nkey,
                                          flags, exptime,
                                          ntohll(tap->message.header.request.cas),
-                                         data, ndata);
+                                         data, ndata,
+                                         c->binary_header.request.vbucket);
 
     /* @todo we don't do acks at this time */
     conn_set_state(c, conn_new_cmd);
@@ -2870,7 +2901,8 @@ static void process_bin_update(conn *c) {
         if (c->cmd == PROTOCOL_BINARY_CMD_SET) {
             /* @todo fix this for the ASYNC interface! */
             settings.engine.v1->remove(settings.engine.v0, c, key, nkey,
-                                       ntohll(req->message.header.request.cas));
+                                       ntohll(req->message.header.request.cas),
+                                       c->binary_header.request.vbucket);
         }
 
         /* swallow the data line */
@@ -3003,7 +3035,8 @@ static void process_bin_delete(conn *c) {
 
     ENGINE_ERROR_CODE ret;
     ret = settings.engine.v1->remove(settings.engine.v0, c, key, nkey,
-                                     ntohll(req->message.header.request.cas));
+                                     ntohll(req->message.header.request.cas),
+                                     c->binary_header.request.vbucket);
     switch (ret) {
     case ENGINE_SUCCESS:
         write_bin_response(c, NULL, 0, 0, 0);
@@ -3013,6 +3046,9 @@ static void process_bin_delete(conn *c) {
         break;
     case ENGINE_KEY_ENOENT:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        break;
+    case ENGINE_NOT_MY_VBUCKET:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET, 0);
         break;
     default:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
@@ -3627,7 +3663,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             }
 
             if (settings.engine.v1->get(settings.engine.v0, c, &it,
-                                        key, nkey) != ENGINE_SUCCESS) {
+                                        key, nkey, 0) != ENGINE_SUCCESS) {
                 it = NULL;
             }
 
@@ -3862,7 +3898,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (store_op == OPERATION_SET) {
-            settings.engine.v1->remove(settings.engine.v0, c, key, nkey, 0);
+            settings.engine.v1->remove(settings.engine.v0, c, key, nkey, 0, 0);
         }
     }
 }
@@ -3895,7 +3931,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     uint64_t result;
     ret = settings.engine.v1->arithmetic(settings.engine.v0, c, key, nkey,
                                          incr, false, delta, 0, 0, &cas,
-                                         &result);
+                                         &result, 0);
 
     char temp[INCR_MAX_STORAGE_LEN];
     switch (ret) {
@@ -3968,7 +4004,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     }
 
     ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->remove(settings.engine.v0, c, key, nkey, 0);
+    ret = settings.engine.v1->remove(settings.engine.v0, c, key, nkey, 0, 0);
 
     /* For some reason the SLAB_INCR tries to access this... */
     item_info info = { .nvalue = 1 };
@@ -4216,6 +4252,7 @@ static int try_read_command(conn *c) {
             c->binary_header = *req;
             c->binary_header.request.keylen = ntohs(req->request.keylen);
             c->binary_header.request.bodylen = ntohl(req->request.bodylen);
+            c->binary_header.request.vbucket = ntohs(req->request.vbucket);
             c->binary_header.request.cas = ntohll(req->request.cas);
 
             if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
@@ -5620,14 +5657,15 @@ static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
                                              const uint64_t initial,
                                              const rel_time_t exptime,
                                              uint64_t *cas,
-                                             uint64_t *result)
+                                             uint64_t *result,
+                                             uint16_t vbucket)
 {
     ENGINE_HANDLE_V1 *e = (ENGINE_HANDLE_V1*)handle;
 
     item *it = NULL;
 
     ENGINE_ERROR_CODE ret;
-    ret = e->get(handle, cookie, &it, key, nkey);
+    ret = e->get(handle, cookie, &it, key, nkey, vbucket);
 
     if (ret == ENGINE_SUCCESS) {
         item_info info = { .nvalue = 1 };
@@ -5681,7 +5719,7 @@ static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
 
         memcpy(i2.value[0].iov_base, value, nb);
         e->item_set_cas(handle, nit, info.cas);
-        ret = e->store(handle, cookie, nit, cas, OPERATION_CAS);
+        ret = e->store(handle, cookie, nit, cas, OPERATION_CAS, vbucket);
         e->release(handle, cookie, it);
         e->release(handle, cookie, nit);
     } else if (ret == ENGINE_KEY_ENOENT && create) {
@@ -5700,14 +5738,14 @@ static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
         }
 
         memcpy(info.value[0].iov_base, value, nb);
-        ret = e->store(handle, cookie, it, cas, OPERATION_CAS);
+        ret = e->store(handle, cookie, it, cas, OPERATION_CAS, vbucket);
         e->release(handle, cookie, it);
     }
 
     /* We had a race condition.. just call ourself recursively to retry */
     if (ret == ENGINE_KEY_EEXISTS) {
         return internal_arithmetic(handle, cookie, key, nkey, increment, create, delta,
-                                   initial, exptime, cas, result);
+                                   initial, exptime, cas, result, vbucket);
     }
 
     return ret;
