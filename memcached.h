@@ -103,30 +103,6 @@
 #define APPEND_NUM_STAT(num, name, fmt, val) \
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
-
-/*
- * NOTE: If you modify this table you _MUST_ update the function state_text
- */
-/**
- * Possible states of a connection.
- */
-enum conn_states {
-    conn_listening,  /**< the socket which listens for connections */
-    conn_new_cmd,    /**< Prepare connection for next command */
-    conn_waiting,    /**< waiting for a readable socket */
-    conn_read,       /**< reading in a command line */
-    conn_parse_cmd,  /**< try to parse a command from the input buffer */
-    conn_write,      /**< writing out a simple response */
-    conn_nread,      /**< reading in a fixed number of bytes */
-    conn_swallow,    /**< swallowing unnecessary bytes w/o storing */
-    conn_closing,    /**< closing this connection */
-    conn_mwrite,     /**< writing out many items sequentially */
-    conn_create_tap_connect, /**< Create the tap command message */
-    conn_ship_log, /**< Ship replication log */
-    conn_add_tap_client, /**< Move the tap client into the tap thread */
-    conn_max_state   /**< Max state value (used for assertion) */
-};
-
 enum bin_substates {
     bin_no_state,
     bin_reading_set_header,
@@ -303,14 +279,18 @@ typedef struct {
     struct event_base *base;    /* libevent handle this thread uses */
 } LIBEVENT_DISPATCHER_THREAD;
 
+
+typedef struct conn conn;
+typedef bool (*STATE_FUNC)(conn *);
+
 /**
  * The structure representing a connection into memcached.
  */
-typedef struct conn conn;
 struct conn {
     int    sfd;
+    short  nevents;
     sasl_conn_t *sasl_conn;
-    enum conn_states  state;
+    STATE_FUNC   state;
     enum bin_substates substate;
     struct event event;
     short  ev_flags;
@@ -326,7 +306,7 @@ struct conn {
     int    wsize;
     int    wbytes;
     /** which state to go into after finishing current write */
-    enum conn_states  write_and_go;
+    STATE_FUNC   write_and_go;
     void   *write_and_free; /** free this memory after finishing writing */
 
     char   *ritem;  /** when we read in an item's value, it goes here */
@@ -411,7 +391,9 @@ struct conn {
 /*
  * Functions
  */
-conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
+conn *conn_new(const int sfd, STATE_FUNC init_state, const int event_flags,
+               const int read_buffer_size, enum network_transport transport,
+               struct event_base *base);
 extern int daemonize(int nochdir, int noclose);
 
 
@@ -431,7 +413,8 @@ void thread_init(int nthreads, struct event_base *main_base);
 void threads_shutdown(void);
 
 int  dispatch_event_add(int thread, conn *c);
-void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
+void dispatch_conn_new(int sfd, STATE_FUNC init_state, int event_flags,
+                       int read_buffer_size, enum network_transport transport);
 
 /* Lock wrappers for cache functions that are called from main loop. */
 void accept_new_conns(const bool do_accept);
@@ -451,7 +434,6 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
 
 void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status);
-void drive_machine(conn *c);
 
 // Number of times this connection is in the given pending list
 int number_of_pending(conn *c, conn *pending);
@@ -463,6 +445,21 @@ extern void drop_privileges(void);
 #else
 #define drop_privileges()
 #endif
+
+/* connection state machine */
+bool conn_listening(conn *c);
+bool conn_new_cmd(conn *c);
+bool conn_waiting(conn *c);
+bool conn_read(conn *c);
+bool conn_parse_cmd(conn *c);
+bool conn_write(conn *c);
+bool conn_nread(conn *c);
+bool conn_swallow(conn *c);
+bool conn_closing(conn *c);
+bool conn_mwrite(conn *c);
+bool conn_create_tap_connect(conn *c);
+bool conn_ship_log(conn *c);
+bool conn_add_tap_client(conn *c);
 
 /* If supported, give compiler hints for branch prediction. */
 #if !defined(__GNUC__) || (__GNUC__ == 2 && __GNUC_MINOR__ < 96)

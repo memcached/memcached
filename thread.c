@@ -21,7 +21,7 @@ extern volatile sig_atomic_t memcached_shutdown;
 typedef struct conn_queue_item CQ_ITEM;
 struct conn_queue_item {
     int               sfd;
-    enum conn_states  init_state;
+    STATE_FUNC        init_state;
     int               event_flags;
     int               read_buffer_size;
     enum network_transport     transport;
@@ -322,7 +322,11 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         pending = pending->next;
         c->next = NULL;
         event_add(&c->event, 0);
-        drive_machine(c);
+
+        c->nevents = settings.reqs_per_event;
+        while (c->state(c)) {
+            /* do task */
+        }
     }
 }
 
@@ -363,7 +367,10 @@ static void libevent_tap_process(int fd, short which, void *arg) {
         assert(number_of_pending(c, pending) == 0);
         event_add(&c->event, 0);
         UNLOCK_THREAD(me);
-        drive_machine(c);
+        c->nevents = settings.reqs_per_event;
+        while (c->state(c)) {
+            /* do task */
+        }
     }
 }
 
@@ -422,7 +429,7 @@ static int last_thread = -1;
  * from the main thread, either during initialization (for UDP) or because
  * of an incoming connection.
  */
-void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
+void dispatch_conn_new(int sfd, STATE_FUNC init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport) {
     CQ_ITEM *item = cqi_new();
     int tid = (last_thread + 1) % settings.num_threads;

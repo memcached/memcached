@@ -184,7 +184,7 @@ enum try_read_result {
 static enum try_read_result try_read_network(conn *c);
 static enum try_read_result try_read_udp(conn *c);
 
-static void conn_set_state(conn *c, enum conn_states state);
+static void conn_set_state(conn *c, STATE_FUNC state);
 
 /* stats */
 static void stats_init(void);
@@ -527,7 +527,7 @@ static void conn_destructor(void *buffer, void *unused) {
     STATS_UNLOCK();
 }
 
-conn *conn_new(const int sfd, enum conn_states init_state,
+conn *conn_new(const int sfd, STATE_FUNC init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
                 struct event_base *base) {
@@ -794,21 +794,36 @@ static void conn_shrink(conn *c) {
 /**
  * Convert a state name to a human readable form.
  */
-static const char *state_text(enum conn_states state) {
-    const char* const statenames[] = { "conn_listening",
-                                       "conn_new_cmd",
-                                       "conn_waiting",
-                                       "conn_read",
-                                       "conn_parse_cmd",
-                                       "conn_write",
-                                       "conn_nread",
-                                       "conn_swallow",
-                                       "conn_closing",
-                                       "conn_mwrite",
-                                       "conn_create_tap_connect",
-                                       "conn_ship_log",
-                                       "conn_add_tap_client"};
-    return statenames[state];
+static const char *state_text(STATE_FUNC state) {
+    if (state == conn_listening) {
+        return "conn_listening";
+    } else if (state == conn_new_cmd) {
+        return "conn_new_cmd";
+    } else if (state == conn_waiting) {
+        return "conn_waiting";
+    } else if (state == conn_read) {
+        return "conn_read";
+    } else if (state == conn_parse_cmd) {
+        return "conn_parse_cmd";
+    } else if (state == conn_write) {
+        return "conn_write";
+    } else if (state == conn_nread) {
+        return "conn_nread";
+    } else if (state == conn_swallow) {
+        return "conn_swallow";
+    } else if (state == conn_closing) {
+        return "conn_closing";
+    } else if (state == conn_mwrite) {
+        return "conn_mwrite";
+    } else if (state == conn_create_tap_connect) {
+        return "conn_create_tap_connect";
+    } else if (state == conn_ship_log) {
+        return "conn_ship_log";
+    } else if (state == conn_add_tap_client) {
+        return "conn_add_tap_client";
+    } else {
+        return "Unknown";
+    }
 }
 
 /*
@@ -816,9 +831,8 @@ static const char *state_text(enum conn_states state) {
  * processing that needs to happen on certain state transitions can
  * happen here.
  */
-static void conn_set_state(conn *c, enum conn_states state) {
+static void conn_set_state(conn *c, STATE_FUNC state) {
     assert(c != NULL);
-    assert(state >= conn_listening && state < conn_max_state);
 
     if (state != c->state) {
         if (settings.verbose > 2) {
@@ -4467,389 +4481,383 @@ static enum transmit_result transmit(conn *c) {
     }
 }
 
-void drive_machine(conn *c) {
-    bool stop = false;
+bool conn_listening(conn *c)
+{
     int sfd, flags = 1;
-    socklen_t addrlen;
     struct sockaddr_storage addr;
-    int nreqs = settings.reqs_per_event;
-    int res;
+    socklen_t addrlen = sizeof(addr);
 
-    assert(c != NULL);
-
-    while (!stop) {
-
-        switch(c->state) {
-        case conn_listening:
-            addrlen = sizeof(addr);
-            if ((sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen)) == -1) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    /* these are transient, so don't log anything */
-                    stop = true;
-                } else if (errno == EMFILE) {
-                    if (settings.verbose > 0) {
-                        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                 "Too many open connections\n");
-                    }
-                    (void)close(sfd);
-                    stop = true;
-                } else {
-                    perror("accept()");
-                    (void)close(sfd);
-                    stop = true;
-                }
-                break;
-            }
-
-            {
-                STATS_LOCK();
-                int curr_conns = stats.curr_conns;
-                STATS_UNLOCK();
-
-                if (curr_conns >= settings.maxconns) {
-                    STATS_LOCK();
-                    ++stats.rejected_conns;
-                    STATS_UNLOCK();
-
-                    if (settings.verbose > 0) {
-                        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                "Too many open connections\n");
-                    }
-                    (void)close(sfd);
-                    stop = true;
-                    break;
-                }
-            }
-
-            if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
-                fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
-                perror("setting O_NONBLOCK");
-                close(sfd);
-                break;
-            }
-
-            dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, tcp_transport);
-            stop = true;
-            break;
-
-        case conn_create_tap_connect:
-            send_tap_connect(c);
-            break;
-
-        case conn_ship_log:
-            LOCK_THREAD(c->thread);
-            c->ewouldblock = false;
-            ship_tap_log(c);
-            if (c->ewouldblock) {
-                event_del(&c->event);
-                stop = 1;
-            }
-            UNLOCK_THREAD(c->thread);
-            break;
-
-        case conn_waiting:
-            if (!update_event(c, EV_READ | EV_PERSIST)) {
-                if (settings.verbose > 0) {
-                    settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                             "Couldn't update event\n");
-                }
-                conn_set_state(c, conn_closing);
-                break;
-            }
-
-            conn_set_state(c, conn_read);
-            stop = true;
-            break;
-
-        case conn_read:
-            res = IS_UDP(c->transport) ? try_read_udp(c) : try_read_network(c);
-
-            switch (res) {
-            case READ_NO_DATA_RECEIVED:
-                conn_set_state(c, conn_waiting);
-                break;
-            case READ_DATA_RECEIVED:
-                conn_set_state(c, conn_parse_cmd);
-                break;
-            case READ_ERROR:
-                conn_set_state(c, conn_closing);
-                break;
-            case READ_MEMORY_ERROR: /* Failed to allocate more memory */
-                /* State already set by try_read_network */
-                break;
-            }
-            break;
-
-        case conn_parse_cmd :
-            if (try_read_command(c) == 0) {
-                /* wee need more data! */
-                conn_set_state(c, conn_waiting);
-            }
-
-            break;
-
-        case conn_new_cmd:
-            /* Only process nreqs at a time to avoid starving other
-               connections */
-
-            --nreqs;
-            if (nreqs >= 0) {
-                reset_cmd_handler(c);
-            } else {
-                STATS_NOKEY(c, conn_yields);
-                if (c->rbytes > 0) {
-                    /* We have already read in data into the input buffer,
-                       so libevent will most likely not signal read events
-                       on the socket (unless more data is available. As a
-                       hack we should just put in a request to write data,
-                       because that should be possible ;-)
-                    */
-                    if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                        if (settings.verbose > 0) {
-                            settings.extensions.logger->log(EXTENSION_LOG_INFO,
-                                     c, "Couldn't update event\n");
-                        }
-                        conn_set_state(c, conn_closing);
-                    }
-                }
-                stop = true;
-            }
-            break;
-
-        case conn_nread:
-            if (c->rlbytes == 0) {
-                LIBEVENT_THREAD *t = c->thread;
-                LOCK_THREAD(t);
-                c->ewouldblock = false;
-                complete_nread(c);
-                UNLOCK_THREAD(t);
-                /* Breaking this into two, as complete_nread may have
-                   moved us to a different thread */
-                t = c->thread;
-                LOCK_THREAD(t);
-                if (c->ewouldblock) {
-                    event_del(&c->event);
-                    stop = 1;
-                }
-                UNLOCK_THREAD(t);
-                break;
-            }
-            /* first check if we have leftovers in the conn_read buffer */
-            if (c->rbytes > 0) {
-                int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
-                if (c->ritem != c->rcurr) {
-                    memmove(c->ritem, c->rcurr, tocopy);
-                }
-                c->ritem += tocopy;
-                c->rlbytes -= tocopy;
-                c->rcurr += tocopy;
-                c->rbytes -= tocopy;
-                if (c->rlbytes == 0) {
-                    break;
-                }
-            }
-
-            /*  now try reading from the socket */
-            res = read(c->sfd, c->ritem, c->rlbytes);
-            if (res > 0) {
-                STATS_ADD(c, bytes_read, res);
-                if (c->rcurr == c->ritem) {
-                    c->rcurr += res;
-                }
-                c->ritem += res;
-                c->rlbytes -= res;
-                break;
-            }
-            if (res == 0) { /* end of stream */
-                conn_set_state(c, conn_closing);
-                break;
-            }
-            if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    if (settings.verbose > 0) {
-                        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                 "Couldn't update event\n");
-                    }
-                    conn_set_state(c, conn_closing);
-                    break;
-                }
-                stop = true;
-                break;
-            }
-            /* otherwise we have a real error, on which we close the connection */
+    if ((sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen)) == -1) {
+        if (errno == EMFILE) {
             if (settings.verbose > 0) {
                 settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                        "Failed to read, and not due to blocking:\n"
-                        "errno: %d %s \n"
-                        "rcurr=%lx ritem=%lx rbuf=%lx rlbytes=%d rsize=%d\n",
-                        errno, strerror(errno),
-                        (long)c->rcurr, (long)c->ritem, (long)c->rbuf,
-                        (int)c->rlbytes, (int)c->rsize);
+                                                "Too many open connections\n");
             }
-            conn_set_state(c, conn_closing);
-            break;
+        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                            "Failed to accept new client: %s\n",
+                                            strerror(errno));
 
-        case conn_swallow:
-            /* we are reading sbytes and throwing them away */
-            if (c->sbytes == 0) {
-                conn_set_state(c, conn_new_cmd);
-                break;
-            }
+        }
 
-            /* first check if we have leftovers in the conn_read buffer */
-            if (c->rbytes > 0) {
-                int tocopy = c->rbytes > c->sbytes ? c->sbytes : c->rbytes;
-                c->sbytes -= tocopy;
-                c->rcurr += tocopy;
-                c->rbytes -= tocopy;
-                break;
-            }
+        return false;
+    }
 
-            /*  now try reading from the socket */
-            res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
-            if (res > 0) {
-                STATS_ADD(c, bytes_read, res);
-                c->sbytes -= res;
-                break;
-            }
-            if (res == 0) { /* end of stream */
-                conn_set_state(c, conn_closing);
-                break;
-            }
-            if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    if (settings.verbose > 0) {
-                        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                "Couldn't update event\n");
-                    }
-                    conn_set_state(c, conn_closing);
-                    break;
+    STATS_LOCK();
+    int curr_conns = stats.curr_conns;
+    STATS_UNLOCK();
+
+    if (curr_conns >= settings.maxconns) {
+        STATS_LOCK();
+        ++stats.rejected_conns;
+        STATS_UNLOCK();
+
+        if (settings.verbose > 0) {
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                            "Too many open connections\n");
+        }
+        (void)close(sfd);
+
+        return false;
+    }
+
+    if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
+        fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                        "Failed to set nonblocking io: %s\n",
+                                        strerror(errno));
+        (void)close(sfd);
+        return false;
+    }
+
+    dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
+                      DATA_BUFFER_SIZE, tcp_transport);
+
+    return false;
+}
+
+bool conn_create_tap_connect(conn *c) {
+    send_tap_connect(c);
+    return true;
+}
+
+bool conn_ship_log(conn *c) {
+    bool cont = true;
+
+    LOCK_THREAD(c->thread);
+    c->ewouldblock = false;
+    ship_tap_log(c);
+    if (c->ewouldblock) {
+        event_del(&c->event);
+        cont = false;
+    }
+    UNLOCK_THREAD(c->thread);
+
+    return cont;
+}
+
+bool conn_waiting(conn *c) {
+    if (!update_event(c, EV_READ | EV_PERSIST)) {
+        if (settings.verbose > 0) {
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                            "Couldn't update event\n");
+        }
+        conn_set_state(c, conn_closing);
+        return true;
+    }
+    conn_set_state(c, conn_read);
+    return false;
+}
+
+bool conn_read(conn *c) {
+    int res = IS_UDP(c->transport) ? try_read_udp(c) : try_read_network(c);
+    switch (res) {
+    case READ_NO_DATA_RECEIVED:
+        conn_set_state(c, conn_waiting);
+        break;
+    case READ_DATA_RECEIVED:
+        conn_set_state(c, conn_parse_cmd);
+        break;
+    case READ_ERROR:
+        conn_set_state(c, conn_closing);
+        break;
+    case READ_MEMORY_ERROR: /* Failed to allocate more memory */
+        /* State already set by try_read_network */
+        break;
+    }
+
+    return true;
+}
+
+bool conn_parse_cmd(conn *c) {
+    if (try_read_command(c) == 0) {
+        /* wee need more data! */
+        conn_set_state(c, conn_waiting);
+    }
+
+    return true;
+}
+
+bool conn_new_cmd(conn *c) {
+    /* Only process nreqs at a time to avoid starving other connections */
+    --c->nevents;
+    if (c->nevents >= 0) {
+        reset_cmd_handler(c);
+    } else {
+        STATS_NOKEY(c, conn_yields);
+        if (c->rbytes > 0) {
+            /* We have already read in data into the input buffer,
+               so libevent will most likely not signal read events
+               on the socket (unless more data is available. As a
+               hack we should just put in a request to write data,
+               because that should be possible ;-)
+            */
+            if (!update_event(c, EV_WRITE | EV_PERSIST)) {
+                if (settings.verbose > 0) {
+                    settings.extensions.logger->log(EXTENSION_LOG_INFO,
+                                                    c, "Couldn't update event\n");
                 }
-                stop = true;
-                break;
+                conn_set_state(c, conn_closing);
+                return true;
             }
-            /* otherwise we have a real error, on which we close the connection */
+        }
+        return false;
+    }
+
+    return true;
+}
+
+
+bool conn_swallow(conn *c) {
+    ssize_t res;
+    /* we are reading sbytes and throwing them away */
+    if (c->sbytes == 0) {
+        conn_set_state(c, conn_new_cmd);
+        return true;
+    }
+
+    /* first check if we have leftovers in the conn_read buffer */
+    if (c->rbytes > 0) {
+        int tocopy = c->rbytes > c->sbytes ? c->sbytes : c->rbytes;
+        c->sbytes -= tocopy;
+        c->rcurr += tocopy;
+        c->rbytes -= tocopy;
+        return true;
+    }
+
+    /*  now try reading from the socket */
+    res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+    if (res > 0) {
+        STATS_ADD(c, bytes_read, res);
+        c->sbytes -= res;
+        return true;
+    }
+    if (res == 0) { /* end of stream */
+        conn_set_state(c, conn_closing);
+        return true;
+    }
+    if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (!update_event(c, EV_READ | EV_PERSIST)) {
             if (settings.verbose > 0) {
                 settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                        "Failed to read, and not due to blocking\n");
+                                                "Couldn't update event\n");
             }
             conn_set_state(c, conn_closing);
-            break;
+            return true;
+        }
+        return false;
+    }
+    /* otherwise we have a real error, on which we close the connection */
+    settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                    "Failed to read, and not due to blocking\n");
+    conn_set_state(c, conn_closing);
+    return true;
 
-        case conn_write:
-            /*
-             * We want to write out a simple response. If we haven't already,
-             * assemble it into a msgbuf list (this will be a single-entry
-             * list for TCP or a two-entry list for UDP).
-             */
-            if (c->iovused == 0 || (IS_UDP(c->transport) && c->iovused == 1)) {
-                if (add_iov(c, c->wcurr, c->wbytes) != 0) {
-                    if (settings.verbose > 0) {
-                        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                 "Couldn't build response\n");
-                    }
-                    conn_set_state(c, conn_closing);
-                    break;
-                }
-            }
+}
 
-            /* fall through... */
+bool conn_nread(conn *c) {
+    ssize_t res;
 
-        case conn_mwrite:
-            if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
-                if (settings.verbose > 0) {
-                    settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                                    "Failed to build UDP headers\n");
-                }
-                conn_set_state(c, conn_closing);
-                break;
-            }
-            switch (transmit(c)) {
-            case TRANSMIT_COMPLETE:
-                if (c->state == conn_mwrite) {
-                    while (c->ileft > 0) {
-                        item *it = *(c->icurr);
-                        settings.engine.v1->release(settings.engine.v0, c, it);
-                        c->icurr++;
-                        c->ileft--;
-                    }
-                    while (c->suffixleft > 0) {
-                        char *suffix = *(c->suffixcurr);
-                        cache_free(c->thread->suffix_cache, suffix);
-                        c->suffixcurr++;
-                        c->suffixleft--;
-                    }
-                    /* XXX:  I don't know why this wasn't the general case */
-                    if(c->protocol == binary_prot) {
-                        conn_set_state(c, c->write_and_go);
-                    } else {
-                        conn_set_state(c, conn_new_cmd);
-                    }
-                } else if (c->state == conn_write) {
-                    if (c->write_and_free) {
-                        free(c->write_and_free);
-                        c->write_and_free = 0;
-                    }
-                    conn_set_state(c, c->write_and_go);
-                } else {
-                    if (settings.verbose > 0) {
-                        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                 "Unexpected state %d\n", c->state);
-                    }
-                    conn_set_state(c, conn_closing);
-                }
-                break;
-
-            case TRANSMIT_INCOMPLETE:
-            case TRANSMIT_HARD_ERROR:
-                break;                   /* Continue in state machine. */
-
-            case TRANSMIT_SOFT_ERROR:
-                stop = true;
-                break;
-            }
-            break;
-
-        case conn_closing:
-            if (IS_UDP(c->transport))
-                conn_cleanup(c);
-            else
-                conn_close(c);
-            stop = true;
-            break;
-
-        case conn_add_tap_client:
-            {
-                LIBEVENT_THREAD *tp = &tap_thread;
-                c->ewouldblock = true;
-
-                event_del(&c->event);
-
-                LOCK_THREAD(tp);
-                conn_set_state(c, conn_ship_log);
-                c->thread = tp;
-                c->event.ev_base = tp->base;
-                assert(c->next == NULL);
-                c->next = tap_thread.pending_io;
-                tp->pending_io = c;
-                assert(number_of_pending(c, tp->pending_io) == 1);
-                UNLOCK_THREAD(tp);
-
-                if (write(tp->notify_send_fd, "", 1) != 1) {
-                    perror("Writing to tap thread notify pipe");
-                }
-                stop = true;
-            }
-            break;
-
-        case conn_max_state:
-            assert(false);
-            break;
+    if (c->rlbytes == 0) {
+        LIBEVENT_THREAD *t = c->thread;
+        LOCK_THREAD(t);
+        bool block = c->ewouldblock = false;
+        complete_nread(c);
+        UNLOCK_THREAD(t);
+        /* Breaking this into two, as complete_nread may have
+           moved us to a different thread */
+        t = c->thread;
+        LOCK_THREAD(t);
+        if (c->ewouldblock) {
+            event_del(&c->event);
+            block = true;
+        }
+        UNLOCK_THREAD(t);
+        return !block;
+    }
+    /* first check if we have leftovers in the conn_read buffer */
+    if (c->rbytes > 0) {
+        int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
+        if (c->ritem != c->rcurr) {
+            memmove(c->ritem, c->rcurr, tocopy);
+        }
+        c->ritem += tocopy;
+        c->rlbytes -= tocopy;
+        c->rcurr += tocopy;
+        c->rbytes -= tocopy;
+        if (c->rlbytes == 0) {
+            return true;
         }
     }
 
-    return;
+    /*  now try reading from the socket */
+    res = read(c->sfd, c->ritem, c->rlbytes);
+    if (res > 0) {
+        STATS_ADD(c, bytes_read, res);
+        if (c->rcurr == c->ritem) {
+            c->rcurr += res;
+        }
+        c->ritem += res;
+        c->rlbytes -= res;
+        return true;
+    }
+    if (res == 0) { /* end of stream */
+        conn_set_state(c, conn_closing);
+        return true;
+    }
+    if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (!update_event(c, EV_READ | EV_PERSIST)) {
+            if (settings.verbose > 0) {
+                settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                                "Couldn't update event\n");
+            }
+            conn_set_state(c, conn_closing);
+            return true;
+        }
+        return false;
+    }
+
+    /* otherwise we have a real error, on which we close the connection */
+    settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                    "Failed to read, and not due to blocking:\n"
+                                    "errno: %d %s \n"
+                                    "rcurr=%lx ritem=%lx rbuf=%lx rlbytes=%d rsize=%d\n",
+                                    errno, strerror(errno),
+                                    (long)c->rcurr, (long)c->ritem, (long)c->rbuf,
+                                    (int)c->rlbytes, (int)c->rsize);
+
+    conn_set_state(c, conn_closing);
+    return true;
+}
+
+bool conn_write(conn *c) {
+    /*
+     * We want to write out a simple response. If we haven't already,
+     * assemble it into a msgbuf list (this will be a single-entry
+     * list for TCP or a two-entry list for UDP).
+     */
+    if (c->iovused == 0 || (IS_UDP(c->transport) && c->iovused == 1)) {
+        if (add_iov(c, c->wcurr, c->wbytes) != 0) {
+            if (settings.verbose > 0) {
+                settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                                "Couldn't build response\n");
+            }
+            conn_set_state(c, conn_closing);
+            return true;
+        }
+    }
+
+    return conn_mwrite(c);
+}
+
+bool conn_mwrite(conn *c) {
+    if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
+        if (settings.verbose > 0) {
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                            "Failed to build UDP headers\n");
+        }
+        conn_set_state(c, conn_closing);
+        return true;
+    }
+
+    switch (transmit(c)) {
+    case TRANSMIT_COMPLETE:
+        if (c->state == conn_mwrite) {
+            while (c->ileft > 0) {
+                item *it = *(c->icurr);
+                settings.engine.v1->release(settings.engine.v0, c, it);
+                c->icurr++;
+                c->ileft--;
+            }
+            while (c->suffixleft > 0) {
+                char *suffix = *(c->suffixcurr);
+                cache_free(c->thread->suffix_cache, suffix);
+                c->suffixcurr++;
+                c->suffixleft--;
+            }
+            /* XXX:  I don't know why this wasn't the general case */
+            if(c->protocol == binary_prot) {
+                conn_set_state(c, c->write_and_go);
+            } else {
+                conn_set_state(c, conn_new_cmd);
+            }
+        } else if (c->state == conn_write) {
+            if (c->write_and_free) {
+                free(c->write_and_free);
+                c->write_and_free = 0;
+            }
+            conn_set_state(c, c->write_and_go);
+        } else {
+            if (settings.verbose > 0) {
+                settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                                "Unexpected state %d\n", c->state);
+            }
+            conn_set_state(c, conn_closing);
+        }
+        break;
+
+    case TRANSMIT_INCOMPLETE:
+    case TRANSMIT_HARD_ERROR:
+        break;                   /* Continue in state machine. */
+
+    case TRANSMIT_SOFT_ERROR:
+        return false;
+    }
+
+    return true;
+}
+
+bool conn_closing(conn *c) {
+    if (IS_UDP(c->transport)) {
+        conn_cleanup(c);
+    } else {
+        conn_close(c);
+    }
+
+    return false;
+}
+
+bool conn_add_tap_client(conn *c) {
+    LIBEVENT_THREAD *tp = &tap_thread;
+    c->ewouldblock = true;
+
+    event_del(&c->event);
+
+    LOCK_THREAD(tp);
+    conn_set_state(c, conn_ship_log);
+    c->thread = tp;
+    c->event.ev_base = tp->base;
+    assert(c->next == NULL);
+    c->next = tap_thread.pending_io;
+    tp->pending_io = c;
+    assert(number_of_pending(c, tp->pending_io) == 1);
+    UNLOCK_THREAD(tp);
+
+    if (write(tp->notify_send_fd, "", 1) != 1) {
+        perror("Writing to tap thread notify pipe");
+    }
+
+    return false;
 }
 
 void event_handler(const int fd, const short which, void *arg) {
@@ -4876,10 +4884,11 @@ void event_handler(const int fd, const short which, void *arg) {
     }
 
     perform_callbacks(ON_SWITCH_CONN, c, c);
-    drive_machine(c);
 
-    /* wait for next event */
-    return;
+    c->nevents = settings.reqs_per_event;
+    while (c->state(c)) {
+        /* do task */
+    }
 }
 
 static int new_socket(struct addrinfo *ai) {
@@ -5090,7 +5099,7 @@ static int server_socket(int port, enum network_transport transport,
  * Create a connection to a remote host
  * @todo document me...
  */
-static int remote_connection(const char *remote, enum conn_states state) {
+static int remote_connection(const char *remote, STATE_FUNC state) {
     int ret = -1;
     int sock;
     int error;
