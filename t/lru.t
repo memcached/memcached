@@ -14,8 +14,8 @@ my $sock = $server->sock;
 my $max = 1024 * 1024;
 my $big = 'x' x (1024 * 1024 - 250);
 
-ok(length($big) > 512 * 1024);
-ok(length($big) < 1024 * 1024);
+ok(length($big) > 512 * 1024, "buffer is bigger than 512k");
+ok(length($big) < 1024 * 1024, "buffer is less than 1m");
 
 # test that an even bigger value is rejected while we're here
 my $too_big = $big . $big . $big;
