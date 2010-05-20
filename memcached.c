@@ -530,7 +530,7 @@ static void conn_destructor(void *buffer, void *unused) {
 conn *conn_new(const int sfd, STATE_FUNC init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
-                struct event_base *base) {
+                struct event_base *base, struct timeval *timeout) {
     conn *c = cache_alloc(conn_cache);
 
     if (c == NULL) {
@@ -615,7 +615,7 @@ conn *conn_new(const int sfd, STATE_FUNC init_state,
     event_base_set(base, &c->event);
     c->ev_flags = event_flags;
 
-    if (event_add(&c->event, 0) == -1) {
+    if (event_add(&c->event, timeout) == -1) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING,
                                         NULL,
                                         "Failed to add connection to libevent: %s", strerror(errno));
@@ -5117,7 +5117,7 @@ static int server_socket(int port, enum network_transport transport,
         } else {
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
                                              EV_READ | EV_PERSIST, 1,
-                                             transport, main_base))) {
+                                             transport, main_base, NULL))) {
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                         "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
@@ -5282,7 +5282,7 @@ static int server_socket_unix(const char *path, int access_mask) {
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
                                  EV_READ | EV_PERSIST, 1,
-                                 local_transport, main_base))) {
+                                 local_transport, main_base, NULL))) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                  "failed to create listening connection\n");
         exit(EXIT_FAILURE);

@@ -288,7 +288,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 
     if (NULL != item) {
         conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
-                           item->read_buffer_size, item->transport, me->base);
+                           item->read_buffer_size, item->transport, me->base, NULL);
         if (c == NULL) {
             if (IS_UDP(item->transport)) {
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
