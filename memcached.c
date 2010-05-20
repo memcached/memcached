@@ -2554,7 +2554,11 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
                                          c->binary_header.request.vbucket);
 
     /* @todo we don't do acks at this time */
-    conn_set_state(c, conn_new_cmd);
+    if (ret == ENGINE_DISCONNECT) {
+        conn_set_state(c, conn_closing);
+    } else {
+        conn_set_state(c, conn_new_cmd);
+    }
 }
 
 static void process_bin_packet(conn *c) {
