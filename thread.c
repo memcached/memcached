@@ -403,6 +403,13 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
 
     conn->aiostat = status;
 
+    /* Move the connection to the closing state if the engine
+     * wants it to be disconnected
+     */
+    if (status == ENGINE_DISCONNECT) {
+        conn->state = conn_closing;
+    }
+
     if (number_of_pending(conn, thr->pending_io) == 0) {
         if (thr->pending_io == NULL) {
             notify = 1;
