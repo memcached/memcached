@@ -24,11 +24,11 @@ typedef struct test {
     const char *cfg;
 } engine_test_t;
 
-typedef engine_test_t* (*GET_TESTS)();
+typedef engine_test_t* (*GET_TESTS)(void);
 
-typedef bool (*SETUP_SUITE)();
+typedef bool (*SETUP_SUITE)(void);
 
-typedef bool (*TEARDOWN_SUITE)();
+typedef bool (*TEARDOWN_SUITE)(void);
 
 #ifdef    __cplusplus
 }
