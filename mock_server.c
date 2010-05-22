@@ -277,6 +277,7 @@ void init_mock_server(ENGINE_HANDLE *server_engine) {
     null_logger = get_null_logger();
     stderr_logger = get_stderr_logger();
     engine = server_engine;
+    extensions.logger = null_logger;
 }
 
 struct mock_connstruct *mk_mock_connection(const char *user, const char *config) {

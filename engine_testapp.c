@@ -150,7 +150,7 @@ int main(int argc, char **argv) {
     const char *engine_args = NULL;
     const char *test_suite = NULL;
     engine_test_t *testcases = NULL;
-    logger_descriptor = get_stderr_logger();
+    logger_descriptor = get_null_logger();
 
     /* Hack to remove the warning from C99 */
     union {
