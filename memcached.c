@@ -2381,7 +2381,8 @@ static void ship_tap_log(conn *c) {
 
         case TAP_DISCONNECT:
             disconnect = true;
-            /* FALLTHROUGH */
+            more_data = false;
+            break;
         case TAP_FLUSH:
         case TAP_OPAQUE:
             send_data = true;
@@ -2425,13 +2426,17 @@ static void ship_tap_log(conn *c) {
             c->write_and_go = conn_ship_log;
         }
     } else {
-        /* No more items to ship to the slave at this time.. suspend.. */
-        if (settings.verbose > 1) {
-            settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
-                                            "%d: No more items in tap log.. waiting\n",
-                                            c->sfd);
+        if (disconnect) {
+            conn_set_state(c, conn_closing);
+        } else {
+            /* No more items to ship to the slave at this time.. suspend.. */
+            if (settings.verbose > 1) {
+                settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
+                                                "%d: No more items in tap log.. waiting\n",
+                                                c->sfd);
+            }
+            c->ewouldblock = true;
         }
-        c->ewouldblock = true;
     }
 }
 
