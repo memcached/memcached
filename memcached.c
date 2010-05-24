@@ -1191,7 +1191,7 @@ static ssize_t bytes_to_output_string(char *dest, size_t destsz,
             offset += nw;
         }
         if ((nw = snprintf(dest + offset, destsz - offset,
-                           " 0x%02x", data[ii])) == -1) {
+                           " 0x%02x", (unsigned char)data[ii])) == -1) {
             return -1;
         }
         offset += nw;
