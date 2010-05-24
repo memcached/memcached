@@ -2305,6 +2305,7 @@ static void ship_tap_log(conn *c) {
         msg.opaque.message.body.tap.ttl = ttl;
         msg.opaque.message.body.tap.flags = htons(tap_flags);
         msg.opaque.message.header.request.extlen = 8;
+        msg.opaque.message.header.request.vbucket = htons(vbucket);
         item_info info = { .nvalue = 1 };
 
         switch (event) {
