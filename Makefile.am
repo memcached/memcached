@@ -17,6 +17,7 @@ pkginclude_HEADERS = \
                      include/memcached/server_api.h \
                      include/memcached/types.h \
                      include/memcached/util.h \
+                     include/memcached/vbucket.h \
                      include/memcached/visibility.h
 
 lib_LTLIBRARIES = basic_engine_testsuite.la \

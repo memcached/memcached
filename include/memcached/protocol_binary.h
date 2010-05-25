@@ -138,13 +138,14 @@ extern "C"
         PROTOCOL_BINARY_CMD_RDECRQ    = 0x3c,
         /* End Range operations */
 
-        /* Replicaiton commands */
+        /* TAP commands */
         PROTOCOL_BINARY_CMD_TAP_CONNECT = 0x40,
         PROTOCOL_BINARY_CMD_TAP_MUTATION = 0x41,
         PROTOCOL_BINARY_CMD_TAP_DELETE = 0x42,
         PROTOCOL_BINARY_CMD_TAP_FLUSH = 0x43,
         PROTOCOL_BINARY_CMD_TAP_OPAQUE = 0x44,
-        /* End replication */
+        PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET = 0x45,
+        /* End TAP */
 
         PROTOCOL_BINARY_CMD_LAST_RESERVED = 0xef
 
@@ -476,10 +477,23 @@ extern "C"
                  */
 #define TAP_CONNECT_FLAG_BACKFILL 0x01
                 /**
-                 * Dump will cause the server to send the data stored on the server, but
-                 * disconnect when the keys stored in the server are transmitted.
+                 * Dump will cause the server to send the data stored on the
+                 * server, but disconnect when the keys stored in the server
+                 * are transmitted.
                  */
 #define TAP_CONNECT_FLAG_DUMP 0x02
+                /**
+                 * The body contains a list of 16 bits words in network byte
+                 * order specifying the vbucket ids to monitor. The first 16
+                 * bit word contains the number of buckets. The number of 0
+                 * means "all buckets"
+                 */
+#define TAP_CONNECT_FLAG_LIST_VBUCKETS 0x04
+                /**
+                 * The responsibility of the vbuckets is to be transferred
+                 * over to the caller when all items are transferred.
+                 */
+#define TAP_CONNECT_FLAG_TAKEOVER_VBUCKETS 0x08
             } body;
         } message;
         uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
@@ -526,7 +540,7 @@ extern "C"
     typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_delete;
     typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_flush;
     typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_opaque;
-
+    typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_vbucket_set;
 
     /**
      * @}

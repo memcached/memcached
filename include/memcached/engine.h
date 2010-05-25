@@ -13,6 +13,7 @@
 #include "memcached/server_api.h"
 #include "memcached/callback.h"
 #include "memcached/extension.h"
+#include "memcached/vbucket.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -118,6 +119,7 @@ extern "C" {
                    TAP_DELETION,
                    TAP_FLUSH,
                    TAP_OPAQUE,
+                   TAP_VBUCKET_SET,
                    TAP_ACK,
                    TAP_DISCONNECT,
                    TAP_PAUSE } tap_event_t;

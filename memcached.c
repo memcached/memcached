@@ -2176,6 +2176,7 @@ struct tap_cmd_stats {
     uint64_t delete;
     uint64_t flush;
     uint64_t opaque;
+    uint64_t vbucket_set;
 };
 
 struct tap_stats {
@@ -2384,6 +2385,7 @@ static void ship_tap_log(conn *c) {
             disconnect = true;
             more_data = false;
             break;
+        case TAP_VBUCKET_SET:
         case TAP_FLUSH:
         case TAP_OPAQUE:
             send_data = true;
@@ -2394,10 +2396,16 @@ static void ship_tap_log(conn *c) {
                 tap_stats.sent.opaque++;
                 pthread_mutex_unlock(&tap_stats.mutex);
 
-            } else {
+            } else if (event == TAP_FLUSH) {
                 msg.flush.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_FLUSH;
                 pthread_mutex_lock(&tap_stats.mutex);
                 tap_stats.sent.flush++;
+                pthread_mutex_unlock(&tap_stats.mutex);
+            } else if (event == TAP_VBUCKET_SET) {
+                msg.flush.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET;
+                msg.flush.message.body.tap.flags = htons(tap_flags);
+                pthread_mutex_lock(&tap_stats.mutex);
+                tap_stats.sent.vbucket_set++;
                 pthread_mutex_unlock(&tap_stats.mutex);
             }
 
@@ -2600,6 +2608,12 @@ static void process_bin_packet(conn *c) {
         pthread_mutex_unlock(&tap_stats.mutex);
         process_bin_tap_packet(TAP_OPAQUE, c);
         break;
+    case PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET:
+        pthread_mutex_lock(&tap_stats.mutex);
+        tap_stats.received.vbucket_set++;
+        pthread_mutex_unlock(&tap_stats.mutex);
+        process_bin_tap_packet(TAP_VBUCKET_SET, c);
+        break;
     default:
         process_bin_unknown_packet(c);
     }
@@ -2762,6 +2776,7 @@ static void dispatch_bin_command(conn *c) {
        case PROTOCOL_BINARY_CMD_TAP_DELETE:
        case PROTOCOL_BINARY_CMD_TAP_FLUSH:
        case PROTOCOL_BINARY_CMD_TAP_OPAQUE:
+       case PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET:
             if (settings.engine.v1->tap_notify == NULL) {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, bodylen);
             } else {
@@ -3439,6 +3454,10 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     if (ts.sent.opaque) {
         APPEND_STAT("tap_opaque_sent", "%"PRIu64, ts.sent.opaque);
     }
+    if (ts.sent.vbucket_set) {
+        APPEND_STAT("tap_vbucket_set_sent", "%"PRIu64,
+                    ts.sent.vbucket_set);
+    }
     if (ts.received.connect) {
         APPEND_STAT("tap_connect_received", "%"PRIu64, ts.received.connect);
     }
@@ -3453,6 +3472,10 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     }
     if (ts.received.opaque) {
         APPEND_STAT("tap_opaque_received", "%"PRIu64, ts.received.opaque);
+    }
+    if (ts.received.vbucket_set) {
+        APPEND_STAT("tap_vbucket_set_received", "%"PRIu64,
+                    ts.received.vbucket_set);
     }
 }
 
