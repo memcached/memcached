@@ -1,7 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-
-#ifndef VBUCKET_H
-#define VBUCKET_H 1
+#ifndef MEMCACHED_VBUCKET_H
+#define MEMCACHED_VBUCKET_H 1
 
 #ifdef __cplusplus
 extern "C"
