@@ -16,6 +16,13 @@ enum test_result {
     PENDING = 19
 };
 
+struct test_harness {
+    const char *engine_path;
+    const char *default_engine_cfg;
+    ENGINE_HANDLE_V1 *(*start_engine)(const char *, const char *, bool);
+    void(*reload_engine)(ENGINE_HANDLE **, ENGINE_HANDLE_V1 **, const char *, const char *, bool);
+};
+
 typedef struct test {
     const char *name;
     enum test_result(*tfun)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
@@ -26,7 +33,7 @@ typedef struct test {
 
 typedef engine_test_t* (*GET_TESTS)(void);
 
-typedef bool (*SETUP_SUITE)(void);
+typedef bool (*SETUP_SUITE)(struct test_harness *);
 
 typedef bool (*TEARDOWN_SUITE)(void);
 

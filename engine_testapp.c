@@ -77,7 +77,7 @@ static int report_test(enum test_result r) {
     return rc;
 }
 
-static ENGINE_HANDLE_V1 *start_your_engines(const char* engine, const char* cfg) {
+static ENGINE_HANDLE_V1 *start_your_engines(const char *engine, const char* cfg, bool engine_init) {
 
     ENGINE_HANDLE *engine_handle = NULL;
 
@@ -87,14 +87,21 @@ static ENGINE_HANDLE_V1 *start_your_engines(const char* engine, const char* cfg)
         return NULL;
     }
 
-    if(!init_engine(engine_handle, cfg, logger_descriptor)) {
-        fprintf(stderr, "Failed to init engine %s with config %s.\n", engine, cfg);
-        return NULL;
+    if (engine_init) {
+        if(!init_engine(engine_handle, cfg, logger_descriptor)) {
+            fprintf(stderr, "Failed to init engine %s with config %s.\n", engine, cfg);
+            return NULL;
+        }
     }
 
     return (ENGINE_HANDLE_V1*) engine_handle;
 }
 
+static void reload_engine(ENGINE_HANDLE **h, ENGINE_HANDLE_V1 **h1, const char* engine, const char *cfg, bool init) {
+    (*h1)->destroy((*h));
+    *h1 = start_your_engines(engine, cfg, init);
+    *h = (ENGINE_HANDLE*)(*h1);
+}
 
 static enum test_result run_test(engine_test_t test, const char *engine, const char *default_cfg) {
     enum test_result ret = PENDING;
@@ -104,7 +111,7 @@ static enum test_result run_test(engine_test_t test, const char *engine, const c
         if (pid == 0) {
 #endif
             /* Start the engines and go */
-            ENGINE_HANDLE_V1 *h = start_your_engines(engine, test.cfg ? test.cfg : default_cfg);
+            ENGINE_HANDLE_V1 *h = start_your_engines(engine, test.cfg ? test.cfg : default_cfg, true);
             if (test.test_setup != NULL) {
                 if (!test.test_setup((ENGINE_HANDLE*)h, h)) {
                     fprintf(stderr, "Failed to run setup for test %s\n", test.name);
@@ -232,10 +239,14 @@ int main(int argc, char **argv) {
     testcases = (*my_get_test.get_tests)();
 
     //set up the suite if needed
+    struct test_harness harness = { .default_engine_cfg = engine_args,
+                                    .engine_path = engine,
+                                    .reload_engine = reload_engine,
+                                    .start_engine = start_your_engines};
     symbol = dlsym(handle, "setup_suite");
     if (symbol != NULL) {
         my_setup_suite.voidptr = symbol;
-        if (!(*my_setup_suite.setup_suite)()) {
+        if (!(*my_setup_suite.setup_suite)(&harness)) {
             fprintf(stderr, "Failed to set up test suite %s \n", test_suite);
             return 1;
         }
