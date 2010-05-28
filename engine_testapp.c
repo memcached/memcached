@@ -13,6 +13,8 @@
 #include <memcached/mock_server.h>
 
 EXTENSION_LOGGER_DESCRIPTOR *logger_descriptor = NULL;
+static ENGINE_HANDLE *handle = NULL;
+static ENGINE_HANDLE_V1 *handle_v1 = NULL;
 
 static void usage(void) {
     printf("\n");
@@ -79,28 +81,36 @@ static int report_test(enum test_result r) {
 
 static ENGINE_HANDLE_V1 *start_your_engines(const char *engine, const char* cfg, bool engine_init) {
 
-    ENGINE_HANDLE *engine_handle = NULL;
-
-    init_mock_server(engine_handle);
-    if(!load_engine(engine, &get_mock_server_api, logger_descriptor, &engine_handle)) {
+    init_mock_server(handle);
+    if(!load_engine(engine, &get_mock_server_api, logger_descriptor, &handle)) {
         fprintf(stderr, "Failed to load engine %s.\n", engine);
         return NULL;
     }
 
     if (engine_init) {
-        if(!init_engine(engine_handle, cfg, logger_descriptor)) {
+        if(!init_engine(handle, cfg, logger_descriptor)) {
             fprintf(stderr, "Failed to init engine %s with config %s.\n", engine, cfg);
             return NULL;
         }
     }
+    handle_v1 = (ENGINE_HANDLE_V1 *)handle;
+    return handle_v1;
+}
 
-    return (ENGINE_HANDLE_V1*) engine_handle;
+static void destroy_engine() {
+    if (handle_v1) {
+        handle_v1->destroy(handle);
+        handle_v1 = NULL;
+        handle = NULL;
+    }
 }
 
 static void reload_engine(ENGINE_HANDLE **h, ENGINE_HANDLE_V1 **h1, const char* engine, const char *cfg, bool init) {
-    (*h1)->destroy((*h));
-    *h1 = start_your_engines(engine, cfg, init);
-    *h = (ENGINE_HANDLE*)(*h1);
+    destroy_engine();
+    handle_v1 = start_your_engines(engine, cfg, init);
+    handle = (ENGINE_HANDLE*)(handle_v1);
+    *h1 = handle_v1;
+    *h = handle;
 }
 
 static enum test_result run_test(engine_test_t test, const char *engine, const char *default_cfg) {
@@ -111,20 +121,20 @@ static enum test_result run_test(engine_test_t test, const char *engine, const c
         if (pid == 0) {
 #endif
             /* Start the engines and go */
-            ENGINE_HANDLE_V1 *h = start_your_engines(engine, test.cfg ? test.cfg : default_cfg, true);
+            start_your_engines(engine, test.cfg ? test.cfg : default_cfg, true);
             if (test.test_setup != NULL) {
-                if (!test.test_setup((ENGINE_HANDLE*)h, h)) {
+                if (!test.test_setup(handle, handle_v1)) {
                     fprintf(stderr, "Failed to run setup for test %s\n", test.name);
                     return FAIL;
                 }
             }
-            ret = test.tfun((ENGINE_HANDLE*)h, h);
+            ret = test.tfun(handle, handle_v1);
             if (test.test_teardown != NULL) {
-                if (!test.test_teardown((ENGINE_HANDLE*)h, h)) {
+                if (!test.test_teardown(handle, handle_v1)) {
                     fprintf(stderr, "WARNING: Failed to run teardown for test %s\n", test.name);
                 }
             }
-            h->destroy((ENGINE_HANDLE*)h);
+            destroy_engine();
 #ifndef USE_GCOV
             exit((int)ret);
         } else if (pid == (pid_t)-1) {
