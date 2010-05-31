@@ -263,6 +263,8 @@ AC_ARG_WITH(libevent,
 dnl ------------------------------------------------------
 dnl libevent detection.  swiped from Tor.  modified a bit.
 
+AC_SEARCH_LIBS(clock_gettime, rt)
+
 LIBEVENT_URL=http://www.monkey.org/~provos/libevent/
 
 AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
