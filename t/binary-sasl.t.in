@@ -8,11 +8,30 @@ use lib "$Bin/lib";
 use MemcachedTest;
 
 my $supports_sasl = supports_sasl();
+my $saslpasswd2 = '@SASLPASSWD2@';
+my $sasldb;
+my $expected_mechs = 'PLAIN';
+
+# If sasl, then use saslpasswd
+unless ($saslpasswd2 eq "isasl") {
+    $sasldb = '/tmp/test-memcached.sasldb';
+    $expected_mechs = "CRAM-MD5 $expected_mechs";
+}
+# if isasl, use plain text file
+else {
+    $sasldb = '/tmp/isasl.txt';
+    $ENV{'ISASL_PWFILE'} = $sasldb;
+}
 
 use Test::More;
 
 if (supports_sasl()) {
-    plan tests => 25;
+    if ($saslpasswd2 eq '') {
+         plan skip_all => "The binary 'saslpasswd' is missing from your system";
+    }
+    else {
+       plan tests => 25;
+    }
 } else {
     plan tests => 1;
     eval {
@@ -138,7 +157,7 @@ ok(defined $v && length($v), "Proper version: $v");
 
 # list mechs
 my $mechs= $mc->list_mechs();
-Test::More::cmp_ok($mechs, 'eq', 'CRAM-MD5 PLAIN', "list_mechs $mechs");
+Test::More::cmp_ok($mechs, 'eq', $expected_mechs, "list_mechs $mechs");
 
 # this should fail, not authenticated
 {
@@ -169,10 +188,17 @@ $empty->('x');
 }
 $empty->('x');
 
-# Build the auth DB for testing.
-my $sasldb = '/tmp/test-memcached.sasldb';
 unlink $sasldb;
-system("echo testpass | saslpasswd2 -a memcached -c -p testuser");
+my ($testuser, $testpass) = ('testuser', 'testpass');
+unless ($saslpasswd2 eq "isasl") {
+    system("echo $testpass | $saslpasswd2 -a memcached -f $sasldb -c -p $testuser");
+}
+else {
+    my $isasl_fh;
+    open($isasl_fh, ">$sasldb") or die "unable to open $sasldb\n";
+    print $isasl_fh "$testuser $testpass";
+    close($isasl_fh);
+}
 
 $mc = MC::Client->new;
 

@@ -3412,6 +3412,7 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("cmd_set", "%"PRIu64, slab_stats.cmd_set);
     APPEND_STAT("cmd_flush", "%"PRIu64, thread_stats.cmd_flush);
     APPEND_STAT("auth_cmds", "%"PRIu64, thread_stats.auth_cmds);
+    APPEND_STAT("auth_errors", "%"PRIu64, thread_stats.auth_errors);
     APPEND_STAT("get_hits", "%"PRIu64, slab_stats.get_hits);
     APPEND_STAT("get_misses", "%"PRIu64, thread_stats.get_misses);
     APPEND_STAT("delete_misses", "%"PRIu64, thread_stats.delete_misses);
@@ -6325,6 +6326,11 @@ int main (int argc, char **argv) {
         if (!protocol_specified) {
             settings.binding_protocol = binary_prot;
         } else {
+            if (settings.binding_protocol == negotiating_prot) {
+                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                        "ERROR: You cannot use auto-negotiating protocol while requiring SASL.\n");
+                exit(EX_USAGE);
+            }
             if (settings.binding_protocol == ascii_prot) {
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                         "ERROR: You cannot use only ASCII protocol while requiring SASL.\n");

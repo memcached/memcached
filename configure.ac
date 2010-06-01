@@ -119,10 +119,12 @@ AC_CHECK_HEADERS([sasl/sasl.h])
 
 if test "x$enable_isasl" = "xyes"; then
   AC_DEFINE([ENABLE_ISASL],1,[Set to nonzero if you want to include ISASL])
+  ac_cv_saslpasswd2="isasl"
   if test "x$enable_sasl" = "xyes"; then
       AC_MSG_ERROR([You can't specify isasl and sasl at the same time])
   fi
 elif test "x$enable_sasl" = "xyes"; then
+  AC_PATH_PROG(ac_cv_saslpasswd2, saslpasswd2, ,/usr/sbin:/usr/bin:/usr/local/bin:/usr/opt/bin/:/opt/bin)
   AC_C_DETECT_SASL_CB_GETCONF
   AC_DEFINE([ENABLE_SASL],1,[Set to nonzero if you want to include SASL])
   AC_SEARCH_LIBS([sasl_server_init], [sasl2 sasl], [],
@@ -133,7 +135,33 @@ elif test "x$enable_sasl" = "xyes"; then
   AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
         [AC_DEFINE([ENABLE_SASL_PWDB], 1,
                    [Set to nonzero if you want to enable a SASL pwdb])])
+  # test user supplied saslpasswd2 path - if supplied, or try to locate
+  AC_ARG_WITH(saslpasswd2,
+       [  --with-saslpasswd2=PATH  Specify location of saslpasswd2 binary],
+       [
+                if test "x$withval" != "xno" ; then
+                  if test ! -x $withval ; then
+                    AC_MSG_ERROR([The filename and/or path supplied to saslpasswd2 is wrong!])
+                  else
+                    ac_cv_saslpasswd2=$withval
+                  fi
+                fi
+       ]
+  )
+
+  AC_CACHE_CHECK([for saslpasswd2 binary location], ac_cv_saslpasswd2, [
+    if test -z "$ac_cv_saslpasswd2"; then
+      AC_MSG_ERROR([saslpasswd2 is required if sasl is enabled.
+
+      If it's already installed, specify its path using --with-saslpasswd=/full/path/saslpasswd2
+      ])
+    fi
+  ])
 fi
+# even though the test won't run if no sasl, still need to generate
+SASLPASSWD2=$ac_cv_saslpasswd2
+AC_SUBST(SASLPASSWD2)
+AC_CONFIG_FILES(t/binary-sasl.t)
 
 AC_ARG_ENABLE(default-engine,
   [AS_HELP_STRING([--enable-default-engine], [Build-in default engine])])

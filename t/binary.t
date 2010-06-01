@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3376;
+use Test::More tests => 3388;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -804,4 +804,3 @@ sub einval {
 }
 
 # vim: filetype=perl
-

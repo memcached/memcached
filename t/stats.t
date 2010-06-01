@@ -37,6 +37,7 @@ my $sock = $server->sock;
 ## STAT cas_hits 0
 ## STAT cas_badval 0
 ## STAT auth_cmds 0
+## STAT auth_errors 0
 ## STAT auth_unknowns 0
 ## STAT bytes_read 7
 ## STAT bytes_written 0
@@ -60,7 +61,7 @@ if ($stats->{'auth_sasl_enabled'} == 'yes') {
     $sasl_enabled = 1;
 }
 
-is(scalar(keys(%$stats)), 38, "38 stats values");
+is(scalar(keys(%$stats)), 39, "39 stats values");
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses
