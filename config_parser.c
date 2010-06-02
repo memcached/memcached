@@ -87,7 +87,7 @@ int parse_config(const char *str, struct config_item *items, FILE *error) {
       }
 
       ptr = end + 1;
-      char value[80];
+      char value[1024];
       if (trim_copy(value, sizeof(value), ptr, &end, ';') == -1) {
          fprintf(error, "ERROR: Invalid value, starting at: <%s>\n", ptr);
          return -1;
