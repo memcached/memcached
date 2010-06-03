@@ -457,7 +457,6 @@ bool conn_nread(conn *c);
 bool conn_swallow(conn *c);
 bool conn_closing(conn *c);
 bool conn_mwrite(conn *c);
-bool conn_create_tap_connect(conn *c);
 bool conn_ship_log(conn *c);
 bool conn_add_tap_client(conn *c);
 

@@ -150,7 +150,6 @@ static inline void item_set_cas(item *it, uint64_t cas) {
     pthread_mutex_unlock(&thread_stats->mutex); \
 }
 
-static char *nodeid;
 volatile sig_atomic_t memcached_shutdown;
 
 /*
@@ -815,8 +814,6 @@ static const char *state_text(STATE_FUNC state) {
         return "conn_closing";
     } else if (state == conn_mwrite) {
         return "conn_mwrite";
-    } else if (state == conn_create_tap_connect) {
-        return "conn_create_tap_connect";
     } else if (state == conn_ship_log) {
         return "conn_ship_log";
     } else if (state == conn_add_tap_client) {
@@ -2184,73 +2181,6 @@ struct tap_stats {
     struct tap_cmd_stats sent;
     struct tap_cmd_stats received;
 } tap_stats = { .mutex = PTHREAD_MUTEX_INITIALIZER };
-
-static void send_tap_connect(conn *c) {
-    protocol_binary_request_tap_connect msg = {
-        .message.header.request.magic = (uint8_t)PROTOCOL_BINARY_REQ,
-        .message.header.request.opcode = (uint8_t)PROTOCOL_BINARY_CMD_TAP_CONNECT
-    };
-
-    char *backfill;
-    uint64_t backfillage;
-    size_t nuserdata = 0;
-
-    if ((backfill = getenv("MEMCACHED_TAP_BACKFILL_AGE")) != NULL) {
-        if (safe_strtoull(backfill, &backfillage)) {
-            msg.message.header.request.extlen = 4;
-            msg.message.body.flags = htonl(TAP_CONNECT_FLAG_BACKFILL);
-            backfillage = ntohll(backfillage);
-            nuserdata = sizeof(backfillage);
-        } else {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
-                                            "Failed to parse backfill age: %s\n", backfill);
-        }
-    }
-
-    size_t nodelen = 0;
-    size_t headersize = sizeof(msg.message.header) + msg.message.header.request.extlen;
-    if (nodeid != NULL) {
-        nodelen = strlen(nodeid);
-    }
-
-    msg.message.header.request.keylen = htons(nodelen);
-    msg.message.header.request.bodylen = htonl(nodelen + msg.message.header.request.extlen + nuserdata);
-
-    c->msgcurr = 0;
-    c->msgused = 0;
-    c->iovused = 0;
-    if (add_msghdr(c) != 0) {
-        if (settings.verbose) {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
-                                            "%d: Failed to create output headers\n", c->sfd);
-        }
-        conn_set_state(c, conn_closing);
-        return ;
-    }
-
-    c->wcurr = c->wbuf;
-    memcpy(c->wcurr, msg.bytes, headersize);
-    c->wbytes = headersize;
-
-    if (nodeid != NULL) {
-        memcpy(c->wcurr + c->wbytes, nodeid, nodelen);
-        c->wbytes += nodelen;
-    }
-
-    if (nuserdata != 0) {
-        if (ntohl(msg.message.body.flags) & TAP_CONNECT_FLAG_BACKFILL) {
-            memcpy(c->wcurr + c->wbytes, &backfillage, sizeof(backfillage));
-            c->wbytes += sizeof(backfillage);
-        }
-    }
-
-    conn_set_state(c, conn_write);
-    c->write_and_go = conn_new_cmd;
-
-    pthread_mutex_lock(&tap_stats.mutex);
-    tap_stats.sent.connect++;
-    pthread_mutex_unlock(&tap_stats.mutex);
-}
 
 static void ship_tap_log(conn *c) {
     assert(c->thread->type == TAP);
@@ -4607,11 +4537,6 @@ bool conn_listening(conn *c)
     return false;
 }
 
-bool conn_create_tap_connect(conn *c) {
-    send_tap_connect(c);
-    return true;
-}
-
 bool conn_ship_log(conn *c) {
     bool cont = true;
 
@@ -5164,81 +5089,6 @@ static int server_socket(int port, enum network_transport transport,
 
     /* Return zero iff we detected no errors in starting up connections */
     return success == 0;
-}
-
-/**
- * Create a connection to a remote host
- * @todo document me...
- */
-static int remote_connection(const char *remote, STATE_FUNC state) {
-    int ret = -1;
-    int sock;
-    int error;
-    int flags;
-    struct addrinfo *ai;
-    struct addrinfo *next;
-    struct addrinfo hints = { .ai_flags = AI_PASSIVE,
-                              .ai_socktype = SOCK_STREAM,
-                              .ai_family = AF_UNSPEC };
-    const char *default_port = "11211";
-    char *port;
-    char *host = (char*)remote;
-    if ((port = strchr(remote, ':')) != NULL) {
-        ++port;
-        host = strdup(remote);
-        *(strchr(host, ':')) = '\0';
-    } else {
-        port = (char*)default_port;
-    }
-
-    error= getaddrinfo(host, port, &hints, &ai);
-    if (error != 0) {
-        if (error != EAI_SYSTEM) {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                     "getaddrinfo(): %s\n", gai_strerror(error));
-        } else {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                     "getaddrinfo(): %s\n", strerror(error));
-        }
-        return -1;
-    }
-
-    for (next= ai; next; next= next->ai_next) {
-        if ((sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1) {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                            "Failed to create socket: %s\n",
-                                            strerror(errno));
-            continue;
-        }
-
-        if (connect(sock, ai->ai_addr, ai->ai_addrlen) == -1) {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                            "Failed to connect socket: %s\n",
-                                            strerror(errno));
-            close(sock);
-            sock = -1;
-            continue;
-        }
-
-        if ((flags = fcntl(sock, F_GETFL, 0)) < 0 ||
-            fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
-            perror("setting O_NONBLOCK");
-            close(sock);
-            continue;
-        }
-
-        dispatch_conn_new(sock, state, EV_WRITE |EV_READ | EV_PERSIST,
-                          DATA_BUFFER_SIZE, tcp_transport);
-        ret = 0;
-        break;
-    }
-
-    freeaddrinfo(ai);
-    if (host != remote) {
-        free(host);
-    }
-
-    return ret;
 }
 
 static int new_socket_unix(void) {
@@ -6050,8 +5900,6 @@ int main (int argc, char **argv) {
     char old_options[1024] = { [0] = '\0' };
     char *old_opts = old_options;
 
-    char *overlord = NULL; /* Master server ;-) */
-
     /* init settings */
     settings_init();
 
@@ -6090,7 +5938,6 @@ int main (int argc, char **argv) {
           "e:"  /* Engine options */
           "q"   /* Disallow detailed stats */
           "X:"  /* Load extension */
-          "O:"  /* Master Server */
         ))) {
         switch (c) {
         case 'a':
@@ -6297,9 +6144,6 @@ int main (int argc, char **argv) {
                     *(ptr - 1) = ',';
                 }
             }
-            break;
-        case 'O':
-            overlord = optarg;
             break;
         default:
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -6585,30 +6429,6 @@ int main (int argc, char **argv) {
             fclose(portnumber_file);
             rename(temp_portnumber_filename, portnumber_filename);
         }
-    }
-
-    if (overlord) {
-#ifndef __WIN32__
-        struct utsname utsname;
-        if (uname(&utsname) != -1) {
-            char port[12];
-            snprintf(port, sizeof(port), ":%u", settings.port);
-            nodeid = malloc(strlen(utsname.nodename) + strlen(port) + 1);
-            if (nodeid) {
-                sprintf(nodeid, "%s%s", utsname.nodename, port);
-            }
-        } else {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                            "Failed to get uname: %s\n", strerror(errno));
-        }
-
-        if (remote_connection(overlord, conn_create_tap_connect) == -1) {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                            "Failed to start tap consumer\n");
-        }
-        // @TODO we need an observer to determine when the socket close and
-        // when to switch state
-#endif
     }
 
     /* Drop privileges no longer needed */
