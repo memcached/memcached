@@ -16,6 +16,7 @@ my $sock = $server->sock;
 ## STAT uptime 13
 ## STAT time 1259170891
 ## STAT version 1.4.3
+## STAT libevent 1.4.13-stable.
 ## STAT pointer_size 32
 ## STAT rusage_user 0.001198
 ## STAT rusage_system 0.003523
@@ -61,7 +62,7 @@ if ($stats->{'auth_sasl_enabled'} == 'yes') {
     $sasl_enabled = 1;
 }
 
-is(scalar(keys(%$stats)), 39, "39 stats values");
+is(scalar(keys(%$stats)), 40, "40 stats values");
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses

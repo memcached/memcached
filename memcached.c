@@ -3323,6 +3323,7 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("uptime", "%u", now);
     APPEND_STAT("time", "%ld", now + (long)process_started);
     APPEND_STAT("version", "%s", VERSION);
+    APPEND_STAT("libevent", "%s", event_get_version());
     APPEND_STAT("pointer_size", "%d", (int)(8 * sizeof(void *)));
 
 #ifndef __WIN32__
@@ -5878,6 +5879,28 @@ static bool load_extension(const char *soname, const char *config) {
     return true;
 }
 
+/**
+ * Do basic sanity check of the runtime environment
+ * @return true if no errors found, false if we can't use this env
+ */
+static bool sanitycheck(void) {
+    /* One of our biggest problems is old and bogus libevents */
+    const char *ever = event_get_version();
+    if (ever != NULL) {
+        if (strncmp(ever, "1.", 2) == 0) {
+            /* Require at least 1.3 (that's still a couple of years old) */
+            if ((ever[2] == '1' || ever[2] == '2') && !isdigit(ever[3])) {
+                fprintf(stderr, "You are using libevent %s.\nPlease upgrade to"
+                        " a more recent version (1.3 or newer)\n",
+                        event_get_version());
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
@@ -5899,6 +5922,10 @@ int main (int argc, char **argv) {
     const char *engine_config = NULL;
     char old_options[1024] = { [0] = '\0' };
     char *old_opts = old_options;
+
+    if (!sanitycheck()) {
+        return EX_OSERR;
+    }
 
     /* init settings */
     settings_init();
