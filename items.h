@@ -161,4 +161,11 @@ ENGINE_ERROR_CODE add_delta(struct default_engine *engine,
                             hash_item *item, const bool incr,
                             const int64_t delta, uint64_t *cas,
                             uint64_t *result, const void *cookie);
+
+/**
+ * Start the item scrubber
+ * @param engine handle to the storage engine
+ */
+bool item_start_scrub(struct default_engine *engine);
+
 #endif

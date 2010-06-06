@@ -870,3 +870,141 @@ void item_stats_sizes(struct default_engine *engine,
     do_item_stats_sizes(engine, add_stat, (void*)cookie);
     pthread_mutex_unlock(&engine->cache_lock);
 }
+
+static void do_item_link_cursor(struct default_engine *engine,
+                                hash_item *cursor, int ii)
+{
+    cursor->slabs_clsid = (uint8_t)ii;
+    cursor->next = NULL;
+    cursor->prev = engine->items.tails[ii];
+    engine->items.tails[ii]->next = cursor;
+    engine->items.tails[ii] = cursor;
+    engine->items.sizes[ii]++;
+}
+
+typedef ENGINE_ERROR_CODE (*ITERFUNC)(struct default_engine *engine,
+                                      hash_item *item, void *cookie);
+
+static bool do_item_walk_cursor(struct default_engine *engine,
+                                hash_item *cursor,
+                                int steplength,
+                                ITERFUNC itemfunc,
+                                void* itemdata,
+                                ENGINE_ERROR_CODE *error)
+{
+    int ii = 0;
+    *error = ENGINE_SUCCESS;
+
+    while (cursor->prev != NULL && ii < steplength) {
+        ++ii;
+        /* Move cursor */
+        hash_item *ptr = cursor->prev;
+        item_unlink_q(engine, cursor);
+
+        bool done = false;
+
+        if (ptr == engine->items.heads[cursor->slabs_clsid]) {
+            done = true;
+        } else {
+            cursor->next = ptr;
+            cursor->prev = ptr->prev;
+            cursor->prev->next = cursor;
+            ptr->prev = cursor;
+        }
+
+        /* Ignore cursors */
+        if (!(ptr->nkey == 0 && ptr->nbytes == 0)) {
+            *error = itemfunc(engine, ptr, itemdata);
+            if (*error != ENGINE_SUCCESS) {
+                return false;
+            }
+        }
+
+        if (done) {
+            return false;
+        }
+   }
+
+    return true;
+}
+
+static ENGINE_ERROR_CODE item_scrub(struct default_engine *engine,
+                                    hash_item *item,
+                                    void *cookie) {
+    (void)cookie;
+    engine->scrubber.visited++;
+    rel_time_t current_time = engine->server.core->get_current_time();
+    if (item->refcount == 0 &&
+        (item->exptime != 0 && item->exptime < current_time)) {
+        do_item_unlink(engine, item);
+        engine->scrubber.cleaned++;
+    }
+    return ENGINE_SUCCESS;
+}
+
+static void item_scrub_class(struct default_engine *engine,
+                             hash_item *cursor) {
+
+    ENGINE_ERROR_CODE ret;
+    bool more;
+    do {
+        pthread_mutex_lock(&engine->cache_lock);
+        more = do_item_walk_cursor(engine, cursor, 200, item_scrub, NULL, &ret);
+        pthread_mutex_unlock(&engine->cache_lock);
+        if (ret != ENGINE_SUCCESS) {
+            break;
+        }
+    } while (more);
+}
+
+static void *item_scubber_main(void *arg)
+{
+    struct default_engine *engine = arg;
+    hash_item cursor = { .refcount = 1 };
+
+    for (int ii = 0; ii < POWER_LARGEST; ++ii) {
+        pthread_mutex_lock(&engine->cache_lock);
+        bool skip = false;
+        if (engine->items.heads[ii] == NULL) {
+            skip = true;
+        } else {
+            // add the item at the tail
+            do_item_link_cursor(engine, &cursor, ii);
+        }
+        pthread_mutex_unlock(&engine->cache_lock);
+
+        if (!skip) {
+            item_scrub_class(engine, &cursor);
+        }
+    }
+
+    pthread_mutex_lock(&engine->scrubber.lock);
+    engine->scrubber.stopped = time(NULL);
+    engine->scrubber.running = false;
+    pthread_mutex_unlock(&engine->scrubber.lock);
+
+    return NULL;
+}
+
+bool item_start_scrub(struct default_engine *engine)
+{
+    bool ret = false;
+    pthread_mutex_lock(&engine->scrubber.lock);
+    if (!engine->scrubber.running) {
+        engine->scrubber.started = time(NULL);
+        engine->scrubber.stopped = 0;
+        engine->scrubber.visited = 0;
+        engine->scrubber.cleaned = 0;
+        engine->scrubber.running = true;
+
+        pthread_t t;
+        if (pthread_create(&t, NULL, item_scubber_main, engine) != 0) {
+            engine->scrubber.running = false;
+        } else {
+            ret = true;
+        }
+    }
+    pthread_mutex_unlock(&engine->scrubber.lock);
+
+    return ret;
+}

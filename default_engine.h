@@ -79,6 +79,14 @@ struct engine_stats {
    uint64_t total_items;
 };
 
+struct engine_scrubber {
+   pthread_mutex_t lock;
+   bool running;
+   uint64_t visited;
+   uint64_t cleaned;
+   time_t started;
+   time_t stopped;
+};
 
 /**
  * Definition of the private instance data used by the default engine.
@@ -107,6 +115,7 @@ struct default_engine {
 
    struct config config;
    struct engine_stats stats;
+   struct engine_scrubber scrubber;
    union {
        engine_info engine_info;
        char buffer[sizeof(engine_info) +

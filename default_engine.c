@@ -132,6 +132,9 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
          .chunk_size = 48,
          .item_size_max= 1024 * 1024,
        },
+      .scrubber = {
+         .lock = PTHREAD_MUTEX_INITIALIZER,
+      },
       .info.engine_info = {
            .description = "Default engine v0.1",
            .num_features = 1,
@@ -310,6 +313,31 @@ static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
       item_stats(engine, add_stat, cookie);
    } else if (strncmp(stat_key, "sizes", 5) == 0) {
       item_stats_sizes(engine, add_stat, cookie);
+   } else if (strncmp(stat_key, "scrub", 5) == 0) {
+      char val[128];
+      int len;
+
+      pthread_mutex_lock(&engine->scrubber.lock);
+      if (engine->scrubber.running) {
+         add_stat("scrubber:status", 15, "running", 7, cookie);
+      } else {
+         add_stat("scrubber:status", 15, "stopped", 7, cookie);
+      }
+
+      if (engine->scrubber.started != 0) {
+         if (engine->scrubber.stopped != 0) {
+            time_t diff = engine->scrubber.started - engine->scrubber.stopped;
+            len = sprintf(val, "%"PRIu64, (uint64_t)diff);
+            add_stat("scrubber:last_run", 17, val, len, cookie);
+         }
+
+         len = sprintf(val, "%"PRIu64, engine->scrubber.visited);
+         add_stat("scrubber:visited", 16, val, len, cookie);
+         len = sprintf(val, "%"PRIu64, engine->scrubber.cleaned);
+         add_stat("scrubber:cleaned", 16, val, len, cookie);
+      }
+      add_stat(NULL, 0, NULL, 0, cookie);
+      pthread_mutex_unlock(&engine->scrubber.lock);
    } else {
       ret = ENGINE_KEY_ENOENT;
    }
@@ -448,6 +476,24 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response)
 {
+   if (request->request.opcode == PROTOCOL_BINARY_CMD_SCRUB) {
+      struct default_engine *engine = get_handle(handle);
+      uint16_t status;
+
+      if (item_start_scrub(engine)) {
+         status = PROTOCOL_BINARY_RESPONSE_SUCCESS;
+      } else {
+         status = PROTOCOL_BINARY_RESPONSE_EBUSY;
+      }
+
+      if (response(NULL, 0, NULL, 0, NULL, 0, PROTOCOL_BINARY_RAW_BYTES,
+                   status, 0, cookie)) {
+         return ENGINE_SUCCESS;
+      } else {
+         return ENGINE_FAILED;
+      }
+   }
+
    if (response(NULL, 0, NULL, 0, NULL, 0,
                 PROTOCOL_BINARY_RAW_BYTES,
                 PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, 0, cookie)) {

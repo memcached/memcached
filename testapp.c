@@ -1731,25 +1731,25 @@ static enum test_return test_binary_stat(void) {
     return TEST_PASS;
 }
 
-static enum test_return test_binary_illegal(void) {
-    uint8_t cmd = 0x23;
-    while (cmd != 0x00) {
-        union {
-            protocol_binary_request_no_extras request;
-            protocol_binary_response_no_extras response;
-            char bytes[1024];
-        } buffer;
-        size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
-                                 cmd, NULL, 0, NULL, 0);
-        safe_send(buffer.bytes, len, false);
-        safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
-        validate_response_header(&buffer.response, cmd,
-                                 PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND);
-        ++cmd;
-    }
+static enum test_return test_binary_scrub(void) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } buffer;
+
+    size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             PROTOCOL_BINARY_CMD_SCRUB,
+                             NULL, 0, NULL, 0);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, PROTOCOL_BINARY_CMD_SCRUB,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
 
     return TEST_PASS;
 }
+
 
 volatile bool hickup_thread_running;
 
@@ -2026,7 +2026,7 @@ struct testcase testcases[] = {
     { "binary_prepend", test_binary_prepend },
     { "binary_prependq", test_binary_prependq },
     { "binary_stat", test_binary_stat },
-    { "binary_illegal", test_binary_illegal },
+    { "binary_scrub", test_binary_scrub },
     { "binary_pipeline_hickup", test_binary_pipeline_hickup },
     { "stop_server", stop_memcached_server },
     { NULL, NULL }

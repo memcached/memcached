@@ -20,7 +20,8 @@ pkginclude_HEADERS = \
                      include/memcached/vbucket.h \
                      include/memcached/visibility.h
 
-lib_LTLIBRARIES = basic_engine_testsuite.la \
+lib_LTLIBRARIES = ascii_scrub.la \
+                  basic_engine_testsuite.la \
                   default_engine.la \
                   example_protocol.la \
                   stdin_term_handler.la
@@ -125,6 +126,10 @@ default_engine_la_SOURCES= \
 default_engine_la_DEPENDENCIES= libmcd_util.la
 default_engine_la_LIBADD= libmcd_util.la
 default_engine_la_LDFLAGS= -module -dynamic
+
+# ASCII support for the scrub command
+ascii_scrub_la_SOURCES= ascii_scrub.c protocol_extension.h
+ascii_scrub_la_LDFLAGS= -module -dynamic
 
 # An extension that will shut down memcached if standard input is closed
 stdin_term_handler_la_SOURCES= stdin_check.c stdin_check.h

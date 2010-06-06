@@ -79,7 +79,8 @@ extern "C"
         PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND = 0x81,
         PROTOCOL_BINARY_RESPONSE_ENOMEM = 0x82,
         PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED = 0x83,
-        PROTOCOL_BINARY_RESPONSE_EINTERNAL = 0x84
+        PROTOCOL_BINARY_RESPONSE_EINTERNAL = 0x84,
+        PROTOCOL_BINARY_RESPONSE_EBUSY = 0x85
     } protocol_binary_response_status;
 
     /**
@@ -147,8 +148,10 @@ extern "C"
         PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET = 0x45,
         /* End TAP */
 
-        PROTOCOL_BINARY_CMD_LAST_RESERVED = 0xef
+        PROTOCOL_BINARY_CMD_LAST_RESERVED = 0xef,
 
+        /* Scrub the data */
+        PROTOCOL_BINARY_CMD_SCRUB = 0xf0
     } protocol_binary_command;
 
     /**
@@ -541,6 +544,18 @@ extern "C"
     typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_flush;
     typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_opaque;
     typedef protocol_binary_request_tap_no_extras protocol_binary_request_tap_vbucket_set;
+
+
+    /**
+     * Definition of the packet used by the scrub.
+     */
+    typedef protocol_binary_request_no_extras protocol_binary_request_scrub;
+
+    /**
+     * Definition of the packet returned from scrub.
+     */
+    typedef protocol_binary_response_no_extras protocol_binary_response_scrub;
+
 
     /**
      * @}
