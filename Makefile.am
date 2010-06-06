@@ -131,7 +131,7 @@ stdin_term_handler_la_SOURCES= stdin_check.c stdin_check.h
 stdin_term_handler_la_LDFLAGS= -module -dynamic
 
 # An example extension that extends the ascii protocol with noop and echo
-example_protocol_la_SOURCES= example_protocol.c example_protocol.h
+example_protocol_la_SOURCES= example_protocol.c protocol_extension.h
 example_protocol_la_LDFLAGS= -module -dynamic
 
 basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c

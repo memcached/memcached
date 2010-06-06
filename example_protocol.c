@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "example_protocol.h"
+#include "protocol_extension.h"
 
 /*
  * This is an example on how you can add your own commands into the
