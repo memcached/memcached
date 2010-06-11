@@ -2984,14 +2984,19 @@ static void process_bin_delete(conn *c) {
         }
     }
 
-    if (settings.detail_enabled) {
-        stats_prefix_record_delete(key, nkey);
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    c->ewouldblock = false;
+
+    if (ret == ENGINE_SUCCESS) {
+        if (settings.detail_enabled) {
+            stats_prefix_record_delete(key, nkey);
+        }
+        ret = settings.engine.v1->remove(settings.engine.v0, c, key, nkey,
+                                         ntohll(req->message.header.request.cas),
+                                         c->binary_header.request.vbucket);
     }
 
-    ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->remove(settings.engine.v0, c, key, nkey,
-                                     ntohll(req->message.header.request.cas),
-                                     c->binary_header.request.vbucket);
     switch (ret) {
     case ENGINE_SUCCESS:
         write_bin_response(c, NULL, 0, 0, 0);
@@ -3004,6 +3009,9 @@ static void process_bin_delete(conn *c) {
         break;
     case ENGINE_NOT_MY_VBUCKET:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET, 0);
+        break;
+    case ENGINE_EWOULDBLOCK:
+        c->ewouldblock = true;
         break;
     default:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
