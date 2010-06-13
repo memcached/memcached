@@ -353,7 +353,6 @@ static void do_slabs_stats(struct default_engine *engine, ADD_STAT add_stats, co
     add_statistics(cookie, add_stats, NULL, -1, "active_slabs", "%d", total);
     add_statistics(cookie, add_stats, NULL, -1, "total_malloced", "%zu",
                    engine->slabs.mem_malloced);
-    add_stats(NULL, 0, NULL, 0, cookie);
 }
 
 static void *memory_allocate(struct default_engine *engine, size_t size) {

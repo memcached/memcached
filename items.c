@@ -432,9 +432,6 @@ static void do_item_stats(struct default_engine *engine,
                            "%u", engine->items.itemstats[i].reclaimed);;
         }
     }
-
-    /* getting here means both ascii and binary terminators fit */
-    add_stats(NULL, 0, NULL, 0, c);
 }
 
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
@@ -475,7 +472,6 @@ static void do_item_stats_sizes(struct default_engine *engine,
         }
         free(histogram);
     }
-    add_stats(NULL, 0, NULL, 0, c);
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */

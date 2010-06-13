@@ -3552,6 +3552,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
         switch (ret) {
         case ENGINE_SUCCESS:
+            append_stats(NULL, 0, NULL, 0, c);
             write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
             c->dynamic_buffer.buffer = NULL;
             break;

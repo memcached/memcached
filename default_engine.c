@@ -336,7 +336,6 @@ static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
          len = sprintf(val, "%"PRIu64, engine->scrubber.cleaned);
          add_stat("scrubber:cleaned", 16, val, len, cookie);
       }
-      add_stat(NULL, 0, NULL, 0, cookie);
       pthread_mutex_unlock(&engine->scrubber.lock);
    } else {
       ret = ENGINE_KEY_ENOENT;
