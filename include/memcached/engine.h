@@ -122,6 +122,7 @@ extern "C" {
                    TAP_VBUCKET_SET,
                    TAP_ACK,
                    TAP_DISCONNECT,
+                   TAP_NOOP,
                    TAP_PAUSE } tap_event_t;
 
     /**

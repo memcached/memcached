@@ -2227,6 +2227,7 @@ static void ship_tap_log(conn *c) {
             protocol_binary_request_tap_delete delete;
             protocol_binary_request_tap_flush flush;
             protocol_binary_request_tap_opaque opaque;
+            protocol_binary_request_noop noop;
         } msg = {
             .mutation.message.header.request.magic = (uint8_t)PROTOCOL_BINARY_REQ,
         };
@@ -2240,6 +2241,16 @@ static void ship_tap_log(conn *c) {
         item_info info = { .nvalue = 1 };
 
         switch (event) {
+        case TAP_NOOP :
+            send_data = true;
+            msg.noop.message.header.request.opcode = PROTOCOL_BINARY_CMD_NOOP;
+            msg.noop.message.header.request.extlen = 0;
+            msg.noop.message.header.request.bodylen = htonl(0);
+            memcpy(c->wcurr, msg.noop.bytes, sizeof(msg.noop.bytes));
+            add_iov(c, c->wcurr, sizeof(msg.noop.bytes));
+            c->wcurr += sizeof(msg.noop.bytes);
+            c->wbytes += sizeof(msg.noop.bytes);
+            break;
         case TAP_PAUSE :
             more_data = false;
             break;
