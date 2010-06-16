@@ -95,6 +95,11 @@ extern "C" {
         void (*notify_io_complete)(const void *cookie,
                                    ENGINE_ERROR_CODE status);
 
+        /**
+         * Request the server to start a shutdown sequence.
+         */
+        void (*shutdown)(void);
+
     } SERVER_CORE_API;
 
     typedef struct {

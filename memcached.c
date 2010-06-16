@@ -5792,6 +5792,10 @@ static void* get_extension(extension_type_t type)
     }
 }
 
+static void shutdown_server(void) {
+    memcached_shutdown = 1;
+}
+
 /**
  * Callback the engines may call to get the public server interface
  * @return pointer to a structure containing the interface. The client should
@@ -5809,7 +5813,8 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .realtime = realtime,
         .notify_io_complete = notify_io_complete,
         .get_current_time = get_current_time,
-        .parse_config = parse_config
+        .parse_config = parse_config,
+        .shutdown = shutdown_server
     };
 
     static SERVER_STAT_API server_stat_api = {
