@@ -92,7 +92,7 @@ memcached_SOURCES += sasl_defs.c
 endif
 
 if ENABLE_ISASL
-memcached_SOURCES += sasl_defs.c isasl.c
+memcached_SOURCES += sasl_defs.c isasl.c isasl.h
 endif
 
 if INCLUDE_DEFAULT_ENGINE
