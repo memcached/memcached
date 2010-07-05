@@ -62,6 +62,7 @@ libmcd_util_la_LDFLAGS= -dynamic
 
 memcached_SOURCES = \
                     cache.h \
+                    config_static.h \
                     daemon.c \
                     hash.c \
                     hash.h \

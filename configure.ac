@@ -115,7 +115,7 @@ unsigned long val = SASL_CB_GETCONF;
                      [Set to nonzero if your SASL implementation supports SASL_CB_GETCONF])])
 ])
 
-AC_CHECK_HEADERS([sasl/sasl.h])
+AC_CHECK_HEADERS_ONCE(link.h dlfcn.h inttypes.h umem.h priv.h sasl/sasl.h)
 
 if test "x$enable_isasl" = "xyes"; then
   AC_DEFINE([ENABLE_ISASL],1,[Set to nonzero if you want to include ISASL])
@@ -341,21 +341,11 @@ AC_SEARCH_LIBS(umem_cache_create, umem)
 AC_SEARCH_LIBS(gethugepagesizes, hugetlbfs)
 AC_SEARCH_LIBS(dlopen, dl)
 AC_SEARCH_LIBS(log, m)
-AC_CHECK_HEADERS(link.h dlfcn.h)
 AC_HEADER_STDBOOL
-AH_BOTTOM([#if HAVE_STDBOOL_H
-#include <stdbool.h>
-#else
-#define bool char
-#define false 0
-#define true 1
-#endif ])
-
-AC_CHECK_HEADERS([inttypes.h])
-AH_BOTTOM([#ifdef HAVE_INTTYPES_H
-#include <inttypes.h>
-#endif
-])
+AH_TOP([#ifndef CONFIG_H
+#define CONFIG_H])
+AH_BOTTOM([#include "config_static.h"
+#endif])
 
 dnl **********************************************************************
 dnl DETECT_UINT64_SUPPORT
@@ -514,16 +504,16 @@ dnl your requirements, define HAVE_DROP_PRIVILEGES, and make sure you add
 dnl the source file containing the implementation into memcached_SOURCE
 dnl in Makefile.am
 AC_CHECK_FUNCS(setppriv, [
-   AC_CHECK_HEADER(priv.h, [
+   AS_IF([test "x$ac_cv_header_priv_h" = "xyes" ], [
       AC_DEFINE([HAVE_DROP_PRIVILEGES], 1,
          [Define this if you have an implementation of drop_privileges()])
       build_solaris_privs=yes
-   ], [])
+   ])
 ],[])
 
 AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
 
-AC_CHECK_HEADER(umem.h, [
+AS_IF([ test "x$ac_cv_header_umem_h" = "xyes" ], [
    AC_DEFINE([HAVE_UMEM_H], 1,
          [Define this if you have umem.h])
    build_cache=no
