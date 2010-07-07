@@ -126,24 +126,24 @@ default_engine_la_SOURCES= \
                     slabs.h
 default_engine_la_DEPENDENCIES= libmcd_util.la
 default_engine_la_LIBADD= libmcd_util.la $(LIBM)
-default_engine_la_LDFLAGS= -module -dynamic
+default_engine_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
 
 # ASCII support for the scrub command
 ascii_scrub_la_SOURCES= ascii_scrub.c protocol_extension.h
-ascii_scrub_la_LDFLAGS= -module -dynamic
+ascii_scrub_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
 
 # An extension that will shut down memcached if standard input is closed
 stdin_term_handler_la_SOURCES= stdin_check.c stdin_check.h
-stdin_term_handler_la_LDFLAGS= -module -dynamic
+stdin_term_handler_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
 
 # An example extension that extends the ascii protocol with noop and echo
 example_protocol_la_SOURCES= example_protocol.c protocol_extension.h
-example_protocol_la_LDFLAGS= -module -dynamic
+example_protocol_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
 
 basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c
 basic_engine_testsuite_la_DEPENDENCIES= libmcd_util.la
 basic_engine_testsuite_la_LIBADD= libmcd_util.la $(LIBM)
-basic_engine_testsuite_la_LDFLAGS= -module -dynamic
+basic_engine_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d
