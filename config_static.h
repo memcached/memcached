@@ -19,4 +19,12 @@
 #include <inttypes.h>
 #endif
 
+#ifdef HAVE_SYSEXITS_H
+#include <sysexits.h>
+#else
+/* todo: we should move this file out of win32, because it could be used
+ * on all platforms without it's own sysexits.h */
+#include <win32/sysexits.h>
+#endif
+
 #endif

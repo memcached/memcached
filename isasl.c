@@ -1,3 +1,4 @@
+#include "config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -7,7 +8,6 @@
 #include <stdint.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include <sysexits.h>
 #include <sys/stat.h>
 
 #include "hash.h"

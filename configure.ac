@@ -115,7 +115,7 @@ unsigned long val = SASL_CB_GETCONF;
                      [Set to nonzero if your SASL implementation supports SASL_CB_GETCONF])])
 ])
 
-AC_CHECK_HEADERS_ONCE(link.h dlfcn.h inttypes.h umem.h priv.h sasl/sasl.h)
+AC_CHECK_HEADERS_ONCE(link.h dlfcn.h inttypes.h umem.h priv.h sasl/sasl.h sysexits.h)
 
 if test "x$enable_isasl" = "xyes"; then
   AC_DEFINE([ENABLE_ISASL],1,[Set to nonzero if you want to include ISASL])

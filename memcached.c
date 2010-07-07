@@ -56,7 +56,6 @@
 #include <ctype.h>
 #include <stdarg.h>
 
-#include <sysexits.h>
 #include <stddef.h>
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
