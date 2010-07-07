@@ -125,7 +125,7 @@ default_engine_la_SOURCES= \
                     slabs.c \
                     slabs.h
 default_engine_la_DEPENDENCIES= libmcd_util.la
-default_engine_la_LIBADD= libmcd_util.la
+default_engine_la_LIBADD= libmcd_util.la $(LIBM)
 default_engine_la_LDFLAGS= -module -dynamic
 
 # ASCII support for the scrub command
@@ -142,7 +142,7 @@ example_protocol_la_LDFLAGS= -module -dynamic
 
 basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c
 basic_engine_testsuite_la_DEPENDENCIES= libmcd_util.la
-basic_engine_testsuite_la_LIBADD= libmcd_util.la
+basic_engine_testsuite_la_LIBADD= libmcd_util.la $(LIBM)
 basic_engine_testsuite_la_LDFLAGS= -module -dynamic
 
 memcached_dtrace.h: memcached_dtrace.d
