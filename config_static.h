@@ -7,7 +7,15 @@
 #ifndef CONFIG_STATIC_H
 #define CONFIG_STATIC_H 1
 
-#if HAVE_STDBOOL_H
+#ifdef HAVE_DLFCN_H
+#include <dlfcn.h>
+#endif
+
+#ifdef HAVE_LINK_H
+#include <link.h>
+#endif
+
+#ifdef HAVE_STDBOOL_H
 #include <stdbool.h>
 #else
 #define bool char

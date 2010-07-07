@@ -57,12 +57,6 @@
 #include <stdarg.h>
 
 #include <stddef.h>
-#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>
-#endif
-#ifdef HAVE_LINK_H
-#include <link.h>
-#endif
 #include <sys/utsname.h>
 
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
