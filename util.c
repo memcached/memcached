@@ -123,7 +123,7 @@ void vperror(const char *fmt, ...) {
 
 #ifndef HAVE_HTONLL
 static uint64_t mc_swap64(uint64_t in) {
-#ifdef ENDIAN_LITTLE
+#ifndef WORDS_BIGENDIAN
     /* Little endian, flip the bytes around until someone makes a faster/better
     * way to do this. */
     int64_t rv = 0;

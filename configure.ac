@@ -79,6 +79,7 @@ fi
 
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
+AC_C_BIGENDIAN
 
 AC_ARG_ENABLE(sasl,
   [AS_HELP_STRING([--enable-sasl],[Enable SASL authentication])])
@@ -424,32 +425,6 @@ fi
 ])
 
 AC_C_SOCKLEN_T
-
-dnl Check if we're a little-endian or a big-endian system, needed by hash code
-AC_DEFUN([AC_C_ENDIAN],
-[AC_CACHE_CHECK(for endianness, ac_cv_c_endian,
-[
-  AC_RUN_IFELSE(
-    [AC_LANG_PROGRAM([], [dnl
-        long val = 1;
-        char *c = (char *) &val;
-        exit(*c == 1);
-    ])
-  ],[
-    ac_cv_c_endian=big
-  ],[
-    ac_cv_c_endian=little
-  ])
-])
-if test $ac_cv_c_endian = big; then
-  AC_DEFINE(ENDIAN_BIG, 1, [machine is bigendian])
-fi
-if test $ac_cv_c_endian = little; then
-  AC_DEFINE(ENDIAN_LITTLE, 1, [machine is littleendian])
-fi
-])
-
-AC_C_ENDIAN
 
 AC_DEFUN([AC_C_HTONLL],
 [
