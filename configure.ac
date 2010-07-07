@@ -334,13 +334,17 @@ if test $ac_cv_libevent_dir != "(system)"; then
 fi
 
 dnl ----------------------------------------------------------------------------
-
+saved_LIBS="$LIBS"
+LIBS=""
 AC_SEARCH_LIBS(socket, socket)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(umem_cache_create, umem)
 AC_SEARCH_LIBS(gethugepagesizes, hugetlbfs)
 AC_SEARCH_LIBS(dlopen, dl)
 AC_SEARCH_LIBS(log, m)
+APPLICATION_LIBS="$LIBS"
+LIBS="$saved_LIBS"
+AC_SUBST(APPLICATION_LIBS)
 AC_HEADER_STDBOOL
 AH_TOP([#ifndef CONFIG_H
 #define CONFIG_H])

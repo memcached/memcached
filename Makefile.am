@@ -32,7 +32,7 @@ noinst_LTLIBRARIES=libmcd_util.la
 # Test application to test stuff from C
 testapp_SOURCES = testapp.c
 testapp_DEPENDENCIES= libmcd_util.la
-testapp_LDADD= libmcd_util.la
+testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
 
 # New and fancy test program to test engines without the need to run
 # everything through the network layer
@@ -40,7 +40,7 @@ engine_testapp_SOURCES = \
                         engine_testapp.c \
                         include/memcached/engine_testapp.h
 engine_testapp_DEPENDENCIES= libmcd_util.la
-engine_testapp_LDADD= libmcd_util.la
+engine_testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
 
 # Small application used start another application and terminate it after
 # a certain amount of time
@@ -77,7 +77,7 @@ memcached_SOURCES = \
 memcached_LDFLAGS =-R '$(libdir)'
 memcached_CFLAGS = @PROFILER_FLAGS@
 memcached_DEPENDENCIES = libmcd_util.la
-memcached_LDADD = @PROFILER_LDFLAGS@ libmcd_util.la -levent
+memcached_LDADD = @PROFILER_LDFLAGS@ libmcd_util.la -levent $(APPLICATION_LIBS)
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c
