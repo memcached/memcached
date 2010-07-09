@@ -305,7 +305,7 @@ static void settings_init(void) {
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
     settings.allow_detailed = true;
-    settings.reqs_per_event = 20;
+    settings.reqs_per_event = DEFAULT_REQS_PER_EVENT;
     settings.backlog = 1024;
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
@@ -6219,7 +6219,7 @@ int main (int argc, char **argv) {
     }
 
     if (settings.reqs_per_tap_event == 0) {
-        settings.reqs_per_tap_event = settings.reqs_per_event;
+        settings.reqs_per_tap_event = DEFAULT_REQS_PER_TAP_EVENT;
     }
 
 
