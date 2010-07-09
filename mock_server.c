@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
+#include <pthread.h>
 #include <memcached/engine.h>
 #include <memcached/extension.h>
 #include <memcached/extension_loggers.h>
@@ -89,6 +90,7 @@ static rel_time_t mock_realtime(const time_t exptime) {
 static void mock_notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status) {
     struct mock_connstruct *c = (struct mock_connstruct *)cookie;
     c->status = status;
+    pthread_cond_signal(&c->cond);
 }
 
 /* time-sensitive callers can call it by hand with this, outside the normal ever-1-second timer */
@@ -298,7 +300,33 @@ struct mock_connstruct *mk_mock_connection(const char *user, const char *config)
         mock_get_auth_data(rv, &ad);
         mock_perform_callbacks(ON_AUTH, (const void*)&ad, rv);
     }
+
+    assert(pthread_mutex_init(&rv->mutex, NULL) == 0);
+    assert(pthread_cond_init(&rv->cond, NULL) == 0);
+
     return rv;
+}
+
+const void *create_mock_cookie(void) {
+    struct mock_connstruct *rv = calloc(sizeof(struct mock_connstruct), 1);
+    assert(rv);
+    rv->magic = CONN_MAGIC;
+    rv->connected = true;
+    rv->status = ENGINE_SUCCESS;
+    rv->handle_ewouldblock = true;
+    assert(pthread_mutex_init(&rv->mutex, NULL) == 0);
+    assert(pthread_cond_init(&rv->cond, NULL) == 0);
+
+    return rv;
+}
+
+void destroy_mock_cookie(const void *cookie) {
+    free((void*)cookie);
+}
+
+void mock_set_ewouldblock_handling(const void *cookie, bool enable) {
+    struct mock_connstruct *v = (void*)cookie;
+    v->handle_ewouldblock = enable;
 }
 
 void disconnect_mock_connection(struct mock_connstruct *c) {

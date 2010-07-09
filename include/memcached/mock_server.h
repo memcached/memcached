@@ -17,6 +17,10 @@ struct mock_connstruct {
     int sfd;
     ENGINE_ERROR_CODE status;
     uint64_t evictions;
+    int nblocks; /* number of ewouldblocks */
+    bool handle_ewouldblock;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
 };
 
 struct mock_callbacks {
@@ -36,6 +40,12 @@ MEMCACHED_PUBLIC_API void init_mock_server(ENGINE_HANDLE *server_engine);
 MEMCACHED_PUBLIC_API
 struct mock_connstruct *mk_mock_connection(const char *user,
                                            const char *config);
+
+MEMCACHED_PUBLIC_API const void *create_mock_cookie(void);
+
+MEMCACHED_PUBLIC_API void destroy_mock_cookie(const void *cookie);
+
+MEMCACHED_PUBLIC_API void mock_set_ewouldblock_handling(const void *cookie, bool enable);
 
 MEMCACHED_PUBLIC_API void disconnect_mock_connection(struct mock_connstruct *c);
 
