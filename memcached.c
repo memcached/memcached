@@ -4553,15 +4553,28 @@ bool conn_listening(conn *c)
 
 bool conn_ship_log(conn *c) {
     bool cont = true;
-
-    LOCK_THREAD(c->thread);
-    c->ewouldblock = false;
-    ship_tap_log(c);
-    if (c->ewouldblock) {
-        event_del(&c->event);
-        cont = false;
+    --c->nevents;
+    if (c->nevents >= 0) {
+        LOCK_THREAD(c->thread);
+        c->ewouldblock = false;
+        ship_tap_log(c);
+        if (c->ewouldblock) {
+            event_del(&c->event);
+            cont = false;
+        }
+        UNLOCK_THREAD(c->thread);
+    } else {
+        // Add a write event so that libevent will pick it up at a later time...
+        if (!update_event(c, EV_WRITE | EV_PERSIST)) {
+            if (settings.verbose > 0) {
+                settings.extensions.logger->log(EXTENSION_LOG_INFO,
+                                                c, "Couldn't update event\n");
+            }
+            conn_set_state(c, conn_closing);
+        } else {
+            cont = false;
+        }
     }
-    UNLOCK_THREAD(c->thread);
 
     return cont;
 }
@@ -4896,6 +4909,10 @@ void event_handler(const int fd, const short which, void *arg) {
     perform_callbacks(ON_SWITCH_CONN, c, c);
 
     c->nevents = settings.reqs_per_event;
+    if (c->state == conn_ship_log) {
+        c->nevents = settings.reqs_per_tap_event;
+    }
+
     while (c->state(c)) {
         /* do task */
     }
@@ -5276,8 +5293,8 @@ static void usage(void) {
     printf("-O ip:port    Tap ip:port\n");
     printf("\nEnvironment variables:\n"
            "MEMCACHED_PORT_FILENAME   File to write port information to\n"
-           "MEMCACHED_TOP_KEYS        Number of top keys to keep track of\n");
-    return;
+           "MEMCACHED_TOP_KEYS        Number of top keys to keep track of\n"
+           "MEMCACHED_REQS_TAP_EVENT  Similar to -R but for tap_ship_log\n");
 }
 
 static void usage_license(void) {
@@ -6196,6 +6213,15 @@ int main (int argc, char **argv) {
             return 1;
         }
     }
+
+    if (getenv("MEMCACHED_REQS_TAP_EVENT") != NULL) {
+        settings.reqs_per_tap_event = atoi(getenv("MEMCACHED_REQS_TAP_EVENT"));
+    }
+
+    if (settings.reqs_per_tap_event == 0) {
+        settings.reqs_per_tap_event = settings.reqs_per_event;
+    }
+
 
     if (install_sigterm_handler() != 0) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,

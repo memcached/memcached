@@ -210,6 +210,8 @@ struct settings {
     bool allow_detailed;    /* detailed stats commands are allowed */
     int reqs_per_event;     /* Maximum number of io to process on each
                                io-event. */
+    int reqs_per_tap_event; /* Maximum number of tap io to process on each
+                               io-event. */
     bool use_cas;
     enum protocol binding_protocol;
     int backlog;
