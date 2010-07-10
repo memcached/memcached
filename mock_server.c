@@ -89,8 +89,10 @@ static rel_time_t mock_realtime(const time_t exptime) {
 
 static void mock_notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status) {
     struct mock_connstruct *c = (struct mock_connstruct *)cookie;
+    pthread_mutex_lock(&c->mutex);
     c->status = status;
     pthread_cond_signal(&c->cond);
+    pthread_mutex_unlock(&c->mutex);
 }
 
 /* time-sensitive callers can call it by hand with this, outside the normal ever-1-second timer */
