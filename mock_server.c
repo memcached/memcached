@@ -331,6 +331,21 @@ void mock_set_ewouldblock_handling(const void *cookie, bool enable) {
     v->handle_ewouldblock = enable;
 }
 
+void lock_mock_cookie(const void *cookie) {
+   struct mock_connstruct *c = (void*)cookie;
+   pthread_mutex_lock(&c->mutex);
+}
+
+void unlock_mock_cookie(const void *cookie) {
+   struct mock_connstruct *c = (void*)cookie;
+   pthread_mutex_unlock(&c->mutex);
+}
+
+void waitfor_mock_cookie(const void *cookie) {
+   struct mock_connstruct *c = (void*)cookie;
+   pthread_cond_wait(&c->cond, &c->mutex);
+}
+
 void disconnect_mock_connection(struct mock_connstruct *c) {
     c->connected = false;
     mock_perform_callbacks(ON_DISCONNECT, NULL, c);

@@ -47,6 +47,13 @@ MEMCACHED_PUBLIC_API void destroy_mock_cookie(const void *cookie);
 
 MEMCACHED_PUBLIC_API void mock_set_ewouldblock_handling(const void *cookie, bool enable);
 
+MEMCACHED_PUBLIC_API void lock_mock_cookie(const void *cookie);
+
+MEMCACHED_PUBLIC_API void unlock_mock_cookie(const void *cookie);
+
+MEMCACHED_PUBLIC_API void waitfor_mock_cookie(const void *cookie);
+
+
 MEMCACHED_PUBLIC_API void disconnect_mock_connection(struct mock_connstruct *c);
 
 MEMCACHED_PUBLIC_API void disconnect_all_mock_connections(struct mock_connstruct *c);

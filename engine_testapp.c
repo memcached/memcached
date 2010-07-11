@@ -1,3 +1,4 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <sys/wait.h>
 #include <assert.h>
 #include <dlfcn.h>
@@ -710,7 +711,10 @@ int main(int argc, char **argv) {
                                     .start_engine = start_your_engines,
                                     .create_cookie = create_mock_cookie,
                                     .destroy_cookie = destroy_mock_cookie,
-                                    .set_ewouldblock_handling = mock_set_ewouldblock_handling};
+                                    .set_ewouldblock_handling = mock_set_ewouldblock_handling,
+                                    .lock_cookie = lock_mock_cookie,
+                                    .unlock_cookie = unlock_mock_cookie,
+                                    .waitfor_cookie = waitfor_mock_cookie};
     symbol = dlsym(handle, "setup_suite");
     if (symbol != NULL) {
         my_setup_suite.voidptr = symbol;
