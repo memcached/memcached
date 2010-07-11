@@ -16,10 +16,21 @@
 struct mock_engine {
     ENGINE_HANDLE_V1 me;
     ENGINE_HANDLE_V1 *the_engine;
+    TAP_ITERATOR iterator;
 };
 
 static inline struct mock_engine* get_handle(ENGINE_HANDLE* handle) {
     return (struct mock_engine*)handle;
+}
+
+static tap_event_t mock_tap_iterator(ENGINE_HANDLE* handle,
+                                     const void *cookie, item **itm,
+                                     void **es, uint16_t *nes, uint8_t *ttl,
+                                     uint16_t *flags, uint32_t *seqno,
+                                     uint16_t *vbucket) {
+   struct mock_engine *me = get_handle(handle);
+   return me->iterator((ENGINE_HANDLE*)me->the_engine, cookie, itm, es, nes,
+                       ttl, flags, seqno, vbucket);
 }
 
 static const engine_info* mock_get_info(ENGINE_HANDLE* handle) {
@@ -424,8 +435,9 @@ static TAP_ITERATOR mock_get_tap_iterator(ENGINE_HANDLE* handle, const void* coo
                                            uint32_t flags,
                                            const void* userdata, size_t nuserdata) {
     struct mock_engine *me = get_handle(handle);
-    return me->the_engine->get_tap_iterator((ENGINE_HANDLE*)me->the_engine, cookie,
-                                            client, nclient, flags, userdata, nuserdata);
+    me->iterator = me->the_engine->get_tap_iterator((ENGINE_HANDLE*)me->the_engine, cookie,
+                                                    client, nclient, flags, userdata, nuserdata);
+    return (me->iterator != NULL) ? mock_tap_iterator : NULL;
 }
 
 static size_t mock_errinfo(ENGINE_HANDLE *handle, const void* cookie,
