@@ -409,7 +409,7 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
 }
 
 static void do_item_stats(struct default_engine *engine,
-                          ADD_STAT add_stats, void *c) {
+                          ADD_STAT add_stats, const void *c) {
     int i;
     for (i = 0; i < POWER_LARGEST; i++) {
         if (engine->items.tails[i] != NULL) {
@@ -437,7 +437,7 @@ static void do_item_stats(struct default_engine *engine,
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
 static void do_item_stats_sizes(struct default_engine *engine,
-                                ADD_STAT add_stats, void *c) {
+                                ADD_STAT add_stats, const void *c) {
 
     /* max 1MB object, divided into 32 bytes size buckets */
     const int num_buckets = 32768;
@@ -854,7 +854,7 @@ void item_stats(struct default_engine *engine,
                    ADD_STAT add_stat, const void *cookie)
 {
     pthread_mutex_lock(&engine->cache_lock);
-    do_item_stats(engine, add_stat, (void*)cookie);
+    do_item_stats(engine, add_stat, cookie);
     pthread_mutex_unlock(&engine->cache_lock);
 }
 
@@ -863,7 +863,7 @@ void item_stats_sizes(struct default_engine *engine,
                       ADD_STAT add_stat, const void *cookie)
 {
     pthread_mutex_lock(&engine->cache_lock);
-    do_item_stats_sizes(engine, add_stat, (void*)cookie);
+    do_item_stats_sizes(engine, add_stat, cookie);
     pthread_mutex_unlock(&engine->cache_lock);
 }
 
