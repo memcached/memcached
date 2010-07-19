@@ -1359,16 +1359,19 @@ static void complete_incr_bin(conn *c) {
         }
     }
 
-    ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->arithmetic(settings.engine.v0,
-                                         c, key, nkey, incr,
-                                         req->message.body.expiration != 0xffffffff,
-                                         req->message.body.delta,
-                                         req->message.body.initial,
-                                         req->message.body.expiration,
-                                         &c->cas,
-                                         &rsp->message.body.value,
-                                         c->binary_header.request.vbucket);
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->arithmetic(settings.engine.v0,
+                                             c, key, nkey, incr,
+                                             req->message.body.expiration != 0xffffffff,
+                                             req->message.body.delta,
+                                             req->message.body.initial,
+                                             req->message.body.expiration,
+                                             &c->cas,
+                                             &rsp->message.body.value,
+                                             c->binary_header.request.vbucket);
+    }
 
     switch (ret) {
     case ENGINE_SUCCESS:
@@ -1409,6 +1412,9 @@ static void complete_incr_bin(conn *c) {
         break;
     case ENGINE_NOT_MY_VBUCKET:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET, 0);
+        break;
+    case ENGINE_EWOULDBLOCK:
+        c->ewouldblock = true;
         break;
     default:
         abort();
