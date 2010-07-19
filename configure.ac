@@ -176,12 +176,18 @@ if test "x$enable_dtrace" = "xyes"; then
     AC_DEFINE([ENABLE_DTRACE],1,[Set to nonzero if you want to include DTRACE])
     build_dtrace=yes
     # DTrace on MacOSX does not use -G option
-    $DTRACE -G -o conftest.$$ -s memcached_dtrace.d 2>/dev/zero
+    cat > provider.$$.d <<EOF
+provider autoconf {
+  probe foo();
+};
+EOF
+    $DTRACE -G -o conftest.$$ -s provider.$$.d 2>/dev/zero
     if test $? -eq 0
     then
         dtrace_instrument_obj=yes
         rm conftest.$$
     fi
+    rm provider.$$.d
 
     if test "`which tr`" = "/usr/ucb/tr"; then
         AC_MSG_ERROR([Please remove /usr/ucb from your path. See man standards for more info])

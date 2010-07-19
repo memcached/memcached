@@ -129,7 +129,7 @@ int assoc_insert(struct default_engine *engine, uint32_t hash, hash_item *it) {
         assoc_expand(engine);
     }
 
-    MEMCACHED_ASSOC_INSERT(item_get_key(&it), it->nkey, hash_items);
+    MEMCACHED_ASSOC_INSERT(item_get_key(it), it->nkey, engine->assoc.hash_items);
     return 1;
 }
 
@@ -142,7 +142,7 @@ void assoc_delete(struct default_engine *engine, uint32_t hash, const char *key,
         /* The DTrace probe cannot be triggered as the last instruction
          * due to possible tail-optimization by the compiler
          */
-        MEMCACHED_ASSOC_DELETE(key, nkey, hash_items);
+        MEMCACHED_ASSOC_DELETE(key, nkey, engine->assoc.hash_items);
         nxt = (*before)->h_next;
         (*before)->h_next = 0;   /* probably pointless, but whatever. */
         *before = nxt;

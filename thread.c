@@ -453,7 +453,7 @@ void dispatch_conn_new(int sfd, STATE_FUNC init_state, int event_flags,
 
     cq_push(thread->new_conn_queue, item);
 
-    MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
+    MEMCACHED_CONN_DISPATCH(sfd, (uintptr_t)thread->thread_id);
     if (write(thread->notify_send_fd, "", 1) != 1) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                         "Writing to thread notify pipe: %s",

@@ -1030,27 +1030,27 @@ static void complete_update_ascii(conn *c) {
 #ifdef ENABLE_DTRACE
         switch (c->store_op) {
         case OPERATION_ADD:
-            MEMCACHED_COMMAND_ADD(c->sfd, key, info.nkey,
+            MEMCACHED_COMMAND_ADD(c->sfd, info.key, info.nkey,
                                   (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
             break;
         case OPERATION_REPLACE:
-            MEMCACHED_COMMAND_REPLACE(c->sfd, key, info.nkey,
+            MEMCACHED_COMMAND_REPLACE(c->sfd, info.key, info.nkey,
                                       (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
             break;
         case OPERATION_APPEND:
-            MEMCACHED_COMMAND_APPEND(c->sfd, key, info.nkey,
+            MEMCACHED_COMMAND_APPEND(c->sfd, info.key, info.nkey,
                                      (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
             break;
         case OPERATION_PREPEND:
-            MEMCACHED_COMMAND_PREPEND(c->sfd, key, info.nkey,
+            MEMCACHED_COMMAND_PREPEND(c->sfd, info.key, info.nkey,
                                       (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
             break;
         case OPERATION_SET:
-            MEMCACHED_COMMAND_SET(c->sfd, key, info.nkey,
+            MEMCACHED_COMMAND_SET(c->sfd, info.key, info.nkey,
                                   (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
             break;
         case OPERATION_CAS:
-            MEMCACHED_COMMAND_CAS(c->sfd, key, info.nkey, info.nbytes, c->cas);
+            MEMCACHED_COMMAND_CAS(c->sfd, info.key, info.nkey, info.nbytes, c->cas);
             break;
         }
 #endif
@@ -3691,7 +3691,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                  */
 
                 MEMCACHED_COMMAND_GET(c->sfd, info.key, info.nkey,
-                                      info.nbytes, item_get_cas(it));
+                                      info.nbytes, info.cas);
                 if (return_cas)
                 {
 
