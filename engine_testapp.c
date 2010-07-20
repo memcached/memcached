@@ -448,7 +448,7 @@ static size_t mock_errinfo(ENGINE_HANDLE *handle, const void* cookie,
 }
 
 
-struct mock_engine mock_engine = {
+struct mock_engine default_mock_engine = {
     .me = {
         .interface = {
             .interface = 1
@@ -475,7 +475,7 @@ struct mock_engine mock_engine = {
         .errinfo = mock_errinfo
     }
 };
-
+struct mock_engine mock_engine;
 
 EXTENSION_LOGGER_DESCRIPTOR *logger_descriptor = NULL;
 static ENGINE_HANDLE *handle = NULL;
@@ -559,9 +559,34 @@ static ENGINE_HANDLE_V1 *start_your_engines(const char *engine, const char* cfg,
         }
     }
 
+    mock_engine = default_mock_engine;
     handle_v1 = mock_engine.the_engine = (ENGINE_HANDLE_V1*)handle;
     handle = (ENGINE_HANDLE*)&mock_engine.me;
     handle_v1 = &mock_engine.me;
+
+    // Reset all members that aren't set (to allow the users to write
+    // testcases to verify that they initialize them..
+    assert(mock_engine.me.interface.interface == mock_engine.the_engine->interface.interface);
+
+    if (mock_engine.the_engine->get_stats_struct == NULL) {
+        mock_engine.me.get_stats_struct = NULL;
+    }
+    if (mock_engine.the_engine->aggregate_stats == NULL) {
+        mock_engine.me.aggregate_stats = NULL;
+    }
+    if (mock_engine.the_engine->unknown_command == NULL) {
+        mock_engine.me.unknown_command = NULL;
+    }
+    if (mock_engine.the_engine->tap_notify == NULL) {
+        mock_engine.me.tap_notify = NULL;
+    }
+    if (mock_engine.the_engine->get_tap_iterator == NULL) {
+        mock_engine.me.get_tap_iterator = NULL;
+    }
+    if (mock_engine.the_engine->errinfo == NULL) {
+        mock_engine.me.errinfo = NULL;
+    }
+
     return &mock_engine.me;
 }
 
