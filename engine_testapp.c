@@ -1,5 +1,5 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-#include <sys/wait.h>
+#include "config.h"
 #include <assert.h>
 #include <dlfcn.h>
 #include <errno.h>
