@@ -57,7 +57,6 @@
 #include <stdarg.h>
 
 #include <stddef.h>
-#include <sys/utsname.h>
 
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
