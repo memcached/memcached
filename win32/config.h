@@ -28,6 +28,10 @@
 
 #define HAVE_DLFCN_H 1
 
+#define HAVE_STDBOOL_H
+
+#include "config_static.h"
+
 /* Define to empty if `const' does not conform to ANSI C. */
 /* #undef const */
 
@@ -42,7 +46,6 @@
 #include <process.h>
 /* PRIu64 */
 #include <inttypes.h>
-#include <stdbool.h>
 #include <stdint.h>
 
 /*******************************/

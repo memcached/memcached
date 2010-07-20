@@ -1,38 +1,123 @@
 # Hard coded Makefile for windows
+#
+# Tip: If you want to be able to build 32bit and 64 bit versions
+#      on the same machine you can install libevent and pthreads in
+#      let's say: /usr/local32 and /usr/local64 and you should
+#      be able to compile with:
+#      make -f win32/Makefile.mingw LOCAL=/usr/local32
+#      make -f win32/Makefile.mingw LOCAL=/usr/local64 CC=x86_64-w64-mingw32-gcc
+#
 
 CC = gcc
+LOCAL=/usr/local
+LOCALLIB=-L${LOCAL}/lib
+LOCALINC=-I${LOCAL}/include
 
 OBJDIR = .libs .libs/win32
-BINARIES= memcached.exe .libs/default_engine.so
-LIB=-L/lib -L/usr/lib -L/usr/local/lib
-INCLUDE=-I/include -I/usr/include -I/usr/local/include
+BINARIES= memcached.exe \
+          engine_testapp.exe \
+	  sizes.exe \
+	  .libs/ascii_scrub.so \
+          .libs/basic_engine_testsuite.so \
+          .libs/default_engine.so \
+          .libs/example_protocol.so \
+          .libs/stdin_term_handler.so
+
+LIB=${LOCALLIB}
+INCLUDE=-Iinclude -I. -Iwin32 -I.libs ${LOCALINC}
 
 all: ${BINARIES}
 
 CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
- -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls \
- ${INCLUDE} -Iinclude -Iwin32 -I.libs -DHAVE_CONFIG_H
+ -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations \
+ -Wredundant-decls \
+ ${INCLUDE} -DHAVE_CONFIG_H
 
-MEMCACHED_SRC = cache.c config_parser.c globals.c hash.c isasl.c memcached.c \
- sasl_defs.c stats.c stdin_check.c thread.c topkeys.c util.c genhash.c \
- extension_loggers.c engine_loader.c \
- win32/defs.c win32/dlfcn.c win32/win32.c
-
+MEMCACHED_SRC = \
+	      cache.c \
+	      config_parser.c \
+	      engine_loader.c \
+	      extension_loggers.c\
+	      genhash.c \
+	      globals.c \
+	      hash.c \
+	      isasl.c \
+	      memcached.c \
+	      sasl_defs.c \
+	      stats.c \
+	      stdin_check.c \
+	      thread.c \
+	      topkeys.c \
+	      util.c \
+	      win32/defs.c \
+	      win32/dlfcn.c \
+	      win32/win32.c
 MEMCACHED_OBJS = ${MEMCACHED_SRC:%.c=.libs/%.o}
 
-DEFAULT_ENGINE_SRC = assoc.c default_engine.c items.c slabs.c util.c
+ENGINE_TESTAPP_SRC = \
+		   config_parser.c \
+		   engine_loader.c \
+		   engine_testapp.c \
+		   extension_loggers.c \
+		   mock_server.c \
+		   util.c \
+		   win32/dlfcn.c
+ENGINE_TESTAPP_OBJS = ${ENGINE_TESTAPP_SRC:%.c=.libs/%.o}
+
+SIZES_SRC = sizes.c
+SIZES_OBJS = ${SIZES_SRC:%.c=.libs/%.o}
+
+DEFAULT_ENGINE_SRC = \
+		   assoc.c \
+		   default_engine.c \
+		   items.c \
+		   slabs.c \
+		   util.c
 DEFAULT_ENGINE_OBJS = ${DEFAULT_ENGINE_SRC:%.c=.libs/%.o}
+
+ASCII_SCRUB_SRC = ascii_scrub.c
+ASCII_SCRUB_OBJS = ${ASCII_SCRUB_SRC:%.c=.libs/%.o}
+
+EXAMPLE_PROTOCOL_SRC = example_protocol.c
+EXAMPLE_PROTOCOL_OBJS = ${EXAMPLE_PROTOCOL_SRC:%.c=.libs/%.o}
+
+STDIN_TERM_HANDLER_SRC = stdin_check.c
+STDIN_TERM_HANDLER_OBJS = ${STDIN_TERM_HANDLER_SRC:%.c=.libs/%.o}
+
+BASIC_ENGINE_TESTSUITE_SRC = basic_engine_testsuite.c
+BASIC_ENGINE_TESTSUITE_OBJS = ${BASIC_ENGINE_TESTSUITE_SRC:%.c=.libs/%.o}
 
 GENFILES=.libs/config_version.h
 
 memcached.exe: ${OBJDIR} ${GENFILES} $(MEMCACHED_OBJS)
-	${LINK.c} -o memcached.exe $(MEMCACHED_OBJS) \
+	${LINK.c} -o $@ $(MEMCACHED_OBJS) \
                   ${LIB} -levent -lmswsock \
                   -lws2_32 -lpthread
+
+engine_testapp.exe: ${OBJDIR} ${GENFILES} $(ENGINE_TESTAPP_OBJS)
+	${LINK.c} -o $@ $(ENGINE_TESTAPP_OBJS) \
+                  ${LIB} -levent -lmswsock \
+                  -lws2_32 -lpthread
+
+sizes.exe: ${OBJDIR} ${GENFILES} $(SIZES_OBJS)
+	${LINK.c} -o $@ $(SIZES_OBJS)
 
 .libs/default_engine.so: ${OBJDIR} $(DEFAULT_ENGINE_OBJS)
 	${LINK.c} -o $@ -shared ${DEFAULT_ENGINE_OBJS} \
                   ${LIB} -lpthread
+
+.libs/ascii_scrub.so: ${OBJDIR} $(ASCII_SCRUB_OBJS)
+	${LINK.c} -o $@ -shared ${ASCII_SCRUB_OBJS}
+
+.libs/example_protocol.so: ${OBJDIR} $(EXAMPLE_PROTOCOL_OBJS)
+	${LINK.c} -o $@ -shared ${EXAMPLE_PROTOCOL_OBJS}
+
+.libs/stdin_term_handler.so: ${OBJDIR} $(STDIN_TERM_HANDLER_OBJS)
+	${LINK.c} -o $@ -shared ${STDIN_TERM_HANDLER_OBJS} ${LIBS} \
+                  ${LIB} -lpthread
+
+.libs/basic_engine_testsuite.so: ${OBJDIR} $(BASIC_ENGINE_TESTSUITE_OBJS)
+	${LINK.c} -o $@ -shared ${BASIC_ENGINE_TESTSUITE_OBJS}
 
 .libs/config_version.h:
 	./win32/config.sh
@@ -43,8 +128,30 @@ memcached.exe: ${OBJDIR} ${GENFILES} $(MEMCACHED_OBJS)
 	${COMPILE.c} -MMD $< -o $@
 
 clean:
-	$(RM) ${MEMCACHED_OBJS} ${DEFAULT_ENGINE_OBJS} \
-              ${BINARIES} ${MEMCACHED_OBJS:.o=.d} ${DEFAULT_ENGINE_OBJS:.o=.d} \
-              ${GENFILES}
+	$(RM) ${BINARIES} \
+              ${ASCII_SCRUB_OBJS:.o=.d} \
+              ${ASCII_SCRUB_OBJS} \
+              ${BASIC_ENGINE_TESTSUITE_OBJS:.o=.d} \
+              ${BASIC_ENGINE_TESTSUITE_OBJS} \
+              ${DEFAULT_ENGINE_OBJS:.o=.d} \
+              ${DEFAULT_ENGINE_OBJS} \
+              ${ENGINE_TESTAPP_OBJS:.o=.d} \
+              ${ENGINE_TESTAPP_OBJS} \
+              ${EXAMPLE_PROTOCOL_OBJS:.o=.d} \
+              ${EXAMPLE_PROTOCOL_OBJS} \
+              ${GENFILES} \
+              ${MEMCACHED_OBJS:.o=.d} \
+              ${MEMCACHED_OBJS} \
+              ${SIZES_OBJS:.o=.d} \
+              ${SIZES_OBJS} \
+              ${STDIN_TERM_HANDLER_OBJS:.o=.d} \
+              ${STDIN_TERM_HANDLER_OBJS}
 
--include ${MEMCACHED_OBJS:.o=.d} ${DEFAULT_ENGINE_OBJS:.o=.d}
+-include ${ASCII_SCRUB_OBJS:.o=.d} \
+         ${BASIC_ENGINE_TESTSUITE_OBJS:.o=.d} \
+         ${DEFAULT_ENGINE_OBJS:.o=.d} \
+         ${ENGINE_TESTAPP_OBJS:.o=.d} \
+         ${EXAMPLE_PROTOCOL_OBJS:.o=.d} \
+         ${MEMCACHED_OBJS:.o=.d} \
+         ${SIZES_OBJS:.o=.d} \
+         ${STDIN_TERM_HANDLER_OBJS:.o=.d}

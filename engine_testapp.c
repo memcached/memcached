@@ -609,7 +609,7 @@ static void reload_engine(ENGINE_HANDLE **h, ENGINE_HANDLE_V1 **h1, const char* 
 static enum test_result run_test(engine_test_t test, const char *engine, const char *default_cfg) {
     enum test_result ret = PENDING;
     if (test.tfun != NULL) {
-#ifndef USE_GCOV
+#if !defined(USE_GCOV) && !defined(WIN32)
         pid_t pid = fork();
         if (pid == 0) {
 #endif
@@ -628,7 +628,7 @@ static enum test_result run_test(engine_test_t test, const char *engine, const c
                 }
             }
             destroy_engine();
-#ifndef USE_GCOV
+#if !defined(USE_GCOV) && !defined(WIN32)
             exit((int)ret);
         } else if (pid == (pid_t)-1) {
             ret = FAIL;

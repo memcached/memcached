@@ -399,8 +399,9 @@ struct conn {
 conn *conn_new(const int sfd, STATE_FUNC init_state, const int event_flags,
                const int read_buffer_size, enum network_transport transport,
                struct event_base *base, struct timeval *timeout);
+#ifndef WIN32
 extern int daemonize(int nochdir, int noclose);
-
+#endif
 
 #include "stats.h"
 #include "trace.h"
