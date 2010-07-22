@@ -58,7 +58,6 @@ libmcd_util_la_SOURCES= \
                         include/memcached/util.h \
                         mock_server.c \
                         util.c
-libmcd_util_la_LDFLAGS= -dynamic
 
 memcached_SOURCES = \
                     cache.h \
@@ -98,6 +97,7 @@ endif
 
 if INCLUDE_DEFAULT_ENGINE
 memcached_SOURCES += $(default_engine_la_SOURCES)
+memcached_LDFLAGS += -export-dynamic
 endif
 
 CLEANFILES=
@@ -115,7 +115,7 @@ default_engine_la_SOURCES= \
                     slabs.h
 default_engine_la_DEPENDENCIES= libmcd_util.la
 default_engine_la_LIBADD= libmcd_util.la $(LIBM)
-default_engine_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
+default_engine_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 if BUILD_DTRACE
 BUILT_SOURCES += memcached_dtrace.h
@@ -133,20 +133,20 @@ endif
 
 # ASCII support for the scrub command
 ascii_scrub_la_SOURCES= ascii_scrub.c protocol_extension.h
-ascii_scrub_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
+ascii_scrub_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 # An extension that will shut down memcached if standard input is closed
 stdin_term_handler_la_SOURCES= stdin_check.c stdin_check.h
-stdin_term_handler_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
+stdin_term_handler_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 # An example extension that extends the ascii protocol with noop and echo
 example_protocol_la_SOURCES= example_protocol.c protocol_extension.h
-example_protocol_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
+example_protocol_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c
 basic_engine_testsuite_la_DEPENDENCIES= libmcd_util.la
 basic_engine_testsuite_la_LIBADD= libmcd_util.la $(LIBM)
-basic_engine_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined -dynamic
+basic_engine_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s $(top_srcdir)/memcached_dtrace.d
