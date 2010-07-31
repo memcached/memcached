@@ -190,7 +190,8 @@ static enum test_result get_item_info_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h
     item_info ii = { .nvalue = 1 };
     assert(h1->allocate(h, NULL, &test_item, key, strlen(key), 1,0, exp) == ENGINE_SUCCESS);
     assert(h1->store(h, NULL, test_item, &cas, OPERATION_SET,0) == ENGINE_SUCCESS);
-    assert(h1->get_item_info(h, test_item, &ii) == true);
+    /* Had this been actual code, there'd be a connection here */
+    assert(h1->get_item_info(h, NULL, test_item, &ii) == true);
     assert(ii.cas == cas);
     assert(ii.flags == 0);
     assert(strcmp(key,ii.key) == 0);
@@ -210,8 +211,8 @@ static enum test_result item_set_cas_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1
     assert(h1->allocate(h, NULL, &test_item, key, strlen(key), 1,0, exp) == ENGINE_SUCCESS);
     assert(h1->store(h, NULL, test_item, &cas, OPERATION_SET,0) == ENGINE_SUCCESS);
     uint64_t newcas = cas + 1;
-    h1->item_set_cas(h, test_item, newcas);
-    assert(h1->get_item_info(h, test_item, &ii) == true);
+    h1->item_set_cas(h, NULL, test_item, newcas);
+    assert(h1->get_item_info(h, NULL, test_item, &ii) == true);
     assert(ii.cas == newcas);
     h1->release(h, NULL, test_item);
     return SUCCESS;

@@ -504,7 +504,8 @@ extern "C" {
         /**
          * Set the CAS id on an item.
          */
-        void (*item_set_cas)(ENGINE_HANDLE *handle, item *item, uint64_t cas);
+        void (*item_set_cas)(ENGINE_HANDLE *handle, const void *cookie,
+                             item *item, uint64_t cas);
 
         /**
          * Get information about an item.
@@ -514,11 +515,13 @@ extern "C" {
          * individual item, this function will get all of them.
          *
          * @param handle the engine that owns the object
+         * @param cookie connection cookie for this item
          * @param item the item to request information about
          * @param item_info
          * @return true if successful
          */
         bool (*get_item_info)(ENGINE_HANDLE *handle,
+                              const void *cookie,
                               const item* item,
                               item_info *item_info);
 

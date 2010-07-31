@@ -298,7 +298,7 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     pthread_mutex_unlock(&engine->stats.lock);
 
     /* Allocate a new CAS ID on link. */
-    item_set_cas(NULL, it, get_cas_id());
+    item_set_cas(NULL, NULL, it, get_cas_id());
 
     item_link_q(engine, it);
 

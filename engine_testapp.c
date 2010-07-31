@@ -332,17 +332,20 @@ static ENGINE_ERROR_CODE mock_unknown_command(ENGINE_HANDLE* handle,
     return ret;
 }
 
-static void mock_item_set_cas(ENGINE_HANDLE *handle, item* item, uint64_t val)
+static void mock_item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
+                              item* item, uint64_t val)
 {
     struct mock_engine *me = get_handle(handle);
-    me->the_engine->item_set_cas((ENGINE_HANDLE*)me->the_engine, item, val);
+    me->the_engine->item_set_cas((ENGINE_HANDLE*)me->the_engine, cookie, item, val);
 }
 
 
-static bool mock_get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info)
+static bool mock_get_item_info(ENGINE_HANDLE *handle, const void *cookie,
+                               const item* item, item_info *item_info)
 {
     struct mock_engine *me = get_handle(handle);
-    return me->the_engine->get_item_info((ENGINE_HANDLE*)me->the_engine, item, item_info);
+    return me->the_engine->get_item_info((ENGINE_HANDLE*)me->the_engine,
+                                         cookie, item, item_info);
 }
 
 static void *mock_get_stats_struct(ENGINE_HANDLE* handle, const void* cookie)

@@ -72,7 +72,8 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response);
 
-static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info);
+static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
+                          const item* item, item_info *item_info);
 
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
@@ -511,7 +512,8 @@ uint64_t item_get_cas(const hash_item* item)
     return 0;
 }
 
-void item_set_cas(ENGINE_HANDLE *handle, item* item, uint64_t val)
+void item_set_cas(ENGINE_HANDLE *handle, const void *cookie,
+                  item* item, uint64_t val)
 {
     hash_item* it = get_real_item(item);
     if (it->iflag & ITEM_WITH_CAS) {
@@ -539,7 +541,8 @@ uint8_t item_get_clsid(const hash_item* item)
     return 0;
 }
 
-static bool get_item_info(ENGINE_HANDLE *handle, const item* item, item_info *item_info)
+static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
+                          const item* item, item_info *item_info)
 {
     hash_item* it = (hash_item*)item;
     if (item_info->nvalue < 1) {

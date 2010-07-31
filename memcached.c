@@ -66,7 +66,7 @@
 #endif
 
 static inline void item_set_cas(item *it, uint64_t cas) {
-    settings.engine.v1->item_set_cas(settings.engine.v0, it, cas);
+    settings.engine.v1->item_set_cas(settings.engine.v0, NULL, it, cas);
 }
 
 /* static inline uint8_t item_get_clsid(const item* it) { */
@@ -1012,7 +1012,7 @@ static void complete_update_ascii(conn *c) {
 
     item *it = c->item;
     item_info info = { .nvalue = 1 };
-    if (!settings.engine.v1->get_item_info(settings.engine.v0, it, &info)) {
+    if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it, &info)) {
         settings.engine.v1->release(settings.engine.v0, c, it);
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                         "%d: Failed to get item info\n",
@@ -1427,7 +1427,7 @@ static void complete_update_bin(conn *c) {
 
     item *it = c->item;
     item_info info = { .nvalue = 1 };
-    if (!settings.engine.v1->get_item_info(settings.engine.v0, it, &info)) {
+    if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it, &info)) {
         settings.engine.v1->release(settings.engine.v0, c, it);
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                         "%d: Failed to get item info\n",
@@ -1543,7 +1543,7 @@ static void process_bin_get(conn *c) {
 
     switch (ret) {
     case ENGINE_SUCCESS:
-        if (!settings.engine.v1->get_item_info(settings.engine.v0, it, &info)) {
+        if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it, &info)) {
             settings.engine.v1->release(settings.engine.v0, c, it);
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                             "%d: Failed to get item info\n",
@@ -2256,7 +2256,7 @@ static void ship_tap_log(conn *c) {
         case TAP_MUTATION:
             /* This is a store */
             /* @todo check if I'm supposed to send the value! */
-            if (!settings.engine.v1->get_item_info(settings.engine.v0, it, &info)) {
+            if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it, &info)) {
                 settings.engine.v1->release(settings.engine.v0, c, it);
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                                 "%d: Failed to get item info\n", c->sfd);
@@ -2299,7 +2299,7 @@ static void ship_tap_log(conn *c) {
             break;
         case TAP_DELETION:
             /* This is a delete */
-            if (!settings.engine.v1->get_item_info(settings.engine.v0, it, &info)) {
+            if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it, &info)) {
                 settings.engine.v1->release(settings.engine.v0, c, it);
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                                 "%d: Failed to get item info\n", c->sfd);
@@ -2810,7 +2810,8 @@ static void process_bin_update(conn *c) {
                                            vlen + 2,
                                            req->message.body.flags,
                                            realtime(req->message.body.expiration));
-        if (ret == ENGINE_SUCCESS && !settings.engine.v1->get_item_info(settings.engine.v0, it, &info)) {
+        if (ret == ENGINE_SUCCESS && !settings.engine.v1->get_item_info(settings.engine.v0,
+                                                                        c, it, &info)) {
             settings.engine.v1->release(settings.engine.v0, c, it);
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINTERNAL, 0);
             return;
@@ -2905,7 +2906,8 @@ static void process_bin_append_prepend(conn *c) {
         ret = settings.engine.v1->allocate(settings.engine.v0, c,
                                            &it, key, nkey,
                                            vlen + 2, 0, 0);
-        if (ret == ENGINE_SUCCESS && !settings.engine.v1->get_item_info(settings.engine.v0, it, &info)) {
+        if (ret == ENGINE_SUCCESS && !settings.engine.v1->get_item_info(settings.engine.v0,
+                                                                        c, it, &info)) {
             settings.engine.v1->release(settings.engine.v0, c, it);
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINTERNAL, 0);
             return;
@@ -3657,7 +3659,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
             if (it) {
                 item_info info = { .nvalue = 1 };
-                if (!settings.engine.v1->get_item_info(settings.engine.v0, it,
+                if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it,
                                                        &info)) {
                     settings.engine.v1->release(settings.engine.v0, c, it);
                     out_string(c, "SERVER_ERROR error getting item data");
@@ -3852,7 +3854,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     switch (ret) {
     case ENGINE_SUCCESS:
         item_set_cas(it, req_cas_id);
-        if (!settings.engine.v1->get_item_info(settings.engine.v0, it, &info)) {
+        if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it, &info)) {
             settings.engine.v1->release(settings.engine.v0, c, it);
             out_string(c, "SERVER_ERROR error getting item data");
             break;
@@ -5592,7 +5594,7 @@ static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
     if (ret == ENGINE_SUCCESS) {
         item_info info = { .nvalue = 1 };
 
-        if (!e->get_item_info(handle, it, &info)) {
+        if (!e->get_item_info(handle, cookie, it, &info)) {
             e->release(handle, cookie, it);
             return ENGINE_FAILED;
         }
@@ -5633,14 +5635,14 @@ static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
         }
 
         item_info i2 = { .nvalue = 1 };
-        if (!e->get_item_info(handle, nit, &i2)) {
+        if (!e->get_item_info(handle, cookie, nit, &i2)) {
             e->release(handle, cookie, it);
             e->release(handle, cookie, nit);
             return ENGINE_FAILED;
         }
 
         memcpy(i2.value[0].iov_base, value, nb);
-        e->item_set_cas(handle, nit, info.cas);
+        e->item_set_cas(handle, cookie, nit, info.cas);
         ret = e->store(handle, cookie, nit, cas, OPERATION_CAS, vbucket);
         e->release(handle, cookie, it);
         e->release(handle, cookie, nit);
@@ -5654,7 +5656,7 @@ static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
         }
 
         item_info info = { .nvalue = 1 };
-        if (!e->get_item_info(handle, it, &info)) {
+        if (!e->get_item_info(handle, cookie, it, &info)) {
             e->release(handle, cookie, it);
             return ENGINE_FAILED;
         }
