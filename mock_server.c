@@ -212,9 +212,10 @@ static void* mock_get_extension(extension_type_t type)
  * SERVER CALLBACK API FUNCTIONS
  */
 
-static void mock_register_callback(ENGINE_EVENT_TYPE type,
-                              EVENT_CALLBACK cb,
-                              const void *cb_data) {
+static void mock_register_callback(ENGINE_HANDLE *eh,
+                                   ENGINE_EVENT_TYPE type,
+                                   EVENT_CALLBACK cb,
+                                   const void *cb_data) {
     struct mock_callbacks *h =
         calloc(sizeof(struct mock_callbacks), 1);
     assert(h);
@@ -225,8 +226,8 @@ static void mock_register_callback(ENGINE_EVENT_TYPE type,
 }
 
 static void mock_perform_callbacks(ENGINE_EVENT_TYPE type,
-                              const void *data,
-                              const void *c) {
+                                   const void *data,
+                                   const void *c) {
     for (struct mock_callbacks *h = mock_event_handlers[type];
          h; h = h->next) {
         h->cb(c, type, data, h->cb_data);

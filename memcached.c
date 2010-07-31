@@ -161,7 +161,8 @@ static int new_socket(struct addrinfo *ai);
 static int try_read_command(conn *c);
 static inline struct independent_stats *get_independent_stats(conn *c);
 static inline struct thread_stats *get_thread_stats(conn *c);
-static void register_callback(ENGINE_EVENT_TYPE type,
+static void register_callback(ENGINE_HANDLE *eh,
+                              ENGINE_EVENT_TYPE type,
                               EVENT_CALLBACK cb, const void *cb_data);
 
 
@@ -5538,7 +5539,8 @@ static inline struct thread_stats *get_thread_stats(conn *c) {
     return &independent_stats->thread_stats[c->thread->index];
 }
 
-static void register_callback(ENGINE_EVENT_TYPE type,
+static void register_callback(ENGINE_HANDLE *eh,
+                              ENGINE_EVENT_TYPE type,
                               EVENT_CALLBACK cb, const void *cb_data) {
     struct engine_event_handler *h =
         calloc(sizeof(struct engine_event_handler), 1);

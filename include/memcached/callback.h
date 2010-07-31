@@ -1,9 +1,13 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #ifndef MEMCACHED_CALLBACK_H
 #define MEMCACHED_CALLBACK_H
+
+#include "memcached/engine_common.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
     /**
      * Event types for callbacks to the engine indicating state
      * changes in the server.
@@ -42,7 +46,8 @@ extern "C" {
          * @param cb_data opaque data to be given back to the caller
          *        on event
          */
-        void (*register_callback)(ENGINE_EVENT_TYPE type,
+        void (*register_callback)(ENGINE_HANDLE *engine,
+                                  ENGINE_EVENT_TYPE type,
                                   EVENT_CALLBACK cb,
                                   const void *cb_data);
 
@@ -50,8 +55,8 @@ extern "C" {
          * Fire callbacks
          */
         void (*perform_callbacks)(ENGINE_EVENT_TYPE type,
-                                 const void *data,
-                                 const void *cookie);
+                                  const void *data,
+                                  const void *cookie);
     } SERVER_CALLBACK_API;
 
 #ifdef __cplusplus

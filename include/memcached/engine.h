@@ -14,6 +14,7 @@
 #include "memcached/callback.h"
 #include "memcached/extension.h"
 #include "memcached/vbucket.h"
+#include "memcached/engine_common.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -90,10 +91,6 @@ extern "C" {
 #ifdef __WIN32__
 #undef interface
 #endif
-    typedef struct engine_interface {
-        uint64_t interface; /**< The version number on the engine structure */
-    } ENGINE_HANDLE;
-
     struct item_observer_cb_data {
         const void *key; /* THis isn't going to work from a memory management perspective */
         size_t nkey;
