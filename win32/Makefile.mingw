@@ -12,6 +12,8 @@ CC = gcc
 LOCAL=/usr/local
 LOCALLIB=-L${LOCAL}/lib
 LOCALINC=-I${LOCAL}/include
+DEST=${LOCAL}
+INSTALLDIRS=${DEST}/bin ${DEST}/lib ${DEST}/include/memcached
 
 OBJDIR = .libs .libs/win32
 BINARIES= memcached.exe \
@@ -27,6 +29,10 @@ LIB=${LOCALLIB}
 INCLUDE=-Iinclude -I. -Iwin32 -I.libs ${LOCALINC}
 
 all: ${BINARIES}
+
+install: ${BINARIES} ${INSTALLDIRS}
+	 cp memcached.exe .libs/default_engine.so .libs/ascii_scrub.so ${DEST}/lib
+	 cp include/memcached/* ${DEST}/include/memcached
 
 CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
  -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations \
@@ -122,7 +128,7 @@ sizes.exe: ${OBJDIR} ${GENFILES} $(SIZES_OBJS)
 .libs/config_version.h:
 	./win32/config.sh
 
-.libs .libs/win32:; -@mkdir $@
+.libs .libs/win32 ${INSTALLDIRS}:; -@mkdir $@
 
 .libs/%.o: %.c
 	${COMPILE.c} -MMD $< -o $@
