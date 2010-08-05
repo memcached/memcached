@@ -465,6 +465,7 @@ bool conn_closing(conn *c);
 bool conn_mwrite(conn *c);
 bool conn_ship_log(conn *c);
 bool conn_add_tap_client(conn *c);
+bool conn_setup_tap_stream(conn *c);
 
 /* If supported, give compiler hints for branch prediction. */
 #if !defined(__GNUC__) || (__GNUC__ == 2 && __GNUC_MINOR__ < 96)

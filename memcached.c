@@ -811,6 +811,8 @@ static const char *state_text(STATE_FUNC state) {
         return "conn_ship_log";
     } else if (state == conn_add_tap_client) {
         return "conn_add_tap_client";
+    } else if (state == conn_setup_tap_stream) {
+        return "conn_setup_tap_stream";
     } else {
         return "Unknown";
     }
@@ -2465,7 +2467,7 @@ static void process_bin_tap_connect(conn *c) {
         conn_set_state(c, conn_closing);
     } else {
         c->tap_iterator = iterator;
-        conn_set_state(c, conn_add_tap_client);
+        conn_set_state(c, conn_ship_log);
     }
 }
 
@@ -2522,7 +2524,7 @@ static void process_bin_packet(conn *c) {
         pthread_mutex_lock(&tap_stats.mutex);
         tap_stats.received.connect++;
         pthread_mutex_unlock(&tap_stats.mutex);
-        process_bin_tap_connect(c);
+        conn_set_state(c, conn_add_tap_client);
         break;
     case PROTOCOL_BINARY_CMD_TAP_MUTATION:
         pthread_mutex_lock(&tap_stats.mutex);
@@ -4875,7 +4877,7 @@ bool conn_add_tap_client(conn *c) {
     event_del(&c->event);
 
     LOCK_THREAD(tp);
-    conn_set_state(c, conn_ship_log);
+    conn_set_state(c, conn_setup_tap_stream);
     c->thread = tp;
     c->event.ev_base = tp->base;
     assert(c->next == NULL);
@@ -4889,6 +4891,11 @@ bool conn_add_tap_client(conn *c) {
     }
 
     return false;
+}
+
+bool conn_setup_tap_stream(conn *c) {
+    process_bin_tap_connect(c);
+    return true;
 }
 
 void event_handler(const int fd, const short which, void *arg) {
