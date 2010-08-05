@@ -8,7 +8,7 @@ int lstat(const char *path, struct stat *tstat) {
     return -1;
 }
 
-int getrlimit(int __resource, struct rlimit *__rlimits) {
+int getrlimit(int __resource, struct rlimit *rlimits) {
     /* HACK ALERT: This function MUST BE called from main() before any *
      * network operation for Windows networking to work. Since the     *
      * main() is calling getrlimit() that is NOT meaningful for        *
@@ -24,6 +24,8 @@ int getrlimit(int __resource, struct rlimit *__rlimits) {
             exit(EXIT_FAILURE);
         }
     }
+    rlimits->rlim_cur = 1; // Hack: just enough to allow main() to move forward.
+    rlimits->rlim_max = 1;
     return 0;
 }
 
