@@ -387,8 +387,6 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
     LIBEVENT_THREAD *thr = conn->thread;
 
     if (thr == NULL || conn->state == conn_closing) {
-        settings.extensions.logger->log(EXTENSION_LOG_INFO, conn,
-                                        "Ignoring closed connection\n");
         return;
     }
 
