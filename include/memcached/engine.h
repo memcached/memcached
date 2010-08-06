@@ -106,12 +106,6 @@ extern "C" {
         ENGINE_HANDLE *engine;
     };
 
-    /* tap flags */
-    /* @todo document and reserve the flags.. this is currently just an idea */
-    #define TAP_FLAG_SEND_CATCHUP 1
-    #define TAP_FLAG_DATA_INCLUDED 2
-    #define TAP_FLAG_SEND_ACK 4
-
     typedef enum { TAP_MUTATION = 1,
                    TAP_DELETION,
                    TAP_FLUSH,
