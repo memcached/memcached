@@ -72,6 +72,9 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response);
 
+/* mechanism for handling bad vbucket requests */
+#define VBUCKET_GUARD(e, v) if (v != 0) { return ENGINE_ENOTSUP; }
+
 static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
                           const item* item, item_info *item_info);
 
@@ -239,10 +242,9 @@ static ENGINE_ERROR_CODE default_item_delete(ENGINE_HANDLE* handle,
                                              uint64_t cas,
                                              uint16_t vbucket)
 {
-   if (vbucket != 0) {
-      return ENGINE_ENOTSUP;
-   }
    struct default_engine* engine = get_handle(handle);
+   VBUCKET_GUARD(engine, vbucket);
+
    hash_item *it = item_get(engine, key, nkey);
    if (it == NULL) {
       return ENGINE_KEY_ENOENT;
@@ -270,10 +272,10 @@ static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
                                      const void* key,
                                      const int nkey,
                                      uint16_t vbucket) {
-   if (vbucket != 0) {
-      return ENGINE_ENOTSUP;
-   }
-   *item = item_get(get_handle(handle), key, nkey);
+   struct default_engine *engine = get_handle(handle);
+   VBUCKET_GUARD(engine, vbucket);
+
+   *item = item_get(engine, key, nkey);
    if (*item != NULL) {
       return ENGINE_SUCCESS;
    } else {
@@ -351,12 +353,10 @@ static ENGINE_ERROR_CODE default_store(ENGINE_HANDLE* handle,
                                        uint64_t *cas,
                                        ENGINE_STORE_OPERATION operation,
                                        uint16_t vbucket) {
-   if (vbucket != 0) {
-      return ENGINE_ENOTSUP;
-   }
-
-   return store_item(get_handle(handle), get_real_item(item), cas, operation,
-                     cookie);
+    struct default_engine *engine = get_handle(handle);
+    VBUCKET_GUARD(engine, vbucket);
+    return store_item(engine, get_real_item(item), cas, operation,
+                      cookie);
 }
 
 static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
@@ -371,12 +371,9 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
                                             uint64_t *cas,
                                             uint64_t *result,
                                             uint16_t vbucket) {
-   if (vbucket != 0) {
-      return ENGINE_ENOTSUP;
-   }
-
    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
    struct default_engine *engine = get_handle(handle);
+   VBUCKET_GUARD(engine, vbucket);
    hash_item *item = item_get(engine, key, nkey);
 
    if (item == NULL) {
