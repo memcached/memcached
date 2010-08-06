@@ -7,6 +7,7 @@ pkginclude_HEADERS = \
                      include/memcached/callback.h \
                      include/memcached/config_parser.h \
                      include/memcached/engine.h \
+                     include/memcached/engine_common.h \
                      include/memcached/engine_testapp.h \
                      include/memcached/extension.h \
                      include/memcached/extension_loggers.h \
