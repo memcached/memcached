@@ -497,6 +497,10 @@ extern "C"
                  * over to the caller when all items are transferred.
                  */
 #define TAP_CONNECT_FLAG_TAKEOVER_VBUCKETS 0x08
+                /**
+                 * The tap consumer supports ack'ing of tap messages
+                 */
+#define TAP_CONNECT_SUPPORT_ACK 0x10
             } body;
         } message;
         uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
@@ -508,6 +512,15 @@ extern "C"
             struct {
                 struct {
                     uint16_t enginespecific_length;
+                    /*
+                     * The flag section support the following flags
+                     */
+                    /**
+                     * Request that the consumer send a response packet
+                     * for this packet. The opaque field must be preserved
+                     * in the response.
+                     */
+#define TAP_FLAG_ACK 0x01
                     uint16_t flags;
                     uint8_t  ttl;
                     uint8_t  res1;
@@ -529,6 +542,11 @@ extern "C"
             struct {
                 struct {
                     uint16_t enginespecific_length;
+                    /**
+                     * See the definition of the flags for
+                     * protocol_binary_request_tap_mutation for a description
+                     * of the available flags.
+                     */
                     uint16_t flags;
                     uint8_t  ttl;
                     uint8_t  res1;

@@ -365,9 +365,11 @@ static void libevent_tap_process(int fd, short which, void *arg) {
         pending = pending->next;
         c->next = NULL;
         assert(number_of_pending(c, pending) == 0);
-        event_add(&c->event, 0);
+
         UNLOCK_THREAD(me);
-        c->nevents = settings.reqs_per_event;
+        c->nevents = settings.reqs_per_tap_event;
+        c->which = EV_WRITE;
+
         while (c->state(c)) {
             /* do task */
         }
@@ -394,7 +396,7 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
 
     LOCK_THREAD(thr);
 
-    if (thr != conn->thread || conn->state == conn_closing) {
+    if (thr != conn->thread || conn->state == conn_closing || !conn->ewouldblock) {
         UNLOCK_THREAD(thr);
         return;
     }

@@ -827,6 +827,19 @@ static void conn_set_state(conn *c, STATE_FUNC state) {
     assert(c != NULL);
 
     if (state != c->state) {
+        /*
+         * The connections in the "tap thread" behaves differently than
+         * normal connections because they operate in a full duplex mode.
+         * New messages may appear from both sides, so we can't block on
+         * read from the nework / engine
+         */
+        if (c->thread == &tap_thread) {
+            if (state == conn_waiting) {
+                c->which = EV_WRITE;
+                state = conn_ship_log;
+            }
+        }
+
         if (settings.verbose > 2) {
             settings.extensions.logger->log(EXTENSION_LOG_DETAIL, c,
                                             "%d: going from %s to %s\n",
@@ -1236,6 +1249,41 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     }
 
     add_iov(c, c->wbuf, sizeof(header->response));
+}
+
+/**
+ * Convert an error code generated from the storage engine to the corresponding
+ * error code used by the protocol layer.
+ * @param e the error code as used in the engine
+ * @return the error code as used by the protocol layer
+ */
+static protocol_binary_response_status engine_error_2_protocol_error(ENGINE_ERROR_CODE e) {
+    protocol_binary_response_status ret;
+
+    switch (e) {
+    case ENGINE_SUCCESS:
+        return PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    case ENGINE_KEY_ENOENT:
+        return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+    case ENGINE_KEY_EEXISTS:
+        return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+    case ENGINE_ENOMEM:
+        return PROTOCOL_BINARY_RESPONSE_ENOMEM;
+    case ENGINE_NOT_STORED:
+        return PROTOCOL_BINARY_RESPONSE_NOT_STORED;
+    case ENGINE_EINVAL:
+        return PROTOCOL_BINARY_RESPONSE_EINVAL;
+    case ENGINE_ENOTSUP:
+        return PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED;
+    case ENGINE_E2BIG:
+        return PROTOCOL_BINARY_RESPONSE_E2BIG;
+    case ENGINE_NOT_MY_VBUCKET:
+        return PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET;
+    default:
+        ret = PROTOCOL_BINARY_RESPONSE_EINTERNAL;
+    }
+
+    return ret;
 }
 
 static void write_bin_packet(conn *c, protocol_binary_response_status err, int swallow) {
@@ -2424,15 +2472,6 @@ static void process_bin_unknown_packet(conn *c) {
 }
 
 static void process_bin_tap_connect(conn *c) {
-    /* @todo I want to send some sort of ack-message to let the slave know the
-     * some info. For now, just ship log (the state machine doesn't expect to
-     * receive response messages...)
-     * The ack should also contain oldest-live so that we may expire items..
-     * we need to come up with a better feed as well.. we could add a check-item
-     * command the slave could feed to the master (sending key + cas), and the
-     * master could put in delete messages in the feed...
-     */
-
     char *packet = (c->rcurr - (c->binary_header.request.bodylen +
                                 sizeof(c->binary_header)));
     protocol_binary_request_tap_connect *req = (void*)packet;
@@ -2461,18 +2500,32 @@ static void process_bin_tap_connect(conn *c) {
         key -= 4;
     }
 
+    if (settings.verbose && c->binary_header.request.keylen > 0) {
+        char buffer[1024];
+        int len = c->binary_header.request.keylen;
+        if (len >= sizeof(buffer)) {
+            len = sizeof(buffer) - 1;
+        }
+        memcpy(buffer, key, len);
+        buffer[len] = '\0';
+        settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
+                                        "%d: Trying to connect with named tap connection: <%s>\n",
+                                        c->sfd, buffer);
+    }
+
     TAP_ITERATOR iterator = settings.engine.v1->get_tap_iterator(
         settings.engine.v0, c, key, c->binary_header.request.keylen,
         flags, data, ndata);
 
     if (iterator == NULL) {
-        /* TROND: SEND A NAK TO THE TAP */
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                         "%d: FATAL: The engine does not support tap\n",
                                         c->sfd);
-        conn_set_state(c, conn_closing);
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_NOT_SUPPORTED, 0);
+        c->write_and_go = conn_closing;
     } else {
         c->tap_iterator = iterator;
+        c->which = EV_WRITE;
         conn_set_state(c, conn_ship_log);
     }
 }
@@ -2515,11 +2568,38 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
                                          data, ndata,
                                          c->binary_header.request.vbucket);
 
-    /* @todo we don't do acks at this time */
     if (ret == ENGINE_DISCONNECT) {
         conn_set_state(c, conn_closing);
     } else {
-        conn_set_state(c, conn_new_cmd);
+        if (tap_flags & TAP_FLAG_ACK) {
+            write_bin_packet(c, engine_error_2_protocol_error(ret), 0);
+        } else {
+            conn_set_state(c, conn_new_cmd);
+        }
+    }
+}
+
+static void process_bin_tap_ack(conn *c) {
+    assert(c != NULL);
+    char *packet = (c->rcurr - (c->binary_header.request.bodylen +
+                                sizeof(c->binary_header)));
+    protocol_binary_response_no_extras *rsp = (void*)packet;
+    uint32_t seqno = ntohl(rsp->message.header.response.opaque);
+    uint16_t status = ntohs(rsp->message.header.response.status);
+    char *key = packet + sizeof(rsp->bytes);
+
+    ENGINE_ERROR_CODE ret = ENGINE_DISCONNECT;
+    if (settings.engine.v1->tap_notify != NULL) {
+        ret = settings.engine.v1->tap_notify(settings.engine.v0, c, NULL, 0, 0, status,
+                                             TAP_ACK, seqno, key,
+                                             c->binary_header.request.keylen, 0, 0,
+                                             0, NULL, 0, 0);
+    }
+
+    if (ret == ENGINE_DISCONNECT) {
+        conn_set_state(c, conn_closing);
+    } else {
+        conn_set_state(c, conn_ship_log);
     }
 }
 
@@ -2566,6 +2646,19 @@ static void process_bin_packet(conn *c) {
         process_bin_unknown_packet(c);
     }
 }
+
+typedef void (*RESPONSE_HANDLER)(conn*);
+/**
+ * A map between the response packets op-code and the function to handle
+ * the response message.
+ */
+static RESPONSE_HANDLER response_handlers[256] = {
+    [PROTOCOL_BINARY_CMD_TAP_MUTATION] = process_bin_tap_ack,
+    [PROTOCOL_BINARY_CMD_TAP_DELETE] = process_bin_tap_ack,
+    [PROTOCOL_BINARY_CMD_TAP_FLUSH] = process_bin_tap_ack,
+    [PROTOCOL_BINARY_CMD_TAP_OPAQUE] = process_bin_tap_ack,
+    [PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET] = process_bin_tap_ack
+};
 
 static void dispatch_bin_command(conn *c) {
     int protocol_error = 0;
@@ -3076,7 +3169,20 @@ static void complete_nread_binary(conn *c) {
         process_bin_complete_sasl_auth(c);
         break;
     case bin_reading_packet:
-        process_bin_packet(c);
+        if (c->binary_header.request.magic == PROTOCOL_BINARY_RES) {
+            RESPONSE_HANDLER handler;
+            handler = response_handlers[c->binary_header.request.opcode];
+            if (handler) {
+                handler(c);
+            } else {
+                settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                       "%d: ERROR: Unsupported response packet received: %u\n",
+                        c->sfd, (unsigned int)c->binary_header.request.opcode);
+                conn_set_state(c, conn_closing);
+            }
+        } else {
+            process_bin_packet(c);
+        }
         break;
     default:
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
@@ -4249,11 +4355,21 @@ static int try_read_command(conn *c) {
             c->binary_header.request.vbucket = ntohs(req->request.vbucket);
             c->binary_header.request.cas = ntohll(req->request.cas);
 
-            if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
+
+            if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ &&
+                !(c->binary_header.request.magic == PROTOCOL_BINARY_RES &&
+                  response_handlers[c->binary_header.request.opcode])) {
                 if (settings.verbose) {
-                    settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
-                            "%d: Invalid magic:  %x\n", c->sfd,
-                            c->binary_header.request.magic);
+                    if (c->binary_header.request.magic != PROTOCOL_BINARY_RES) {
+                        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                              "%d: Invalid magic:  %x\n", c->sfd,
+                              c->binary_header.request.magic);
+                    } else {
+                        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                              "%d: ERROR: Unsupported response packet received: %u\n",
+                              c->sfd, (unsigned int)c->binary_header.request.opcode);
+
+                    }
                 }
                 conn_set_state(c, conn_closing);
                 return -1;
@@ -4567,29 +4683,55 @@ bool conn_listening(conn *c)
     return false;
 }
 
+/**
+ * Ship tap log to the other end. This state differs with all other states
+ * in the way that it support full duplex dialog. We're listening to both read
+ * and write events from libevent most of the time. If a read event occurs we
+ * switch to the conn_read state to read and execute the input message (that would
+ * be an ack message from the other side). If a write event occurs we continue to
+ * send tap log to the other end.
+ * @param c the tap connection to drive
+ * @return true if we should continue to process work for this connection, false
+ *              if we should start processing events for other connections.
+ */
 bool conn_ship_log(conn *c) {
-    bool cont = true;
-    --c->nevents;
-    if (c->nevents >= 0) {
-        LOCK_THREAD(c->thread);
-        c->ewouldblock = false;
-        ship_tap_log(c);
-        if (c->ewouldblock) {
-            event_del(&c->event);
-            cont = false;
-        }
-        UNLOCK_THREAD(c->thread);
-    } else {
-        // Add a write event so that libevent will pick it up at a later time...
-        if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-            if (settings.verbose > 0) {
-                settings.extensions.logger->log(EXTENSION_LOG_INFO,
-                                                c, "Couldn't update event\n");
+    bool cont = false;
+    short mask = EV_READ | EV_PERSIST | EV_WRITE;
+
+    if (c->which & EV_READ) {
+        if (c->rbytes > 0) {
+            if (try_read_command(c) == 0) {
+                conn_set_state(c, conn_read);
             }
-            conn_set_state(c, conn_closing);
         } else {
-            cont = false;
+            conn_set_state(c, conn_read);
         }
+
+        // we're going to process something.. let's proceed
+        cont = true;
+    }
+
+    if (c->which & EV_WRITE) {
+        --c->nevents;
+        if (c->nevents >= 0) {
+            LOCK_THREAD(c->thread);
+            c->ewouldblock = false;
+            ship_tap_log(c);
+            if (c->ewouldblock) {
+                mask = EV_READ | EV_PERSIST;
+            } else {
+                cont = true;
+            }
+            UNLOCK_THREAD(c->thread);
+        }
+    }
+
+    if (!update_event(c, mask)) {
+        if (settings.verbose > 0) {
+            settings.extensions.logger->log(EXTENSION_LOG_INFO,
+                                            c, "Couldn't update event\n");
+        }
+        conn_set_state(c, conn_closing);
     }
 
     return cont;
