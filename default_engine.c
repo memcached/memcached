@@ -485,6 +485,8 @@ static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
                                                  const char *cfg_str) {
    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
+   se->config.vb0 = true;
+
    if (cfg_str != NULL) {
       struct config_item items[] = {
          { .key = "use_cas",
@@ -514,12 +516,19 @@ static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
          { .key = "ignore_vbucket",
            .datatype = DT_BOOL,
            .value.dt_bool = &se->config.ignore_vbucket },
+         { .key = "vb0",
+           .datatype = DT_BOOL,
+           .value.dt_bool = &se->config.vb0 },
          { .key = "config_file",
            .datatype = DT_CONFIGFILE },
          { .key = NULL}
       };
 
       ret = se->server.core->parse_config(cfg_str, items, stderr);
+   }
+
+   if (se->config.vb0) {
+       set_vbucket_state(se, 0, VBUCKET_STATE_ACTIVE);
    }
 
    return ENGINE_SUCCESS;
