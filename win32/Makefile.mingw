@@ -110,7 +110,7 @@ sizes.exe: ${OBJDIR} ${GENFILES} $(SIZES_OBJS)
 
 .libs/default_engine.so: ${OBJDIR} $(DEFAULT_ENGINE_OBJS)
 	${LINK.c} -o $@ -shared ${DEFAULT_ENGINE_OBJS} \
-                  ${LIB} -lpthread
+                  ${LIB} -lws2_32 -lpthread
 
 .libs/ascii_scrub.so: ${OBJDIR} $(ASCII_SCRUB_OBJS)
 	${LINK.c} -o $@ -shared ${ASCII_SCRUB_OBJS}
