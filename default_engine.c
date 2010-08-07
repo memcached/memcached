@@ -72,6 +72,10 @@ static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
                                        const void* cookie, time_t when);
 static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
                                                  const char *cfg_str);
+static TAP_ITERATOR get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
+                                     const void* client, size_t nclient,
+                                     uint32_t flags,
+                                     const void* userdata, size_t nuserdata);
 static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  const void* cookie,
                                                  protocol_binary_request_header *request,
@@ -148,7 +152,8 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
          .flush = default_flush,
          .unknown_command = default_unknown_command,
          .item_set_cas = item_set_cas,
-         .get_item_info = get_item_info
+         .get_item_info = get_item_info,
+         .get_tap_iterator = get_tap_iterator
       },
       .server = *api,
       .get_server_api = get_server_api,
@@ -479,6 +484,32 @@ static void default_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
    engine->stats.reclaimed = 0;
    engine->stats.total_items = 0;
    pthread_mutex_unlock(&engine->stats.lock);
+}
+
+static tap_event_t tap_always_pause(ENGINE_HANDLE *e,
+                                    const void *cookie, item **itm, void **es,
+                                    uint16_t *nes, uint8_t *ttl, uint16_t *flags,
+                                    uint32_t *seqno, uint16_t *vbucket) {
+    return TAP_PAUSE;
+}
+
+static tap_event_t tap_always_disconnect(ENGINE_HANDLE *e,
+                                         const void *cookie, item **itm, void **es,
+                                         uint16_t *nes, uint8_t *ttl, uint16_t *flags,
+                                         uint32_t *seqno, uint16_t *vbucket) {
+    return TAP_DISCONNECT;
+}
+
+static TAP_ITERATOR get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
+                                     const void* client, size_t nclient,
+                                     uint32_t flags,
+                                     const void* userdata, size_t nuserdata) {
+    TAP_ITERATOR rv = tap_always_pause;
+    if ((flags & TAP_CONNECT_FLAG_DUMP)
+        || (flags & TAP_CONNECT_FLAG_TAKEOVER_VBUCKETS)) {
+        rv = tap_always_disconnect;
+    }
+    return rv;
 }
 
 static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
