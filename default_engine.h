@@ -89,6 +89,19 @@ struct engine_scrubber {
    time_t stopped;
 };
 
+enum vbucket_state {
+    VBUCKET_STATE_DEAD    = 0,
+    VBUCKET_STATE_ACTIVE  = 1,
+    VBUCKET_STATE_REPLICA = 2,
+    VBUCKET_STATE_PENDING = 3
+};
+
+struct vbucket_info {
+    int state : 2;
+};
+
+#define NUM_VBUCKETS 65536
+
 /**
  * Definition of the private instance data used by the default engine.
  *
@@ -122,6 +135,8 @@ struct default_engine {
        char buffer[sizeof(engine_info) +
                    (sizeof(feature_info) * LAST_REGISTERED_ENGINE_FEATURE)];
    } info;
+
+   char vbucket_infos[NUM_VBUCKETS];
 };
 
 char* item_get_data(const hash_item* item);

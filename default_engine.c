@@ -7,10 +7,15 @@
 #include <unistd.h>
 #include <stddef.h>
 #include <inttypes.h>
+#include <arpa/inet.h>
 
 #include "default_engine.h"
 #include <memcached/util.h>
 #include <memcached/config_parser.h>
+
+#define CMD_SET_VBUCKET 0x83
+#define CMD_GET_VBUCKET 0x84
+#define CMD_DEL_VBUCKET 0x85
 
 static const engine_info* default_get_info(ENGINE_HANDLE* handle);
 static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
@@ -72,19 +77,48 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response);
 
+union vbucket_info_adapter {
+    char c;
+    struct vbucket_info v;
+};
+
+static void set_vbucket_state(struct default_engine *e,
+                              uint16_t vbid, enum vbucket_state to) {
+    union vbucket_info_adapter vi;
+    vi.c = e->vbucket_infos[vbid];
+    vi.v.state = to;
+    e->vbucket_infos[vbid] = vi.c;
+}
+
+static enum vbucket_state get_vbucket_state(struct default_engine *e,
+                                            uint16_t vbid) {
+    union vbucket_info_adapter vi;
+    vi.c = e->vbucket_infos[vbid];
+    return vi.v.state;
+}
+
 static bool handled_vbucket(struct default_engine *e, uint16_t vbid) {
-    return (vbid == 0) || e->config.ignore_vbucket;
+    return e->config.ignore_vbucket
+        || (get_vbucket_state(e, vbid) == VBUCKET_STATE_ACTIVE);
 }
 
 /* mechanism for handling bad vbucket requests */
-#define VBUCKET_GUARD(e, v) if (!handled_vbucket(e, v)) { return ENGINE_ENOTSUP; }
+#define VBUCKET_GUARD(e, v) if (!handled_vbucket(e, v)) { return ENGINE_NOT_MY_VBUCKET; }
 
 static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
                           const item* item, item_info *item_info);
 
+static const char const * vbucket_state_name(enum vbucket_state s) {
+    static const char const * vbucket_states[] = {
+        "dead", "active", "replica", "pending"
+    };
+    return vbucket_states[s];
+}
+
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle) {
+    printf("vbucket info is %zd bytes\n", sizeof(struct vbucket_info));
    SERVER_HANDLE_V1 *api = get_server_api();
    if (interface != 1 || api == NULL) {
       return ENGINE_ENOTSUP;
@@ -287,6 +321,20 @@ static ENGINE_ERROR_CODE default_get(ENGINE_HANDLE* handle,
    }
 }
 
+static void stats_vbucket(struct default_engine *e,
+                          ADD_STAT add_stat,
+                          const void *cookie) {
+    for (int i = 0; i < NUM_VBUCKETS; i++) {
+        enum vbucket_state state = get_vbucket_state(e, i);
+        if (state != VBUCKET_STATE_DEAD) {
+            char buf[16];
+            snprintf(buf, sizeof(buf), "vb_%d", i);
+            const char * state_name = vbucket_state_name(state);
+            add_stat(buf, strlen(buf), state_name, strlen(state_name), cookie);
+        }
+    }
+}
+
 static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
                                            const void* cookie,
                                            const char* stat_key,
@@ -320,6 +368,8 @@ static ENGINE_ERROR_CODE default_get_stats(ENGINE_HANDLE* handle,
       item_stats(engine, add_stat, cookie);
    } else if (strncmp(stat_key, "sizes", 5) == 0) {
       item_stats_sizes(engine, add_stat, cookie);
+   } else if (strncmp(stat_key, "vbucket", 7) == 0) {
+      stats_vbucket(engine, add_stat, cookie);
    } else if (strncmp(stat_key, "scrub", 5) == 0) {
       char val[128];
       int len;
@@ -475,36 +525,182 @@ static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
    return ENGINE_SUCCESS;
 }
 
+static protocol_binary_response_status set_vbucket(struct default_engine *e,
+                                                   protocol_binary_request_header *request,
+                                                   const char **msg) {
+    protocol_binary_request_no_extras *req =
+        (protocol_binary_request_no_extras*)request;
+    assert(req);
+
+    char keyz[32];
+    char valz[32];
+
+    // Read the key.
+    int keylen = ntohs(req->message.header.request.keylen);
+    if (keylen >= (int)sizeof(keyz)) {
+        *msg = "Key is too large.";
+        return PROTOCOL_BINARY_RESPONSE_EINVAL;
+    }
+    memcpy(keyz, ((char*)request) + sizeof(req->message.header), keylen);
+    keyz[keylen] = 0x00;
+
+    // Read the value.
+    size_t bodylen = ntohl(req->message.header.request.bodylen)
+        - ntohs(req->message.header.request.keylen);
+    if (bodylen >= sizeof(valz)) {
+        *msg = "Value is too large.";
+        return PROTOCOL_BINARY_RESPONSE_EINVAL;
+    }
+    memcpy(valz, (char*)request + sizeof(req->message.header)
+           + keylen, bodylen);
+    valz[bodylen] = 0x00;
+
+    protocol_binary_response_status rv = PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    *msg = "Configured";
+
+    enum vbucket_state state;
+    if (strcmp(valz, "active") == 0) {
+        state = VBUCKET_STATE_ACTIVE;
+    } else if(strcmp(valz, "replica") == 0) {
+        state = VBUCKET_STATE_REPLICA;
+    } else if(strcmp(valz, "pending") == 0) {
+        state = VBUCKET_STATE_PENDING;
+    } else if(strcmp(valz, "dead") == 0) {
+        state = VBUCKET_STATE_DEAD;
+    } else {
+        *msg = "Invalid state.";
+        return PROTOCOL_BINARY_RESPONSE_EINVAL;
+    }
+
+    uint32_t vbucket = 0;
+    if (!safe_strtoul(keyz, &vbucket) || vbucket > NUM_VBUCKETS) {
+        *msg = "Value out of range.";
+        rv = PROTOCOL_BINARY_RESPONSE_EINVAL;
+    } else {
+        set_vbucket_state(e, (uint16_t)vbucket, state);
+    }
+
+    return rv;
+}
+
+static protocol_binary_response_status get_vbucket(struct default_engine *e,
+                                                   protocol_binary_request_header *request,
+                                                   const char **msg) {
+    protocol_binary_request_no_extras *req =
+        (protocol_binary_request_no_extras*)request;
+    assert(req);
+
+    char keyz[8]; // stringy 2^16 int
+
+    // Read the key.
+    int keylen = ntohs(req->message.header.request.keylen);
+    if (keylen >= (int)sizeof(keyz)) {
+        *msg   = "Key is too large.";
+        return PROTOCOL_BINARY_RESPONSE_EINVAL;
+    }
+    memcpy(keyz, ((char*)request) + sizeof(req->message.header), keylen);
+    keyz[keylen] = 0x00;
+
+    protocol_binary_response_status rv = PROTOCOL_BINARY_RESPONSE_SUCCESS;
+
+    uint32_t vbucket = 0;
+    if (!safe_strtoul(keyz, &vbucket) || vbucket > NUM_VBUCKETS) {
+        *msg = "Value out of range.";
+        rv = PROTOCOL_BINARY_RESPONSE_EINVAL;
+    } else {
+        *msg = vbucket_state_name(get_vbucket_state(e, (uint16_t)vbucket));
+    }
+
+    return rv;
+}
+
+static protocol_binary_response_status rm_vbucket(struct default_engine *e,
+                                                  protocol_binary_request_header *request,
+                                                  const char **msg) {
+    protocol_binary_request_no_extras *req =
+        (protocol_binary_request_no_extras*)request;
+    assert(req);
+
+    char keyz[8]; // stringy 2^16 int
+
+    // Read the key.
+    int keylen = ntohs(req->message.header.request.keylen);
+    if (keylen >= (int)sizeof(keyz)) {
+        *msg = "Key is too large.";
+        return PROTOCOL_BINARY_RESPONSE_EINVAL;
+    }
+    memcpy(keyz, ((char*)request) + sizeof(req->message.header), keylen);
+    keyz[keylen] = 0x00;
+
+    protocol_binary_response_status rv = PROTOCOL_BINARY_RESPONSE_SUCCESS;
+
+    uint32_t vbucket = 0;
+    if (!safe_strtoul(keyz, &vbucket) || vbucket > NUM_VBUCKETS) {
+        *msg = "Value out of range.";
+        rv = PROTOCOL_BINARY_RESPONSE_EINVAL;
+    } else {
+        set_vbucket_state(e, (uint16_t)vbucket, VBUCKET_STATE_DEAD);
+    }
+
+    assert(msg);
+    return rv;
+}
+
+static protocol_binary_response_status scrub_cmd(struct default_engine *e,
+                                                 protocol_binary_request_header *request,
+                                                 const char **msg) {
+    return item_start_scrub(e) ? PROTOCOL_BINARY_RESPONSE_SUCCESS
+        : PROTOCOL_BINARY_RESPONSE_EBUSY;
+}
+
 static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  const void* cookie,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response)
 {
-   if (request->request.opcode == PROTOCOL_BINARY_CMD_SCRUB) {
-      struct default_engine *engine = get_handle(handle);
-      uint16_t status;
+   struct default_engine* e = get_handle(handle);
 
-      if (item_start_scrub(engine)) {
-         status = PROTOCOL_BINARY_RESPONSE_SUCCESS;
-      } else {
-         status = PROTOCOL_BINARY_RESPONSE_EBUSY;
-      }
+    bool handled = true;
+    const char *msg = NULL;
+    protocol_binary_response_status res =
+        PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND;
 
-      if (response(NULL, 0, NULL, 0, NULL, 0, PROTOCOL_BINARY_RAW_BYTES,
-                   status, 0, cookie)) {
-         return ENGINE_SUCCESS;
-      } else {
-         return ENGINE_FAILED;
-      }
-   }
+    switch(request->request.opcode) {
+    case PROTOCOL_BINARY_CMD_SCRUB:
+        res = scrub_cmd(e, request, &msg);
+        break;
+    case CMD_DEL_VBUCKET:
+        res = rm_vbucket(e, request, &msg);
+        break;
+    case CMD_SET_VBUCKET:
+        res = set_vbucket(e, request, &msg);
+        break;
+    case CMD_GET_VBUCKET:
+        res = get_vbucket(e, request, &msg);
+        break;
+    default:
+        handled = false;
+        break;
+    }
 
-   if (response(NULL, 0, NULL, 0, NULL, 0,
-                PROTOCOL_BINARY_RAW_BYTES,
-                PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, 0, cookie)) {
-      return ENGINE_SUCCESS;
-   } else {
-      return ENGINE_FAILED;
-   }
+    bool sent = false;
+    if (handled) {
+        size_t msg_size = msg ? strlen(msg) : 0;
+        sent = response(msg, (uint16_t)msg_size,
+                        NULL, 0, NULL, 0,
+                        PROTOCOL_BINARY_RAW_BYTES,
+                        (uint16_t)res, 0, cookie);
+    } else {
+        sent = response(NULL, 0, NULL, 0, NULL, 0,
+                        PROTOCOL_BINARY_RAW_BYTES,
+                        PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, 0, cookie);
+    }
+
+    if (sent) {
+        return ENGINE_SUCCESS;
+    } else {
+        return ENGINE_FAILED;
+    }
 }
 
 
