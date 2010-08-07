@@ -72,8 +72,12 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response);
 
+static bool handled_vbucket(struct default_engine *e, uint16_t vbid) {
+    return (vbid == 0) || e->config.ignore_vbucket;
+}
+
 /* mechanism for handling bad vbucket requests */
-#define VBUCKET_GUARD(e, v) if (v != 0) { return ENGINE_ENOTSUP; }
+#define VBUCKET_GUARD(e, v) if (!handled_vbucket(e, v)) { return ENGINE_ENOTSUP; }
 
 static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
                           const item* item, item_info *item_info);
@@ -457,6 +461,9 @@ static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
          { .key = "item_size_max",
            .datatype = DT_SIZE,
            .value.dt_size = &se->config.item_size_max },
+         { .key = "ignore_vbucket",
+           .datatype = DT_BOOL,
+           .value.dt_bool = &se->config.ignore_vbucket },
          { .key = "config_file",
            .datatype = DT_CONFIGFILE },
          { .key = NULL}

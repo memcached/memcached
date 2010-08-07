@@ -60,6 +60,7 @@ struct config {
    float factor;
    size_t chunk_size;
    size_t item_size_max;
+   bool ignore_vbucket;
 };
 
 MEMCACHED_PUBLIC_API
