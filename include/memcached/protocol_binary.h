@@ -501,6 +501,13 @@ extern "C"
                  * The tap consumer supports ack'ing of tap messages
                  */
 #define TAP_CONNECT_SUPPORT_ACK 0x10
+                /**
+                 * The tap consumer would prefer to just get the keys
+                 * back. If the engine supports this it will set
+                 * the TAP_FLAG_NO_VALUE flag in each of the
+                 * tap packets returned.
+                 */
+#define TAP_CONNECT_REQUEST_KEYS_ONLY 0x20
             } body;
         } message;
         uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
@@ -521,6 +528,10 @@ extern "C"
                      * in the response.
                      */
 #define TAP_FLAG_ACK 0x01
+                    /**
+                     * The value for the key is not included in the packet
+                     */
+#define TAP_FLAG_NO_VALUE 0x02
                     uint16_t flags;
                     uint8_t  ttl;
                     uint8_t  res1;

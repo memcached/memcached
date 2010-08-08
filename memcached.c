@@ -2310,8 +2310,6 @@ static void ship_tap_log(conn *c) {
             more_data = false;
             break;
         case TAP_MUTATION:
-            /* This is a store */
-            /* @todo check if I'm supposed to send the value! */
             if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it, &info)) {
                 settings.engine.v1->release(settings.engine.v0, c, it);
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
@@ -2325,7 +2323,11 @@ static void ship_tap_log(conn *c) {
             msg.mutation.message.header.request.cas = htonll(info.cas);
             msg.mutation.message.header.request.keylen = htons(info.nkey);
             msg.mutation.message.header.request.extlen = 16;
-            bodylen = 16 + (info.nbytes - 2) + info.nkey + nengine;
+
+            bodylen = 16 + info.nkey + nengine;
+            if ((tap_flags & TAP_FLAG_NO_VALUE) == 0) {
+                bodylen += info.nbytes - 2;
+            }
             msg.mutation.message.header.request.bodylen = htonl(bodylen);
             msg.mutation.message.body.item.flags = htonl(info.flags);
             msg.mutation.message.body.item.expiration = htonl(info.exptime);
@@ -2346,7 +2348,9 @@ static void ship_tap_log(conn *c) {
             }
 
             add_iov(c, info.key, info.nkey);
-            add_iov(c, info.value[0].iov_base, info.value[0].iov_len - 2);
+            if ((tap_flags & TAP_FLAG_NO_VALUE) == 0) {
+                add_iov(c, info.value[0].iov_base, info.value[0].iov_len - 2);
+            }
 
             pthread_mutex_lock(&tap_stats.mutex);
             tap_stats.sent.mutation++;
