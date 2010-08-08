@@ -1019,7 +1019,7 @@ static void complete_update_ascii(conn *c) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                         "%d: Failed to get item info\n",
                                         c->sfd);
-        out_string(c, "SERVER_ERRPR Failed to get item details");
+        out_string(c, "SERVER_ERROR failed to get item details");
         return;
     }
 
@@ -1077,7 +1077,7 @@ static void complete_update_ascii(conn *c) {
             out_string(c, "SERVER_ERROR not supported.");
             break;
         default:
-            out_string(c, "SERVER_ERROR Unhandled storage type.");
+            out_string(c, "SERVER_ERROR unhandled storage type.");
         }
     }
 
@@ -3953,7 +3953,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         c->state = conn_closing;
         break;
     case ENGINE_ENOTSUP:
-        out_string(c, "SERVER_ERROR Not supported");
+        out_string(c, "SERVER_ERROR not supported");
         break;
     default:
         abort();
