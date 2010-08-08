@@ -14,6 +14,9 @@ typedef enum {
     dead /**< Not in use, pending deletion. */
 } vbucket_state_t;
 
+#define is_valid_vbucket_state_t(state) \
+    (state == active || state == replica || state == pending || state == dead)
+
 #ifdef __cplusplus
 }
 #endif
