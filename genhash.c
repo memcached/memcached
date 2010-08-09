@@ -348,7 +348,6 @@ genhash_string_hash(const void* p, size_t nkey)
     char *str=(char *)p;
 
     for(i=0; i < nkey; i++) {
-        assert(str[i]);
         rv = ((rv << 5) + rv) ^ str[i];
     }
 
