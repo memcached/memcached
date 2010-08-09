@@ -1240,7 +1240,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
 
 static void write_bin_error(conn *c, protocol_binary_response_status err, int swallow) {
     ssize_t len;
-    char buffer[1024];
+    char buffer[1024] = { [sizeof(buffer) - 1] = '\0' };
 
     switch (err) {
     case PROTOCOL_BINARY_RESPONSE_ENOMEM:
@@ -1287,10 +1287,13 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
 
     /* Allow the engine to pass extra error information */
     if (settings.engine.v1->errinfo != NULL) {
-        buffer[len++] = ':';
-        buffer[len++] = ' ';
-        len += settings.engine.v1->errinfo(settings.engine.v0, c, buffer + len,
-                                           sizeof(buffer) - len - 1);
+        size_t elen = settings.engine.v1->errinfo(settings.engine.v0, c, buffer + len + 2,
+                                                  sizeof(buffer) - len - 3);
+
+        if (elen > 0) {
+            memcpy(buffer + len, ": ", 2);
+            len += elen + 2;
+        }
     }
 
     if (settings.verbose > 1) {
