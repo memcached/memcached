@@ -164,7 +164,6 @@ static int load_user_db(void)
                     }
                 }
             }
-            fprintf(stderr, "username='%s', password='%s', cfg='%s'\n", uname, p, cfg);
             store_pw(new_ut, uname, p, cfg);
        }
     }
@@ -296,7 +295,6 @@ static bool check_up(const char *username, const char *password, char **cfg)
 {
     pthread_mutex_lock(&uhash_lock);
     char *pw = find_pw(username, cfg);
-    fprintf(stderr, "Checking user='%s', password='%s', my password='%s'\n", username, password, pw);
     bool rv = pw && (strcmp(password, pw) == 0);
     pthread_mutex_unlock(&uhash_lock);
     return rv;
