@@ -137,17 +137,20 @@ static int load_user_db(void)
             while (*p && !isspace(p[0])) {
                 p++;
             }
-            p[0] = '\0';
-            p++;
+            // If p is pointing at a NUL, there's nothing after the username.
+            if (p[0] != '\0') {
+                p[0] = '\0';
+                p++;
+            }
             // p now points to the first character after the (now)
             // null-terminated username.
-            while (isspace(*p)) {
+            while (*p && isspace(*p)) {
                 p++;
             }
             // p now points to the first non-whitespace character
             // after the above
-            if (p[0] != '\0') {
-                cfg = p;
+            cfg = p;
+            if (cfg[0] != '\0') {
                 // move cfg past the password
                 while (*cfg && !isspace(cfg[0])) {
                     cfg++;
@@ -160,9 +163,10 @@ static int load_user_db(void)
                         cfg++;
                     }
                 }
-                store_pw(new_ut, uname, p, cfg);
             }
-        }
+            fprintf(stderr, "username='%s', password='%s', cfg='%s'\n", uname, p, cfg);
+            store_pw(new_ut, uname, p, cfg);
+       }
     }
 
     fclose(sfile);
@@ -292,6 +296,7 @@ static bool check_up(const char *username, const char *password, char **cfg)
 {
     pthread_mutex_lock(&uhash_lock);
     char *pw = find_pw(username, cfg);
+    fprintf(stderr, "Checking user='%s', password='%s', my password='%s'\n", username, password, pw);
     bool rv = pw && (strcmp(password, pw) == 0);
     pthread_mutex_unlock(&uhash_lock);
     return rv;
@@ -319,7 +324,8 @@ int sasl_server_start(sasl_conn_t *conn,
             const char *username = clientin + 1;
             char password[256];
             int pwlen = clientinlen - 2 - strlen(username);
-            if (pwlen > 0 && pwlen < 256) {
+            assert(pwlen >= 0);
+            if (pwlen < 256) {
                 char *cfg = NULL;
                 password[pwlen] = '\0';
                 memcpy(password, clientin + 2 + strlen(username), pwlen);
