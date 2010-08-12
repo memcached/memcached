@@ -4713,9 +4713,7 @@ bool conn_ship_log(conn *c) {
 
         // we're going to process something.. let's proceed
         cont = true;
-    }
-
-    if (c->which & EV_WRITE) {
+    } else if (c->which & EV_WRITE) {
         --c->nevents;
         if (c->nevents >= 0) {
             LOCK_THREAD(c->thread);
