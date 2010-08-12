@@ -13,35 +13,13 @@
  *      Anatoly Vorobey <mellon@pobox.com>
  *      Brad Fitzpatrick <brad@danga.com>
  */
+#include "config.h"
 #include "memcached.h"
 #include "memcached/extension_loggers.h"
 
 #if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
 #define SASL_ENABLED
 #endif
-
-#ifndef __WIN32__
-
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <sys/resource.h>
-#include <sys/uio.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
-
-/* some POSIX systems need the following definition
- * to get mlockall flags out of sys/mman.h.  */
-#ifndef _P1003_1B_VISIBLE
-#define _P1003_1B_VISIBLE
-#endif
-/* need this to get IOV_MAX on some platforms. */
-#ifndef __need_IOV_MAX
-#define __need_IOV_MAX
-#endif
-#include <pwd.h>
-#include <sys/mman.h>
-#endif /* !__WIN32__ */
 
 #include <signal.h>
 #include <getopt.h>
@@ -55,15 +33,7 @@
 #include <limits.h>
 #include <ctype.h>
 #include <stdarg.h>
-
 #include <stddef.h>
-
-/* FreeBSD 4.x doesn't have IOV_MAX exposed. */
-#ifndef IOV_MAX
-#if defined(__FreeBSD__) || defined(__APPLE__)
-# define IOV_MAX 1024
-#endif
-#endif
 
 static inline void item_set_cas(const void *cookie, item *it, uint64_t cas) {
     settings.engine.v1->item_set_cas(settings.engine.v0, cookie, it, cas);

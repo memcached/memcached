@@ -9,6 +9,7 @@
  *       or commercial.  It's free."
  *
  */
+#include "config.h"
 #include "memcached.h"
 
 /*

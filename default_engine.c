@@ -1,3 +1,5 @@
+#include "config.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -7,11 +9,10 @@
 #include <unistd.h>
 #include <stddef.h>
 #include <inttypes.h>
-#include <arpa/inet.h>
 
 #include "default_engine.h"
-#include <memcached/util.h>
-#include <memcached/config_parser.h>
+#include "memcached/util.h"
+#include "memcached/config_parser.h"
 
 #define CMD_SET_VBUCKET 0x83
 #define CMD_GET_VBUCKET 0x84

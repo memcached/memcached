@@ -6,22 +6,6 @@
  * The main memcached header holding commonly used data
  * structures and function prototypes.
  */
-
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
-#ifndef __WIN32__
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <unistd.h>
-#else
-#include "win32.h"
-#endif
-
 #include <event.h>
 #include <pthread.h>
 
@@ -71,11 +55,6 @@
 /* Binary protocol stuff */
 #define MIN_BIN_PKT_LENGTH 16
 #define BIN_PKT_HDR_WORDS (MIN_BIN_PKT_LENGTH/sizeof(uint32_t))
-
-/* unistd.h is here */
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#endif
 
 /* Slab sizing definitions. */
 #define POWER_SMALLEST 1

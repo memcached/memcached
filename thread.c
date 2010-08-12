@@ -2,6 +2,7 @@
 /*
  * Thread management for memcached.
  */
+#include "config.h"
 #include "memcached.h"
 #include <assert.h>
 #include <stdio.h>

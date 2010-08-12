@@ -7,6 +7,7 @@
  * Author:
  *   Steven Grimm <sgrimm@facebook.com>
  */
+#include "config.h"
 #include "memcached.h"
 #include <stdio.h>
 #include <stdlib.h>

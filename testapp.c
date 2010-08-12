@@ -1,4 +1,5 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+#include "config.h"
 #undef NDEBUG
 #include <pthread.h>
 #include <sys/types.h>
@@ -19,7 +20,6 @@
 #include <fcntl.h>
 #include <ctype.h>
 
-#include "config.h"
 #include "cache.h"
 #include <memcached/util.h>
 #include <memcached/protocol_binary.h>

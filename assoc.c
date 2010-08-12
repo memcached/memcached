@@ -3,14 +3,7 @@
  * Hash table
  *
  */
-#ifndef __WIN32__
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <sys/signal.h>
-#include <sys/resource.h>
-#include <netinet/in.h>
-#endif
-
+#include "config.h"
 #include <fcntl.h>
 #include <errno.h>
 #include <stdlib.h>
