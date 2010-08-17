@@ -1538,6 +1538,9 @@ static void complete_update_bin(conn *c) {
     case ENGINE_KEY_ENOENT:
         write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
         break;
+    case ENGINE_ENOMEM:
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        break;
     case ENGINE_EWOULDBLOCK:
         c->ewouldblock = true;
         break;
