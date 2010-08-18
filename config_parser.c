@@ -29,38 +29,38 @@ static int trim_copy(char *dest, size_t size, const char *src,
    while (isspace(*src)) {
       ++src;
    }
-   char *space = NULL;
    size_t n = 0;
    bool escape = false;
    int ret = 0;
+
+   /* Find the last non-escaped non-space character */
+   const char *lastchar = src + strlen(src) - 1;
+   while (lastchar > src && isspace(*lastchar)) {
+       lastchar--;
+   }
+   if (lastchar < src || *lastchar == '\\') {
+       lastchar++;
+   }
+   assert(lastchar >= src);
 
    do {
       if ((*dest = *src) == '\\') {
          escape = true;
       } else {
-         if (!escape) {
-            if (space == NULL && isspace(*src)) {
-               space = dest;
-            }
-         }
          escape = false;
          ++dest;
       }
       ++n;
       ++src;
 
-   } while (!(n == size || ((*src == stop) && !escape) || *src == '\0'));
+   } while (!(n == size || src > lastchar || ((*src == stop) && !escape) || *src == '\0'));
    *end = src;
 
-   if (space) {
-      *space = '\0';
-   } else {
-      if (n == size) {
-         --dest;
-         ret = -1;
-      }
-      *dest = '\0';
+   if (n == size) {
+       --dest;
+       ret = -1;
    }
+   *dest = '\0';
 
    return ret;
 }
