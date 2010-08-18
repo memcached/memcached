@@ -1885,18 +1885,9 @@ static enum test_return test_binary_pipeline_hickup_chunk(void *buffer, size_t b
                               NULL, 0, NULL, 0);
             break;
 
-        case PROTOCOL_BINARY_CMD_SASL_LIST_MECHS:
-        case PROTOCOL_BINARY_CMD_SASL_AUTH:
-        case PROTOCOL_BINARY_CMD_SASL_STEP:
-            /* Ignoring SASL */
-        case PROTOCOL_BINARY_CMD_QUITQ:
-        case PROTOCOL_BINARY_CMD_QUIT:
-            /* I don't want to pass on the quit commands ;-) */
-            cmd |= 0xf0;
-            /* FALLTHROUGH */
         default:
-            len = raw_command(command.bytes, sizeof(command.bytes),
-                              cmd, NULL, 0, NULL, 0);
+            // don't run commands we don't know
+            continue;
         }
 
         if ((len + offset) < buffersize) {
