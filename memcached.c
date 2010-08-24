@@ -373,6 +373,22 @@ static const char *prot_text(enum protocol prot) {
     return rv;
 }
 
+static inline void safe_close(int sfd) {
+    if (sfd != -1) {
+        int rval;
+        while ((rval = close(sfd)) == -1 &&
+               (errno == EINTR || errno == EAGAIN)) {
+            /* go ahead and retry */
+        }
+
+        if (rval == -1) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to close socket %d (%s)!!\n", (int)sfd,
+                                            strerror(errno));
+        }
+    }
+}
+
 /*
  * Free list management for connections.
  */
@@ -684,7 +700,8 @@ static void conn_close(conn *c) {
 
     perform_callbacks(ON_DISCONNECT, NULL, c);
     MEMCACHED_CONN_RELEASE(c->sfd);
-    close(c->sfd);
+
+    safe_close(c->sfd);
 
     LOCK_THREAD(c->thread);
     /* remove from pending-io list */
@@ -4671,7 +4688,7 @@ bool conn_listening(conn *c)
             settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
                                             "Too many open connections\n");
         }
-        (void)close(sfd);
+        safe_close(sfd);
 
         return false;
     }
@@ -4681,7 +4698,7 @@ bool conn_listening(conn *c)
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                         "Failed to set nonblocking io: %s\n",
                                         strerror(errno));
-        (void)close(sfd);
+        safe_close(sfd);
         return false;
     }
 
@@ -5098,7 +5115,7 @@ static int new_socket(struct addrinfo *ai) {
     if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
         fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
         perror("setting O_NONBLOCK");
-        close(sfd);
+        safe_close(sfd);
         return -1;
     }
     return sfd;
@@ -5196,7 +5213,7 @@ static int server_socket(int port, enum network_transport transport,
             error = setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &flags, sizeof(flags));
             if (error != 0) {
                 perror("setsockopt");
-                close(sfd);
+                safe_close(sfd);
                 continue;
             }
         }
@@ -5222,17 +5239,17 @@ static int server_socket(int port, enum network_transport transport,
         if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) {
             if (errno != EADDRINUSE) {
                 perror("bind()");
-                close(sfd);
+                safe_close(sfd);
                 freeaddrinfo(ai);
                 return 1;
             }
-            close(sfd);
+            safe_close(sfd);
             continue;
         } else {
             success++;
             if (!IS_UDP(transport) && listen(sfd, settings.backlog) == -1) {
                 perror("listen()");
-                close(sfd);
+                safe_close(sfd);
                 freeaddrinfo(ai);
                 return 1;
             }
@@ -5303,7 +5320,7 @@ static int new_socket_unix(void) {
     if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
         fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
         perror("setting O_NONBLOCK");
-        close(sfd);
+        safe_close(sfd);
         return -1;
     }
     return sfd;
@@ -5350,14 +5367,14 @@ static int server_socket_unix(const char *path, int access_mask) {
     old_umask = umask( ~(access_mask&0777));
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind()");
-        close(sfd);
+        safe_close(sfd);
         umask(old_umask);
         return 1;
     }
     umask(old_umask);
     if (listen(sfd, settings.backlog) == -1) {
         perror("listen()");
-        close(sfd);
+        safe_close(sfd);
         return 1;
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
