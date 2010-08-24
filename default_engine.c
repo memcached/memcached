@@ -122,7 +122,6 @@ static const char const * vbucket_state_name(enum vbucket_state s) {
 ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                   GET_SERVER_API get_server_api,
                                   ENGINE_HANDLE **handle) {
-    printf("vbucket info is %zd bytes\n", sizeof(struct vbucket_info));
    SERVER_HANDLE_V1 *api = get_server_api();
    if (interface != 1 || api == NULL) {
       return ENGINE_ENOTSUP;
