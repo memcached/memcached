@@ -4139,6 +4139,7 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
 
     if (safe_strtoul(tokens[1].value, &level)) {
         settings.verbose = level > MAX_VERBOSITY_LEVEL ? MAX_VERBOSITY_LEVEL : level;
+        perform_callbacks(ON_LOG_LEVEL, NULL, NULL);
         out_string(c, "OK");
     } else {
         out_string(c, "ERROR");
@@ -5975,6 +5976,35 @@ static void shutdown_server(void) {
     memcached_shutdown = 1;
 }
 
+static EXTENSION_LOGGER_DESCRIPTOR* get_logger(void)
+{
+    return settings.extensions.logger;
+}
+
+static EXTENSION_LOG_LEVEL get_log_level(void)
+{
+    EXTENSION_LOG_LEVEL ret;
+    switch (settings.verbose) {
+    case 0: ret = EXTENSION_LOG_WARNING; break;
+    case 1: ret = EXTENSION_LOG_INFO; break;
+    case 2: ret = EXTENSION_LOG_DEBUG; break;
+    default:
+        ret = EXTENSION_LOG_DETAIL;
+    }
+    return ret;
+}
+
+static void set_log_level(EXTENSION_LOG_LEVEL severity)
+{
+    switch (severity) {
+    case EXTENSION_LOG_WARNING: settings.verbose = 0; break;
+    case EXTENSION_LOG_INFO: settings.verbose = 1; break;
+    case EXTENSION_LOG_DEBUG: settings.verbose = 2; break;
+    default:
+        settings.verbose = 3;
+    }
+}
+
 /**
  * Callback the engines may call to get the public server interface
  * @return pointer to a structure containing the interface. The client should
@@ -6002,6 +6032,12 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .evicting = count_eviction
     };
 
+    static SERVER_LOG_API server_log_api = {
+        .get_logger = get_logger,
+        .get_level = get_log_level,
+        .set_level = set_log_level
+    };
+
     static SERVER_EXTENSION_API extension_api = {
         .register_extension = register_extension,
         .unregister_extension = unregister_extension,
@@ -6018,7 +6054,8 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .core = &core_api,
         .stat = &server_stat_api,
         .extension = &extension_api,
-        .callback = &callback_api
+        .callback = &callback_api,
+        .log = &server_log_api
     };
 
     if (rv.engine == NULL) {
@@ -6137,6 +6174,11 @@ int main (int argc, char **argv) {
     /* set stderr non-buffering (for running under, say, daemontools) */
     setbuf(stderr, NULL);
 
+    if (memcached_initialize_stderr_logger(get_server_api) != EXTENSION_SUCCESS) {
+        fprintf(stderr, "Failed to initialize log system\n");
+        return EX_OSERR;
+    }
+
     /* process arguments */
     while (-1 != (c = getopt(argc, argv,
           "a:"  /* access mask for unix socket */
@@ -6210,6 +6252,7 @@ int main (int argc, char **argv) {
             break;
         case 'v':
             settings.verbose++;
+            perform_callbacks(ON_LOG_LEVEL, NULL, NULL);
             break;
         case 'l':
             settings.inter= strdup(optarg);

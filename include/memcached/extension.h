@@ -105,6 +105,12 @@ extern "C" {
     } EXTENSION_LOGGER_DESCRIPTOR;
 
     typedef struct {
+        EXTENSION_LOGGER_DESCRIPTOR* (*get_logger)(void);
+        EXTENSION_LOG_LEVEL (*get_level)(void);
+        void (*set_level)(EXTENSION_LOG_LEVEL severity);
+    } SERVER_LOG_API;
+
+    typedef struct {
         char *value;
         size_t length;
     } token_t;

@@ -11,6 +11,9 @@ MEMCACHED_PUBLIC_API EXTENSION_LOGGER_DESCRIPTOR* get_null_logger(void);
 
 MEMCACHED_PUBLIC_API EXTENSION_LOGGER_DESCRIPTOR* get_stderr_logger(void);
 
+MEMCACHED_PUBLIC_API
+EXTENSION_ERROR_CODE memcached_initialize_stderr_logger(GET_SERVER_API get_server_api);
+
 #ifdef  __cplusplus
 }
 #endif

@@ -104,6 +104,7 @@ extern "C" {
         SERVER_EXTENSION_API *extension;
         SERVER_CALLBACK_API *callback;
         ENGINE_HANDLE *engine;
+        SERVER_LOG_API *log;
     };
 
     typedef enum { TAP_MUTATION = 1,
