@@ -994,7 +994,12 @@ bool item_start_scrub(struct default_engine *engine)
         engine->scrubber.running = true;
 
         pthread_t t;
-        if (pthread_create(&t, NULL, item_scubber_main, engine) != 0) {
+        pthread_attr_t attr;
+
+        if (pthread_attr_init(&attr) != 0 ||
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0 ||
+            pthread_create(&t, &attr, item_scubber_main, engine) != 0)
+        {
             engine->scrubber.running = false;
         } else {
             ret = true;

@@ -92,10 +92,15 @@ static void assoc_expand(struct default_engine *engine) {
         engine->assoc.expand_bucket = 0;
 
         /* start a thread to do the expansion */
-        int ret;
+        int ret = 0;
         pthread_t tid;
-        if ((ret = pthread_create(&tid, NULL,
-                                  assoc_maintenance_thread, engine)) != 0) {
+        pthread_attr_t attr;
+
+        if (pthread_attr_init(&attr) != 0 ||
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0 ||
+            (ret = pthread_create(&tid, &attr,
+                                  assoc_maintenance_thread, engine)) != 0)
+        {
             fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
             engine->assoc.hashpower--;
             engine->assoc.expanding = false;
@@ -195,6 +200,5 @@ static void *assoc_maintenance_thread(void *arg) {
         pthread_mutex_unlock(&engine->cache_lock);
     } while (!done);
 
-    pthread_detach(pthread_self());
     return NULL;
 }

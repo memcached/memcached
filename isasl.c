@@ -243,13 +243,22 @@ int sasl_server_init(const sasl_callback_t *callbacks,
     if (rv == SASL_OK) {
         static uint32_t sleep_time;
         const char *sleep_time_str = getenv("ISASL_DB_CHECK_TIME");
+        pthread_attr_t attr;
+
+        if (pthread_attr_init(&attr) != 0 ||
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0)
+        {
+           perror("Failed to initialize pthread attributes");
+           exit(EX_OSERR);
+        }
 
         if (! (sleep_time_str && safe_strtoul(sleep_time_str, &sleep_time))) {
             // If we can't find a more frequent sleep time, set it to 60s.
             sleep_time = 60;
         }
         if (get_isasl_filename() != NULL &&
-            pthread_create(&sasl_db_thread_tid, NULL, check_isasl_db_thread, &sleep_time) != 0)
+            pthread_create(&sasl_db_thread_tid, &attr, check_isasl_db_thread,
+                           &sleep_time) != 0)
         {
             perror("couldn't create isasl db update thread.");
             exit(EX_OSERR);
