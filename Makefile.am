@@ -234,7 +234,8 @@ default_engine_dtrace.lo: $(default_engine_la_OBJECTS)
 
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4 \
-             testsuite/breakdancer/engine_tests.py testsuite/breakdancer/breakdancer.py
+             testsuite/breakdancer/engine_tests.py testsuite/breakdancer/breakdancer.py \
+             LICENSE BUILD CONTRIBUTING HACKING win32
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
