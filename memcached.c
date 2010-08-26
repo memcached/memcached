@@ -152,7 +152,7 @@ volatile sig_atomic_t memcached_shutdown;
  * rather than absolute UNIX timestamps, a space savings on systems where
  * sizeof(time_t) > sizeof(unsigned int).
  */
-static volatile rel_time_t current_time;
+volatile rel_time_t current_time;
 
 /*
  * forward declarations
@@ -176,8 +176,6 @@ enum try_read_result {
 static enum try_read_result try_read_network(conn *c);
 static enum try_read_result try_read_udp(conn *c);
 
-static void conn_set_state(conn *c, STATE_FUNC state);
-
 /* stats */
 static void stats_init(void);
 static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate);
@@ -189,7 +187,6 @@ static void settings_init(void);
 
 /* event handling, network IO */
 static void event_handler(const int fd, const short which, void *arg);
-static void conn_close(conn *c);
 static bool update_event(conn *c, const int new_flags);
 static void complete_nread(conn *c);
 static void process_command(conn *c, char *command);
@@ -373,7 +370,7 @@ static const char *prot_text(enum protocol prot) {
     return rv;
 }
 
-static inline void safe_close(int sfd) {
+void safe_close(int sfd) {
     if (sfd != -1) {
         int rval;
         while ((rval = close(sfd)) == -1 &&
@@ -385,6 +382,10 @@ static inline void safe_close(int sfd) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                             "Failed to close socket %d (%s)!!\n", (int)sfd,
                                             strerror(errno));
+        } else {
+            STATS_LOCK();
+            stats.curr_conns--;
+            STATS_UNLOCK();
         }
     }
 }
@@ -545,6 +546,8 @@ conn *conn_new(const int sfd, STATE_FUNC init_state,
         return NULL;
     }
 
+    assert(c->thread == NULL);
+
     if (c->rsize < read_buffer_size) {
         void *mem = malloc(read_buffer_size);
         if (mem) {
@@ -552,6 +555,7 @@ conn *conn_new(const int sfd, STATE_FUNC init_state,
             free(c->rbuf);
             c->rbuf = mem;
         } else {
+            assert(c->thread == NULL);
             cache_free(conn_cache, c);
             return NULL;
         }
@@ -627,6 +631,7 @@ conn *conn_new(const int sfd, STATE_FUNC init_state,
         settings.extensions.logger->log(EXTENSION_LOG_WARNING,
                                         NULL,
                                         "Failed to add connection to libevent: %s", strerror(errno));
+        assert(c->thread == NULL);
         cache_free(conn_cache, c);
         return NULL;
     }
@@ -679,50 +684,47 @@ static void conn_cleanup(conn *c) {
     c->engine_storage = NULL;
     c->tap_iterator = NULL;
     c->thread = NULL;
-    c->next = NULL;
+    assert(c->next == NULL);
     c->ascii_cmd = NULL;
+    c->pending_close.active = false;
+    c->sfd = -1;
 }
 
-static void conn_close(conn *c) {
+void conn_close(conn *c) {
     assert(c != NULL);
 
     /* delete the event, the socket and the conn */
-    event_del(&c->event);
+    if (c->sfd != -1) {
+        MEMCACHED_CONN_RELEASE(c->sfd);
+        event_del(&c->event);
 
-    if (settings.verbose > 1) {
-        settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
-                                        "<%d connection closed.\n", c->sfd);
+        if (settings.verbose > 1) {
+            settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
+                                            "<%d connection closed.\n", c->sfd);
+        }
+        safe_close(c->sfd);
+        c->sfd = -1;
     }
 
     if (c->ascii_cmd != NULL) {
         c->ascii_cmd->abort(c->ascii_cmd, c);
     }
 
-    perform_callbacks(ON_DISCONNECT, NULL, c);
-    MEMCACHED_CONN_RELEASE(c->sfd);
-
-    safe_close(c->sfd);
+    assert(c->thread);
+    if (!c->pending_close.active) {
+        perform_callbacks(ON_DISCONNECT, NULL, c);
+    } else {
+        assert(current_time > c->pending_close.timeout);
+    }
 
     LOCK_THREAD(c->thread);
     /* remove from pending-io list */
-    conn* pending = c->thread->pending_io;
-    conn* prev = NULL;
-    while (pending) {
-        if (pending == c) {
-            if (settings.verbose > 1) {
-                settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
-                                                "Current connection was in the pending-io list.. Nuking it\n");
-            }
-            if (prev == NULL) {
-                c->thread->pending_io = c->next;
-            } else {
-                prev->next = c->next;
-            }
-        }
-        prev = pending;
-        pending = pending->next;
+    if (settings.verbose > 1 && list_contains(c->thread->pending_io, c)) {
+        settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
+                                        "Current connection was in the pending-io list.. Nuking it\n");
     }
-
+    c->thread->pending_io = list_remove(c->thread->pending_io, c);
+    c->thread->pending_close = list_remove(c->thread->pending_close, c);
     UNLOCK_THREAD(c->thread);
 
     conn_cleanup(c);
@@ -733,13 +735,8 @@ static void conn_close(conn *c) {
      * size
      */
     conn_reset_buffersize(c);
+    assert(c->thread == NULL);
     cache_free(conn_cache, c);
-
-    STATS_LOCK();
-    stats.curr_conns--;
-    STATS_UNLOCK();
-
-    return;
 }
 
 /*
@@ -803,7 +800,7 @@ static void conn_shrink(conn *c) {
 /**
  * Convert a state name to a human readable form.
  */
-static const char *state_text(STATE_FUNC state) {
+const char *state_text(STATE_FUNC state) {
     if (state == conn_listening) {
         return "conn_listening";
     } else if (state == conn_new_cmd) {
@@ -830,6 +827,10 @@ static const char *state_text(STATE_FUNC state) {
         return "conn_add_tap_client";
     } else if (state == conn_setup_tap_stream) {
         return "conn_setup_tap_stream";
+    } else if (state == conn_pending_close) {
+        return "conn_pending_close";
+    } else if (state == conn_immediate_close) {
+        return "conn_immediate_close";
     } else {
         return "Unknown";
     }
@@ -840,7 +841,7 @@ static const char *state_text(STATE_FUNC state) {
  * processing that needs to happen on certain state transitions can
  * happen here.
  */
-static void conn_set_state(conn *c, STATE_FUNC state) {
+void conn_set_state(conn *c, STATE_FUNC state) {
     assert(c != NULL);
 
     if (state != c->state) {
@@ -857,7 +858,8 @@ static void conn_set_state(conn *c, STATE_FUNC state) {
             }
         }
 
-        if (settings.verbose > 2) {
+        if (settings.verbose > 2 || c->state == conn_closing
+            || c->state == conn_add_tap_client) {
             settings.extensions.logger->log(EXTENSION_LOG_DETAIL, c,
                                             "%d: going from %s to %s\n",
                                             c->sfd, state_text(c->state),
@@ -4549,7 +4551,6 @@ static enum try_read_result try_read_network(conn *c) {
         int avail = c->rsize - c->rbytes;
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
-
             STATS_ADD(c, bytes_read, res);
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
@@ -4578,6 +4579,12 @@ static bool update_event(conn *c, const int new_flags) {
     struct event_base *base = c->event.ev_base;
     if (c->ev_flags == new_flags)
         return true;
+
+    settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                    "Updated event for %d to read=%s, write=%s\n",
+                                    c->sfd, (new_flags & EV_READ ? "yes" : "no"),
+                                    (new_flags & EV_WRITE ? "yes" : "no"));
+
     if (event_del(&c->event) == -1) return false;
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
@@ -4721,6 +4728,13 @@ bool conn_listening(conn *c)
  */
 bool conn_ship_log(conn *c) {
     bool cont = false;
+
+    if (c->pending_close.active) {
+        // Remove the event if it is present..
+        event_del(&c->event);
+        return false;
+    }
+
     short mask = EV_READ | EV_PERSIST | EV_WRITE;
 
     if (c->which & EV_READ) {
@@ -5031,7 +5045,43 @@ bool conn_mwrite(conn *c) {
     return true;
 }
 
-bool conn_closing(conn *c) {
+bool conn_pending_close(conn *c) {
+    assert(!c->pending_close.active);
+    assert(c->sfd != -1);
+    settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                    "Tap client connect closed (%d)."
+                                    " Putting it (%p) in pending close\n",
+                                    c->sfd, (void*)c);
+    LOCK_THREAD(c->thread);
+    c->pending_close.timeout = current_time + 5;
+    c->pending_close.active = true;
+    c->thread->pending_io = list_remove(c->thread->pending_io, c);
+    if (!list_contains(c->thread->pending_close, c)) {
+        c->next = c->thread->pending_close;
+        c->thread->pending_close = c;
+    }
+    assert(!has_cycle(c->thread->pending_close));
+    assert(list_contains(c->thread->pending_close, c));
+    UNLOCK_THREAD(c->thread);
+
+    // We don't want any network notifications anymore..
+    event_del(&c->event);
+    safe_close(c->sfd);
+    c->sfd = -1;
+
+    /*
+     * tell the tap connection that we're disconnecting it now,
+     * but give it a grace period
+     */
+    perform_callbacks(ON_DISCONNECT, NULL, c);
+
+    /* disconnect callback may have changed the state for the object
+     * so we might complete the disconnect now
+     */
+    return c->state != conn_pending_close;
+}
+
+bool conn_immediate_close(conn *c) {
     if (IS_UDP(c->transport)) {
         conn_cleanup(c);
     } else {
@@ -5041,6 +5091,17 @@ bool conn_closing(conn *c) {
     return false;
 }
 
+bool conn_closing(conn *c) {
+    assert(c->thread->type == TAP || c->thread->type == GENERAL);
+    if (c->thread == &tap_thread) {
+        conn_set_state(c, conn_pending_close);
+    } else {
+        conn_set_state(c, conn_immediate_close);
+    }
+
+    return true;
+}
+
 bool conn_add_tap_client(conn *c) {
     LIBEVENT_THREAD *tp = &tap_thread;
     c->ewouldblock = true;
@@ -5048,12 +5109,17 @@ bool conn_add_tap_client(conn *c) {
     event_del(&c->event);
 
     LOCK_THREAD(tp);
+    c->ev_flags = 0;
     conn_set_state(c, conn_setup_tap_stream);
+    settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                    "Moving %d conn from %p to %p\n",
+                                    c->sfd, c->thread, tp);
     c->thread = tp;
     c->event.ev_base = tp->base;
     assert(c->next == NULL);
-    c->next = tap_thread.pending_io;
+    c->next = tp->pending_io;
     tp->pending_io = c;
+    assert(!has_cycle(c));
     assert(number_of_pending(c, tp->pending_io) == 1);
     UNLOCK_THREAD(tp);
 
@@ -5099,8 +5165,44 @@ void event_handler(const int fd, const short which, void *arg) {
         c->nevents = settings.reqs_per_tap_event;
     }
 
+    // Do we have pending closes?
+    const size_t max_items = 256;
+    conn *pending_close[max_items];
+    size_t n_pending_close = 0;
+    if (c->thread != NULL) {
+        LIBEVENT_THREAD *me = c->thread;
+        LOCK_THREAD(me);
+        if (me->pending_close && me->last_checked != current_time) {
+            assert(!has_cycle(me->pending_close));
+            me->last_checked = current_time;
+
+            n_pending_close = list_to_array(pending_close, max_items,
+                                            &me->pending_close);
+        }
+        UNLOCK_THREAD(me);
+    }
+
     while (c->state(c)) {
         /* do task */
+    }
+
+    /* Close any connections pending close */
+    if (n_pending_close > 0) {
+        for (size_t i = 0; i < n_pending_close; ++i) {
+            conn *ce = pending_close[i];
+            if (ce->pending_close.timeout < current_time) {
+                settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                                "OK, time to nuke: %p: (%d)\n", (void*)ce,
+                                                ce->sfd);
+                conn_close(ce);
+            } else {
+                LOCK_THREAD(ce->thread);
+                ce->next = ce->thread->pending_close;
+                ce->thread->pending_close = ce;
+                assert(!has_cycle(ce->thread->pending_close));
+                UNLOCK_THREAD(ce->thread);
+            }
+        }
     }
 }
 

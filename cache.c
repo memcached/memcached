@@ -1,6 +1,8 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
+#include <stdbool.h>
 #include <inttypes.h>
 
 #ifndef NDEBUG
@@ -15,6 +17,16 @@ int cache_error = 0;
 #endif
 
 const int initial_pool_size = 64;
+
+#ifndef NDEBUG
+static bool inFreeList(cache_t *cache, void *object) {
+    bool rv = false;
+    for (int i = 0; i < cache->freecurr; i++) {
+        rv |= cache->ptr[i] == object;
+    }
+    return rv;
+}
+#endif
 
 cache_t* cache_create(const char *name, size_t bufsize, size_t align,
                       cache_constructor_t* constructor,
@@ -74,6 +86,7 @@ void* cache_alloc(cache_t *cache) {
     if (cache->freecurr > 0) {
         ret = cache->ptr[--cache->freecurr];
         object = get_object(ret);
+        assert(!inFreeList(cache, ret));
     } else {
         object = ret = malloc(cache->bufsize);
         if (ret != NULL) {
@@ -102,7 +115,8 @@ void* cache_alloc(cache_t *cache) {
     return object;
 }
 
-void cache_free(cache_t *cache, void *ptr) {
+void cache_free(cache_t *cache, void *object) {
+    void *ptr = object;
     pthread_mutex_lock(&cache->mutex);
 
 #ifndef NDEBUG
@@ -124,8 +138,10 @@ void cache_free(cache_t *cache, void *ptr) {
     }
     ptr = pre;
 #endif
+    assert(!inFreeList(cache, ptr));
     if (cache->freecurr < cache->freetotal) {
         cache->ptr[cache->freecurr++] = ptr;
+        assert(inFreeList(cache, ptr));
     } else {
         /* try to enlarge free connections array */
         size_t newtotal = cache->freetotal * 2;
@@ -134,12 +150,13 @@ void cache_free(cache_t *cache, void *ptr) {
             cache->freetotal = newtotal;
             cache->ptr = new_free;
             cache->ptr[cache->freecurr++] = ptr;
+            assert(inFreeList(cache, ptr));
         } else {
             if (cache->destructor) {
                 cache->destructor(ptr, NULL);
             }
             free(ptr);
-
+            assert(!inFreeList(cache, ptr));
         }
     }
     pthread_mutex_unlock(&cache->mutex);

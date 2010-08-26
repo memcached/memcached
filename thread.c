@@ -309,12 +309,9 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         cqi_free(item);
     }
 
-    conn* pending = NULL;
     pthread_mutex_lock(&me->mutex);
-    if (me->pending_io != NULL) {
-        pending = me->pending_io;
-        me->pending_io = NULL;
-    }
+    conn* pending = me->pending_io;
+    me->pending_io = NULL;
     pthread_mutex_unlock(&me->mutex);
     while (pending != NULL) {
         conn *c = pending;
@@ -328,6 +325,56 @@ static void thread_libevent_process(int fd, short which, void *arg) {
             /* do task */
         }
     }
+}
+
+extern volatile rel_time_t current_time;
+
+bool has_cycle(conn *c) {
+    if (!c) {
+        return false;
+    }
+    conn *slowNode, *fastNode1, *fastNode2;
+    slowNode = fastNode1 = fastNode2 = c;
+    while (slowNode && (fastNode1 = fastNode2->next) && (fastNode2 = fastNode1->next)) {
+        if (slowNode == fastNode1 || slowNode == fastNode2) {
+            return true;
+        }
+        slowNode = slowNode->next;
+    }
+    return false;
+}
+
+bool list_contains(conn *haystack, conn *needle) {
+    for (; haystack; haystack = haystack -> next) {
+        if (needle == haystack) {
+            return true;
+        }
+    }
+    return false;
+}
+
+conn* list_remove(conn *haystack, conn *needle) {
+    if (!haystack) {
+        return NULL;
+    }
+
+    if (haystack == needle) {
+        return haystack->next;
+    }
+
+    haystack->next = list_remove(haystack->next, needle);
+
+    return haystack;
+}
+
+size_t list_to_array(conn **dest, size_t max_items, conn **l) {
+    size_t n_items = 0;
+    for (; *l && n_items < max_items - 1; ++n_items) {
+        dest[n_items] = *l;
+        *l = dest[n_items]->next;
+        dest[n_items]->next = NULL;
+    }
+    return n_items;
 }
 
 static void libevent_tap_process(int fd, short which, void *arg) {
@@ -348,23 +395,42 @@ static void libevent_tap_process(int fd, short which, void *arg) {
         }
     }
 
-    conn* pending = NULL;
-    pthread_mutex_lock(&me->mutex);
-    if (me->pending_io != NULL) {
-        pending = me->pending_io;
-        me->pending_io = NULL;
+    // Do we have pending closes?
+    const size_t max_items = 256;
+    LOCK_THREAD(me);
+    conn *pending_close[max_items];
+    size_t n_pending_close = 0;
+
+    if (me->pending_close && me->last_checked != current_time) {
+        assert(!has_cycle(me->pending_close));
+        me->last_checked = current_time;
+
+        n_pending_close = list_to_array(pending_close, max_items,
+                                        &me->pending_close);
     }
-    pthread_mutex_unlock(&me->mutex);
-    while (pending != NULL) {
-        conn *c = pending;
+
+    // Now copy the pending IO buffer and run them...
+    conn *pending_io[max_items];
+    size_t n_items = list_to_array(pending_io, max_items, &me->pending_io);
+
+    if (n_items > 0 && settings.verbose > 1) {
+        fprintf(stderr, "Going to handle tap io for ");
+        for (size_t i = 0; i < n_items; ++i) {
+            fprintf(stderr, "%d ", pending_io[i]->sfd);
+        }
+        fprintf(stderr, "\n");
+    }
+
+    UNLOCK_THREAD(me);
+    for (size_t i = 0; i < n_items; ++i) {
+        conn *c = pending_io[i];
 
         assert(c->thread == me);
 
         LOCK_THREAD(c->thread);
         assert(me == c->thread);
-        pending = pending->next;
-        c->next = NULL;
-        assert(number_of_pending(c, pending) == 0);
+        settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                        "Processing tap pending_io for %d\n", c->sfd);
 
         UNLOCK_THREAD(me);
         c->nevents = settings.reqs_per_tap_event;
@@ -374,11 +440,79 @@ static void libevent_tap_process(int fd, short which, void *arg) {
             /* do task */
         }
     }
+
+    /* Close any connections pending close */
+    if (n_pending_close > 0) {
+        for (size_t i = 0; i < n_pending_close; ++i) {
+            conn *ce = pending_close[i];
+            if (ce->pending_close.active && ce->pending_close.timeout < current_time) {
+                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                                "OK, time to nuke: %p (%d < %d)\n", (void*)ce, ce->pending_close.timeout, current_time);
+                assert(ce->next == NULL);
+                conn_close(ce);
+            } else {
+                LOCK_THREAD(me);
+                ce->next = me->pending_close;
+                me->pending_close = ce;
+                assert(!has_cycle(me->pending_close));
+                UNLOCK_THREAD(me);
+            }
+        }
+    }
+}
+
+static bool is_thread_me(LIBEVENT_THREAD *thr) {
+#ifdef __WIN32__
+    pthread_t tid = pthread_self();
+    return(tid.p == thr->thread_id.p && tid.x == thr->thread_id.x);
+#else
+    return pthread_self() == thr->thread_id;
+#endif
 }
 
 void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
 {
     struct conn *conn = (struct conn *)cookie;
+
+    settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                    "Got notify from %d, status %x\n",
+                                    conn->sfd, status);
+
+    /*
+    ** TROND:
+    **   I changed the logic for the tap connections so that the core
+    **   issues the ON_DISCONNECT call to the engine instead of trying
+    **   to close the connection. Then it let's the engine have a grace
+    **   period to call notify_io_complete if not it will go ahead and
+    **   kill it.
+    **
+    */
+    if (status == ENGINE_DISCONNECT && conn->thread == &tap_thread) {
+        LOCK_THREAD(conn->thread);
+        if (conn->sfd != -1) {
+            event_del(&conn->event);
+            safe_close(conn->sfd);
+            conn->sfd = -1;
+        }
+
+        conn->pending_close.timeout = 0;
+        settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                        "Immediate close of %p\n",
+                                        conn);
+        conn_set_state(conn, conn_immediate_close);
+
+        if (!is_thread_me(conn->thread)) {
+            /* kick the thread in the butt */
+            if (write(conn->thread->notify_send_fd, "", 1) != 1) {
+                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                                "Writing to thread notify pipe: %s",
+                                                strerror(errno));
+            }
+        }
+
+        UNLOCK_THREAD(conn->thread);
+        return;
+    }
 
     /*
     ** There may be a race condition between the engine calling this
@@ -408,16 +542,24 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
      */
     if (status == ENGINE_DISCONNECT) {
         conn->state = conn_closing;
-    }
-
-    if (number_of_pending(conn, thr->pending_io) == 0) {
-        if (thr->pending_io == NULL) {
-            notify = 1;
+        notify = 1;
+        thr->pending_io = list_remove(thr->pending_io, conn);
+        if (number_of_pending(conn, thr->pending_close) == 0) {
+            conn->next = thr->pending_close;
+            thr->pending_close = conn;
         }
-        conn->next = thr->pending_io;
-        thr->pending_io = conn;
+    } else {
+        if (number_of_pending(conn, thr->pending_io) +
+            number_of_pending(conn, thr->pending_close) == 0) {
+            if (thr->pending_io == NULL) {
+                notify = 1;
+            }
+            conn->next = thr->pending_io;
+            thr->pending_io = conn;
+        }
     }
-    assert(number_of_pending(conn, thr->pending_io) == 1);
+    assert(number_of_pending(conn, thr->pending_io) +
+           number_of_pending(conn, thr->pending_close) == 1);
     UNLOCK_THREAD(thr);
 
     /* kick the thread in the butt */
@@ -642,6 +784,7 @@ void thread_init(int nthr, struct event_base *main_base) {
     /* Create threads after we've done all the libevent setup. */
     for (i = 0; i < nthreads; i++) {
         create_worker(worker_libevent, &threads[i], &thread_ids[i]);
+        threads[i].thread_id = thread_ids[i];
     }
 
 #ifdef __WIN32__
@@ -665,6 +808,7 @@ void thread_init(int nthr, struct event_base *main_base) {
     tap_thread.index = i;
     setup_thread(&tap_thread, true);
     create_worker(worker_libevent, &tap_thread, &tap_thread_id);
+    tap_thread.thread_id = tap_thread_id;
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);

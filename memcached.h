@@ -260,6 +260,9 @@ typedef struct {
     struct conn *pending_io;    /* List of connection with pending async io ops */
     int index;                  /* index of this thread in the threads array */
     enum thread_type type;      /* Type of IO this thread processes */
+
+    rel_time_t last_checked;
+    struct conn *pending_close; /* list of connections close at a later time */
 } LIBEVENT_THREAD;
 
 #define LOCK_THREAD(t)                          \
@@ -275,6 +278,7 @@ typedef struct {
     if (pthread_mutex_unlock(&t->mutex) != 0) {  \
         abort();                                 \
     }
+
 
 
 extern LIBEVENT_THREAD tap_thread;
@@ -391,6 +395,11 @@ struct conn {
     ENGINE_ERROR_CODE aiostat;
     bool ewouldblock;
     TAP_ITERATOR tap_iterator;
+
+    struct {
+        bool active;
+        rel_time_t  timeout;
+    } pending_close;
 };
 
 /*
@@ -440,11 +449,22 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
 
 void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status);
+void conn_set_state(conn *c, STATE_FUNC state);
+const char *state_text(STATE_FUNC state);
+void safe_close(int sfd);
+
 
 // Number of times this connection is in the given pending list
 int number_of_pending(conn *c, conn *pending);
+bool has_cycle(conn *c);
+bool list_contains(conn *h, conn *n);
+conn *list_remove(conn *h, conn *n);
+size_t list_to_array(conn **dest, size_t max_items, conn **l);
 
 void init_check_stdin(struct event_base *base);
+
+void conn_close(conn *c);
+
 
 #if HAVE_DROP_PRIVILEGES
 extern void drop_privileges(void);
@@ -461,6 +481,8 @@ bool conn_parse_cmd(conn *c);
 bool conn_write(conn *c);
 bool conn_nread(conn *c);
 bool conn_swallow(conn *c);
+bool conn_pending_close(conn *c);
+bool conn_immediate_close(conn *c);
 bool conn_closing(conn *c);
 bool conn_mwrite(conn *c);
 bool conn_ship_log(conn *c);
