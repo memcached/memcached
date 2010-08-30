@@ -764,6 +764,12 @@ static void out_string(conn *c, const char *str) {
     if (settings.verbose > 1)
         fprintf(stderr, ">%d %s\n", c->sfd, str);
 
+    /* Nuke a partial output... */
+    c->msgcurr = 0;
+    c->msgused = 0;
+    c->iovused = 0;
+    add_msghdr(c);
+
     len = strlen(str);
     if ((len + 2) > c->wsize) {
         /* ought to be always enough. just fail for simplicity */
