@@ -22,6 +22,8 @@
 #define EWOULDBLOCK        EAGAIN
 #define EAFNOSUPPORT       47
 #define EADDRINUSE         WSAEADDRINUSE
+#define ENOTCONN           WSAENOTCONN
+#define ECONNRESET         WSAECONNRESET
 #define EAI_SYSTEM         -11
 
 #ifndef SIGHUP

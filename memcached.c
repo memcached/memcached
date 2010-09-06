@@ -4885,10 +4885,15 @@ bool conn_swallow(conn *c) {
         }
         return false;
     }
-    /* otherwise we have a real error, on which we close the connection */
-    settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                    "Failed to read, and not due to blocking\n");
+
+    if (errno != ENOTCONN && errno != ECONNRESET) {
+        /* otherwise we have a real error, on which we close the connection */
+        settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                        "Failed to read, and not due to blocking (%s)\n", strerror(errno));
+    }
+
     conn_set_state(c, conn_closing);
+
     return true;
 
 }
@@ -4955,15 +4960,16 @@ bool conn_nread(conn *c) {
         return false;
     }
 
-    /* otherwise we have a real error, on which we close the connection */
-    settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
-                                    "Failed to read, and not due to blocking:\n"
-                                    "errno: %d %s \n"
-                                    "rcurr=%lx ritem=%lx rbuf=%lx rlbytes=%d rsize=%d\n",
-                                    errno, strerror(errno),
-                                    (long)c->rcurr, (long)c->ritem, (long)c->rbuf,
-                                    (int)c->rlbytes, (int)c->rsize);
-
+    if (errno != ENOTCONN && errno != ECONNRESET) {
+        /* otherwise we have a real error, on which we close the connection */
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+                                        "Failed to read, and not due to blocking:\n"
+                                        "errno: %d %s \n"
+                                        "rcurr=%lx ritem=%lx rbuf=%lx rlbytes=%d rsize=%d\n",
+                                        errno, strerror(errno),
+                                        (long)c->rcurr, (long)c->ritem, (long)c->rbuf,
+                                        (int)c->rlbytes, (int)c->rsize);
+    }
     conn_set_state(c, conn_closing);
     return true;
 }
