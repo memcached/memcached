@@ -109,9 +109,25 @@ int parse_config(const char *str, struct config_item *items, FILE *error) {
             switch (items[ii].datatype) {
             case DT_SIZE:
                {
+                  char *sfx = "kmgt";
+                  int multiplier = 1;
+                  int m = 1;
+                  for (char *p = sfx; *p != '\0'; ++p) {
+                     m *= 1024;
+                     char *ptr = strchr(value, *p);
+                     if (ptr == NULL) {
+                        ptr = strchr(value, toupper(*p));
+                     }
+                     if (ptr != NULL) {
+                        multiplier = m;
+                        *ptr = '\0';
+                        break;
+                     }
+                  }
+
                   uint64_t val;
                   if (safe_strtoull(value, &val)) {
-                     *items[ii].value.dt_size = (size_t)val;
+                     *items[ii].value.dt_size = (size_t)(val * multiplier);
                      items[ii].found = true;
                   } else {
                      ret = -1;

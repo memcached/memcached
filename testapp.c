@@ -632,6 +632,31 @@ static enum test_return test_config_parser(void) {
         items[ii].found = false;
     }
 
+    assert(parse_config("size_t=1k", items, error) == 0);
+    assert(items[1].found);
+    assert(size_val == 1024);
+    items[1].found = false;
+    assert(parse_config("size_t=1m", items, error) == 0);
+    assert(items[1].found);
+    assert(size_val == 1024*1024);
+    items[1].found = false;
+    assert(parse_config("size_t=1g", items, error) == 0);
+    assert(items[1].found);
+    assert(size_val == 1024*1024*1024);
+    items[1].found = false;
+    assert(parse_config("size_t=1K", items, error) == 0);
+    assert(items[1].found);
+    assert(size_val == 1024);
+    items[1].found = false;
+    assert(parse_config("size_t=1M", items, error) == 0);
+    assert(items[1].found);
+    assert(size_val == 1024*1024);
+    items[1].found = false;
+    assert(parse_config("size_t=1G", items, error) == 0);
+    assert(items[1].found);
+    assert(size_val == 1024*1024*1024);
+    items[1].found = false;
+
     newfile = mkstemp(cfgfile);
     assert(newfile > 0);
     FILE *cfg = fdopen(newfile, "w");
