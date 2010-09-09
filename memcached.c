@@ -1082,10 +1082,35 @@ static void complete_update_ascii(conn *c) {
             c->state = conn_closing;
             break;
         case ENGINE_ENOTSUP:
-            out_string(c, "SERVER_ERROR not supported.");
+            out_string(c, "SERVER_ERROR not supported");
             break;
+        case ENGINE_ENOMEM:
+            out_string(c, "SERVER_ERROR out of memory");
+            break;
+        case ENGINE_EINVAL:
+            out_string(c, "CLIENT_ERROR invalid arguments");
+            break;
+        case ENGINE_E2BIG:
+            out_string(c, "CLIENT_ERROR value too big");
+            break;
+        case ENGINE_EACCESS:
+            out_string(c, "CLIENT_ERROR access control violation");
+            break;
+        case ENGINE_NOT_MY_VBUCKET:
+            out_string(c, "SERVER_ERROR not my vbucket");
+            break;
+        case ENGINE_FAILED:
+            out_string(c, "SERVER_ERROR failure");
+            break;
+
+        case ENGINE_EWOULDBLOCK: // Fall-through.
+        case ENGINE_WANT_MORE:
+            assert(false);
+            c->state = conn_closing;
+            break;
+
         default:
-            out_string(c, "SERVER_ERROR unhandled storage type.");
+            out_string(c, "SERVER_ERROR internal");
         }
     }
 
