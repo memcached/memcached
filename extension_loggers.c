@@ -23,6 +23,7 @@ static void stderror_logger_log(EXTENSION_LOG_LEVEL severity,
         va_start(ap, fmt);
         vfprintf(stderr, fmt, ap);
         va_end(ap);
+        fflush(stderr);
     }
 }
 

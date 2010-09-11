@@ -6272,9 +6272,6 @@ int main (int argc, char **argv) {
     /* init settings */
     settings_init();
 
-    /* set stderr non-buffering (for running under, say, daemontools) */
-    setbuf(stderr, NULL);
-
     if (memcached_initialize_stderr_logger(get_server_api) != EXTENSION_SUCCESS) {
         fprintf(stderr, "Failed to initialize log system\n");
         return EX_OSERR;
