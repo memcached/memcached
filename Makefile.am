@@ -27,6 +27,10 @@ lib_LTLIBRARIES = ascii_scrub.la \
                   example_protocol.la \
                   stdin_term_handler.la
 
+if BUILD_SYSLOG_LOGGER
+lib_LTLIBRARIES += syslog_logger.la
+endif
+
 noinst_LTLIBRARIES=libmcd_util.la
 
 
@@ -143,6 +147,10 @@ stdin_term_handler_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 # An example extension that extends the ascii protocol with noop and echo
 example_protocol_la_SOURCES= example_protocol.c protocol_extension.h
 example_protocol_la_LDFLAGS= -avoid-version -shared -module -no-undefined
+
+# A logger using syslog
+syslog_logger_la_SOURCES = syslog_logger.c
+syslog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
 
 basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c
 basic_engine_testsuite_la_DEPENDENCIES= libmcd_util.la
