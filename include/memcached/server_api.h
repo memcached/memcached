@@ -45,6 +45,42 @@ extern "C" {
         int (*parse_config)(const char *str, struct config_item items[], FILE *error);
 
         /**
+         * Request the server to start a shutdown sequence.
+         */
+        void (*shutdown)(void);
+
+    } SERVER_CORE_API;
+
+    typedef struct {
+        /**
+         * Allocate and deallocate thread-specific stats arrays for
+         * engine-maintained separate stats.
+         */
+        void *(*new_stats)(void);
+        void (*release_stats)(void*);
+
+        /**
+         * Tell the server we've evicted an item.
+         */
+        void (*evicting)(const void *cookie,
+                         const void *key,
+                         int nkey);
+    } SERVER_STAT_API;
+
+    /**
+     * Commands to operate on a specific cookie.
+     */
+    typedef struct {
+        /**
+         * Retrieve socket file descriptor of the session for the given cookie.
+         *
+         * @param cookie The cookie provided by the frontend
+         *
+         * @return the socket file descriptor of the session for the given cookie.
+         */
+        int (*get_socket_fd)(const void *cookie);
+
+        /**
          * Get the auth data for the connection associated with the
          * given cookie.
          *
@@ -78,16 +114,6 @@ extern "C" {
         void *(*get_engine_specific)(const void *cookie);
 
         /**
-         * Retrieve socket file descriptor of the session for the given cookie.
-         *
-         * @param cookie The cookie provided by the frontend
-         *
-         * @return the socket file descriptor of the session for the given cookie.
-         */
-        int (*get_socket_fd)(const void *cookie);
-
-
-        /**
          * Let a connection know that IO has completed.
          * @param cookie cookie representing the connection
          * @param status the status for the io operation
@@ -95,28 +121,7 @@ extern "C" {
         void (*notify_io_complete)(const void *cookie,
                                    ENGINE_ERROR_CODE status);
 
-        /**
-         * Request the server to start a shutdown sequence.
-         */
-        void (*shutdown)(void);
-
-    } SERVER_CORE_API;
-
-    typedef struct {
-        /**
-         * Allocate and deallocate thread-specific stats arrays for
-         * engine-maintained separate stats.
-         */
-        void *(*new_stats)(void);
-        void (*release_stats)(void*);
-
-        /**
-         * Tell the server we've evicted an item.
-         */
-        void (*evicting)(const void *cookie,
-                         const void *key,
-                         int nkey);
-    } SERVER_STAT_API;
+    } SERVER_COOKIE_API;
 
 #ifdef __WIN32__
 #undef interface

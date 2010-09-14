@@ -6139,17 +6139,20 @@ static void set_log_level(EXTENSION_LOG_LEVEL severity)
 static SERVER_HANDLE_V1 *get_server_api(void)
 {
     static SERVER_CORE_API core_api = {
+        .server_version = get_server_version,
+        .hash = hash,
+        .realtime = realtime,
+        .get_current_time = get_current_time,
+        .parse_config = parse_config,
+        .shutdown = shutdown_server
+    };
+
+    static SERVER_COOKIE_API server_cookie_api = {
         .get_auth_data = get_auth_data,
         .store_engine_specific = store_engine_specific,
         .get_engine_specific = get_engine_specific,
         .get_socket_fd = get_socket_fd,
-        .server_version = get_server_version,
-        .hash = hash,
-        .realtime = realtime,
-        .notify_io_complete = notify_io_complete,
-        .get_current_time = get_current_time,
-        .parse_config = parse_config,
-        .shutdown = shutdown_server
+        .notify_io_complete = notify_io_complete
     };
 
     static SERVER_STAT_API server_stat_api = {
@@ -6181,7 +6184,8 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .stat = &server_stat_api,
         .extension = &extension_api,
         .callback = &callback_api,
-        .log = &server_log_api
+        .log = &server_log_api,
+        .cookie = &server_cookie_api
     };
 
     if (rv.engine == NULL) {

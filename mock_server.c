@@ -237,16 +237,19 @@ static void mock_perform_callbacks(ENGINE_EVENT_TYPE type,
 SERVER_HANDLE_V1 *get_mock_server_api(void)
 {
     static SERVER_CORE_API core_api = {
+        .server_version = mock_get_server_version,
+        .hash = mock_hash,
+        .realtime = mock_realtime,
+        .get_current_time = mock_get_current_time,
+        .parse_config = mock_parse_config
+    };
+
+    static SERVER_COOKIE_API server_cookie_api = {
         .get_auth_data = mock_get_auth_data,
         .store_engine_specific = mock_store_engine_specific,
         .get_engine_specific = mock_get_engine_specific,
         .get_socket_fd = mock_get_socket_fd,
-        .server_version = mock_get_server_version,
-        .hash = mock_hash,
-        .realtime = mock_realtime,
-        .notify_io_complete = mock_notify_io_complete,
-        .get_current_time = mock_get_current_time,
-        .parse_config = mock_parse_config
+        .notify_io_complete = mock_notify_io_complete
     };
 
     static SERVER_STAT_API server_stat_api = {
@@ -271,7 +274,8 @@ SERVER_HANDLE_V1 *get_mock_server_api(void)
         .core = &core_api,
         .stat = &server_stat_api,
         .extension = &extension_api,
-        .callback = &callback_api
+        .callback = &callback_api,
+        .cookie = &server_cookie_api
     };
 
     return &rv;

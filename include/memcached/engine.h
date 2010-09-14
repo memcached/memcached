@@ -105,6 +105,7 @@ extern "C" {
         SERVER_CALLBACK_API *callback;
         ENGINE_HANDLE *engine;
         SERVER_LOG_API *log;
+        SERVER_COOKIE_API *cookie;
     };
 
     typedef enum { TAP_MUTATION = 1,
