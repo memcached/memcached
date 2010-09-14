@@ -658,6 +658,7 @@ static void conn_cleanup(conn *c) {
     c->ascii_cmd = NULL;
     c->pending_close.active = false;
     c->sfd = -1;
+    c->tap_nack_mode = false;
 }
 
 void conn_close(conn *c) {
@@ -5784,6 +5785,11 @@ static int get_socket_fd(const void *cookie) {
     return c->sfd;
 }
 
+static void set_tap_nack_mode(const void *cookie, bool enable) {
+    conn *c = (conn *)cookie;
+    c->tap_nack_mode = enable;
+}
+
 static int num_independent_stats(void) {
     return settings.num_threads + 1;
 }
@@ -6152,6 +6158,7 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .store_engine_specific = store_engine_specific,
         .get_engine_specific = get_engine_specific,
         .get_socket_fd = get_socket_fd,
+        .set_tap_nack_mode = set_tap_nack_mode,
         .notify_io_complete = notify_io_complete
     };
 

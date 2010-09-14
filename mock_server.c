@@ -58,6 +58,11 @@ static int mock_get_socket_fd(const void *cookie) {
     return c->sfd;
 }
 
+static void mock_set_tap_nack_mode(const void *cookie, bool enable) {
+   (void)cookie;
+   (void)enable;
+}
+
 static const char *mock_get_server_version() {
     return "mock server";
 }
@@ -249,6 +254,7 @@ SERVER_HANDLE_V1 *get_mock_server_api(void)
         .store_engine_specific = mock_store_engine_specific,
         .get_engine_specific = mock_get_engine_specific,
         .get_socket_fd = mock_get_socket_fd,
+        .set_tap_nack_mode = mock_set_tap_nack_mode,
         .notify_io_complete = mock_notify_io_complete
     };
 
