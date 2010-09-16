@@ -6,6 +6,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <signal.h>
 #include <pthread.h>
@@ -721,6 +722,7 @@ int main(int argc, char **argv) {
     const char *engine = NULL;
     const char *engine_args = NULL;
     const char *test_suite = NULL;
+    const char *test_case = NULL;
     engine_test_t *testcases = NULL;
     logger_descriptor = get_null_logger();
 
@@ -758,6 +760,7 @@ int main(int argc, char **argv) {
           "t:" /* Timeout */
           "q"  /* Be more quiet (only report failures) */
           "."  /* dot mode. */
+          "n:"  /* test case to run */
         ))) {
         switch (c) {
         case 'E':
@@ -774,6 +777,9 @@ int main(int argc, char **argv) {
             break;
         case 't':
             timeout = atoi(optarg);
+            break;
+        case 'n':
+            test_case = optarg;
             break;
         case 'q':
             quiet = true;
@@ -849,6 +855,8 @@ int main(int argc, char **argv) {
     int i;
     bool need_newline = false;
     for (i = 0; testcases[i].name; i++) {
+        if (test_case != NULL && strcmp(test_case, testcases[i].name) != 0)
+            continue;
         if (!quiet) {
             printf("Running %s... ", testcases[i].name);
             fflush(stdout);
