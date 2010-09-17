@@ -197,13 +197,6 @@ int getrusage(int who, struct rusage *usage);
 int kill(int pid, int sig);
 int sleep(int seconds);
 
-#ifndef _WIN64
-static inline void _set_errno(int err)
-{
-    errno = err;
-}
-#endif
-
 struct sigaction {
     void (*sa_handler)(int);
     int sa_mask;
