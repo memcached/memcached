@@ -440,6 +440,8 @@ bool has_cycle(conn *c);
 bool list_contains(conn *h, conn *n);
 conn *list_remove(conn *h, conn *n);
 size_t list_to_array(conn **dest, size_t max_items, conn **l);
+void enlist_conn(conn *c, conn **list);
+
 
 void init_check_stdin(struct event_base *base);
 

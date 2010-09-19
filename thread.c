@@ -378,6 +378,18 @@ size_t list_to_array(conn **dest, size_t max_items, conn **l) {
     return n_items;
 }
 
+void enlist_conn(conn *c, conn **list) {
+    LIBEVENT_THREAD *thr = c->thread;
+    assert(list == &thr->pending_io || list == &thr->pending_close);
+    assert(!list_contains(thr->pending_close, c));
+    assert(!list_contains(thr->pending_io, c));
+    assert(c->next == NULL);
+    c->next = *list;
+    *list = c;
+    assert(list_contains(*list, c));
+    assert(!has_cycle(*list));
+}
+
 static void libevent_tap_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     assert(me->type == TAP);
@@ -448,14 +460,14 @@ static void libevent_tap_process(int fd, short which, void *arg) {
             conn *ce = pending_close[i];
             if (ce->pending_close.active && ce->pending_close.timeout < current_time) {
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                                "OK, time to nuke: %p (%d < %d)\n", (void*)ce, ce->pending_close.timeout, current_time);
+                                                "OK, time to nuke: %p (%d < %d)\n",
+                                                (void*)ce, ce->pending_close.timeout,
+                                                current_time);
                 assert(ce->next == NULL);
                 conn_close(ce);
             } else {
                 LOCK_THREAD(me);
-                ce->next = me->pending_close;
-                me->pending_close = ce;
-                assert(!has_cycle(me->pending_close));
+                enlist_conn(ce, &me->pending_close);
                 UNLOCK_THREAD(me);
             }
         }
@@ -546,8 +558,7 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
         notify = 1;
         thr->pending_io = list_remove(thr->pending_io, conn);
         if (number_of_pending(conn, thr->pending_close) == 0) {
-            conn->next = thr->pending_close;
-            thr->pending_close = conn;
+            enlist_conn(conn, &thr->pending_close);
         }
     } else {
         if (number_of_pending(conn, thr->pending_io) +
@@ -555,8 +566,7 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
             if (thr->pending_io == NULL) {
                 notify = 1;
             }
-            conn->next = thr->pending_io;
-            thr->pending_io = conn;
+            enlist_conn(conn, &thr->pending_io);
         }
     }
     assert(number_of_pending(conn, thr->pending_io) +

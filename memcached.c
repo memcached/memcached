@@ -5085,11 +5085,8 @@ bool conn_pending_close(conn *c) {
     c->pending_close.active = true;
     c->thread->pending_io = list_remove(c->thread->pending_io, c);
     if (!list_contains(c->thread->pending_close, c)) {
-        c->next = c->thread->pending_close;
-        c->thread->pending_close = c;
+        enlist_conn(c, &c->thread->pending_close);
     }
-    assert(!has_cycle(c->thread->pending_close));
-    assert(list_contains(c->thread->pending_close, c));
     UNLOCK_THREAD(c->thread);
 
     // We don't want any network notifications anymore..
@@ -5145,10 +5142,7 @@ bool conn_add_tap_client(conn *c) {
     c->thread = tp;
     c->event.ev_base = tp->base;
     assert(c->next == NULL);
-    c->next = tp->pending_io;
-    tp->pending_io = c;
-    assert(!has_cycle(c));
-    assert(number_of_pending(c, tp->pending_io) == 1);
+    enlist_conn(c, &tp->pending_io);
     UNLOCK_THREAD(tp);
 
     if (write(tp->notify_send_fd, "", 1) != 1) {
@@ -5225,9 +5219,7 @@ void event_handler(const int fd, const short which, void *arg) {
                 conn_close(ce);
             } else {
                 LOCK_THREAD(ce->thread);
-                ce->next = ce->thread->pending_close;
-                ce->thread->pending_close = ce;
-                assert(!has_cycle(ce->thread->pending_close));
+                enlist_conn(ce, &ce->thread->pending_close);
                 UNLOCK_THREAD(ce->thread);
             }
         }
