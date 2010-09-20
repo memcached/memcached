@@ -595,8 +595,6 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
             enlist_conn(conn, &thr->pending_io);
         }
     }
-    assert(number_of_pending(conn, thr->pending_io) +
-           number_of_pending(conn, thr->pending_close) == 1);
     UNLOCK_THREAD(thr);
 
     /* kick the thread in the butt */
