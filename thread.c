@@ -374,6 +374,7 @@ size_t list_to_array(conn **dest, size_t max_items, conn **l) {
         dest[n_items] = *l;
         *l = dest[n_items]->next;
         dest[n_items]->next = NULL;
+        dest[n_items]->list_state |= LIST_STATE_PROCESSING;
     }
     return n_items;
 }
@@ -381,13 +382,33 @@ size_t list_to_array(conn **dest, size_t max_items, conn **l) {
 void enlist_conn(conn *c, conn **list) {
     LIBEVENT_THREAD *thr = c->thread;
     assert(list == &thr->pending_io || list == &thr->pending_close);
-    assert(!list_contains(thr->pending_close, c));
-    assert(!list_contains(thr->pending_io, c));
-    assert(c->next == NULL);
-    c->next = *list;
-    *list = c;
-    assert(list_contains(*list, c));
-    assert(!has_cycle(*list));
+    if ((c->list_state & LIST_STATE_PROCESSING) == 0) {
+        assert(!list_contains(thr->pending_close, c));
+        assert(!list_contains(thr->pending_io, c));
+        assert(c->next == NULL);
+        c->next = *list;
+        *list = c;
+        assert(list_contains(*list, c));
+        assert(!has_cycle(*list));
+    } else {
+        c->list_state |= (list == &thr->pending_io ?
+                          LIST_STATE_REQ_PENDING_IO :
+                          LIST_STATE_REQ_PENDING_CLOSE);
+    }
+}
+
+void finalize_list(conn **list, size_t items) {
+    for (size_t i = 0; i < items; i++) {
+        list[i]->list_state &= ~LIST_STATE_PROCESSING;
+        if (list[i]->sfd != -1) {
+            if (list[i]->list_state & LIST_STATE_REQ_PENDING_IO) {
+                enlist_conn(list[i], &list[i]->thread->pending_io);
+            } else if (list[i]->list_state & LIST_STATE_REQ_PENDING_CLOSE) {
+                enlist_conn(list[i], &list[i]->thread->pending_close);
+            }
+        }
+        list[i]->list_state = 0;
+    }
 }
 
 static void libevent_tap_process(int fd, short which, void *arg) {
@@ -472,6 +493,11 @@ static void libevent_tap_process(int fd, short which, void *arg) {
             }
         }
     }
+
+    LOCK_THREAD(me);
+    finalize_list(pending_io, n_items);
+    finalize_list(pending_close, n_pending_close);
+    UNLOCK_THREAD(me);
 }
 
 static bool is_thread_me(LIBEVENT_THREAD *thr) {

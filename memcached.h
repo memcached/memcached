@@ -368,6 +368,8 @@ struct conn {
     short cmd; /* current command being processed */
     int opaque;
     int keylen;
+
+    int list_state; /* bitmask of list state data for this connection */
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
 
@@ -381,6 +383,11 @@ struct conn {
         rel_time_t  timeout;
     } pending_close;
 };
+
+/* States for the connection list_state */
+#define LIST_STATE_PROCESSING 1
+#define LIST_STATE_REQ_PENDING_IO 2
+#define LIST_STATE_REQ_PENDING_CLOSE 4
 
 /*
  * Functions
@@ -441,7 +448,7 @@ bool list_contains(conn *h, conn *n);
 conn *list_remove(conn *h, conn *n);
 size_t list_to_array(conn **dest, size_t max_items, conn **l);
 void enlist_conn(conn *c, conn **list);
-
+void finalize_list(conn **list, size_t items);
 
 void init_check_stdin(struct event_base *base);
 

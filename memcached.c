@@ -586,6 +586,7 @@ conn *conn_new(const int sfd, STATE_FUNC init_state,
     c->msgcurr = 0;
     c->msgused = 0;
     c->next = NULL;
+    c->list_state = 0;
 
     c->write_and_go = init_state;
     c->write_and_free = 0;
@@ -5142,6 +5143,7 @@ bool conn_add_tap_client(conn *c) {
     c->thread = tp;
     c->event.ev_base = tp->base;
     assert(c->next == NULL);
+    assert(c->list_state == 0);
     enlist_conn(c, &tp->pending_io);
     UNLOCK_THREAD(tp);
 
@@ -5223,6 +5225,12 @@ void event_handler(const int fd, const short which, void *arg) {
                 UNLOCK_THREAD(ce->thread);
             }
         }
+    }
+
+    if (c->thread) {
+        LOCK_THREAD(c->thread);
+        finalize_list(pending_close, n_pending_close);
+        UNLOCK_THREAD(c->thread);
     }
 }
 
