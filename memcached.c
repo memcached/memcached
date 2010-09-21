@@ -5138,9 +5138,19 @@ bool conn_closing(conn *c) {
 
 bool conn_add_tap_client(conn *c) {
     LIBEVENT_THREAD *tp = &tap_thread;
+    LIBEVENT_THREAD *orig_thread = c->thread;
+
+    assert(orig_thread);
+    assert(orig_thread != tp);
+
     c->ewouldblock = true;
 
     event_del(&c->event);
+
+    LOCK_THREAD(orig_thread);
+    /* Clean out the lists */
+    orig_thread->pending_io = list_remove(orig_thread->pending_io, c);
+    orig_thread->pending_close = list_remove(orig_thread->pending_close, c);
 
     LOCK_THREAD(tp);
     c->ev_flags = 0;
@@ -5153,7 +5163,10 @@ bool conn_add_tap_client(conn *c) {
     assert(c->next == NULL);
     assert(c->list_state == 0);
     enlist_conn(c, &tp->pending_io);
+
     UNLOCK_THREAD(tp);
+
+    UNLOCK_THREAD(orig_thread);
 
     if (write(tp->notify_send_fd, "", 1) != 1) {
         perror("Writing to tap thread notify pipe");
