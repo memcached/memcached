@@ -21,6 +21,10 @@ extern "C" {
          */
         rel_time_t (*realtime)(const time_t exptime);
 
+        /**
+         * Get the absolute time for the given rel_time_t value.
+         */
+        time_t (*abstime)(const rel_time_t exptime);
 
         /**
          * Get the server's version number.

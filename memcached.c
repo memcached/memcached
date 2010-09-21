@@ -229,6 +229,14 @@ static rel_time_t realtime(const time_t exptime) {
     }
 }
 
+/**
+ * Convert the relative time to an absolute time (relative to EPOC ;) )
+ */
+static time_t abstime(const rel_time_t exptime)
+{
+    return process_started + exptime;
+}
+
 static void stats_init(void) {
     stats.daemon_conns = 0;
     stats.rejected_conns = 0;
@@ -6168,6 +6176,7 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .server_version = get_server_version,
         .hash = hash,
         .realtime = realtime,
+        .abstime = abstime,
         .get_current_time = get_current_time,
         .parse_config = parse_config,
         .shutdown = shutdown_server
