@@ -360,7 +360,9 @@ conn* list_remove(conn *haystack, conn *needle) {
     }
 
     if (haystack == needle) {
-        return haystack->next;
+        conn *rv = needle->next;
+        needle->next = NULL;
+        return rv;
     }
 
     haystack->next = list_remove(haystack->next, needle);
