@@ -5614,6 +5614,8 @@ static void usage(void) {
     printf("-S            Require SASL authentication\n");
 #endif
     printf("-X module,cfg Load the module and initialize it with the config\n");
+    printf("-E engine     Load engine as the storage engine\n");
+    printf("-e config     Pass config as configuration options to the storage engine\n");
     printf("-O ip:port    Tap ip:port\n");
     printf("\nEnvironment variables:\n"
            "MEMCACHED_PORT_FILENAME   File to write port information to\n"
