@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 #include <pthread.h>
 #include <engine_loader.h>
 #include <memcached/engine_testapp.h>
@@ -18,6 +19,14 @@ struct mock_engine {
     ENGINE_HANDLE_V1 *the_engine;
     TAP_ITERATOR iterator;
 };
+
+#ifndef WIN32
+static sig_atomic_t alarmed;
+
+static void alarm_handler(int sig) {
+    alarmed = 1;
+}
+#endif
 
 static inline struct mock_engine* get_handle(ENGINE_HANDLE* handle) {
     return (struct mock_engine*)handle;
@@ -500,6 +509,7 @@ static void usage(void) {
     printf("                             .dll) that contains the set of tests\n");
     printf("                             to be executed.\n");
     printf("\n");
+    printf("-t <timeout>                 Maximum time to run a test.\n");
     printf("-e <engine_config>           Engine configuration string passed to\n");
     printf("                             the engine.\n");
     printf("\n");
@@ -527,6 +537,11 @@ static int report_test(enum test_result r) {
     case DIED:
         color = 31;
         msg = "DIED";
+        rc = 1;
+        break;
+    case TIMEOUT:
+        color = 31;
+        msg = "TIMED OUT";
         rc = 1;
         break;
     case CORE:
@@ -637,13 +652,16 @@ static enum test_result run_test(engine_test_t test, const char *engine, const c
             ret = FAIL;
         } else {
             int rc;
-            while (waitpid(pid, &rc, 0) == (pid_t)-1) {
+            while (alarmed == 0 && waitpid(pid, &rc, 0) == (pid_t)-1) {
                 if (errno != EINTR) {
                     abort();
                 }
             }
 
-            if (WIFEXITED(rc)) {
+            if (alarmed) {
+                kill(pid, 9);
+                ret = TIMEOUT;
+            } else if (WIFEXITED(rc)) {
                 ret = (enum test_result)WEXITSTATUS(rc);
             } else if (WIFSIGNALED(rc) && WCOREDUMP(rc)) {
                 ret = CORE;
@@ -657,9 +675,32 @@ static enum test_result run_test(engine_test_t test, const char *engine, const c
     return ret;
 }
 
+static void setup_alarm_handler() {
+#ifndef WIN32
+    struct sigaction sig_handler;
+
+    sig_handler.sa_handler = alarm_handler;
+    sig_handler.sa_flags = 0;
+
+    sigaction(SIGALRM, &sig_handler, NULL);
+#endif
+}
+
+static void set_test_timeout(int timeout) {
+#ifndef WIN32
+    alarm(timeout);
+#endif
+}
+
+static void clear_test_timeout() {
+#ifndef WIN32
+    alarm(0);
+    alarmed = 0;
+#endif
+}
 
 int main(int argc, char **argv) {
-    int c, exitcode = 0, num_cases = 0;
+    int c, exitcode = 0, num_cases = 0, timeout = 0;
     const char *engine = NULL;
     const char *engine_args = NULL;
     const char *test_suite = NULL;
@@ -689,12 +730,15 @@ int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
 
+    setup_alarm_handler();
+
     /* process arguments */
     while (-1 != (c = getopt(argc, argv,
           "h"  /* usage */
           "E:"  /* Engine to load */
           "e:"  /* Engine options */
           "T:"   /* Library with tests to load */
+          "t:" /* Timeout */
         ))) {
         switch (c) {
         case 'E':
@@ -708,6 +752,9 @@ int main(int argc, char **argv) {
             return 0;
         case 'T':
             test_suite = optarg;
+            break;
+        case 't':
+            timeout = atoi(optarg);
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
@@ -775,7 +822,9 @@ int main(int argc, char **argv) {
     for (i = 0; testcases[i].name; i++) {
         printf("Running %s... ", testcases[i].name);
         fflush(stdout);
+        set_test_timeout(timeout);
         exitcode += report_test(run_test(testcases[i], engine, engine_args));
+        clear_test_timeout();
     }
 
     //tear down the suite if needed

@@ -13,7 +13,8 @@ enum test_result {
     FAIL = 13,
     DIED = 14,
     CORE = 15,
-    PENDING = 19
+    PENDING = 19,
+    TIMEOUT = 23
 };
 
 struct test_harness {
