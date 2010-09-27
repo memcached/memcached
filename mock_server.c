@@ -108,6 +108,11 @@ static rel_time_t mock_get_current_time(void) {
     return current_time;
 }
 
+static time_t mock_abstime(const rel_time_t exptime)
+{
+    return process_started + exptime;
+}
+
 static int mock_parse_config(const char *str, struct config_item items[], FILE *error) {
     return parse_config(str, items, error);
 }
@@ -246,6 +251,7 @@ SERVER_HANDLE_V1 *get_mock_server_api(void)
         .hash = mock_hash,
         .realtime = mock_realtime,
         .get_current_time = mock_get_current_time,
+        .abstime = mock_abstime,
         .parse_config = mock_parse_config
     };
 
