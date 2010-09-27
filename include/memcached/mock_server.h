@@ -53,6 +53,7 @@ MEMCACHED_PUBLIC_API void unlock_mock_cookie(const void *cookie);
 
 MEMCACHED_PUBLIC_API void waitfor_mock_cookie(const void *cookie);
 
+MEMCACHED_PUBLIC_API void mock_time_travel(int by);
 
 MEMCACHED_PUBLIC_API void disconnect_mock_connection(struct mock_connstruct *c);
 

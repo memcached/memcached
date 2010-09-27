@@ -28,6 +28,7 @@ struct test_harness {
     void (*lock_cookie)(const void *cookie);
     void (*unlock_cookie)(const void *cookie);
     void (*waitfor_cookie)(const void *cookie);
+    void (*time_travel)(int offset);
 };
 
 typedef struct test {

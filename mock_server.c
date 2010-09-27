@@ -20,6 +20,7 @@ struct mock_extensions {
 
 struct mock_callbacks *mock_event_handlers[MAX_ENGINE_EVENT_TYPE + 1];
 time_t process_started;     /* when the mock server was started */
+rel_time_t time_travel_offset;
 rel_time_t current_time;
 struct mock_connstruct *connstructs;
 struct mock_extensions extensions;
@@ -104,13 +105,17 @@ static void mock_notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status
 static rel_time_t mock_get_current_time(void) {
     struct timeval timer;
     gettimeofday(&timer, NULL);
-    current_time = (rel_time_t) (timer.tv_sec - process_started);
+    current_time = (rel_time_t) (timer.tv_sec - process_started + time_travel_offset);
     return current_time;
 }
 
 static time_t mock_abstime(const rel_time_t exptime)
 {
     return process_started + exptime;
+}
+
+void mock_time_travel(int by) {
+    time_travel_offset += by;
 }
 
 static int mock_parse_config(const char *str, struct config_item items[], FILE *error) {

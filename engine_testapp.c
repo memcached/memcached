@@ -801,7 +801,8 @@ int main(int argc, char **argv) {
                                     .set_ewouldblock_handling = mock_set_ewouldblock_handling,
                                     .lock_cookie = lock_mock_cookie,
                                     .unlock_cookie = unlock_mock_cookie,
-                                    .waitfor_cookie = waitfor_mock_cookie};
+                                    .waitfor_cookie = waitfor_mock_cookie,
+                                    .time_travel = mock_time_travel };
     symbol = dlsym(handle, "setup_suite");
     if (symbol != NULL) {
         my_setup_suite.voidptr = symbol;
