@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 43;
+use Test::More tests => 46;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -156,3 +156,9 @@ is(scalar <$sock>, "1\r\n", "gets bug15 data is 0");
 is(scalar <$sock>, "END\r\n","gets bug15 END");
 
 ok($bug15_cas != $next_bug15_cas, "CAS changed");
+
+# validate that the stats gets updated
+my $stats = mem_stats($sock);
+is($stats->{cas_hits}, 2);
+is($stats->{cas_misses}, 1);
+is($stats->{cas_badval}, 3);

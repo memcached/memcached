@@ -544,30 +544,14 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
         if(old_it == NULL) {
             // LRU expired
             stored = ENGINE_KEY_ENOENT;
-#if 0
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.cas_misses++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-#endif
         }
         else if (item_get_cas(it) == item_get_cas(old_it)) {
             // cas validates
             // it and old_it may belong to different classes.
             // I'm updating the stats for the one that's getting pushed out
-#if 0
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[item_get_clsid(old_it)].cas_hits++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-#endif
-
             do_item_replace(engine, old_it, it);
             stored = ENGINE_SUCCESS;
         } else {
-#if 0
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[item_get_clsid(old_it)].cas_badval++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-#endif
             if (engine->config.verbose > 1) {
                 fprintf(stderr,
                         "CAS:  failure: expected %"PRIu64", got %"PRIu64"\n",

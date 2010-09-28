@@ -1125,9 +1125,26 @@ static void complete_update_ascii(conn *c) {
         default:
             out_string(c, "SERVER_ERROR internal");
         }
+
+        if (c->store_op == OPERATION_CAS) {
+            switch (ret) {
+            case ENGINE_SUCCESS:
+                SLAB_INCR(c, cas_hits, info.key, info.nkey);
+                break;
+            case ENGINE_KEY_EEXISTS:
+                SLAB_INCR(c, cas_badval, info.key, info.nkey);
+                break;
+            case ENGINE_KEY_ENOENT:
+                STATS_NOKEY(c, cas_misses);
+                break;
+            default:
+                ;
+            }
+        } else {
+            SLAB_INCR(c, cmd_set, info.key, info.nkey);
+        }
     }
 
-    SLAB_INCR(c, cmd_set, info.key, info.nkey);
     /* release the c->item reference */
     settings.engine.v1->release(settings.engine.v0, c, c->item);
     c->item = 0;
@@ -1608,7 +1625,23 @@ static void complete_update_bin(conn *c) {
         write_bin_packet(c, eno, 0);
     }
 
-    SLAB_INCR(c, cmd_set, info.key, info.nkey);
+    if (c->store_op == OPERATION_CAS) {
+        switch (ret) {
+        case ENGINE_SUCCESS:
+            SLAB_INCR(c, cas_hits, info.key, info.nkey);
+            break;
+        case ENGINE_KEY_EEXISTS:
+            SLAB_INCR(c, cas_badval, info.key, info.nkey);
+            break;
+        case ENGINE_KEY_ENOENT:
+            STATS_NOKEY(c, cas_misses);
+            break;
+        default:
+            ;
+        }
+    } else {
+        SLAB_INCR(c, cmd_set, info.key, info.nkey);
+    }
 
     if (!c->ewouldblock) {
         /* release the c->item reference */

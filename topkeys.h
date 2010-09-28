@@ -7,7 +7,8 @@
 /* A list of operations for which we have int stats */
 #define TK_OPS(C) C(get_hits) C(get_misses) C(cmd_set) C(incr_hits) \
                    C(incr_misses) C(decr_hits) C(decr_misses) \
-                   C(delete_hits) C(delete_misses) C(evictions)
+                   C(delete_hits) C(delete_misses) C(evictions) \
+                   C(cas_hits) C(cas_badval) C(cas_misses)
 
 #define TK_MAX_VAL_LEN 250
 
