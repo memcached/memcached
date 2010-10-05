@@ -726,8 +726,8 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
     bool sent = false;
     if (handled) {
         size_t msg_size = msg ? strlen(msg) : 0;
-        sent = response(msg, (uint16_t)msg_size,
-                        NULL, 0, NULL, 0,
+        sent = response(NULL, 0, NULL, 0,
+                        msg, (uint16_t)msg_size,
                         PROTOCOL_BINARY_RAW_BYTES,
                         (uint16_t)res, 0, cookie);
     } else {
