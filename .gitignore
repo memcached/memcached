@@ -1,4 +1,4 @@
-*.[ao]
+*.[aois]
 *.gcov
 *.gcda
 *.gcno
