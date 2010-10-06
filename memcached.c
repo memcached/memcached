@@ -159,7 +159,7 @@ static void settings_init(void);
 static void event_handler(const int fd, const short which, void *arg);
 static bool update_event(conn *c, const int new_flags);
 static void complete_nread(conn *c);
-static void process_command(conn *c, char *command);
+static char *process_command(conn *c, char *command);
 static void write_and_free(conn *c, char *buf, int bytes);
 static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
@@ -1115,8 +1115,9 @@ static void complete_update_ascii(conn *c) {
         case ENGINE_FAILED:
             out_string(c, "SERVER_ERROR failure");
             break;
-
-        case ENGINE_EWOULDBLOCK: // Fall-through.
+        case ENGINE_EWOULDBLOCK:
+            c->ewouldblock = true;
+            break;
         case ENGINE_WANT_MORE:
             assert(false);
             c->state = conn_closing;
@@ -1145,9 +1146,11 @@ static void complete_update_ascii(conn *c) {
         }
     }
 
-    /* release the c->item reference */
-    settings.engine.v1->release(settings.engine.v0, c, c->item);
-    c->item = 0;
+    if (!c->ewouldblock) {
+        /* release the c->item reference */
+        settings.engine.v1->release(settings.engine.v0, c, c->item);
+        c->item = 0;
+    }
 }
 
 /**
@@ -3830,10 +3833,10 @@ static char *get_suffix_buffer(conn *c) {
 }
 
 /* ntokens is overwritten here... shrug.. */
-static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
+static inline char* process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
     char *key;
     size_t nkey;
-    int i = 0;
+    int i = c->ileft;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
     assert(c != NULL);
@@ -3846,12 +3849,28 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
             if(nkey > KEY_MAX_LENGTH) {
                 out_string(c, "CLIENT_ERROR bad command line format");
-                return;
+                return NULL;
             }
 
-            if (settings.engine.v1->get(settings.engine.v0, c, &it,
-                                        key, nkey, 0) != ENGINE_SUCCESS) {
+            ENGINE_ERROR_CODE ret = c->aiostat;
+            c->aiostat = ENGINE_SUCCESS;
+
+            if (ret == ENGINE_SUCCESS) {
+                ret = settings.engine.v1->get(settings.engine.v0, c, &it, key, nkey, 0);
+            }
+
+            switch (ret) {
+            case ENGINE_EWOULDBLOCK:
+                c->ewouldblock = true;
+                c->ileft = i;
+                return key;
+
+            case ENGINE_SUCCESS:
+                break;
+            case ENGINE_KEY_ENOENT:
+            default:
                 it = NULL;
+                break;
             }
 
             if (settings.detail_enabled) {
@@ -3885,7 +3904,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 if (suffix == NULL) {
                     out_string(c, "SERVER_ERROR out of memory rebuilding suffix");
                     settings.engine.v1->release(settings.engine.v0, c, it);
-                    return;
+                    return NULL;
                 }
                 int suffix_len = snprintf(suffix, SUFFIX_SIZE,
                                           " %u %u\r\n", htonl(info.flags),
@@ -3908,7 +3927,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   if (cas == NULL) {
                     out_string(c, "SERVER_ERROR out of memory making CAS suffix");
                     settings.engine.v1->release(settings.engine.v0, c, it);
-                    return;
+                    return NULL;
                   }
                   int cas_len = snprintf(cas, SUFFIX_SIZE, " %"PRIu64"\r\n",
                                          info.cas);
@@ -3988,7 +4007,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         c->msgcurr = 0;
     }
 
-    return;
+    return NULL;
 }
 
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, ENGINE_STORE_OPERATION store_op, bool handle_cas) {
@@ -4090,7 +4109,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     }
 }
 
-static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
+static char* process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
 
     uint64_t delta;
     char *key;
@@ -4102,7 +4121,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 
     if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
-        return;
+        return NULL;
     }
 
     key = tokens[KEY_TOKEN].value;
@@ -4110,10 +4129,11 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 
     if (!safe_strtoull(tokens[2].value, &delta)) {
         out_string(c, "CLIENT_ERROR invalid numeric delta argument");
-        return;
+        return NULL;
     }
 
-    ENGINE_ERROR_CODE ret;
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
     uint64_t cas;
     uint64_t result;
     ret = settings.engine.v1->arithmetic(settings.engine.v0, c, key, nkey,
@@ -4157,9 +4177,14 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     case ENGINE_ENOTSUP:
         out_string(c, "SERVER_ERROR not supported");
         break;
+    case ENGINE_EWOULDBLOCK:
+        c->ewouldblock = true;
+        return key;
     default:
         abort();
     }
+
+    return NULL;
 }
 
 static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4229,11 +4254,12 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
     }
 }
 
-static void process_command(conn *c, char *command) {
+static char* process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
     size_t ntokens;
     int comm;
+    char *ret = NULL;
 
     assert(c != NULL);
 
@@ -4249,12 +4275,20 @@ static void process_command(conn *c, char *command) {
      * directly into it, then continue in nread_complete().
      */
 
-    c->msgcurr = 0;
-    c->msgused = 0;
-    c->iovused = 0;
-    if (add_msghdr(c) != 0) {
-        out_string(c, "SERVER_ERROR out of memory preparing response");
-        return;
+    if (c->ewouldblock) {
+        /*
+         * If we are retrying after the engine has completed a pending io for
+         * this command, skip add_msghdr() etc and clear the ewouldblock flag.
+         */
+        c->ewouldblock = false;
+    } else {
+        c->msgcurr = 0;
+        c->msgused = 0;
+        c->iovused = 0;
+        if (add_msghdr(c) != 0) {
+            out_string(c, "SERVER_ERROR out of memory preparing response");
+            return NULL;
+        }
     }
 
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
@@ -4262,7 +4296,7 @@ static void process_command(conn *c, char *command) {
         ((strcmp(tokens[COMMAND_TOKEN].value, "get") == 0) ||
          (strcmp(tokens[COMMAND_TOKEN].value, "bget") == 0))) {
 
-        process_get_command(c, tokens, ntokens, false);
+        ret = process_get_command(c, tokens, ntokens, false);
 
     } else if ((ntokens == 6 || ntokens == 7) &&
                ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = (int)OPERATION_ADD)) ||
@@ -4279,15 +4313,15 @@ static void process_command(conn *c, char *command) {
 
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0)) {
 
-        process_arithmetic_command(c, tokens, ntokens, 1);
+        ret = process_arithmetic_command(c, tokens, ntokens, 1);
 
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "gets") == 0)) {
 
-        process_get_command(c, tokens, ntokens, true);
+        ret = process_get_command(c, tokens, ntokens, true);
 
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
-        process_arithmetic_command(c, tokens, ntokens, 0);
+        ret = process_arithmetic_command(c, tokens, ntokens, 0);
 
     } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
 
@@ -4308,7 +4342,7 @@ static void process_command(conn *c, char *command) {
             exptime = strtol(tokens[1].value, NULL, 10);
             if(errno == ERANGE) {
                 out_string(c, "CLIENT_ERROR bad command line format");
-                return;
+                return NULL;
             }
         }
 
@@ -4322,7 +4356,7 @@ static void process_command(conn *c, char *command) {
             out_string(c, "SERVER_ERROR failed to flush cache");
         }
         STATS_NOKEY(c, cmd_flush);
-        return;
+        return NULL;
 
     } else if (ntokens == 2 && (strcmp(tokens[COMMAND_TOKEN].value, "version") == 0)) {
 
@@ -4342,7 +4376,7 @@ static void process_command(conn *c, char *command) {
         if (ntokens > 0) {
             if (ntokens == MAX_TOKENS) {
                 out_string(c, "ERROR too many arguments");
-                return;
+                return NULL;
             }
 
             if (tokens[ntokens - 1].length == 0) {
@@ -4381,7 +4415,7 @@ static void process_command(conn *c, char *command) {
     } else {
         out_string(c, "ERROR");
     }
-    return;
+    return ret;
 }
 
 /*
@@ -4486,7 +4520,7 @@ static int try_read_command(conn *c) {
             c->rcurr += sizeof(c->binary_header);
         }
     } else {
-        char *el, *cont;
+        char *el, *cont, *left, lb;
 
         if (c->rbytes == 0)
             return 0;
@@ -4517,11 +4551,38 @@ static int try_read_command(conn *c) {
         if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
             el--;
         }
+        lb = *el;
         *el = '\0';
 
         assert(cont <= (c->rcurr + c->rbytes));
 
-        process_command(c, c->rcurr);
+        left = process_command(c, c->rcurr);
+
+        if (left != NULL) {
+            /*
+             * We have not processed the entire command. This happens
+             * when the engine returns ENGINE_EWOULDBLOCK for one of the
+             * keys in a get/gets request.
+             */
+             assert (left < el);
+
+             int count = strlen(c->rcurr);
+             assert(count == 3 || count == 4); /* get, gets, incr, decr */
+
+             left -= (count + 1);
+             cont = left;
+             assert(cont >= c->rcurr);
+
+             if (cont > c->rcurr) {
+                memmove(cont, c->rcurr, count);
+             }
+
+            /* de-tokenize the command */
+            while ((left = memchr(left, '\0', el - left)) != NULL) {
+                *left = ' ';
+            }
+            *el = lb;
+        }
 
         c->rbytes -= (cont - c->rcurr);
         c->rcurr = cont;
@@ -4877,7 +4938,11 @@ bool conn_parse_cmd(conn *c) {
         conn_set_state(c, conn_waiting);
     }
 
-    return true;
+    if (c->ewouldblock) {
+        event_del(&c->event);
+    }
+
+    return !c->ewouldblock;
 }
 
 bool conn_new_cmd(conn *c) {
