@@ -280,6 +280,9 @@ struct conn {
     sasl_conn_t *sasl_conn;
     STATE_FUNC   state;
     enum bin_substates substate;
+#ifdef DEBUG
+    bool   registered_in_libevent;
+#endif
     struct event event;
     short  ev_flags;
     short  which;   /** which events were just triggered */
@@ -403,6 +406,13 @@ extern int daemonize(int nochdir, int noclose);
 #include "trace.h"
 #include "hash.h"
 #include <memcached/util.h>
+
+/*
+ * Functions to add / update the connection to libevent
+ */
+bool register_event(conn *c, struct timeval *timeout);
+bool unregister_event(conn *c);
+bool update_event(conn *c, const int new_flags);
 
 /*
  * Functions such as the libevent-related calls that need to do cross-thread
