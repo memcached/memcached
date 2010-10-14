@@ -7,8 +7,7 @@
 #include <memcached/engine.h>
 #include <memcached/extension.h>
 #include <memcached/extension_loggers.h>
-#include <memcached/mock_server.h>
-#include <memcached/types.h>
+#include <mock_server.h>
 
 #define REALTIME_MAXDELTA 60*60*24*3
 #define CONN_MAGIC 16369814453946373207ULL

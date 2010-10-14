@@ -12,7 +12,6 @@ pkginclude_HEADERS = \
                      include/memcached/extension.h \
                      include/memcached/extension_loggers.h \
                      include/memcached/genhash.h \
-                     include/memcached/mock_server.h \
                      include/memcached/protocol_binary.h \
                      include/memcached/protocol_plugin.h \
                      include/memcached/server_api.h \
@@ -43,6 +42,8 @@ testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
 # everything through the network layer
 engine_testapp_SOURCES = \
                         engine_testapp.c \
+                        mock_server.c \
+                        include/memcached/mock_server.h \
                         include/memcached/engine_testapp.h
 engine_testapp_DEPENDENCIES= libmcd_util.la
 engine_testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
@@ -61,7 +62,6 @@ libmcd_util_la_SOURCES= \
                         include/memcached/config_parser.h \
                         include/memcached/genhash.h \
                         include/memcached/util.h \
-                        mock_server.c \
                         util.c
 
 memcached_SOURCES = \

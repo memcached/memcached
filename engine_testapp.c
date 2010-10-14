@@ -12,7 +12,7 @@
 #include <engine_loader.h>
 #include <memcached/engine_testapp.h>
 #include <memcached/extension_loggers.h>
-#include <memcached/mock_server.h>
+#include <mock_server.h>
 
 struct mock_engine {
     ENGINE_HANDLE_V1 me;
