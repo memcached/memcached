@@ -6474,7 +6474,7 @@ int main (int argc, char **argv) {
     bool tcp_specified = false;
     bool udp_specified = false;
 
-    const char *engine = NULL;
+    const char *engine = "default_engine.so";
     const char *engine_config = NULL;
     char old_options[1024] = { [0] = '\0' };
     char *old_opts = old_options;
