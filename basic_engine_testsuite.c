@@ -1,10 +1,11 @@
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <memcached/engine_testapp.h>
+#include <unistd.h>
+#include "basic_engine_testsuite.h"
 
-MEMCACHED_PUBLIC_API
-engine_test_t* get_tests(void);
+struct test_harness test_harness;
 
 /*
  * Make sure that get_info returns something and that repeated calls to it
@@ -168,6 +169,7 @@ static enum test_result flush_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     item *test_item = NULL;
     void *key = "flush_test_key";
     uint64_t cas = 0;
+    test_harness.time_travel(3);
     assert(h1->allocate(h, NULL, &test_item, key, strlen(key), 1, 0, 0) == ENGINE_SUCCESS);
     assert(h1->store(h, NULL, test_item, &cas, OPERATION_SET,0) == ENGINE_SUCCESS);
     assert(h1->flush(h, NULL, 0) == ENGINE_SUCCESS);
@@ -238,6 +240,7 @@ static enum test_result unknown_command_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 
     return PENDING;
 }
 
+MEMCACHED_PUBLIC_API
 engine_test_t* get_tests(void) {
     static engine_test_t tests[]  = {
         {"get info test", get_info_test, NULL, NULL, NULL},
@@ -263,3 +266,8 @@ engine_test_t* get_tests(void) {
     return tests;
 }
 
+MEMCACHED_PUBLIC_API
+bool setup_suite(struct test_harness *th) {
+    test_harness = *th;
+    return true;
+}

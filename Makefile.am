@@ -152,7 +152,8 @@ example_protocol_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 syslog_logger_la_SOURCES = syslog_logger.c
 syslog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
 
-basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c
+basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c \
+                                   basic_engine_testsuite.h
 basic_engine_testsuite_la_DEPENDENCIES= libmcd_util.la
 basic_engine_testsuite_la_LIBADD= libmcd_util.la $(LIBM)
 basic_engine_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined
@@ -181,7 +182,13 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
-test:	memcached sizes testapp timedrun
+TEST_TIMEOUT=30
+
+test_engine: engine_testapp basic_engine_testsuite.la
+	./engine_testapp -E .libs/default_engine.so -t $(TEST_TIMEOUT) \
+		-T .libs/basic_engine_testsuite.so
+
+test: test_engine memcached sizes testapp timedrun
 	./sizes
 	./testapp
 	prove $(srcdir)/t
