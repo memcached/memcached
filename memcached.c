@@ -3688,31 +3688,36 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     }
 }
 
-static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
+static char *process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     const char *subcommand = tokens[SUBCOMMAND_TOKEN].value;
-    assert(c != NULL);
-
-    if (ntokens < 2) {
-        out_string(c, "CLIENT_ERROR bad command line");
-        return;
-    }
+    c->dynamic_buffer.offset = 0;
 
     if (ntokens == 2) {
-        server_stats(&append_stats, c, false);
-        (void)settings.engine.v1->get_stats(settings.engine.v0, c,
-                                            NULL, 0, &append_stats);
+        ENGINE_ERROR_CODE ret = c->aiostat;
+        c->aiostat = ENGINE_SUCCESS;
+        c->ewouldblock = false;
+        if (ret == ENGINE_SUCCESS) {
+            server_stats(&append_stats, c, false);
+            ret = settings.engine.v1->get_stats(settings.engine.v0, c,
+                                                NULL, 0, &append_stats);
+            if (ret == ENGINE_EWOULDBLOCK) {
+                c->ewouldblock = true;
+                return c->rcurr + 5;
+            }
+        }
     } else if (strcmp(subcommand, "reset") == 0) {
         stats_reset(c);
         out_string(c, "RESET");
-        return ;
+        return NULL;
     } else if (strcmp(subcommand, "detail") == 0) {
         /* NOTE: how to tackle detail with binary? */
-        if (ntokens < 4)
+        if (ntokens < 4) {
             process_stats_detail(c, "");  /* outputs the error message */
-        else
+        } else {
             process_stats_detail(c, tokens[2].value);
+        }
         /* Output already generated */
-        return ;
+        return NULL;
     } else if (strcmp(subcommand, "settings") == 0) {
         process_stat_settings(&append_stats, c);
     } else if (strcmp(subcommand, "cachedump") == 0) {
@@ -3721,25 +3726,25 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
         if (ntokens < 5) {
             out_string(c, "CLIENT_ERROR bad command line");
-            return;
+            return NULL;
         }
 
         if (!safe_strtoul(tokens[2].value, &id) ||
             !safe_strtoul(tokens[3].value, &limit)) {
             out_string(c, "CLIENT_ERROR bad command line format");
-            return;
+            return NULL;
         }
 
         if (id >= POWER_LARGEST) {
             out_string(c, "CLIENT_ERROR Illegal slab id");
-            return;
+            return NULL;
         }
 
 #ifdef FUTURE
         buf = item_cachedump(id, limit, &bytes);
 #endif
         write_and_free(c, buf, bytes);
-        return ;
+        return NULL;
     } else if (strcmp(subcommand, "aggregate") == 0) {
         server_stats(&append_stats, c, true);
     } else if (strcmp(subcommand, "topkeys") == 0) {
@@ -3748,18 +3753,22 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             topkeys_stats(tk, c, current_time, append_stats);
         } else {
             out_string(c, "ERROR");
-            return;
+            return NULL;
         }
     } else {
         /* getting here means that the subcommand is either engine specific or
            is invalid. query the engine and see. */
-        ENGINE_ERROR_CODE ret;
-        char *buf = NULL;
-        int nb = -1;
-        detokenize(&tokens[1], ntokens - 2, &buf, &nb);
-        ret = settings.engine.v1->get_stats(settings.engine.v0, c, buf,
-                                            nb, append_stats);
-        free(buf);
+        ENGINE_ERROR_CODE ret = c->aiostat;
+        c->aiostat = ENGINE_SUCCESS;
+        c->ewouldblock = false;
+        if (ret == ENGINE_SUCCESS) {
+            char *buf = NULL;
+            int nb = -1;
+            detokenize(&tokens[1], ntokens - 2, &buf, &nb);
+            ret = settings.engine.v1->get_stats(settings.engine.v0, c, buf,
+                                                nb, append_stats);
+            free(buf);
+        }
 
         switch (ret) {
         case ENGINE_SUCCESS:
@@ -3776,11 +3785,15 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         case ENGINE_ENOTSUP:
             out_string(c, "SERVER_ERROR not supported");
             break;
+        case ENGINE_EWOULDBLOCK:
+            c->ewouldblock = true;
+            return tokens[SUBCOMMAND_TOKEN].value;
         default:
             out_string(c, "ERROR");
             break;
         }
-        return ;
+
+        return NULL;
     }
 
     /* append terminator and start the transfer */
@@ -3792,6 +3805,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
         c->dynamic_buffer.buffer = NULL;
     }
+
+    return NULL;
 }
 
 /**
@@ -4182,7 +4197,8 @@ static char* process_arithmetic_command(conn *c, token_t *tokens, const size_t n
     return NULL;
 }
 
-static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
+static char *process_delete_command(conn *c, token_t *tokens,
+                                    const size_t ntokens) {
     char *key;
     size_t nkey;
 
@@ -4196,35 +4212,45 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         if (!valid) {
             out_string(c, "CLIENT_ERROR bad command line format.  "
                        "Usage: delete <key> [noreply]");
-            return;
+            return NULL;
         }
     }
-
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    if(nkey > KEY_MAX_LENGTH) {
+    if (nkey > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
-        return;
+        return NULL;
     }
 
-    if (settings.detail_enabled) {
-        stats_prefix_record_delete(key, nkey);
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    c->ewouldblock = false;
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->remove(settings.engine.v0, c,
+                                         key, nkey, 0, 0);
     }
-
-    ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->remove(settings.engine.v0, c, key, nkey, 0, 0);
 
     /* For some reason the SLAB_INCR tries to access this... */
     item_info info = { .nvalue = 1 };
-    if (ret == ENGINE_SUCCESS) {
+    switch (ret) {
+    case ENGINE_SUCCESS:
         out_string(c, "DELETED");
         SLAB_INCR(c, delete_hits, key, nkey);
-    } else {
+        break;
+    case ENGINE_EWOULDBLOCK:
+        c->ewouldblock = true;
+        return key;
+    default:
         out_string(c, "NOT_FOUND");
         STATS_INCR(c, delete_misses, key, nkey);
     }
+
+    if (ret != ENGINE_EWOULDBLOCK && settings.detail_enabled) {
+        stats_prefix_record_delete(key, nkey);
+    }
+    return NULL;
 }
 
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4320,11 +4346,11 @@ static char* process_command(conn *c, char *command) {
 
     } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
 
-        process_delete_command(c, tokens, ntokens);
+        ret = process_delete_command(c, tokens, ntokens);
 
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0)) {
 
-        process_stat(c, tokens, ntokens);
+        ret = process_stat(c, tokens, ntokens);
 
     } else if (ntokens >= 2 && ntokens <= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0)) {
         time_t exptime;
@@ -4341,16 +4367,30 @@ static char* process_command(conn *c, char *command) {
             }
         }
 
-        ENGINE_ERROR_CODE ret;
-        ret = settings.engine.v1->flush(settings.engine.v0, c, exptime);
+        ENGINE_ERROR_CODE ret = c->aiostat;
+        c->aiostat = ENGINE_SUCCESS;
+        c->ewouldblock = false;
         if (ret == ENGINE_SUCCESS) {
+            ret = settings.engine.v1->flush(settings.engine.v0, c, exptime);
+        }
+
+        switch (ret) {
+        case  ENGINE_SUCCESS:
             out_string(c, "OK");
-        } else if (ret == ENGINE_ENOTSUP) {
+            break;
+        case ENGINE_ENOTSUP:
             out_string(c, "SERVER_ERROR not supported");
-        } else {
+            break;
+        case ENGINE_EWOULDBLOCK:
+            c->ewouldblock = true;
+            return c->rcurr + 9;
+        default:
             out_string(c, "SERVER_ERROR failed to flush cache");
         }
-        STATS_NOKEY(c, cmd_flush);
+
+        if (ret != ENGINE_EWOULDBLOCK) {
+            STATS_NOKEY(c, cmd_flush);
+        }
         return NULL;
 
     } else if (ntokens == 2 && (strcmp(tokens[COMMAND_TOKEN].value, "version") == 0)) {
@@ -4517,8 +4557,9 @@ static int try_read_command(conn *c) {
     } else {
         char *el, *cont, *left, lb;
 
-        if (c->rbytes == 0)
+        if (c->rbytes == 0) {
             return 0;
+        }
 
         el = memchr(c->rcurr, '\n', c->rbytes);
         if (!el) {
@@ -4565,18 +4606,20 @@ static int try_read_command(conn *c) {
              * when the engine returns ENGINE_EWOULDBLOCK for one of the
              * keys in a get/gets request.
              */
-             assert (left < el);
+            assert (left <= el);
 
-             int count = strlen(c->rcurr);
-             assert(count == 3 || count == 4); /* get, gets, incr, decr */
-
-             left -= (count + 1);
-             cont = left;
-             assert(cont >= c->rcurr);
-
-             if (cont > c->rcurr) {
-                memmove(cont, c->rcurr, count);
-             }
+            int count = strlen(c->rcurr);
+            if ((c->rcurr + count) == left) {
+                // Retry the entire command
+                cont = c->rcurr;
+            } else {
+                left -= (count + 1);
+                cont = left;
+                assert(cont >= c->rcurr);
+                if (cont > c->rcurr) {
+                    memmove(cont, c->rcurr, count);
+                }
+            }
 
             /* de-tokenize the command */
             while ((left = memchr(left, '\0', el - left)) != NULL) {
