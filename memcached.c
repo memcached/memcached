@@ -2656,7 +2656,9 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
     if (ret == ENGINE_DISCONNECT) {
         conn_set_state(c, conn_closing);
     } else {
-        if (tap_flags & TAP_FLAG_ACK) {
+        if ((tap_flags & TAP_FLAG_ACK) ||
+            (ret != ENGINE_SUCCESS && c->tap_nack_mode))
+        {
             write_bin_packet(c, engine_error_2_protocol_error(ret), 0);
         } else {
             conn_set_state(c, conn_new_cmd);
@@ -4946,7 +4948,7 @@ bool conn_ship_log(conn *c) {
 
     short mask = EV_READ | EV_PERSIST | EV_WRITE;
 
-    if (c->which & EV_READ) {
+    if (c->which & EV_READ || c->rbytes > 0) {
         if (c->rbytes > 0) {
             if (try_read_command(c) == 0) {
                 conn_set_state(c, conn_read);
