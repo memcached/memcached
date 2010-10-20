@@ -739,17 +739,67 @@ void item_unlink(struct default_engine *engine, hash_item *item) {
     pthread_mutex_unlock(&engine->cache_lock);
 }
 
-/*
- * Does arithmetic on a numeric item value.
- */
-ENGINE_ERROR_CODE add_delta(struct default_engine *engine,
-                            hash_item *item, const bool incr,
-                            const int64_t delta, uint64_t *rcas,
-                            uint64_t *result, const void *cookie) {
+static ENGINE_ERROR_CODE do_arithmetic(struct default_engine *engine,
+                                       const void* cookie,
+                                       const void* key,
+                                       const int nkey,
+                                       const bool increment,
+                                       const bool create,
+                                       const uint64_t delta,
+                                       const uint64_t initial,
+                                       const rel_time_t exptime,
+                                       uint64_t *cas,
+                                       uint64_t *result)
+{
+   hash_item *item = do_item_get(engine, key, nkey);
+   ENGINE_ERROR_CODE ret;
+
+   if (item == NULL) {
+      if (!create) {
+         return ENGINE_KEY_ENOENT;
+      } else {
+         char buffer[128];
+         int len = snprintf(buffer, sizeof(buffer), "%"PRIu64"\r\n",
+                            (uint64_t)initial);
+
+         item = do_item_alloc(engine, key, nkey, 0, exptime, len, cookie);
+         if (item == NULL) {
+            return ENGINE_ENOMEM;
+         }
+         memcpy((void*)item_get_data(item), buffer, len);
+         if ((ret = do_store_item(engine, item, cas,
+                                  OPERATION_ADD, cookie)) == ENGINE_SUCCESS) {
+             *result = initial;
+             *cas = item_get_cas(item);
+         }
+         do_item_release(engine, item);
+      }
+   } else {
+      ret = do_add_delta(engine, item, increment, delta, cas, result, cookie);
+      do_item_release(engine, item);
+   }
+
+   return ret;
+}
+
+ENGINE_ERROR_CODE arithmetic(struct default_engine *engine,
+                             const void* cookie,
+                             const void* key,
+                             const int nkey,
+                             const bool increment,
+                             const bool create,
+                             const uint64_t delta,
+                             const uint64_t initial,
+                             const rel_time_t exptime,
+                             uint64_t *cas,
+                             uint64_t *result)
+{
     ENGINE_ERROR_CODE ret;
 
     pthread_mutex_lock(&engine->cache_lock);
-    ret = do_add_delta(engine, item, incr, delta, rcas, result, cookie);
+    ret = do_arithmetic(engine, cookie, key, nkey, increment,
+                        create, delta, initial, exptime, cas,
+                        result);
     pthread_mutex_unlock(&engine->cache_lock);
     return ret;
 }

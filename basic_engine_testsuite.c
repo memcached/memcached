@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "basic_engine_testsuite.h"
 
 struct test_harness test_harness;
@@ -141,6 +142,54 @@ static enum test_result incr_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     return SUCCESS;
 }
 
+static void *incr_test_main(void *arg) {
+    ENGINE_HANDLE *h = arg;
+    ENGINE_HANDLE_V1 *h1 = arg;
+    void *key = "incr_test_key";
+    uint64_t cas = 0;
+    uint64_t res = 0;
+
+    for (int ii = 0; ii < 1000; ++ii) {
+        assert(h1->arithmetic(h, NULL, key, strlen(key), false, false, 1, 0,
+                              0, &cas, &res, 0 ) == ENGINE_SUCCESS);
+
+    }
+
+    return NULL;
+}
+
+
+/*
+ * Make sure we can arithmetic operations to set the initial value of a key and
+ * to then later increment that value
+ */
+static enum test_result mt_incr_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    const int max_threads = 30;
+    pthread_t tid[max_threads];
+
+    item *test_item = NULL;
+    void *key = "incr_test_key";
+    uint64_t cas = 0;
+    uint64_t res = 0;
+    assert(h1->allocate(h, NULL, &test_item, key,
+                        strlen(key), 1, 0, 0) == ENGINE_SUCCESS);
+    assert(h1->arithmetic(h, NULL, key, strlen(key), true, true, 0, 1,
+                          0, &cas, &res, 0 ) == ENGINE_SUCCESS);
+    h1->release(h, NULL, test_item);
+
+    for (int ii = 0; ii < max_threads; ++ii) {
+        assert(pthread_create(&tid[ii], NULL, incr_test_main, h) == 0);
+    }
+
+    for (int ii = 0; ii < max_threads; ++ii) {
+        void *ret;
+        assert(pthread_join(tid[ii], &ret) == 0);
+        assert(ret == NULL);
+    }
+
+    return SUCCESS;
+}
+
 /*
  * Make sure we can arithmetic operations to set the initial value of a key and
  * to then later decrement that value
@@ -252,6 +301,7 @@ engine_test_t* get_tests(void) {
         {"remove test", remove_test, NULL, NULL, NULL},
         {"release test", release_test, NULL, NULL, NULL},
         {"incr test", incr_test, NULL, NULL, NULL},
+        {"mt incr test", mt_incr_test, NULL, NULL, NULL},
         {"decr test", decr_test, NULL, NULL, NULL},
         {"flush test", flush_test, NULL, NULL, NULL},
         {"get item info test", get_item_info_test, NULL, NULL, NULL},

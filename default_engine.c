@@ -430,42 +430,12 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
                                             uint64_t *cas,
                                             uint64_t *result,
                                             uint16_t vbucket) {
-   ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
    struct default_engine *engine = get_handle(handle);
    VBUCKET_GUARD(engine, vbucket);
-   hash_item *item = item_get(engine, key, nkey);
 
-   if (item == NULL) {
-      if (!create) {
-         return ENGINE_KEY_ENOENT;
-      } else {
-         char buffer[1023];
-         int len = snprintf(buffer, sizeof(buffer), "%"PRIu64"\r\n",
-                            (uint64_t)initial);
-
-         item = item_alloc(engine, key, nkey, 0, exptime, len, cookie);
-         if (item == NULL) {
-            return ENGINE_ENOMEM;
-         }
-         memcpy((void*)item_get_data(item), buffer, len);
-         if ((ret = store_item(engine, item, cas,
-                               OPERATION_ADD, cookie)) == ENGINE_KEY_EEXISTS) {
-            item_release(engine, item);
-            return default_arithmetic(handle, cookie, key, nkey, increment,
-                                      create, delta, initial, exptime, cas,
-                                      result, vbucket);
-         }
-
-         *result = initial;
-         *cas = item_get_cas(item);
-         item_release(engine, item);
-      }
-   } else {
-      ret = add_delta(engine, item, increment, delta, cas, result, cookie);
-      item_release(engine, item);
-   }
-
-   return ret;
+   return arithmetic(engine, cookie, key, nkey, increment,
+                     create, delta, initial, exptime, cas,
+                     result);
 }
 
 static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
