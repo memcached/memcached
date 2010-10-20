@@ -18,9 +18,11 @@
 #ifdef HAVE_STDBOOL_H
 #include <stdbool.h>
 #else
+#ifndef bool
 #define bool char
 #define false 0
 #define true 1
+#endif
 #endif
 
 #ifdef HAVE_INTTYPES_H
