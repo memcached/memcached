@@ -1443,9 +1443,9 @@ static void complete_incr_bin(conn *c) {
     assert(c->wsize >= sizeof(*rsp));
 
     /* fix byteorder in the request */
-    req->message.body.delta = ntohll(req->message.body.delta);
-    req->message.body.initial = ntohll(req->message.body.initial);
-    req->message.body.expiration = ntohl(req->message.body.expiration);
+    uint64_t delta = ntohll(req->message.body.delta);
+    uint64_t initial = ntohll(req->message.body.initial);
+    rel_time_t expiration = ntohl(req->message.body.expiration);
     char *key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
     bool incr = (c->cmd == PROTOCOL_BINARY_CMD_INCREMENT ||
@@ -1459,9 +1459,7 @@ static void complete_incr_bin(conn *c) {
         if (nw != -1) {
             if (snprintf(buffer + nw, sizeof(buffer) - nw,
                          " %" PRIu64 ", %" PRIu64 ", %" PRIu64 "\n",
-                         (uint64_t)req->message.body.delta,
-                         (uint64_t)req->message.body.initial,
-                         (uint64_t)req->message.body.expiration) != -1) {
+                         delta, initial, (uint64_t)expiration) != -1) {
                 settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c, "%s",
                                                 buffer);
             }
@@ -1474,9 +1472,7 @@ static void complete_incr_bin(conn *c) {
         ret = settings.engine.v1->arithmetic(settings.engine.v0,
                                              c, key, nkey, incr,
                                              req->message.body.expiration != 0xffffffff,
-                                             req->message.body.delta,
-                                             req->message.body.initial,
-                                             req->message.body.expiration,
+                                             delta, initial, expiration,
                                              &c->cas,
                                              &rsp->message.body.value,
                                              c->binary_header.request.vbucket);
@@ -2955,7 +2951,7 @@ static void process_bin_update(conn *c) {
 
     /* fix byteorder in the request */
     req->message.body.flags = req->message.body.flags;
-    req->message.body.expiration = ntohl(req->message.body.expiration);
+    rel_time_t expiration = ntohl(req->message.body.expiration);
 
     vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
 
@@ -2997,7 +2993,7 @@ static void process_bin_update(conn *c) {
                                            &it, key, nkey,
                                            vlen + 2,
                                            req->message.body.flags,
-                                           realtime(req->message.body.expiration));
+                                           realtime(expiration));
         if (ret == ENGINE_SUCCESS && !settings.engine.v1->get_item_info(settings.engine.v0,
                                                                         c, it, &info)) {
             settings.engine.v1->release(settings.engine.v0, c, it);
