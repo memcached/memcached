@@ -529,6 +529,10 @@ static int report_test(enum test_result r) {
         msg="OK";
         color = 32;
         break;
+    case SKIPPED:
+        msg="SKIPPED";
+        color = 32;
+        break;
     case FAIL:
         color = 31;
         msg="FAIL";

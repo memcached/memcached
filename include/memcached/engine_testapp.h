@@ -10,6 +10,7 @@ extern "C" {
 
 enum test_result {
     SUCCESS = 11,
+    SKIPPED = 12,
     FAIL = 13,
     DIED = 14,
     CORE = 15,
