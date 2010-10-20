@@ -269,6 +269,66 @@ static enum test_result item_set_cas_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1
     return SUCCESS;
 }
 
+static void eviction_stats_handler(const char *key, const uint16_t klen,
+                                   const char *val, const uint32_t vlen,
+                                   const void *cookie) {
+    if (memcmp(key, "evictions", klen) == 0) {
+        char buffer[vlen + 1];
+        memcpy(buffer, val, vlen);
+        buffer[vlen] = '\0';
+        *((uint32_t*)cookie) = atoi(buffer);
+    }
+}
+
+static enum test_result lru_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *test_item = NULL;
+    const char *hot_key = "hot_key";
+    uint64_t cas = 0;
+    assert(h1->allocate(h, NULL, &test_item,
+                        hot_key, strlen(hot_key), 4096, 0, 0) == ENGINE_SUCCESS);
+    assert(h1->store(h, NULL, test_item,
+                     &cas, OPERATION_SET,0) == ENGINE_SUCCESS);
+    h1->release(h, NULL, test_item);
+
+    int ii;
+    for (ii = 0; ii < 250; ++ii) {
+        assert(h1->get(h, NULL, &test_item,
+                       hot_key, strlen(hot_key), 0) ==  ENGINE_SUCCESS);
+        h1->release(h, NULL, test_item);
+        char key[1024];
+        size_t keylen = snprintf(key, sizeof(key), "lru_test_key_%08d", ii);
+        assert(h1->allocate(h, NULL, &test_item,
+                            key, keylen, 4096, 0, 0) == ENGINE_SUCCESS);
+        assert(h1->store(h, NULL, test_item,
+                         &cas, OPERATION_SET,0) == ENGINE_SUCCESS);
+        h1->release(h, NULL, test_item);
+
+        uint32_t evictions = 0;
+        assert(h1->get_stats(h, &evictions, NULL, 0,
+                             eviction_stats_handler) == ENGINE_SUCCESS);
+        if (evictions == 2) {
+            break;
+        }
+    }
+
+    assert(ii < 250);
+    for (int jj = 0; jj <= ii; ++jj) {
+        char key[1024];
+        size_t keylen = snprintf(key, sizeof(key), "lru_test_key_%08d", jj);
+        if (jj == 0 || jj == 1) {
+            assert(h1->get(h, NULL, &test_item,
+                           key, keylen, 0) == ENGINE_KEY_ENOENT);
+        } else {
+            assert(h1->get(h, NULL, &test_item,
+                           key, keylen, 0) == ENGINE_SUCCESS);
+            assert(test_item != NULL);
+            h1->release(h, NULL, test_item);
+        }
+    }
+
+    return SUCCESS;
+}
+
 static enum test_result get_stats_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     return PENDING;
 }
@@ -306,6 +366,7 @@ engine_test_t* get_tests(void) {
         {"flush test", flush_test, NULL, NULL, NULL},
         {"get item info test", get_item_info_test, NULL, NULL, NULL},
         {"set cas test", item_set_cas_test, NULL, NULL, NULL},
+        {"LRU test", lru_test, NULL, NULL, "cache_size=48"},
         {"get stats test", get_stats_test, NULL, NULL, NULL},
         {"reset stats test", reset_stats_test, NULL, NULL, NULL},
         {"get stats struct test", get_stats_struct_test, NULL, NULL, NULL},
