@@ -29,12 +29,15 @@ BEGIN {
 use Test::More tests => scalar(@files);
 
 foreach my $f (@files) {
-    open(my $fh, $f) or die;
-    my $before = do { local $/; <$fh>; };
-    close ($fh);
-    my $after = $before;
-    $after =~ s/\t/    /g;
-    $after =~ s/ +$//mg;
-    $after .= "\n" unless $after =~ /\n$/;
-    ok ($after eq $before, "$f (see devtools/clean-whitespace.pl)");
+    if (open(my $fh, $f)) {
+       my $before = do { local $/; <$fh>; };
+       close ($fh);
+       my $after = $before;
+       $after =~ s/\t/    /g;
+       $after =~ s/ +$//mg;
+       $after .= "\n" unless $after =~ /\n$/;
+       ok ($after eq $before, "$f (see devtools/clean-whitespace.pl)");
+    } else {
+       ok ($f eq $f, "Ignoring $f, failed to open....")
+    }
 }
