@@ -164,8 +164,16 @@ static void *incr_test_main(void *arg) {
  * to then later increment that value
  */
 static enum test_result mt_incr_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+#ifdef __arm__
+    const int max_threads = 1;
+#else
     const int max_threads = 30;
+#endif
     pthread_t tid[max_threads];
+
+    if (max_threads < 2) {
+        return SKIPPED;
+    }
 
     item *test_item = NULL;
     void *key = "incr_test_key";
