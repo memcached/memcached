@@ -5386,21 +5386,22 @@ void event_handler(const int fd, const short which, void *arg) {
         c->nevents = settings.reqs_per_tap_event;
     }
 
+    LIBEVENT_THREAD *thr = c->thread;
+
     // Do we have pending closes?
     const size_t max_items = 256;
     conn *pending_close[max_items];
     size_t n_pending_close = 0;
-    if (c->thread != NULL) {
-        LIBEVENT_THREAD *me = c->thread;
-        LOCK_THREAD(me);
-        if (me->pending_close && me->last_checked != current_time) {
-            assert(!has_cycle(me->pending_close));
-            me->last_checked = current_time;
+    if (thr != NULL) {
+        LOCK_THREAD(thr);
+        if (thr->pending_close && thr->last_checked != current_time) {
+            assert(!has_cycle(thr->pending_close));
+            thr->last_checked = current_time;
 
             n_pending_close = list_to_array(pending_close, max_items,
-                                            &me->pending_close);
+                                            &thr->pending_close);
         }
-        UNLOCK_THREAD(me);
+        UNLOCK_THREAD(thr);
     }
 
     while (c->state(c)) {
@@ -5424,10 +5425,10 @@ void event_handler(const int fd, const short which, void *arg) {
         }
     }
 
-    if (c->thread) {
-        LOCK_THREAD(c->thread);
+    if (thr != NULL) {
+        LOCK_THREAD(thr);
         finalize_list(pending_close, n_pending_close);
-        UNLOCK_THREAD(c->thread);
+        UNLOCK_THREAD(thr);
     }
 }
 
