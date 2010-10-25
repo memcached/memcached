@@ -316,15 +316,36 @@ AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
        break
     fi
   done
-  LIBS="$saved_LIBS"
-  LDFLAGS="$saved_LDFLAGS"
-  CPPFLAGS="$saved_CPPFLAGS"
+
   if test $le_found = no ; then
     AC_MSG_ERROR([libevent is required.  You can get it from $LIBEVENT_URL
 
       If it's already installed, specify its path using --with-libevent=/dir/
 ])
   fi
+
+  # Is it recent enough?
+  AC_TRY_LINK([
+#include <stdlib.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <event.h>
+                ], [
+event_base_loopbreak(NULL);
+                ], [
+                  libevent_linked=yes
+                ], [
+                  libevent_linked=no ])
+
+AS_IF(test "x$libevent_linked" = "xno",
+      AC_MSG_ERROR([
+      You need to upgrade libevent to a version that supports event_base_loopbreak.
+
+      You can get it from $LIBEVENT_URL]))
+
+  LIBS="$saved_LIBS"
+  LDFLAGS="$saved_LDFLAGS"
+  CPPFLAGS="$saved_CPPFLAGS"
 ])
 
 if test $ac_cv_libevent_dir != "(system)"; then
