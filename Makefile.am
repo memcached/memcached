@@ -1,6 +1,7 @@
 # Please list files alphabetically in the lists to reduce the risk for
 # a merge conflict.
 #
+man_MANS = doc/memcached.1
 bin_PROGRAMS = engine_testapp memcached
 noinst_PROGRAMS = sizes testapp timedrun
 pkginclude_HEADERS = \
@@ -176,7 +177,6 @@ default_engine_dtrace.lo: $(default_engine_la_OBJECTS)
 	$(DTRACE) $(DTRACEFLAGS) -G -o .libs/default_engine_dtrace.o -s ${srcdir}/memcached_dtrace.d $(DEFAULT_ENGINE_OBJS)
 	sed -e s,assoc,default_engine_dtrace,g assoc.lo > default_engine_dtrace.lo
 
-SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4
 
