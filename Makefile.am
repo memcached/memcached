@@ -43,7 +43,7 @@ testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
 engine_testapp_SOURCES = \
                         engine_testapp.c \
                         mock_server.c \
-                        include/memcached/mock_server.h \
+                        mock_server.h \
                         include/memcached/engine_testapp.h
 engine_testapp_DEPENDENCIES= libmcd_util.la
 engine_testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
