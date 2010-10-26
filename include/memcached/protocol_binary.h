@@ -36,6 +36,8 @@
 #ifndef PROTOCOL_BINARY_H
 #define PROTOCOL_BINARY_H
 
+#include <memcached/vbucket.h>
+
 /**
  * \addtogroup Protocol
  * @{
@@ -139,6 +141,12 @@ extern "C"
         PROTOCOL_BINARY_CMD_RDECR     = 0x3b,
         PROTOCOL_BINARY_CMD_RDECRQ    = 0x3c,
         /* End Range operations */
+
+        /* VBucket commands */
+        PROTOCOL_BINARY_CMD_SET_VBUCKET = 0x3d,
+        PROTOCOL_BINARY_CMD_GET_VBUCKET = 0x3e,
+        PROTOCOL_BINARY_CMD_DEL_VBUCKET = 0x3f,
+        /* End VBucket commands */
 
         /* TAP commands */
         PROTOCOL_BINARY_CMD_TAP_CONNECT = 0x40,
@@ -585,6 +593,50 @@ extern "C"
      * Definition of the packet returned from scrub.
      */
     typedef protocol_binary_response_no_extras protocol_binary_response_scrub;
+
+
+    /**
+     * Definition of the packet used by set vbucket
+     */
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                vbucket_state_t state;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + sizeof(vbucket_state_t)];
+    } protocol_binary_request_set_vbucket;
+    /**
+     * Definition of the packet returned from set vbucket
+     */
+    typedef protocol_binary_response_no_extras protocol_binary_response_set_vbucket;
+    /**
+     * Definition of the packet used by del vbucket
+     */
+    typedef protocol_binary_request_no_extras protocol_binary_request_del_vbucket;
+    /**
+     * Definition of the packet returned from del vbucket
+     */
+    typedef protocol_binary_response_no_extras protocol_binary_response_del_vbucket;
+
+    /**
+     * Definition of the packet used by get vbucket
+     */
+    typedef protocol_binary_request_no_extras protocol_binary_request_get_vbucket;
+
+    /**
+     * Definition of the packet returned from get vbucket
+     */
+    typedef union {
+        struct {
+            protocol_binary_response_header header;
+            struct {
+                vbucket_state_t state;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_response_header) + sizeof(vbucket_state_t)];
+    } protocol_binary_response_get_vbucket;
 
 
     /**

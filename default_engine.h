@@ -90,13 +90,6 @@ struct engine_scrubber {
    time_t stopped;
 };
 
-enum vbucket_state {
-    VBUCKET_STATE_DEAD    = 0,
-    VBUCKET_STATE_ACTIVE  = 1,
-    VBUCKET_STATE_REPLICA = 2,
-    VBUCKET_STATE_PENDING = 3
-};
-
 struct vbucket_info {
     int state : 2;
 };
