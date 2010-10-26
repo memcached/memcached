@@ -58,6 +58,147 @@ static enum test_result allocate_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 }
 
 /*
+ * Verify set behavior
+ */
+static enum test_result set_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *it;
+    void *key = "key";
+    assert(h1->allocate(h, NULL, &it, key,
+                        strlen(key), 1, 1, 0) == ENGINE_SUCCESS);
+
+    uint64_t prev_cas;
+    uint64_t cas = 0;
+
+    for (int ii = 0; ii < 10; ++ii) {
+        prev_cas = cas;
+        assert(h1->store(h, NULL, it, &cas, OPERATION_SET,0) == ENGINE_SUCCESS);
+        assert(cas != prev_cas);
+    }
+    h1->release(h, NULL, it);
+    return SUCCESS;
+}
+
+/*
+ * Verify add behavior
+ */
+static enum test_result add_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *it;
+    void *key = "key";
+    assert(h1->allocate(h, NULL, &it, key,
+                        strlen(key), 1, 1, 0) == ENGINE_SUCCESS);
+    uint64_t cas;
+
+    for (int ii = 0; ii < 10; ++ii) {
+        ENGINE_ERROR_CODE ret = h1->store(h, NULL, it, &cas, OPERATION_ADD, 0);
+        if (ii == 0) {
+            assert(ret == ENGINE_SUCCESS);
+            assert(cas != 0);
+        } else {
+            assert(ret == ENGINE_NOT_STORED);
+        }
+    }
+    h1->release(h, NULL, it);
+    return SUCCESS;
+}
+
+/*
+ * Verify replace behavior
+ */
+static enum test_result replace_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *it;
+    void *key = "key";
+    assert(set_test(h, h1) == SUCCESS);
+
+    assert(h1->allocate(h, NULL, &it, key,
+                        strlen(key), sizeof(int), 1, 0) == ENGINE_SUCCESS);
+    item_info item_info = { .nvalue = 1 };
+    assert(h1->get_item_info(h, NULL, it, &item_info) == true);
+
+    uint64_t prev_cas;
+    uint64_t cas = 0;
+
+    for (int ii = 0; ii < 10; ++ii) {
+        prev_cas = cas;
+        *(int*)(item_info.value[0].iov_base) = ii;
+        assert(h1->store(h, NULL, it, &cas, OPERATION_REPLACE,0) == ENGINE_SUCCESS);
+        assert(cas != prev_cas);
+    }
+    h1->release(h, NULL, it);
+
+    assert(h1->get(h, NULL, &it, key, strlen(key), 0) == ENGINE_SUCCESS);
+    assert(h1->get_item_info(h, NULL, it, &item_info) == true);
+    assert(item_info.value[0].iov_len == sizeof(int));
+    assert(*(int*)(item_info.value[0].iov_base) == 9);
+    h1->release(h, NULL, it);
+
+    return SUCCESS;
+}
+
+/*
+ * Verify append behavior
+ */
+static enum test_result append_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *it;
+    void *key = "key";
+    uint64_t cas;
+
+    assert(h1->allocate(h, NULL, &it, key,
+                        strlen(key), 5, 1, 0) == ENGINE_SUCCESS);
+    item_info item_info = { .nvalue = 1 };
+    assert(h1->get_item_info(h, NULL, it, &item_info) == true);
+    memcpy(item_info.value[0].iov_base, "HELLO", 5);
+    assert(h1->store(h, NULL, it, &cas, OPERATION_SET, 0) == ENGINE_SUCCESS);
+    h1->release(h, NULL, it);
+    assert(h1->allocate(h, NULL, &it, key,
+                        strlen(key), 6, 1, 0) == ENGINE_SUCCESS);
+    item_info.nvalue = 1;
+    assert(h1->get_item_info(h, NULL, it, &item_info) == true);
+    memcpy(item_info.value[0].iov_base, " WORLD", 6);
+    assert(h1->store(h, NULL, it, &cas, OPERATION_APPEND, 0) == ENGINE_SUCCESS);
+    h1->release(h, NULL, it);
+
+    assert(h1->get(h, NULL, &it, key, strlen(key), 0) == ENGINE_SUCCESS);
+    assert(h1->get_item_info(h, NULL, it, &item_info) == true);
+    assert(item_info.value[0].iov_len == 11);
+    assert(memcmp(item_info.value[0].iov_base, "HELLO WORLD", 11) == 0);
+    h1->release(h, NULL, it);
+
+    return SUCCESS;
+}
+
+/*
+ * Verify prepend behavior
+ */
+static enum test_result prepend_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *it;
+    void *key = "key";
+    uint64_t cas;
+
+    assert(h1->allocate(h, NULL, &it, key,
+                        strlen(key), 5, 1, 0) == ENGINE_SUCCESS);
+    item_info item_info = { .nvalue = 1 };
+    assert(h1->get_item_info(h, NULL, it, &item_info) == true);
+    memcpy(item_info.value[0].iov_base, "HELLO", 5);
+    assert(h1->store(h, NULL, it, &cas, OPERATION_SET, 0) == ENGINE_SUCCESS);
+    h1->release(h, NULL, it);
+    assert(h1->allocate(h, NULL, &it, key,
+                        strlen(key), 6, 1, 0) == ENGINE_SUCCESS);
+    item_info.nvalue = 1;
+    assert(h1->get_item_info(h, NULL, it, &item_info) == true);
+    memcpy(item_info.value[0].iov_base, " WORLD", 6);
+    assert(h1->store(h, NULL, it, &cas, OPERATION_PREPEND, 0) == ENGINE_SUCCESS);
+    h1->release(h, NULL, it);
+
+    assert(h1->get(h, NULL, &it, key, strlen(key), 0) == ENGINE_SUCCESS);
+    assert(h1->get_item_info(h, NULL, it, &item_info) == true);
+    assert(item_info.value[0].iov_len == 11);
+    assert(memcmp(item_info.value[0].iov_base, " WORLDHELLO", 11) == 0);
+    h1->release(h, NULL, it);
+
+    return SUCCESS;
+}
+
+/*
  * Make sure when we can successfully store an item after it has been allocated
  * and that the cas for the stored item has been generated.
  */
@@ -364,6 +505,11 @@ engine_test_t* get_tests(void) {
         {"get info description test", get_info_description_test, NULL, NULL, NULL},
         {"get info features test", get_info_features_test, NULL, NULL, NULL},
         {"allocate test", allocate_test, NULL, NULL, NULL},
+        {"set test", set_test, NULL, NULL, NULL},
+        {"add test", add_test, NULL, NULL, NULL},
+        {"replace test", replace_test, NULL, NULL, NULL},
+        {"append test", append_test, NULL, NULL, NULL},
+        {"prepend test", prepend_test, NULL, NULL, NULL},
         {"store test", store_test, NULL, NULL, NULL},
         {"get test", get_test, NULL, NULL, NULL},
         {"remove test", remove_test, NULL, NULL, NULL},
