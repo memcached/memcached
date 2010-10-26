@@ -8,11 +8,11 @@ use MemcachedTest;
 
 my $server = new_memcached();
 my $sock = $server->sock;
-my $value = "B"x10;
+my $value = "B"x12;
 my $key = 0;
 
 for ($key = 0; $key < 10; $key++) {
-    print $sock "set key$key 0 0 10\r\n$value\r\n";
+    print $sock "set key$key 0 0 12\r\n$value\r\n";
     is (scalar <$sock>, "STORED\r\n", "stored key$key");
 }
 

@@ -986,7 +986,11 @@ static void out_string(conn *c, const char *str) {
                                             ">%d NOREPLY %s\n", c->sfd, str);
         }
         c->noreply = false;
-        conn_set_state(c, conn_new_cmd);
+        if (c->sbytes > 0) {
+            conn_set_state(c, conn_swallow);
+        } else {
+            conn_set_state(c, conn_new_cmd);
+        }
         return;
     }
 
@@ -1014,7 +1018,13 @@ static void out_string(conn *c, const char *str) {
     c->wcurr = c->wbuf;
 
     conn_set_state(c, conn_write);
-    c->write_and_go = conn_new_cmd;
+
+    if (c->sbytes > 0) {
+        c->write_and_go = conn_swallow;
+    } else {
+        c->write_and_go = conn_new_cmd;
+    }
+
     return;
 }
 
@@ -1036,109 +1046,110 @@ static void complete_update_ascii(conn *c) {
         return;
     }
 
-    if (memcmp((char*)info.value[0].iov_base + info.nbytes - 2, "\r\n", 2) != 0) {
-        out_string(c, "CLIENT_ERROR bad data chunk");
-    } else {
-        ENGINE_ERROR_CODE ret = settings.engine.v1->store(settings.engine.v0, c,
-                                                          it, &c->cas,
-                                                          c->store_op, 0);
+    c->sbytes = 2; // swallow \r\n
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    c->aiostat = ENGINE_SUCCESS;
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->store(settings.engine.v0, c, it, &c->cas,
+                                        c->store_op, 0);
+    }
+
 #ifdef ENABLE_DTRACE
-        switch (c->store_op) {
-        case OPERATION_ADD:
-            MEMCACHED_COMMAND_ADD(c->sfd, info.key, info.nkey,
+    switch (c->store_op) {
+    case OPERATION_ADD:
+        MEMCACHED_COMMAND_ADD(c->sfd, info.key, info.nkey,
+                              (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
+        break;
+    case OPERATION_REPLACE:
+        MEMCACHED_COMMAND_REPLACE(c->sfd, info.key, info.nkey,
                                   (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
-            break;
-        case OPERATION_REPLACE:
-            MEMCACHED_COMMAND_REPLACE(c->sfd, info.key, info.nkey,
-                                      (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
-            break;
-        case OPERATION_APPEND:
-            MEMCACHED_COMMAND_APPEND(c->sfd, info.key, info.nkey,
-                                     (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
-            break;
-        case OPERATION_PREPEND:
-            MEMCACHED_COMMAND_PREPEND(c->sfd, info.key, info.nkey,
-                                      (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
-            break;
-        case OPERATION_SET:
-            MEMCACHED_COMMAND_SET(c->sfd, info.key, info.nkey,
+        break;
+    case OPERATION_APPEND:
+        MEMCACHED_COMMAND_APPEND(c->sfd, info.key, info.nkey,
+                                 (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
+        break;
+    case OPERATION_PREPEND:
+        MEMCACHED_COMMAND_PREPEND(c->sfd, info.key, info.nkey,
                                   (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
-            break;
-        case OPERATION_CAS:
-            MEMCACHED_COMMAND_CAS(c->sfd, info.key, info.nkey, info.nbytes, c->cas);
-            break;
-        }
+        break;
+    case OPERATION_SET:
+        MEMCACHED_COMMAND_SET(c->sfd, info.key, info.nkey,
+                              (ret == ENGINE_SUCCESS) ? info.nbytes : -1, c->cas);
+        break;
+    case OPERATION_CAS:
+        MEMCACHED_COMMAND_CAS(c->sfd, info.key, info.nkey, info.nbytes, c->cas);
+        break;
+    }
 #endif
 
+    switch (ret) {
+    case ENGINE_SUCCESS:
+        out_string(c, "STORED");
+        break;
+    case ENGINE_KEY_EEXISTS:
+        out_string(c, "EXISTS");
+        break;
+    case ENGINE_KEY_ENOENT:
+        out_string(c, "NOT_FOUND");
+        break;
+    case ENGINE_NOT_STORED:
+        out_string(c, "NOT_STORED");
+        break;
+    case ENGINE_DISCONNECT:
+        c->state = conn_closing;
+        break;
+    case ENGINE_ENOTSUP:
+        out_string(c, "SERVER_ERROR not supported");
+        break;
+    case ENGINE_ENOMEM:
+        out_string(c, "SERVER_ERROR out of memory");
+        break;
+    case ENGINE_TMPFAIL:
+        out_string(c, "SERVER_ERROR temporary failure");
+        break;
+    case ENGINE_EINVAL:
+        out_string(c, "CLIENT_ERROR invalid arguments");
+        break;
+    case ENGINE_E2BIG:
+        out_string(c, "CLIENT_ERROR value too big");
+        break;
+    case ENGINE_EACCESS:
+        out_string(c, "CLIENT_ERROR access control violation");
+        break;
+    case ENGINE_NOT_MY_VBUCKET:
+        out_string(c, "SERVER_ERROR not my vbucket");
+        break;
+    case ENGINE_FAILED:
+        out_string(c, "SERVER_ERROR failure");
+        break;
+    case ENGINE_EWOULDBLOCK:
+        c->ewouldblock = true;
+        break;
+    case ENGINE_WANT_MORE:
+        assert(false);
+        c->state = conn_closing;
+        break;
+
+    default:
+        out_string(c, "SERVER_ERROR internal");
+    }
+
+    if (c->store_op == OPERATION_CAS) {
         switch (ret) {
         case ENGINE_SUCCESS:
-            out_string(c, "STORED");
+            SLAB_INCR(c, cas_hits, info.key, info.nkey);
             break;
         case ENGINE_KEY_EEXISTS:
-            out_string(c, "EXISTS");
+            SLAB_INCR(c, cas_badval, info.key, info.nkey);
             break;
         case ENGINE_KEY_ENOENT:
-            out_string(c, "NOT_FOUND");
+            STATS_NOKEY(c, cas_misses);
             break;
-        case ENGINE_NOT_STORED:
-            out_string(c, "NOT_STORED");
-            break;
-        case ENGINE_DISCONNECT:
-            c->state = conn_closing;
-            break;
-        case ENGINE_ENOTSUP:
-            out_string(c, "SERVER_ERROR not supported");
-            break;
-        case ENGINE_ENOMEM:
-            out_string(c, "SERVER_ERROR out of memory");
-            break;
-        case ENGINE_TMPFAIL:
-            out_string(c, "SERVER_ERROR temporary failure");
-            break;
-        case ENGINE_EINVAL:
-            out_string(c, "CLIENT_ERROR invalid arguments");
-            break;
-        case ENGINE_E2BIG:
-            out_string(c, "CLIENT_ERROR value too big");
-            break;
-        case ENGINE_EACCESS:
-            out_string(c, "CLIENT_ERROR access control violation");
-            break;
-        case ENGINE_NOT_MY_VBUCKET:
-            out_string(c, "SERVER_ERROR not my vbucket");
-            break;
-        case ENGINE_FAILED:
-            out_string(c, "SERVER_ERROR failure");
-            break;
-        case ENGINE_EWOULDBLOCK:
-            c->ewouldblock = true;
-            break;
-        case ENGINE_WANT_MORE:
-            assert(false);
-            c->state = conn_closing;
-            break;
-
         default:
-            out_string(c, "SERVER_ERROR internal");
+            ;
         }
-
-        if (c->store_op == OPERATION_CAS) {
-            switch (ret) {
-            case ENGINE_SUCCESS:
-                SLAB_INCR(c, cas_hits, info.key, info.nkey);
-                break;
-            case ENGINE_KEY_EEXISTS:
-                SLAB_INCR(c, cas_badval, info.key, info.nkey);
-                break;
-            case ENGINE_KEY_ENOENT:
-                STATS_NOKEY(c, cas_misses);
-                break;
-            default:
-                ;
-            }
-        } else {
-            SLAB_INCR(c, cmd_set, info.key, info.nkey);
-        }
+    } else {
+        SLAB_INCR(c, cmd_set, info.key, info.nkey);
     }
 
     if (!c->ewouldblock) {
@@ -1543,9 +1554,7 @@ static void complete_update_bin(conn *c) {
         write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_EINTERNAL, 0);
         return;
     }
-    /* We don't actually receive the trailing two characters in the bin
-     * protocol, so we're going to just set them here */
-    memcpy((char*)info.value[0].iov_base + info.value[0].iov_len - 2, "\r\n", 2);
+
     ENGINE_ERROR_CODE ret = c->aiostat;
     c->aiostat = ENGINE_SUCCESS;
     if (ret == ENGINE_SUCCESS) {
@@ -1682,9 +1691,8 @@ static void process_bin_get(conn *c) {
             break;
         }
 
-        /* the length has two unnecessary bytes ("\r\n") */
         keylen = 0;
-        bodylen = sizeof(rsp->message.body) + (info.nbytes - 2);
+        bodylen = sizeof(rsp->message.body) + info.nbytes;
 
         STATS_HIT(c, get, key, nkey);
 
@@ -1703,10 +1711,9 @@ static void process_bin_get(conn *c) {
             add_iov(c, info.key, nkey);
         }
 
-        /* Add the data minus the CRLF */
-        add_iov(c, info.value[0].iov_base, info.value[0].iov_len - 2);
+        add_iov(c, info.value[0].iov_base, info.value[0].iov_len);
         conn_set_state(c, conn_mwrite);
-        /* Remember this command so we can garbage collect it later */
+        /* Remember this item so we can garbage collect it later */
         c->item = it;
         break;
     case ENGINE_KEY_ENOENT:
@@ -1720,7 +1727,7 @@ static void process_bin_get(conn *c) {
             if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
                 char *ofs = c->wbuf + sizeof(protocol_binary_response_header);
                 add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
-                        0, nkey, nkey);
+                               0, nkey, nkey);
                 memcpy(ofs, key, nkey);
                 add_iov(c, ofs, nkey);
                 conn_set_state(c, conn_mwrite);
@@ -1843,8 +1850,8 @@ static bool grow_dynamic_buffer(conn *c, size_t needed) {
 }
 
 static void append_stats(const char *key, const uint16_t klen,
-                  const char *val, const uint32_t vlen,
-                  const void *cookie)
+                         const char *val, const uint32_t vlen,
+                         const void *cookie)
 {
     /* value without a key is invalid */
     if (klen == 0 && vlen > 0) {
@@ -2403,7 +2410,7 @@ static void ship_tap_log(conn *c) {
 
             bodylen = 16 + info.nkey + nengine;
             if ((tap_flags & TAP_FLAG_NO_VALUE) == 0) {
-                bodylen += info.nbytes - 2;
+                bodylen += info.nbytes;
             }
             msg.mutation.message.header.request.bodylen = htonl(bodylen);
             msg.mutation.message.body.item.flags = htonl(info.flags);
@@ -2426,7 +2433,7 @@ static void ship_tap_log(conn *c) {
 
             add_iov(c, info.key, info.nkey);
             if ((tap_flags & TAP_FLAG_NO_VALUE) == 0) {
-                add_iov(c, info.value[0].iov_base, info.value[0].iov_len - 2);
+                add_iov(c, info.value[0].iov_base, info.value[0].iov_len);
             }
 
             pthread_mutex_lock(&tap_stats.mutex);
@@ -2991,7 +2998,7 @@ static void process_bin_update(conn *c) {
     if (ret == ENGINE_SUCCESS) {
         ret = settings.engine.v1->allocate(settings.engine.v0, c,
                                            &it, key, nkey,
-                                           vlen + 2,
+                                           vlen,
                                            req->message.body.flags,
                                            realtime(expiration));
         if (ret == ENGINE_SUCCESS && !settings.engine.v1->get_item_info(settings.engine.v0,
@@ -3089,7 +3096,7 @@ static void process_bin_append_prepend(conn *c) {
     if (ret == ENGINE_SUCCESS) {
         ret = settings.engine.v1->allocate(settings.engine.v0, c,
                                            &it, key, nkey,
-                                           vlen + 2, 0, 0);
+                                           vlen, 0, 0);
         if (ret == ENGINE_SUCCESS && !settings.engine.v1->get_item_info(settings.engine.v0,
                                                                         c, it, &info)) {
             settings.engine.v1->release(settings.engine.v0, c, it);
@@ -3279,6 +3286,7 @@ static void complete_nread_binary(conn *c) {
 }
 
 static void reset_cmd_handler(conn *c) {
+    c->sbytes = 0;
     c->ascii_cmd = NULL;
     c->cmd = -1;
     c->substate = bin_no_state;
@@ -3898,8 +3906,6 @@ static inline char* process_get_command(conn *c, token_t *tokens, size_t ntokens
                     break;
                 }
 
-                assert(memcmp((char*)info.value[0].iov_base + info.nbytes - 2, "\r\n", 2) == 0);
-
                 if (i >= c->isize) {
                     item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
                     if (new_list) {
@@ -3920,7 +3926,7 @@ static inline char* process_get_command(conn *c, token_t *tokens, size_t ntokens
                 }
                 int suffix_len = snprintf(suffix, SUFFIX_SIZE,
                                           " %u %u\r\n", htonl(info.flags),
-                                          info.nbytes - 2);
+                                          info.nbytes);
 
                 /*
                  * Construct the response. Each hit adds three elements to the
@@ -3947,7 +3953,8 @@ static inline char* process_get_command(conn *c, token_t *tokens, size_t ntokens
                       add_iov(c, info.key, info.nkey) != 0 ||
                       add_iov(c, suffix, suffix_len - 2) != 0 ||
                       add_iov(c, cas, cas_len) != 0 ||
-                      add_iov(c, info.value[0].iov_base, info.value[0].iov_len) != 0)
+                      add_iov(c, info.value[0].iov_base, info.value[0].iov_len) != 0 ||
+                      add_iov(c, "\r\n", 2) != 0)
                       {
                           settings.engine.v1->release(settings.engine.v0, c, it);
                           break;
@@ -3958,7 +3965,8 @@ static inline char* process_get_command(conn *c, token_t *tokens, size_t ntokens
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, info.key, info.nkey) != 0 ||
                       add_iov(c, suffix, suffix_len) != 0 ||
-                      add_iov(c, info.value[0].iov_base, info.value[0].iov_len) != 0)
+                      add_iov(c, info.value[0].iov_base, info.value[0].iov_len) != 0 ||
+                      add_iov(c, "\r\n", 2) != 0)
                       {
                           settings.engine.v1->release(settings.engine.v0, c, it);
                           break;
@@ -4062,8 +4070,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         }
     }
 
-    vlen += 2;
-    if (vlen < 0 || vlen - 2 < 0) {
+    if (vlen < 0) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -4111,7 +4118,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         }
         /* swallow the data line */
         c->write_and_go = conn_swallow;
-        c->sbytes = vlen;
+        c->sbytes = vlen + 2;
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
@@ -4148,9 +4155,11 @@ static char* process_arithmetic_command(conn *c, token_t *tokens, const size_t n
     c->aiostat = ENGINE_SUCCESS;
     uint64_t cas;
     uint64_t result;
-    ret = settings.engine.v1->arithmetic(settings.engine.v0, c, key, nkey,
-                                         incr, false, delta, 0, 0, &cas,
-                                         &result, 0);
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->arithmetic(settings.engine.v0, c, key, nkey,
+                                             incr, false, delta, 0, 0, &cas,
+                                             &result, 0);
+    }
 
     char temp[INCR_MAX_STORAGE_LEN];
     switch (ret) {
@@ -5408,9 +5417,18 @@ void event_handler(const int fd, const short which, void *arg) {
         UNLOCK_THREAD(thr);
     }
 
-    while (c->state(c)) {
-        /* do task */
+    if (settings.verbose) {
+        do {
+            settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
+                                            "%d - Running task: (%s)\n",
+                                            c->sfd, state_text(c->state));
+        } while (c->state(c));
+    } else {
+        while (c->state(c)) {
+            /* empty */
+        }
     }
+
 
     /* Close any connections pending close */
     if (n_pending_close > 0) {
@@ -6115,17 +6133,18 @@ static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
             return ENGINE_FAILED;
         }
 
-        /* Ensure that we don't run away into random memory */
-        char *endptr = info.value[0].iov_base;
-        int ii;
-        for (ii = 0; ii < info.value[0].iov_len; ++ii) {
-            if (isdigit(endptr[ii]) == 0) {
-                break;
-            }
+        char value[80];
+
+        if (info.value[0].iov_len > (sizeof(value) - 1)) {
+            e->release(handle, cookie, it);
+            return ENGINE_EINVAL;
         }
 
+        memcpy(value, info.value[0].iov_base, info.value[0].iov_len);
+        value[info.value[0].iov_len] = '\0';
+
         uint64_t val;
-        if (ii == info.value[0].iov_len || !safe_strtoull((const char*)info.value[0].iov_base, &val)) {
+        if (!safe_strtoull(value, &val)) {
             e->release(handle, cookie, it);
             return ENGINE_EINVAL;
         }
@@ -6140,8 +6159,7 @@ static ENGINE_ERROR_CODE internal_arithmetic(ENGINE_HANDLE* handle,
             }
         }
 
-        char value[80];
-        size_t nb = snprintf(value, sizeof(value), "%"PRIu64"\r\n", val);
+        size_t nb = snprintf(value, sizeof(value), "%"PRIu64, val);
         *result = val;
         item *nit = NULL;
         if (e->allocate(handle, cookie, &nit, key,

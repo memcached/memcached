@@ -375,7 +375,7 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
         strncpy(key_temp, item_get_key(it), it->nkey);
         key_temp[it->nkey] = 0x00; /* terminate */
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n",
-                       key_temp, it->nbytes - 2,
+                       key_temp, it->nbytes,
                        (unsigned long)it->exptime + process_started);
         if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;
@@ -581,7 +581,7 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
                 new_it = do_item_alloc(engine, key, it->nkey,
                                        old_it->flags,
                                        old_it->exptime,
-                                       it->nbytes + old_it->nbytes - 2 /* CRLF */,
+                                       it->nbytes + old_it->nbytes,
                                        cookie);
 
                 if (new_it == NULL) {
@@ -597,11 +597,11 @@ static ENGINE_ERROR_CODE do_store_item(struct default_engine *engine,
 
                 if (operation == OPERATION_APPEND) {
                     memcpy(item_get_data(new_it), item_get_data(old_it), old_it->nbytes);
-                    memcpy(item_get_data(new_it) + old_it->nbytes - 2 /* CRLF */, item_get_data(it), it->nbytes);
+                    memcpy(item_get_data(new_it) + old_it->nbytes, item_get_data(it), it->nbytes);
                 } else {
                     /* OPERATION_PREPEND */
                     memcpy(item_get_data(new_it), item_get_data(it), it->nbytes);
-                    memcpy(item_get_data(new_it) + it->nbytes - 2 /* CRLF */, item_get_data(old_it), old_it->nbytes);
+                    memcpy(item_get_data(new_it) + it->nbytes, item_get_data(old_it), old_it->nbytes);
                 }
 
                 it = new_it;
@@ -653,11 +653,18 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
                                       uint64_t *result, const void *cookie) {
     const char *ptr;
     uint64_t value;
+    char buf[80];
     int res;
 
-    ptr = item_get_data(it);
+    if (it->nbytes >= (sizeof(buf) - 1)) {
+        return ENGINE_EINVAL;
+    }
 
-    if (!safe_strtoull(ptr, &value)) {
+    ptr = item_get_data(it);
+    memcpy(buf, ptr, it->nbytes);
+    buf[it->nbytes] = '\0';
+
+    if (!safe_strtoull(buf, &value)) {
         return ENGINE_EINVAL;
     }
 
@@ -672,15 +679,14 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
     }
 
     *result = value;
-    char buf[80];
-    if ((res = snprintf(buf, sizeof(buf), "%" PRIu64 "\r\n", value)) == -1) {
+    if ((res = snprintf(buf, sizeof(buf), "%" PRIu64, value)) == -1) {
         return ENGINE_EINVAL;
     }
     hash_item *new_it = do_item_alloc(engine, item_get_key(it),
                                       it->nkey, it->flags,
                                       it->exptime, res,
-                                      cookie );
-    if (new_it == 0) {
+                                      cookie);
+    if (new_it == NULL) {
         do_item_unlink(engine, it);
         return ENGINE_ENOMEM;
     }
@@ -759,7 +765,7 @@ static ENGINE_ERROR_CODE do_arithmetic(struct default_engine *engine,
          return ENGINE_KEY_ENOENT;
       } else {
          char buffer[128];
-         int len = snprintf(buffer, sizeof(buffer), "%"PRIu64"\r\n",
+         int len = snprintf(buffer, sizeof(buffer), "%"PRIu64,
                             (uint64_t)initial);
 
          item = do_item_alloc(engine, key, nkey, 0, exptime, len, cookie);
