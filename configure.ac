@@ -339,9 +339,12 @@ event_base_loopbreak(NULL);
 
 AS_IF(test "x$libevent_linked" = "xno",
       AC_MSG_ERROR([
-      You need to upgrade libevent to a version that supports event_base_loopbreak.
+You need to upgrade libevent to a version that supports:
+  * event_base_loopbreak
+  * evutil_socketpair
+  * evutil_make_socket_nonblocking
 
-      You can get it from $LIBEVENT_URL]))
+You can get it from $LIBEVENT_URL]))
 
   LIBS="$saved_LIBS"
   LDFLAGS="$saved_LDFLAGS"

@@ -230,8 +230,7 @@ typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
     struct event notify_event;  /* listen event for notify pipe */
-    int notify_receive_fd;      /* receiving end of notify pipe */
-    int notify_send_fd;         /* sending end of notify pipe */
+    SOCKET notify[2];           /* notification pipes */
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *suffix_cache;      /* suffix cache */
     pthread_mutex_t mutex;      /* Mutex to lock protect access to the pending_io */
@@ -258,9 +257,9 @@ typedef struct {
         abort();                                 \
     }
 
+extern void notify_thread(LIBEVENT_THREAD *thread);
 
-
-extern LIBEVENT_THREAD tap_thread;
+extern LIBEVENT_THREAD* tap_thread;
 
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
@@ -275,7 +274,7 @@ typedef bool (*STATE_FUNC)(conn *);
  * The structure representing a connection into memcached.
  */
 struct conn {
-    int    sfd;
+    SOCKET sfd;
     short  nevents;
     sasl_conn_t *sasl_conn;
     STATE_FUNC   state;
@@ -395,7 +394,7 @@ struct conn {
 /*
  * Functions
  */
-conn *conn_new(const int sfd, STATE_FUNC init_state, const int event_flags,
+conn *conn_new(const SOCKET sfd, STATE_FUNC init_state, const int event_flags,
                const int read_buffer_size, enum network_transport transport,
                struct event_base *base, struct timeval *timeout);
 #ifndef WIN32
@@ -425,7 +424,7 @@ void thread_init(int nthreads, struct event_base *main_base);
 void threads_shutdown(void);
 
 int  dispatch_event_add(int thread, conn *c);
-void dispatch_conn_new(int sfd, STATE_FUNC init_state, int event_flags,
+void dispatch_conn_new(SOCKET sfd, STATE_FUNC init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport);
 
 /* Lock wrappers for cache functions that are called from main loop. */
@@ -448,7 +447,7 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
 void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status);
 void conn_set_state(conn *c, STATE_FUNC state);
 const char *state_text(STATE_FUNC state);
-void safe_close(int sfd);
+void safe_close(SOCKET sfd);
 
 
 // Number of times this connection is in the given pending list
@@ -459,8 +458,7 @@ conn *list_remove(conn *h, conn *n);
 size_t list_to_array(conn **dest, size_t max_items, conn **l);
 void enlist_conn(conn *c, conn **list);
 void finalize_list(conn **list, size_t items);
-
-void init_check_stdin(struct event_base *base);
+bool set_socket_nonblocking(SOCKET sfd);
 
 void conn_close(conn *c);
 

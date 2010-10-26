@@ -127,7 +127,7 @@ volatile rel_time_t current_time;
 /*
  * forward declarations
  */
-static int new_socket(struct addrinfo *ai);
+static SOCKET new_socket(struct addrinfo *ai);
 static int try_read_command(conn *c);
 static inline struct independent_stats *get_independent_stats(conn *c);
 static inline struct thread_stats *get_thread_stats(conn *c);
@@ -347,15 +347,15 @@ static const char *prot_text(enum protocol prot) {
     return rv;
 }
 
-void safe_close(int sfd) {
-    if (sfd != -1) {
+void safe_close(SOCKET sfd) {
+    if (sfd != INVALID_SOCKET) {
         int rval;
-        while ((rval = close(sfd)) == -1 &&
+        while ((rval = closesocket(sfd)) == SOCKET_ERROR &&
                (errno == EINTR || errno == EAGAIN)) {
             /* go ahead and retry */
         }
 
-        if (rval == -1) {
+        if (rval == SOCKET_ERROR) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                             "Failed to close socket %d (%s)!!\n", (int)sfd,
                                             strerror(errno));
@@ -513,10 +513,10 @@ static void conn_destructor(void *buffer, void *unused) {
     STATS_UNLOCK();
 }
 
-conn *conn_new(const int sfd, STATE_FUNC init_state,
-                const int event_flags,
-                const int read_buffer_size, enum network_transport transport,
-                struct event_base *base, struct timeval *timeout) {
+conn *conn_new(const SOCKET sfd, STATE_FUNC init_state,
+               const int event_flags,
+               const int read_buffer_size, enum network_transport transport,
+               struct event_base *base, struct timeval *timeout) {
     conn *c = cache_alloc(conn_cache);
     if (c == NULL) {
         return NULL;
@@ -661,7 +661,7 @@ static void conn_cleanup(conn *c) {
     assert(c->next == NULL);
     c->ascii_cmd = NULL;
     c->pending_close.active = false;
-    c->sfd = -1;
+    c->sfd = INVALID_SOCKET;
     c->tap_nack_mode = false;
 }
 
@@ -669,7 +669,7 @@ void conn_close(conn *c) {
     assert(c != NULL);
 
     /* delete the event, the socket and the conn */
-    if (c->sfd != -1) {
+    if (c->sfd != INVALID_SOCKET) {
         MEMCACHED_CONN_RELEASE(c->sfd);
         unregister_event(c);
 
@@ -678,7 +678,7 @@ void conn_close(conn *c) {
                                             "<%d connection closed.\n", c->sfd);
         }
         safe_close(c->sfd);
-        c->sfd = -1;
+        c->sfd = INVALID_SOCKET;
     }
 
     if (c->ascii_cmd != NULL) {
@@ -826,7 +826,7 @@ void conn_set_state(conn *c, STATE_FUNC state) {
          * New messages may appear from both sides, so we can't block on
          * read from the nework / engine
          */
-        if (c->thread == &tap_thread) {
+        if (c->thread == tap_thread) {
             if (state == conn_waiting) {
                 c->which = EV_WRITE;
                 state = conn_ship_log;
@@ -4882,7 +4882,7 @@ static enum transmit_result transmit(conn *c) {
 
 bool conn_listening(conn *c)
 {
-    int sfd, flags = 1;
+    int sfd;
     struct sockaddr_storage addr;
     socklen_t addrlen = sizeof(addr);
 
@@ -4920,11 +4920,7 @@ bool conn_listening(conn *c)
         return false;
     }
 
-    if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
-        fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
-                                        "Failed to set nonblocking io: %s\n",
-                                        strerror(errno));
+    if (evutil_make_socket_nonblocking(sfd) == -1) {
         safe_close(sfd);
         return false;
     }
@@ -5109,7 +5105,8 @@ bool conn_swallow(conn *c) {
     if (errno != ENOTCONN && errno != ECONNRESET) {
         /* otherwise we have a real error, on which we close the connection */
         settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                        "Failed to read, and not due to blocking (%s)\n", strerror(errno));
+                                        "Failed to read, and not due to blocking (%s)\n",
+                                        strerror(errno));
     }
 
     conn_set_state(c, conn_closing);
@@ -5168,6 +5165,7 @@ bool conn_nread(conn *c) {
         conn_set_state(c, conn_closing);
         return true;
     }
+
     if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
         if (!update_event(c, EV_READ | EV_PERSIST)) {
             if (settings.verbose > 0) {
@@ -5316,7 +5314,7 @@ bool conn_immediate_close(conn *c) {
 
 bool conn_closing(conn *c) {
     assert(c->thread->type == TAP || c->thread->type == GENERAL);
-    if (c->thread == &tap_thread) {
+    if (c->thread == tap_thread) {
         conn_set_state(c, conn_pending_close);
     } else {
         conn_set_state(c, conn_immediate_close);
@@ -5326,7 +5324,7 @@ bool conn_closing(conn *c) {
 }
 
 bool conn_add_tap_client(conn *c) {
-    LIBEVENT_THREAD *tp = &tap_thread;
+    LIBEVENT_THREAD *tp = tap_thread;
     LIBEVENT_THREAD *orig_thread = c->thread;
 
     assert(orig_thread);
@@ -5357,9 +5355,7 @@ bool conn_add_tap_client(conn *c) {
 
     UNLOCK_THREAD(orig_thread);
 
-    if (write(tp->notify_send_fd, "", 1) != 1) {
-        perror("Writing to tap thread notify pipe");
-    }
+    notify_thread(tp);
 
     return false;
 }
@@ -5454,20 +5450,19 @@ void event_handler(const int fd, const short which, void *arg) {
     }
 }
 
-static int new_socket(struct addrinfo *ai) {
-    int sfd;
-    int flags;
+static SOCKET new_socket(struct addrinfo *ai) {
+    SOCKET sfd;
 
-    if ((sfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1) {
-        return -1;
+    sfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (sfd == INVALID_SOCKET) {
+        return INVALID_SOCKET;
     }
 
-    if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
-        fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        perror("setting O_NONBLOCK");
+    if (evutil_make_socket_nonblocking(sfd) == -1) {
         safe_close(sfd);
-        return -1;
+        return INVALID_SOCKET;
     }
+
     return sfd;
 }
 
@@ -5551,7 +5546,7 @@ static int server_socket(int port, enum network_transport transport,
 
     for (next= ai; next; next= next->ai_next) {
         conn *listen_conn_add;
-        if ((sfd = new_socket(next)) == -1) {
+        if ((sfd = new_socket(next)) == INVALID_SOCKET) {
             /* getaddrinfo can return "junk" addresses,
              * we make sure at least one works before erroring.
              */
@@ -5586,7 +5581,7 @@ static int server_socket(int port, enum network_transport transport,
                 perror("setsockopt");
         }
 
-        if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) {
+        if (bind(sfd, next->ai_addr, next->ai_addrlen) == SOCKET_ERROR) {
             if (errno != EADDRINUSE) {
                 perror("bind()");
                 safe_close(sfd);
@@ -5597,7 +5592,7 @@ static int server_socket(int port, enum network_transport transport,
             continue;
         } else {
             success++;
-            if (!IS_UDP(transport) && listen(sfd, settings.backlog) == -1) {
+            if (!IS_UDP(transport) && listen(sfd, settings.backlog) == SOCKET_ERROR) {
                 perror("listen()");
                 safe_close(sfd);
                 freeaddrinfo(ai);
@@ -5660,18 +5655,15 @@ static int server_socket(int port, enum network_transport transport,
 
 static int new_socket_unix(void) {
     int sfd;
-    int flags;
 
-    if ((sfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+    if ((sfd = socket(AF_UNIX, SOCK_STREAM, 0)) == INVALID_SOCKET) {
         perror("socket()");
-        return -1;
+        return INVALID_SOCKET;
     }
 
-    if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
-        fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        perror("setting O_NONBLOCK");
+    if (evutil_make_socket_nonblocking(sfd) == -1) {
         safe_close(sfd);
-        return -1;
+        return INVALID_SOCKET;
     }
     return sfd;
 }
@@ -6580,6 +6572,9 @@ int main (int argc, char **argv) {
     if (!sanitycheck()) {
         return EX_OSERR;
     }
+
+    /* Initialize the socket subsystem */
+    initialize_sockets();
 
     /* init settings */
     settings_init();

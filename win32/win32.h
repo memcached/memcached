@@ -188,8 +188,6 @@ static inline int sendmsg(int s, const struct msghdr *msg, int flags)
     return -1;
 }
 
-int createLocalListSock(struct sockaddr_in *saddr);
-int createLocalSocketPair(int listSock, int *fds, struct sockaddr_in *saddr);
 int getrusage(int who, struct rusage *usage);
 int kill(int pid, int sig);
 int sleep(int seconds);

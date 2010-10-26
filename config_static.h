@@ -7,6 +7,20 @@
 #ifndef CONFIG_STATIC_H
 #define CONFIG_STATIC_H 1
 
+#ifdef WIN32
+#define SOCKETPAIR_AF AF_INET
+#define get_socket_error() WSAGetLastError()
+extern void initialize_sockets(void);
+#else
+#define closesocket(a) close(a)
+#define SOCKET int
+#define SOCKETPAIR_AF AF_UNIX
+#define SOCKET_ERROR -1
+#define INVALID_SOCKET -1
+#define get_socket_error() errno
+#define initialize_sockets()
+#endif
+
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
 #endif

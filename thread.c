@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <signal.h>
 #include <pthread.h>
+#include <fcntl.h>
 
 #define ITEMS_PER_ALLOC 64
 
@@ -21,7 +22,7 @@ extern volatile sig_atomic_t memcached_shutdown;
 /* An item in the connection queue. */
 typedef struct conn_queue_item CQ_ITEM;
 struct conn_queue_item {
-    int               sfd;
+    SOCKET            sfd;
     STATE_FUNC        init_state;
     int               event_flags;
     int               read_buffer_size;
@@ -57,8 +58,7 @@ static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
 static int nthreads;
 static LIBEVENT_THREAD *threads;
 static pthread_t *thread_ids;
-LIBEVENT_THREAD tap_thread;
-static pthread_t tap_thread_id;
+LIBEVENT_THREAD *tap_thread;
 
 /*
  * Number of worker threads that have finished setting themselves up.
@@ -198,7 +198,7 @@ static void setup_thread(LIBEVENT_THREAD *me, bool tap) {
     }
 
     /* Listen for notifications from other threads */
-    event_set(&me->notify_event, me->notify_receive_fd,
+    event_set(&me->notify_event, me->notify[0],
               EV_READ | EV_PERSIST,
               tap ? libevent_tap_process : thread_libevent_process, me);
     event_base_set(me->base, &me->notify_event);
@@ -279,11 +279,13 @@ static void thread_libevent_process(int fd, short which, void *arg) {
          return ;
     }
 
-    if (read(fd, buf, 1) != 1)
-        if (settings.verbose > 0)
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                        "Can't read from libevent pipe: %s\n",
-                                        strerror(errno));
+    if (recv(fd, buf, 1, 0) != 1) {
+        if (settings.verbose > 0) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Can't read from libevent pipe: %s\n",
+                                            strerror(errno));
+        }
+    }
 
     item = cq_pop(me->new_conn_queue);
 
@@ -301,7 +303,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                             "Can't listen for events on fd %d\n",
                             item->sfd);
                 }
-                close(item->sfd);
+                closesocket(item->sfd);
             }
         } else {
             assert(c->thread == NULL);
@@ -401,7 +403,7 @@ void enlist_conn(conn *c, conn **list) {
 void finalize_list(conn **list, size_t items) {
     for (size_t i = 0; i < items; i++) {
         list[i]->list_state &= ~LIST_STATE_PROCESSING;
-        if (list[i]->sfd != -1) {
+        if (list[i]->sfd != INVALID_SOCKET) {
             if (list[i]->list_state & LIST_STATE_REQ_PENDING_IO) {
                 enlist_conn(list[i], &list[i]->thread->pending_io);
             } else if (list[i]->list_state & LIST_STATE_REQ_PENDING_CLOSE) {
@@ -528,12 +530,12 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
     **   kill it.
     **
     */
-    if (status == ENGINE_DISCONNECT && conn->thread == &tap_thread) {
+    if (status == ENGINE_DISCONNECT && conn->thread == tap_thread) {
         LOCK_THREAD(conn->thread);
-        if (conn->sfd != -1) {
+        if (conn->sfd != INVALID_SOCKET) {
             unregister_event(conn);
             safe_close(conn->sfd);
-            conn->sfd = -1;
+            conn->sfd = INVALID_SOCKET;
         }
 
         conn->pending_close.timeout = 0;
@@ -544,11 +546,7 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
 
         if (!is_thread_me(conn->thread)) {
             /* kick the thread in the butt */
-            if (write(conn->thread->notify_send_fd, "", 1) != 1) {
-                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                                "Writing to thread notify pipe: %s",
-                                                strerror(errno));
-            }
+            notify_thread(conn->thread);
         }
 
         UNLOCK_THREAD(conn->thread);
@@ -600,10 +598,8 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
     UNLOCK_THREAD(thr);
 
     /* kick the thread in the butt */
-    if (notify && write(thr->notify_send_fd, "", 1) != 1) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                        "Writing to thread notify pipe: %s",
-                                        strerror(errno));
+    if (notify) {
+        notify_thread(thr);
     }
 }
 
@@ -615,7 +611,7 @@ static int last_thread = -1;
  * from the main thread, either during initialization (for UDP) or because
  * of an incoming connection.
  */
-void dispatch_conn_new(int sfd, STATE_FUNC init_state, int event_flags,
+void dispatch_conn_new(SOCKET sfd, STATE_FUNC init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport) {
     CQ_ITEM *item = cqi_new();
     int tid = (last_thread + 1) % settings.num_threads;
@@ -633,11 +629,7 @@ void dispatch_conn_new(int sfd, STATE_FUNC init_state, int event_flags,
     cq_push(thread->new_conn_queue, item);
 
     MEMCACHED_CONN_DISPATCH(sfd, (uintptr_t)thread->thread_id);
-    if (write(thread->notify_send_fd, "", 1) != 1) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                        "Writing to thread notify pipe: %s",
-                                        strerror(errno));
-    }
+    notify_thread(thread);
 }
 
 /*
@@ -755,17 +747,9 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  */
 void thread_init(int nthr, struct event_base *main_base) {
     int i;
-    nthreads = nthr;
-#ifdef __WIN32__
-    struct sockaddr_in serv_addr;
-    int sockfd;
-
-    if ((sockfd = createLocalListSock(&serv_addr)) < 0)
-        exit(1);
-#endif
+    nthreads = nthr + 1;
 
     pthread_mutex_init(&stats_lock, NULL);
-
     pthread_mutex_init(&init_lock, NULL);
     pthread_cond_init(&init_cond, NULL);
 
@@ -788,34 +772,31 @@ void thread_init(int nthr, struct event_base *main_base) {
     dispatcher_thread.base = main_base;
     dispatcher_thread.thread_id = pthread_self();
 
-    int fds[2];
     for (i = 0; i < nthreads; i++) {
-#ifdef __WIN32__
-        if (createLocalSocketPair(sockfd,fds,&serv_addr) == -1) {
+        if (evutil_socketpair(SOCKETPAIR_AF, SOCK_STREAM, 0,
+                              (void*)threads[i].notify) == SOCKET_ERROR) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                             "Can't create notify pipe: %s",
                                             strerror(errno));
             exit(1);
         }
-#else
-        if (pipe(fds)) {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                            "Can't create notify pipe: %s",
-                                            strerror(errno));
-            exit(1);
-        }
-#endif
 
-        threads[i].notify_receive_fd = fds[0];
-        threads[i].notify_send_fd = fds[1];
+        for (int j = 0; j < 2; ++j) {
+            int flags = 1;
+            setsockopt(threads[i].notify[j], IPPROTO_TCP,
+                       TCP_NODELAY, (void *)&flags, sizeof(flags));
+            setsockopt(threads[i].notify[j], SOL_SOCKET,
+                       SO_REUSEADDR, (void *)&flags, sizeof(flags));
+
+
+            if (evutil_make_socket_nonblocking(threads[i].notify[j]) == -1) {
+                exit(1);
+            }
+        }
+
         threads[i].index = i;
 
-        setup_thread(&threads[i], false);
-#ifdef __WIN32__
-        if (i == (nthreads - 1)) {
-            shutdown(sockfd, 2);
-        }
-#endif
+        setup_thread(&threads[i], i == (nthreads - 1));
     }
 
     /* Create threads after we've done all the libevent setup. */
@@ -824,28 +805,7 @@ void thread_init(int nthr, struct event_base *main_base) {
         threads[i].thread_id = thread_ids[i];
     }
 
-#ifdef __WIN32__
-    if (createLocalSocketPair(sockfd, fds, &serv_addr) == -1) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                        "Can't create notify pipe: %s",
-                                        strerror(errno));
-        exit(1);
-    }
-#else
-    if (pipe(fds)) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                        "Can't create notify pipe: %s",
-                                        strerror(errno));
-        exit(1);
-    }
-#endif
-
-    tap_thread.notify_receive_fd = fds[0];
-    tap_thread.notify_send_fd = fds[1];
-    tap_thread.index = i;
-    setup_thread(&tap_thread, true);
-    create_worker(worker_libevent, &tap_thread, &tap_thread_id);
-    tap_thread.thread_id = tap_thread_id;
+    tap_thread = &threads[nthreads - 1];
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);
@@ -858,19 +818,19 @@ void thread_init(int nthr, struct event_base *main_base) {
 void threads_shutdown(void)
 {
     for (int ii = 0; ii < nthreads; ++ii) {
-        if (write(threads[ii].notify_send_fd, "", 1) < 0) {
-            perror("write failure shutting down.");
-        }
+        notify_thread(&threads[ii]);
         pthread_join(thread_ids[ii], NULL);
     }
-    if (write(tap_thread.notify_send_fd, "", 1) < 0) {
-        perror("write failure shutting down.");
-    }
-    pthread_join(tap_thread_id, NULL);
-    close(tap_thread.notify_receive_fd);
-    close(tap_thread.notify_send_fd);
     for (int ii = 0; ii < nthreads; ++ii) {
-        close(threads[ii].notify_send_fd);
-        close(threads[ii].notify_receive_fd);
+        safe_close(threads[ii].notify[0]);
+        safe_close(threads[ii].notify[1]);
+    }
+}
+
+void notify_thread(LIBEVENT_THREAD *thread) {
+    if (send(thread->notify[1], "", 1, 0) != 1) {
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Failed to notify thread: %s",
+                                        strerror(errno));
     }
 }

@@ -179,111 +179,6 @@ int inet_aton(register const char *cp, struct in_addr *addr)
     return (1);
 }
 
-int createLocalListSock(struct sockaddr_in *serv_addr) {
-    SOCKET sockfd;
-    int slen;
-
-    if ((sockfd = socket(AF_INET,SOCK_STREAM,IPPROTO_TCP)) == INVALID_SOCKET) {
-        fprintf(stderr,"socket call for local server socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    serv_addr->sin_family = AF_INET;
-    serv_addr->sin_addr.s_addr = inet_addr("127.0.0.1");
-    serv_addr->sin_port = htons(0);
-    if (bind(sockfd,(struct sockaddr *)serv_addr,sizeof(*serv_addr)) != 0) {
-        fprintf(stderr,"bind of local server socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    slen = sizeof(*serv_addr);
-    if (getsockname(sockfd,(struct sockaddr *)serv_addr,&slen) != 0) {
-        fprintf(stderr,"getsockname on local server socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    if (listen(sockfd,5) == SOCKET_ERROR) {
-        fprintf(stderr,"listen on local server socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    return((int)sockfd);
-}
-
-int createLocalSocketPair(int listSock, int *fds, struct sockaddr_in *serv_addr) {
-    struct sockaddr_in cli_addr;
-    fd_set myset;
-    struct timeval tv;
-    socklen_t lon;
-    int valopt, tmpVal;
-
-    if ((fds[0] = (int)socket(AF_INET,SOCK_STREAM,IPPROTO_TCP)) == INVALID_SOCKET) {
-        fprintf(stderr,"socket call for local client socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    if (fcntl(fds[0],F_SETFL,O_NONBLOCK) < 0) {
-        fprintf(stderr,"fcntl call for local server socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    if (connect(fds[0],(struct sockaddr *)serv_addr,sizeof(*serv_addr)) == SOCKET_ERROR) {
-        tmpVal = WSAGetLastError();
-        if (tmpVal != WSAEWOULDBLOCK) {
-            fprintf(stderr,"connect call for local server socket failed. Error Number %d.\n",tmpVal);
-            fflush(stderr);
-            return(-1);
-        }
-    }
-    else {
-        fprintf(stderr,"connect call for non-blocking local client socket unexpectedly succeeds.\n");
-        fflush(stderr);
-        return(-1);
-    }
-    Sleep(10);
-    tmpVal = sizeof(cli_addr);
-    if ((fds[1] = (int)accept(listSock, (struct sockaddr *)&cli_addr, &tmpVal))== INVALID_SOCKET) {
-        fprintf(stderr,"accept call for local server socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    if (fcntl(fds[1],F_SETFL,O_NONBLOCK) < 0) {
-        fprintf(stderr,"fcntl call for local server socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    tv.tv_sec = 15;
-    tv.tv_usec = 0;
-    FD_ZERO(&myset);
-    FD_SET(fds[0], &myset);
-    tmpVal = select(fds[0] + 1, NULL, &myset, NULL, &tv);
-    if (tmpVal == SOCKET_ERROR) {
-        fprintf(stderr,"socket call for local server socket failed. Error Number %d.\n",WSAGetLastError());
-        fflush(stderr);
-        return(-1);
-    }
-    else if (tmpVal > 0) {
-        lon = sizeof(int);
-        if (!getsockopt(fds[0], SOL_SOCKET, SO_ERROR, (void*)(&valopt), &lon)) {
-            if (valopt) {
-                fprintf(stderr,"getsockopt indicates error on connect completion.\n");
-                return(-1);
-            }
-        }
-        else {
-            fprintf(stderr,"getsockopt call for local client socket failed. Error Number %d.\n",WSAGetLastError());
-            fflush(stderr);
-            return(-1);
-        }
-    }
-    else if (!tmpVal) {
-        fprintf(stderr,"select on connect complete timed out.\n");
-        fflush(stderr);
-        return(-1);
-    }
-    return(0);
-}
-
 unsigned __int64 strtoull(const char *p,char **pend,int base) {
     unsigned __int64 number = 0;
     int c;
@@ -429,4 +324,13 @@ extern int sigaction(int sig, struct sigaction *act, struct sigaction *oact)
     }
 
     return 0;
+}
+
+void initialize_sockets(void)
+{
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2,0), &wsaData) != 0) {
+       fprintf(stderr, "Socket Initialization Error. Program aborted\n");
+       exit(EXIT_FAILURE);
+    }
 }

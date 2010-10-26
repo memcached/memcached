@@ -9,21 +9,6 @@ int lstat(const char *path, struct stat *tstat) {
 }
 
 int getrlimit(int __resource, struct rlimit *rlimits) {
-    /* HACK ALERT: This function MUST BE called from main() before any *
-     * network operation for Windows networking to work. Since the     *
-     * main() is calling getrlimit() that is NOT meaningful for        *
-     * Windows, this function is being used to invoke WSAStartup()     *
-     * below only once during the the first call to getrlimit()        *
-     */
-    static int onceonly = 0;
-    WSADATA wsaData;
-    if (!onceonly) {
-        onceonly = 1;
-        if (WSAStartup(MAKEWORD(2,0), &wsaData) != 0) {
-            fprintf(stderr, "Socket Initialization Error. Program aborted\n");
-            exit(EXIT_FAILURE);
-        }
-    }
     rlimits->rlim_cur = 1; // Hack: just enough to allow main() to move forward.
     rlimits->rlim_max = 1;
     return 0;
