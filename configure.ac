@@ -546,26 +546,6 @@ AS_IF([ test "x$ac_cv_header_umem_h" = "xyes" ], [
 
 AM_CONDITIONAL([BUILD_CACHE], [test "x$build_cache" = "xyes"])
 
-dnl Don't generate text files from the XML documents by default.
-dnl Most developers just run ./configure and will run a lot of make / make clean
-dnl and we don't want them to spend their time waiting for doc generation ;-)
-dnl If you really want the documents you should be capable of adding
-dnl --enable-docs yourself...
-AC_ARG_ENABLE(docs,
-  [AS_HELP_STRING([--enable-docs],[Disable documentation generation])])
-
-if test "x$enable_docs" = "xyes"; then
-  AC_PATH_PROG([XML2RFC], [xml2rfc], "no")
-  if test "x$XML2RFC" = "xno"; then
-    AC_MSG_ERROR([Can't build documentation without xml2rfc.])
-  fi
-  AC_PATH_PROG([XSLTPROC], [xsltproc], "no")
-  if test "x$XSLTPROC" = "xno"; then
-    AC_MSG_ERROR([Can't build documentation without xsltproc.])
-  fi
-fi
-AM_CONDITIONAL([BUILD_SPECIFICATIONS], [test "x$enable_docs" = "xyes"])
-
 dnl Let the compiler be a bit more picky. Please note that you cannot
 dnl specify these flags to the compiler before AC_CHECK_FUNCS, because
 dnl the test program will generate a compilation warning and hence fail
