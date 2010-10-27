@@ -268,7 +268,7 @@ int spawn_memcached(int argc, char **argv) {
     char buffer[4096];
     int offset=0;
 
-    for (int ii = 1; ii < argc; ++ii) {
+    for (int ii = 0; ii < argc; ++ii) {
         if (strcmp("-d", argv[ii]) != 0) {
             offset += snprintf(buffer + offset, sizeof(buffer) - offset,
                                "%s ", argv[ii]);
