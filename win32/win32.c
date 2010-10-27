@@ -289,6 +289,10 @@ int spawn_memcached(int argc, char **argv) {
 
 extern int sigaction(int sig, struct sigaction *act, struct sigaction *oact)
 {
+    if (sig == SIGHUP) {
+        return 0;
+    }
+
     void (*ret)(int) = signal(sig, act->sa_handler);
     if (oact != NULL) {
         oact->sa_handler = ret;
