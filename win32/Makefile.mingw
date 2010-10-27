@@ -23,6 +23,7 @@ BINARIES= memcached.exe \
           .libs/basic_engine_testsuite.so \
           .libs/default_engine.so \
           .libs/example_protocol.so \
+          .libs/eventlog_logger.so \
           .libs/stdin_term_handler.so
 
 LIB=${LOCALLIB}
@@ -90,6 +91,9 @@ EXAMPLE_PROTOCOL_OBJS = ${EXAMPLE_PROTOCOL_SRC:%.c=.libs/%.o}
 STDIN_TERM_HANDLER_SRC = stdin_check.c
 STDIN_TERM_HANDLER_OBJS = ${STDIN_TERM_HANDLER_SRC:%.c=.libs/%.o}
 
+EVENTLOG_LOGGER_SRC = eventlog_logger.c
+EVENTLOG_LOGGER_OBJS = ${EVENTLOG_LOGGER_SRC:%.c=.libs/%.o}
+
 BASIC_ENGINE_TESTSUITE_SRC = basic_engine_testsuite.c
 BASIC_ENGINE_TESTSUITE_OBJS = ${BASIC_ENGINE_TESTSUITE_SRC:%.c=.libs/%.o}
 
@@ -122,6 +126,10 @@ sizes.exe: ${OBJDIR} ${GENFILES} $(SIZES_OBJS)
 	${LINK.c} -o $@ -shared ${STDIN_TERM_HANDLER_OBJS} ${LIBS} \
                   ${LIB} -lpthread
 
+.libs/eventlog_logger.so: ${OBJDIR} $(EVENTLOG_LOGGER_OBJS)
+	${LINK.c} -o $@ -shared ${EVENTLOG_LOGGER_OBJS} ${LIBS} \
+                  ${LIB}
+
 .libs/basic_engine_testsuite.so: ${OBJDIR} $(BASIC_ENGINE_TESTSUITE_OBJS)
 	${LINK.c} -o $@ -shared ${BASIC_ENGINE_TESTSUITE_OBJS}
 
@@ -150,6 +158,8 @@ clean:
               ${MEMCACHED_OBJS} \
               ${SIZES_OBJS:.o=.d} \
               ${SIZES_OBJS} \
+              ${EVENTLOG_LOGGER_OBJS:.o=.d} \
+              ${EVENTLOG_LOGGER_OBJS} \
               ${STDIN_TERM_HANDLER_OBJS:.o=.d} \
               ${STDIN_TERM_HANDLER_OBJS}
 
@@ -160,4 +170,5 @@ clean:
          ${EXAMPLE_PROTOCOL_OBJS:.o=.d} \
          ${MEMCACHED_OBJS:.o=.d} \
          ${SIZES_OBJS:.o=.d} \
+         ${EVENTLOG_LOGGER_OBJS:.o=.d} \
          ${STDIN_TERM_HANDLER_OBJS:.o=.d}

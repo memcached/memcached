@@ -31,6 +31,10 @@ if BUILD_SYSLOG_LOGGER
 lib_LTLIBRARIES += syslog_logger.la
 endif
 
+if BUILD_EVENTLOG_LOGGER
+lib_LTLIBRARIES += eventlog_logger.la
+endif
+
 noinst_LTLIBRARIES=libmcd_util.la
 
 
@@ -152,6 +156,11 @@ example_protocol_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 # A logger using syslog
 syslog_logger_la_SOURCES = syslog_logger.c
 syslog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
+
+# A logger using eventlog
+eventlog_logger_la_SOURCES = eventlog_logger.c
+eventlog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
+
 
 basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c \
                                    basic_engine_testsuite.h
