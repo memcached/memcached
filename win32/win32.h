@@ -98,7 +98,6 @@ struct rusage {
     long int ru_nivcsw;
 };
 
-int fcntl(SOCKET s, int cmd, int val);
 int inet_aton(register const char *cp, struct in_addr *addr);
 
 #define close(s) closesocket(s)
