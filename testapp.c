@@ -694,7 +694,7 @@ static void send_ascii_command(const char *buf) {
     size_t len = strlen(buf);
 
     do {
-        ssize_t nw = write(sock, ptr + offset, len - offset);
+        ssize_t nw = send(sock, ptr + offset, len - offset, 0);
         if (nw == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
@@ -716,7 +716,7 @@ static void read_ascii_response(char *buffer, size_t size) {
     off_t offset = 0;
     bool need_more = true;
     do {
-        ssize_t nr = read(sock, buffer + offset, 1);
+        ssize_t nr = recv(sock, buffer + offset, 1, 0);
         if (nr == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to read: %s\n", strerror(errno));
@@ -766,7 +766,7 @@ static enum test_return test_issue_102(void) {
 
     send_ascii_command(buffer);
     /* verify that the server closed the connection */
-    assert(read(sock, buffer, sizeof(buffer)) == 0);
+    assert(recv(sock, buffer, sizeof(buffer), 0) == 0);
     close(sock);
     sock = connect_server("127.0.0.1", port, false);
 
@@ -797,7 +797,7 @@ static enum test_return test_issue_102(void) {
     buffer[sizeof(buffer) - 1] = '\0';
     send_ascii_command(buffer);
     /* verify that the server closed the connection */
-    assert(read(sock, buffer, sizeof(buffer)) == 0);
+    assert(recv(sock, buffer, sizeof(buffer), 0) == 0);
 
     close(sock);
     sock = connect_server("127.0.0.1", port, false);
@@ -845,7 +845,7 @@ static void safe_send(const void* buf, size_t len, bool hickup)
             }
         }
 
-        ssize_t nw = write(sock, ptr + offset, num_bytes);
+        ssize_t nw = send(sock, ptr + offset, num_bytes, 0);
         if (nw == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
@@ -866,7 +866,7 @@ static bool safe_recv(void *buf, size_t len) {
     }
     off_t offset = 0;
     do {
-        ssize_t nr = read(sock, ((char*)buf) + offset, len - offset);
+        ssize_t nr = recv(sock, ((char*)buf) + offset, len - offset, 0);
         if (nr == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to read: %s\n", strerror(errno));
@@ -1169,7 +1169,7 @@ static enum test_return test_binary_quit_impl(uint8_t cmd) {
     }
 
     /* Socket should be closed now, read should return 0 */
-    assert(read(sock, buffer.bytes, sizeof(buffer.bytes)) == 0);
+    assert(recv(sock, buffer.bytes, sizeof(buffer.bytes), 0) == 0);
     close(sock);
     sock = connect_server("127.0.0.1", port, false);
 
@@ -1987,7 +1987,7 @@ static enum test_return test_issue_101(void) {
     for (ii = 0; ii < max; ++ii) {
         bool more = true;
         do {
-            ssize_t err = write(fds[ii], command, cmdlen);
+            ssize_t err = send(fds[ii], command, cmdlen, 0);
             if (err == -1) {
                 switch (errno) {
                 case EINTR:

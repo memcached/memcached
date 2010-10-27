@@ -4729,7 +4729,7 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
-        res = read(c->sfd, c->rbuf + c->rbytes, avail);
+        res = recv(c->sfd, c->rbuf + c->rbytes, avail, 0);
         if (res > 0) {
             STATS_ADD(c, bytes_read, res);
             gotdata = READ_DATA_RECEIVED;
@@ -5084,7 +5084,7 @@ bool conn_swallow(conn *c) {
     }
 
     /*  now try reading from the socket */
-    res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+    res = recv(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize, 0);
     if (res > 0) {
         STATS_ADD(c, bytes_read, res);
         c->sbytes -= res;
@@ -5154,7 +5154,7 @@ bool conn_nread(conn *c) {
     }
 
     /*  now try reading from the socket */
-    res = read(c->sfd, c->ritem, c->rlbytes);
+    res = recv(c->sfd, c->ritem, c->rlbytes, 0);
     if (res > 0) {
         STATS_ADD(c, bytes_read, res);
         if (c->rcurr == c->ritem) {

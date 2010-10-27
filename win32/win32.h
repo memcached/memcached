@@ -143,29 +143,26 @@ static inline size_t mem_write(int s, void *buf, size_t len)
     return -1;
 }
 
-#define read mem_read
+#define read(a,b,c) mem_recv(a,b,c,0)
+#define recv(a,b,c,d) mem_recv(a,b,c,d)
 
-static inline size_t mem_read(int s, void *buf, size_t len)
+static inline size_t mem_recv(int s, void *buf, size_t len, int unused)
 {
-    DWORD flags = 0;
-    DWORD dwBufferCount;
-    WSABUF wsabuf = { len, (char *)buf };
-        int error;
+   DWORD flags = 0;
+   DWORD dwBufferCount;
+   WSABUF wsabuf = { len, (char *)buf };
+   int error;
 
-    if(WSARecv((SOCKET)s,
-        &wsabuf,
-        1,
-        &dwBufferCount,
-        &flags,
-        NULL,
-        NULL
-    ) == 0) {
-        return dwBufferCount;
-    }
-    error = WSAGetLastError();
-        if (error == WSAECONNRESET) return 0;
-        mapErr(error);
-    return -1;
+   if(WSARecv((SOCKET)s, &wsabuf, 1, &dwBufferCount, &flags,
+              NULL, NULL) == 0) {
+      return dwBufferCount;
+   }
+   error = WSAGetLastError();
+   if (error == WSAECONNRESET) {
+      return 0;
+   }
+   mapErr(error);
+   return -1;
 }
 
 static inline int sendmsg(int s, const struct msghdr *msg, int flags)
