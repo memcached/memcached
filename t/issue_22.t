@@ -27,7 +27,7 @@ is (scalar <$sock>, "RESET\r\n", "Stats reset");
 
 my $second_stats  = mem_stats($sock, "items");
 my $second_evicted = $second_stats->{"items:31:evicted"};
-is ("0", $second_evicted, "check evicted");
+is ($second_evicted, "0", "check evicted");
 
 for ($key = 40; $key < 80; $key++) {
     print $sock "set key$key 0 0 66560\r\n$value\r\n";
