@@ -503,22 +503,10 @@ void threadlocal_stats_reset(void) {
 
 void threadlocal_stats_aggregate(struct thread_stats *stats) {
     int ii, sid;
-    /* The struct contains a mutex, so I should probably not memset it.. */
-    stats->get_cmds = 0;
-    stats->get_misses = 0;
-    stats->delete_misses = 0;
-    stats->incr_misses = 0;
-    stats->decr_misses = 0;
-    stats->cas_misses = 0;
-    stats->bytes_written = 0;
-    stats->bytes_read = 0;
-    stats->flush_cmds = 0;
-    stats->conn_yields = 0;
-    stats->auth_cmds = 0;
-    stats->auth_errors = 0;
 
-    memset(stats->slab_stats, 0,
-           sizeof(struct slab_stats) * MAX_NUMBER_OF_SLAB_CLASSES);
+    /* The struct has a mutex, but we can safely set the whole thing
+     * to zero since it is unused when aggregating. */
+    memset(stats, 0, sizeof(*stats));
 
     for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
