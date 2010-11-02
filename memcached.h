@@ -77,18 +77,22 @@
 #define TAIL_REPAIR_TIME (3 * 3600)
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
-#define ITEM_get_cas(i) ((uint64_t)(((i)->it_flags & ITEM_CAS) ? \
-                                    *(uint64_t*)&((i)->end[0]) : 0x0))
-#define ITEM_set_cas(i,v) { if ((i)->it_flags & ITEM_CAS) { \
-                          *(uint64_t*)&((i)->end[0]) = v; } }
+#define ITEM_get_cas(i) (((i)->it_flags & ITEM_CAS) ? \
+        (i)->data->cas : (uint64_t)0)
 
-#define ITEM_key(item) (((char*)&((item)->end[0])) \
+#define ITEM_set_cas(i,v) { \
+    if ((i)->it_flags & ITEM_CAS) { \
+        (i)->data->cas = v; \
+    } \
+}
+
+#define ITEM_key(item) (((char*)&((item)->data)) \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
-#define ITEM_suffix(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
+#define ITEM_suffix(item) ((char*) &((item)->data) + (item)->nkey + 1 \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
-#define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 \
+#define ITEM_data(item) ((char*) &((item)->data) + (item)->nkey + 1 \
          + (item)->nsuffix \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
@@ -302,7 +306,12 @@ typedef struct _stritem {
     uint8_t         it_flags;   /* ITEM_* above */
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
-    void * end[];
+    /* this odd type prevents type-punning issues when we do
+     * the little shuffle to save space when not using CAS. */
+    union {
+        uint64_t cas;
+        char end;
+    } data[];
     /* if it_flags & ITEM_CAS we have 8 bytes CAS */
     /* then null-terminated key */
     /* then " flags length\r\n" (no terminating null) */
