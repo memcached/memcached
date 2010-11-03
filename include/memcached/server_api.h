@@ -53,6 +53,12 @@ extern "C" {
          */
         void (*shutdown)(void);
 
+        /**
+         * Get the current configuration from the core..
+         * See "stats settings" for a list of legal keywords
+         */
+        bool (*get_config)(struct config_item items[]);
+
     } SERVER_CORE_API;
 
     typedef struct {

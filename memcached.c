@@ -6356,6 +6356,39 @@ static void set_log_level(EXTENSION_LOG_LEVEL severity)
     }
 }
 
+static void get_config_append_stats(const char *key, const uint16_t klen,
+                                    const char *val, const uint32_t vlen,
+                                    const void *cookie)
+{
+    if (klen == 0  || vlen == 0) {
+        return ;
+    }
+
+    char *pos = (char*)cookie;
+    size_t nbytes = strlen(pos);
+
+    if ((nbytes + klen + vlen + 3) > 1024) {
+        // Not enough size in the buffer..
+        return;
+    }
+
+    memcpy(pos + nbytes, key, klen);
+    nbytes += klen;
+    pos[nbytes] = '=';
+    ++nbytes;
+    memcpy(pos + nbytes, val, vlen);
+    nbytes += vlen;
+    memcpy(pos + nbytes, ";", 2);
+}
+
+static bool get_config(struct config_item items[]) {
+    char config[1024];
+    config[0] = '\0';
+    process_stat_settings(get_config_append_stats, config);
+    int rval = parse_config(config, items, NULL);
+    return rval >= 0;
+}
+
 /**
  * Callback the engines may call to get the public server interface
  * @return pointer to a structure containing the interface. The client should
@@ -6370,7 +6403,8 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .abstime = abstime,
         .get_current_time = get_current_time,
         .parse_config = parse_config,
-        .shutdown = shutdown_server
+        .shutdown = shutdown_server,
+        .get_config = get_config
     };
 
     static SERVER_COOKIE_API server_cookie_api = {
