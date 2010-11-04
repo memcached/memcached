@@ -3193,15 +3193,19 @@ static void process_bin_delete(conn *c) {
                                          c->binary_header.request.vbucket);
     }
 
+    /* For some reason the SLAB_INCR tries to access this... */
+    item_info info = { .nvalue = 1 };
     switch (ret) {
     case ENGINE_SUCCESS:
         write_bin_response(c, NULL, 0, 0, 0);
+        SLAB_INCR(c, delete_hits, key, nkey);
         break;
     case ENGINE_KEY_EEXISTS:
         write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
         break;
     case ENGINE_KEY_ENOENT:
         write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        STATS_INCR(c, delete_misses, key, nkey);
         break;
     case ENGINE_NOT_MY_VBUCKET:
         write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET, 0);
