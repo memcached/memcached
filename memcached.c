@@ -4253,6 +4253,9 @@ static char *process_delete_command(conn *c, token_t *tokens,
     case ENGINE_EWOULDBLOCK:
         c->ewouldblock = true;
         return key;
+    case ENGINE_TMPFAIL:
+        out_string(c, "SERVER_ERROR temporary failure");
+        break;
     default:
         out_string(c, "NOT_FOUND");
         STATS_INCR(c, delete_misses, key, nkey);
