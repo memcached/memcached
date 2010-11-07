@@ -513,6 +513,7 @@ static void usage(void) {
     printf("-e <engine_config>           Engine configuration string passed to\n");
     printf("                             the engine.\n");
     printf("-q                           Only print errors.");
+    printf("-.                           Print a . for each executed test.");
     printf("\n");
     printf("-h                           Prints this usage text.\n");
     printf("\n");
@@ -715,6 +716,7 @@ static void clear_test_timeout() {
 int main(int argc, char **argv) {
     int c, exitcode = 0, num_cases = 0, timeout = 0;
     bool quiet = false;
+    bool dot = false;
     const char *engine = NULL;
     const char *engine_args = NULL;
     const char *test_suite = NULL;
@@ -754,6 +756,7 @@ int main(int argc, char **argv) {
           "T:" /* Library with tests to load */
           "t:" /* Timeout */
           "q"  /* Be more quiet (only report failures) */
+          "."  /* dot mode. */
         ))) {
         switch (c) {
         case 'E':
@@ -773,6 +776,9 @@ int main(int argc, char **argv) {
             break;
         case 'q':
             quiet = true;
+            break;
+        case '.':
+            dot = true;
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
@@ -840,16 +846,29 @@ int main(int argc, char **argv) {
     }
 
     int i;
+    bool need_newline = false;
     for (i = 0; testcases[i].name; i++) {
         if (!quiet) {
             printf("Running %s... ", testcases[i].name);
             fflush(stdout);
+        } else if(dot) {
+            printf(".");
+            need_newline = true;
+            /* Add a newline every few tests */
+            if ((i+1) % 70 == 0) {
+                printf("\n");
+                need_newline = false;
+            }
         }
         set_test_timeout(timeout);
         exitcode += report_test(testcases[i].name,
                                 run_test(testcases[i], engine, engine_args),
                                 quiet);
         clear_test_timeout();
+    }
+
+    if (need_newline) {
+        printf("\n");
     }
 
     //tear down the suite if needed
