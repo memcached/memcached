@@ -72,6 +72,15 @@ static uint32_t mock_hash( const void *key, size_t length, const uint32_t initva
     return 1;
 }
 
+/* time-sensitive callers can call it by hand with this, outside the
+   normal ever-1-second timer */
+static rel_time_t mock_get_current_time(void) {
+    struct timeval timer;
+    gettimeofday(&timer, NULL);
+    current_time = (rel_time_t) (timer.tv_sec - process_started + time_travel_offset);
+    return current_time;
+}
+
 static rel_time_t mock_realtime(const time_t exptime) {
     /* no. of seconds in 30 days - largest possible delta exptime */
 
@@ -86,9 +95,9 @@ static rel_time_t mock_realtime(const time_t exptime) {
            really expiring never */
         if (exptime <= process_started)
             return (rel_time_t)1;
-        return (rel_time_t)(exptime - process_started);
+        return (rel_time_t)(exptime - process_started + time_travel_offset);
     } else {
-        return (rel_time_t)(exptime + current_time);
+        return (rel_time_t)(exptime + mock_get_current_time());
     }
 }
 
@@ -100,17 +109,9 @@ static void mock_notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status
     pthread_mutex_unlock(&c->mutex);
 }
 
-/* time-sensitive callers can call it by hand with this, outside the normal ever-1-second timer */
-static rel_time_t mock_get_current_time(void) {
-    struct timeval timer;
-    gettimeofday(&timer, NULL);
-    current_time = (rel_time_t) (timer.tv_sec - process_started + time_travel_offset);
-    return current_time;
-}
-
 static time_t mock_abstime(const rel_time_t exptime)
 {
-    return process_started + exptime;
+    return process_started + exptime + time_travel_offset;
 }
 
 void mock_time_travel(int by) {
