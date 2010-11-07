@@ -512,12 +512,13 @@ static void usage(void) {
     printf("-t <timeout>                 Maximum time to run a test.\n");
     printf("-e <engine_config>           Engine configuration string passed to\n");
     printf("                             the engine.\n");
+    printf("-q                           Only print errors.");
     printf("\n");
     printf("-h                           Prints this usage text.\n");
     printf("\n");
 }
 
-static int report_test(enum test_result r) {
+static int report_test(const char *name, enum test_result r, bool quiet) {
     int rc = 0;
     char *msg = NULL;
     bool color_enabled = getenv("TESTAPP_ENABLE_COLOR") != NULL;
@@ -562,7 +563,15 @@ static int report_test(enum test_result r) {
     if (color_enabled) {
         snprintf(color_str, sizeof(color_str), "\033[%dm", color);
     }
-    printf("%s%s%s\n", color_str, msg, color_enabled ? reset_color : "");
+    if (quiet) {
+        if (r != SUCCESS) {
+            printf("%s:  %s%s%s\n", name, color_str, msg,
+                   color_enabled ? reset_color : "");
+            fflush(stdout);
+        }
+    } else {
+        printf("%s%s%s\n", color_str, msg, color_enabled ? reset_color : "");
+    }
     return rc;
 }
 
@@ -705,6 +714,7 @@ static void clear_test_timeout() {
 
 int main(int argc, char **argv) {
     int c, exitcode = 0, num_cases = 0, timeout = 0;
+    bool quiet = false;
     const char *engine = NULL;
     const char *engine_args = NULL;
     const char *test_suite = NULL;
@@ -739,10 +749,11 @@ int main(int argc, char **argv) {
     /* process arguments */
     while (-1 != (c = getopt(argc, argv,
           "h"  /* usage */
-          "E:"  /* Engine to load */
-          "e:"  /* Engine options */
-          "T:"   /* Library with tests to load */
+          "E:" /* Engine to load */
+          "e:" /* Engine options */
+          "T:" /* Library with tests to load */
           "t:" /* Timeout */
+          "q"  /* Be more quiet (only report failures) */
         ))) {
         switch (c) {
         case 'E':
@@ -759,6 +770,9 @@ int main(int argc, char **argv) {
             break;
         case 't':
             timeout = atoi(optarg);
+            break;
+        case 'q':
+            quiet = true;
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
@@ -821,14 +835,20 @@ int main(int argc, char **argv) {
         /* Just counting */
     }
 
-    printf("1..%d\n", num_cases);
+    if (!quiet) {
+        printf("1..%d\n", num_cases);
+    }
 
     int i;
     for (i = 0; testcases[i].name; i++) {
-        printf("Running %s... ", testcases[i].name);
-        fflush(stdout);
+        if (!quiet) {
+            printf("Running %s... ", testcases[i].name);
+            fflush(stdout);
+        }
         set_test_timeout(timeout);
-        exitcode += report_test(run_test(testcases[i], engine, engine_args));
+        exitcode += report_test(testcases[i].name,
+                                run_test(testcases[i], engine, engine_args),
+                                quiet);
         clear_test_timeout();
     }
 
