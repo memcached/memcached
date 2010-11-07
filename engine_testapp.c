@@ -861,5 +861,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    printf("# Passed %d of %d tests\n", num_cases - exitcode, num_cases);
+
     return exitcode;
 }
