@@ -5510,13 +5510,16 @@ static void maximize_sndbuf(const int sfd) {
 
 /**
  * Create a socket and bind it to a specific port number
+ * @param interface the interface to bind to
  * @param port the port number to bind to
  * @param transport the transport protocol (TCP / UDP)
  * @param portnumber_file A filepointer to write the port numbers to
  *        when they are successfully added to the list of ports we
  *        listen on.
  */
-static int server_socket(int port, enum network_transport transport,
+static int server_socket(const char *interface,
+                         int port,
+                         enum network_transport transport,
                          FILE *portnumber_file) {
     int sfd;
     struct linger ling = {0, 0};
@@ -5535,7 +5538,7 @@ static int server_socket(int port, enum network_transport transport,
         port = 0;
     }
     snprintf(port_buf, sizeof(port_buf), "%d", port);
-    error= getaddrinfo(settings.inter, port_buf, &hints, &ai);
+    error= getaddrinfo(interface, port_buf, &hints, &ai);
     if (error != 0) {
         if (error != EAI_SYSTEM) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -5654,6 +5657,31 @@ static int server_socket(int port, enum network_transport transport,
 
     /* Return zero iff we detected no errors in starting up connections */
     return success == 0;
+}
+
+static int server_sockets(int port, enum network_transport transport,
+                          FILE *portnumber_file) {
+    if (settings.inter == NULL) {
+        return server_socket(settings.inter, port, transport, portnumber_file);
+    } else {
+        // tokenize them and bind to each one of them..
+        char *b;
+        int ret = 0;
+        char *list = strdup(settings.inter);
+
+        if (list == NULL) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to allocate memory for parsing server interface string\n");
+            return 1;
+        }
+        for (char *p = strtok_r(list, ";,", &b);
+             p != NULL;
+             p = strtok_r(NULL, ";,", &b)) {
+            ret |= server_socket(p, port, transport, portnumber_file);
+        }
+        free(list);
+        return ret;
+    }
 }
 
 static int new_socket_unix(void) {
@@ -7095,8 +7123,8 @@ int main (int argc, char **argv) {
             }
         }
 
-        if (settings.port && server_socket(settings.port, tcp_transport,
-                                           portnumber_file)) {
+        if (settings.port && server_sockets(settings.port, tcp_transport,
+                                            portnumber_file)) {
             vperror("failed to listen on TCP port %d", settings.port);
             exit(EX_OSERR);
         }
@@ -7110,8 +7138,8 @@ int main (int argc, char **argv) {
         udp_port = settings.udpport ? settings.udpport : settings.port;
 
         /* create the UDP listening socket and bind it */
-        if (settings.udpport && server_socket(settings.udpport, udp_transport,
-                                              portnumber_file)) {
+        if (settings.udpport && server_sockets(settings.udpport, udp_transport,
+                                               portnumber_file)) {
             vperror("failed to listen on UDP port %d", settings.udpport);
             exit(EX_OSERR);
         }
