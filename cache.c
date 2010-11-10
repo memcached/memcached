@@ -21,7 +21,7 @@ cache_t* cache_create(const char *name, size_t bufsize, size_t align,
                       cache_destructor_t* destructor) {
     cache_t* ret = calloc(1, sizeof(cache_t));
     char* nm = strdup(name);
-    void** ptr = calloc(initial_pool_size, bufsize);
+    void** ptr = calloc(initial_pool_size, sizeof(void*));
     if (ret == NULL || nm == NULL || ptr == NULL ||
         pthread_mutex_init(&ret->mutex, NULL) == -1) {
         free(ret);

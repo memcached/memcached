@@ -114,6 +114,39 @@ static enum test_return cache_reuse_test(void)
     return TEST_PASS;
 }
 
+
+static enum test_return cache_bulkalloc(size_t datasize)
+{
+    cache_t *cache = cache_create("test", datasize, sizeof(char*),
+                                  NULL, NULL);
+#define ITERATIONS 1024
+    void *ptr[ITERATIONS];
+
+    for (int ii = 0; ii < ITERATIONS; ++ii) {
+        ptr[ii] = cache_alloc(cache);
+        assert(ptr[ii] != 0);
+        memset(ptr[ii], 0xff, datasize);
+    }
+
+    for (int ii = 0; ii < ITERATIONS; ++ii) {
+        cache_free(cache, ptr[ii]);
+    }
+
+#undef ITERATIONS
+    cache_destroy(cache);
+    return TEST_PASS;
+}
+
+static enum test_return test_issue_161(void)
+{
+    enum test_return ret = cache_bulkalloc(1);
+    if (ret == TEST_PASS) {
+        ret = cache_bulkalloc(512);
+    }
+
+    return ret;
+}
+
 static enum test_return cache_redzone_test(void)
 {
 #ifndef HAVE_UMEM_H
@@ -1786,6 +1819,7 @@ struct testcase testcases[] = {
     { "cache_destructor", cache_destructor_test },
     { "cache_reuse", cache_reuse_test },
     { "cache_redzone", cache_redzone_test },
+    { "issue_161", test_issue_161 },
     { "strtol", test_safe_strtol },
     { "strtoll", test_safe_strtoll },
     { "strtoul", test_safe_strtoul },
