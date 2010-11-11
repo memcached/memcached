@@ -230,6 +230,19 @@ static enum test_result get_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     return SUCCESS;
 }
 
+static enum test_result expiry_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    item *test_item = NULL;
+    item *test_item_get = NULL;
+    void *key = "get_test_key";
+    uint64_t cas = 0;
+    assert(h1->allocate(h, NULL, &test_item, key, strlen(key), 1, 0, 10) == ENGINE_SUCCESS);
+    assert(h1->store(h, NULL, test_item, &cas, OPERATION_SET, 0) == ENGINE_SUCCESS);
+    test_harness.time_travel(11);
+    assert(h1->get(h,NULL,&test_item_get,key,strlen(key),0) == ENGINE_KEY_ENOENT);
+    h1->release(h,NULL,test_item);
+    return SUCCESS;
+}
+
 /*
  * Make sure that we can release an item. For the most part all this test does
  * is ensure that thinds dont go splat when we call release. It does nothing to
@@ -512,6 +525,7 @@ engine_test_t* get_tests(void) {
         {"prepend test", prepend_test, NULL, NULL, NULL},
         {"store test", store_test, NULL, NULL, NULL},
         {"get test", get_test, NULL, NULL, NULL},
+        {"expiry test", expiry_test, NULL, NULL, NULL},
         {"remove test", remove_test, NULL, NULL, NULL},
         {"release test", release_test, NULL, NULL, NULL},
         {"incr test", incr_test, NULL, NULL, NULL},
