@@ -121,4 +121,8 @@ extern void initialize_sockets(void);
 #endif
 #endif
 
+#if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
+#define SASL_ENABLED
+#endif
+
 #endif

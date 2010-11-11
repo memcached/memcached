@@ -17,10 +17,6 @@
 #include "memcached.h"
 #include "memcached/extension_loggers.h"
 
-#if defined(ENABLE_SASL) || defined(ENABLE_ISASL)
-#define SASL_ENABLED
-#endif
-
 #include <signal.h>
 #include <getopt.h>
 #include <fcntl.h>
