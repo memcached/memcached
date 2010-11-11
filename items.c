@@ -401,7 +401,25 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
             char key_str[STAT_KEY_LEN];
             char val_str[STAT_VAL_LEN];
             int klen = 0, vlen = 0;
-
+            int search = 50;
+            while (search > 0 &&
+                   tails[i] != NULL &&
+                   ((settings.oldest_live != 0 && /* Item flushd */
+                     settings.oldest_live <= current_time &&
+                     tails[i]->time <= settings.oldest_live) ||
+                    (tails[i]->exptime != 0 && /* and not expired */
+                     tails[i]->exptime < current_time))) {
+                --search;
+                if (tails[i]->refcount == 0) {
+                    do_item_unlink(tails[i]);
+                } else {
+                    break;
+                }
+            }
+            if (tails[i] == NULL) {
+                /* We removed all of the items in this slab class */
+                continue;
+            }
             APPEND_NUM_FMT_STAT(fmt, i, "number", "%u", sizes[i]);
             APPEND_NUM_FMT_STAT(fmt, i, "age", "%u", tails[i]->time);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted",
