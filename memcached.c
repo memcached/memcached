@@ -39,10 +39,6 @@ static inline void item_set_cas(const void *cookie, item *it, uint64_t cas) {
     settings.engine.v1->item_set_cas(settings.engine.v0, cookie, it, cas);
 }
 
-/* static inline uint8_t item_get_clsid(const item* it) { */
-/*     /\* return settings.engine.v1->item_get_clsid(settings.engine.v0, it); *\/ */
-/* } */
-
 /* The item must always be called "it" */
 #define SLAB_GUTS(conn, thread_stats, slab_op, thread_op) \
     thread_stats->slab_stats[info.clsid].slab_op++;
