@@ -401,8 +401,29 @@ static char *do_item_cachedump(const unsigned int slabs_clsid,
 static void do_item_stats(struct default_engine *engine,
                           ADD_STAT add_stats, const void *c) {
     int i;
+    rel_time_t current_time = engine->server.core->get_current_time();
     for (i = 0; i < POWER_LARGEST; i++) {
         if (engine->items.tails[i] != NULL) {
+            int search = 50;
+            while (search > 0 &&
+                   engine->items.tails[i] != NULL &&
+                   ((engine->config.oldest_live != 0 && /* Item flushd */
+                     engine->config.oldest_live <= current_time &&
+                     engine->items.tails[i]->time <= engine->config.oldest_live) ||
+                    (engine->items.tails[i]->exptime != 0 && /* and not expired */
+                     engine->items.tails[i]->exptime < current_time))) {
+                --search;
+                if (engine->items.tails[i]->refcount == 0) {
+                    do_item_unlink(engine, engine->items.tails[i]);
+                } else {
+                    break;
+                }
+            }
+            if (engine->items.tails[i] == NULL) {
+                /* We removed all of the items in this slab class */
+                continue;
+            }
+
             const char *prefix = "items";
             add_statistics(c, add_stats, prefix, i, "number", "%u",
                            engine->items.sizes[i]);
