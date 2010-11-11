@@ -6,12 +6,14 @@
 *.gcov
 *.l[ao]
 *.tcov
+*.pyc
 *~
 .deps
 /.libs/
 /INSTALL
 /aclocal.m4
 /autom4te.cache
+/breakdancer_testsuite.c
 /compile
 /config.guess
 /config.h

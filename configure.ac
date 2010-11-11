@@ -570,6 +570,17 @@ AC_SUBST(HAVE_DOT)
 PROJECT_NUMBER=VERSION_NUMBER
 AC_SUBST(PROJECT_NUMBER)
 
+dnl Check if we can run breakdance
+AC_PATH_PROG([PYTHON], [python], [no])
+AC_ARG_ENABLE([breakdancer],
+  [AS_HELP_STRING([--enable-breakdancer],
+          [Build breakdancer tests. @<:@default=off@:>@])],
+  [ac_cv_enable_breakdancer="$enableval"],
+  [ac_cv_enable_breakdancer="no"])
+
+AM_CONDITIONAL(ENABLE_BREAKDANCE,
+               test "x$ac_cv_enable_breakdancer" = "xyes" -a "x$PYTHON" != "xno")
+
 dnl Generate output files
 CPPFLAGS="-I\${top_srcdir}/include ${CPPFLAGS}"
 AC_CONFIG_FILES(Makefile config/Doxyfile config/Doxyfile-api)

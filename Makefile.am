@@ -168,6 +168,24 @@ basic_engine_testsuite_la_DEPENDENCIES= libmcd_util.la
 basic_engine_testsuite_la_LIBADD= libmcd_util.la $(LIBM)
 basic_engine_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
+breakdancer_testsuite_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/breakdancer
+breakdancer_testsuite_la_SOURCES= breakdancer_testsuite.c \
+                                  breakdancer/suite_stubs.c \
+                                  breakdancer/suite_stubs.h
+breakdancer_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined -rpath /nowhere
+
+breakdancer_testsuite.c: breakdancer/breakdancer.py breakdancer/engine_test.py
+	${top_srcdir}/breakdancer/engine_test.py > breakdancer_testsuite.c || ( rm breakdancer_testsuite.c && /bin/false)
+
+ENGINE_TESTS=test_engine
+
+if ENABLE_BREAKDANCE
+noinst_LTLIBRARIES += breakdancer_testsuite.la
+BUILT_SOURCES += breakdancer_testsuite.c
+CLEANFILES += breakdancer_testsuite.c
+ENGINE_TESTS += breakdancer_engine
+endif
+
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s $(top_srcdir)/memcached_dtrace.d
 	sed -e 's,void \*,const void \*,g' memcached_dtrace.h | \
@@ -187,17 +205,22 @@ default_engine_dtrace.lo: $(default_engine_la_OBJECTS)
 	sed -e s,assoc,default_engine_dtrace,g assoc.lo > default_engine_dtrace.lo
 
 DIST_DIRS = scripts
-EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4
+EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4 \
+             breakdancer/engine_tests.py breakdancer/breakdancer.py
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
 TEST_TIMEOUT=30
 
+breakdancer_engine: engine_testapp breakdancer_testsuite.la
+	./engine_testapp -E .libs/default_engine.so -t $(TEST_TIMEOUT) \
+		-T .libs/breakdancer_testsuite.so
+
 test_engine: engine_testapp basic_engine_testsuite.la
 	./engine_testapp -E .libs/default_engine.so -t $(TEST_TIMEOUT) \
 		-T .libs/basic_engine_testsuite.so
 
-test: test_engine memcached sizes testapp timedrun
+test: $(ENGINE_TESTS) memcached sizes testapp timedrun
 	./sizes
 	./testapp
 	prove $(srcdir)/t
