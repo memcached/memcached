@@ -1,3 +1,7 @@
+2010-10-11
+	* ChangeLog is no longer being updated.
+	See http://code.google.com/p/memcached/wiki/ReleaseNotes
+
 2009-04-10
 
 	* *critical bugfix*. In 1.2.7 under multithreaded mode, memcached
