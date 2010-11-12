@@ -95,7 +95,7 @@ static rel_time_t mock_realtime(const time_t exptime) {
            really expiring never */
         if (exptime <= process_started)
             return (rel_time_t)1;
-        return (rel_time_t)(exptime - process_started + time_travel_offset);
+        return (rel_time_t)(exptime - process_started);
     } else {
         return (rel_time_t)(exptime + mock_get_current_time());
     }
@@ -111,7 +111,7 @@ static void mock_notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status
 
 static time_t mock_abstime(const rel_time_t exptime)
 {
-    return process_started + exptime + time_travel_offset;
+    return process_started + exptime;
 }
 
 void mock_time_travel(int by) {
