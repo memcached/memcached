@@ -188,7 +188,7 @@ engine_test_t* get_tests(void) {
     static engine_test_t tests[]  = {
 """
         for seq in sorted(seq):
-            print '        {"%s",\n         %s,\n         NULL, teardown, NULL},' % (
+            print '        {"%s",\n         %s,\n         test_setup, teardown, NULL},' % (
                 ', '.join(a.name for a in seq),
                 self.testName(seq))
 

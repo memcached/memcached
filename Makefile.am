@@ -213,7 +213,7 @@ MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 TEST_TIMEOUT=30
 
 breakdancer_engine: engine_testapp breakdancer_testsuite.la
-	./engine_testapp -E .libs/default_engine.so -t $(TEST_TIMEOUT) \
+	./engine_testapp -. -q -E .libs/default_engine.so -t $(TEST_TIMEOUT) \
 		-T .libs/breakdancer_testsuite.so
 
 test_engine: engine_testapp basic_engine_testsuite.la

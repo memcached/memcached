@@ -13,6 +13,12 @@ struct test_harness testHarness;
 
 static const char *key = "key";
 
+bool test_setup(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    (void)h; (void)h1;
+    delay(2);
+    return true;
+}
+
 bool teardown(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     (void)h; (void)h1;
     return true;
@@ -129,13 +135,6 @@ void checkValue(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1, const char* exp) {
     char buf[info.value[0].iov_len + 1];
     memcpy(buf, info.value[0].iov_base, info.value[0].iov_len);
     buf[sizeof(buf) - 1] = 0x00;
-    if (buf[strlen(buf) - 1] == '\n') {
-        buf[strlen(buf) - 1] = 0x00;
-        if (buf[strlen(buf) - 1] == '\r') {
-            buf[strlen(buf) - 1] = 0x00;
-        }
-    }
-
     assert(info.nvalue == 1);
     if (strlen(exp) > info.value[0].iov_len) {
         fprintf(stderr, "Expected at least %d bytes for ``%s'', got %d as ``%s''\n",

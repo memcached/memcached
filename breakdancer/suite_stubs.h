@@ -17,6 +17,7 @@ MEMCACHED_PUBLIC_API
 bool setup_suite(struct test_harness *th);
 
 
+bool test_setup(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1);
 bool teardown(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1);
 void delay(int amt);
 void add(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1);
