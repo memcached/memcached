@@ -114,6 +114,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             STATS_UNLOCK();
             itemstats[id].reclaimed++;
             it->refcount = 1;
+            slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
             do_item_unlink(it);
             /* Initialize the item block: */
             it->slabs_clsid = 0;

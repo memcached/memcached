@@ -438,3 +438,17 @@ void slabs_stats(ADD_STAT add_stats, void *c) {
     do_slabs_stats(add_stats, c);
     pthread_mutex_unlock(&slabs_lock);
 }
+
+void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal)
+{
+    pthread_mutex_lock(&slabs_lock);
+    slabclass_t *p;
+    if (id < POWER_SMALLEST || id > power_largest) {
+        fprintf(stderr, "Internal error! Invalid slab class\n");
+        abort();
+    }
+
+    p = &slabclass[id];
+    p->requested = p->requested - old + ntotal;
+    pthread_mutex_unlock(&slabs_lock);
+}
