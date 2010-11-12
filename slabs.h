@@ -72,6 +72,9 @@ void *slabs_alloc(struct default_engine *engine, const size_t size, unsigned int
 /** Free previously allocated object */
 void slabs_free(struct default_engine *engine, void *ptr, size_t size, unsigned int id);
 
+/** Adjust the stats for memory requested */
+void slabs_adjust_mem_requested(struct default_engine *engine, unsigned int id, size_t old, size_t ntotal);
+
 /** Fill buffer with stats */ /*@null@*/
 void slabs_stats(struct default_engine *engine, ADD_STAT add_stats, const void *c);
 

@@ -397,3 +397,17 @@ void slabs_stats(struct default_engine *engine, ADD_STAT add_stats, const void *
     do_slabs_stats(engine, add_stats, c);
     pthread_mutex_unlock(&engine->slabs.lock);
 }
+
+void slabs_adjust_mem_requested(struct default_engine *engine, unsigned int id, size_t old, size_t ntotal)
+{
+    pthread_mutex_lock(&engine->slabs.lock);
+    slabclass_t *p;
+    if (id < POWER_SMALLEST || id > engine->slabs.power_largest) {
+        fprintf(stderr, "Internal error! Invalid slab class\n");
+        abort();
+    }
+
+    p = &engine->slabs.slabclass[id];
+    p->requested = p->requested - old + ntotal;
+    pthread_mutex_unlock(&engine->slabs.lock);
+}

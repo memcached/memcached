@@ -110,6 +110,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
             pthread_mutex_unlock(&engine->stats.lock);
             engine->items.itemstats[id].reclaimed++;
             it->refcount = 1;
+            slabs_adjust_mem_requested(engine, it->slabs_clsid, ITEM_ntotal(engine, it), ntotal);
             do_item_unlink(engine, it);
             /* Initialize the item block: */
             it->slabs_clsid = 0;
