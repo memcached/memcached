@@ -4197,20 +4197,29 @@ static void usage_license(void) {
     return;
 }
 
-static void save_pid(const pid_t pid, const char *pid_file) {
+static void save_pid(const char *pid_file) {
     FILE *fp;
-    if (pid_file == NULL)
-        return;
+    if (access(pid_file, F_OK) == 0) {
+        if ((fp = fopen(pid_file, "r")) != NULL) {
+            char buffer[1024];
+            if (fgets(buffer, sizeof(buffer), fp) != NULL) {
+                unsigned int pid;
+                if (safe_strtoul(buffer, &pid) && kill((pid_t)pid, 0) == 0) {
+                    fprintf(stderr, "WARNING: The pid file contained the following (running) pid: %u\n", pid);
+                }
+            }
+            fclose(fp);
+        }
+    }
 
     if ((fp = fopen(pid_file, "w")) == NULL) {
         vperror("Could not open the pid file %s for writing", pid_file);
         return;
     }
 
-    fprintf(fp,"%ld\n", (long)pid);
+    fprintf(fp,"%ld\n", (long)getpid());
     if (fclose(fp) == -1) {
         vperror("Could not close the pid file %s", pid_file);
-        return;
     }
 }
 
@@ -4664,15 +4673,11 @@ int main (int argc, char **argv) {
     }
     /* start up worker threads if MT mode */
     thread_init(settings.num_threads, main_base);
-    /* save the PID in if we're a daemon, do this after thread_init due to
-       a file descriptor handling bug somewhere in libevent */
 
     if (start_assoc_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
     }
 
-    if (do_daemonize)
-        save_pid(getpid(), pid_file);
     /* initialise clock event */
     clock_handler(0, 0, 0);
 
@@ -4732,6 +4737,10 @@ int main (int argc, char **argv) {
             fclose(portnumber_file);
             rename(temp_portnumber_filename, portnumber_filename);
         }
+    }
+
+    if (pid_file != NULL) {
+        save_pid(pid_file);
     }
 
     /* Drop privileges no longer needed */
