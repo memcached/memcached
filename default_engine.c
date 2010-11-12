@@ -272,7 +272,8 @@ static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
    }
 
    hash_item *it;
-   it = item_alloc(engine, key, nkey, flags, exptime, nbytes, cookie);
+   it = item_alloc(engine, key, nkey, flags, engine->server.core->realtime(exptime),
+                   nbytes, cookie);
 
    if (it != NULL) {
       *item = it;
@@ -438,7 +439,7 @@ static ENGINE_ERROR_CODE default_arithmetic(ENGINE_HANDLE* handle,
    VBUCKET_GUARD(engine, vbucket);
 
    return arithmetic(engine, cookie, key, nkey, increment,
-                     create, delta, initial, exptime, cas,
+                     create, delta, initial, engine->server.core->realtime(exptime), cas,
                      result);
 }
 

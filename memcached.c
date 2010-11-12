@@ -2992,7 +2992,7 @@ static void process_bin_update(conn *c) {
                                            &it, key, nkey,
                                            vlen,
                                            req->message.body.flags,
-                                           realtime(expiration));
+                                           expiration);
         if (ret == ENGINE_SUCCESS && !settings.engine.v1->get_item_info(settings.engine.v0,
                                                                         c, it, &info)) {
             settings.engine.v1->release(settings.engine.v0, c, it);
@@ -4078,7 +4078,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     if (ret == ENGINE_SUCCESS) {
         ret = settings.engine.v1->allocate(settings.engine.v0, c,
                                            &it, key, nkey,
-                                           vlen, htonl(flags), realtime(exptime));
+                                           vlen, htonl(flags), exptime);
     }
 
     item_info info = { .nvalue = 1 };
