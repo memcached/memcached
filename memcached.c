@@ -2637,20 +2637,27 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
         ndata -= 8;
     }
 
-    ENGINE_ERROR_CODE ret;
-    ret = settings.engine.v1->tap_notify(settings.engine.v0, c,
-                                         engine_specific, nengine,
-                                         ttl - 1, tap_flags,
-                                         event, seqno,
-                                         key, nkey,
-                                         flags, exptime,
-                                         ntohll(tap->message.header.request.cas),
-                                         data, ndata,
-                                         c->binary_header.request.vbucket);
+    ENGINE_ERROR_CODE ret = c->aiostat;
+    if (ret == ENGINE_SUCCESS) {
+        ret = settings.engine.v1->tap_notify(settings.engine.v0, c,
+                                             engine_specific, nengine,
+                                             ttl - 1, tap_flags,
+                                             event, seqno,
+                                             key, nkey,
+                                             flags, exptime,
+                                             ntohll(tap->message.header.request.cas),
+                                             data, ndata,
+                                             c->binary_header.request.vbucket);
+    }
 
-    if (ret == ENGINE_DISCONNECT) {
+    switch (ret) {
+    case ENGINE_DISCONNECT:
         conn_set_state(c, conn_closing);
-    } else {
+        break;
+    case ENGINE_EWOULDBLOCK:
+        c->ewouldblock = true;
+        break;
+    default:
         if ((tap_flags & TAP_FLAG_ACK) ||
             (ret != ENGINE_SUCCESS && c->tap_nack_mode))
         {
