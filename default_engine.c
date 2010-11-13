@@ -79,6 +79,23 @@ static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  protocol_binary_request_header *request,
                                                  ADD_RESPONSE response);
 
+static ENGINE_ERROR_CODE default_tap_notify(ENGINE_HANDLE* handle,
+                                            const void *cookie,
+                                            void *engine_specific,
+                                            uint16_t nengine,
+                                            uint8_t ttl,
+                                            uint16_t tap_flags,
+                                            tap_event_t tap_event,
+                                            uint32_t tap_seqno,
+                                            const void *key,
+                                            size_t nkey,
+                                            uint32_t flags,
+                                            uint32_t exptime,
+                                            uint64_t cas,
+                                            const void *data,
+                                            size_t ndata,
+                                            uint16_t vbucket);
+
 union vbucket_info_adapter {
     char c;
     struct vbucket_info v;
@@ -155,6 +172,7 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
          .arithmetic = default_arithmetic,
          .flush = default_flush,
          .unknown_command = default_unknown_command,
+         .tap_notify = default_tap_notify,
          .item_set_cas = item_set_cas,
          .get_item_info = get_item_info,
          .get_tap_iterator = get_tap_iterator
@@ -695,4 +713,87 @@ static bool get_item_info(ENGINE_HANDLE *handle, const void *cookie,
     item_info->value[0].iov_base = item_get_data(it);
     item_info->value[0].iov_len = it->nbytes;
     return true;
+}
+
+static ENGINE_ERROR_CODE default_tap_notify(ENGINE_HANDLE* handle,
+                                            const void *cookie,
+                                            void *engine_specific,
+                                            uint16_t nengine,
+                                            uint8_t ttl,
+                                            uint16_t tap_flags,
+                                            tap_event_t tap_event,
+                                            uint32_t tap_seqno,
+                                            const void *key,
+                                            size_t nkey,
+                                            uint32_t flags,
+                                            uint32_t exptime,
+                                            uint64_t cas,
+                                            const void *data,
+                                            size_t ndata,
+                                            uint16_t vbucket) {
+    struct default_engine* engine = get_handle(handle);
+    vbucket_state_t state;
+    item *it;
+    ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
+
+    switch (tap_event) {
+    case TAP_ACK:
+        /* We don't provide a tap stream, so we should never receive this */
+        abort();
+
+    case TAP_FLUSH:
+        return default_flush(handle, cookie, 0);
+
+    case TAP_DELETION:
+        return default_item_delete(handle, cookie, key, nkey, cas, vbucket);
+
+    case TAP_MUTATION:
+        it = engine->server.cookie->get_engine_specific(cookie);
+        if (it == NULL) {
+            ret = default_item_allocate(handle, cookie, &it, key, nkey, ndata, flags, exptime);
+            switch (ret) {
+            case ENGINE_SUCCESS:
+                break;
+            case ENGINE_ENOMEM:
+                return ENGINE_TMPFAIL;
+            default:
+                return ret;
+            }
+        }
+        memcpy(item_get_data(it), data, ndata);
+        engine->server.cookie->store_engine_specific(cookie, NULL);
+        item_set_cas(handle, cookie, it, cas);
+        ret = default_store(handle, cookie, it, &cas, OPERATION_SET, vbucket);
+        if (ret == ENGINE_EWOULDBLOCK) {
+            engine->server.cookie->store_engine_specific(cookie, it);
+        } else {
+            item_release(engine, it);
+        }
+
+        break;
+
+    case TAP_VBUCKET_SET:
+        if (nengine != sizeof(vbucket_state_t)) {
+            // illegal size of the vbucket set package...
+            return ENGINE_DISCONNECT;
+        }
+
+        memcpy(&state, engine_specific, nengine);
+        state = (vbucket_state_t)ntohl(state);
+
+        if (!is_valid_vbucket_state_t(state)) {
+            return ENGINE_DISCONNECT;
+        }
+
+        set_vbucket_state(engine, vbucket, state);
+        return ENGINE_SUCCESS;
+
+    case TAP_OPAQUE:
+        // not supported, ignore
+    default:
+        engine->server.log->get_logger()->log(EXTENSION_LOG_DEBUG, cookie,
+                    "Ignoring unknown tap event: %x", tap_event);
+    }
+
+    return ret;
 }
