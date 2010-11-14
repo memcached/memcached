@@ -163,4 +163,17 @@ ENGINE_ERROR_CODE arithmetic(struct default_engine *engine,
  */
 bool item_start_scrub(struct default_engine *engine);
 
+/**
+ * The tap walker to walk the hashtables
+ */
+tap_event_t item_tap_walker(ENGINE_HANDLE* handle,
+                            const void *cookie, item **itm,
+                            void **es, uint16_t *nes, uint8_t *ttl,
+                            uint16_t *flags, uint32_t *seqno,
+                            uint16_t *vbucket);
+
+bool initialize_item_tap_walker(struct default_engine *engine,
+                                const void* cookie);
+
+
 #endif

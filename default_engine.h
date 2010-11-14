@@ -90,6 +90,12 @@ struct engine_scrubber {
    time_t stopped;
 };
 
+struct tap_connections {
+    pthread_mutex_t lock;
+    size_t size;
+    const void* *clients;
+};
+
 struct vbucket_info {
     int state : 2;
 };
@@ -124,6 +130,8 @@ struct default_engine {
    struct config config;
    struct engine_stats stats;
    struct engine_scrubber scrubber;
+   struct tap_connections tap_connections;
+
    union {
        engine_info engine_info;
        char buffer[sizeof(engine_info) +

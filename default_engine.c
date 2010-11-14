@@ -70,10 +70,6 @@ static ENGINE_ERROR_CODE default_flush(ENGINE_HANDLE* handle,
                                        const void* cookie, time_t when);
 static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
                                                  const char *cfg_str);
-static TAP_ITERATOR get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
-                                     const void* client, size_t nclient,
-                                     uint32_t flags,
-                                     const void* userdata, size_t nuserdata);
 static ENGINE_ERROR_CODE default_unknown_command(ENGINE_HANDLE* handle,
                                                  const void* cookie,
                                                  protocol_binary_request_header *request,
@@ -95,6 +91,19 @@ static ENGINE_ERROR_CODE default_tap_notify(ENGINE_HANDLE* handle,
                                             const void *data,
                                             size_t ndata,
                                             uint16_t vbucket);
+
+static TAP_ITERATOR default_get_tap_iterator(ENGINE_HANDLE* handle,
+                                             const void* cookie,
+                                             const void* client,
+                                             size_t nclient,
+                                             uint32_t flags,
+                                             const void* userdata,
+                                             size_t nuserdata);
+
+static void default_handle_disconnect(const void *cookie,
+                                      ENGINE_EVENT_TYPE type,
+                                      const void *event_data,
+                                      const void *cb_data);
 
 union vbucket_info_adapter {
     char c;
@@ -173,9 +182,9 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
          .flush = default_flush,
          .unknown_command = default_unknown_command,
          .tap_notify = default_tap_notify,
+         .get_tap_iterator = default_get_tap_iterator,
          .item_set_cas = item_set_cas,
-         .get_item_info = get_item_info,
-         .get_tap_iterator = get_tap_iterator
+         .get_item_info = get_item_info
       },
       .server = *api,
       .get_server_api = get_server_api,
@@ -204,6 +213,10 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
       .scrubber = {
          .lock = PTHREAD_MUTEX_INITIALIZER,
       },
+      .tap_connections = {
+         .lock = PTHREAD_MUTEX_INITIALIZER,
+         .size = 10,
+      },
       .info.engine_info = {
            .description = "Default engine v0.1",
            .num_features = 1,
@@ -214,7 +227,11 @@ ENGINE_ERROR_CODE create_instance(uint64_t interface,
    };
 
    *engine = default_engine;
-
+   engine->tap_connections.clients = calloc(default_engine.tap_connections.size, sizeof(void*));
+   if (engine->tap_connections.clients == NULL) {
+       free(engine);
+       return ENGINE_ENOMEM;
+   }
    *handle = (ENGINE_HANDLE*)&engine->engine;
    return ENGINE_SUCCESS;
 }
@@ -256,6 +273,8 @@ static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
       return ret;
    }
 
+   se->server.callback->register_callback(handle, ON_DISCONNECT, default_handle_disconnect, handle);
+
    return ENGINE_SUCCESS;
 }
 
@@ -267,6 +286,7 @@ static void default_destroy(ENGINE_HANDLE* handle) {
       pthread_mutex_destroy(&se->stats.lock);
       pthread_mutex_destroy(&se->slabs.lock);
       se->initialized = false;
+      free(se->tap_connections.clients);
       free(se);
    }
 }
@@ -477,32 +497,6 @@ static void default_reset_stats(ENGINE_HANDLE* handle, const void *cookie) {
    engine->stats.reclaimed = 0;
    engine->stats.total_items = 0;
    pthread_mutex_unlock(&engine->stats.lock);
-}
-
-static tap_event_t tap_always_pause(ENGINE_HANDLE *e,
-                                    const void *cookie, item **itm, void **es,
-                                    uint16_t *nes, uint8_t *ttl, uint16_t *flags,
-                                    uint32_t *seqno, uint16_t *vbucket) {
-    return TAP_PAUSE;
-}
-
-static tap_event_t tap_always_disconnect(ENGINE_HANDLE *e,
-                                         const void *cookie, item **itm, void **es,
-                                         uint16_t *nes, uint8_t *ttl, uint16_t *flags,
-                                         uint32_t *seqno, uint16_t *vbucket) {
-    return TAP_DISCONNECT;
-}
-
-static TAP_ITERATOR get_tap_iterator(ENGINE_HANDLE* handle, const void* cookie,
-                                     const void* client, size_t nclient,
-                                     uint32_t flags,
-                                     const void* userdata, size_t nuserdata) {
-    TAP_ITERATOR rv = tap_always_pause;
-    if ((flags & TAP_CONNECT_FLAG_DUMP)
-        || (flags & TAP_CONNECT_FLAG_TAKEOVER_VBUCKETS)) {
-        rv = tap_always_disconnect;
-    }
-    return rv;
 }
 
 static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
@@ -796,4 +790,58 @@ static ENGINE_ERROR_CODE default_tap_notify(ENGINE_HANDLE* handle,
     }
 
     return ret;
+}
+
+static TAP_ITERATOR default_get_tap_iterator(ENGINE_HANDLE* handle,
+                                             const void* cookie,
+                                             const void* client,
+                                             size_t nclient,
+                                             uint32_t flags,
+                                             const void* userdata,
+                                             size_t nuserdata) {
+    struct default_engine* engine = get_handle(handle);
+
+    if ((flags & TAP_CONNECT_FLAG_TAKEOVER_VBUCKETS)) { /* Not supported */
+        return NULL;
+    }
+
+    pthread_mutex_lock(&engine->tap_connections.lock);
+    int ii;
+    for (ii = 0; ii < engine->tap_connections.size; ++ii) {
+        if (engine->tap_connections.clients[ii] == NULL) {
+            engine->tap_connections.clients[ii] = cookie;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&engine->tap_connections.lock);
+    if (ii == engine->tap_connections.size) {
+        // @todo allow more connections :)
+        return NULL;
+    }
+
+    if (!initialize_item_tap_walker(engine, cookie)) {
+        /* Failed to create */
+        pthread_mutex_lock(&engine->tap_connections.lock);
+        engine->tap_connections.clients[ii] = NULL;
+        pthread_mutex_unlock(&engine->tap_connections.lock);
+        return NULL;
+    }
+
+    return item_tap_walker;
+ }
+
+static void default_handle_disconnect(const void *cookie,
+                                      ENGINE_EVENT_TYPE type,
+                                      const void *event_data,
+                                      const void *cb_data) {
+    struct default_engine *engine = (struct default_engine*)cb_data;
+    pthread_mutex_lock(&engine->tap_connections.lock);
+    int ii;
+    for (ii = 0; ii < engine->tap_connections.size; ++ii) {
+        if (engine->tap_connections.clients[ii] == cookie) {
+            free(engine->server.cookie->get_engine_specific(cookie));
+            break;
+        }
+    }
+    pthread_mutex_unlock(&engine->tap_connections.lock);
 }

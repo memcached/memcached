@@ -950,9 +950,9 @@ static bool do_item_walk_cursor(struct default_engine *engine,
         item_unlink_q(engine, cursor);
 
         bool done = false;
-
         if (ptr == engine->items.heads[cursor->slabs_clsid]) {
             done = true;
+            cursor->prev = NULL;
         } else {
             cursor->next = ptr;
             cursor->prev = ptr->prev;
@@ -961,7 +961,9 @@ static bool do_item_walk_cursor(struct default_engine *engine,
         }
 
         /* Ignore cursors */
-        if (!(ptr->nkey == 0 && ptr->nbytes == 0)) {
+        if (ptr->nkey == 0 && ptr->nbytes == 0) {
+            --ii;
+        } else {
             *error = itemfunc(engine, ptr, itemdata);
             if (*error != ENGINE_SUCCESS) {
                 return false;
@@ -971,9 +973,9 @@ static bool do_item_walk_cursor(struct default_engine *engine,
         if (done) {
             return false;
         }
-   }
+    }
 
-    return true;
+    return (cursor->prev != NULL);
 }
 
 static ENGINE_ERROR_CODE item_scrub(struct default_engine *engine,
@@ -1060,4 +1062,99 @@ bool item_start_scrub(struct default_engine *engine)
     pthread_mutex_unlock(&engine->scrubber.lock);
 
     return ret;
+}
+
+struct tap_client {
+    hash_item cursor;
+    hash_item *it;
+};
+
+static ENGINE_ERROR_CODE item_tap_iterfunc(struct default_engine *engine,
+                                    hash_item *item,
+                                    void *cookie) {
+    struct tap_client *client = cookie;
+    client->it = item;
+    ++client->it->refcount;
+    return ENGINE_SUCCESS;
+}
+
+static tap_event_t do_item_tap_walker(struct default_engine *engine,
+                                         const void *cookie, item **itm,
+                                         void **es, uint16_t *nes, uint8_t *ttl,
+                                         uint16_t *flags, uint32_t *seqno,
+                                         uint16_t *vbucket)
+{
+    struct tap_client *client = engine->server.cookie->get_engine_specific(cookie);
+    if (client == NULL) {
+        return TAP_DISCONNECT;
+    }
+
+    *es = NULL;
+    *nes = 0;
+    *ttl = (uint8_t)-1;
+    *seqno = 0;
+    *flags = 0;
+    *vbucket = 0;
+    client->it = NULL;
+
+    ENGINE_ERROR_CODE r;
+    do {
+        if (!do_item_walk_cursor(engine, &client->cursor, 1, item_tap_iterfunc, client, &r)) {
+            // find next slab class to look at..
+            bool linked = false;
+            for (int ii = client->cursor.slabs_clsid + 1; ii < POWER_LARGEST && !linked;  ++ii) {
+                if (engine->items.heads[ii] != NULL) {
+                    // add the item at the tail
+                    do_item_link_cursor(engine, &client->cursor, ii);
+                    linked = true;
+                }
+            }
+            if (!linked) {
+                break;
+            }
+        }
+    } while (client->it == NULL);
+    *itm = client->it;
+
+    return (*itm == NULL) ? TAP_DISCONNECT : TAP_MUTATION;
+}
+
+tap_event_t item_tap_walker(ENGINE_HANDLE* handle,
+                            const void *cookie, item **itm,
+                            void **es, uint16_t *nes, uint8_t *ttl,
+                            uint16_t *flags, uint32_t *seqno,
+                            uint16_t *vbucket)
+{
+    tap_event_t ret;
+    struct default_engine *engine = (struct default_engine*)handle;
+    pthread_mutex_lock(&engine->cache_lock);
+    ret = do_item_tap_walker(engine, cookie, itm, es, nes, ttl, flags, seqno, vbucket);
+    pthread_mutex_unlock(&engine->cache_lock);
+
+    return ret;
+}
+
+bool initialize_item_tap_walker(struct default_engine *engine,
+                                const void* cookie)
+{
+    struct tap_client *client = calloc(1, sizeof(*client));
+    if (client == NULL) {
+        return false;
+    }
+    client->cursor.refcount = 1;
+
+    /* Link the cursor! */
+    bool linked = false;
+    for (int ii = 0; ii < POWER_LARGEST && !linked; ++ii) {
+        pthread_mutex_lock(&engine->cache_lock);
+        if (engine->items.heads[ii] != NULL) {
+            // add the item at the tail
+            do_item_link_cursor(engine, &client->cursor, ii);
+            linked = true;
+        }
+        pthread_mutex_unlock(&engine->cache_lock);
+    }
+
+    engine->server.cookie->store_engine_specific(cookie, client);
+    return true;
 }
