@@ -35,6 +35,11 @@ static void item_free(struct default_engine *engine, hash_item *it);
  * items.
  */
 #define ITEM_UPDATE_INTERVAL 60
+/*
+ * To avoid scanning through the complete cache in some circumstances we'll
+ * just give up and return an error after inspecting a fixed number of objects.
+ */
+static const int search_items = 50;
 
 void item_stats_reset(struct default_engine *engine) {
     pthread_mutex_lock(&engine->cache_lock);
@@ -91,7 +96,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
         return 0;
 
     /* do a quick check if we have any expired items in the tail.. */
-    int tries = 50;
+    int tries = search_items;
     hash_item *search;
 
     rel_time_t current_time = engine->server.core->get_current_time();
@@ -124,7 +129,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
         ** Could not find an expired item at the tail, and memory allocation
         ** failed. Try to evict some items!
         */
-        tries = 50;
+        tries = search_items;
 
         /* If requested to not push old items out of cache when memory runs out,
          * we're out of luck at this point...
@@ -138,7 +143,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
         /*
          * try to get one off the right LRU
          * don't necessariuly unlink the tail because it may be locked: refcount>0
-         * search up from tail an item with refcount==0 and unlink it; give up after 50
+         * search up from tail an item with refcount==0 and unlink it; give up after search_items
          * tries
          */
 
@@ -181,7 +186,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
              * three hours, so if we find one in the tail which is that old,
              * free it anyway.
              */
-            tries = 50;
+            tries = search_items;
             for (search = engine->items.tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
                 if (search->refcount != 0 && search->time + TAIL_REPAIR_TIME < current_time) {
                     engine->items.itemstats[id].tailrepairs++;
@@ -405,7 +410,7 @@ static void do_item_stats(struct default_engine *engine,
     rel_time_t current_time = engine->server.core->get_current_time();
     for (i = 0; i < POWER_LARGEST; i++) {
         if (engine->items.tails[i] != NULL) {
-            int search = 50;
+            int search = search_items;
             while (search > 0 &&
                    engine->items.tails[i] != NULL &&
                    ((engine->config.oldest_live != 0 && /* Item flushd */
