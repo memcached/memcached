@@ -102,6 +102,11 @@ int inet_aton(register const char *cp, struct in_addr *addr);
 
 #define close(s) closesocket(s)
 
+#if !defined(strtok_r)
+#define strtok_r( _s, _sep, _lasts ) \
+        ( *(_lasts) = strtok( (_s), (_sep) ) )
+#endif /* strtok_r */
+
 static inline void mapErr(int error) {
     switch(error) {
         default:
