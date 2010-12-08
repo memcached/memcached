@@ -35,7 +35,7 @@ install: ${BINARIES} ${INSTALLDIRS}
 	 cp memcached.exe .libs/default_engine.so .libs/ascii_scrub.so ${DEST}/lib
 	 cp include/memcached/* ${DEST}/include/memcached
 
-CFLAGS = -std=gnu99 -O2 -DNDEBUG -fno-strict-aliasing -Wall \
+CFLAGS = -std=gnu99 -O2 -g -DNDEBUG -fno-strict-aliasing -Wall \
  -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations \
  -Wredundant-decls \
  ${INCLUDE} -DHAVE_CONFIG_H
