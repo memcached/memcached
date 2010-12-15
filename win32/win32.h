@@ -110,6 +110,7 @@ int inet_aton(register const char *cp, struct in_addr *addr);
 static inline void mapErr(int error) {
     switch(error) {
         default:
+            errno = ECONNRESET;
             break;
         case WSAEPFNOSUPPORT:
             errno = EAFNOSUPPORT;
