@@ -2692,6 +2692,19 @@ static void process_bin_tap_ack(conn *c) {
     }
 }
 
+static void process_bin_verbosity(conn *c) {
+    char *packet = (c->rcurr - (c->binary_header.request.bodylen +
+                                sizeof(c->binary_header)));
+    protocol_binary_request_verbosity *req = (void*)packet;
+    uint32_t level = (uint32_t)ntohl(req->message.body.level);
+    if (level > MAX_VERBOSITY_LEVEL) {
+        level = MAX_VERBOSITY_LEVEL;
+    }
+    settings.verbose = (int)level;
+    perform_callbacks(ON_LOG_LEVEL, NULL, NULL);
+    write_bin_response(c, NULL, 0, 0, 0);
+}
+
 static void process_bin_packet(conn *c) {
     /* @todo this should be an array of funciton pointers and call through */
     switch (c->binary_header.request.opcode) {
@@ -2730,6 +2743,9 @@ static void process_bin_packet(conn *c) {
         tap_stats.received.vbucket_set++;
         pthread_mutex_unlock(&tap_stats.mutex);
         process_bin_tap_packet(TAP_VBUCKET_SET, c);
+        break;
+    case PROTOCOL_BINARY_CMD_VERBOSITY:
+        process_bin_verbosity(c);
         break;
     default:
         process_bin_unknown_packet(c);
@@ -2930,6 +2946,14 @@ static void dispatch_bin_command(conn *c) {
             }
             break;
 #endif
+        case PROTOCOL_BINARY_CMD_VERBOSITY:
+            if (extlen == 4 && keylen == 0 && bodylen == 4) {
+                bin_read_chunk(c, bin_reading_packet,
+                               c->binary_header.request.bodylen);
+            } else {
+                protocol_error = 1;
+            }
+            break;
         default:
             if (settings.engine.v1->unknown_command == NULL) {
                 write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,

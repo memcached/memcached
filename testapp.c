@@ -1994,6 +1994,29 @@ static enum test_return test_binary_pipeline_hickup(void)
     return TEST_PASS;
 }
 
+static enum test_return test_binary_verbosity(void) {
+    union {
+        protocol_binary_request_verbosity request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } buffer;
+
+    for (int ii = 10; ii > -1; --ii) {
+        size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                                 PROTOCOL_BINARY_CMD_VERBOSITY,
+                                 NULL, 0, NULL, 0);
+        buffer.request.message.header.request.extlen = 4;
+        buffer.request.message.header.request.bodylen = ntohl(4);
+        buffer.request.message.body.level = (uint32_t)ntohl(ii);
+        safe_send(buffer.bytes, len + sizeof(4), false);
+        safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+        validate_response_header(&buffer.response,
+                                 PROTOCOL_BINARY_CMD_VERBOSITY,
+                                 PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    }
+
+    return TEST_PASS;
+}
 
 static enum test_return test_issue_101(void) {
     const int max = 2;
@@ -2120,6 +2143,7 @@ struct testcase testcases[] = {
     { "binary_prependq", test_binary_prependq },
     { "binary_stat", test_binary_stat },
     { "binary_scrub", test_binary_scrub },
+    { "binary_verbosity", test_binary_verbosity },
     { "binary_pipeline_hickup", test_binary_pipeline_hickup },
     { "stop_server", stop_memcached_server },
     { NULL, NULL }
