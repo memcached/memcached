@@ -237,8 +237,9 @@ extern "C" {
          * Tear down this engine.
          *
          * @param handle the engine handle
+         * @param force the flag indicating the force shutdown or not.
          */
-        void (*destroy)(ENGINE_HANDLE* handle);
+        void (*destroy)(ENGINE_HANDLE* handle, const bool force);
 
         /*
          * Item operations.

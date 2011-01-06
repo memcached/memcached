@@ -7208,7 +7208,7 @@ int main (int argc, char **argv) {
     }
     threads_shutdown();
 
-    settings.engine.v1->destroy(settings.engine.v0);
+    settings.engine.v1->destroy(settings.engine.v0, false);
 
     /* remove the PID file if we're a daemon */
     if (do_daemonize)

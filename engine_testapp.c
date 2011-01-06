@@ -53,9 +53,9 @@ static ENGINE_ERROR_CODE mock_initialize(ENGINE_HANDLE* handle,
     return me->the_engine->initialize((ENGINE_HANDLE*)me->the_engine, config_str);
 }
 
-static void mock_destroy(ENGINE_HANDLE* handle) {
+static void mock_destroy(ENGINE_HANDLE* handle, const bool force) {
     struct mock_engine *me = get_handle(handle);
-    me->the_engine->destroy((ENGINE_HANDLE*)me->the_engine);
+    me->the_engine->destroy((ENGINE_HANDLE*)me->the_engine, force);
 }
 
 static ENGINE_ERROR_CODE mock_allocate(ENGINE_HANDLE* handle,
@@ -622,16 +622,17 @@ static ENGINE_HANDLE_V1 *start_your_engines(const char *engine, const char* cfg,
     return &mock_engine.me;
 }
 
-static void destroy_engine() {
+static void destroy_engine(bool force) {
     if (handle_v1) {
-        handle_v1->destroy(handle);
+        handle_v1->destroy(handle, force);
         handle_v1 = NULL;
         handle = NULL;
     }
 }
 
-static void reload_engine(ENGINE_HANDLE **h, ENGINE_HANDLE_V1 **h1, const char* engine, const char *cfg, bool init) {
-    destroy_engine();
+static void reload_engine(ENGINE_HANDLE **h, ENGINE_HANDLE_V1 **h1,
+                          const char* engine, const char *cfg, bool init, bool force) {
+    destroy_engine(force);
     handle_v1 = start_your_engines(engine, cfg, init);
     handle = (ENGINE_HANDLE*)(handle_v1);
     *h1 = handle_v1;
@@ -659,7 +660,7 @@ static enum test_result run_test(engine_test_t test, const char *engine, const c
                     fprintf(stderr, "WARNING: Failed to run teardown for test %s\n", test.name);
                 }
             }
-            destroy_engine();
+            destroy_engine(false);
 #if !defined(USE_GCOV) && !defined(WIN32)
             exit((int)ret);
         } else if (pid == (pid_t)-1) {

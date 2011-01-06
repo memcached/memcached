@@ -22,7 +22,8 @@ struct test_harness {
     const char *engine_path;
     const char *default_engine_cfg;
     ENGINE_HANDLE_V1 *(*start_engine)(const char *, const char *, bool);
-    void(*reload_engine)(ENGINE_HANDLE **, ENGINE_HANDLE_V1 **, const char *, const char *, bool);
+    void(*reload_engine)(ENGINE_HANDLE **, ENGINE_HANDLE_V1 **,
+                         const char *, const char *, bool, bool);
     const void *(*create_cookie)(void);
     void (*destroy_cookie)(const void *cookie);
     void (*set_ewouldblock_handling)(const void *cookie, bool enable);

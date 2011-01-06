@@ -18,7 +18,8 @@
 static const engine_info* default_get_info(ENGINE_HANDLE* handle);
 static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
                                             const char* config_str);
-static void default_destroy(ENGINE_HANDLE* handle);
+static void default_destroy(ENGINE_HANDLE* handle,
+                            const bool force);
 static ENGINE_ERROR_CODE default_item_allocate(ENGINE_HANDLE* handle,
                                                const void* cookie,
                                                item **item,
@@ -278,7 +279,8 @@ static ENGINE_ERROR_CODE default_initialize(ENGINE_HANDLE* handle,
    return ENGINE_SUCCESS;
 }
 
-static void default_destroy(ENGINE_HANDLE* handle) {
+static void default_destroy(ENGINE_HANDLE* handle, const bool force) {
+   (void) force;
    struct default_engine* se = get_handle(handle);
 
    if (se->initialized) {

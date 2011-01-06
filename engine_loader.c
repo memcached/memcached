@@ -94,7 +94,7 @@ bool init_engine(ENGINE_HANDLE * engine,
 
         ENGINE_ERROR_CODE error = engine_v1->initialize(engine,config_str);
         if (error != ENGINE_SUCCESS) {
-            engine_v1->destroy(engine);
+            engine_v1->destroy(engine, false);
             logger->log(EXTENSION_LOG_WARNING, NULL,
                     "Failed to initialize instance. Error code: %d\n",
                     error);
