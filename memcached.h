@@ -275,7 +275,7 @@ typedef bool (*STATE_FUNC)(conn *);
  */
 struct conn {
     SOCKET sfd;
-    short  nevents;
+    int nevents;
     sasl_conn_t *sasl_conn;
     STATE_FUNC   state;
     enum bin_substates substate;

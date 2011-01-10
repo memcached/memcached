@@ -6734,7 +6734,7 @@ int main (int argc, char **argv) {
             break;
         case 'R':
             settings.reqs_per_event = atoi(optarg);
-            if (settings.reqs_per_event == 0) {
+            if (settings.reqs_per_event <= 0) {
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                       "Number of requests per event must be greater than 0\n");
                 return 1;
@@ -6899,7 +6899,7 @@ int main (int argc, char **argv) {
         settings.reqs_per_tap_event = atoi(getenv("MEMCACHED_REQS_TAP_EVENT"));
     }
 
-    if (settings.reqs_per_tap_event == 0) {
+    if (settings.reqs_per_tap_event <= 0) {
         settings.reqs_per_tap_event = DEFAULT_REQS_PER_TAP_EVENT;
     }
 
