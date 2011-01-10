@@ -2,7 +2,7 @@
 # a merge conflict.
 #
 man_MANS = doc/memcached.1
-bin_PROGRAMS = engine_testapp memcached
+bin_PROGRAMS = engine_testapp memcached mcstat
 noinst_PROGRAMS = sizes testapp timedrun
 pkginclude_HEADERS = \
                      include/memcached/callback.h \
@@ -42,6 +42,10 @@ noinst_LTLIBRARIES=libmcd_util.la
 testapp_SOURCES = testapp.c
 testapp_DEPENDENCIES= libmcd_util.la
 testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
+
+mcstat_SOURCES = mcstat.c
+mcstat_LDADD = $(APPLICATION_LIBS)
+
 
 # New and fancy test program to test engines without the need to run
 # everything through the network layer
