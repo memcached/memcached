@@ -6637,6 +6637,8 @@ int main (int argc, char **argv) {
         return EX_OSERR;
     }
 
+    set_current_time();
+
     /* Initialize the socket subsystem */
     initialize_sockets();
 
