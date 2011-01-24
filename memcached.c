@@ -2692,6 +2692,14 @@ static void process_bin_tap_ack(conn *c) {
     }
 }
 
+/**
+ * We received a noop response.. just ignore it
+ */
+static void process_bin_noop_response(conn *c) {
+    assert(c != NULL);
+    conn_set_state(c, conn_new_cmd);
+}
+
 static void process_bin_verbosity(conn *c) {
     char *packet = (c->rcurr - (c->binary_header.request.bodylen +
                                 sizeof(c->binary_header)));
@@ -2752,12 +2760,15 @@ static void process_bin_packet(conn *c) {
     }
 }
 
+
+
 typedef void (*RESPONSE_HANDLER)(conn*);
 /**
  * A map between the response packets op-code and the function to handle
  * the response message.
  */
 static RESPONSE_HANDLER response_handlers[256] = {
+    [PROTOCOL_BINARY_CMD_NOOP] = process_bin_noop_response,
     [PROTOCOL_BINARY_CMD_TAP_MUTATION] = process_bin_tap_ack,
     [PROTOCOL_BINARY_CMD_TAP_DELETE] = process_bin_tap_ack,
     [PROTOCOL_BINARY_CMD_TAP_FLUSH] = process_bin_tap_ack,
