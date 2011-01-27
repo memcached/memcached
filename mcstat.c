@@ -3,10 +3,7 @@
 
 #include <memcached/protocol_binary.h>
 
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
+#include <getopt.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -177,6 +174,9 @@ int main(int argc, char **argv)
     const char *port = NULL;
     const char *host = NULL;
     char *ptr;
+
+    /* Initialize the socket subsystem */
+    initialize_sockets();
 
     while ((cmd = getopt(argc, argv, "h:p:")) != EOF) {
         switch (cmd) {

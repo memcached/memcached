@@ -16,7 +16,8 @@ DEST=${LOCAL}
 INSTALLDIRS=${DEST}/bin ${DEST}/lib ${DEST}/include/memcached
 
 OBJDIR = .libs .libs/win32
-BINARIES= memcached.exe \
+BINARIES= mcstat.exe \
+          memcached.exe \
           engine_testapp.exe \
 	  sizes.exe \
 	  .libs/ascii_scrub.so \
@@ -32,13 +33,17 @@ INCLUDE=-Iinclude -I. -Iwin32 -I.libs ${LOCALINC}
 all: ${BINARIES}
 
 install: ${BINARIES} ${INSTALLDIRS}
-	 cp memcached.exe .libs/default_engine.so .libs/ascii_scrub.so ${DEST}/lib
-	 cp include/memcached/* ${DEST}/include/memcached
+	cp memcached.exe .libs/default_engine.so .libs/ascii_scrub.so ${DEST}/lib
+	cp mcstat.exe ${DEST}/bin
+	cp include/memcached/* ${DEST}/include/memcached
 
 CFLAGS = -std=gnu99 -O2 -g -DNDEBUG -fno-strict-aliasing -Wall \
  -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations \
  -Wredundant-decls \
  ${INCLUDE} -DHAVE_CONFIG_H
+
+MCSTAT_SRC = mcstat.c win32/win32.c
+MCSTAT_OBJS = ${MCSTAT_SRC:%.c=.libs/%.o}
 
 MEMCACHED_SRC = \
 	      cache.c \
@@ -99,6 +104,10 @@ BASIC_ENGINE_TESTSUITE_OBJS = ${BASIC_ENGINE_TESTSUITE_SRC:%.c=.libs/%.o}
 
 GENFILES=.libs/config_version.h
 
+mcstat.exe: ${OBJDIR} ${GENFILES} $(MCSTAT_OBJS)
+	${LINK.c} -o $@ $(MCSTAT_OBJS) \
+                  ${LIB} -lmswsock -lws2_32
+
 memcached.exe: ${OBJDIR} ${GENFILES} $(MEMCACHED_OBJS)
 	${LINK.c} -o $@ $(MEMCACHED_OBJS) \
                   ${LIB} -levent -lmswsock \
@@ -154,6 +163,8 @@ clean:
               ${EXAMPLE_PROTOCOL_OBJS:.o=.d} \
               ${EXAMPLE_PROTOCOL_OBJS} \
               ${GENFILES} \
+              ${MCSTAT_OBJS:.o=.d} \
+              ${MCSTAT_OBJS} \
               ${MEMCACHED_OBJS:.o=.d} \
               ${MEMCACHED_OBJS} \
               ${SIZES_OBJS:.o=.d} \
@@ -169,6 +180,7 @@ clean:
          ${ENGINE_TESTAPP_OBJS:.o=.d} \
          ${EXAMPLE_PROTOCOL_OBJS:.o=.d} \
          ${MEMCACHED_OBJS:.o=.d} \
+         ${MCSTAT_OBJS:.o=.d} \
          ${SIZES_OBJS:.o=.d} \
          ${EVENTLOG_LOGGER_OBJS:.o=.d} \
          ${STDIN_TERM_HANDLER_OBJS:.o=.d}
