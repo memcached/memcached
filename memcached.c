@@ -3336,9 +3336,9 @@ static void reset_cmd_handler(conn *c) {
     }
 }
 
-static bool ascii_response_handler(const void *cookie,
-                                   int nbytes,
-                                   const char *dta)
+static ENGINE_ERROR_CODE ascii_response_handler(const void *cookie,
+                                                int nbytes,
+                                                const char *dta)
 {
     conn *c = (conn*)cookie;
     if (!grow_dynamic_buffer(c, nbytes)) {
@@ -3347,27 +3347,36 @@ static bool ascii_response_handler(const void *cookie,
                     "<%d ERROR: Failed to allocate memory for response\n",
                     c->sfd);
         }
-        return false;
+        return ENGINE_ENOMEM;
     }
 
     char *buf = c->dynamic_buffer.buffer + c->dynamic_buffer.offset;
     memcpy(buf, dta, nbytes);
     c->dynamic_buffer.offset += nbytes;
 
-    return true;
+    return ENGINE_SUCCESS;
 }
 
 static void complete_nread_ascii(conn *c) {
     if (c->ascii_cmd != NULL) {
-        if (!c->ascii_cmd->execute(c->ascii_cmd->cookie, c, 0, NULL,
-                                   ascii_response_handler)) {
+        c->ewouldblock = false;
+        switch (c->ascii_cmd->execute(c->ascii_cmd->cookie, c, 0, NULL,
+                                      ascii_response_handler)) {
+        case ENGINE_SUCCESS:
+            if (c->dynamic_buffer.buffer != NULL) {
+                write_and_free(c, c->dynamic_buffer.buffer,
+                               c->dynamic_buffer.offset);
+                c->dynamic_buffer.buffer = NULL;
+            } else {
+                conn_set_state(c, conn_new_cmd);
+            }
+            break;
+        case ENGINE_EWOULDBLOCK:
+            c->ewouldblock = true;
+            break;
+        case ENGINE_DISCONNECT:
+        default:
             conn_set_state(c, conn_closing);
-        } else if (c->dynamic_buffer.buffer != NULL) {
-            write_and_free(c, c->dynamic_buffer.buffer,
-                           c->dynamic_buffer.offset);
-            c->dynamic_buffer.buffer = NULL;
-        } else {
-            conn_set_state(c, conn_new_cmd);
         }
     } else {
         complete_update_ascii(c);
@@ -4476,10 +4485,9 @@ static char* process_command(conn *c, char *command) {
         if (cmd == NULL) {
             out_string(c, "ERROR unknown command");
         } else if (nbytes == 0) {
-            if (!cmd->execute(cmd->cookie, c, ntokens, tokens,
-                              ascii_response_handler)) {
-                conn_set_state(c, conn_closing);
-            } else {
+            switch (cmd->execute(cmd->cookie, c, ntokens, tokens,
+                                 ascii_response_handler)) {
+            case ENGINE_SUCCESS:
                 if (c->dynamic_buffer.buffer != NULL) {
                     write_and_free(c, c->dynamic_buffer.buffer,
                                    c->dynamic_buffer.offset);
@@ -4487,6 +4495,15 @@ static char* process_command(conn *c, char *command) {
                 } else {
                     conn_set_state(c, conn_new_cmd);
                 }
+                break;
+            case ENGINE_EWOULDBLOCK:
+                c->ewouldblock = true;
+                ret = tokens[KEY_TOKEN].value;;
+                break;
+            case ENGINE_DISCONNECT:
+            default:
+                conn_set_state(c, conn_closing);
+
             }
         } else {
             c->rlbytes = nbytes;

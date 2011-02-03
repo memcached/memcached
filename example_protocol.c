@@ -19,11 +19,11 @@ static const char *get_name(const void *cmd_cookie);
 static bool accept_command(const void *cmd_cookie, void *cookie,
                            int argc, token_t *argv, size_t *ndata,
                            char **ptr);
-static bool execute_command(const void *cmd_cookie, const void *cookie,
-                            int argc, token_t *argv,
-                            bool (*response_handler)(const void *cookie,
-                                                     int nbytes,
-                                                     const char *dta));
+static ENGINE_ERROR_CODE execute_command(const void *cmd_cookie, const void *cookie,
+                                         int argc, token_t *argv,
+                                         ENGINE_ERROR_CODE (*response_handler)(const void *cookie,
+                                                                               int nbytes,
+                                                                               const char *dta));
 static void abort_command(const void *cmd_cookie, const void *cookie);
 
 static EXTENSION_ASCII_PROTOCOL_DESCRIPTOR noop_descriptor = {
@@ -60,23 +60,24 @@ static bool accept_command(const void *cmd_cookie, void *cookie,
     }
 }
 
-static bool execute_command(const void *cmd_cookie, const void *cookie,
-                            int argc, token_t *argv,
-                            bool (*response_handler)(const void *cookie,
-                                                     int nbytes,
-                                                     const char *dta)) {
+static ENGINE_ERROR_CODE execute_command(const void *cmd_cookie, const void *cookie,
+                                         int argc, token_t *argv,
+                                         ENGINE_ERROR_CODE (*response_handler)(const void *cookie,
+                                                                               int nbytes,
+                                                                               const char *dta))
+{
     if (cmd_cookie == &noop_descriptor) {
         return response_handler(cookie, 4, "OK\r\n");
     } else {
-        if (!response_handler(cookie, argv[0].length, argv[0].value)) {
-            return false;
+        if (response_handler(cookie, argv[0].length, argv[0].value) != ENGINE_SUCCESS) {
+            return ENGINE_DISCONNECT;
         }
 
         for (int ii = 1; ii < argc; ++ii) {
-            if (!response_handler(cookie, 2, " [") ||
-                !response_handler(cookie, argv[ii].length, argv[ii].value) ||
-                !response_handler(cookie, 1, "]")) {
-                return false;
+            if (response_handler(cookie, 2, " [") != ENGINE_SUCCESS ||
+                response_handler(cookie, argv[ii].length, argv[ii].value) != ENGINE_SUCCESS ||
+                response_handler(cookie, 1, "]") != ENGINE_SUCCESS) {
+                return ENGINE_DISCONNECT;
             }
         }
 

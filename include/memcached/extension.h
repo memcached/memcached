@@ -169,15 +169,14 @@ extern "C" {
          * @param argc the number of arguments
          * @param argv the argument vector
          * @param response_handler callback to add data to the return buffer
-         * @return true if "success" or false if the client should be
-         *              disconnected.
+         * @return Error code for the operation
          */
-        bool (*execute)(const void *cmd_cookie,
-                        const void *cookie,
-                        int argc, token_t *argv,
-                        bool (*response_handler)(const void *cookie,
-                                                int nbytes,
-                                                const char *dta));
+        ENGINE_ERROR_CODE (*execute)(const void *cmd_cookie,
+                                     const void *cookie,
+                                     int argc, token_t *argv,
+                                     ENGINE_ERROR_CODE (*response_handler)(const void *cookie,
+                                                                           int nbytes,
+                                                                           const char *dta));
 
         /**
          * abort the command.

@@ -9,11 +9,11 @@ static const char *get_name(const void *cmd_cookie);
 static bool accept_command(const void *cmd_cookie, void *cookie,
                            int argc, token_t *argv, size_t *ndata,
                            char **ptr);
-static bool execute_command(const void *cmd_cookie, const void *cookie,
-                            int argc, token_t *argv,
-                            bool (*response_handler)(const void *cookie,
-                                                     int nbytes,
-                                                     const char *dta));
+static ENGINE_ERROR_CODE execute_command(const void *cmd_cookie, const void *cookie,
+                                         int argc, token_t *argv,
+                                         ENGINE_ERROR_CODE (*response_handler)(const void *cookie,
+                                                                  int nbytes,
+                                                                  const char *dta));
 static void abort_command(const void *cmd_cookie, const void *cookie);
 
 static EXTENSION_ASCII_PROTOCOL_DESCRIPTOR scrub_descriptor = {
@@ -47,12 +47,12 @@ static bool my_response_handler(const void *key, uint16_t keylen,
     return true;
 }
 
-static bool execute_command(const void *cmd_cookie, const void *cookie,
-                            int argc, token_t *argv,
-                            bool (*response_handler)(const void *cookie,
-                                                     int nbytes,
-                                                     const char *dta)) {
-
+static ENGINE_ERROR_CODE execute_command(const void *cmd_cookie, const void *cookie,
+                                         int argc, token_t *argv,
+                                         ENGINE_ERROR_CODE (*response_handler)(const void *cookie,
+                                                                               int nbytes,
+                                                                               const char *dta))
+{
     protocol_binary_request_header request = {
         .request.magic = (uint8_t)PROTOCOL_BINARY_REQ,
         .request.opcode = PROTOCOL_BINARY_CMD_SCRUB
