@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 
-#include "stdin_check.h"
+#include "protocol_extension.h"
 
 union c99hack {
     void *pointer;
@@ -33,11 +33,7 @@ static EXTENSION_DAEMON_DESCRIPTOR descriptor = {
     .get_name = get_name
 };
 
-#if defined (__SUNPRO_C) && (__SUNPRO_C >= 0x550)
-__global
-#elif defined __GNUC__
-__attribute__ ((visibility("default")))
-#endif
+MEMCACHED_PUBLIC_API
 EXTENSION_ERROR_CODE memcached_extensions_initialize(const char *config,
                                                      GET_SERVER_API get_server_api) {
 

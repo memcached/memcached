@@ -4,6 +4,7 @@
 
 #include <memcached/engine.h>
 
+MEMCACHED_PUBLIC_API
 EXTENSION_ERROR_CODE memcached_extensions_initialize(const char *config,
                                                      GET_SERVER_API get_server_api);
 

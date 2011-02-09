@@ -150,23 +150,33 @@ default_engine_la_DEPENDENCIES += default_engine_dtrace.lo
 endif
 
 # ASCII support for the scrub command
-ascii_scrub_la_SOURCES= ascii_scrub.c protocol_extension.h
+ascii_scrub_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
+ascii_scrub_la_SOURCES= extensions/protocol/ascii_scrub.c \
+                        extensions/protocol_extension.h
 ascii_scrub_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 # An extension that will shut down memcached if standard input is closed
-stdin_term_handler_la_SOURCES= stdin_check.c stdin_check.h
+stdin_term_handler_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
+stdin_term_handler_la_SOURCES= extensions/daemon/stdin_check.c \
+                               extensions/protocol_extension.h
 stdin_term_handler_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 # An example extension that extends the ascii protocol with noop and echo
-example_protocol_la_SOURCES= example_protocol.c protocol_extension.h
+example_protocol_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
+example_protocol_la_SOURCES= extensions/protocol/example_protocol.c \
+                             extensions/protocol_extension.h
 example_protocol_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 # A logger using syslog
-syslog_logger_la_SOURCES = syslog_logger.c
+syslog_logger_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
+syslog_logger_la_SOURCES = extensions/loggers/syslog_logger.c \
+                           extensions/protocol_extension.h
 syslog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
 
 # A logger using eventlog
-eventlog_logger_la_SOURCES = eventlog_logger.c
+eventlog_logger_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
+eventlog_logger_la_SOURCES = extensions/loggers/eventlog_logger.c \
+                             extensions/protocol_extension.h
 eventlog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
 
 
