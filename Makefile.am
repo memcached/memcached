@@ -69,16 +69,18 @@ engine_testapp_LDADD= libmemcached_utilities.la $(APPLICATION_LIBS)
 timedrun_SOURCES = programs/timedrun.c
 
 # A collection of functions used by the various modules in memcached
+libmemcached_utilities_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/utilities
 libmemcached_utilities_la_SOURCES= \
-                        config_parser.c \
-                        engine_loader.h engine_loader.c \
-                        extension_loggers.c \
-                        genhash.c \
-                        genhash_int.h \
+                        engine_loader.h \
                         include/memcached/config_parser.h \
                         include/memcached/genhash.h \
                         include/memcached/util.h \
-                        util.c
+                        utilities/config_parser.c \
+                        utilities/engine_loader.c \
+                        utilities/extension_loggers.c \
+                        utilities/genhash.c \
+                        utilities/genhash_int.h \
+                        utilities/util.c
 
 memcached_SOURCES = \
                     cache.h \
