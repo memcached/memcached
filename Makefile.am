@@ -169,20 +169,21 @@ eventlog_logger_la_SOURCES = eventlog_logger.c
 eventlog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
 
 
-basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c \
-                                   basic_engine_testsuite.h
+breakdancer_testsuite_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/testsuite
+basic_engine_testsuite_la_SOURCES= testsuite/basic_engine_testsuite.c \
+                                   testsuite/basic_engine_testsuite.h
 basic_engine_testsuite_la_DEPENDENCIES= libmemcached_utilities.la
 basic_engine_testsuite_la_LIBADD= libmemcached_utilities.la $(LIBM)
 basic_engine_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
-breakdancer_testsuite_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/breakdancer
+breakdancer_testsuite_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/testsuite/breakdancer
 breakdancer_testsuite_la_SOURCES= breakdancer_testsuite.c \
-                                  breakdancer/suite_stubs.c \
-                                  breakdancer/suite_stubs.h
+                                  testsuite/breakdancer/suite_stubs.c \
+                                  testsuite/breakdancer/suite_stubs.h
 breakdancer_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined -rpath /nowhere
 
-breakdancer_testsuite.c: breakdancer/breakdancer.py breakdancer/engine_test.py
-	${top_srcdir}/breakdancer/engine_test.py > breakdancer_testsuite.c || ( rm breakdancer_testsuite.c && /bin/false)
+breakdancer_testsuite.c: testsuite/breakdancer/breakdancer.py testsuite/breakdancer/engine_test.py
+	${top_srcdir}/testsuite/breakdancer/engine_test.py > breakdancer_testsuite.c || ( rm breakdancer_testsuite.c && /bin/false)
 
 ENGINE_TESTS=test_engine
 
@@ -213,7 +214,7 @@ default_engine_dtrace.lo: $(default_engine_la_OBJECTS)
 
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4 \
-             breakdancer/engine_tests.py breakdancer/breakdancer.py
+             testsuite/breakdancer/engine_tests.py testsuite/breakdancer/breakdancer.py
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
