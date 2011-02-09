@@ -1,4 +1,5 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+#undef NDEBUG
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -431,6 +432,7 @@ static enum test_result item_set_cas_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1
     return SUCCESS;
 }
 
+uint32_t evictions;
 static void eviction_stats_handler(const char *key, const uint16_t klen,
                                    const char *val, const uint32_t vlen,
                                    const void *cookie) {
@@ -438,7 +440,7 @@ static void eviction_stats_handler(const char *key, const uint16_t klen,
         char buffer[vlen + 1];
         memcpy(buffer, val, vlen);
         buffer[vlen] = '\0';
-        *((uint32_t*)cookie) = atoi(buffer);
+        evictions = atoi(buffer);
     }
 }
 
@@ -464,9 +466,7 @@ static enum test_result lru_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
         assert(h1->store(h, NULL, test_item,
                          &cas, OPERATION_SET,0) == ENGINE_SUCCESS);
         h1->release(h, NULL, test_item);
-
-        uint32_t evictions = 0;
-        assert(h1->get_stats(h, &evictions, NULL, 0,
+        assert(h1->get_stats(h, NULL, NULL, 0,
                              eviction_stats_handler) == ENGINE_SUCCESS);
         if (evictions == 2) {
             break;
@@ -487,7 +487,6 @@ static enum test_result lru_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
             h1->release(h, NULL, test_item);
         }
     }
-
     return SUCCESS;
 }
 
