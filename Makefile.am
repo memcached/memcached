@@ -227,7 +227,7 @@ test_engine: engine_testapp basic_engine_testsuite.la
 	./engine_testapp -E .libs/default_engine.so -t $(TEST_TIMEOUT) \
 		-T .libs/basic_engine_testsuite.so
 
-test: $(ENGINE_TESTS) memcached sizes testapp timedrun
+test: $(bin_PROGRAMS) $(noinst_PROGRAMS) $(pkglib_LTLIBRARIES) $(ENGINE_TESTS)
 	./sizes
 	./testapp
 	prove $(srcdir)/t
