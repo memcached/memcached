@@ -121,15 +121,16 @@ CLEANFILES=
 BUILT_SOURCES=
 
 # The default storage engine
-default_engine_la_SOURCES= \
-                    assoc.c \
-                    assoc.h \
-                    default_engine.c \
-                    default_engine.h \
-                    items.c \
-                    items.h \
-                    slabs.c \
-                    slabs.h
+default_engine_la_SOURCES= engines/default_engine/assoc.c \
+                           engines/default_engine/assoc.h \
+                           engines/default_engine/default_engine.c \
+                           engines/default_engine/default_engine.h \
+                           engines/default_engine/items.c \
+                           engines/default_engine/items.h \
+                           engines/default_engine/slabs.c \
+                           engines/default_engine/slabs.h
+
+default_engine_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/engines/default_engine
 default_engine_la_DEPENDENCIES= libmemcached_utilities.la
 default_engine_la_LIBADD= libmemcached_utilities.la $(LIBM)
 default_engine_la_LDFLAGS= -avoid-version -shared -module -no-undefined
