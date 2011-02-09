@@ -41,28 +41,32 @@ endif
 noinst_LTLIBRARIES=
 
 
+sizes_SOURCES = programs/sizes.c
+
+
 # Test application to test stuff from C
-testapp_SOURCES = testapp.c
+testapp_SOURCES = programs/testapp.c
 testapp_DEPENDENCIES= libmemcached_utilities.la
 testapp_LDADD= libmemcached_utilities.la $(APPLICATION_LIBS)
 
-mcstat_SOURCES = mcstat.c
+mcstat_SOURCES = programs/mcstat.c
 mcstat_LDADD = $(APPLICATION_LIBS)
 
 
 # New and fancy test program to test engines without the need to run
 # everything through the network layer
+engine_testapp_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/programs
 engine_testapp_SOURCES = \
-                        engine_testapp.c \
-                        mock_server.c \
-                        mock_server.h \
+                        programs/engine_testapp.c \
+                        programs/mock_server.c \
+                        programs/mock_server.h \
                         include/memcached/engine_testapp.h
 engine_testapp_DEPENDENCIES= libmemcached_utilities.la
 engine_testapp_LDADD= libmemcached_utilities.la $(APPLICATION_LIBS)
 
 # Small application used start another application and terminate it after
 # a certain amount of time
-timedrun_SOURCES = timedrun.c
+timedrun_SOURCES = programs/timedrun.c
 
 # A collection of functions used by the various modules in memcached
 libmemcached_utilities_la_SOURCES= \
