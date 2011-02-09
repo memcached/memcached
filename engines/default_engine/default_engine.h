@@ -35,7 +35,6 @@ struct default_engine;
 #include "trace.h"
 #include "items.h"
 #include "assoc.h"
-#include "hash.h"
 #include "slabs.h"
 
 #ifdef __cplusplus

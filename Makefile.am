@@ -40,11 +40,12 @@ endif
 
 noinst_LTLIBRARIES=
 
-
+sizes_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/daemon
 sizes_SOURCES = programs/sizes.c
 
 
 # Test application to test stuff from C
+testapp_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/daemon
 testapp_SOURCES = programs/testapp.c
 testapp_DEPENDENCIES= libmemcached_utilities.la
 testapp_LDADD= libmemcached_utilities.la $(APPLICATION_LIBS)
@@ -83,39 +84,41 @@ libmemcached_utilities_la_SOURCES= \
                         utilities/util.c
 
 memcached_SOURCES = \
-                    cache.h \
+                    daemon/cache.h \
                     config_static.h \
-                    daemon.c \
-                    hash.c \
-                    hash.h \
-                    memcached.c\
-                    memcached.h \
-                    sasl_defs.h \
-                    stats.c stats.h \
-                    thread.c \
-                    topkeys.c \
-                    topkeys.h \
-                    trace.h
+                    daemon/daemon.c \
+                    daemon/hash.c \
+                    daemon/hash.h \
+                    daemon/memcached.c\
+                    daemon/memcached.h \
+                    daemon/sasl_defs.h \
+                    daemon/stats.c \
+                    daemon/stats.h \
+                    daemon/thread.c \
+                    daemon/topkeys.c \
+                    daemon/topkeys.h \
+                    daemon/trace.h
+memcached_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/daemon
 memcached_LDFLAGS =-R '$(pkglibdir)' -R '$(libdir)'
 memcached_CFLAGS = @PROFILER_FLAGS@
 memcached_DEPENDENCIES = libmemcached_utilities.la
 memcached_LDADD = @PROFILER_LDFLAGS@ libmemcached_utilities.la -levent $(APPLICATION_LIBS)
 
 if BUILD_CACHE
-memcached_SOURCES += cache.c
-testapp_SOURCES += cache.c
+memcached_SOURCES += daemon/cache.c
+testapp_SOURCES += daemon/cache.c
 endif
 
 if BUILD_SOLARIS_PRIVS
-memcached_SOURCES += solaris_priv.c
+memcached_SOURCES += daemon/solaris_priv.c
 endif
 
 if ENABLE_SASL
-memcached_SOURCES += sasl_defs.c
+memcached_SOURCES += daemon/sasl_defs.c
 endif
 
 if ENABLE_ISASL
-memcached_SOURCES += sasl_defs.c isasl.c isasl.h
+memcached_SOURCES += daemon/sasl_defs.c daemon/isasl.c daemon/isasl.h
 endif
 
 if INCLUDE_DEFAULT_ENGINE
@@ -186,7 +189,6 @@ eventlog_logger_la_SOURCES = extensions/loggers/eventlog_logger.c \
 eventlog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
 
 
-breakdancer_testsuite_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/testsuite
 basic_engine_testsuite_la_SOURCES= testsuite/basic_engine_testsuite.c \
                                    testsuite/basic_engine_testsuite.h
 basic_engine_testsuite_la_DEPENDENCIES= libmemcached_utilities.la
