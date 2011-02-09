@@ -21,27 +21,30 @@ pkginclude_HEADERS = \
                      include/memcached/vbucket.h \
                      include/memcached/visibility.h
 
-lib_LTLIBRARIES = ascii_scrub.la \
-                  basic_engine_testsuite.la \
-                  default_engine.la \
-                  example_protocol.la \
-                  stdin_term_handler.la
+# libmemcached_utilities.la needs to be listed first because some of the
+# other modules depend on it
+pkglib_LTLIBRARIES = libmemcached_utilities.la \
+                     ascii_scrub.la \
+                     basic_engine_testsuite.la \
+                     default_engine.la \
+                     example_protocol.la \
+                     stdin_term_handler.la
 
 if BUILD_SYSLOG_LOGGER
-lib_LTLIBRARIES += syslog_logger.la
+pkglib_LTLIBRARIES += syslog_logger.la
 endif
 
 if BUILD_EVENTLOG_LOGGER
-lib_LTLIBRARIES += eventlog_logger.la
+pkglib_LTLIBRARIES += eventlog_logger.la
 endif
 
-noinst_LTLIBRARIES=libmcd_util.la
+noinst_LTLIBRARIES=
 
 
 # Test application to test stuff from C
 testapp_SOURCES = testapp.c
-testapp_DEPENDENCIES= libmcd_util.la
-testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
+testapp_DEPENDENCIES= libmemcached_utilities.la
+testapp_LDADD= libmemcached_utilities.la $(APPLICATION_LIBS)
 
 mcstat_SOURCES = mcstat.c
 mcstat_LDADD = $(APPLICATION_LIBS)
@@ -54,15 +57,15 @@ engine_testapp_SOURCES = \
                         mock_server.c \
                         mock_server.h \
                         include/memcached/engine_testapp.h
-engine_testapp_DEPENDENCIES= libmcd_util.la
-engine_testapp_LDADD= libmcd_util.la $(APPLICATION_LIBS)
+engine_testapp_DEPENDENCIES= libmemcached_utilities.la
+engine_testapp_LDADD= libmemcached_utilities.la $(APPLICATION_LIBS)
 
 # Small application used start another application and terminate it after
 # a certain amount of time
 timedrun_SOURCES = timedrun.c
 
 # A collection of functions used by the various modules in memcached
-libmcd_util_la_SOURCES= \
+libmemcached_utilities_la_SOURCES= \
                         config_parser.c \
                         engine_loader.h engine_loader.c \
                         extension_loggers.c \
@@ -87,10 +90,10 @@ memcached_SOURCES = \
                     topkeys.c \
                     topkeys.h \
                     trace.h
-memcached_LDFLAGS =-R '$(libdir)'
+memcached_LDFLAGS =-R '$(pkglibdir)' -R '$(libdir)'
 memcached_CFLAGS = @PROFILER_FLAGS@
-memcached_DEPENDENCIES = libmcd_util.la
-memcached_LDADD = @PROFILER_LDFLAGS@ libmcd_util.la -levent $(APPLICATION_LIBS)
+memcached_DEPENDENCIES = libmemcached_utilities.la
+memcached_LDADD = @PROFILER_LDFLAGS@ libmemcached_utilities.la -levent $(APPLICATION_LIBS)
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c
@@ -127,8 +130,8 @@ default_engine_la_SOURCES= \
                     items.h \
                     slabs.c \
                     slabs.h
-default_engine_la_DEPENDENCIES= libmcd_util.la
-default_engine_la_LIBADD= libmcd_util.la $(LIBM)
+default_engine_la_DEPENDENCIES= libmemcached_utilities.la
+default_engine_la_LIBADD= libmemcached_utilities.la $(LIBM)
 default_engine_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 if BUILD_DTRACE
@@ -168,8 +171,8 @@ eventlog_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
 
 basic_engine_testsuite_la_SOURCES= basic_engine_testsuite.c \
                                    basic_engine_testsuite.h
-basic_engine_testsuite_la_DEPENDENCIES= libmcd_util.la
-basic_engine_testsuite_la_LIBADD= libmcd_util.la $(LIBM)
+basic_engine_testsuite_la_DEPENDENCIES= libmemcached_utilities.la
+basic_engine_testsuite_la_LIBADD= libmemcached_utilities.la $(LIBM)
 basic_engine_testsuite_la_LDFLAGS= -avoid-version -shared -module -no-undefined
 
 breakdancer_testsuite_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/breakdancer
