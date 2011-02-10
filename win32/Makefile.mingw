@@ -15,7 +15,18 @@ LOCALINC=-I${LOCAL}/include
 DEST=${LOCAL}
 INSTALLDIRS=${DEST}/bin ${DEST}/lib ${DEST}/include/memcached
 
-OBJDIR = .libs .libs/win32
+OBJDIR = .libs \
+	 .libs/engines \
+         .libs/daemon \
+         .libs/engines/default_engine \
+         .libs/extensions/daemon \
+         .libs/extensions/loggers \
+         .libs/extensions/protocol \
+         .libs/programs \
+         .libs/testsuite \
+         .libs/utilities \
+         .libs/win32
+
 BINARIES= mcstat.exe \
           memcached.exe \
           engine_testapp.exe \
@@ -28,7 +39,7 @@ BINARIES= mcstat.exe \
           .libs/stdin_term_handler.so
 
 LIB=${LOCALLIB}
-INCLUDE=-Iinclude -I. -Iwin32 -I.libs ${LOCALINC}
+INCLUDE=-Iinclude -I. -Idaemon -Iprograms -Iextensions -Iwin32 -I.libs ${LOCALINC}
 
 all: ${BINARIES}
 
@@ -42,64 +53,62 @@ CFLAGS = -std=gnu99 -O2 -g -DNDEBUG -fno-strict-aliasing -Wall \
  -Wredundant-decls \
  ${INCLUDE} -DHAVE_CONFIG_H
 
-MCSTAT_SRC = mcstat.c win32/win32.c
+MCSTAT_SRC = programs/mcstat.c win32/win32.c
 MCSTAT_OBJS = ${MCSTAT_SRC:%.c=.libs/%.o}
 
 MEMCACHED_SRC = \
-	      cache.c \
-	      config_parser.c \
-	      engine_loader.c \
-	      extension_loggers.c\
-	      genhash.c \
-	      globals.c \
-	      hash.c \
-	      isasl.c \
-	      memcached.c \
-	      sasl_defs.c \
-	      stats.c \
-	      stdin_check.c \
-	      thread.c \
-	      topkeys.c \
-	      util.c \
+	      daemon/cache.c \
+	      daemon/hash.c \
+	      daemon/isasl.c \
+	      daemon/memcached.c \
+	      daemon/sasl_defs.c \
+	      daemon/stats.c \
+	      daemon/thread.c \
+	      daemon/topkeys.c \
+	      utilities/config_parser.c \
+	      utilities/engine_loader.c \
+	      utilities/extension_loggers.c\
+	      utilities/genhash.c \
+	      utilities/util.c \
 	      win32/defs.c \
 	      win32/dlfcn.c \
 	      win32/win32.c
 MEMCACHED_OBJS = ${MEMCACHED_SRC:%.c=.libs/%.o}
 
 ENGINE_TESTAPP_SRC = \
-		   config_parser.c \
-		   engine_loader.c \
-		   engine_testapp.c \
-		   extension_loggers.c \
-		   mock_server.c \
-		   util.c \
+		   programs/engine_testapp.c \
+		   programs/mock_server.c \
+		   utilities/config_parser.c \
+		   utilities/engine_loader.c \
+		   utilities/extension_loggers.c \
+		   utilities/util.c \
 		   win32/dlfcn.c
 ENGINE_TESTAPP_OBJS = ${ENGINE_TESTAPP_SRC:%.c=.libs/%.o}
 
-SIZES_SRC = sizes.c
+SIZES_SRC = programs/sizes.c
 SIZES_OBJS = ${SIZES_SRC:%.c=.libs/%.o}
 
 DEFAULT_ENGINE_SRC = \
-		   assoc.c \
-		   default_engine.c \
-		   items.c \
-		   slabs.c \
-		   util.c
+		   engines/default_engine/assoc.c \
+		   engines/default_engine/default_engine.c \
+		   engines/default_engine/items.c \
+		   engines/default_engine/slabs.c \
+		   utilities/util.c
 DEFAULT_ENGINE_OBJS = ${DEFAULT_ENGINE_SRC:%.c=.libs/%.o}
 
-ASCII_SCRUB_SRC = ascii_scrub.c
+ASCII_SCRUB_SRC = extensions/protocol/ascii_scrub.c
 ASCII_SCRUB_OBJS = ${ASCII_SCRUB_SRC:%.c=.libs/%.o}
 
-EXAMPLE_PROTOCOL_SRC = example_protocol.c
+EXAMPLE_PROTOCOL_SRC = extensions/protocol/example_protocol.c
 EXAMPLE_PROTOCOL_OBJS = ${EXAMPLE_PROTOCOL_SRC:%.c=.libs/%.o}
 
-STDIN_TERM_HANDLER_SRC = stdin_check.c
+STDIN_TERM_HANDLER_SRC = extensions/daemon/stdin_check.c
 STDIN_TERM_HANDLER_OBJS = ${STDIN_TERM_HANDLER_SRC:%.c=.libs/%.o}
 
-EVENTLOG_LOGGER_SRC = eventlog_logger.c
+EVENTLOG_LOGGER_SRC = extensions/loggers/eventlog_logger.c
 EVENTLOG_LOGGER_OBJS = ${EVENTLOG_LOGGER_SRC:%.c=.libs/%.o}
 
-BASIC_ENGINE_TESTSUITE_SRC = basic_engine_testsuite.c
+BASIC_ENGINE_TESTSUITE_SRC = testsuite/basic_engine_testsuite.c
 BASIC_ENGINE_TESTSUITE_OBJS = ${BASIC_ENGINE_TESTSUITE_SRC:%.c=.libs/%.o}
 
 GENFILES=.libs/config_version.h
@@ -140,12 +149,12 @@ sizes.exe: ${OBJDIR} ${GENFILES} $(SIZES_OBJS)
                   ${LIB}
 
 .libs/basic_engine_testsuite.so: ${OBJDIR} $(BASIC_ENGINE_TESTSUITE_OBJS)
-	${LINK.c} -o $@ -shared ${BASIC_ENGINE_TESTSUITE_OBJS}
+	${LINK.c} -o $@ -shared ${BASIC_ENGINE_TESTSUITE_OBJS}  -lpthread
 
 .libs/config_version.h:
 	./win32/config.sh
 
-.libs .libs/win32 ${INSTALLDIRS}:; -@mkdir $@
+${OBJDIR} ${INSTALLDIRS}:; -@mkdir -p $@
 
 .libs/%.o: %.c
 	${COMPILE.c} -MMD $< -o $@
