@@ -3,7 +3,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
-#include "engine_loader.h"
+#include "utilities/engine_loader.h"
 #include <memcached/types.h>
 
 static const char * const feature_descriptions[] = {

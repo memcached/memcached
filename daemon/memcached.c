@@ -16,6 +16,7 @@
 #include "config.h"
 #include "memcached.h"
 #include "memcached/extension_loggers.h"
+#include "utilities/engine_loader.h"
 
 #include <signal.h>
 #include <getopt.h>

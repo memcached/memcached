@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <pthread.h>
-#include <engine_loader.h>
+#include "utilities/engine_loader.h"
 #include <memcached/engine_testapp.h>
 #include <memcached/extension_loggers.h>
 #include <mock_server.h>
