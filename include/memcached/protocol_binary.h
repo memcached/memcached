@@ -119,6 +119,9 @@ extern "C"
         PROTOCOL_BINARY_CMD_APPENDQ = 0x19,
         PROTOCOL_BINARY_CMD_PREPENDQ = 0x1a,
         PROTOCOL_BINARY_CMD_VERBOSITY = 0x1b,
+        PROTOCOL_BINARY_CMD_TOUCH = 0x1c,
+        PROTOCOL_BINARY_CMD_GAT = 0x1d,
+        PROTOCOL_BINARY_CMD_GATQ = 0x1e,
 
         PROTOCOL_BINARY_CMD_SASL_LIST_MECHS = 0x20,
         PROTOCOL_BINARY_CMD_SASL_AUTH = 0x21,
@@ -431,6 +434,46 @@ extern "C"
      * Definition of the packet returned from the verbosity command
      */
     typedef protocol_binary_response_no_extras protocol_binary_response_verbosity;
+
+    /**
+     * Definition of the packet used by the touch command.
+     */
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                uint32_t expiration;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
+    } protocol_binary_request_touch;
+
+    /**
+     * Definition of the packet returned from the touch command
+     */
+    typedef protocol_binary_response_no_extras protocol_binary_response_touch;
+
+    /**
+     * Definition of the packet used by the GAT(Q) command.
+     */
+    typedef union {
+        struct {
+            protocol_binary_request_header header;
+            struct {
+                uint32_t expiration;
+            } body;
+        } message;
+        uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
+    } protocol_binary_request_gat;
+
+    typedef protocol_binary_request_gat protocol_binary_request_gatq;
+
+    /**
+     * Definition of the packet returned from the GAT(Q)
+     */
+    typedef protocol_binary_response_get protocol_binary_response_gat;
+    typedef protocol_binary_response_get protocol_binary_response_gatq;
+
 
     /**
      * Definition of a request for a range operation.

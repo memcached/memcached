@@ -852,6 +852,31 @@ ENGINE_ERROR_CODE store_item(struct default_engine *engine,
     return ret;
 }
 
+static hash_item *do_touch_item(struct default_engine *engine,
+                                     const void *key,
+                                     uint16_t nkey,
+                                     uint32_t exptime)
+{
+   hash_item *item = do_item_get(engine, key, nkey);
+   if (item != NULL) {
+       item->exptime = exptime;
+   }
+   return item;
+}
+
+hash_item *touch_item(struct default_engine *engine,
+                           const void *key,
+                           uint16_t nkey,
+                           uint32_t exptime)
+{
+    hash_item *ret;
+
+    pthread_mutex_lock(&engine->cache_lock);
+    ret = do_touch_item(engine, key, nkey, exptime);
+    pthread_mutex_unlock(&engine->cache_lock);
+    return ret;
+}
+
 /*
  * Flushes expired items after a flush_all call
  */

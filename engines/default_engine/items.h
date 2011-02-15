@@ -128,6 +128,19 @@ void item_release(struct default_engine *engine, hash_item *it);
 void item_unlink(struct default_engine *engine, hash_item *it);
 
 /**
+ * Set the expiration time for an object
+ * @param engine handle to the storage engine
+ * @param key the key to set
+ * @param nkey the number of characters in key..
+ * @param exptime the expiration time
+ * @return The (updated) item if it exists
+ */
+hash_item *touch_item(struct default_engine *engine,
+                      const void *key,
+                      uint16_t nkey,
+                      uint32_t exptime);
+
+/**
  * Store an item in the cache
  * @param engine handle to the storage engine
  * @param item the item to store

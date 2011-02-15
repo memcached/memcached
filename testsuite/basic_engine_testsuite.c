@@ -1,5 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #undef NDEBUG
+#include "config.h"
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -506,8 +507,285 @@ static enum test_result aggregate_stats_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 
     return PENDING;
 }
 
-static enum test_result unknown_command_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
-    return PENDING;
+static protocol_binary_response_header *last_response;
+
+static void release_last_response(void) {
+    free(last_response);
+    last_response = NULL;
+}
+
+static bool response_handler(const void *key, uint16_t keylen,
+                             const void *ext, uint8_t extlen,
+                             const void *body, uint32_t bodylen,
+                             uint8_t datatype, uint16_t status,
+                             uint64_t cas, const void *cookie)
+{
+    assert(last_response == NULL);
+    last_response = malloc(sizeof(*last_response) + keylen + extlen + bodylen);
+    if (last_response == NULL) {
+        return false;
+    }
+    protocol_binary_response_header *r = last_response;
+    r->response.magic = PROTOCOL_BINARY_RES;
+    r->response.opcode = 0xff; // we don't know this!
+    r->response.keylen = htons(keylen);
+    r->response.extlen = extlen;
+    r->response.datatype = PROTOCOL_BINARY_RAW_BYTES;
+    r->response.status = htons(status);
+    r->response.bodylen = htonl(keylen + extlen + bodylen);
+    r->response.opaque = 0xffffff; // we don't know this
+    r->response.cas = cas;
+    char *ptr = (void*)(r + 1);
+    memcpy(ptr, ext, extlen);
+    ptr += extlen;
+    memcpy(ptr, key, keylen);
+    ptr += keylen;
+    memcpy(ptr, body, bodylen);
+
+    return true;
+}
+
+static enum test_result touch_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    union request {
+        protocol_binary_request_touch touch;
+        char buffer[512];
+    };
+
+    void *key = "get_test_key";
+    size_t keylen = strlen(key);
+    union request r = {
+        .touch = {
+            .message = {
+                .header.request = {
+                    .magic = PROTOCOL_BINARY_REQ,
+                    .opcode = PROTOCOL_BINARY_CMD_TOUCH,
+                    .keylen = htons((uint16_t)keylen),
+                    .extlen = 4,
+                    .datatype = PROTOCOL_BINARY_RAW_BYTES,
+                    .vbucket = 0,
+                    .bodylen = htonl(keylen + 4),
+                    .opaque = 0xdeadbeef,
+                    .cas = 0
+                },
+                .body = {
+                    .expiration = htonl(10)
+                }
+            }
+        }
+    };
+
+    memcpy(r.buffer + sizeof(r.touch.bytes), key, keylen);
+    ENGINE_ERROR_CODE ret;
+    ret = h1->unknown_command(h, NULL, &r.touch.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+    assert(last_response->response.keylen == 0);
+    assert(last_response->response.extlen == 0);
+    assert(last_response->response.bodylen == 0);
+    release_last_response();
+
+    // store and get a key
+    assert(get_test(h, h1) == SUCCESS);
+
+    // Set expiry time to 10 secs..
+    ret = h1->unknown_command(h, NULL, &r.touch.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    assert(last_response->response.keylen == 0);
+    assert(last_response->response.extlen == 0);
+    assert(last_response->response.bodylen == 0);
+    release_last_response();
+
+    // time-travel 11 secs..
+    test_harness.time_travel(11);
+
+    // The item should have expired now...
+    item *item = NULL;
+    assert(h1->get(h, NULL, &item, key, keylen, 0) == ENGINE_KEY_ENOENT);
+
+    // Verify that it doesn't accept bogus packets. extlen is mandatory
+    r.touch.message.header.request.extlen = 0;
+    r.touch.message.header.request.bodylen = htonl(keylen);
+    ret = h1->unknown_command(h, NULL, &r.touch.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_EINVAL);
+    release_last_response();
+
+    // key is mandatory!
+    r.touch.message.header.request.extlen = 4;
+    r.touch.message.header.request.keylen = 0;
+    r.touch.message.header.request.bodylen = htonl(4);
+    ret = h1->unknown_command(h, NULL, &r.touch.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_EINVAL);
+    release_last_response();
+
+    return SUCCESS;
+}
+
+static enum test_result gat_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    union request {
+        protocol_binary_request_gat gat;
+        char buffer[512];
+    };
+
+    void *key = "get_test_key";
+    size_t keylen = strlen(key);
+    union request r = {
+        .gat = {
+            .message = {
+                .header.request = {
+                    .magic = PROTOCOL_BINARY_REQ,
+                    .opcode = PROTOCOL_BINARY_CMD_GAT,
+                    .keylen = htons((uint16_t)keylen),
+                    .extlen = 4,
+                    .datatype = PROTOCOL_BINARY_RAW_BYTES,
+                    .vbucket = 0,
+                    .bodylen = htonl(keylen + 4),
+                    .opaque = 0xdeadbeef,
+                    .cas = 0
+                },
+                .body = {
+                    .expiration = htonl(10)
+                }
+            }
+        }
+    };
+
+    memcpy(r.buffer + sizeof(r.gat.bytes), key, keylen);
+    ENGINE_ERROR_CODE ret;
+    ret = h1->unknown_command(h, NULL, &r.gat.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+    assert(last_response->response.keylen == 0);
+    assert(last_response->response.extlen == 0);
+    assert(last_response->response.bodylen == 0);
+    release_last_response();
+
+    // store and get a key
+    assert(get_test(h, h1) == SUCCESS);
+
+    // Set expiry time to 10 secs..
+    ret = h1->unknown_command(h, NULL, &r.gat.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    assert(last_response->response.keylen == 0);
+    assert(last_response->response.extlen == 4);
+    assert(ntohl(last_response->response.bodylen) == 5); // get_test sets 1 byte datalen
+    release_last_response();
+
+    // time-travel 11 secs..
+    test_harness.time_travel(11);
+
+    // The item should have expired now...
+    item *item = NULL;
+    assert(h1->get(h, NULL, &item, key, keylen, 0) == ENGINE_KEY_ENOENT);
+
+    // Verify that it doesn't accept bogus packets. extlen is mandatory
+    r.gat.message.header.request.extlen = 0;
+    r.gat.message.header.request.bodylen = htonl(keylen);
+    ret = h1->unknown_command(h, NULL, &r.gat.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_EINVAL);
+    release_last_response();
+
+    // key is mandatory!
+    r.gat.message.header.request.extlen = 4;
+    r.gat.message.header.request.keylen = 0;
+    r.gat.message.header.request.bodylen = htonl(4);
+    ret = h1->unknown_command(h, NULL, &r.gat.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_EINVAL);
+    release_last_response();
+
+    return SUCCESS;
+}
+
+static enum test_result gatq_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    union request {
+        protocol_binary_request_gat gat;
+        char buffer[512];
+    };
+
+    void *key = "get_test_key";
+    size_t keylen = strlen(key);
+    union request r = {
+        .gat = {
+            .message = {
+                .header.request = {
+                    .magic = PROTOCOL_BINARY_REQ,
+                    .opcode = PROTOCOL_BINARY_CMD_GATQ,
+                    .keylen = htons((uint16_t)keylen),
+                    .extlen = 4,
+                    .datatype = PROTOCOL_BINARY_RAW_BYTES,
+                    .vbucket = 0,
+                    .bodylen = htonl(keylen + 4),
+                    .opaque = 0xdeadbeef,
+                    .cas = 0
+                },
+                .body = {
+                    .expiration = htonl(10)
+                }
+            }
+        }
+    };
+
+    memcpy(r.buffer + sizeof(r.gat.bytes), key, keylen);
+    ENGINE_ERROR_CODE ret;
+    ret = h1->unknown_command(h, NULL, &r.gat.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+
+    // GATQ is quiet and should not produce any result
+    assert(last_response == NULL);
+
+    // store and get a key
+    assert(get_test(h, h1) == SUCCESS);
+
+    // Set expiry time to 10 secs..
+    ret = h1->unknown_command(h, NULL, &r.gat.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    assert(last_response->response.keylen == 0);
+    assert(last_response->response.extlen == 4);
+    assert(ntohl(last_response->response.bodylen) == 5); // get_test sets 1 byte datalen
+    release_last_response();
+
+    // time-travel 11 secs..
+    test_harness.time_travel(11);
+
+    // The item should have expired now...
+    item *item = NULL;
+    assert(h1->get(h, NULL, &item, key, keylen, 0) == ENGINE_KEY_ENOENT);
+
+    // Verify that it doesn't accept bogus packets. extlen is mandatory
+    r.gat.message.header.request.extlen = 0;
+    r.gat.message.header.request.bodylen = htonl(keylen);
+    ret = h1->unknown_command(h, NULL, &r.gat.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_EINVAL);
+    release_last_response();
+
+    // key is mandatory!
+    r.gat.message.header.request.extlen = 4;
+    r.gat.message.header.request.keylen = 0;
+    r.gat.message.header.request.bodylen = htonl(4);
+    ret = h1->unknown_command(h, NULL, &r.gat.message.header, response_handler);
+    assert(ret == ENGINE_SUCCESS);
+    assert(last_response != NULL);
+    assert(ntohs(last_response->response.status) == PROTOCOL_BINARY_RESPONSE_EINVAL);
+    release_last_response();
+
+    return SUCCESS;
 }
 
 MEMCACHED_PUBLIC_API
@@ -538,7 +816,9 @@ engine_test_t* get_tests(void) {
         {"reset stats test", reset_stats_test, NULL, NULL, NULL},
         {"get stats struct test", get_stats_struct_test, NULL, NULL, NULL},
         {"aggregate stats test", aggregate_stats_test, NULL, NULL, NULL},
-        {"unknown command test", unknown_command_test, NULL, NULL, NULL},
+        {"touch", touch_test, NULL, NULL, NULL},
+        {"Get And Touch", gat_test, NULL, NULL, NULL},
+        {"Get And Touch Quiet", gatq_test, NULL, NULL, NULL},
         {NULL, NULL, NULL, NULL, NULL}
     };
     return tests;
@@ -549,3 +829,4 @@ bool setup_suite(struct test_harness *th) {
     test_harness = *th;
     return true;
 }
+
