@@ -149,7 +149,7 @@ sizes.exe: ${OBJDIR} ${GENFILES} $(SIZES_OBJS)
                   ${LIB}
 
 .libs/basic_engine_testsuite.so: ${OBJDIR} $(BASIC_ENGINE_TESTSUITE_OBJS)
-	${LINK.c} -o $@ -shared ${BASIC_ENGINE_TESTSUITE_OBJS}  -lpthread
+	${LINK.c} -o $@ -shared ${BASIC_ENGINE_TESTSUITE_OBJS} ${LIB} -lpthread -lws2_32
 
 .libs/config_version.h:
 	./win32/config.sh
