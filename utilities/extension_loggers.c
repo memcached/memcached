@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 #include <memcached/extension.h>
 #include <memcached/extension_loggers.h>
 #include <memcached/engine.h>
@@ -18,11 +19,15 @@ static void stderror_logger_log(EXTENSION_LOG_LEVEL severity,
 {
     if (severity >= current_log_level) {
         (void)client_cookie;
-
+        int len = strlen(fmt);
+        bool needlf = (len > 0 && fmt[len - 1] != '\n');
         va_list ap;
         va_start(ap, fmt);
         vfprintf(stderr, fmt, ap);
         va_end(ap);
+        if (needlf) {
+            fprintf(stderr, "\n");
+        }
         fflush(stderr);
     }
 }
