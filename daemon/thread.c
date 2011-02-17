@@ -17,6 +17,7 @@
 
 #define ITEMS_PER_ALLOC 64
 
+static char devnull[8192];
 extern volatile sig_atomic_t memcached_shutdown;
 
 /* An item in the connection queue. */
@@ -272,14 +273,8 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     assert(me->type == GENERAL);
     CQ_ITEM *item;
-    char buf[1];
 
-    if (memcached_shutdown) {
-         event_base_loopbreak(me->base);
-         return ;
-    }
-
-    if (recv(fd, buf, 1, 0) != 1) {
+    if (recv(fd, devnull, sizeof(devnull), 0) == -1) {
         if (settings.verbose > 0) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                             "Can't read from libevent pipe: %s\n",
@@ -287,11 +282,15 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         }
     }
 
-    item = cq_pop(me->new_conn_queue);
+    if (memcached_shutdown) {
+         event_base_loopbreak(me->base);
+         return ;
+    }
 
-    if (NULL != item) {
+    while ((item = cq_pop(me->new_conn_queue)) != NULL) {
         conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
-                           item->read_buffer_size, item->transport, me->base, NULL);
+                           item->read_buffer_size, item->transport, me->base,
+                           NULL);
         if (c == NULL) {
             if (IS_UDP(item->transport)) {
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -414,22 +413,22 @@ void finalize_list(conn **list, size_t items) {
     }
 }
 
+
 static void libevent_tap_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     assert(me->type == TAP);
-    char buf[1];
 
-    if (memcached_shutdown) {
-        event_base_loopbreak(me->base);
-        return ;
-    }
-
-    if (read(fd, buf, 1) != 1) {
+    if (recv(fd, devnull, sizeof(devnull), 0) == -1) {
         if (settings.verbose > 0) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                             "Can't read from libevent pipe: %s\n",
                                             strerror(errno));
         }
+    }
+
+    if (memcached_shutdown) {
+        event_base_loopbreak(me->base);
+        return ;
     }
 
     // Do we have pending closes?
@@ -829,8 +828,14 @@ void threads_shutdown(void)
 
 void notify_thread(LIBEVENT_THREAD *thread) {
     if (send(thread->notify[1], "", 1, 0) != 1) {
-        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                        "Failed to notify thread: %s",
-                                        strerror(errno));
+        if (thread == tap_thread) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to notify TAP thread: %s",
+                                            strerror(errno));
+        } else {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to notify thread: %s",
+                                            strerror(errno));
+        }
     }
 }
