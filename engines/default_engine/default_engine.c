@@ -144,7 +144,7 @@ static const char const * vbucket_state_name(vbucket_state_t s) {
         [vbucket_state_pending] = "pending",
         [vbucket_state_dead] = "dead"
     };
-    if (!is_valid_vbucket_state_t(s)) {
+    if (is_valid_vbucket_state_t(s)) {
         return vbucket_states[s];
     } else {
         return "Illegal vbucket state";
