@@ -5020,6 +5020,16 @@ bool conn_ship_log(conn *c) {
 
         // we're going to process something.. let's proceed
         cont = true;
+
+        // We have a finite number of messages in the input queue
+        // so let's process all of them instead of backing off after
+        // reading a subset of them.
+        // Why? Because we've got every time we're calling ship_tap_log
+        // we try to send a chunk of items.. This means that if we end
+        // up in a situation where we're receiving a burst of nack messages
+        // we'll only process a subset of messages in our input queue,
+        // and it will slowly grow..
+        c->nevents = settings.reqs_per_tap_event;
     } else if (c->which & EV_WRITE) {
         --c->nevents;
         if (c->nevents >= 0) {
