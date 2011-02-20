@@ -3706,6 +3706,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("allow_detailed", "%s",
                 settings.allow_detailed ? "yes" : "no");
     APPEND_STAT("reqs_per_event", "%d", settings.reqs_per_event);
+    APPEND_STAT("reqs_per_tap_event", "%d", settings.reqs_per_tap_event);
     APPEND_STAT("cas_enabled", "%s", settings.use_cas ? "yes" : "no");
     APPEND_STAT("tcp_backlog", "%d", settings.backlog);
     APPEND_STAT("binding_protocol", "%s",
