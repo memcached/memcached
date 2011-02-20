@@ -321,7 +321,13 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         pending = pending->next;
         c->next = NULL;
         register_event(c, 0);
-        c->nevents = settings.reqs_per_event;
+        /*
+         * We don't want the thread to keep on serving all of the data
+         * from the context of the notification pipe, so just let it
+         * run one time to set up the correct mask in libevent
+         */
+        c->nevents = 1;
+       /* c->nevents = settings.reqs_per_event; */
         while (c->state(c)) {
             /* do task */
         }
@@ -470,9 +476,13 @@ static void libevent_tap_process(int fd, short which, void *arg) {
 
         UNLOCK_THREAD(me);
         register_event(c, NULL);
-        c->nevents = settings.reqs_per_tap_event;
+        /*
+         * We don't want the thread to keep on serving all of the data
+         * from the context of the notification pipe, so just let it
+         * run one time to set up the correct mask in libevent
+         */
+        c->nevents = 1;
         c->which = EV_WRITE;
-
         while (c->state(c)) {
             /* do task */
         }
