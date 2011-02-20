@@ -67,7 +67,7 @@
 #define STAT_VAL_LEN 128
 
 #define DEFAULT_REQS_PER_EVENT     20
-#define DEFAULT_REQS_PER_TAP_EVENT 1000
+#define DEFAULT_REQS_PER_TAP_EVENT 50
 
 /** Append a simple stat with a stat name, value format and value */
 #define APPEND_STAT(name, fmt, val) \
