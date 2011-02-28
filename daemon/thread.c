@@ -524,6 +524,13 @@ static bool is_thread_me(LIBEVENT_THREAD *thr) {
 
 void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
 {
+    if (cookie == NULL) {
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "notify_io_complete called without a valid cookie (status %x)\n",
+                                        status);
+        return ;
+    }
+
     struct conn *conn = (struct conn *)cookie;
 
     settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
