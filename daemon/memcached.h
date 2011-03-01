@@ -186,6 +186,7 @@ struct settings {
     double factor;          /* chunk size growth factor */
     int chunk_size;
     int num_threads;        /* number of worker (without dispatcher) libevent threads to run */
+    int num_threads_per_udp; /* number of worker threads serving each udp socket */
     char prefix_delimiter;  /* character that marks a key prefix (for stats) */
     int detail_enabled;     /* nonzero if we're collecting detailed stats */
     bool allow_detailed;    /* detailed stats commands are allowed */

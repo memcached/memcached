@@ -269,6 +269,7 @@ static void settings_init(void) {
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
     settings.num_threads = 4;         /* N workers */
+    settings.num_threads_per_udp = 0;
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
     settings.allow_detailed = true;
@@ -3700,6 +3701,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("growth_factor", "%.2f", settings.factor);
     APPEND_STAT("chunk_size", "%d", settings.chunk_size);
     APPEND_STAT("num_threads", "%d", settings.num_threads);
+    APPEND_STAT("num_threads_per_udp", "%d", settings.num_threads_per_udp);
     APPEND_STAT("stat_key_prefix", "%c", settings.prefix_delimiter);
     APPEND_STAT("detail_enabled", "%s",
                 settings.detail_enabled ? "yes" : "no");
@@ -5692,7 +5694,7 @@ static int server_socket(const char *interface,
         if (IS_UDP(transport)) {
             int c;
 
-            for (c = 0; c < settings.num_threads; c++) {
+            for (c = 0; c < settings.num_threads_per_udp; c++) {
                 /* this is guaranteed to hit all threads because we round-robin */
                 dispatch_conn_new(sfd, conn_read, EV_READ | EV_PERSIST,
                                   UDP_READ_BUFFER_SIZE, transport);
@@ -6967,6 +6969,16 @@ int main (int argc, char **argv) {
                     "Illegal argument \"%c\"\n", c);
             return 1;
         }
+    }
+
+    /*
+     * Use one workerthread to serve each UDP port if the user specified
+     * multiple ports
+     */
+    if (settings.inter != NULL && strchr(settings.inter, ',')) {
+        settings.num_threads_per_udp = 1;
+    } else {
+        settings.num_threads_per_udp = settings.num_threads;
     }
 
     if (getenv("MEMCACHED_REQS_TAP_EVENT") != NULL) {
