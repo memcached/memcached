@@ -5740,7 +5740,22 @@ static int server_sockets(int port, enum network_transport transport,
         for (char *p = strtok_r(list, ";,", &b);
              p != NULL;
              p = strtok_r(NULL, ";,", &b)) {
-            ret |= server_socket(p, port, transport, portnumber_file);
+            int the_port = port;
+
+            char *s = strchr(p, ':');
+            if (s != NULL) {
+                *s = '\0';
+                ++s;
+                if (!safe_strtol(s, &the_port)) {
+                    settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                                    "Invalid port number: \"%s\"", s);
+                    return 1;
+                }
+            }
+            if (strcmp(p, "*") == 0) {
+                p = NULL;
+            }
+            ret |= server_socket(p, the_port, transport, portnumber_file);
         }
         free(list);
         return ret;
@@ -5867,7 +5882,11 @@ static void usage(void) {
            "-U <num>      UDP port number to listen on (default: 11211, 0 is off)\n"
            "-s <file>     UNIX socket path to listen on (disables network support)\n"
            "-a <mask>     access mask for UNIX socket, in octal (default: 0700)\n"
-           "-l <ip_addr>  interface to listen on (default: INADDR_ANY, all addresses)\n"
+           "-l <addr>     interface to listen on (default: INADDR_ANY, all addresses)\n"
+           "              <addr> may be specified as host:port. If you don't specify\n"
+           "              a port number, the value you specified with -p or -U is\n"
+           "              used. You may specify multiple addresses separated by comma\n"
+           "              or by using -l multiple times\n"
            "-d            run as a daemon\n"
            "-r            maximize core file limit\n"
            "-u <username> assume identity of <username> (only when run as root)\n"
@@ -6766,7 +6785,20 @@ int main (int argc, char **argv) {
             perform_callbacks(ON_LOG_LEVEL, NULL, NULL);
             break;
         case 'l':
-            settings.inter= strdup(optarg);
+            if (settings.inter != NULL) {
+                size_t len = strlen(settings.inter) + strlen(optarg) + 2;
+                char *p = malloc(len);
+                if (p == NULL) {
+                    settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                                    "Failed to allocate memory\n");
+                    return 1;
+                }
+                snprintf(p, len, "%s,%s", settings.inter, optarg);
+                free(settings.inter);
+                settings.inter = p;
+            } else {
+                settings.inter= strdup(optarg);
+            }
             break;
         case 'd':
             do_daemonize = true;
