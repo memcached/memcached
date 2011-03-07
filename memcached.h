@@ -362,7 +362,7 @@ struct conn {
     void   *write_and_free; /** free this memory after finishing writing */
 
     char   *ritem;  /** when we read in an item's value, it goes here */
-    int    rlbytes;
+    uint32_t rlbytes;
 
     /* data for the nread state */
 
