@@ -351,6 +351,8 @@ struct conn {
     bool   noreply;   /* True if the reply should not be sent. */
     /* current stats command */
 
+    uint8_t refcount; /* number of references to the object */
+
     struct {
         char *buffer;
         size_t size;
@@ -379,11 +381,6 @@ struct conn {
     bool ewouldblock;
     bool tap_nack_mode;
     TAP_ITERATOR tap_iterator;
-
-    struct {
-        bool active;
-        rel_time_t  timeout;
-    } pending_close;
 };
 
 /* States for the connection list_state */

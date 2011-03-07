@@ -611,6 +611,7 @@ conn *conn_new(const SOCKET sfd, STATE_FUNC init_state,
 
     c->aiostat = ENGINE_SUCCESS;
     c->ewouldblock = false;
+    c->refcount = 1;
 
     MEMCACHED_CONN_ALLOCATE(c->sfd);
 
@@ -654,7 +655,6 @@ static void conn_cleanup(conn *c) {
     c->thread = NULL;
     assert(c->next == NULL);
     c->ascii_cmd = NULL;
-    c->pending_close.active = false;
     c->sfd = INVALID_SOCKET;
     c->tap_nack_mode = false;
 }
@@ -680,12 +680,6 @@ void conn_close(conn *c) {
     }
 
     assert(c->thread);
-    if (!c->pending_close.active) {
-        perform_callbacks(ON_DISCONNECT, NULL, c);
-    } else {
-        assert(current_time > c->pending_close.timeout);
-    }
-
     LOCK_THREAD(c->thread);
     /* remove from pending-io list */
     if (settings.verbose > 1 && list_contains(c->thread->pending_io, c)) {
@@ -5003,9 +4997,7 @@ bool conn_listening(conn *c)
 bool conn_ship_log(conn *c) {
     bool cont = false;
 
-    if (c->pending_close.active) {
-        // Remove the event if it is present..
-        unregister_event(c);
+    if (c->sfd == INVALID_SOCKET) {
         return false;
     }
 
@@ -5338,15 +5330,12 @@ bool conn_mwrite(conn *c) {
 }
 
 bool conn_pending_close(conn *c) {
-    assert(!c->pending_close.active);
     assert(c->sfd != -1);
     settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
                                     "Tap client connection closed (%d)."
                                     " Putting it (%p) in pending close\n",
                                     c->sfd, (void*)c);
     LOCK_THREAD(c->thread);
-    c->pending_close.timeout = current_time + 5;
-    c->pending_close.active = true;
     c->thread->pending_io = list_remove(c->thread->pending_io, c);
     if (!list_contains(c->thread->pending_close, c)) {
         enlist_conn(c, &c->thread->pending_close);
@@ -5382,9 +5371,10 @@ bool conn_immediate_close(conn *c) {
 
 bool conn_closing(conn *c) {
     assert(c->thread->type == TAP || c->thread->type == GENERAL);
-    if (c->thread == tap_thread) {
+    if (c->refcount > 1 || c->thread == tap_thread) {
         conn_set_state(c, conn_pending_close);
     } else {
+        perform_callbacks(ON_DISCONNECT, NULL, c);
         conn_set_state(c, conn_immediate_close);
     }
 
@@ -5498,10 +5488,10 @@ void event_handler(const int fd, const short which, void *arg) {
     if (n_pending_close > 0) {
         for (size_t i = 0; i < n_pending_close; ++i) {
             conn *ce = pending_close[i];
-            if (ce->pending_close.timeout < current_time) {
+            if (ce->refcount == 1) {
                 settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
-                                                "OK, time to nuke: %p: (%d)\n", (void*)ce,
-                                                ce->sfd);
+                                                "OK, time to nuke: %p\n",
+                                                (void*)ce);
                 conn_close(ce);
             } else {
                 LOCK_THREAD(ce->thread);
@@ -6148,6 +6138,16 @@ static void set_tap_nack_mode(const void *cookie, bool enable) {
     c->tap_nack_mode = enable;
 }
 
+static void reserve_cookie(const void *cookie) {
+    conn *c = (conn *)cookie;
+    ++c->refcount;
+}
+
+static void release_cookie(const void *cookie) {
+    conn *c = (conn *)cookie;
+    --c->refcount;
+}
+
 static int num_independent_stats(void) {
     return settings.num_threads + 1;
 }
@@ -6552,7 +6552,9 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .get_engine_specific = get_engine_specific,
         .get_socket_fd = get_socket_fd,
         .set_tap_nack_mode = set_tap_nack_mode,
-        .notify_io_complete = notify_io_complete
+        .notify_io_complete = notify_io_complete,
+        .reserve = reserve_cookie,
+        .release = release_cookie
     };
 
     static SERVER_STAT_API server_stat_api = {

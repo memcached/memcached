@@ -492,11 +492,10 @@ static void libevent_tap_process(int fd, short which, void *arg) {
     if (n_pending_close > 0) {
         for (size_t i = 0; i < n_pending_close; ++i) {
             conn *ce = pending_close[i];
-            if (ce->pending_close.active && ce->pending_close.timeout < current_time) {
+            if (ce->refcount == 1) {
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                                "OK, time to nuke: %p (%d < %d)\n",
-                                                (void*)ce, ce->pending_close.timeout,
-                                                current_time);
+                                                "OK, time to nuke: %p\n",
+                                                (void*)ce);
                 assert(ce->next == NULL);
                 conn_close(ce);
             } else {
@@ -554,7 +553,6 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
             conn->sfd = INVALID_SOCKET;
         }
 
-        conn->pending_close.timeout = 0;
         settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
                                         "Immediate close of %p\n",
                                         conn);

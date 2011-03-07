@@ -141,6 +141,21 @@ extern "C" {
          */
         void (*set_tap_nack_mode)(const void *cookie, bool enable);
 
+        /**
+         * Notify the core that we're holding on to this cookie for
+         * future use. (The core guarantees it will not invalidate the
+         * memory until the cookie is invalidated by calling release())
+         */
+        void (*reserve)(const void *cookie);
+
+        /**
+         * Notify the core that we're releasing the reference to the
+         * The engine is not allowed to use the cookie (the core may invalidate
+         * the memory)
+         */
+        void (*release)(const void *cookie);
+
+
     } SERVER_COOKIE_API;
 
 #ifdef __WIN32__
