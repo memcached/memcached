@@ -2285,6 +2285,8 @@ static bool binary_response_handler(const void *key, uint16_t keylen,
 struct tap_cmd_stats {
     uint64_t connect;
     uint64_t mutation;
+    uint64_t checkpoint_start;
+    uint64_t checkpoint_end;
     uint64_t delete;
     uint64_t flush;
     uint64_t opaque;
@@ -2369,6 +2371,8 @@ static void ship_tap_log(conn *c) {
         case TAP_PAUSE :
             more_data = false;
             break;
+        case TAP_CHECKPOINT_START:
+        case TAP_CHECKPOINT_END:
         case TAP_MUTATION:
             if (!settings.engine.v1->get_item_info(settings.engine.v0, c, it, &info)) {
                 settings.engine.v1->release(settings.engine.v0, c, it);
@@ -2379,7 +2383,25 @@ static void ship_tap_log(conn *c) {
             send_data = true;
             c->ilist[c->ileft++] = it;
 
-            msg.mutation.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_MUTATION;
+            if (event == TAP_CHECKPOINT_START) {
+                msg.mutation.message.header.request.opcode =
+                    PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_START;
+                pthread_mutex_lock(&tap_stats.mutex);
+                tap_stats.sent.checkpoint_start++;
+                pthread_mutex_unlock(&tap_stats.mutex);
+            } else if (event == TAP_CHECKPOINT_END) {
+                msg.mutation.message.header.request.opcode =
+                    PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_END;
+                pthread_mutex_lock(&tap_stats.mutex);
+                tap_stats.sent.checkpoint_end++;
+                pthread_mutex_unlock(&tap_stats.mutex);
+            } else if (event == TAP_MUTATION) {
+                msg.mutation.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_MUTATION;
+                pthread_mutex_lock(&tap_stats.mutex);
+                tap_stats.sent.mutation++;
+                pthread_mutex_unlock(&tap_stats.mutex);
+            }
+
             msg.mutation.message.header.request.cas = htonll(info.cas);
             msg.mutation.message.header.request.keylen = htons(info.nkey);
             msg.mutation.message.header.request.extlen = 16;
@@ -2411,10 +2433,6 @@ static void ship_tap_log(conn *c) {
             if ((tap_flags & TAP_FLAG_NO_VALUE) == 0) {
                 add_iov(c, info.value[0].iov_base, info.value[0].iov_len);
             }
-
-            pthread_mutex_lock(&tap_stats.mutex);
-            tap_stats.sent.mutation++;
-            pthread_mutex_unlock(&tap_stats.mutex);
 
             break;
         case TAP_DELETION:
@@ -2630,7 +2648,8 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
     uint32_t exptime = 0;
     uint32_t ndata = c->binary_header.request.bodylen - nengine - nkey - 8;
 
-    if (event == TAP_MUTATION) {
+    if (event == TAP_MUTATION || event == TAP_CHECKPOINT_START ||
+        event == TAP_CHECKPOINT_END) {
         protocol_binary_request_tap_mutation *mutation = (void*)tap;
         flags = ntohl(mutation->message.body.item.flags);
         exptime = ntohl(mutation->message.body.item.expiration);
@@ -2730,6 +2749,18 @@ static void process_bin_packet(conn *c) {
         pthread_mutex_unlock(&tap_stats.mutex);
         process_bin_tap_packet(TAP_MUTATION, c);
         break;
+    case PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_START:
+        pthread_mutex_lock(&tap_stats.mutex);
+        tap_stats.received.checkpoint_start++;
+        pthread_mutex_unlock(&tap_stats.mutex);
+        process_bin_tap_packet(TAP_CHECKPOINT_START, c);
+        break;
+    case PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_END:
+        pthread_mutex_lock(&tap_stats.mutex);
+        tap_stats.received.checkpoint_end++;
+        pthread_mutex_unlock(&tap_stats.mutex);
+        process_bin_tap_packet(TAP_CHECKPOINT_END, c);
+        break;
     case PROTOCOL_BINARY_CMD_TAP_DELETE:
         pthread_mutex_lock(&tap_stats.mutex);
         tap_stats.received.delete++;
@@ -2775,7 +2806,9 @@ static RESPONSE_HANDLER response_handlers[256] = {
     [PROTOCOL_BINARY_CMD_TAP_DELETE] = process_bin_tap_ack,
     [PROTOCOL_BINARY_CMD_TAP_FLUSH] = process_bin_tap_ack,
     [PROTOCOL_BINARY_CMD_TAP_OPAQUE] = process_bin_tap_ack,
-    [PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET] = process_bin_tap_ack
+    [PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET] = process_bin_tap_ack,
+    [PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_START] = process_bin_tap_ack,
+    [PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_END] = process_bin_tap_ack
 };
 
 static void dispatch_bin_command(conn *c) {
@@ -2932,6 +2965,8 @@ static void dispatch_bin_command(conn *c) {
             }
             break;
        case PROTOCOL_BINARY_CMD_TAP_MUTATION:
+       case PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_START:
+       case PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_END:
        case PROTOCOL_BINARY_CMD_TAP_DELETE:
        case PROTOCOL_BINARY_CMD_TAP_FLUSH:
        case PROTOCOL_BINARY_CMD_TAP_OPAQUE:
@@ -3651,6 +3686,12 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     if (ts.sent.mutation) {
         APPEND_STAT("tap_mutation_sent", "%"PRIu64, ts.sent.mutation);
     }
+    if (ts.sent.checkpoint_start) {
+        APPEND_STAT("tap_checkpoint_start_sent", "%"PRIu64, ts.sent.checkpoint_start);
+    }
+    if (ts.sent.checkpoint_end) {
+        APPEND_STAT("tap_checkpoint_end_sent", "%"PRIu64, ts.sent.checkpoint_end);
+    }
     if (ts.sent.delete) {
         APPEND_STAT("tap_delete_sent", "%"PRIu64, ts.sent.delete);
     }
@@ -3669,6 +3710,12 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     }
     if (ts.received.mutation) {
         APPEND_STAT("tap_mutation_received", "%"PRIu64, ts.received.mutation);
+    }
+    if (ts.received.checkpoint_start) {
+        APPEND_STAT("tap_checkpoint_start_received", "%"PRIu64, ts.received.checkpoint_start);
+    }
+    if (ts.received.checkpoint_end) {
+        APPEND_STAT("tap_checkpoint_end_received", "%"PRIu64, ts.received.checkpoint_end);
     }
     if (ts.received.delete) {
         APPEND_STAT("tap_delete_received", "%"PRIu64, ts.received.delete);

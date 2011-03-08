@@ -159,6 +159,8 @@ extern "C"
         PROTOCOL_BINARY_CMD_TAP_FLUSH = 0x43,
         PROTOCOL_BINARY_CMD_TAP_OPAQUE = 0x44,
         PROTOCOL_BINARY_CMD_TAP_VBUCKET_SET = 0x45,
+        PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_START = 0x46,
+        PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_END = 0x47,
         /* End TAP */
 
         PROTOCOL_BINARY_CMD_LAST_RESERVED = 0xef,
@@ -579,6 +581,13 @@ extern "C"
                  * tap packets returned.
                  */
 #define TAP_CONNECT_REQUEST_KEYS_ONLY 0x20
+                /**
+                 * The body contains a list of (vbucket_id, last_checkpoint_id)
+                 * pairs. This provides the checkpoint support in TAP streams.
+                 * The last checkpoint id represents the last checkpoint that
+                 * was successfully persisted.
+                 */
+#define TAP_CONNECT_CHECKPOINT 0x40
             } body;
         } message;
         uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
