@@ -2439,14 +2439,32 @@ static void ship_tap_log(conn *c) {
             }
             send_data = true;
             c->ilist[c->ileft++] = it;
-            msg.mutation.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_DELETE;
+            msg.delete.message.header.request.opcode = PROTOCOL_BINARY_CMD_TAP_DELETE;
+            msg.delete.message.header.request.cas = htonll(info.cas);
             msg.delete.message.header.request.keylen = htons(info.nkey);
-            msg.delete.message.header.request.bodylen = htonl(info.nkey + 8);
+
+            bodylen = 8 + info.nkey + nengine;
+            if ((tap_flags & TAP_FLAG_NO_VALUE) == 0) {
+                bodylen += info.nbytes;
+            }
+            msg.delete.message.header.request.bodylen = htonl(bodylen);
+
             memcpy(c->wcurr, msg.delete.bytes, sizeof(msg.delete.bytes));
             add_iov(c, c->wcurr, sizeof(msg.delete.bytes));
             c->wcurr += sizeof(msg.delete.bytes);
             c->wbytes += sizeof(msg.delete.bytes);
+
+            if (nengine > 0) {
+                memcpy(c->wcurr, engine, nengine);
+                add_iov(c, c->wcurr, nengine);
+                c->wcurr += nengine;
+                c->wbytes += nengine;
+            }
+
             add_iov(c, info.key, info.nkey);
+            if ((tap_flags & TAP_FLAG_NO_VALUE) == 0) {
+                add_iov(c, info.value[0].iov_base, info.value[0].iov_len);
+            }
 
             pthread_mutex_lock(&tap_stats.mutex);
             tap_stats.sent.delete++;
