@@ -661,19 +661,7 @@ static void conn_cleanup(conn *c) {
 
 void conn_close(conn *c) {
     assert(c != NULL);
-
-    /* delete the event, the socket and the conn */
-    if (c->sfd != INVALID_SOCKET) {
-        MEMCACHED_CONN_RELEASE(c->sfd);
-        unregister_event(c);
-
-        if (settings.verbose > 1) {
-            settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
-                                            "<%d connection closed.\n", c->sfd);
-        }
-        safe_close(c->sfd);
-        c->sfd = INVALID_SOCKET;
-    }
+    assert(c->sfd == INVALID_SOCKET);
 
     if (c->ascii_cmd != NULL) {
         c->ascii_cmd->abort(c->ascii_cmd, c);
@@ -683,7 +671,7 @@ void conn_close(conn *c) {
     LOCK_THREAD(c->thread);
     /* remove from pending-io list */
     if (settings.verbose > 1 && list_contains(c->thread->pending_io, c)) {
-        settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                         "Current connection was in the pending-io list.. Nuking it\n");
     }
     c->thread->pending_io = list_remove(c->thread->pending_io, c);
@@ -5348,11 +5336,10 @@ bool conn_mwrite(conn *c) {
 }
 
 bool conn_pending_close(conn *c) {
-    assert(c->sfd != -1);
+    assert(c->sfd == INVALID_SOCKET);
     settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
-                                    "Tap client connection closed (%d)."
-                                    " Putting it (%p) in pending close\n",
-                                    c->sfd, (void*)c);
+                                    "Awaiting clients to release the cookie (pending close for %p)",
+                                    (void*)c);
     LOCK_THREAD(c->thread);
     c->thread->pending_io = list_remove(c->thread->pending_io, c);
     if (!list_contains(c->thread->pending_close, c)) {
@@ -5360,42 +5347,45 @@ bool conn_pending_close(conn *c) {
     }
     UNLOCK_THREAD(c->thread);
 
-    // We don't want any network notifications anymore..
-    unregister_event(c);
-    safe_close(c->sfd);
-    c->sfd = -1;
-
     /*
      * tell the tap connection that we're disconnecting it now,
      * but give it a grace period
      */
     perform_callbacks(ON_DISCONNECT, NULL, c);
 
-    /* disconnect callback may have changed the state for the object
+    /*
+     * disconnect callback may have changed the state for the object
      * so we might complete the disconnect now
      */
     return c->state != conn_pending_close;
 }
 
 bool conn_immediate_close(conn *c) {
-    if (IS_UDP(c->transport)) {
-        conn_cleanup(c);
-    } else {
-        conn_close(c);
-    }
+    settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+                                    "Immediate close of %p",
+                                    (void*)c);
+    perform_callbacks(ON_DISCONNECT, NULL, c);
+    conn_close(c);
 
     return false;
 }
 
 bool conn_closing(conn *c) {
-    assert(c->thread->type == TAP || c->thread->type == GENERAL);
-    if (c->refcount > 1 || c->thread == tap_thread) {
-        conn_set_state(c, conn_pending_close);
-    } else {
-        perform_callbacks(ON_DISCONNECT, NULL, c);
-        conn_set_state(c, conn_immediate_close);
+    if (IS_UDP(c->transport)) {
+        conn_cleanup(c);
+        return false;
     }
 
+    // We don't want any network notifications anymore..
+    unregister_event(c);
+    safe_close(c->sfd);
+    c->sfd = INVALID_SOCKET;
+
+    if (c->refcount > 1) {
+        conn_set_state(c, conn_pending_close);
+    } else {
+        conn_set_state(c, conn_immediate_close);
+    }
     return true;
 }
 
@@ -5457,7 +5447,7 @@ void event_handler(const int fd, const short which, void *arg) {
     /* sanity */
     if (fd != c->sfd) {
         if (settings.verbose > 0) {
-            settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                     "Catastrophic: event fd doesn't match conn fd!\n");
         }
         conn_close(c);
@@ -5500,7 +5490,6 @@ void event_handler(const int fd, const short which, void *arg) {
             /* empty */
         }
     }
-
 
     /* Close any connections pending close */
     if (n_pending_close > 0) {

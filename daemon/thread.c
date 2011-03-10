@@ -574,16 +574,17 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
     ** correct one) and re-evaluate.
     */
     LIBEVENT_THREAD *thr = conn->thread;
-
-    if (thr == NULL || conn->state == conn_closing) {
+    if (thr == NULL || (conn->state == conn_closing ||
+                        conn->state == conn_pending_close ||
+                        conn->state == conn_immediate_close)) {
         return;
     }
 
     int notify = 0;
 
     LOCK_THREAD(thr);
-
-    if (thr != conn->thread || conn->state == conn_closing || !conn->ewouldblock) {
+    if (thr != conn->thread || !conn->ewouldblock) {
+        // Ignore
         UNLOCK_THREAD(thr);
         return;
     }
