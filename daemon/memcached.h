@@ -288,19 +288,19 @@ struct conn {
 
     char   *rbuf;   /** buffer to read commands into */
     char   *rcurr;  /** but if we parsed some already, this is where we stopped */
-    int    rsize;   /** total allocated size of rbuf */
-    int    rbytes;  /** how much data, starting from rcur, do we have unparsed */
+    uint32_t rsize;   /** total allocated size of rbuf */
+    uint32_t rbytes;  /** how much data, starting from rcur, do we have unparsed */
 
     char   *wbuf;
     char   *wcurr;
-    int    wsize;
-    int    wbytes;
+    uint32_t wsize;
+    uint32_t wbytes;
     /** which state to go into after finishing current write */
     STATE_FUNC   write_and_go;
     void   *write_and_free; /** free this memory after finishing writing */
 
     char   *ritem;  /** when we read in an item's value, it goes here */
-    int    rlbytes;
+    uint32_t rlbytes;
 
     /* data for the nread state */
 

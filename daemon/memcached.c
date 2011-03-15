@@ -2782,7 +2782,7 @@ static void dispatch_bin_command(conn *c) {
     int protocol_error = 0;
 
     int extlen = c->binary_header.request.extlen;
-    int keylen = c->binary_header.request.keylen;
+    uint16_t keylen = c->binary_header.request.keylen;
     uint32_t bodylen = c->binary_header.request.bodylen;
 
     if (settings.require_sasl && !authenticated(c)) {
@@ -2982,8 +2982,8 @@ static void dispatch_bin_command(conn *c) {
 
 static void process_bin_update(conn *c) {
     char *key;
-    int nkey;
-    int vlen;
+    uint16_t nkey;
+    uint32_t vlen;
     item *it;
     protocol_binary_request_set* req = binary_get_request(c);
 
@@ -5138,7 +5138,7 @@ bool conn_swallow(conn *c) {
 
     /* first check if we have leftovers in the conn_read buffer */
     if (c->rbytes > 0) {
-        int tocopy = c->rbytes > c->sbytes ? c->sbytes : c->rbytes;
+        uint32_t tocopy = c->rbytes > c->sbytes ? c->sbytes : c->rbytes;
         c->sbytes -= tocopy;
         c->rcurr += tocopy;
         c->rbytes -= tocopy;
@@ -5203,7 +5203,7 @@ bool conn_nread(conn *c) {
     }
     /* first check if we have leftovers in the conn_read buffer */
     if (c->rbytes > 0) {
-        int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
+        uint32_t tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
         if (c->ritem != c->rcurr) {
             memmove(c->ritem, c->rcurr, tocopy);
         }
