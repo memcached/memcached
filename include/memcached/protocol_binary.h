@@ -588,6 +588,11 @@ extern "C"
                  * was successfully persisted.
                  */
 #define TAP_CONNECT_CHECKPOINT 0x40
+                /**
+                 * The tap consumer is a registered tap client, which means that
+                 * the tap server will maintain its checkpoint cursor permanently.
+                 */
+#define TAP_CONNECT_REGISTERED_CLIENT 0x80
             } body;
         } message;
         uint8_t bytes[sizeof(protocol_binary_request_header) + 4];
