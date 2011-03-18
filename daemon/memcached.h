@@ -343,7 +343,7 @@ struct conn {
 
     /* data for UDP clients */
     int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
-    struct sockaddr request_addr; /* Who sent the most recent request */
+    struct sockaddr_storage request_addr; /* Who sent the most recent request */
     socklen_t request_addr_size;
     unsigned char *hdrbuf; /* udp packet headers */
     int    hdrsize;   /* number of headers' worth of space is allocated */
