@@ -709,18 +709,27 @@ static ENGINE_ERROR_CODE do_add_delta(struct default_engine *engine,
     if ((res = snprintf(buf, sizeof(buf), "%" PRIu64, value)) == -1) {
         return ENGINE_EINVAL;
     }
-    hash_item *new_it = do_item_alloc(engine, item_get_key(it),
-                                      it->nkey, it->flags,
-                                      it->exptime, res,
-                                      cookie);
-    if (new_it == NULL) {
-        do_item_unlink(engine, it);
-        return ENGINE_ENOMEM;
+
+    if (it->refcount == 1 && res <= it->nbytes) {
+        // we can do inline replacement
+        memcpy(item_get_data(it), buf, res);
+        memset(item_get_data(it) + res, ' ', it->nbytes - res);
+        item_set_cas(NULL, NULL, it, get_cas_id());
+        *rcas = item_get_cas(it);
+    } else {
+        hash_item *new_it = do_item_alloc(engine, item_get_key(it),
+                                          it->nkey, it->flags,
+                                          it->exptime, res,
+                                          cookie);
+        if (new_it == NULL) {
+            do_item_unlink(engine, it);
+            return ENGINE_ENOMEM;
+        }
+        memcpy(item_get_data(new_it), buf, res);
+        do_item_replace(engine, it, new_it);
+        *rcas = item_get_cas(new_it);
+        do_item_release(engine, new_it);       /* release our reference */
     }
-    memcpy(item_get_data(new_it), buf, res);
-    do_item_replace(engine, it, new_it);
-    *rcas = item_get_cas(new_it);
-    do_item_release(engine, new_it);       /* release our reference */
 
     return ENGINE_SUCCESS;
 }
