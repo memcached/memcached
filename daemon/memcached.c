@@ -5384,7 +5384,7 @@ bool conn_mwrite(conn *c) {
 
 bool conn_pending_close(conn *c) {
     assert(c->sfd == INVALID_SOCKET);
-    settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+    settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
                                     "Awaiting clients to release the cookie (pending close for %p)",
                                     (void*)c);
     LOCK_THREAD(c->thread);
@@ -5408,7 +5408,7 @@ bool conn_pending_close(conn *c) {
 }
 
 bool conn_immediate_close(conn *c) {
-    settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
+    settings.extensions.logger->log(EXTENSION_LOG_DETAIL, c,
                                     "Immediate close of %p",
                                     (void*)c);
     perform_callbacks(ON_DISCONNECT, NULL, c);
