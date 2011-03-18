@@ -73,12 +73,12 @@ timedrun_SOURCES = programs/timedrun.c
 libmemcached_utilities_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/utilities
 libmemcached_utilities_la_LDFLAGS =-R '$(pkglibdir)' -R '$(libdir)'
 libmemcached_utilities_la_SOURCES= \
-                        engine_loader.h \
                         include/memcached/config_parser.h \
                         include/memcached/genhash.h \
                         include/memcached/util.h \
                         utilities/config_parser.c \
                         utilities/engine_loader.c \
+                        utilities/engine_loader.h \
                         utilities/extension_loggers.c \
                         utilities/genhash.c \
                         utilities/genhash_int.h \
@@ -98,7 +98,7 @@ memcached_SOURCES = \
                     daemon/thread.c \
                     daemon/topkeys.c \
                     daemon/topkeys.h \
-                    daemon/trace.h
+                    trace.h
 memcached_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/daemon
 memcached_LDFLAGS =-R '$(pkglibdir)' -R '$(libdir)'
 memcached_CFLAGS = @PROFILER_FLAGS@
@@ -234,7 +234,7 @@ default_engine_dtrace.lo: $(default_engine_la_OBJECTS)
 
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4 \
-             testsuite/breakdancer/engine_tests.py testsuite/breakdancer/breakdancer.py \
+             testsuite/breakdancer/engine_test.py testsuite/breakdancer/breakdancer.py \
              LICENSE BUILD CONTRIBUTING HACKING win32
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
