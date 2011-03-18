@@ -234,11 +234,6 @@ static void stats_init(void) {
     stats.rejected_conns = 0;
     stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
 
-    /* make the time we started always be 2 seconds before we really
-       did, so time(0) - time.started is never zero.  if so, things
-       like 'settings.oldest_live' which act as booleans as well as
-       values are now false in boolean context... */
-    process_started = time(0) - 2;
     stats_prefix_init();
 }
 
@@ -6755,6 +6750,11 @@ int main (int argc, char **argv) {
         return EX_OSERR;
     }
 
+    /* make the time we started always be 2 seconds before we really
+       did, so time(0) - time.started is never zero.  if so, things
+       like 'settings.oldest_live' which act as booleans as well as
+       values are now false in boolean context... */
+    process_started = time(0) - 2;
     set_current_time();
 
     /* Initialize the socket subsystem */
