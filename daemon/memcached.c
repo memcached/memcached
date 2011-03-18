@@ -7128,11 +7128,13 @@ int main (int argc, char **argv) {
                 "failed to getrlimit number of files\n");
         exit(EX_OSERR);
     } else {
-        int maxfiles = settings.maxconns;
-        if (rlim.rlim_cur < maxfiles)
+        int maxfiles = settings.maxconns + (3 * (settings.num_threads + 2));
+        if (rlim.rlim_cur < maxfiles) {
             rlim.rlim_cur = maxfiles;
-        if (rlim.rlim_max < rlim.rlim_cur)
+        }
+        if (rlim.rlim_max < rlim.rlim_cur) {
             rlim.rlim_max = rlim.rlim_cur;
+        }
         if (setrlimit(RLIMIT_NOFILE, &rlim) != 0) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                     "failed to set rlimit for open files. Try running as"
