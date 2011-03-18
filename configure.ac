@@ -1,6 +1,7 @@
 AC_PREREQ(2.60)
 m4_include([m4/version.m4])
 m4_include([m4/c99-backport.m4])
+m4_include([m4/libevent.m4])
 AC_INIT(memcached, VERSION_NUMBER, memcached@googlegroups.com)
 AC_CONFIG_AUX_DIR(config)
 AC_CANONICAL_SYSTEM
@@ -67,6 +68,11 @@ AM_PROG_CC_C_O
 AC_PROG_INSTALL
 AC_C_BIGENDIAN
 
+AC_ARG_ENABLE([bundled-libevent],
+  [AS_HELP_STRING([--enable-bundled-libevent],
+          [Build with the bundled libevent. @<:@default=on@:>@])],
+    [ac_cv_bundled_libevent="$enableval"],
+    [ac_cv_bundled_libevent="yes"])
 AC_ARG_ENABLE(sasl,
   [AS_HELP_STRING([--enable-sasl],[Enable SASL authentication])])
 AC_ARG_ENABLE(isasl,
@@ -246,112 +252,31 @@ return sizeof(void*) == 8 ? 0 : 1;
     ])
 fi
 
-trylibeventdir=""
-AC_ARG_WITH(libevent,
-       [  --with-libevent=PATH     Specify path to libevent installation ],
-       [
-                if test "x$withval" != "xno" ; then
-                        trylibeventdir=$withval
-                fi
-       ]
-)
-
-dnl ------------------------------------------------------
-dnl libevent detection.  swiped from Tor.  modified a bit.
-
 AC_SEARCH_LIBS(clock_gettime, rt)
 
-LIBEVENT_URL=http://www.monkey.org/~provos/libevent/
+embedded_libevent=no
+trylibeventdir=""
+AS_IF([test "x$ac_cv_bundled_libevent" = "xno"],
+      [
+         AC_LIBEVENT
+      ], [
+         AC_MSG_CHECKING([for bundled libevent])
+         AS_IF([test -d ${srcdir}/libevent], [bundled_libevent=yes], [bundled_libevent=no])
+         AC_MSG_RESULT([$bundled_libevent])
 
-AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
-  saved_LIBS="$LIBS"
-  saved_LDFLAGS="$LDFLAGS"
-  saved_CPPFLAGS="$CPPFLAGS"
-  le_found=no
-  for ledir in $trylibeventdir "" $prefix /usr/local ; do
-    LDFLAGS="$saved_LDFLAGS"
-    LIBS="$saved_LIBS -levent"
+         AS_IF(test "x$bundled_libevent" = "xyes",
+            [
+                (cd $srcdir/libevent && ./configure --disable-shared)
+                CPPFLAGS="-I$srcdir/libevent $CPPFLAGS"
+                LDFLAGS="-L$srcdir/libevent/.libs $LDFLAGS"
+                embedded_libevent=yes
+           ],
+           [
+                AC_LIBEVENT
+           ])
+     ])
 
-    # Skip the directory if it isn't there.
-    if test ! -z "$ledir" -a ! -d "$ledir" ; then
-       continue;
-    fi
-    if test ! -z "$ledir" ; then
-      if test -d "$ledir/lib" ; then
-        LDFLAGS="-L$ledir/lib $LDFLAGS"
-      else
-        LDFLAGS="-L$ledir $LDFLAGS"
-      fi
-      if test -d "$ledir/include" ; then
-        CPPFLAGS="-I$ledir/include $CPPFLAGS"
-      else
-        CPPFLAGS="-I$ledir $CPPFLAGS"
-      fi
-    fi
-    # Can I compile and link it?
-    AC_TRY_LINK([#include <sys/time.h>
-#include <sys/types.h>
-#include <event.h>], [ event_init(); ],
-       [ libevent_linked=yes ], [ libevent_linked=no ])
-    if test $libevent_linked = yes; then
-       if test ! -z "$ledir" ; then
-         ac_cv_libevent_dir=$ledir
-       else
-         ac_cv_libevent_dir="(system)"
-       fi
-       le_found=yes
-       break
-    fi
-  done
-
-  if test $le_found = no ; then
-    AC_MSG_ERROR([libevent is required.  You can get it from $LIBEVENT_URL
-
-      If it's already installed, specify its path using --with-libevent=/dir/
-])
-  fi
-
-  # Is it recent enough?
-  AC_TRY_LINK([
-#include <stdlib.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <event.h>
-                ], [
-event_base_loopbreak(NULL);
-                ], [
-                  libevent_linked=yes
-                ], [
-                  libevent_linked=no ])
-
-AS_IF(test "x$libevent_linked" = "xno",
-      AC_MSG_ERROR([
-You need to upgrade libevent to a version that supports:
-  * event_base_loopbreak
-  * evutil_socketpair
-  * evutil_make_socket_nonblocking
-
-You can get it from $LIBEVENT_URL]))
-
-  LIBS="$saved_LIBS"
-  LDFLAGS="$saved_LDFLAGS"
-  CPPFLAGS="$saved_CPPFLAGS"
-])
-
-if test $ac_cv_libevent_dir != "(system)"; then
-  if test -d "$ac_cv_libevent_dir/lib" ; then
-    LDFLAGS="-L$ac_cv_libevent_dir/lib $LDFLAGS"
-    le_libdir="$ac_cv_libevent_dir/lib"
-  else
-    LDFLAGS="-L$ac_cv_libevent_dir $LDFLAGS"
-    le_libdir="$ac_cv_libevent_dir"
-  fi
-  if test -d "$ac_cv_libevent_dir/include" ; then
-    CPPFLAGS="-I$ac_cv_libevent_dir/include $CPPFLAGS"
-  else
-    CPPFLAGS="-I$ac_cv_libevent_dir $CPPFLAGS"
-  fi
-fi
+AM_CONDITIONAL([EMBEDDED_LIBEVENT],[test "$embedded_libevent" = "yes"])
 
 dnl ----------------------------------------------------------------------------
 

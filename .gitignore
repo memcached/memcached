@@ -5,8 +5,8 @@
 *.gcno
 *.gcov
 *.l[ao]
-*.tcov
 *.pyc
+*.tcov
 *~
 .deps
 /.libs/
@@ -34,6 +34,9 @@
 /doc/protocol-binary-range.txt
 /doc/protocol-binary.txt
 /engine_testapp
+/libevent
+/libevent-*
+/libevent.stamp
 /libtool
 /m4/version.m4
 /mcstat
