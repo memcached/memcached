@@ -7130,6 +7130,7 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     } else {
         int maxfiles = settings.maxconns + (3 * (settings.num_threads + 2));
+        int syslimit = rlim.rlim_cur;
         if (rlim.rlim_cur < maxfiles) {
             rlim.rlim_cur = maxfiles;
         }
@@ -7137,10 +7138,22 @@ int main (int argc, char **argv) {
             rlim.rlim_max = rlim.rlim_cur;
         }
         if (setrlimit(RLIMIT_NOFILE, &rlim) != 0) {
+            const char *fmt;
+            fmt = "WARNING: memcached cannot use (%d) connections due to "
+                "system\nresouce restrictions. Increase the number of file "
+                "descriptors allowed\nto the memcached user process or run "
+                "memcached as root (remember\nto use the -u parameter).\n"
+                "The maximum number of connections is set to %d.\n";
+            int req = settings.maxconns;
+            settings.maxconns = syslimit - (3 * (settings.num_threads + 2));
+            if (settings.maxconns < 0) {
+                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                         "failed to set rlimit for open files. Try running as"
+                         " root or requesting smaller maxconns value.\n");
+                exit(EX_OSERR);
+            }
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                    "failed to set rlimit for open files. Try running as"
-                    " root or requesting smaller maxconns value.\n");
-            exit(EX_OSERR);
+                                            fmt, req, settings.maxconns);
         }
     }
 
