@@ -105,9 +105,9 @@ static void retry_recv(int sock, void *buf, size_t len) {
  */
 static void print(const char *key, int keylen, const char *val, int vallen) {
     fputs("STAT ", stdout);
-    fwrite(key, keylen, 1, stdout);
+    (void)fwrite(key, keylen, 1, stdout);
     fputs(" ", stdout);
-    fwrite(val, vallen, 1, stdout);
+    (void)fwrite(val, vallen, 1, stdout);
     fputs("\n", stdout);
     fflush(stdout);
 }
