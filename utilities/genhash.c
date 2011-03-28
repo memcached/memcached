@@ -1,7 +1,3 @@
-/*
- * Copyright (c) 2006  Dustin Sallings <dustin@spy.net>
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
