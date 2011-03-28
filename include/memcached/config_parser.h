@@ -2,6 +2,7 @@
 #define CONFIG_PARSER_H
 
 #include <stdint.h>
+#include <stdio.h>
 #include <memcached/visibility.h>
 
 #ifdef __cplusplus

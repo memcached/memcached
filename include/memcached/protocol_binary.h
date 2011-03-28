@@ -36,6 +36,7 @@
 #ifndef PROTOCOL_BINARY_H
 #define PROTOCOL_BINARY_H
 
+#include <stdint.h>
 #include <memcached/vbucket.h>
 
 /**
