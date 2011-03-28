@@ -2553,8 +2553,12 @@ static void process_bin_unknown_packet(conn *c) {
     }
 
     if (ret == ENGINE_SUCCESS) {
-        write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
-        c->dynamic_buffer.buffer = NULL;
+        if (c->dynamic_buffer.buffer != NULL) {
+            write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
+            c->dynamic_buffer.buffer = NULL;
+        } else {
+            conn_set_state(c, conn_new_cmd);
+        }
     } else if (ret == ENGINE_ENOTSUP) {
         write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, 0);
     } else if (ret == ENGINE_EWOULDBLOCK) {
