@@ -164,7 +164,7 @@ extern "C"
         PROTOCOL_BINARY_CMD_TAP_CHECKPOINT_END = 0x47,
         /* End TAP */
 
-        PROTOCOL_BINARY_CMD_LAST_RESERVED = 0xef,
+        PROTOCOL_BINARY_CMD_LAST_RESERVED = 0x8f,
 
         /* Scrub the data */
         PROTOCOL_BINARY_CMD_SCRUB = 0xf0
