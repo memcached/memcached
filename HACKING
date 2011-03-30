@@ -6,13 +6,17 @@
  - automake
  - autotools
  - libevent
+ - git
 
 * Getting Started
 
 After checking out a git repository, you must first run autogen.sh
 once in order to create the configure script.
 
-Next, run the configure script and start doing builds.
+ $ git clone git://github.com/memcached/memcached.git
+
+Next, run the configure script and start doing builds:
+ $ ./config/autorun.sh && ./configure && make && make test
 
 * Setting up Git
 

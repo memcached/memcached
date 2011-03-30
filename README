@@ -1,23 +1,31 @@
+Super fast totally awesome distributed memory object caching daemon.
+
+Requires a client to fully utilize, which you may research at the wiki:
+
+   http://www.memcached.org/wiki
+
+The ASCII protocol is documented in doc/protocol.txt - the newer binary
+protocol is documented on the wiki above.
+
 Dependencies:
 
    -- libevent, http://www.monkey.org/~provos/libevent/ (libevent-dev)
 
-If using Linux, you need a kernel with epoll.  Sure, libevent will
-work with normal select, but it sucks.
+Ideally you have a recent version of libevent (1.4+), and a recent OS (at
+least from the last 4 years).
 
-epoll isn't in Linux 2.4, but there's a backport at:
+QUICK INSTALL:
 
-    http://www.xmailserver.org/linux-patches/nio-improve.html
+ $ ./configure && make && make test && sudo make install
 
-You want the epoll-lt patch (level-triggered).
+By default memcached builds with a bundled version of libevent, to make it
+easier to build on older distributions. If you are packaging memcached or
+otherwise wish to use the libevent provided by your distro, build with:
 
-If you're using MacOS, you'll want libevent 1.1 or higher to deal with
-a kqueue bug.
+ $ ./configure --disable-bundled-libevent
 
-Also, be warned that the -k (mlockall) option to memcached might be
-dangerous when using a large cache.  Just make sure the memcached machines
-don't swap.  memcached does non-blocking network I/O, but not disk.  (it
-should never go to disk, or you've lost the whole point of it)
+Please try to ensure memcached isn't swapping. It is designed to be ultra fast
+while relying on RAM. SWAP is not necessarily RAM.
 
 The memcached website is at:
 
