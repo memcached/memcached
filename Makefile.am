@@ -305,5 +305,5 @@ $(srcdir)/$(LE_FN):
 dist-hook: $(srcdir)/$(LE_FN)
 	rm -rf $(distdir)/libevent*
 	gzip -dc $(srcdir)/$(LE_FN) | (cd $(distdir) && tar xf -)
-	ln -s libevent-$(LE_VERSION) $(distdir)/libevent
+	mv $(distdir)/libevent-$(LE_VERSION) $(distdir)/libevent
 	rm -f $(distdir)/*/*~ $(distdir)/t/lib/*~ $(distdir)/*~
