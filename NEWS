@@ -1,0 +1,10 @@
+The following command will give you a detailed description of all
+changes between two versions (you need to use the development tree for
+this). You should find a high level description in the release notes.
+
+git log <previous-version>..<new-version>
+
+ex:
+
+git log 1.2.8..1.4.5
+
