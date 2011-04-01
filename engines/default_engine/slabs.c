@@ -91,8 +91,12 @@ ENGINE_ERROR_CODE slabs_init(struct default_engine *engine,
         engine->slabs.slabclass[i].perslab = engine->config.item_size_max / engine->slabs.slabclass[i].size;
         size *= factor;
         if (engine->config.verbose > 1) {
-            fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
-                    i, engine->slabs.slabclass[i].size, engine->slabs.slabclass[i].perslab);
+            EXTENSION_LOGGER_DESCRIPTOR *logger;
+            logger = (void*)engine->server.extension->get_extension(EXTENSION_LOGGER);
+            logger->log(EXTENSION_LOG_INFO, NULL,
+                        "slab class %3d: chunk size %9u perslab %7u\n",
+                        i, engine->slabs.slabclass[i].size,
+                        engine->slabs.slabclass[i].perslab);
         }
     }
 
@@ -100,8 +104,12 @@ ENGINE_ERROR_CODE slabs_init(struct default_engine *engine,
     engine->slabs.slabclass[engine->slabs.power_largest].size = engine->config.item_size_max;
     engine->slabs.slabclass[engine->slabs.power_largest].perslab = 1;
     if (engine->config.verbose > 1) {
-        fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
-                i, engine->slabs.slabclass[i].size, engine->slabs.slabclass[i].perslab);
+        EXTENSION_LOGGER_DESCRIPTOR *logger;
+        logger = (void*)engine->server.extension->get_extension(EXTENSION_LOGGER);
+        logger->log(EXTENSION_LOG_INFO, NULL,
+                    "slab class %3d: chunk size %9u perslab %7u\n",
+                    i, engine->slabs.slabclass[i].size,
+                    engine->slabs.slabclass[i].perslab);
     }
 
     /* for the test suite:  faking of how much we've already malloc'd */
@@ -403,7 +411,10 @@ void slabs_adjust_mem_requested(struct default_engine *engine, unsigned int id, 
     pthread_mutex_lock(&engine->slabs.lock);
     slabclass_t *p;
     if (id < POWER_SMALLEST || id > engine->slabs.power_largest) {
-        fprintf(stderr, "Internal error! Invalid slab class\n");
+        EXTENSION_LOGGER_DESCRIPTOR *logger;
+        logger = (void*)engine->server.extension->get_extension(EXTENSION_LOGGER);
+        logger->log(EXTENSION_LOG_WARNING, NULL,
+                    "Internal error! Invalid slab class\n");
         abort();
     }
 

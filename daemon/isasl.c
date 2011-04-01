@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #include "hash.h"
 #include "isasl.h"
@@ -171,7 +172,9 @@ static int load_user_db(void)
     fclose(sfile);
 
     if (settings.verbose) {
-        fprintf(stderr, "Loaded isasl db from %s\n", filename);
+        settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                        "Loaded isasl db from %s\n",
+                                        filename);
     }
 
     return SASL_OK;
@@ -206,7 +209,9 @@ static void* check_isasl_db_thread(void* arg)
 {
     uint32_t sleep_time = *(int*)arg;
     if (settings.verbose > 1) {
-        fprintf(stderr, "isasl checking DB every %ds\n", sleep_time);
+        settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                        "isasl checking DB every %ds",
+                                        sleep_time);
     }
 
     run_sasl_db_thread = true;
@@ -248,7 +253,9 @@ int sasl_server_init(const sasl_callback_t *callbacks,
         if (pthread_attr_init(&attr) != 0 ||
             pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0)
         {
-           perror("Failed to initialize pthread attributes");
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "Failed to initialize pthread attributes: %s",
+                                            strerror(errno));
            exit(EX_OSERR);
         }
 
@@ -260,7 +267,8 @@ int sasl_server_init(const sasl_callback_t *callbacks,
             pthread_create(&sasl_db_thread_tid, &attr, check_isasl_db_thread,
                            &sleep_time) != 0)
         {
-            perror("couldn't create isasl db update thread.");
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "couldn't create isasl db update thread.");
             exit(EX_OSERR);
         }
     }

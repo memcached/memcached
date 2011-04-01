@@ -455,14 +455,6 @@ static void libevent_tap_process(int fd, short which, void *arg) {
     conn *pending_io[max_items];
     size_t n_items = list_to_array(pending_io, max_items, &me->pending_io);
 
-    if (n_items > 0 && settings.verbose > 1) {
-        fprintf(stderr, "Going to handle tap io for ");
-        for (size_t i = 0; i < n_items; ++i) {
-            fprintf(stderr, "%d ", pending_io[i]->sfd);
-        }
-        fprintf(stderr, "\n");
-    }
-
     UNLOCK_THREAD(me);
     for (size_t i = 0; i < n_items; ++i) {
         conn *c = pending_io[i];

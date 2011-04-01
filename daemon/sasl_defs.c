@@ -30,8 +30,8 @@ static int sasl_server_userdb_checkpass(sasl_conn_t *conn,
 {
     size_t unmlen = strlen(user);
     if ((passlen + unmlen) > (MAX_ENTRY_LEN - 4)) {
-        fprintf(stderr,
-                "WARNING: Failed to authenticate <%s> due to too long password (%d)\n",
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                "WARNING: Failed to authenticate <%s> due to too long password (%d)",
                 user, passlen);
         return SASL_NOAUTHZ;
     }
@@ -39,8 +39,9 @@ static int sasl_server_userdb_checkpass(sasl_conn_t *conn,
     FILE *pwfile = fopen(memcached_sasl_pwdb, "r");
     if (pwfile == NULL) {
         if (settings.verbose) {
-            vperror("WARNING: Failed to open sasl database <%s>",
-                    memcached_sasl_pwdb);
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                     "WARNING: Failed to open sasl database <%s>: %s",
+                     memcached_sasl_pwdb, strerror(errno));
         }
         return SASL_NOAUTHZ;
     }
@@ -69,7 +70,9 @@ static int sasl_server_userdb_checkpass(sasl_conn_t *conn,
     }
 
     if (settings.verbose) {
-        fprintf(stderr, "INFO: User <%s> failed to authenticate\n", user);
+        settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                             "INFO: User <%s> failed to authenticate",
+                              user);
     }
 
     return SASL_NOAUTHZ;
@@ -92,9 +95,11 @@ static int sasl_getconf(void *context, const char **path)
 
     if (settings.verbose) {
         if (*path != NULL) {
-            fprintf(stderr, "Reading configuration from: <%s>\n", *path);
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                           "Reading configuration from: <%s>", *path);
         } else {
-            fprintf(stderr, "Failed to locate a config path\n");
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                             "Failed to locate a config path");
         }
 
     }
@@ -106,34 +111,28 @@ static int sasl_getconf(void *context, const char **path)
 #ifdef ENABLE_SASL
 static int sasl_log(void *context, int level, const char *message)
 {
-    bool log = true;
+    EXTENSION_LOG_LEVEL lvl = EXTENSION_LOG_DETAIL;
 
     switch (level) {
     case SASL_LOG_NONE:
-        log = false;
         break;
     case SASL_LOG_PASS:
     case SASL_LOG_TRACE:
     case SASL_LOG_DEBUG:
     case SASL_LOG_NOTE:
-        if (settings.verbose < 2) {
-            log = false;
-        }
+        lvl = EXTENSION_LOG_DEBUG;
         break;
     case SASL_LOG_WARN:
     case SASL_LOG_FAIL:
-        if (settings.verbose < 1) {
-            log = false;
-        }
+        lvl = EXTENSION_LOG_INFO;
         break;
     default:
         /* This is an error */
         ;
     }
 
-    if (log) {
-        fprintf(stderr, "SASL (severity %d): %s\n", level, message);
-    }
+    settings.extensions.logger->log(lvl, NULL,
+                                    "SASL (severity %d): %s", level, message);
 
     return SASL_OK;
 }
@@ -160,9 +159,9 @@ void init_sasl(void) {
     memcached_sasl_pwdb = getenv("MEMCACHED_SASL_PWDB");
     if (memcached_sasl_pwdb == NULL) {
        if (settings.verbose) {
-          fprintf(stderr,
+           settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
                   "INFO: MEMCACHED_SASL_PWDB not specified. "
-                  "Internal passwd database disabled\n");
+                  "Internal passwd database disabled.");
        }
        sasl_callbacks[0].id = SASL_CB_LIST_END;
        sasl_callbacks[0].proc = NULL;
@@ -170,11 +169,13 @@ void init_sasl(void) {
 #endif
 
     if (sasl_server_init(sasl_callbacks, "memcached") != SASL_OK) {
-        fprintf(stderr, "Error initializing sasl.\n");
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "Error initializing sasl.");
         exit(EXIT_FAILURE);
     } else {
         if (settings.verbose) {
-            fprintf(stderr, "Initialized SASL.\n");
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, NULL,
+                                            "Initialized SASL.");
         }
     }
 }

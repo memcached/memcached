@@ -94,7 +94,10 @@ static void assoc_expand(struct default_engine *engine) {
             (ret = pthread_create(&tid, &attr,
                                   assoc_maintenance_thread, engine)) != 0)
         {
-            fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
+            EXTENSION_LOGGER_DESCRIPTOR *logger;
+            logger = (void*)engine->server.extension->get_extension(EXTENSION_LOGGER);
+            logger->log(EXTENSION_LOG_WARNING, NULL,
+                        "Can't create thread: %s\n", strerror(ret));
             engine->assoc.hashpower--;
             engine->assoc.expanding = false;
             free(engine->assoc.primary_hashtable);
@@ -183,7 +186,10 @@ static void *assoc_maintenance_thread(void *arg) {
                 engine->assoc.expanding = false;
                 free(engine->assoc.old_hashtable);
                 if (engine->config.verbose > 1) {
-                    fprintf(stderr, "Hash table expansion done\n");
+                    EXTENSION_LOGGER_DESCRIPTOR *logger;
+                    logger = (void*)engine->server.extension->get_extension(EXTENSION_LOGGER);
+                    logger->log(EXTENSION_LOG_INFO, NULL,
+                                "Hash table expansion done\n");
                 }
             }
         }
