@@ -336,6 +336,47 @@ static const char *prot_text(enum protocol prot) {
     return rv;
 }
 
+struct {
+    pthread_mutex_t mutex;
+    bool disabled;
+    ssize_t count;
+    uint64_t num_disable;
+} listen_state;
+
+static bool is_listen_disabled(void) {
+    bool ret;
+    pthread_mutex_lock(&listen_state.mutex);
+    ret = listen_state.disabled;
+    pthread_mutex_unlock(&listen_state.mutex);
+    return ret;
+}
+
+static uint64_t get_listen_disabled_num(void) {
+    uint64_t ret;
+    pthread_mutex_lock(&listen_state.mutex);
+    ret = listen_state.num_disable;
+    pthread_mutex_unlock(&listen_state.mutex);
+    return ret;
+}
+
+static void disable_listen(void) {
+    pthread_mutex_lock(&listen_state.mutex);
+    listen_state.disabled = true;
+    listen_state.count = 10;
+    ++listen_state.num_disable;
+    pthread_mutex_unlock(&listen_state.mutex);
+
+    conn *next;
+    for (next = listen_conn; next; next = next->next) {
+        update_event(next, 0);
+        if (listen(next->sfd, 1) != 0) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "listen() failed",
+                                            strerror(errno));
+        }
+    }
+}
+
 void safe_close(SOCKET sfd) {
     if (sfd != INVALID_SOCKET) {
         int rval;
@@ -352,6 +393,10 @@ void safe_close(SOCKET sfd) {
             STATS_LOCK();
             stats.curr_conns--;
             STATS_UNLOCK();
+
+            if (is_listen_disabled()) {
+                notify_dispatcher();
+            }
         }
     }
 }
@@ -3665,6 +3710,8 @@ static void server_stats(ADD_STAT add_stats, conn *c, bool aggregate) {
     APPEND_STAT("bytes_read", "%"PRIu64, thread_stats.bytes_read);
     APPEND_STAT("bytes_written", "%"PRIu64, thread_stats.bytes_written);
     APPEND_STAT("limit_maxbytes", "%"PRIu64, settings.maxbytes);
+    APPEND_STAT("accepting_conns", "%u",  is_listen_disabled() ? 0 : 1);
+    APPEND_STAT("listen_disabled_num", "%"PRIu64, get_listen_disabled_num());
     APPEND_STAT("rejected_conns", "%" PRIu64, (unsigned long long)stats.rejected_conns);
     APPEND_STAT("threads", "%d", settings.num_threads);
     APPEND_STAT("conn_yields", "%" PRIu64, (unsigned long long)thread_stats.conn_yields);
@@ -4998,11 +5045,11 @@ bool conn_listening(conn *c)
                 settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
                                                 "Too many open connections\n");
             }
+            disable_listen();
         } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
                                             "Failed to accept new client: %s\n",
                                             strerror(errno));
-
         }
 
         return false;
@@ -5562,6 +5609,35 @@ void event_handler(const int fd, const short which, void *arg) {
         UNLOCK_THREAD(thr);
     }
 }
+
+static void dispatch_event_handler(int fd, short which, void *arg) {
+    char buffer[80];
+    ssize_t nr = recv(fd, buffer, sizeof(buffer), 0);
+
+    if (nr != -1 && is_listen_disabled()) {
+        bool enable = false;
+        pthread_mutex_lock(&listen_state.mutex);
+        listen_state.count -= nr;
+        if (listen_state.count <= 0) {
+            enable = true;
+            listen_state.disabled = false;
+        }
+        pthread_mutex_unlock(&listen_state.mutex);
+        if (enable) {
+            conn *next;
+            for (next = listen_conn; next; next = next->next) {
+                update_event(next, EV_READ | EV_PERSIST);
+                if (listen(next->sfd, settings.backlog) != 0) {
+                    settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                                    "listen() failed",
+                                                    strerror(errno));
+                }
+            }
+        }
+    }
+}
+
+
 
 static SOCKET new_socket(struct addrinfo *ai) {
     SOCKET sfd;
@@ -7310,7 +7386,7 @@ int main (int argc, char **argv) {
 #endif
 
     /* start up worker threads if MT mode */
-    thread_init(settings.num_threads, main_base);
+    thread_init(settings.num_threads, main_base, dispatch_event_handler);
 
     /* initialise clock event */
     clock_handler(0, 0, 0);

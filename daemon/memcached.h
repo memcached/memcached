@@ -223,7 +223,8 @@ extern struct settings settings;
 
 enum thread_type {
     GENERAL = 11,
-    TAP = 13
+    TAP = 13,
+    DISPATCHER = 15
 };
 
 typedef struct {
@@ -258,14 +259,10 @@ typedef struct {
     }
 
 extern void notify_thread(LIBEVENT_THREAD *thread);
+extern void notify_dispatcher(void);
+extern bool create_notification_pipe(LIBEVENT_THREAD *me);
 
 extern LIBEVENT_THREAD* tap_thread;
-
-typedef struct {
-    pthread_t thread_id;        /* unique ID of this thread */
-    struct event_base *base;    /* libevent handle this thread uses */
-} LIBEVENT_DISPATCHER_THREAD;
-
 
 typedef struct conn conn;
 typedef bool (*STATE_FUNC)(conn *);
@@ -417,7 +414,8 @@ bool update_event(conn *c, const int new_flags);
  * also #define-d to directly call the underlying code in singlethreaded mode.
  */
 
-void thread_init(int nthreads, struct event_base *main_base);
+void thread_init(int nthreads, struct event_base *main_base,
+                 void (*dispatcher_callback)(int, short, void *));
 void threads_shutdown(void);
 
 int  dispatch_event_add(int thread, conn *c);

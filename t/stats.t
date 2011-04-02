@@ -62,7 +62,7 @@ if ($stats->{'auth_sasl_enabled'} == 'yes') {
     $sasl_enabled = 1;
 }
 
-is(scalar(keys(%$stats)), 40, "40 stats values");
+is(scalar(keys(%$stats)), 42, "42 stats values");
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses
