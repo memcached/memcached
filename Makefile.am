@@ -28,6 +28,7 @@ pkglib_LTLIBRARIES = libmemcached_utilities.la \
                      basic_engine_testsuite.la \
                      default_engine.la \
                      example_protocol.la \
+                     blackhole_logger.la \
                      stdin_term_handler.la
 
 if BUILD_SYSLOG_LOGGER
@@ -184,6 +185,12 @@ example_protocol_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
 example_protocol_la_SOURCES= extensions/protocol/example_protocol.c \
                              extensions/protocol_extension.h
 example_protocol_la_LDFLAGS= -avoid-version -shared -module -no-undefined
+
+# A logger just ignoring the output
+blackhole_logger_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
+blackhole_logger_la_SOURCES = extensions/loggers/blackhole_logger.c \
+                              extensions/protocol_extension.h
+blackhole_logger_la_LDFLAGS = -avoid-version -shared -module -no-undefined
 
 # A logger using syslog
 syslog_logger_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions

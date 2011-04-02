@@ -172,7 +172,7 @@ sub new_memcached {
     if ($< == 0) {
         $args .= " -u root";
     }
-    $args .= " -E $builddir/.libs/default_engine.so";
+    $args .= " -E $builddir/.libs/default_engine.so -X $builddir/.libs/blackhole_logger.so";
 
     my $childpid = fork();
 

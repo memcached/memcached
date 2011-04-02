@@ -330,6 +330,11 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     strcat(engine, "/.libs/default_engine.so");
     assert(strlen(engine) < sizeof(engine));
 
+    char blackhole[1024];
+    assert(getcwd(blackhole, sizeof(blackhole)));
+    strcat(blackhole, "/.libs/blackhole_logger.so");
+
+
 #ifdef __sun
     /* I want to name the corefiles differently so that they don't
        overwrite each other
@@ -359,6 +364,8 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
         argv[arg++] = "./memcached";
         argv[arg++] = "-E";
         argv[arg++] = engine;
+        argv[arg++] = "-X";
+        argv[arg++] = blackhole;
         argv[arg++] = "-p";
         argv[arg++] = "-1";
         argv[arg++] = "-U";
