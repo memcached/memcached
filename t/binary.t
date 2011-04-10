@@ -369,7 +369,7 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
 {
     my %stats = $mc->stats('settings');
 
-    is(1024, $stats{'maxconns'});
+    is(1000, $stats{'maxconns'});
     is('NULL', $stats{'domain_socket'});
     is('on', $stats{'evictions'});
     is('yes', $stats{'cas_enabled'});

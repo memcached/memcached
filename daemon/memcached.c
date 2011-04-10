@@ -256,7 +256,7 @@ static void settings_init(void) {
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
-    settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
+    settings.maxconns = 1000;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
     settings.oldest_live = 0;
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
@@ -6042,7 +6042,7 @@ static void usage(void) {
            "-u <username> assume identity of <username> (only when run as root)\n"
            "-m <num>      max memory to use for items in megabytes (default: 64 MB)\n"
            "-M            return error on memory exhausted (rather than removing items)\n"
-           "-c <num>      max simultaneous connections (default: 1024)\n"
+           "-c <num>      max simultaneous connections (default: 1000)\n"
            "-k            lock down all paged memory.  Note that there is a\n"
            "              limit on how much memory you may lock.  Trying to\n"
            "              allocate more than that would fail, so be sure you\n"
@@ -7249,16 +7249,16 @@ int main (int argc, char **argv) {
         }
         if (setrlimit(RLIMIT_NOFILE, &rlim) != 0) {
             const char *fmt;
-            fmt = "WARNING: memcached cannot use (%d) connections due to "
+            fmt = "WARNING: maxconns cannot be set to (%d) connections due to "
                 "system\nresouce restrictions. Increase the number of file "
-                "descriptors allowed\nto the memcached user process or run "
+                "descriptors allowed\nto the memcached user process or start "
                 "memcached as root (remember\nto use the -u parameter).\n"
                 "The maximum number of connections is set to %d.\n";
             int req = settings.maxconns;
             settings.maxconns = syslimit - (3 * (settings.num_threads + 2));
             if (settings.maxconns < 0) {
                 settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                         "failed to set rlimit for open files. Try running as"
+                         "failed to set rlimit for open files. Try starting as"
                          " root or requesting smaller maxconns value.\n");
                 exit(EX_OSERR);
             }
