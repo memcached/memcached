@@ -25,6 +25,10 @@ extern void initialize_sockets(void);
 #include <dlfcn.h>
 #endif
 
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+
 #ifdef HAVE_LINK_H
 #include <link.h>
 #endif
