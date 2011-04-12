@@ -574,10 +574,7 @@ conn *conn_new(const SOCKET sfd, STATE_FUNC init_state,
     c->transport = transport;
     c->protocol = settings.binding_protocol;
 
-    /* unix socket mode doesn't need this, so zeroed out.  but why
-     * is this done for every command?  presumably for UDP
-     * mode.  */
-    if (!settings.socketpath) {
+    if (IS_UDP(transport)) {
         c->request_addr_size = sizeof(c->request_addr);
     } else {
         c->request_addr_size = 0;
