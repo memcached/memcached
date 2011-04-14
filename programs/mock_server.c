@@ -63,12 +63,14 @@ static void mock_set_tap_nack_mode(const void *cookie, bool enable) {
    (void)enable;
 }
 
-static void mock_cookie_reserve(const void *cookie) {
+static ENGINE_ERROR_CODE mock_cookie_reserve(const void *cookie) {
     (void)cookie;
+    return ENGINE_SUCCESS;
 }
 
-static void mock_cookie_release(const void *cookie) {
+static ENGINE_ERROR_CODE mock_cookie_release(const void *cookie) {
     (void)cookie;
+    return ENGINE_SUCCESS;
 }
 
 static const char *mock_get_server_version() {

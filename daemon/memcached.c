@@ -6294,14 +6294,16 @@ static void set_tap_nack_mode(const void *cookie, bool enable) {
     c->tap_nack_mode = enable;
 }
 
-static void reserve_cookie(const void *cookie) {
+static ENGINE_ERROR_CODE reserve_cookie(const void *cookie) {
     conn *c = (conn *)cookie;
     ++c->refcount;
+    return ENGINE_SUCCESS;
 }
 
-static void release_cookie(const void *cookie) {
+static ENGINE_ERROR_CODE release_cookie(const void *cookie) {
     conn *c = (conn *)cookie;
     --c->refcount;
+    return ENGINE_SUCCESS;
 }
 
 static int num_independent_stats(void) {
