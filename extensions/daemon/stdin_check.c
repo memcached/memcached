@@ -12,15 +12,16 @@ union c99hack {
 
 static void* check_stdin_thread(void* arg)
 {
+    int ch;
     pthread_detach(pthread_self());
 
-    while (!feof(stdin)) {
-        getc(stdin);
-    }
+    do {
+        ch = getc(stdin);
+    } while (ch != EOF && ch != '\n' && ch != '\r');
 
-    fprintf(stderr, "EOF on stdin.  Exiting\n");
-    union c99hack ch = { .pointer = arg };
-    ch.exit_function();
+    fprintf(stderr, "%s on stdin.  Exiting\n", (ch == EOF) ? "EOF" : "EOL");
+    union c99hack chack = { .pointer = arg };
+    chack.exit_function();
     /* NOTREACHED */
     return NULL;
 }
