@@ -457,15 +457,17 @@ void enlist_conn(conn *c, conn **list) {
 
 void finalize_list(conn **list, size_t items) {
     for (size_t i = 0; i < items; i++) {
-        list[i]->list_state &= ~LIST_STATE_PROCESSING;
-        if (list[i]->sfd != INVALID_SOCKET) {
-            if (list[i]->list_state & LIST_STATE_REQ_PENDING_IO) {
-                enlist_conn(list[i], &list[i]->thread->pending_io);
-            } else if (list[i]->list_state & LIST_STATE_REQ_PENDING_CLOSE) {
-                enlist_conn(list[i], &list[i]->thread->pending_close);
+        if (list[i] != NULL) {
+            list[i]->list_state &= ~LIST_STATE_PROCESSING;
+            if (list[i]->sfd != INVALID_SOCKET) {
+                if (list[i]->list_state & LIST_STATE_REQ_PENDING_IO) {
+                    enlist_conn(list[i], &list[i]->thread->pending_io);
+                } else if (list[i]->list_state & LIST_STATE_REQ_PENDING_CLOSE) {
+                    enlist_conn(list[i], &list[i]->thread->pending_close);
+                }
             }
+            list[i]->list_state = 0;
         }
-        list[i]->list_state = 0;
     }
 }
 
@@ -531,20 +533,19 @@ static void libevent_tap_process(int fd, short which, void *arg) {
     }
 
     /* Close any connections pending close */
-    if (n_pending_close > 0) {
-        for (size_t i = 0; i < n_pending_close; ++i) {
-            conn *ce = pending_close[i];
-            if (ce->refcount == 1) {
-                settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
-                                                "OK, time to nuke: %p\n",
-                                                (void*)ce);
-                assert(ce->next == NULL);
-                conn_close(ce);
-            } else {
-                LOCK_THREAD(me);
-                enlist_conn(ce, &me->pending_close);
-                UNLOCK_THREAD(me);
-            }
+    for (size_t i = 0; i < n_pending_close; ++i) {
+        conn *ce = pending_close[i];
+        if (ce->refcount == 1) {
+            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                            "OK, time to nuke: %p\n",
+                                            (void*)ce);
+            assert(ce->next == NULL);
+            conn_close(ce);
+            pending_close[i] = NULL;
+        } else {
+            LOCK_THREAD(me);
+            enlist_conn(ce, &me->pending_close);
+            UNLOCK_THREAD(me);
         }
     }
 
@@ -599,6 +600,10 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
                                         "Immediate close of %p\n",
                                         conn);
         conn_set_state(conn, conn_immediate_close);
+        conn->thread->pending_io = list_remove(conn->thread->pending_io, conn);
+        if (number_of_pending(conn, conn->thread->pending_close) == 0) {
+            enlist_conn(conn, &conn->thread->pending_close);
+        }
 
         if (!is_thread_me(conn->thread)) {
             /* kick the thread in the butt */

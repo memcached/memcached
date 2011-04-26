@@ -5592,6 +5592,7 @@ void event_handler(const int fd, const short which, void *arg) {
                                                 "OK, time to nuke: %p\n",
                                                 (void*)ce);
                 conn_close(ce);
+                pending_close[i] = NULL;
             } else {
                 LOCK_THREAD(ce->thread);
                 enlist_conn(ce, &ce->thread->pending_close);
