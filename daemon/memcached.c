@@ -5538,11 +5538,14 @@ void event_handler(const int fd, const short which, void *arg) {
 
     /* sanity */
     if (fd != c->sfd) {
-        if (settings.verbose > 0) {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
+        if (c->sfd != INVALID_SOCKET) {
+            settings.extensions.logger->log(EXTENSION_LOG_INFO, c,
                     "Catastrophic: event fd doesn't match conn fd!\n");
         }
-        conn_close(c);
+        unregister_event(c);
+        if (c->sfd != INVALID_SOCKET && c->thread != NULL) {
+            conn_close(c);
+        }
         return;
     }
 
