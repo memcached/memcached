@@ -341,7 +341,7 @@ struct {
     bool disabled;
     ssize_t count;
     uint64_t num_disable;
-} listen_state;
+} listen_state = { .mutex = PTHREAD_MUTEX_INITIALIZER };
 
 static bool is_listen_disabled(void) {
     bool ret;
