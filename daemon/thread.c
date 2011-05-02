@@ -519,7 +519,9 @@ static void libevent_tap_process(int fd, short which, void *arg) {
                                         "Processing tap pending_io for %d\n", c->sfd);
 
         UNLOCK_THREAD(me);
-        register_event(c, NULL);
+        if (!c->registered_in_libevent) {
+            register_event(c, NULL);
+        }
         /*
          * We don't want the thread to keep on serving all of the data
          * from the context of the notification pipe, so just let it

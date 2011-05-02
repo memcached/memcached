@@ -4901,9 +4901,7 @@ static enum try_read_result try_read_network(conn *c) {
 }
 
 bool register_event(conn *c, struct timeval *timeout) {
-#ifdef DEBUG
     assert(!c->registered_in_libevent);
-#endif
 
     if (event_add(&c->event, timeout) == -1) {
         settings.extensions.logger->log(EXTENSION_LOG_WARNING,
@@ -4913,25 +4911,19 @@ bool register_event(conn *c, struct timeval *timeout) {
         return false;
     }
 
-#ifdef DEBUG
     c->registered_in_libevent = true;
-#endif
 
     return true;
 }
 
 bool unregister_event(conn *c) {
-#ifdef DEBUG
     assert(c->registered_in_libevent);
-#endif
 
     if (event_del(&c->event) == -1) {
         return false;
     }
 
-#ifdef DEBUG
     c->registered_in_libevent = false;
-#endif
 
     return true;
 }

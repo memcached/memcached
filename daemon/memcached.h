@@ -276,9 +276,7 @@ struct conn {
     sasl_conn_t *sasl_conn;
     STATE_FUNC   state;
     enum bin_substates substate;
-#ifdef DEBUG
     bool   registered_in_libevent;
-#endif
     struct event event;
     short  ev_flags;
     short  which;   /** which events were just triggered */
