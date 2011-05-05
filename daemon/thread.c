@@ -536,7 +536,7 @@ static void libevent_tap_process(int fd, short which, void *arg) {
     for (size_t i = 0; i < n_pending_close; ++i) {
         conn *ce = pending_close[i];
         if (ce->refcount == 1) {
-            settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+            settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
                                             "OK, time to nuke: %p\n",
                                             (void*)ce);
             assert(ce->next == NULL);
@@ -590,19 +590,33 @@ void notify_io_complete(const void *cookie, ENGINE_ERROR_CODE status)
     */
     if (status == ENGINE_DISCONNECT && conn->thread == tap_thread) {
         LOCK_THREAD(conn->thread);
-        if (conn->sfd != INVALID_SOCKET) {
-            unregister_event(conn);
-            safe_close(conn->sfd);
-            conn->sfd = INVALID_SOCKET;
-        }
 
-        settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
-                                        "Immediate close of %p\n",
-                                        conn);
-        conn_set_state(conn, conn_immediate_close);
-        conn->thread->pending_io = list_remove(conn->thread->pending_io, conn);
-        if (number_of_pending(conn, conn->thread->pending_close) == 0) {
-            enlist_conn(conn, &conn->thread->pending_close);
+        /** Remove the connection from both of the lists */
+        conn->thread->pending_io = list_remove(conn->thread->pending_io,
+                                               conn);
+        conn->thread->pending_close = list_remove(conn->thread->pending_close,
+                                                  conn);
+
+
+        if (conn->state == conn_pending_close ||
+            conn->state == conn_immediate_close) {
+            if (conn->refcount == 1) {
+                settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                                "Complete shutdown of %p",
+                                                conn);
+                conn_set_state(conn, conn_immediate_close);
+                enlist_conn(conn, &conn->thread->pending_close);
+            } else {
+                settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                                "Keep on waiting for shutdown of %p",
+                                                conn);
+            }
+        } else {
+            settings.extensions.logger->log(EXTENSION_LOG_DEBUG, NULL,
+                                            "Engine requested shutdown of %p",
+                                            conn);
+            conn_set_state(conn, conn_closing);
+            enlist_conn(conn, &conn->thread->pending_io);
         }
 
         if (!is_thread_me(conn->thread)) {
