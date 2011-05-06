@@ -692,7 +692,6 @@ static void conn_cleanup(conn *c) {
     assert(c->next == NULL);
     c->ascii_cmd = NULL;
     c->sfd = INVALID_SOCKET;
-    c->tap_nack_mode = false;
 }
 
 void conn_close(conn *c) {
@@ -2759,9 +2758,7 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
         c->ewouldblock = true;
         break;
     default:
-        if ((tap_flags & TAP_FLAG_ACK) ||
-            (ret != ENGINE_SUCCESS && c->tap_nack_mode))
-        {
+        if ((tap_flags & TAP_FLAG_ACK) || (ret != ENGINE_SUCCESS)) {
             write_bin_packet(c, engine_error_2_protocol_error(ret), 0);
         } else {
             conn_set_state(c, conn_new_cmd);
@@ -6329,11 +6326,6 @@ static int get_socket_fd(const void *cookie) {
     return c->sfd;
 }
 
-static void set_tap_nack_mode(const void *cookie, bool enable) {
-    conn *c = (conn *)cookie;
-    c->tap_nack_mode = enable;
-}
-
 static ENGINE_ERROR_CODE reserve_cookie(const void *cookie) {
     conn *c = (conn *)cookie;
     ++c->refcount;
@@ -6781,7 +6773,6 @@ static SERVER_HANDLE_V1 *get_server_api(void)
         .store_engine_specific = store_engine_specific,
         .get_engine_specific = get_engine_specific,
         .get_socket_fd = get_socket_fd,
-        .set_tap_nack_mode = set_tap_nack_mode,
         .notify_io_complete = notify_io_complete,
         .reserve = reserve_cookie,
         .release = release_cookie

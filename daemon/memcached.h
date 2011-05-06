@@ -375,7 +375,6 @@ struct conn {
 
     ENGINE_ERROR_CODE aiostat;
     bool ewouldblock;
-    bool tap_nack_mode;
     TAP_ITERATOR tap_iterator;
 };
 

@@ -131,16 +131,6 @@ extern "C" {
         void (*notify_io_complete)(const void *cookie,
                                    ENGINE_ERROR_CODE status);
 
-
-        /**
-         * Enable or disable automatic generation of a negative ACK
-         * message for a TAP message (even if the request didn't have
-         * tap ack flag set)
-         * @param cookie cookie representing the connection
-         * @param enabel true to enable, false to disable
-         */
-        void (*set_tap_nack_mode)(const void *cookie, bool enable);
-
         /**
          * Notify the core that we're holding on to this cookie for
          * future use. (The core guarantees it will not invalidate the
