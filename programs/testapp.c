@@ -2202,7 +2202,35 @@ static enum test_return test_binary_write(void) {
     safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
     validate_response_header(&buffer.response, write_command,
                              PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+    return TEST_PASS;
+}
 
+static enum test_return test_binary_bad_tap_ttl(void) {
+    union {
+        protocol_binary_request_tap_flush request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } buffer;
+
+    size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             PROTOCOL_BINARY_CMD_TAP_FLUSH,
+                             NULL, 0, NULL, 0);
+
+    buffer.request.message.header.request.extlen = 8;
+    buffer.request.message.header.request.bodylen = ntohl(8);
+    buffer.request.message.body.tap.enginespecific_length = 0;
+    buffer.request.message.body.tap.flags = 0;
+    buffer.request.message.body.tap.ttl = 0;
+    buffer.request.message.body.tap.res1 = 0;
+    buffer.request.message.body.tap.res2 = 0;
+    buffer.request.message.body.tap.res3 = 0;
+    len += 8;
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response,
+                             PROTOCOL_BINARY_CMD_TAP_FLUSH,
+                             PROTOCOL_BINARY_RESPONSE_EINVAL);
     return TEST_PASS;
 }
 
@@ -2334,6 +2362,7 @@ struct testcase testcases[] = {
     { "binary_verbosity", test_binary_verbosity },
     { "binary_read", test_binary_read },
     { "binary_write", test_binary_write },
+    { "binary_bad_tap_ttl", test_binary_bad_tap_ttl },
     { "binary_pipeline_hickup", test_binary_pipeline_hickup },
     { "stop_server", stop_memcached_server },
     { NULL, NULL }

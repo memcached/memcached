@@ -2718,7 +2718,6 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
     uint16_t tap_flags = ntohs(tap->message.body.tap.flags);
     uint32_t seqno = ntohl(tap->message.header.request.opaque);
     uint8_t ttl = tap->message.body.tap.ttl;
-    assert(ttl > 0);
     char *engine_specific = packet + sizeof(tap->bytes);
     char *key = engine_specific + nengine;
     uint16_t nkey = c->binary_header.request.keylen;
@@ -2726,28 +2725,32 @@ static void process_bin_tap_packet(tap_event_t event, conn *c) {
     uint32_t flags = 0;
     uint32_t exptime = 0;
     uint32_t ndata = c->binary_header.request.bodylen - nengine - nkey - 8;
-
-    if (event == TAP_MUTATION || event == TAP_CHECKPOINT_START ||
-        event == TAP_CHECKPOINT_END) {
-        protocol_binary_request_tap_mutation *mutation = (void*)tap;
-        flags = ntohl(mutation->message.body.item.flags);
-        exptime = ntohl(mutation->message.body.item.expiration);
-        key += 8;
-        data += 8;
-        ndata -= 8;
-    }
-
     ENGINE_ERROR_CODE ret = c->aiostat;
-    if (ret == ENGINE_SUCCESS) {
-        ret = settings.engine.v1->tap_notify(settings.engine.v0, c,
-                                             engine_specific, nengine,
-                                             ttl - 1, tap_flags,
-                                             event, seqno,
-                                             key, nkey,
-                                             flags, exptime,
-                                             ntohll(tap->message.header.request.cas),
-                                             data, ndata,
-                                             c->binary_header.request.vbucket);
+
+    if (ttl == 0) {
+        ret = ENGINE_EINVAL;
+    } else {
+        if (event == TAP_MUTATION || event == TAP_CHECKPOINT_START ||
+            event == TAP_CHECKPOINT_END) {
+            protocol_binary_request_tap_mutation *mutation = (void*)tap;
+            flags = ntohl(mutation->message.body.item.flags);
+            exptime = ntohl(mutation->message.body.item.expiration);
+            key += 8;
+            data += 8;
+            ndata -= 8;
+        }
+
+        if (ret == ENGINE_SUCCESS) {
+            ret = settings.engine.v1->tap_notify(settings.engine.v0, c,
+                                                 engine_specific, nengine,
+                                                 ttl - 1, tap_flags,
+                                                 event, seqno,
+                                                 key, nkey,
+                                                 flags, exptime,
+                                                 ntohll(tap->message.header.request.cas),
+                                                 data, ndata,
+                                                 c->binary_header.request.vbucket);
+        }
     }
 
     switch (ret) {
