@@ -15,7 +15,10 @@
 #include "isasl.h"
 #include "memcached.h"
 
+#define MTIME_STABILITY_THRESHOLD 2
+
 static struct stat prev_stat = { 0 };
+static int mtime_stability_counter;
 
 static pthread_mutex_t uhash_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t sasl_db_thread_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -190,7 +193,7 @@ void sasl_dispose(sasl_conn_t **pconn)
 
 static bool isasl_is_fresh(void)
 {
-    bool rv = false;
+    bool rv = true;
     struct stat st;
     const char *filename = get_isasl_filename();
 
@@ -198,7 +201,17 @@ static bool isasl_is_fresh(void)
         if (stat(get_isasl_filename(), &st) < 0) {
             perror(get_isasl_filename());
         } else {
-            rv = prev_stat.st_mtime == st.st_mtime;
+            rv = (prev_stat.st_mtime != st.st_mtime);
+            if (rv) {
+                /* if mtime changes, reset stability counter */
+                mtime_stability_counter = MTIME_STABILITY_THRESHOLD;
+            } else if (mtime_stability_counter) {
+                /* if mtime haven't changed, but counter hasn't
+                 * reached zero, reply true (fresh data) and
+                 * decrement counter */
+                mtime_stability_counter--;
+                rv = true;
+            }
             prev_stat = st;
         }
     }
@@ -219,7 +232,7 @@ static void* check_isasl_db_thread(void* arg)
     while (run) {
         sleep(sleep_time);
 
-        if (!isasl_is_fresh()) {
+        if (isasl_is_fresh()) {
             load_user_db();
         }
 
