@@ -469,9 +469,7 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
         for (i = 0; i < num_buckets; i++) {
             if (histogram[i] != 0) {
                 char key[8];
-                int klen = 0;
-                klen = snprintf(key, sizeof(key), "%d", i * 32);
-                assert(klen < sizeof(key));
+                snprintf(key, sizeof(key), "%d", i * 32);
                 APPEND_STAT(key, "%u", histogram[i]);
             }
         }
