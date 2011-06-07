@@ -17,24 +17,31 @@
  */
 static int connect_server(const char *hostname, const char *port)
 {
-    struct addrinfo *ai = NULL;
+    struct addrinfo *ainfo = NULL;
     struct addrinfo hints = { .ai_family = AF_UNSPEC,
                               .ai_protocol = IPPROTO_TCP,
                               .ai_socktype = SOCK_STREAM };
 
-    if (getaddrinfo(hostname, port, &hints, &ai) != 0) {
+    if (getaddrinfo(hostname, port, &hints, &ainfo) != 0) {
         return -1;
     }
+
     int sock = -1;
-    if ((sock = socket(ai->ai_family, ai->ai_socktype,
-                       ai->ai_protocol)) != -1) {
-        if (connect(sock, ai->ai_addr, ai->ai_addrlen) == -1) {
+    struct addrinfo *ai = ainfo;
+    while (ai != NULL) {
+        sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+
+        if (sock != -1) {
+            if (connect(sock, ai->ai_addr, ai->ai_addrlen) != -1) {
+                break;
+            }
             close(sock);
             sock = -1;
         }
+        ai = ai->ai_next;
     }
 
-    freeaddrinfo(ai);
+    freeaddrinfo(ainfo);
     return sock;
 }
 
