@@ -24,6 +24,13 @@
 #include <memcached/util.h>
 #include <memcached/protocol_binary.h>
 #include <memcached/config_parser.h>
+#include "extensions/protocol/fragment_rw.h"
+
+/* Set the read/write commands differently than the default values
+ * so that we can verify that the override works
+ */
+static uint8_t read_command = 0xe1;
+static uint8_t write_command = 0xe2;
 
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 
@@ -305,6 +312,16 @@ static enum test_return test_safe_strtof(void) {
     return TEST_PASS;
 }
 
+static char *get_module(const char *module) {
+    static char buffer[1024];
+
+    assert(getcwd(buffer, sizeof(buffer)));
+    strcat(buffer, "/.libs/");
+    strcat(buffer, module);
+    assert(access(buffer, R_OK) == 0);
+    return buffer;
+}
+
 /**
  * Function to start the server and let it listen on a random port
  *
@@ -326,14 +343,14 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     remove(pid_file);
 
     char engine[1024];
-    assert(getcwd(engine, sizeof(engine)));
-    strcat(engine, "/.libs/default_engine.so");
-    assert(strlen(engine) < sizeof(engine));
+    strcpy(engine, get_module("default_engine.so"));
 
     char blackhole[1024];
-    assert(getcwd(blackhole, sizeof(blackhole)));
-    strcat(blackhole, "/.libs/blackhole_logger.so");
+    strcpy(blackhole, get_module("blackhole_logger.so"));
 
+    char fragmentrw[1024];
+    sprintf(fragmentrw, "%s,r=%u;w=%u", get_module("fragment_rw_ops.so"),
+            read_command, write_command);
 
 #ifdef __sun
     /* I want to name the corefiles differently so that they don't
@@ -366,6 +383,8 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
         argv[arg++] = engine;
         argv[arg++] = "-X";
         argv[arg++] = blackhole;
+        argv[arg++] = "-X";
+        argv[arg++] = fragmentrw;
         argv[arg++] = "-p";
         argv[arg++] = "-1";
         argv[arg++] = "-U";
@@ -1006,13 +1025,18 @@ static off_t raw_command(char* buf,
     assert(bufsz > sizeof(*request) + keylen + dtalen);
 
     memset(request, 0, sizeof(*request));
+    if (cmd == read_command || cmd == write_command) {
+        request->message.header.request.extlen = 8;
+    }
     request->message.header.request.magic = PROTOCOL_BINARY_REQ;
     request->message.header.request.opcode = cmd;
     request->message.header.request.keylen = htons(keylen);
-    request->message.header.request.bodylen = htonl(keylen + dtalen);
+    request->message.header.request.bodylen = htonl(keylen + dtalen + request->message.header.request.extlen);
     request->message.header.request.opaque = 0xdeadbeef;
 
-    off_t key_offset = sizeof(protocol_binary_request_no_extras);
+
+    off_t key_offset = sizeof(protocol_binary_request_no_extras) +
+        request->message.header.request.extlen;
 
     if (key != NULL) {
         memcpy(buf + key_offset, key, keylen);
@@ -1021,7 +1045,7 @@ static off_t raw_command(char* buf,
         memcpy(buf + key_offset + keylen, dta, dtalen);
     }
 
-    return sizeof(*request) + keylen + dtalen;
+    return sizeof(*request) + keylen + dtalen + request->message.header.request.extlen;
 }
 
 static off_t flush_command(char* buf, size_t bufsz, uint8_t cmd, uint32_t exptime, bool use_extra) {
@@ -2025,6 +2049,163 @@ static enum test_return test_binary_verbosity(void) {
     return TEST_PASS;
 }
 
+static enum test_return validate_object(char *key, char *value) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = raw_command(send.bytes, sizeof(send.bytes),
+                             PROTOCOL_BINARY_CMD_GET,
+                             key, strlen(key), NULL, 0);
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_GET,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    assert(receive.response.message.header.response.bodylen - 4 == strlen(value));
+    char *ptr = receive.bytes + sizeof(receive.response) + 4;
+    assert(memcmp(value, ptr, strlen(value)) == 0);
+
+    return TEST_PASS;
+}
+
+static enum test_return store_object(char *key, char *value) {
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = storage_command(send.bytes, sizeof(send.bytes),
+                                 PROTOCOL_BINARY_CMD_SET,
+                                 key, strlen(key), value, strlen(value),
+                                 0, 0);
+
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, PROTOCOL_BINARY_CMD_SET,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+
+    validate_object(key, value);
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_read(void) {
+    union {
+        protocol_binary_request_read request;
+        protocol_binary_response_read response;
+        char bytes[1024];
+    } buffer;
+
+    store_object("hello", "world");
+
+    size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             read_command, "hello",
+                             strlen("hello"), NULL, 0);
+    buffer.request.message.body.offset = htonl(1);
+    buffer.request.message.body.length = htonl(3);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, read_command,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    assert(buffer.response.message.header.response.bodylen == 3);
+    char *ptr = buffer.bytes + sizeof(buffer.response);
+    assert(memcmp(ptr, "orl", 3) == 0);
+
+
+    len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                      read_command, "hello",
+                      strlen("hello"), NULL, 0);
+    buffer.request.message.body.offset = htonl(7);
+    buffer.request.message.body.length = htonl(2);
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, read_command,
+                             PROTOCOL_BINARY_RESPONSE_ERANGE);
+
+    len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                      read_command, "myhello",
+                      strlen("myhello"), NULL, 0);
+    buffer.request.message.body.offset = htonl(0);
+    buffer.request.message.body.length = htonl(5);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, read_command,
+                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_write(void) {
+    union {
+        protocol_binary_request_read request;
+        protocol_binary_response_read response;
+        char bytes[1024];
+    } buffer;
+
+    store_object("hello", "world");
+
+    size_t len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             write_command, "hello",
+                             strlen("hello"), "bubba", 5);
+    buffer.request.message.body.offset = htonl(0);
+    buffer.request.message.body.length = htonl(5);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, write_command,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    validate_object("hello", "bubba");
+
+    len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             write_command, "hello",
+                             strlen("hello"), "zz", 2);
+    buffer.request.message.body.offset = htonl(2);
+    buffer.request.message.body.length = htonl(2);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, write_command,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    validate_object("hello", "buzza");
+
+    len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             write_command, "hello",
+                             strlen("hello"), "zz", 2);
+    buffer.request.message.body.offset = htonl(7);
+    buffer.request.message.body.length = htonl(2);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, write_command,
+                             PROTOCOL_BINARY_RESPONSE_ERANGE);
+
+    len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                             write_command, "hello",
+                             strlen("hello"), "bb", 2);
+    buffer.request.message.body.offset = htonl(2);
+    buffer.request.message.body.length = htonl(2);
+    buffer.request.message.header.request.cas = 1;
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, write_command,
+                             PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS);
+
+    len = raw_command(buffer.bytes, sizeof(buffer.bytes),
+                      write_command, "myhello",
+                      strlen("myhello"), "bubba", 5);
+    buffer.request.message.body.offset = htonl(0);
+    buffer.request.message.body.length = htonl(5);
+
+    safe_send(buffer.bytes, len, false);
+    safe_recv_packet(buffer.bytes, sizeof(buffer.bytes));
+    validate_response_header(&buffer.response, write_command,
+                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+
+    return TEST_PASS;
+}
+
 static enum test_return test_issue_101(void) {
     const int max = 2;
     enum test_return ret = TEST_PASS;
@@ -2151,6 +2332,8 @@ struct testcase testcases[] = {
     { "binary_stat", test_binary_stat },
     { "binary_scrub", test_binary_scrub },
     { "binary_verbosity", test_binary_verbosity },
+    { "binary_read", test_binary_read },
+    { "binary_write", test_binary_write },
     { "binary_pipeline_hickup", test_binary_pipeline_hickup },
     { "stop_server", stop_memcached_server },
     { NULL, NULL }

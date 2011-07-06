@@ -28,6 +28,7 @@ pkglib_LTLIBRARIES = libmemcached_utilities.la \
                      basic_engine_testsuite.la \
                      default_engine.la \
                      example_protocol.la \
+                     fragment_rw_ops.la \
                      blackhole_logger.la \
                      stdin_term_handler.la
 
@@ -173,6 +174,13 @@ ascii_scrub_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
 ascii_scrub_la_SOURCES= extensions/protocol/ascii_scrub.c \
                         extensions/protocol_extension.h
 ascii_scrub_la_LDFLAGS= -avoid-version -shared -module -no-undefined
+
+# An extension that supports partital read/write operation
+fragment_rw_ops_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
+fragment_rw_ops_la_SOURCES = extensions/protocol/fragment_rw.c
+fragment_rw_ops_la_LDFLAGS = -avoid-version -shared -module -no-undefined
+fragment_rw_ops_la_LIBADD = libmemcached_utilities.la $(LIBM)
+fragment_rw_ops_la_DEPENDENCIES = libmemcached_utilities.la
 
 # An extension that will shut down memcached if standard input is closed
 stdin_term_handler_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/extensions
