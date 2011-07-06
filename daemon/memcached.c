@@ -1352,6 +1352,8 @@ static protocol_binary_response_status engine_error_2_protocol_error(ENGINE_ERRO
         return PROTOCOL_BINARY_RESPONSE_E2BIG;
     case ENGINE_NOT_MY_VBUCKET:
         return PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET;
+    case ENGINE_ERANGE:
+        return PROTOCOL_BINARY_RESPONSE_ERANGE;
     default:
         ret = PROTOCOL_BINARY_RESPONSE_EINTERNAL;
     }

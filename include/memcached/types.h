@@ -42,6 +42,7 @@ extern "C" {
         ENGINE_EACCESS     = 0x0b, /**< Access control violations */
         ENGINE_NOT_MY_VBUCKET = 0x0c, /** < This vbucket doesn't belong to me */
         ENGINE_TMPFAIL     = 0x0d, /**< Temporary failure, please try again later */
+        ENGINE_ERANGE      = 0x0e, /**< Value outside legal range */
         ENGINE_FAILED      = 0xff  /**< Generic failue. */
     } ENGINE_ERROR_CODE;
 
