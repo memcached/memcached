@@ -3,6 +3,10 @@
 #define MEMCACHED_EXTENSION_H
 
 #include <stdbool.h>
+#include <stdint.h>
+#include <memcached/engine_common.h>
+#include <memcached/protocol_binary.h>
+#include <memcached/types.h>
 #include <memcached/server_api.h>
 
 #ifdef __cplusplus
@@ -43,7 +47,11 @@ extern "C" {
         /**
          * Command extension for the ASCII protocol
          */
-        EXTENSION_ASCII_PROTOCOL
+        EXTENSION_ASCII_PROTOCOL,
+        /**
+         * Command extension for the binary protocol
+         */
+        EXTENSION_BINARY_PROTOCOL
     } extension_type_t;
 
     /**
@@ -202,6 +210,44 @@ extern "C" {
          */
         struct extension_ascii_protocol_descriptor *next;
     } EXTENSION_ASCII_PROTOCOL_DESCRIPTOR;
+
+
+    typedef struct extension_binary_protocol_descriptor EXTENSION_BINARY_PROTOCOL_DESCRIPTOR;
+
+    typedef ENGINE_ERROR_CODE (*BINARY_COMMAND_CALLBACK)(EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *descriptor,
+                                                         ENGINE_HANDLE* handle,
+                                                         const void* cookie,
+                                                         protocol_binary_request_header *request,
+                                                         ADD_RESPONSE response);
+
+    /**
+     * ASCII protocol extensions must provide the following descriptor to
+     * extend the capabilities of the ascii protocol. The memcached core
+     * will probe each command in the order they are registered, so you should
+     * register the most likely command to be used first (or you could register
+     * only one descriptor and do a better dispatch routine inside your own
+     * implementation of accept / execute).
+     */
+    struct extension_binary_protocol_descriptor {
+        /**
+         * Get the name of the descriptor. The memory area returned by this
+         * function has to be valid until the descriptor is unregistered.
+         */
+        const char* (*get_name)(void);
+
+        void (*setup)(void (*add)(EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *descriptor,
+                                  uint8_t cmd,
+                                  BINARY_COMMAND_CALLBACK new_handler));
+
+        /**
+         * Deamon descriptors are stored in a linked list in the memcached
+         * core by using this pointer. Please do not modify this pointer
+         * by yourself until you have unregistered the descriptor.
+         * The <b>only</b> time it is safe for an extension to walk this
+         * list is during initialization of the modules.
+         */
+        struct extension_binary_protocol_descriptor *next;
+    };
 
     /**
      * The signature for the "memcached_extensions_initialize" function

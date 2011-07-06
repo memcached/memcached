@@ -2583,6 +2583,37 @@ static void ship_tap_log(conn *c) {
     }
 }
 
+
+static ENGINE_ERROR_CODE default_unknown_command(EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *descriptor,
+                                                 ENGINE_HANDLE* handle,
+                                                 const void* cookie,
+                                                 protocol_binary_request_header *request,
+                                                 ADD_RESPONSE response)
+{
+    return settings.engine.v1->unknown_command(handle, cookie, request, response);
+}
+
+struct request_lookup {
+    EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *descriptor;
+    BINARY_COMMAND_CALLBACK callback;
+};
+
+static struct request_lookup request_handlers[0x100];
+
+static void initialize_binary_lookup_map(void) {
+    for (int ii = 0; ii < 0x100; ++ii) {
+        request_handlers[ii].descriptor = NULL;
+        request_handlers[ii].callback = default_unknown_command;
+    }
+}
+
+static void setup_binary_lookup_cmd(EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *descriptor,
+                                    uint8_t cmd,
+                                    BINARY_COMMAND_CALLBACK new_handler) {
+    request_handlers[cmd].descriptor = descriptor;
+    request_handlers[cmd].callback = new_handler;
+}
+
 static void process_bin_unknown_packet(conn *c) {
     void *packet = c->rcurr - (c->binary_header.request.bodylen +
                                sizeof(c->binary_header));
@@ -2592,24 +2623,31 @@ static void process_bin_unknown_packet(conn *c) {
     c->ewouldblock = false;
 
     if (ret == ENGINE_SUCCESS) {
-        ret = settings.engine.v1->unknown_command(settings.engine.v0, c, packet,
-                                                  binary_response_handler);
+        struct request_lookup *rq = request_handlers + c->binary_header.request.opcode;
+        ret = rq->callback(rq->descriptor, settings.engine.v0, c, packet,
+                           binary_response_handler);
     }
 
-    if (ret == ENGINE_SUCCESS) {
+    switch (ret) {
+    case ENGINE_SUCCESS:
         if (c->dynamic_buffer.buffer != NULL) {
             write_and_free(c, c->dynamic_buffer.buffer, c->dynamic_buffer.offset);
             c->dynamic_buffer.buffer = NULL;
         } else {
             conn_set_state(c, conn_new_cmd);
         }
-    } else if (ret == ENGINE_ENOTSUP) {
-        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, 0);
-    } else if (ret == ENGINE_EWOULDBLOCK) {
+        break;
+    case ENGINE_EWOULDBLOCK:
         c->ewouldblock = true;
-    } else {
-        /* FATAL ERROR, shut down connection */
+        break;
+    case ENGINE_DISCONNECT:
         conn_set_state(c, conn_closing);
+        break;
+    default:
+        // Release the dynamic buffer.. it may be partial..
+        free(c->dynamic_buffer.buffer);
+        c->dynamic_buffer.buffer = NULL;
+        write_bin_packet(c, engine_error_2_protocol_error(ret), 0);
     }
 }
 
@@ -2834,8 +2872,6 @@ static void process_bin_packet(conn *c) {
         process_bin_unknown_packet(c);
     }
 }
-
-
 
 typedef void (*RESPONSE_HANDLER)(conn*);
 /**
@@ -3833,6 +3869,12 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
          ptr != NULL;
          ptr = ptr->next) {
         APPEND_STAT("ascii_extension", "%s", ptr->get_name(ptr->cookie));
+    }
+
+    for (EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *ptr = settings.extensions.binary;
+         ptr != NULL;
+         ptr = ptr->next) {
+        APPEND_STAT("binary_extension", "%s", ptr->get_name());
     }
 }
 
@@ -6530,6 +6572,28 @@ static bool register_extension(extension_type_t type, void *extension)
         }
         return true;
 
+    case EXTENSION_BINARY_PROTOCOL:
+        if (settings.extensions.binary != NULL) {
+            EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *last;
+            for (last = settings.extensions.binary; last->next != NULL;
+                 last = last->next) {
+                if (last == extension) {
+                    return false;
+                }
+            }
+            if (last == extension) {
+                return false;
+            }
+            last->next = extension;
+            last->next->next = NULL;
+        } else {
+            settings.extensions.binary = extension;
+            settings.extensions.binary->next = NULL;
+        }
+
+        ((EXTENSION_BINARY_PROTOCOL_DESCRIPTOR*)extension)->setup(setup_binary_lookup_cmd);
+        return true;
+
     default:
         return false;
     }
@@ -6592,6 +6656,13 @@ static void unregister_extension(extension_type_t type, void *extension)
         }
         break;
 
+
+    case EXTENSION_BINARY_PROTOCOL:
+        settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
+                                        "You can't unregister a binary command handler!");
+        abort();
+        break;
+
     default:
         ;
     }
@@ -6612,6 +6683,9 @@ static void* get_extension(extension_type_t type)
 
     case EXTENSION_ASCII_PROTOCOL:
         return settings.extensions.ascii;
+
+    case EXTENSION_BINARY_PROTOCOL:
+        return settings.extensions.binary;
 
     default:
         return NULL;
@@ -6865,6 +6939,8 @@ int main (int argc, char **argv) {
 
     /* init settings */
     settings_init();
+
+    initialize_binary_lookup_map();
 
     if (memcached_initialize_stderr_logger(get_server_api) != EXTENSION_SUCCESS) {
         fprintf(stderr, "Failed to initialize log system\n");
@@ -7345,11 +7421,11 @@ int main (int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    if(!init_engine(engine_handle,engine_config,settings.extensions.logger)) {
+    if (!init_engine(engine_handle,engine_config,settings.extensions.logger)) {
         return false;
     }
 
-    if(settings.verbose > 0) {
+    if (settings.verbose > 0) {
         log_engine_details(engine_handle,settings.extensions.logger);
     }
     settings.engine.v1 = (ENGINE_HANDLE_V1 *) engine_handle;
