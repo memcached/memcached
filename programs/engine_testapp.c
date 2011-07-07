@@ -647,21 +647,37 @@ static enum test_result run_test(engine_test_t test, const char *engine, const c
         pid_t pid = fork();
         if (pid == 0) {
 #endif
-            /* Start the engines and go */
-            start_your_engines(engine, test.cfg ? test.cfg : default_cfg, true);
-            if (test.test_setup != NULL) {
-                if (!test.test_setup(handle, handle_v1)) {
-                    fprintf(stderr, "Failed to run setup for test %s\n", test.name);
-                    return FAIL;
+            if (test.prepare != NULL) {
+                if ((ret = test.prepare(&test)) == SUCCESS) {
+                    ret = PENDING;
                 }
             }
-            ret = test.tfun(handle, handle_v1);
-            if (test.test_teardown != NULL) {
-                if (!test.test_teardown(handle, handle_v1)) {
-                    fprintf(stderr, "WARNING: Failed to run teardown for test %s\n", test.name);
+
+            if (ret == PENDING) {
+                /* Start the engines and go */
+                start_your_engines(engine, test.cfg ? test.cfg : default_cfg, true);
+                if (test.test_setup != NULL) {
+                    if (!test.test_setup(handle, handle_v1)) {
+                        fprintf(stderr, "Failed to run setup for test %s\n", test.name);
+#if !defined(USE_GCOV) && !defined(WIN32)
+                        exit((int)ret);
+#else
+                        return FAIL;
+#endif
+                    }
+                }
+                ret = test.tfun(handle, handle_v1);
+                if (test.test_teardown != NULL) {
+                    if (!test.test_teardown(handle, handle_v1)) {
+                        fprintf(stderr, "WARNING: Failed to run teardown for test %s\n", test.name);
+                    }
+                }
+                destroy_engine(false);
+
+                if (test.cleanup) {
+                    test.cleanup(&test, ret);
                 }
             }
-            destroy_engine(false);
 #if !defined(USE_GCOV) && !defined(WIN32)
             exit((int)ret);
         } else if (pid == (pid_t)-1) {

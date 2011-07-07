@@ -33,13 +33,29 @@ struct test_harness {
     void (*time_travel)(int offset);
 };
 
-typedef struct test {
+typedef struct test engine_test_t;
+
+struct test {
     const char *name;
     enum test_result(*tfun)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
     bool(*test_setup)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
     bool(*test_teardown)(ENGINE_HANDLE *, ENGINE_HANDLE_V1 *);
     const char *cfg;
-} engine_test_t;
+    /**
+     * You might want to prepare the environment for running
+     * the test <em>before</em> the engine is loaded.
+     * @param test the test about to be started
+     * @return An appropriate "status" code
+     */
+    enum test_result (*prepare)(engine_test_t *test);
+
+    /**
+     * You might want to clean up after the test
+     * @param test the test that just finished
+     * @param th result of the test
+     */
+    void (*cleanup)(engine_test_t *test, enum test_result result);
+};
 
 typedef engine_test_t* (*GET_TESTS)(void);
 
