@@ -398,12 +398,13 @@ void item_update(item *item) {
 /*
  * Does arithmetic on a numeric item value.
  */
-enum delta_result_type add_delta(conn *c, item *item, int incr,
+enum delta_result_type add_delta(conn *c, const char *key,
+                                 const size_t nkey, int incr,
                                  const int64_t delta, char *buf) {
     enum delta_result_type ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_add_delta(c, item, incr, delta, buf);
+    ret = do_add_delta(c, key, nkey, incr, delta, buf);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }

@@ -191,7 +191,7 @@ enum store_item_type {
 };
 
 enum delta_result_type {
-    OK, NON_NUMERIC, EOM
+    OK, NON_NUMERIC, EOM, DELTA_ITEM_NOT_FOUND
 };
 
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
@@ -435,7 +435,8 @@ extern volatile rel_time_t current_time;
  * Functions
  */
 void do_accept_new_conns(const bool do_accept);
-enum delta_result_type do_add_delta(conn *c, item *item, const bool incr,
+enum delta_result_type do_add_delta(conn *c, const char *key,
+                                    const size_t nkey, const bool incr,
                                     const int64_t delta, char *buf);
 enum store_item_type do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
@@ -462,7 +463,8 @@ int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 
 /* Lock wrappers for cache functions that are called from main loop. */
-enum delta_result_type add_delta(conn *c, item *item, const int incr,
+enum delta_result_type add_delta(conn *c, const char *key,
+                                 const size_t nkey, const int incr,
                                  const int64_t delta, char *buf);
 void accept_new_conns(const bool do_accept);
 conn *conn_from_freelist(void);

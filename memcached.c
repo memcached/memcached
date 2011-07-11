@@ -1032,7 +1032,7 @@ static void complete_incr_bin(conn *c) {
         char tmpbuf[INCR_MAX_STORAGE_LEN];
         protocol_binary_response_status st = PROTOCOL_BINARY_RESPONSE_SUCCESS;
 
-        switch(add_delta(c, it, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
+        switch(add_delta(c, key, nkey, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
                          req->message.body.delta, tmpbuf)) {
         case OK:
             break;
@@ -1041,6 +1041,8 @@ static void complete_incr_bin(conn *c) {
             break;
         case EOM:
             st = PROTOCOL_BINARY_RESPONSE_ENOMEM;
+            break;
+        case DELTA_ITEM_NOT_FOUND:
             break;
         }
 
@@ -2768,7 +2770,6 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
 static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
     char temp[INCR_MAX_STORAGE_LEN];
-    item *it;
     uint64_t delta;
     char *key;
     size_t nkey;
@@ -2790,21 +2791,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
-    it = item_get(key, nkey);
-    if (!it) {
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        if (incr) {
-            c->thread->stats.incr_misses++;
-        } else {
-            c->thread->stats.decr_misses++;
-        }
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        out_string(c, "NOT_FOUND");
-        return;
-    }
-
-    switch(add_delta(c, it, incr, delta, temp)) {
+    switch(add_delta(c, key, nkey, incr, delta, temp)) {
     case OK:
         out_string(c, temp);
         break;
@@ -2814,8 +2801,18 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     case EOM:
         out_string(c, "SERVER_ERROR out of memory");
         break;
+    case DELTA_ITEM_NOT_FOUND:
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (incr) {
+            c->thread->stats.incr_misses++;
+        } else {
+            c->thread->stats.decr_misses++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        out_string(c, "NOT_FOUND");
+        break;
     }
-    item_remove(it);         /* release our reference */
 }
 
 /*
@@ -2829,15 +2826,23 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  *
  * returns a response string to send back to the client.
  */
-enum delta_result_type do_add_delta(conn *c, item *it, const bool incr,
-                                    const int64_t delta, char *buf) {
+enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
+                                    const bool incr, const int64_t delta,
+                                    char *buf) {
     char *ptr;
     uint64_t value;
     int res;
+    item *it;
+
+    it = do_item_get(key, nkey);
+    if (!it) {
+        return DELTA_ITEM_NOT_FOUND;
+    }
 
     ptr = ITEM_data(it);
 
     if (!safe_strtoull(ptr, &value)) {
+        do_item_remove(it);
         return NON_NUMERIC;
     }
 
@@ -2867,6 +2872,7 @@ enum delta_result_type do_add_delta(conn *c, item *it, const bool incr,
         item *new_it;
         new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
         if (new_it == 0) {
+            do_item_remove(it);
             return EOM;
         }
         memcpy(ITEM_data(new_it), buf, res);
@@ -2882,6 +2888,7 @@ enum delta_result_type do_add_delta(conn *c, item *it, const bool incr,
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
     }
 
+    do_item_remove(it);         /* release our reference */
     return OK;
 }
 
