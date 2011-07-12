@@ -400,11 +400,12 @@ void item_update(item *item) {
  */
 enum delta_result_type add_delta(conn *c, const char *key,
                                  const size_t nkey, int incr,
-                                 const int64_t delta, char *buf) {
+                                 const int64_t delta, char *buf,
+                                 uint64_t *cas) {
     enum delta_result_type ret;
 
     pthread_mutex_lock(&cache_lock);
-    ret = do_add_delta(c, key, nkey, incr, delta, buf);
+    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }

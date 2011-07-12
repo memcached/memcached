@@ -998,6 +998,9 @@ static void complete_incr_bin(conn *c) {
     item *it;
     char *key;
     size_t nkey;
+    /* Weird magic in add_delta forces me to pad here */
+    char tmpbuf[INCR_MAX_STORAGE_LEN];
+    uint64_t cas = 0;
 
     protocol_binary_response_incr* rsp = (protocol_binary_response_incr*)c->wbuf;
     protocol_binary_request_incr* req = binary_get_request(c);
@@ -1025,72 +1028,62 @@ static void complete_incr_bin(conn *c) {
                 req->message.body.expiration);
     }
 
-    it = item_get(key, nkey);
-    if (it && (c->binary_header.request.cas == 0 ||
-               c->binary_header.request.cas == ITEM_get_cas(it))) {
-        /* Weird magic in add_delta forces me to pad here */
-        char tmpbuf[INCR_MAX_STORAGE_LEN];
-        protocol_binary_response_status st = PROTOCOL_BINARY_RESPONSE_SUCCESS;
-
-        switch(add_delta(c, key, nkey, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
-                         req->message.body.delta, tmpbuf)) {
-        case OK:
-            break;
-        case NON_NUMERIC:
-            st = PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL;
-            break;
-        case EOM:
-            st = PROTOCOL_BINARY_RESPONSE_ENOMEM;
-            break;
-        case DELTA_ITEM_NOT_FOUND:
-            break;
+    if (c->binary_header.request.cas != 0) {
+        cas = c->binary_header.request.cas;
+    }
+    switch(add_delta(c, key, nkey, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
+                     req->message.body.delta, tmpbuf,
+                     &cas)) {
+    case OK:
+        rsp->message.body.value = htonll(strtoull(tmpbuf, NULL, 10));
+        if (cas) {
+            c->cas = cas;
         }
+        write_bin_response(c, &rsp->message.body, 0, 0,
+                           sizeof(rsp->message.body.value));
+        break;
+    case NON_NUMERIC:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL, 0);
+        break;
+    case EOM:
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        break;
+    case DELTA_ITEM_NOT_FOUND:
+        if (req->message.body.expiration != 0xffffffff) {
+            /* Save some room for the response */
+            rsp->message.body.value = htonll(req->message.body.initial);
+            it = item_alloc(key, nkey, 0, realtime(req->message.body.expiration),
+                            INCR_MAX_STORAGE_LEN);
 
-        if (st != PROTOCOL_BINARY_RESPONSE_SUCCESS) {
-            write_bin_error(c, st, 0);
-        } else {
-            rsp->message.body.value = htonll(strtoull(tmpbuf, NULL, 10));
-            c->cas = ITEM_get_cas(it);
-            write_bin_response(c, &rsp->message.body, 0, 0,
-                               sizeof(rsp->message.body.value));
-        }
+            if (it != NULL) {
+                snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu",
+                         (unsigned long long)req->message.body.initial);
 
-        item_remove(it);         /* release our reference */
-    } else if (!it && req->message.body.expiration != 0xffffffff) {
-        /* Save some room for the response */
-        rsp->message.body.value = htonll(req->message.body.initial);
-        it = item_alloc(key, nkey, 0, realtime(req->message.body.expiration),
-                        INCR_MAX_STORAGE_LEN);
-
-        if (it != NULL) {
-            snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu",
-                     (unsigned long long)req->message.body.initial);
-
-            if (store_item(it, NREAD_SET, c)) {
-                c->cas = ITEM_get_cas(it);
-                write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
+                if (store_item(it, NREAD_ADD, c)) {
+                    c->cas = ITEM_get_cas(it);
+                    write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
+                } else {
+                    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED, 0);
+                }
+                item_remove(it);         /* release our reference */
             } else {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED, 0);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
             }
-            item_remove(it);         /* release our reference */
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            if (c->cmd == PROTOCOL_BINARY_CMD_INCREMENT) {
+                c->thread->stats.incr_misses++;
+            } else {
+                c->thread->stats.decr_misses++;
+            }
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
         }
-    } else if (it) {
-        /* incorrect CAS */
-        item_remove(it);         /* release our reference */
+        break;
+    case DELTA_ITEM_CAS_MISMATCH:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
-    } else {
-
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        if (c->cmd == PROTOCOL_BINARY_CMD_INCREMENT) {
-            c->thread->stats.incr_misses++;
-        } else {
-            c->thread->stats.decr_misses++;
-        }
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        break;
     }
 }
 
@@ -2791,7 +2784,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
-    switch(add_delta(c, key, nkey, incr, delta, temp)) {
+    switch(add_delta(c, key, nkey, incr, delta, temp, NULL)) {
     case OK:
         out_string(c, temp);
         break;
@@ -2812,6 +2805,8 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 
         out_string(c, "NOT_FOUND");
         break;
+    case DELTA_ITEM_CAS_MISMATCH:
+        break; /* Should never get here */
     }
 }
 
@@ -2828,7 +2823,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  */
 enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
                                     const bool incr, const int64_t delta,
-                                    char *buf) {
+                                    char *buf, uint64_t *cas) {
     char *ptr;
     uint64_t value;
     int res;
@@ -2837,6 +2832,11 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     it = do_item_get(key, nkey);
     if (!it) {
         return DELTA_ITEM_NOT_FOUND;
+    }
+
+    if (cas != NULL && *cas != 0 && ITEM_get_cas(it) != *cas) {
+        do_item_remove(it);
+        return DELTA_ITEM_CAS_MISMATCH;
     }
 
     ptr = ITEM_data(it);
@@ -2888,6 +2888,9 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
     }
 
+    if (cas) {
+        *cas = ITEM_get_cas(it);    /* swap the incoming CAS value */
+    }
     do_item_remove(it);         /* release our reference */
     return OK;
 }

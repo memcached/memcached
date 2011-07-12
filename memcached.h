@@ -191,7 +191,7 @@ enum store_item_type {
 };
 
 enum delta_result_type {
-    OK, NON_NUMERIC, EOM, DELTA_ITEM_NOT_FOUND
+    OK, NON_NUMERIC, EOM, DELTA_ITEM_NOT_FOUND, DELTA_ITEM_CAS_MISMATCH
 };
 
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
@@ -437,7 +437,8 @@ extern volatile rel_time_t current_time;
 void do_accept_new_conns(const bool do_accept);
 enum delta_result_type do_add_delta(conn *c, const char *key,
                                     const size_t nkey, const bool incr,
-                                    const int64_t delta, char *buf);
+                                    const int64_t delta, char *buf,
+                                    uint64_t *cas);
 enum store_item_type do_store_item(item *item, int comm, conn* c);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 extern int daemonize(int nochdir, int noclose);
@@ -465,7 +466,8 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, in
 /* Lock wrappers for cache functions that are called from main loop. */
 enum delta_result_type add_delta(conn *c, const char *key,
                                  const size_t nkey, const int incr,
-                                 const int64_t delta, char *buf);
+                                 const int64_t delta, char *buf,
+                                 uint64_t *cas);
 void accept_new_conns(const bool do_accept);
 conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
