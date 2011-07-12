@@ -4804,9 +4804,9 @@ int main (int argc, char **argv) {
 
         /* create the UDP listening socket and bind it */
         errno = 0;
-        if (udp_port && server_sockets(udp_port, udp_transport,
+        if (settings.udpport && server_sockets(settings.udpport, udp_transport,
                                               portnumber_file)) {
-            vperror("failed to listen on UDP port %d", udp_port);
+            vperror("failed to listen on UDP port %d", settings.udpport);
             exit(EX_OSERR);
         }
 
