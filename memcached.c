@@ -120,6 +120,27 @@ enum transmit_result {
 
 static enum transmit_result transmit(conn *c);
 
+/* This reduces the latency without adding lots of extra wiring to be able to
+ * notify the listener thread of when to listen again.
+ * Also, the clock timer could be broken out into its own thread and we
+ * can block the listener via a condition.
+ */
+static volatile bool allow_new_conns = true;
+static struct event maxconnsevent;
+static void maxconns_handler(const int fd, const short which, void *arg) {
+    struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
+
+    if (allow_new_conns == false) {
+        /* reschedule in 10ms if we need to keep polling */
+        evtimer_set(&maxconnsevent, maxconns_handler, 0);
+        event_base_set(main_base, &maxconnsevent);
+        evtimer_add(&maxconnsevent, &t);
+    } else {
+        evtimer_del(&maxconnsevent);
+        accept_new_conns(true);
+    }
+}
+
 #define REALTIME_MAXDELTA 60*60*24*30
 
 /*
@@ -509,7 +530,9 @@ static void conn_close(conn *c) {
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     close(c->sfd);
-    accept_new_conns(true);
+    pthread_mutex_lock(&conn_lock);
+    allow_new_conns = true;
+    pthread_mutex_unlock(&conn_lock);
     conn_cleanup(c);
 
     /* if the connection has big buffers, just free it */
@@ -3363,6 +3386,8 @@ void do_accept_new_conns(const bool do_accept) {
         stats.accepting_conns = false;
         stats.listen_disabled_num++;
         STATS_UNLOCK();
+        allow_new_conns = false;
+        maxconns_handler(0, 0, 0);
     }
 }
 
