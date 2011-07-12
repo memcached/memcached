@@ -2868,7 +2868,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
 
     snprintf(buf, INCR_MAX_STORAGE_LEN, "%llu", (unsigned long long)value);
     res = strlen(buf);
-    if (res + 2 > it->nbytes) { /* need to realloc */
+    if (res + 2 > it->nbytes || it->refcount != 1) { /* need to realloc */
         item *new_it;
         new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
         if (new_it == 0) {
