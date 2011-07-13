@@ -3,6 +3,11 @@
 # Get the initial version.
 perl version.pl
 
+die() {
+    echo "$@"
+    exit 1
+}
+
 # Try to locate a program by using which, and verify that the file is an
 # executable
 locate_binary() {
