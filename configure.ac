@@ -235,6 +235,10 @@ AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
     if test $libevent_linked = yes; then
        if test ! -z "$ledir" ; then
          ac_cv_libevent_dir=$ledir
+	 AS_IF(test "$SUNCC" = "yes",
+               [saved_LDFLAGS="$saved_LDFLAGS -Wl,-R$ledir/lib"])
+         AS_IF(test "$GCC" = "yes",
+               [saved_LDFLAGS="$saved_LDFLAGS -Wl,-rpath=$ledir/lib"])
        else
          ac_cv_libevent_dir="(system)"
        fi
