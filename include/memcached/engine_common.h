@@ -8,6 +8,9 @@
 extern "C" {
 #endif
 
+#ifdef __WIN32__
+#undef interface
+#endif
     typedef struct engine_interface {
         uint64_t interface; /**< The version number on the engine structure */
     } ENGINE_HANDLE;
