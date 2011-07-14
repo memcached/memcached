@@ -18,6 +18,8 @@ enum test_result {
     TIMEOUT = 23
 };
 
+typedef struct test engine_test_t;
+
 struct test_harness {
     const char *engine_path;
     const char *default_engine_cfg;
@@ -31,9 +33,8 @@ struct test_harness {
     void (*unlock_cookie)(const void *cookie);
     void (*waitfor_cookie)(const void *cookie);
     void (*time_travel)(int offset);
+    const engine_test_t* (*get_current_testcase)(void);
 };
-
-typedef struct test engine_test_t;
 
 struct test {
     const char *name;
