@@ -6903,7 +6903,6 @@ int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
     bool do_daemonize = false;
-    bool preallocate = false;
     int maxcore = 0;
     char *username = NULL;
     char *pid_file = NULL;
@@ -7101,7 +7100,6 @@ int main (int argc, char **argv) {
             break;
         case 'L' :
             if (enable_large_pages() == 0) {
-                preallocate = true;
                 old_opts += sprintf(old_opts, "preallocate=true;");
             }
             break;
@@ -7506,7 +7504,7 @@ int main (int argc, char **argv) {
         udp_port = settings.udpport ? settings.udpport : settings.port;
 
         /* create the UDP listening socket and bind it */
-        if (settings.udpport && server_sockets(settings.udpport, udp_transport,
+        if (settings.udpport && server_sockets(udp_port, udp_transport,
                                                portnumber_file)) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                             "failed to listen on UDP port %d: %s",

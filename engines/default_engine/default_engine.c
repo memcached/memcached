@@ -551,7 +551,7 @@ static ENGINE_ERROR_CODE initalize_configuration(struct default_engine *se,
        set_vbucket_state(se, 0, vbucket_state_active);
    }
 
-   return ENGINE_SUCCESS;
+   return ret;
 }
 
 static bool set_vbucket(struct default_engine *e,
