@@ -98,14 +98,15 @@ hash_item *do_item_alloc(struct default_engine *engine,
     /* do a quick check if we have any expired items in the tail.. */
     int tries = search_items;
     hash_item *search;
-
+    rel_time_t oldest_live = engine->config.oldest_live;
     rel_time_t current_time = engine->server.core->get_current_time();
 
     for (search = engine->items.tails[id];
          tries > 0 && search != NULL;
          tries--, search=search->prev) {
         if (search->refcount == 0 &&
-            (search->exptime != 0 && search->exptime < current_time)) {
+            ((search->time < oldest_live) || //dead by flush
+             (search->exptime != 0 && search->exptime < current_time))) {
             it = search;
             /* I don't want to actually free the object, just steal
              * the item to avoid to grab the slab mutex twice ;-)
