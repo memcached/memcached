@@ -99,12 +99,14 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     /* do a quick check if we have any expired items in the tail.. */
     int tries = 50;
     item *search;
+    rel_time_t oldest_live = settings.oldest_live;
 
     for (search = tails[id];
          tries > 0 && search != NULL;
          tries--, search=search->prev) {
         if (search->refcount == 0 &&
-            (search->exptime != 0 && search->exptime < current_time)) {
+            ((search->time < oldest_live) || // dead by flush
+             (search->exptime != 0 && search->exptime < current_time))) {
             it = search;
             /* I don't want to actually free the object, just steal
              * the item to avoid to grab the slab mutex twice ;-)
