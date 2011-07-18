@@ -638,11 +638,10 @@ static void conn_set_state(conn *c, enum conn_states state) {
                     state_text(state));
         }
 
-        c->state = state;
-
         if (state == conn_write || state == conn_mwrite) {
             MEMCACHED_PROCESS_COMMAND_END(c->sfd, c->wbuf, c->wbytes);
         }
+        c->state = state;
     }
 }
 
