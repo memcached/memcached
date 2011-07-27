@@ -130,7 +130,7 @@ static struct event maxconnsevent;
 static void maxconns_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
 
-    if (allow_new_conns == false) {
+    if (fd == -42 || allow_new_conns == false) {
         /* reschedule in 10ms if we need to keep polling */
         evtimer_set(&maxconnsevent, maxconns_handler, 0);
         event_base_set(main_base, &maxconnsevent);
@@ -3386,7 +3386,7 @@ void do_accept_new_conns(const bool do_accept) {
         stats.listen_disabled_num++;
         STATS_UNLOCK();
         allow_new_conns = false;
-        maxconns_handler(0, 0, 0);
+        maxconns_handler(-42, 0, 0);
     }
 }
 
