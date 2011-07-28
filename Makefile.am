@@ -252,8 +252,8 @@ memcached_dtrace.o: $(memcached_OBJECTS)
 # default_engine_dtrace.x
 DEFAULT_ENGINE_OBJS=$(default_engine_la_OBJECTS:%lo=.libs/%o)
 default_engine_dtrace.lo: $(default_engine_la_OBJECTS)
-	$(DTRACE) $(DTRACEFLAGS) -G -o .libs/default_engine_dtrace.o -s ${srcdir}/memcached_dtrace.d $(DEFAULT_ENGINE_OBJS)
-	sed -e s,assoc,default_engine_dtrace,g assoc.lo > default_engine_dtrace.lo
+	$(DTRACE) $(DTRACEFLAGS) -G -o .libs/default_engine_la-default_engine_dtrace.o -s ${srcdir}/memcached_dtrace.d $(DEFAULT_ENGINE_OBJS)
+	sed -e s,assoc,default_engine_dtrace,g default_engine_la-assoc.lo > default_engine_dtrace.lo
 
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d m4/version.m4 \
