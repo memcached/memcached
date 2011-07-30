@@ -58,7 +58,7 @@ AC_DEFUN([DETECT_SUNCC],
 AS_IF(test "x$GCC" = "xyes",
       DETECT_ICC([CFLAGS="-pthread $CFLAGS"], [CFLAGS="-fvisibility=hidden -pthread $CFLAGS"]),
       ICC=no
-      DETECT_SUNCC([CFLAGS="-xldscope=hidden -mt $CFLAGS"], []))
+      DETECT_SUNCC([CFLAGS="-xldscope=hidden -mt -xc99=all $CFLAGS"], []))
 
 if test "$ICC" = "no"; then
    AC_PROG_CC_C99
