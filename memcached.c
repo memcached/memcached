@@ -493,6 +493,10 @@ static void conn_cleanup(conn *c) {
         sasl_dispose(&c->sasl_conn);
         c->sasl_conn = NULL;
     }
+
+    if (IS_UDP(c->transport)) {
+        conn_set_state(c, conn_read);
+    }
 }
 
 /*
@@ -3264,7 +3268,7 @@ static enum try_read_result try_read_udp(conn *c) {
         res -= 8;
         memmove(c->rbuf, c->rbuf + 8, res);
 
-        c->rbytes += res;
+        c->rbytes = res;
         c->rcurr = c->rbuf;
         return READ_DATA_RECEIVED;
     }
