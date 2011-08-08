@@ -242,8 +242,13 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
     char prefix[40];
     uint8_t nsuffix;
 
-    return slabs_clsid(item_make_header(nkey + 1, flags, nbytes,
-                                        prefix, &nsuffix)) != 0;
+    size_t ntotal = item_make_header(nkey + 1, flags, nbytes,
+                                     prefix, &nsuffix);
+    if (settings.use_cas) {
+        ntotal += sizeof(uint64_t);
+    }
+
+    return slabs_clsid(ntotal) != 0;
 }
 
 static void item_link_q(item *it) { /* item is the new head */
