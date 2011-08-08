@@ -484,6 +484,7 @@ then
   AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux])
 elif test "$SUNCC" = "yes"
 then
+  AC_CHECK_DECL([__linux], [ AC_DEFINE([_GNU_SOURCE],[1],[find sigignore on Linux]) ])
   CFLAGS="$CFLAGS -errfmt=error -errwarn -errshort=tags"
 fi
 
