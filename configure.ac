@@ -187,6 +187,10 @@ return sizeof(void*) == 8 ? 0 : 1;
     ])
 fi
 
+# Issue 213: Search for clock_gettime to help people linking
+#            with a static version of libevent
+AC_SEARCH_LIBS(clock_gettime, rt)
+
 trylibeventdir=""
 AC_ARG_WITH(libevent,
        [  --with-libevent=PATH     Specify path to libevent installation ],
