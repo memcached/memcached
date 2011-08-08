@@ -190,6 +190,10 @@ fi
 # Issue 213: Search for clock_gettime to help people linking
 #            with a static version of libevent
 AC_SEARCH_LIBS(clock_gettime, rt)
+# Issue 214: Search for the network libraries _before_ searching
+#            for libevent (to help people linking with static libevent)
+AC_SEARCH_LIBS(socket, socket)
+AC_SEARCH_LIBS(gethostbyname, nsl)
 
 trylibeventdir=""
 AC_ARG_WITH(libevent,
@@ -213,7 +217,7 @@ AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
   le_found=no
   for ledir in $trylibeventdir "" $prefix /usr/local ; do
     LDFLAGS="$saved_LDFLAGS"
-    LIBS="$saved_LIBS -levent"
+    LIBS="-levent $saved_LIBS"
 
     # Skip the directory if it isn't there.
     if test ! -z "$ledir" -a ! -d "$ledir" ; then
@@ -261,7 +265,7 @@ AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
 ])
   fi
 ])
-LIBS="$LIBS -levent"
+LIBS="-levent $LIBS"
 if test $ac_cv_libevent_dir != "(system)"; then
   if test -d "$ac_cv_libevent_dir/lib" ; then
     LDFLAGS="-L$ac_cv_libevent_dir/lib $LDFLAGS"
@@ -279,8 +283,6 @@ fi
 
 dnl ----------------------------------------------------------------------------
 
-AC_SEARCH_LIBS(socket, socket)
-AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(umem_cache_create, umem)
 AC_SEARCH_LIBS(gethugepagesizes, hugetlbfs)
 
