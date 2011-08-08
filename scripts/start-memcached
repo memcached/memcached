@@ -7,6 +7,7 @@
 # Anyone may use this little script under the same terms as
 # memcached itself.
 
+use POSIX qw(setsid);
 use strict;
 
 if($> != 0 and $< != 0)
@@ -105,7 +106,14 @@ my $pid = fork();
 
 if($pid == 0)
 {
+    # setsid makes us the session leader
+    setsid();
     reopen_logfile($fd_reopened);
+    # must fork again now that tty is closed
+    $pid = fork();
+    if ($pid) {
+      exit(0);
+    }
     exec "$memcached $params";
     exit(0);
 
