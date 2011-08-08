@@ -1,41 +1,82 @@
-#! /bin/sh
-#
-# skeleton  example file to build /etc/init.d/ scripts.
-#       This file should be used to construct scripts for /etc/init.d.
-#
-#       Written by Miquel van Smoorenburg <miquels@cistron.nl>.
-#       Modified for Debian
-#       by Ian Murdock <imurdock@gnu.ai.mit.edu>.
-#
-# Version:  @(#)skeleton  1.9  26-Feb-2001  miquels@cistron.nl
-#
+#! /bin/bash
 ### BEGIN INIT INFO
 # Provides:          memcached
 # Required-Start:    $syslog
 # Required-Stop:     $syslog
+# Should-Start:        $local_fs
+# Should-Stop:        $local_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: Start memcached daemon at boot time
-# Description:       Enable memcached server
+# Short-Description:    memcached - Memory caching daemon
+# Description:        memcached - Memory caching daemon
 ### END INIT INFO
 
+# Usage:
+# cp /etc/memcached.conf /etc/memcached_server1.conf
+# cp /etc/memcached.conf /etc/memcached_server2.conf
+# start all instances:
+# /etc/init.d/memcached start
+# start one instance:
+# /etc/init.d/memcached start server1
+# stop all instances:
+# /etc/init.d/memcached stop
+# stop one instance:
+# /etc/init.d/memcached stop server1
+# There is no "status" command.
 
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 DAEMON=/usr/bin/memcached
+DAEMONNAME=memcached
 DAEMONBOOTSTRAP=/usr/share/memcached/scripts/start-memcached
-NAME=memcached
 DESC=memcached
-PIDFILE=/var/run/$NAME.pid
 
 test -x $DAEMON || exit 0
 test -x $DAEMONBOOTSTRAP || exit 0
 
 set -e
 
+FILES=(/etc/memcached_*.conf)
+# check for alternative config schema
+if [ -r "${FILES[0]}" ]; then
+  CONFIGS=()
+  for FILE in "${FILES[@]}";
+  do
+    # remove prefix
+    NAME=${FILE#/etc/}
+    # remove suffix
+    NAME=${NAME%.conf}
+
+    # check optional second param
+    if [ $# -ne 2 ];
+    then
+      # add to config array
+      CONFIGS+=($NAME)
+    elif [ "memcached_$2" == "$NAME" ];
+    then
+      # use only one memcached
+      CONFIGS=($NAME)
+      break;
+    fi;
+  done;
+
+  if [ ${#CONFIGS[@]} == 0 ];
+  then
+    echo "Config not exist for: $2" >&2
+    exit 1
+  fi;
+else
+  CONFIGS=(memcached)
+fi;
+
+CONFIG_NUM=${#CONFIGS[@]}
+for ((i=0; i < $CONFIG_NUM; i++)); do
+  NAME=${CONFIGS[${i}]}
+  PIDFILE="/var/run/${NAME}.pid"
+
 case "$1" in
     start)
         echo -n "Starting $DESC: "
-        start-stop-daemon --start --quiet --exec $DAEMONBOOTSTRAP
+        start-stop-daemon --start --quiet --exec "$DAEMONBOOTSTRAP" -- /etc/${NAME}.conf $PIDFILE
         echo "$NAME."
         ;;
     stop)
@@ -55,7 +96,7 @@ case "$1" in
         start-stop-daemon --stop --quiet --oknodo --pidfile $PIDFILE
         rm -f $PIDFILE
         sleep 1
-        start-stop-daemon --start --quiet --exec $DAEMONBOOTSTRAP
+        start-stop-daemon --start --quiet --exec "$DAEMONBOOTSTRAP" -- /etc/${NAME}.conf $PIDFILE
         echo "$NAME."
         ;;
     *)
@@ -65,5 +106,6 @@ case "$1" in
         exit 1
         ;;
 esac
+done;
 
 exit 0
