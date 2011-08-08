@@ -7178,8 +7178,9 @@ int main (int argc, char **argv) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                     "This server is not built with SASL support.\n");
             exit(EX_USAGE);
-#endif
+#else
             settings.require_sasl = true;
+#endif
             break;
         case 'X' :
             {
