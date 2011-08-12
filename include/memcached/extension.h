@@ -2,7 +2,10 @@
 #ifndef MEMCACHED_EXTENSION_H
 #define MEMCACHED_EXTENSION_H
 
+#ifndef __cplusplus
 #include <stdbool.h>
+#endif
+
 #include <stdint.h>
 #include <memcached/engine_common.h>
 #include <memcached/protocol_binary.h>

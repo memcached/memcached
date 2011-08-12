@@ -2,8 +2,11 @@
 #define MEMCACHED_TYPES_H 1
 
 #include <sys/types.h>
-#include <stdbool.h>
 #include <stdint.h>
+
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
 
 #ifdef __WIN32__
 struct iovec {

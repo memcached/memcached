@@ -2,8 +2,11 @@
 #ifndef MEMCACHED_ENGINE_H
 #define MEMCACHED_ENGINE_H
 
-#include <sys/types.h>
+#ifndef __cplusplus
 #include <stdbool.h>
+#endif
+
+#include <sys/types.h>
 #include <stdint.h>
 #include <stdio.h>
 
