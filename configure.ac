@@ -252,10 +252,16 @@ return sizeof(void*) == 8 ? 0 : 1;
     ])
 fi
 
+# Issue 213: Search for clock_gettime to help people linking
+#            with a static version of libevent
 AC_SEARCH_LIBS(clock_gettime, rt)
+# Issue 214: Search for the network libraries _before_ searching
+#            for libevent (to help people linking with static libevent)
+AC_SEARCH_LIBS(socket, socket)
+AC_SEARCH_LIBS(gethostbyname, nsl)
 
-embedded_libevent=no
 trylibeventdir=""
+embedded_libevent=no
 AS_IF([test "x$ac_cv_bundled_libevent" = "xno"],
       [
          AC_LIBEVENT
@@ -298,13 +304,11 @@ AC_DEFUN([AC_CHECK_LIBRARY],
    AC_SUBST([LIB]NAME)
 ])
 
-AC_CHECK_LIBRARY(socket, socket)
-AC_CHECK_LIBRARY(gethostbyname, nsl)
 AC_CHECK_LIBRARY(umem_cache_create, umem)
 AC_CHECK_LIBRARY(gethugepagesizes, hugetlbfs)
 AC_CHECK_LIBRARY(dlopen, dl)
 AC_CHECK_LIBRARY(log, m)
-APPLICATION_LIBS="$LIBSOCKET $LIBNSL $LIBUMEM $LIBHUGETLBFS $LIBDL $LIBM"
+APPLICATION_LIBS="$LIBUMEM $LIBHUGETLBFS $LIBDL $LIBM"
 AC_SUBST(APPLICATION_LIBS)
 
 AC_HEADER_STDBOOL
@@ -404,6 +408,7 @@ AC_CHECK_FUNCS(mlockall)
 AC_CHECK_FUNCS(getpagesizes)
 AC_CHECK_FUNCS(memcntl)
 AC_CHECK_FUNCS(sigignore)
+AC_CHECK_FUNCS(clock_gettime)
 
 AC_DEFUN([AC_C_ALIGNMENT],
 [AC_CACHE_CHECK(for alignment, ac_cv_c_alignment,

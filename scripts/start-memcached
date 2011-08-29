@@ -7,6 +7,7 @@
 # Anyone may use this little script under the same terms as
 # memcached itself.
 
+use POSIX qw(setsid);
 use strict;
 
 if($> != 0 and $< != 0)
@@ -22,6 +23,11 @@ my $params; my $etchandle; my $etcfile = "/etc/memcached.conf";
 
 my $memcached = "/usr/bin/memcached";
 my $pidfile = "/var/run/memcached.pid";
+
+if (scalar(@ARGV) == 2) {
+    $etcfile = shift(@ARGV);
+    $pidfile = shift(@ARGV);
+}
 
 # If we don't get a valid logfile parameter in the /etc/memcached.conf file,
 # we'll just throw away all of our in-daemon output. We need to re-tie it so
@@ -100,7 +106,14 @@ my $pid = fork();
 
 if($pid == 0)
 {
+    # setsid makes us the session leader
+    setsid();
     reopen_logfile($fd_reopened);
+    # must fork again now that tty is closed
+    $pid = fork();
+    if ($pid) {
+      exit(0);
+    }
     exec "$memcached $params";
     exit(0);
 
@@ -114,4 +127,3 @@ if($pid == 0)
         print STDERR "Can't write pidfile to $pidfile.\n";
     }
 }
-

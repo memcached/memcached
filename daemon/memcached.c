@@ -157,12 +157,6 @@ static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
 static int add_msghdr(conn *c);
 
-
-/* time handling */
-static void set_current_time(void);  /* update the global variable holding
-                              global 32-bit seconds-since-start time
-                              (to avoid 64 bit time_t) */
-
 /** exported globals **/
 struct stats stats;
 struct settings settings;
@@ -686,6 +680,10 @@ static void conn_cleanup(conn *c) {
         c->sasl_conn = NULL;
     }
 
+    if (IS_UDP(c->transport)) {
+        conn_set_state(c, conn_read);
+    }
+
     c->engine_storage = NULL;
     c->tap_iterator = NULL;
     c->thread = NULL;
@@ -1009,6 +1007,12 @@ static void out_string(conn *c, const char *str) {
         settings.extensions.logger->log(EXTENSION_LOG_DEBUG, c,
                                         ">%d %s\n", c->sfd, str);
     }
+
+    /* Nuke a partial output... */
+    c->msgcurr = 0;
+    c->msgused = 0;
+    c->iovused = 0;
+    add_msghdr(c);
 
     /* Nuke a partial output... */
     c->msgcurr = 0;
@@ -4242,6 +4246,12 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     /* Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
     exptime = exptime_int;
 
+    /* Negative exptimes can underflow and end up immortal. realtime() will
+       immediately expire values that are greater than REALTIME_MAXDELTA, but less
+       than process_started, so lets aim for that. */
+    if (exptime < 0)
+        exptime = REALTIME_MAXDELTA + 1;
+
     // does cas value exist?
     if (handle_cas) {
         if (!safe_strtoull(tokens[5].value, &req_cas_id)) {
@@ -4867,7 +4877,7 @@ static enum try_read_result try_read_udp(conn *c) {
         res -= 8;
         memmove(c->rbuf, c->rbuf + 8, res);
 
-        c->rbytes += res;
+        c->rbytes = res;
         c->rcurr = c->rbuf;
         return READ_DATA_RECEIVED;
     }
@@ -6032,17 +6042,17 @@ static int server_socket_unix(const char *path, int access_mask) {
 
 static struct event clockevent;
 
-/* time-sensitive callers can call it by hand with this, outside the normal ever-1-second timer */
-static void set_current_time(void) {
-    struct timeval timer;
-
-    gettimeofday(&timer, NULL);
-    current_time = (rel_time_t) (timer.tv_sec - process_started);
-}
-
+/* libevent uses a monotonic clock when available for event scheduling. Aside
+ * from jitter, simply ticking our internal timer here is accurate enough.
+ * Note that users who are setting explicit dates for expiration times *must*
+ * ensure their clocks are correct before starting memcached. */
 static void clock_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 1, .tv_usec = 0};
     static bool initialized = false;
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+    static bool monotonic = false;
+    static time_t monotonic_start;
+#endif
 
     if (memcached_shutdown) {
         event_base_loopbreak(main_base);
@@ -6054,13 +6064,35 @@ static void clock_handler(const int fd, const short which, void *arg) {
         evtimer_del(&clockevent);
     } else {
         initialized = true;
+        /* process_started is initialized to time() - 2. We initialize to 1 so
+         * flush_all won't underflow during tests. */
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+            monotonic = true;
+            monotonic_start = ts.tv_sec - 2;
+        }
+#endif
     }
 
     evtimer_set(&clockevent, clock_handler, 0);
     event_base_set(main_base, &clockevent);
     evtimer_add(&clockevent, &t);
 
-    set_current_time();
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+    if (monotonic) {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1)
+            return;
+        current_time = (rel_time_t) (ts.tv_sec - monotonic_start);
+        return;
+    }
+#endif
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        current_time = (rel_time_t) (tv.tv_sec - process_started);
+    }
 }
 
 static void usage(void) {
@@ -6925,7 +6957,7 @@ int main (int argc, char **argv) {
        like 'settings.oldest_live' which act as booleans as well as
        values are now false in boolean context... */
     process_started = time(0) - 2;
-    set_current_time();
+    current_time = process_started;
 
     /* Initialize the socket subsystem */
     initialize_sockets();
@@ -7469,8 +7501,6 @@ int main (int argc, char **argv) {
 
     /* create the listening socket, bind it, and init */
     if (settings.socketpath == NULL) {
-        int udp_port;
-
         const char *portnumber_filename = getenv("MEMCACHED_PORT_FILENAME");
         char temp_portnumber_filename[PATH_MAX];
         FILE *portnumber_file = NULL;
@@ -7502,10 +7532,9 @@ int main (int argc, char **argv) {
          * then daemonise if needed, then init libevent (in some cases
          * descriptors created by libevent wouldn't survive forking).
          */
-        udp_port = settings.udpport ? settings.udpport : settings.port;
 
         /* create the UDP listening socket and bind it */
-        if (settings.udpport && server_sockets(udp_port, udp_transport,
+        if (settings.udpport && server_sockets(settings.udpport, udp_transport,
                                                portnumber_file)) {
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
                                             "failed to listen on UDP port %d: %s",

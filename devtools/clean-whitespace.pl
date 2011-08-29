@@ -2,7 +2,20 @@
 use strict;
 use FindBin qw($Bin);
 chdir "$Bin/.." or die;
-my @files = (glob("*.h"), glob("*.c"), glob("*.ac"), glob("./win32/*.c"), glob("./win32/*.h"), glob("./m4/*.m4"));
+
+my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am);
+push(@exempted, glob("doc/*.xml"));
+push(@exempted, glob("doc/xml2rfc/*.xsl"));
+push(@exempted, glob("m4/*backport*m4"));
+my %exempted_hash = map { $_ => 1 } @exempted;
+
+my @stuff = split /\0/, `git ls-files -z -c -m -o --exclude-standard`;
+my @files = grep { ! $exempted_hash{$_} } @stuff;
+
+unless (@files) {
+    warn "ERROR: You don't seem to be running this from a git checkout\n";
+    exit;
+}
 
 foreach my $f (@files) {
     open(my $fh, $f) or die;

@@ -30,7 +30,7 @@ my $stats  = mem_stats($sock, "items");
 my $age = $stats->{"items:1:age"};
 isnt ($age, "0", "Age should not be zero");
 
-sleep(2);
+sleep(3);
 
 my $stats  = mem_stats($sock, "items");
 my $age = $stats->{"items:1:age"};

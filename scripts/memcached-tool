@@ -14,7 +14,7 @@
 use strict;
 use IO::Socket::INET;
 
-my $host = shift;
+my $addr = shift;
 my $mode = shift || "display";
 my ($from, $to);
 
@@ -37,18 +37,29 @@ if ($mode eq "display") {
 undef $mode if @ARGV;
 
 die
-    "Usage: memcached-tool <host[:port]> [mode]\n
+    "Usage: memcached-tool <host[:port] | /path/to/socket> [mode]\n
        memcached-tool 10.0.0.5:11211 display    # shows slabs
        memcached-tool 10.0.0.5:11211            # same.  (default is display)
        memcached-tool 10.0.0.5:11211 stats      # shows general stats
        memcached-tool 10.0.0.5:11211 dump       # dumps keys and values
-" unless $host && $mode;
+" unless $addr && $mode;
 
-$host .= ":11211" unless $host =~ /:\d+/;
 
-my $sock = IO::Socket::INET->new(PeerAddr => $host,
-                                 Proto    => 'tcp');
-die "Couldn't connect to $host\n" unless $sock;
+my $sock;
+if ($addr =~ m:/:) {
+    $sock = IO::Socket::UNIX->new(
+        Peer => $addr,
+    );
+}
+else {
+    $addr .= ':11211' unless $addr =~ /:\d+$/;
+
+    $sock = IO::Socket::INET->new(
+        PeerAddr => $addr,
+        Proto    => 'tcp',
+    );
+}
+die "Couldn't connect to $addr\n" unless $sock;
 
 if ($mode eq 'dump') {
     my %items;
@@ -110,7 +121,7 @@ if ($mode eq 'stats') {
             $items{$1} = $2;
         }
     }
-    printf ("#%-17s %5s %11s\n", $host, "Field", "Value");
+    printf ("#%-17s %5s %11s\n", $addr, "Field", "Value");
     foreach my $name (sort(keys(%items))) {
         printf ("%24s %12s\n", $name, $items{$name});
 
@@ -125,10 +136,12 @@ my %items;  # class -> { number, age, chunk_size, chunks_per_page,
 #            free_chunks, free_chunks_end }
 
 print $sock "stats items\r\n";
+my $max = 0;
 while (<$sock>) {
     last if /^END/;
     if (/^STAT items:(\d+):(\w+) (\d+)/) {
         $items{$1}{$2} = $3;
+        $max = $1;
     }
 }
 
@@ -141,7 +154,7 @@ while (<$sock>) {
 }
 
 print "  #  Item_Size  Max_age   Pages   Count   Full?  Evicted Evict_Time OOM\n";
-foreach my $n (1..40) {
+foreach my $n (1..$max) {
     my $it = $items{$n};
     next if (0 == $it->{total_pages});
     my $size = $it->{chunk_size} < 1024 ?

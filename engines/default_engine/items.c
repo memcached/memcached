@@ -105,7 +105,7 @@ hash_item *do_item_alloc(struct default_engine *engine,
          tries > 0 && search != NULL;
          tries--, search=search->prev) {
         if (search->refcount == 0 &&
-            ((search->time < oldest_live) || //dead by flush
+            ((search->time < oldest_live) || // dead by flush
              (search->exptime != 0 && search->exptime < current_time))) {
             it = search;
             /* I don't want to actually free the object, just steal
@@ -287,7 +287,6 @@ int do_item_link(struct default_engine *engine, hash_item *it) {
     assoc_insert(engine, engine->server.core->hash(item_get_key(it),
                                                         it->nkey, 0),
                  it);
-
     pthread_mutex_lock(&engine->stats.lock);
     engine->stats.curr_bytes += ITEM_ntotal(engine, it);
     engine->stats.curr_items += 1;

@@ -43,6 +43,11 @@ AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
     if test $libevent_linked = yes; then
        if test ! -z "$ledir" ; then
          ac_cv_libevent_dir=$ledir
+         _myos=`echo $target_os | cut -f 1 -d .`
+         AS_IF(test "$SUNCC" = "yes" -o "x$_myos" = "xsolaris2",
+               [saved_LDFLAGS="$saved_LDFLAGS -Wl,-R$ledir/lib"],
+               [AS_IF(test "$GCC" = "yes",
+                     [saved_LDFLAGS="$saved_LDFLAGS -Wl,-rpath,$ledir/lib"])])
        else
          ac_cv_libevent_dir="(system)"
        fi
