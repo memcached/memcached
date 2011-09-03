@@ -17,8 +17,10 @@ bool safe_strtoull(const char *str, uint64_t *out) {
     *out = 0;
     char *endptr;
     unsigned long long ull = strtoull(str, &endptr, 10);
-    if (errno == ERANGE)
+    if ((errno == ERANGE) || (str == endptr)) {
         return false;
+    }
+
     if (xisspace(*endptr) || (*endptr == '\0' && endptr != str)) {
         if ((long long) ull < 0) {
             /* only check for negative signs in the uncommon case when
@@ -40,8 +42,10 @@ bool safe_strtoll(const char *str, int64_t *out) {
     *out = 0;
     char *endptr;
     long long ll = strtoll(str, &endptr, 10);
-    if (errno == ERANGE)
+    if ((errno == ERANGE) || (str == endptr)) {
         return false;
+    }
+
     if (xisspace(*endptr) || (*endptr == '\0' && endptr != str)) {
         *out = ll;
         return true;
@@ -58,7 +62,7 @@ bool safe_strtoul(const char *str, uint32_t *out) {
     errno = 0;
 
     l = strtoul(str, &endptr, 10);
-    if (errno == ERANGE) {
+    if ((errno == ERANGE) || (str == endptr)) {
         return false;
     }
 
@@ -84,8 +88,10 @@ bool safe_strtol(const char *str, int32_t *out) {
     *out = 0;
     char *endptr;
     long l = strtol(str, &endptr, 10);
-    if (errno == ERANGE)
+    if ((errno == ERANGE) || (str == endptr)) {
         return false;
+    }
+
     if (xisspace(*endptr) || (*endptr == '\0' && endptr != str)) {
         *out = l;
         return true;

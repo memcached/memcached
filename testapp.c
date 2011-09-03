@@ -190,6 +190,7 @@ static enum test_return test_safe_strtoul(void) {
     assert(val == 123);
     assert(!safe_strtoul("", &val));  // empty
     assert(!safe_strtoul("123BOGUS", &val));  // non-numeric
+    assert(!safe_strtoul(" issue221", &val));  // non-numeric
     /* Not sure what it does, but this works with ICC :/
        assert(!safe_strtoul("92837498237498237498029383", &val)); // out of range
     */
@@ -214,6 +215,7 @@ static enum test_return test_safe_strtoull(void) {
     assert(!safe_strtoull("", &val));  // empty
     assert(!safe_strtoull("123BOGUS", &val));  // non-numeric
     assert(!safe_strtoull("92837498237498237498029383", &val)); // out of range
+    assert(!safe_strtoull(" issue221", &val));  // non-numeric
 
     // extremes:
     assert(safe_strtoull("18446744073709551615", &val)); // 2**64 - 1
@@ -234,6 +236,7 @@ static enum test_return test_safe_strtoll(void) {
     assert(!safe_strtoll("", &val));  // empty
     assert(!safe_strtoll("123BOGUS", &val));  // non-numeric
     assert(!safe_strtoll("92837498237498237498029383", &val)); // out of range
+    assert(!safe_strtoll(" issue221", &val));  // non-numeric
 
     // extremes:
     assert(!safe_strtoll("18446744073709551615", &val)); // 2**64 - 1
@@ -262,6 +265,7 @@ static enum test_return test_safe_strtol(void) {
     assert(!safe_strtol("", &val));  // empty
     assert(!safe_strtol("123BOGUS", &val));  // non-numeric
     assert(!safe_strtol("92837498237498237498029383", &val)); // out of range
+    assert(!safe_strtol(" issue221", &val));  // non-numeric
 
     // extremes:
     /* This actually works on 64-bit ubuntu
