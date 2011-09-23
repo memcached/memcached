@@ -1318,6 +1318,7 @@ static void process_bin_get(conn *c) {
         /* Add the data minus the CRLF */
         add_iov(c, ITEM_data(it), it->nbytes - 2);
         conn_set_state(c, conn_mwrite);
+        c->write_and_go = conn_new_cmd;
         /* Remember this command so we can garbage collect it later */
         c->item = it;
     } else {
