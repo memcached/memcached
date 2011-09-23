@@ -64,11 +64,9 @@ MEMCACHED_SRC = \
 	      daemon/sasl_defs.c \
 	      daemon/stats.c \
 	      daemon/thread.c \
-	      daemon/topkeys.c \
 	      utilities/config_parser.c \
 	      utilities/engine_loader.c \
 	      utilities/extension_loggers.c\
-	      utilities/genhash.c \
 	      utilities/util.c \
 	      win32/defs.c \
 	      win32/dlfcn.c \

@@ -380,19 +380,42 @@ extern "C" {
         void (*reset_stats)(ENGINE_HANDLE* handle, const void *cookie);
 
         /**
-         * Get an array of per-thread stats. Set to NULL if you don't need it.
+         * Get an array of per-thread stats. This allows the engine to
+         * keep separate stats per cookie. Your implementation of this
+         * callback <b>must</b> return a memory area returned from the
+         * server API's new_stats. If all of your connections belong
+         * to the same "stats pool" you should set this callback to
+         * NULL.
+         *
+         * @param handle the engine handle
+         * @param cookie the cookie representing the connection
+         * @return A pointer to a stats structure (or NULL if allocation
+         *         failed)
          */
         void *(*get_stats_struct)(ENGINE_HANDLE* handle,
                                   const void* cookie);
 
         /**
-         * Aggregate stats among all per-connection stats. Set to NULL if you don't need it.
+         * Aggregate stats among all per-connection stats. This allows
+         * the engine to call the aggregation callback for a number of
+         * stat structures. You would normally not use this if you
+         * didn't implement a special get_stats_struct().
+         *
+         *
+         * @param handle the engine handle
+         * @param cookie the cookie representing the connection
+         * @param callback the callback function you should call for all
+         *        of the stats structures you want to include in the
+         *        aggregatioin.
+         * @param dest This is the second parameter to the callback
+         *        function.
+         * @return ENGINE_SUCCESS unless you had a failure
          */
         ENGINE_ERROR_CODE (*aggregate_stats)(ENGINE_HANDLE* handle,
                                              const void* cookie,
-                                             void (*callback)(void*, void*),
-                                             void*);
-
+                                             void (*callback)(void* src,
+                                                              void* dest),
+                                             void* dest);
 
         /**
          * Any unknown command will be considered engine specific.

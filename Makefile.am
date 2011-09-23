@@ -12,7 +12,6 @@ pkginclude_HEADERS = \
                      include/memcached/engine_testapp.h \
                      include/memcached/extension.h \
                      include/memcached/extension_loggers.h \
-                     include/memcached/genhash.h \
                      include/memcached/protocol_binary.h \
                      include/memcached/protocol_plugin.h \
                      include/memcached/server_api.h \
@@ -76,14 +75,11 @@ libmemcached_utilities_la_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/utilities
 libmemcached_utilities_la_LDFLAGS =-R '$(pkglibdir)' -R '$(libdir)'
 libmemcached_utilities_la_SOURCES= \
                         include/memcached/config_parser.h \
-                        include/memcached/genhash.h \
                         include/memcached/util.h \
                         utilities/config_parser.c \
                         utilities/engine_loader.c \
                         utilities/engine_loader.h \
                         utilities/extension_loggers.c \
-                        utilities/genhash.c \
-                        utilities/genhash_int.h \
                         utilities/util.c
 
 memcached_SOURCES = \
@@ -98,8 +94,6 @@ memcached_SOURCES = \
                     daemon/stats.c \
                     daemon/stats.h \
                     daemon/thread.c \
-                    daemon/topkeys.c \
-                    daemon/topkeys.h \
                     trace.h
 memcached_CPPFLAGS = $(CPPFLAGS) -I$(top_srcdir)/daemon
 memcached_LDFLAGS =-R '$(pkglibdir)' -R '$(libdir)'
