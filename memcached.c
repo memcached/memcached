@@ -2899,6 +2899,48 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     conn_set_state(c, conn_nread);
 }
 
+static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    int32_t exptime_int = 0;
+    item *it;
+
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    if (!safe_strtol(tokens[2].value, &exptime_int)) {
+        out_string(c, "CLIENT_ERROR invalid exptime argument");
+        return;
+    }
+
+    it = item_touch(key, nkey, realtime(exptime_int));
+    if (it) {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.touch_cmds++;
+        c->thread->stats.slab_stats[it->slabs_clsid].touch_hits++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        out_string(c, "TOUCHED");
+        item_remove(it);
+    } else {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.touch_cmds++;
+        c->thread->stats.touch_misses++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        out_string(c, "NOT_FOUND");
+    }
+}
+
 static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
@@ -3159,6 +3201,10 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
 
         process_delete_command(c, tokens, ntokens);
+
+    } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "touch") == 0)) {
+
+        process_touch_command(c, tokens, ntokens);
 
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0)) {
 
