@@ -44,6 +44,8 @@ use constant CMD_PREPENDQ   => 0x1A;
 use constant CMD_TOUCH      => 0x1C;
 use constant CMD_GAT        => 0x1D;
 use constant CMD_GATQ       => 0x1E;
+use constant CMD_GATK       => 0x23;
+use constant CMD_GATKQ      => 0x24;
 
 # REQ and RES formats are divided even though they currently share
 # the same format, since they _could_ differ in the future.

@@ -967,7 +967,8 @@ static void validate_response_header(protocol_binary_response_no_extras *respons
     } else {
         assert(response->message.header.response.cas == 0);
         assert(response->message.header.response.extlen == 0);
-        if (cmd != PROTOCOL_BINARY_CMD_GETK) {
+        if (cmd != PROTOCOL_BINARY_CMD_GETK &&
+            cmd != PROTOCOL_BINARY_CMD_GATK) {
             assert(response->message.header.response.keylen == 0);
         }
     }
@@ -1597,7 +1598,7 @@ static enum test_return test_binary_stat(void) {
 }
 
 static enum test_return test_binary_illegal(void) {
-    uint8_t cmd = 0x23;
+    uint8_t cmd = 0x25;
     while (cmd != 0x00) {
         union {
             protocol_binary_request_no_extras request;
@@ -1704,6 +1705,8 @@ static enum test_return test_binary_pipeline_hickup_chunk(void *buffer, size_t b
         case PROTOCOL_BINARY_CMD_TOUCH:
         case PROTOCOL_BINARY_CMD_GAT:
         case PROTOCOL_BINARY_CMD_GATQ:
+        case PROTOCOL_BINARY_CMD_GATK:
+        case PROTOCOL_BINARY_CMD_GATKQ:
             len = touch_command(command.bytes, sizeof(command.bytes), cmd,
                                 key, keylen, 10);
             break;

@@ -1215,6 +1215,9 @@ static void process_bin_touch(conn *c) {
 
         if (c->cmd == PROTOCOL_BINARY_CMD_TOUCH) {
             bodylen -= it->nbytes - 2;
+        } else if (c->cmd == PROTOCOL_BINARY_CMD_GATK) {
+            bodylen += nkey;
+            keylen = nkey;
         }
 
         add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
@@ -1224,10 +1227,15 @@ static void process_bin_touch(conn *c) {
         rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
+        if (c->cmd == PROTOCOL_BINARY_CMD_GATK) {
+            add_iov(c, ITEM_key(it), nkey);
+        }
+
         /* Add the data minus the CRLF */
         if (c->cmd != PROTOCOL_BINARY_CMD_TOUCH) {
             add_iov(c, ITEM_data(it), it->nbytes - 2);
         }
+
         conn_set_state(c, conn_mwrite);
         /* Remember this command so we can garbage collect it later */
         c->item = it;
@@ -1242,7 +1250,16 @@ static void process_bin_touch(conn *c) {
         if (c->noreply) {
             conn_set_state(c, conn_new_cmd);
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            if (c->cmd == PROTOCOL_BINARY_CMD_GATK) {
+                char *ofs = c->wbuf + sizeof(protocol_binary_response_header);
+                add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
+                        0, nkey, nkey);
+                memcpy(ofs, key, nkey);
+                add_iov(c, ofs, nkey);
+                conn_set_state(c, conn_mwrite);
+            } else {
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            }
         }
     }
 
@@ -1810,7 +1827,10 @@ static void dispatch_bin_command(conn *c) {
         c->cmd = PROTOCOL_BINARY_CMD_GETK;
         break;
     case PROTOCOL_BINARY_CMD_GATQ:
-        c->cmd = PROTOCOL_BINARY_CMD_GATQ;
+        c->cmd = PROTOCOL_BINARY_CMD_GAT;
+        break;
+    case PROTOCOL_BINARY_CMD_GATKQ:
+        c->cmd = PROTOCOL_BINARY_CMD_GAT;
         break;
     default:
         c->noreply = false;
@@ -1916,6 +1936,8 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_TOUCH:
         case PROTOCOL_BINARY_CMD_GAT:
         case PROTOCOL_BINARY_CMD_GATQ:
+        case PROTOCOL_BINARY_CMD_GATK:
+        case PROTOCOL_BINARY_CMD_GATKQ:
             if (extlen == 4 && keylen != 0) {
                 bin_read_key(c, bin_reading_touch_key, 4);
             } else {

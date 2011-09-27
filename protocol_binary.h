@@ -108,6 +108,8 @@ extern "C"
         PROTOCOL_BINARY_CMD_TOUCH = 0x1c,
         PROTOCOL_BINARY_CMD_GAT = 0x1d,
         PROTOCOL_BINARY_CMD_GATQ = 0x1e,
+        PROTOCOL_BINARY_CMD_GATK = 0x23,
+        PROTOCOL_BINARY_CMD_GATKQ = 0x24,
 
         PROTOCOL_BINARY_CMD_SASL_LIST_MECHS = 0x20,
         PROTOCOL_BINARY_CMD_SASL_AUTH = 0x21,
@@ -416,12 +418,16 @@ extern "C"
     } protocol_binary_request_gat;
 
     typedef protocol_binary_request_gat protocol_binary_request_gatq;
+    typedef protocol_binary_request_gat protocol_binary_request_gatk;
+    typedef protocol_binary_request_gat protocol_binary_request_gatkq;
 
     /**
      * Definition of the packet returned from the GAT(Q)
      */
     typedef protocol_binary_response_get protocol_binary_response_gat;
     typedef protocol_binary_response_get protocol_binary_response_gatq;
+    typedef protocol_binary_response_get protocol_binary_response_gatk;
+    typedef protocol_binary_response_get protocol_binary_response_gatkq;
 
     /**
      * Definition of a request for a range operation.
