@@ -823,6 +823,33 @@ static off_t flush_command(char* buf, size_t bufsz, uint8_t cmd, uint32_t exptim
     return size;
 }
 
+
+static off_t touch_command(char* buf,
+                           size_t bufsz,
+                           uint8_t cmd,
+                           const void* key,
+                           size_t keylen,
+                           uint32_t exptime) {
+    protocol_binary_request_touch *request = (void*)buf;
+    assert(bufsz > sizeof(*request));
+
+    memset(request, 0, sizeof(*request));
+    request->message.header.request.magic = PROTOCOL_BINARY_REQ;
+    request->message.header.request.opcode = cmd;
+
+    request->message.header.request.keylen = htons(keylen);
+    request->message.header.request.extlen = 4;
+    request->message.body.expiration = htonl(exptime);
+    request->message.header.request.bodylen = htonl(keylen + 4);
+
+    request->message.header.request.opaque = 0xdeadbeef;
+
+    off_t key_offset = sizeof(protocol_binary_request_no_extras) + 4;
+
+    memcpy(buf + key_offset, key, keylen);
+    return sizeof(protocol_binary_request_no_extras) + 4 + keylen;
+}
+
 static off_t arithmetic_command(char* buf,
                                 size_t bufsz,
                                 uint8_t cmd,
@@ -1672,6 +1699,13 @@ static enum test_return test_binary_pipeline_hickup_chunk(void *buffer, size_t b
         case PROTOCOL_BINARY_CMD_GETQ:
             len = raw_command(command.bytes, sizeof(command.bytes), cmd,
                              key, keylen, NULL, 0);
+            break;
+
+        case PROTOCOL_BINARY_CMD_TOUCH:
+        case PROTOCOL_BINARY_CMD_GAT:
+        case PROTOCOL_BINARY_CMD_GATQ:
+            len = touch_command(command.bytes, sizeof(command.bytes), cmd,
+                                key, keylen, 10);
             break;
 
         case PROTOCOL_BINARY_CMD_STAT:

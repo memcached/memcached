@@ -346,6 +346,14 @@ item *item_get(const char *key, const size_t nkey) {
     return it;
 }
 
+item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
+    item *it;
+    pthread_mutex_lock(&cache_lock);
+    it = do_item_touch(key, nkey, exptime);
+    pthread_mutex_unlock(&cache_lock);
+    return it;
+}
+
 /*
  * Links an item into the LRU and hashtable.
  */
@@ -478,6 +486,8 @@ void threadlocal_stats_reset(void) {
 
         threads[ii].stats.get_cmds = 0;
         threads[ii].stats.get_misses = 0;
+        threads[ii].stats.touch_cmds = 0;
+        threads[ii].stats.touch_misses = 0;
         threads[ii].stats.delete_misses = 0;
         threads[ii].stats.incr_misses = 0;
         threads[ii].stats.decr_misses = 0;
@@ -492,6 +502,7 @@ void threadlocal_stats_reset(void) {
         for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
             threads[ii].stats.slab_stats[sid].set_cmds = 0;
             threads[ii].stats.slab_stats[sid].get_hits = 0;
+            threads[ii].stats.slab_stats[sid].touch_hits = 0;
             threads[ii].stats.slab_stats[sid].delete_hits = 0;
             threads[ii].stats.slab_stats[sid].incr_hits = 0;
             threads[ii].stats.slab_stats[sid].decr_hits = 0;
@@ -515,6 +526,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
 
         stats->get_cmds += threads[ii].stats.get_cmds;
         stats->get_misses += threads[ii].stats.get_misses;
+        stats->touch_cmds += threads[ii].stats.touch_cmds;
+        stats->touch_misses += threads[ii].stats.touch_misses;
         stats->delete_misses += threads[ii].stats.delete_misses;
         stats->decr_misses += threads[ii].stats.decr_misses;
         stats->incr_misses += threads[ii].stats.incr_misses;
@@ -531,6 +544,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
                 threads[ii].stats.slab_stats[sid].set_cmds;
             stats->slab_stats[sid].get_hits +=
                 threads[ii].stats.slab_stats[sid].get_hits;
+            stats->slab_stats[sid].touch_hits +=
+                threads[ii].stats.slab_stats[sid].touch_hits;
             stats->slab_stats[sid].delete_hits +=
                 threads[ii].stats.slab_stats[sid].delete_hits;
             stats->slab_stats[sid].decr_hits +=
@@ -552,6 +567,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
 
     out->set_cmds = 0;
     out->get_hits = 0;
+    out->touch_hits = 0;
     out->delete_hits = 0;
     out->incr_hits = 0;
     out->decr_hits = 0;
@@ -561,6 +577,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
         out->set_cmds += stats->slab_stats[sid].set_cmds;
         out->get_hits += stats->slab_stats[sid].get_hits;
+        out->touch_hits += stats->slab_stats[sid].touch_hits;
         out->delete_hits += stats->slab_stats[sid].delete_hits;
         out->decr_hits += stats->slab_stats[sid].decr_hits;
         out->incr_hits += stats->slab_stats[sid].incr_hits;

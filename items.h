@@ -21,5 +21,6 @@ void do_item_flush_expired(void);
 
 item *do_item_get(const char *key, const size_t nkey);
 item *do_item_get_nocheck(const char *key, const size_t nkey);
+item *do_item_touch(const char *key, const size_t nkey, uint32_t exptime);
 void item_stats_reset(void);
 extern pthread_mutex_t cache_lock;

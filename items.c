@@ -531,6 +531,14 @@ item *do_item_get(const char *key, const size_t nkey) {
     return it;
 }
 
+item *do_item_touch(const char *key, size_t nkey, uint32_t exptime) {
+    item *it = do_item_get(key, nkey);
+    if (it != NULL) {
+        it->exptime = exptime;
+    }
+    return it;
+}
+
 /** returns an item whether or not it's expired. */
 item *do_item_get_nocheck(const char *key, const size_t nkey) {
     item *it = assoc_find(key, nkey);

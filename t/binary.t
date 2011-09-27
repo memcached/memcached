@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3376;
+use Test::More tests => 3435;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -41,6 +41,9 @@ use constant CMD_QUITQ      => 0x17;
 use constant CMD_FLUSHQ     => 0x18;
 use constant CMD_APPENDQ    => 0x19;
 use constant CMD_PREPENDQ   => 0x1A;
+use constant CMD_TOUCH      => 0x1C;
+use constant CMD_GAT        => 0x1D;
+use constant CMD_GATQ       => 0x1E;
 
 # REQ and RES formats are divided even though they currently share
 # the same format, since they _could_ differ in the future.
@@ -235,6 +238,23 @@ is($mc->decr("x", 211), 0, "Floor is zero");
         is($rv, 0, "Empty return on expected failure (2)");
         ok($@->exists, "Expected error state of 'exists' (2)");
     }
+}
+
+# diag "Touch commands";
+{
+    $mc->flush;
+    $mc->set("totouch", "toast", 0, 1);
+    my $res = $mc->touch("totouch", 10);
+    sleep 2;
+    $check->("totouch", 0, "toast");
+
+    $mc->set("totouch", "toast2", 0, 1);
+    my ($flags, $val, $i) = $mc->gat("totouch", 10);
+    is($val, "toast2", "GAT returned correct value");
+    sleep 2;
+    $check->("totouch", 0, "toast2");
+
+    # Test miss as well
 }
 
 # diag "Silent set.";
@@ -679,6 +699,27 @@ sub get_multi {
 
     return %return if wantarray;
     return \%return;
+}
+
+sub touch {
+    my $self = shift;
+    my ($key, $expire) = @_;
+    my $extra_header = pack "N", $expire;
+    my $cas = 0;
+    return $self->_do_command(::CMD_TOUCH, $key, '', $extra_header, $cas);
+}
+
+sub gat {
+    my $self   = shift;
+    my $key    = shift;
+    my $expire = shift;
+    my $extra_header = pack "N", $expire;
+    my ($rv, $cas) = $self->_do_command(::CMD_GAT, $key, '', $extra_header);
+
+    my $header = substr $rv, 0, 4, '';
+    my $flags  = unpack("N", $header);
+
+    return ($flags, $rv, $cas);
 }
 
 sub version {

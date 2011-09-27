@@ -166,6 +166,7 @@ static rel_time_t realtime(const time_t exptime) {
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = stats.reclaimed = 0;
+    stats.touch_cmds = stats.touch_misses = 0;
     stats.curr_bytes = stats.listen_disabled_num = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
 
@@ -1178,6 +1179,78 @@ static void complete_update_bin(conn *c) {
     c->item = 0;
 }
 
+static void process_bin_touch(conn *c) {
+    item *it;
+
+    protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
+    char* key = binary_get_key(c);
+    size_t nkey = c->binary_header.request.keylen;
+    protocol_binary_request_touch *t = (void *)&c->binary_header;
+    uint32_t exptime = ntohl(t->message.body.expiration);
+
+    if (settings.verbose > 1) {
+        int ii;
+        /* May be GAT/GATQ/etc */
+        fprintf(stderr, "<%d TOUCH ", c->sfd);
+        for (ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        fprintf(stderr, "\n");
+    }
+
+    it = item_touch(key, nkey, exptime);
+
+    if (it) {
+        /* the length has two unnecessary bytes ("\r\n") */
+        uint16_t keylen = 0;
+        uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
+
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.touch_cmds++;
+        c->thread->stats.slab_stats[it->slabs_clsid].touch_hits++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
+                                it->nbytes, ITEM_get_cas(it));
+
+        if (c->cmd == PROTOCOL_BINARY_CMD_TOUCH) {
+            bodylen -= it->nbytes - 2;
+        }
+
+        add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
+        rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
+
+        // add the flags
+        rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
+
+        /* Add the data minus the CRLF */
+        if (c->cmd != PROTOCOL_BINARY_CMD_TOUCH) {
+            add_iov(c, ITEM_data(it), it->nbytes - 2);
+        }
+        conn_set_state(c, conn_mwrite);
+        /* Remember this command so we can garbage collect it later */
+        c->item = it;
+    } else {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.touch_cmds++;
+        c->thread->stats.touch_misses++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        MEMCACHED_COMMAND_TOUCH(c->sfd, key, nkey, -1, 0);
+
+        if (c->noreply) {
+            conn_set_state(c, conn_new_cmd);
+        } else {
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        }
+    }
+
+    if (settings.detail_enabled) {
+        stats_prefix_record_get(key, nkey, NULL != it);
+    }
+}
+
 static void process_bin_get(conn *c) {
     item *it;
 
@@ -1736,6 +1809,9 @@ static void dispatch_bin_command(conn *c) {
     case PROTOCOL_BINARY_CMD_GETKQ:
         c->cmd = PROTOCOL_BINARY_CMD_GETK;
         break;
+    case PROTOCOL_BINARY_CMD_GATQ:
+        c->cmd = PROTOCOL_BINARY_CMD_GATQ;
+        break;
     default:
         c->noreply = false;
     }
@@ -1833,6 +1909,15 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_SASL_STEP:
             if (extlen == 0 && keylen != 0) {
                 bin_read_key(c, bin_reading_sasl_auth, 0);
+            } else {
+                protocol_error = 1;
+            }
+            break;
+        case PROTOCOL_BINARY_CMD_TOUCH:
+        case PROTOCOL_BINARY_CMD_GAT:
+        case PROTOCOL_BINARY_CMD_GATQ:
+            if (extlen == 4 && keylen != 0) {
+                bin_read_key(c, bin_reading_touch_key, 4);
             } else {
                 protocol_error = 1;
             }
@@ -2063,6 +2148,9 @@ static void complete_nread_binary(conn *c) {
         break;
     case bin_reading_get_key:
         process_bin_get(c);
+        break;
+    case bin_reading_touch_key:
+        process_bin_touch(c);
         break;
     case bin_reading_stat:
         process_bin_stat(c);
@@ -2413,6 +2501,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
     APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
+    APPEND_STAT("cmd_touch", "%llu", (unsigned long long)thread_stats.touch_cmds);
     APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
@@ -2424,6 +2513,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cas_misses", "%llu", (unsigned long long)thread_stats.cas_misses);
     APPEND_STAT("cas_hits", "%llu", (unsigned long long)slab_stats.cas_hits);
     APPEND_STAT("cas_badval", "%llu", (unsigned long long)slab_stats.cas_badval);
+    APPEND_STAT("touch_hits", "%llu", (unsigned long long)slab_stats.touch_hits);
+    APPEND_STAT("touch_misses", "%llu", (unsigned long long)thread_stats.touch_misses);
     APPEND_STAT("auth_cmds", "%llu", (unsigned long long)thread_stats.auth_cmds);
     APPEND_STAT("auth_errors", "%llu", (unsigned long long)thread_stats.auth_errors);
     APPEND_STAT("bytes_read", "%llu", (unsigned long long)thread_stats.bytes_read);

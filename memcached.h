@@ -162,7 +162,8 @@ enum bin_substates {
     bin_reading_incr_header,
     bin_read_flush_exptime,
     bin_reading_sasl_auth,
-    bin_reading_sasl_auth_data
+    bin_reading_sasl_auth_data,
+    bin_reading_touch_key,
 };
 
 enum protocol {
@@ -201,6 +202,7 @@ typedef unsigned int rel_time_t;
 struct slab_stats {
     uint64_t  set_cmds;
     uint64_t  get_hits;
+    uint64_t  touch_hits;
     uint64_t  delete_hits;
     uint64_t  cas_hits;
     uint64_t  cas_badval;
@@ -215,6 +217,8 @@ struct thread_stats {
     pthread_mutex_t   mutex;
     uint64_t          get_cmds;
     uint64_t          get_misses;
+    uint64_t          touch_cmds;
+    uint64_t          touch_misses;
     uint64_t          delete_misses;
     uint64_t          incr_misses;
     uint64_t          decr_misses;
@@ -241,8 +245,11 @@ struct stats {
     unsigned int  conn_structs;
     uint64_t      get_cmds;
     uint64_t      set_cmds;
+    uint64_t      touch_cmds;
     uint64_t      get_hits;
     uint64_t      get_misses;
+    uint64_t      touch_hits;
+    uint64_t      touch_misses;
     uint64_t      evictions;
     uint64_t      reclaimed;
     time_t        started;          /* when the process was started */
@@ -476,6 +483,7 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
 void  item_flush_expired(void);
 item *item_get(const char *key, const size_t nkey);
+item *item_touch(const char *key, const size_t nkey, uint32_t exptime);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it);
