@@ -1198,7 +1198,7 @@ static void process_bin_touch(conn *c) {
         fprintf(stderr, "\n");
     }
 
-    it = item_touch(key, nkey, exptime);
+    it = item_touch(key, nkey, realtime(exptime));
 
     if (it) {
         /* the length has two unnecessary bytes ("\r\n") */
