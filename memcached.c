@@ -168,6 +168,7 @@ static void stats_init(void) {
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = stats.reclaimed = 0;
     stats.touch_cmds = stats.touch_misses = stats.touch_hits = stats.rejected_conns = 0;
     stats.curr_bytes = stats.listen_disabled_num = 0;
+    stats.hash_power_level = stats.hash_bytes = stats.hash_is_expanding = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
 
     /* make the time we started always be 2 seconds before we really
@@ -2556,6 +2557,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("listen_disabled_num", "%llu", (unsigned long long)stats.listen_disabled_num);
     APPEND_STAT("threads", "%d", settings.num_threads);
     APPEND_STAT("conn_yields", "%llu", (unsigned long long)thread_stats.conn_yields);
+    APPEND_STAT("hash_power_level", "%u", stats.hash_power_level);
+    APPEND_STAT("hash_bytes", "%llu", (unsigned long long)stats.hash_bytes);
+    APPEND_STAT("hash_is_expanding", "%u", stats.hash_is_expanding);
     STATS_UNLOCK();
 }
 

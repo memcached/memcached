@@ -446,6 +446,10 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | (see doc/threads.txt)                     |
 | conn_yields           | 64u     | Number of times any connection yielded to |
 |                       |         | another due to hitting the -R limit.      |
+| hash_power_level      | 32u     | Current size multiplier for hash table    |
+| hash_bytes            | 64u     | Bytes currently used by hash tables       |
+| hash_is_expanding     | bool    | Indicates if the hash table is being      |
+|                       |         | grown to a new size
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics

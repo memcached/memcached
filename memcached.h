@@ -257,6 +257,9 @@ struct stats {
     time_t        started;          /* when the process was started */
     bool          accepting_conns;  /* whether we are currently accepting */
     uint64_t      listen_disabled_num;
+    unsigned int  hash_power_level; /* Better hope it's not over 9000 */
+    uint64_t      hash_bytes;       /* size used for hash tables */
+    bool          hash_is_expanding; /* If the hash table is being expanded */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
