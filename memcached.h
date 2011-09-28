@@ -60,6 +60,9 @@
 #define MIN_BIN_PKT_LENGTH 16
 #define BIN_PKT_HDR_WORDS (MIN_BIN_PKT_LENGTH/sizeof(uint32_t))
 
+/* Initial power multiplier for the hash table */
+#define HASHPOWER_DEFAULT 16
+
 /* unistd.h is here */
 #if HAVE_UNISTD_H
 # include <unistd.h>
@@ -293,6 +296,7 @@ struct settings {
     int item_size_max;        /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
+    int hashpower_init;     /* Starting hash power level */
 };
 
 extern struct stats stats;

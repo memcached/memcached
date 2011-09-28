@@ -216,6 +216,7 @@ static void settings_init(void) {
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.maxconns_fast = false;
+    settings.hashpower_init = 0;
 }
 
 /*
@@ -2591,6 +2592,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("auth_enabled_sasl", "%s", settings.sasl ? "yes" : "no");
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
+    APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4397,7 +4399,12 @@ static void usage(void) {
 #endif
     printf("-o            Comma separated list of extended or experimental options\n"
            "              - (EXPERIMENTAL) maxconns_fast: immediately close new\n"
-           "                connections if over maxconns limit\n");
+           "                connections if over maxconns limit\n"
+           "              - hashpower: An integer multiplier for how large the hash\n"
+           "                table should be. Can be grown at runtime if not big enough.\n"
+           "                Set this based on \"STAT hash_power_level\" before a \n"
+           "                restart.\n"
+           );
     return;
 }
 
@@ -4614,10 +4621,12 @@ int main (int argc, char **argv) {
     char *subopts;
     char *subopts_value;
     enum {
-        MAXCONNS_FAST = 0
+        MAXCONNS_FAST = 0,
+        HASHPOWER_INIT
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
+        [HASHPOWER_INIT] = "hashpower",
         NULL
     };
 
@@ -4846,6 +4855,23 @@ int main (int argc, char **argv) {
             case MAXCONNS_FAST:
                 settings.maxconns_fast = true;
                 break;
+            case HASHPOWER_INIT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing numeric argument for hashpower\n");
+                    return 1;
+                }
+                settings.hashpower_init = atoi(subopts_value);
+                if (settings.hashpower_init < 12) {
+                    fprintf(stderr, "Initial hashtable multiplier of %d is too low\n",
+                        settings.hashpower_init);
+                    return 1;
+                } else if (settings.hashpower_init > 64) {
+                    fprintf(stderr, "Initial hashtable multiplier of %d is too high\n"
+                        "Choose a value based on \"STAT hash_power_level\" from a running instance\n",
+                        settings.hashpower_init);
+                    return 1; 
+                }
+                break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
                 return 1;
@@ -4979,7 +5005,7 @@ int main (int argc, char **argv) {
 
     /* initialize other stuff */
     stats_init();
-    assoc_init();
+    assoc_init(settings.hashpower_init);
     conn_init();
     slabs_init(settings.maxbytes, settings.factor, preallocate);
 

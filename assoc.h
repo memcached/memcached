@@ -1,5 +1,5 @@
 /* associative array */
-void assoc_init(void);
+void assoc_init(const int hashpower_init);
 item *assoc_find(const char *key, const size_t nkey);
 int assoc_insert(item *item);
 void assoc_delete(const char *key, const size_t nkey);

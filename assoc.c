@@ -32,7 +32,7 @@ typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
 
 /* how many powers of 2's worth of buckets we use */
-static unsigned int hashpower = 16;
+static unsigned int hashpower = HASHPOWER_DEFAULT;
 
 #define hashsize(n) ((ub4)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
@@ -58,7 +58,10 @@ static bool expanding = false;
  */
 static unsigned int expand_bucket = 0;
 
-void assoc_init(void) {
+void assoc_init(const int hashtable_init) {
+    if (hashtable_init) {
+        hashpower = hashtable_init;
+    }
     primary_hashtable = calloc(hashsize(hashpower), sizeof(void *));
     if (! primary_hashtable) {
         fprintf(stderr, "Failed to init hashtable.\n");
