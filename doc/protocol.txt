@@ -405,6 +405,7 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | the server started running                |
 | connection_structures | 32u     | Number of connection structures allocated |
 |                       |         | by the server                             |
+| reserved_fds          | 32u     | Number of misc fds used internally        |
 | cmd_get               | 64u     | Cumulative number of retrieval reqs       |
 | cmd_set               | 64u     | Cumulative number of storage reqs         |
 | cmd_flush             | 64u     | Cumulative number of flush reqs           |

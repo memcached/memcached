@@ -242,6 +242,8 @@ struct stats {
     uint64_t      curr_bytes;
     unsigned int  curr_conns;
     unsigned int  total_conns;
+    uint64_t      rejected_conns;
+    unsigned int  reserved_fds;
     unsigned int  conn_structs;
     uint64_t      get_cmds;
     uint64_t      set_cmds;
@@ -287,6 +289,7 @@ struct settings {
     int backlog;
     int item_size_max;        /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
+    bool maxconns_fast;     /* Whether or not to early close connections */
 };
 
 extern struct stats stats;

@@ -166,7 +166,7 @@ static rel_time_t realtime(const time_t exptime) {
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = stats.reclaimed = 0;
-    stats.touch_cmds = stats.touch_misses = 0;
+    stats.touch_cmds = stats.touch_misses = stats.touch_hits = stats.rejected_conns = 0;
     stats.curr_bytes = stats.listen_disabled_num = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
 
@@ -181,6 +181,7 @@ static void stats_init(void) {
 static void stats_reset(void) {
     STATS_LOCK();
     stats.total_items = stats.total_conns = 0;
+    stats.rejected_conns = 0;
     stats.evictions = 0;
     stats.reclaimed = 0;
     stats.listen_disabled_num = 0;
@@ -213,6 +214,7 @@ static void settings_init(void) {
     settings.backlog = 1024;
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
+    settings.maxconns_fast = false;
 }
 
 /*
@@ -2519,7 +2521,11 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 
     APPEND_STAT("curr_connections", "%u", stats.curr_conns - 1);
     APPEND_STAT("total_connections", "%u", stats.total_conns);
+    if (settings.maxconns_fast) {
+        APPEND_STAT("rejected_connections", "%llu", (unsigned long long)stats.rejected_conns);
+    }
     APPEND_STAT("connection_structures", "%u", stats.conn_structs);
+    APPEND_STAT("reserved_fds", "%u", stats.reserved_fds);
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
     APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
@@ -2576,6 +2582,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
                 prot_text(settings.binding_protocol));
     APPEND_STAT("auth_enabled_sasl", "%s", settings.sasl ? "yes" : "no");
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
+    APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -3625,6 +3632,7 @@ static void drive_machine(conn *c) {
     struct sockaddr_storage addr;
     int nreqs = settings.reqs_per_event;
     int res;
+    const char *str;
 
     assert(c != NULL);
 
@@ -3655,8 +3663,19 @@ static void drive_machine(conn *c) {
                 break;
             }
 
-            dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
+            if (settings.maxconns_fast &&
+                stats.curr_conns + stats.reserved_fds >= settings.maxconns - 1) {
+                str = "ERROR Too many open connections\r\n";
+                res = write(sfd, str, strlen(str));
+                close(sfd);
+                STATS_LOCK();
+                stats.rejected_conns++;
+                STATS_UNLOCK();
+            } else {
+                dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
                                      DATA_BUFFER_SIZE, tcp_transport);
+            }
+
             stop = true;
             break;
 
@@ -4036,6 +4055,11 @@ static int server_socket(const char *interface,
             /* getaddrinfo can return "junk" addresses,
              * we make sure at least one works before erroring.
              */
+            if (errno == EMFILE) {
+                /* ...unless we're out of fds */
+                perror("server_socket");
+                exit(EX_OSERR);
+            }
             continue;
         }
 
@@ -4360,6 +4384,9 @@ static void usage(void) {
 #ifdef ENABLE_SASL
     printf("-S            Turn on Sasl authentication\n");
 #endif
+    printf("-o            Comma separated list of extended or experimental options\n"
+           "              - (EXPERIMENTAL) maxconns_fast: immediately close new\n"
+           "                connections if over maxconns limit\n");
     return;
 }
 
@@ -4573,6 +4600,16 @@ int main (int argc, char **argv) {
     bool tcp_specified = false;
     bool udp_specified = false;
 
+    char *subopts;
+    char *subopts_value;
+    enum {
+        MAXCONNS_FAST = 0
+    };
+    char *const subopts_tokens[] = {
+        [MAXCONNS_FAST] = "maxconns_fast",
+        NULL
+    };
+
     if (!sanitycheck()) {
         return EX_OSERR;
     }
@@ -4614,6 +4651,7 @@ int main (int argc, char **argv) {
           "B:"  /* Binding protocol */
           "I:"  /* Max item size */
           "S"   /* Sasl ON */
+          "o:"  /* Extended generic options */
         ))) {
         switch (c) {
         case 'a':
@@ -4788,6 +4826,22 @@ int main (int argc, char **argv) {
 #endif
             settings.sasl = true;
             break;
+        case 'o': /* It's sub-opts time! */
+            subopts = optarg;
+
+            while (*subopts != '\0') {
+
+            switch (getsubopt(&subopts, subopts_tokens, &subopts_value)) {
+            case MAXCONNS_FAST:
+                settings.maxconns_fast = true;
+                break;
+            default:
+                printf("Illegal suboption \"%s\"\n", subopts_value);
+                return 1;
+            }
+
+            }
+            break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
@@ -4856,13 +4910,9 @@ int main (int argc, char **argv) {
         fprintf(stderr, "failed to getrlimit number of files\n");
         exit(EX_OSERR);
     } else {
-        int maxfiles = settings.maxconns;
-        if (rlim.rlim_cur < maxfiles)
-            rlim.rlim_cur = maxfiles;
-        if (rlim.rlim_max < rlim.rlim_cur)
-            rlim.rlim_max = rlim.rlim_cur;
+        rlim.rlim_cur = settings.maxconns;
         if (setrlimit(RLIMIT_NOFILE, &rlim) != 0) {
-            fprintf(stderr, "failed to set rlimit for open files. Try running as root or requesting smaller maxconns value.\n");
+            fprintf(stderr, "failed to set rlimit for open files. Try starting as root or requesting smaller maxconns value.\n");
             exit(EX_OSERR);
         }
     }
@@ -4993,6 +5043,15 @@ int main (int argc, char **argv) {
             fclose(portnumber_file);
             rename(temp_portnumber_filename, portnumber_filename);
         }
+    }
+
+    /* Give the sockets a moment to open. I know this is dumb, but the error
+     * is only an advisory.
+     */
+    usleep(1000);
+    if (stats.curr_conns + stats.reserved_fds >= settings.maxconns - 1) {
+        fprintf(stderr, "Maxconns setting is too low, use -c to increase.\n");
+        exit(EXIT_FAILURE);
     }
 
     if (pid_file != NULL) {

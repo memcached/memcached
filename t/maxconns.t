@@ -1,4 +1,6 @@
 #!/usr/bin/perl
+# NOTE: This test never worked. Memcached would ignore maxconns requests lower
+# than the current ulimit. Test needs to be updated.
 
 use strict;
 use warnings;
@@ -11,7 +13,7 @@ use MemcachedTest;
 
 
 # start up a server with 10 maximum connections
-my $server = new_memcached('-c 10');
+my $server = new_memcached('-c 100');
 my $sock = $server->sock;
 my @sockets;
 
