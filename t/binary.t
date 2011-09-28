@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3450;
+use Test::More tests => 3470;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -198,6 +198,22 @@ $mc->flush;
 is($mc->incr("x", undef, 5), 5, "Initial value");
 is($mc->decr("x"), 4, "Decrease by one");
 is($mc->decr("x", 211), 0, "Floor is zero");
+
+{
+    # diag "bug220
+    my ($rv, $cas) = $mc->set("bug220", "100", 0, 0);
+    my ($irv, $icas) = $mc->incr_cas("bug220", 999);
+    ok($icas != $cas);
+    is($irv, 1099, "Incr amount failed");
+    my ($flags, $val, $gcas) = $mc->get("bug220");
+    is($gcas, $icas, "CAS didn't match after incr/gets");
+
+    ($irv, $icas) = $mc->incr_cas("bug220", 999);
+    ok($icas != $cas);
+    is($irv, 2098, "Incr amount failed");
+    ($flags, $val, $gcas) = $mc->get("bug220");
+    is($gcas, $icas, "CAS didn't match after incr/gets");
+}
 
 {
     # diag "bug21";
@@ -620,18 +636,24 @@ sub _incrdecr_header {
     return $extra_header;
 }
 
-sub _incrdecr {
+sub _incrdecr_cas {
     my $self = shift;
     my ($cmd, $key, $amt, $init, $exp) = @_;
 
-    my ($data, undef) = $self->_do_command($cmd, $key, '',
+    my ($data, $rcas) = $self->_do_command($cmd, $key, '',
                                            $self->_incrdecr_header($amt, $init, $exp));
 
     my $header = substr $data, 0, 8, '';
     my ($resp_hi, $resp_lo) = unpack "NN", $header;
     my $resp = ($resp_hi * 2 ** 32) + $resp_lo;
 
-    return $resp;
+    return $resp, $rcas;
+}
+
+sub _incrdecr {
+    my $self = shift;
+    my ($v, $c) = $self->_incrdecr_cas(@_);
+    return $v
 }
 
 sub silent_incrdecr {
@@ -777,6 +799,16 @@ sub incr {
     $exp = 0 unless defined $exp;
 
     return $self->_incrdecr(::CMD_INCR, $key, $amt, $init, $exp);
+}
+
+sub incr_cas {
+    my $self = shift;
+    my ($key, $amt, $init, $exp) = @_;
+    $amt = 1 unless defined $amt;
+    $init = 0 unless defined $init;
+    $exp = 0 unless defined $exp;
+
+    return $self->_incrdecr_cas(::CMD_INCR, $key, $amt, $init, $exp);
 }
 
 sub decr {

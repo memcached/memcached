@@ -3069,6 +3069,9 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         memcpy(ITEM_data(new_it), buf, res);
         memcpy(ITEM_data(new_it) + res, "\r\n", 2);
         item_replace(it, new_it);
+        // Overwrite the older item's CAS with our new CAS since we're
+        // returning the CAS of the old item below.
+        ITEM_set_cas(it, (settings.use_cas) ? ITEM_get_cas(new_it) : 0);
         do_item_remove(new_it);       /* release our reference */
     } else { /* replace in-place */
         /* When changing the value without replacing the item, we
