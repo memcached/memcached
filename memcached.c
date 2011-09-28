@@ -1239,6 +1239,7 @@ static void process_bin_touch(conn *c) {
         }
 
         conn_set_state(c, conn_mwrite);
+        c->write_and_go = conn_new_cmd;
         /* Remember this command so we can garbage collect it later */
         c->item = it;
     } else {
@@ -1259,6 +1260,7 @@ static void process_bin_touch(conn *c) {
                 memcpy(ofs, key, nkey);
                 add_iov(c, ofs, nkey);
                 conn_set_state(c, conn_mwrite);
+                c->write_and_go = conn_new_cmd;
             } else {
                 write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
             }
