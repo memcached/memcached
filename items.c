@@ -26,14 +26,14 @@ static void item_unlink_q(item *it);
 
 #define LARGEST_ID POWER_LARGEST
 typedef struct {
-    unsigned int evicted;
-    unsigned int evicted_nonzero;
+    uint64_t evicted;
+    uint64_t evicted_nonzero;
     rel_time_t evicted_time;
-    unsigned int reclaimed;
-    unsigned int outofmemory;
-    unsigned int tailrepairs;
-    unsigned int expired_unfetched;
-    unsigned int evicted_unfetched;
+    uint64_t reclaimed;
+    uint64_t outofmemory;
+    uint64_t tailrepairs;
+    uint64_t expired_unfetched;
+    uint64_t evicted_unfetched;
 } itemstats_t;
 
 static item *heads[LARGEST_ID];
@@ -451,21 +451,21 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_FMT_STAT(fmt, i, "number", "%u", sizes[i]);
             APPEND_NUM_FMT_STAT(fmt, i, "age", "%u", tails[i]->time);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted",
-                                "%u", itemstats[i].evicted);
+                                "%llu", (unsigned long long)itemstats[i].evicted);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted_nonzero",
-                                "%u", itemstats[i].evicted_nonzero);
+                                "%llu", (unsigned long long)itemstats[i].evicted_nonzero);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted_time",
                                 "%u", itemstats[i].evicted_time);
             APPEND_NUM_FMT_STAT(fmt, i, "outofmemory",
-                                "%u", itemstats[i].outofmemory);
+                                "%llu", (unsigned long long)itemstats[i].outofmemory);
             APPEND_NUM_FMT_STAT(fmt, i, "tailrepairs",
-                                "%u", itemstats[i].tailrepairs);
+                                "%llu", (unsigned long long)itemstats[i].tailrepairs);
             APPEND_NUM_FMT_STAT(fmt, i, "reclaimed",
-                                "%u", itemstats[i].reclaimed);
+                                "%llu", (unsigned long long)itemstats[i].reclaimed);
             APPEND_NUM_FMT_STAT(fmt, i, "expired_unfetched",
-                                "%u", itemstats[i].expired_unfetched);
+                                "%llu", (unsigned long long)itemstats[i].expired_unfetched);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted_unfetched",
-                                "%u", itemstats[i].evicted_unfetched);
+                                "%llu", (unsigned long long)itemstats[i].evicted_unfetched);
         }
     }
 
