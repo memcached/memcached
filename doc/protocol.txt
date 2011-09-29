@@ -449,7 +449,12 @@ integers separated by a colon (treat this as a floating point number).
 | hash_power_level      | 32u     | Current size multiplier for hash table    |
 | hash_bytes            | 64u     | Bytes currently used by hash tables       |
 | hash_is_expanding     | bool    | Indicates if the hash table is being      |
-|                       |         | grown to a new size
+|                       |         | grown to a new size                       |
+| expired_unfetched     | 64u     | Items pulled from LRU that were never     |
+|                       |         | touched by get/incr/append/etc before     |
+|                       |         | expiring                                  |
+| evicted_unfetched     | 64u     | Items evicted from LRU that were never    |
+|                       |         | touched by get/incr/append/etc.           |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics
@@ -531,6 +536,10 @@ tailrepairs            Number of times we self-healed a slab with a refcount
                        report your situation to the developers.
 reclaimed              Number of times an entry was stored using memory from
                        an expired entry.
+expired_unfetched      Number of expired items reclaimed from the LRU which
+                       were never touched after being set.
+evicted_unfetched      Number of valid items evicted from the LRU which were
+                       never touched after being set.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.

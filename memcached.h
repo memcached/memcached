@@ -263,6 +263,8 @@ struct stats {
     unsigned int  hash_power_level; /* Better hope it's not over 9000 */
     uint64_t      hash_bytes;       /* size used for hash tables */
     bool          hash_is_expanding; /* If the hash table is being expanded */
+    uint64_t      expired_unfetched; /* items reclaimed but never touched */
+    uint64_t      evicted_unfetched; /* items evicted but never touched */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -308,6 +310,8 @@ extern struct settings settings;
 
 /* temp */
 #define ITEM_SLABBED 4
+
+#define ITEM_FETCHED 8
 
 /**
  * Structure for storing items within memcached.

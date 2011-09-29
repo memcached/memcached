@@ -169,6 +169,7 @@ static void stats_init(void) {
     stats.touch_cmds = stats.touch_misses = stats.touch_hits = stats.rejected_conns = 0;
     stats.curr_bytes = stats.listen_disabled_num = 0;
     stats.hash_power_level = stats.hash_bytes = stats.hash_is_expanding = 0;
+    stats.expired_unfetched = stats.evicted_unfetched = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
 
     /* make the time we started always be 2 seconds before we really
@@ -2561,6 +2562,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("hash_power_level", "%u", stats.hash_power_level);
     APPEND_STAT("hash_bytes", "%llu", (unsigned long long)stats.hash_bytes);
     APPEND_STAT("hash_is_expanding", "%u", stats.hash_is_expanding);
+    APPEND_STAT("expired_unfetched", "%llu", stats.expired_unfetched);
+    APPEND_STAT("evicted_unfetched", "%llu", stats.evicted_unfetched);
     STATS_UNLOCK();
 }
 
@@ -4869,7 +4872,7 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "Initial hashtable multiplier of %d is too high\n"
                         "Choose a value based on \"STAT hash_power_level\" from a running instance\n",
                         settings.hashpower_init);
-                    return 1; 
+                    return 1;
                 }
                 break;
             default:
