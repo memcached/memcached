@@ -99,124 +99,82 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
         return 0;
 
     /* do a quick check if we have any expired items in the tail.. */
-    int tries = 50;
     item *search;
     rel_time_t oldest_live = settings.oldest_live;
 
-    for (search = tails[id];
-         tries > 0 && search != NULL;
-         tries--, search=search->prev) {
-        if (search->refcount == 0 &&
-            ((search->time < oldest_live) || // dead by flush
-             (search->exptime != 0 && search->exptime < current_time))) {
-            it = search;
-            /* I don't want to actually free the object, just steal
-             * the item to avoid to grab the slab mutex twice ;-)
-             */
+    search = tails[id];
+    if (search == NULL) {
+        it = slabs_alloc(ntotal, id);
+    } else if (search->refcount == 0) {
+        if ((search->time < oldest_live) || // dead by flush
+         (search->exptime != 0 && search->exptime < current_time)) {
             STATS_LOCK();
             stats.reclaimed++;
             STATS_UNLOCK();
             itemstats[id].reclaimed++;
-            if ((it->it_flags & ITEM_FETCHED) == 0) {
+            if ((search->it_flags & ITEM_FETCHED) == 0) {
                 STATS_LOCK();
                 stats.expired_unfetched++;
                 STATS_UNLOCK();
                 itemstats[id].expired_unfetched++;
             }
+            it = search;
             it->refcount = 1;
             slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
             do_item_unlink(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
             it->slabs_clsid = 0;
             it->refcount = 0;
-            break;
         }
     }
 
     if (it == NULL && (it = slabs_alloc(ntotal, id)) == NULL) {
-        /*
-        ** Could not find an expired item at the tail, and memory allocation
-        ** failed. Try to evict some items!
-        */
-        tries = 50;
-
-        /* If requested to not push old items out of cache when memory runs out,
-         * we're out of luck at this point...
-         */
-
-        if (settings.evict_to_free == 0) {
-            itemstats[id].outofmemory++;
-            return NULL;
-        }
-
-        /*
-         * try to get one off the right LRU
-         * don't necessariuly unlink the tail because it may be locked: refcount>0
-         * search up from tail an item with refcount==0 and unlink it; give up after 50
-         * tries
-         */
-
-        if (tails[id] == 0) {
-            itemstats[id].outofmemory++;
-            return NULL;
-        }
-
-        for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
-            if (search->refcount == 0) {
-                if (search->exptime == 0 || search->exptime > current_time) {
-                    itemstats[id].evicted++;
-                    itemstats[id].evicted_time = current_time - search->time;
-                    if (search->exptime != 0)
-                        itemstats[id].evicted_nonzero++;
-                    if ((search->it_flags & ITEM_FETCHED) == 0) {
-                        STATS_LOCK();
-                        stats.evicted_unfetched++;
-                        STATS_UNLOCK();
-                        itemstats[id].evicted_unfetched++;
-                    }
-                    STATS_LOCK();
-                    stats.evictions++;
-                    STATS_UNLOCK();
-                } else {
-                    itemstats[id].reclaimed++;
-                    STATS_LOCK();
-                    stats.reclaimed++;
-                    STATS_UNLOCK();
-                    if ((search->it_flags & ITEM_FETCHED) == 0) {
-                        STATS_LOCK();
-                        stats.expired_unfetched++;
-                        STATS_UNLOCK();
-                        itemstats[id].expired_unfetched++;
-                    }
-                }
-                do_item_unlink(search, hash(ITEM_key(search), search->nkey, 0));
-                break;
-            }
-        }
-        it = slabs_alloc(ntotal, id);
-        if (it == 0) {
-            itemstats[id].outofmemory++;
-            /* Last ditch effort. There is a very rare bug which causes
-             * refcount leaks. We've fixed most of them, but it still happens,
-             * and it may happen in the future.
-             * We can reasonably assume no item can stay locked for more than
-             * three hours, so if we find one in the tail which is that old,
-             * free it anyway.
-             */
-            tries = 50;
-            for (search = tails[id]; tries > 0 && search != NULL; tries--, search=search->prev) {
-                if (search->refcount != 0 && search->time + TAIL_REPAIR_TIME < current_time) {
-                    itemstats[id].tailrepairs++;
-                    search->refcount = 0;
-                    do_item_unlink(search, hash(ITEM_key(search), search->nkey, 0));
-                    break;
-                }
-            }
-            it = slabs_alloc(ntotal, id);
-            if (it == 0) {
+        if (search->refcount == 0 &&
+            (search->exptime == 0 || search->exptime > current_time)) {
+            if (settings.evict_to_free == 0) {
+                itemstats[id].outofmemory++;
                 return NULL;
             }
+            itemstats[id].evicted++;
+            itemstats[id].evicted_time = current_time - search->time;
+            if (search->exptime != 0)
+                itemstats[id].evicted_nonzero++;
+            if ((search->it_flags & ITEM_FETCHED) == 0) {
+                STATS_LOCK();
+                stats.evicted_unfetched++;
+                STATS_UNLOCK();
+                itemstats[id].evicted_unfetched++;
+            }
+            STATS_LOCK();
+            stats.evictions++;
+            STATS_UNLOCK();
+            it = search;
+            it->refcount = 1;
+            slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
+            do_item_unlink(it, hash(ITEM_key(it), it->nkey, 0));
+            /* Initialize the item block: */
+            it->slabs_clsid = 0;
+            it->refcount = 0;
         }
+    }
+
+    if (it == NULL) {
+        itemstats[id].outofmemory++;
+        /* Last ditch effort. There is a very rare bug which causes
+         * refcount leaks. We've fixed most of them, but it still happens,
+         * and it may happen in the future.
+         * We can reasonably assume no item can stay locked for more than
+         * three hours, so if we find one in the tail which is that old,
+         * free it anyway.
+         */
+        if (search != NULL &&
+            search->refcount != 0 &&
+            search->time + TAIL_REPAIR_TIME < current_time) {
+            itemstats[id].tailrepairs++;
+            search->refcount = 0;
+            do_item_unlink(search, hash(ITEM_key(search), search->nkey, 0));
+        }
+        return NULL;
     }
 
     assert(it->slabs_clsid == 0);
