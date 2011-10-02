@@ -459,8 +459,8 @@ void do_accept_new_conns(const bool do_accept);
 enum delta_result_type do_add_delta(conn *c, const char *key,
                                     const size_t nkey, const bool incr,
                                     const int64_t delta, char *buf,
-                                    uint64_t *cas);
-enum store_item_type do_store_item(item *item, int comm, conn* c);
+                                    uint64_t *cas, const uint32_t hv);
+enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 extern int daemonize(int nochdir, int noclose);
 
@@ -507,7 +507,7 @@ item *item_get(const char *key, const size_t nkey);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime);
 int   item_link(item *it);
 void  item_remove(item *it);
-int   item_replace(item *it, item *new_it);
+int   item_replace(item *it, item *new_it, const uint32_t hv);
 void  item_stats(ADD_STAT add_stats, void *c);
 void  item_stats_sizes(ADD_STAT add_stats, void *c);
 void  item_unlink(item *it);

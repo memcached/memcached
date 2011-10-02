@@ -125,7 +125,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             }
             it->refcount = 1;
             slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-            do_item_unlink(it);
+            do_item_unlink(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
             it->slabs_clsid = 0;
             it->refcount = 0;
@@ -189,7 +189,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
                         itemstats[id].expired_unfetched++;
                     }
                 }
-                do_item_unlink(search);
+                do_item_unlink(search, hash(ITEM_key(search), search->nkey, 0));
                 break;
             }
         }
@@ -208,7 +208,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
                 if (search->refcount != 0 && search->time + TAIL_REPAIR_TIME < current_time) {
                     itemstats[id].tailrepairs++;
                     search->refcount = 0;
-                    do_item_unlink(search);
+                    do_item_unlink(search, hash(ITEM_key(search), search->nkey, 0));
                     break;
                 }
             }
@@ -312,12 +312,12 @@ static void item_unlink_q(item *it) {
     return;
 }
 
-int do_item_link(item *it) {
+int do_item_link(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_LINK(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     it->it_flags |= ITEM_LINKED;
     it->time = current_time;
-    assoc_insert(it);
+    assoc_insert(it, hv);
 
     STATS_LOCK();
     stats.curr_bytes += ITEM_ntotal(it);
@@ -333,7 +333,7 @@ int do_item_link(item *it) {
     return 1;
 }
 
-void do_item_unlink(item *it) {
+void do_item_unlink(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
@@ -341,7 +341,7 @@ void do_item_unlink(item *it) {
         stats.curr_bytes -= ITEM_ntotal(it);
         stats.curr_items -= 1;
         STATS_UNLOCK();
-        assoc_delete(ITEM_key(it), it->nkey);
+        assoc_delete(ITEM_key(it), it->nkey, hv);
         item_unlink_q(it);
         if (it->refcount == 0) item_free(it);
     }
@@ -372,13 +372,13 @@ void do_item_update(item *it) {
     }
 }
 
-int do_item_replace(item *it, item *new_it) {
+int do_item_replace(item *it, item *new_it, const uint32_t hv) {
     MEMCACHED_ITEM_REPLACE(ITEM_key(it), it->nkey, it->nbytes,
                            ITEM_key(new_it), new_it->nkey, new_it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);
 
-    do_item_unlink(it);
-    return do_item_link(new_it);
+    do_item_unlink(it, hv);
+    return do_item_link(new_it, hv);
 }
 
 /*@null@*/
@@ -439,7 +439,8 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
                      tails[i]->exptime < current_time))) {
                 --search;
                 if (tails[i]->refcount == 0) {
-                    do_item_unlink(tails[i]);
+                    do_item_unlink(tails[i], hash(ITEM_key(tails[i]),
+                        tails[i]->nkey, 0));
                 } else {
                     break;
                 }
@@ -510,8 +511,8 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */
-item *do_item_get(const char *key, const size_t nkey) {
-    item *it = assoc_find(key, nkey);
+item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
+    item *it = assoc_find(key, nkey, hv);
     int was_found = 0;
 
     if (settings.verbose > 2) {
@@ -525,7 +526,7 @@ item *do_item_get(const char *key, const size_t nkey) {
 
     if (it != NULL && settings.oldest_live != 0 && settings.oldest_live <= current_time &&
         it->time <= settings.oldest_live) {
-        do_item_unlink(it);           /* MTSAFE - cache_lock held */
+        do_item_unlink(it, hv);           /* MTSAFE - cache_lock held */
         it = NULL;
     }
 
@@ -535,7 +536,7 @@ item *do_item_get(const char *key, const size_t nkey) {
     }
 
     if (it != NULL && it->exptime != 0 && it->exptime <= current_time) {
-        do_item_unlink(it);           /* MTSAFE - cache_lock held */
+        do_item_unlink(it, hv);           /* MTSAFE - cache_lock held */
         it = NULL;
     }
 
@@ -556,8 +557,9 @@ item *do_item_get(const char *key, const size_t nkey) {
     return it;
 }
 
-item *do_item_touch(const char *key, size_t nkey, uint32_t exptime) {
-    item *it = do_item_get(key, nkey);
+item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
+                    const uint32_t hv) {
+    item *it = do_item_get(key, nkey, hv);
     if (it != NULL) {
         it->exptime = exptime;
     }
@@ -565,8 +567,8 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime) {
 }
 
 /** returns an item whether or not it's expired. */
-item *do_item_get_nocheck(const char *key, const size_t nkey) {
-    item *it = assoc_find(key, nkey);
+item *do_item_get_nocheck(const char *key, const size_t nkey, const uint32_t hv) {
+    item *it = assoc_find(key, nkey, hv);
     if (it) {
         it->refcount++;
         DEBUG_REFCNT(it, '+');
@@ -590,7 +592,7 @@ void do_item_flush_expired(void) {
             if (iter->time >= settings.oldest_live) {
                 next = iter->next;
                 if ((iter->it_flags & ITEM_SLABBED) == 0) {
-                    do_item_unlink(iter);
+                    do_item_unlink(iter, hash(ITEM_key(iter), iter->nkey, 0));
                 }
             } else {
                 /* We've hit the first old item. Continue to the next queue. */
