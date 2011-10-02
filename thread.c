@@ -340,16 +340,20 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
  */
 item *item_get(const char *key, const size_t nkey) {
     item *it;
+    uint32_t hv;
+    hv = hash(key, nkey, 0);
     mutex_lock(&cache_lock);
-    it = do_item_get(key, nkey);
+    it = do_item_get(key, nkey, hv);
     pthread_mutex_unlock(&cache_lock);
     return it;
 }
 
 item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
     item *it;
+    uint32_t hv;
+    hv = hash(key, nkey, 0);
     mutex_lock(&cache_lock);
-    it = do_item_touch(key, nkey, exptime);
+    it = do_item_touch(key, nkey, exptime, hv);
     pthread_mutex_unlock(&cache_lock);
     return it;
 }
@@ -359,9 +363,11 @@ item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
  */
 int item_link(item *item) {
     int ret;
+    uint32_t hv;
 
+    hv = hash(ITEM_key(item), item->nkey, 0);
     mutex_lock(&cache_lock);
-    ret = do_item_link(item);
+    ret = do_item_link(item, hv);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }
@@ -381,16 +387,18 @@ void item_remove(item *item) {
  * Unprotected by a mutex lock since the core server does not require
  * it to be thread-safe.
  */
-int item_replace(item *old_it, item *new_it) {
-    return do_item_replace(old_it, new_it);
+int item_replace(item *old_it, item *new_it, const uint32_t hv) {
+    return do_item_replace(old_it, new_it, hv);
 }
 
 /*
  * Unlinks an item from the LRU and hashtable.
  */
 void item_unlink(item *item) {
+    uint32_t hv;
+    hv = hash(ITEM_key(item), item->nkey, 0);
     mutex_lock(&cache_lock);
-    do_item_unlink(item);
+    do_item_unlink(item, hv);
     pthread_mutex_unlock(&cache_lock);
 }
 
@@ -411,9 +419,11 @@ enum delta_result_type add_delta(conn *c, const char *key,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas) {
     enum delta_result_type ret;
+    uint32_t hv;
 
+    hv = hash(key, nkey, 0);
     mutex_lock(&cache_lock);
-    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas);
+    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas, hv);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }
@@ -423,9 +433,11 @@ enum delta_result_type add_delta(conn *c, const char *key,
  */
 enum store_item_type store_item(item *item, int comm, conn* c) {
     enum store_item_type ret;
+    uint32_t hv;
 
+    hv = hash(ITEM_key(item), item->nkey, 0);
     mutex_lock(&cache_lock);
-    ret = do_store_item(item, comm, c);
+    ret = do_store_item(item, comm, c, hv);
     pthread_mutex_unlock(&cache_lock);
     return ret;
 }
