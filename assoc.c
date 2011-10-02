@@ -205,7 +205,7 @@ static void *assoc_maintenance_thread(void *arg) {
 
         /* Lock the cache, and bulk move multiple buckets to the new
          * hash table. */
-        pthread_mutex_lock(&cache_lock);
+        mutex_lock(&cache_lock);
 
         for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             item *it, *next;
@@ -264,7 +264,7 @@ int start_assoc_maintenance_thread() {
 }
 
 void stop_assoc_maintenance_thread() {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_run_maintenance_thread = 0;
     pthread_cond_signal(&maintenance_cond);
     pthread_mutex_unlock(&cache_lock);

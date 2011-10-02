@@ -42,7 +42,7 @@ static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
 
 void item_stats_reset(void) {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     memset(itemstats, 0, sizeof(itemstats));
     pthread_mutex_unlock(&cache_lock);
 }
