@@ -328,7 +328,7 @@ int is_listen_thread() {
  */
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes) {
     item *it;
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     it = do_item_alloc(key, nkey, flags, exptime, nbytes);
     pthread_mutex_unlock(&cache_lock);
     return it;
@@ -340,7 +340,7 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
  */
 item *item_get(const char *key, const size_t nkey) {
     item *it;
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     it = do_item_get(key, nkey);
     pthread_mutex_unlock(&cache_lock);
     return it;
@@ -348,7 +348,7 @@ item *item_get(const char *key, const size_t nkey) {
 
 item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
     item *it;
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     it = do_item_touch(key, nkey, exptime);
     pthread_mutex_unlock(&cache_lock);
     return it;
@@ -360,7 +360,7 @@ item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
 int item_link(item *item) {
     int ret;
 
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     ret = do_item_link(item);
     pthread_mutex_unlock(&cache_lock);
     return ret;
@@ -371,7 +371,7 @@ int item_link(item *item) {
  * needed.
  */
 void item_remove(item *item) {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_remove(item);
     pthread_mutex_unlock(&cache_lock);
 }
@@ -389,7 +389,7 @@ int item_replace(item *old_it, item *new_it) {
  * Unlinks an item from the LRU and hashtable.
  */
 void item_unlink(item *item) {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_unlink(item);
     pthread_mutex_unlock(&cache_lock);
 }
@@ -398,7 +398,7 @@ void item_unlink(item *item) {
  * Moves an item to the back of the LRU queue.
  */
 void item_update(item *item) {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_update(item);
     pthread_mutex_unlock(&cache_lock);
 }
@@ -412,7 +412,7 @@ enum delta_result_type add_delta(conn *c, const char *key,
                                  uint64_t *cas) {
     enum delta_result_type ret;
 
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     ret = do_add_delta(c, key, nkey, incr, delta, buf, cas);
     pthread_mutex_unlock(&cache_lock);
     return ret;
@@ -424,7 +424,7 @@ enum delta_result_type add_delta(conn *c, const char *key,
 enum store_item_type store_item(item *item, int comm, conn* c) {
     enum store_item_type ret;
 
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     ret = do_store_item(item, comm, c);
     pthread_mutex_unlock(&cache_lock);
     return ret;
@@ -434,7 +434,7 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
  * Flushes expired items after a flush_all call
  */
 void item_flush_expired() {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_flush_expired();
     pthread_mutex_unlock(&cache_lock);
 }
@@ -445,7 +445,7 @@ void item_flush_expired() {
 char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes) {
     char *ret;
 
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     ret = do_item_cachedump(slabs_clsid, limit, bytes);
     pthread_mutex_unlock(&cache_lock);
     return ret;
@@ -455,7 +455,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
  * Dumps statistics about slab classes
  */
 void  item_stats(ADD_STAT add_stats, void *c) {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_stats(add_stats, c);
     pthread_mutex_unlock(&cache_lock);
 }
@@ -464,7 +464,7 @@ void  item_stats(ADD_STAT add_stats, void *c) {
  * Dumps a list of objects of each size in 32-byte increments
  */
 void  item_stats_sizes(ADD_STAT add_stats, void *c) {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_stats_sizes(add_stats, c);
     pthread_mutex_unlock(&cache_lock);
 }
