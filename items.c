@@ -121,7 +121,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             it = search;
             it->refcount = 1;
             slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-            do_item_unlink(it, hash(ITEM_key(it), it->nkey, 0));
+            do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
             it->slabs_clsid = 0;
             it->refcount = 0;
@@ -151,7 +151,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             it = search;
             it->refcount = 1;
             slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-            do_item_unlink(it, hash(ITEM_key(it), it->nkey, 0));
+            do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
             it->slabs_clsid = 0;
             it->refcount = 0;
@@ -172,7 +172,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             search->time + TAIL_REPAIR_TIME < current_time) {
             itemstats[id].tailrepairs++;
             search->refcount = 0;
-            do_item_unlink(search, hash(ITEM_key(search), search->nkey, 0));
+            do_item_unlink_nolock(search, hash(ITEM_key(search), search->nkey, 0));
         }
         return NULL;
     }
@@ -275,7 +275,6 @@ int do_item_link(item *it, const uint32_t hv) {
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     it->it_flags |= ITEM_LINKED;
     it->time = current_time;
-    assoc_insert(it, hv);
 
     STATS_LOCK();
     stats.curr_bytes += ITEM_ntotal(it);
@@ -283,15 +282,34 @@ int do_item_link(item *it, const uint32_t hv) {
     stats.total_items += 1;
     STATS_UNLOCK();
 
+    mutex_lock(&cache_lock);
     /* Allocate a new CAS ID on link. */
     ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
-
+    assoc_insert(it, hv);
     item_link_q(it);
+    pthread_mutex_unlock(&cache_lock);
 
     return 1;
 }
 
 void do_item_unlink(item *it, const uint32_t hv) {
+    MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
+    if ((it->it_flags & ITEM_LINKED) != 0) {
+        it->it_flags &= ~ITEM_LINKED;
+        STATS_LOCK();
+        stats.curr_bytes -= ITEM_ntotal(it);
+        stats.curr_items -= 1;
+        STATS_UNLOCK();
+        mutex_lock(&cache_lock);
+        assoc_delete(ITEM_key(it), it->nkey, hv);
+        item_unlink_q(it);
+        pthread_mutex_unlock(&cache_lock);
+        if (it->refcount == 0) item_free(it);
+    }
+}
+
+/* FIXME: Is it necessary to keep thsi copy/pasted code? */
+void do_item_unlink_nolock(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
@@ -323,9 +341,11 @@ void do_item_update(item *it) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
 
         if ((it->it_flags & ITEM_LINKED) != 0) {
+            mutex_lock(&cache_lock);
             item_unlink_q(it);
             it->time = current_time;
             item_link_q(it);
+            pthread_mutex_unlock(&cache_lock);
         }
     }
 }
@@ -387,22 +407,6 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
             char key_str[STAT_KEY_LEN];
             char val_str[STAT_VAL_LEN];
             int klen = 0, vlen = 0;
-            int search = 50;
-            while (search > 0 &&
-                   tails[i] != NULL &&
-                   ((settings.oldest_live != 0 && /* Item flushd */
-                     settings.oldest_live <= current_time &&
-                     tails[i]->time <= settings.oldest_live) ||
-                    (tails[i]->exptime != 0 && /* and not expired */
-                     tails[i]->exptime < current_time))) {
-                --search;
-                if (tails[i]->refcount == 0) {
-                    do_item_unlink(tails[i], hash(ITEM_key(tails[i]),
-                        tails[i]->nkey, 0));
-                } else {
-                    break;
-                }
-            }
             if (tails[i] == NULL) {
                 /* We removed all of the items in this slab class */
                 continue;
@@ -470,7 +474,9 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 
 /** wrapper around assoc_find which does the lazy expiration logic */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
+    mutex_lock(&cache_lock);
     item *it = assoc_find(key, nkey, hv);
+    pthread_mutex_unlock(&cache_lock);
     int was_found = 0;
 
     if (settings.verbose > 2) {
@@ -484,7 +490,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
 
     if (it != NULL && settings.oldest_live != 0 && settings.oldest_live <= current_time &&
         it->time <= settings.oldest_live) {
-        do_item_unlink(it, hv);           /* MTSAFE - cache_lock held */
+        do_item_unlink(it, hv);           /* MTSAFE - item_lock held */
         it = NULL;
     }
 
@@ -494,7 +500,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     }
 
     if (it != NULL && it->exptime != 0 && it->exptime <= current_time) {
-        do_item_unlink(it, hv);           /* MTSAFE - cache_lock held */
+        do_item_unlink(it, hv);           /* MTSAFE - item_lock held */
         it = NULL;
     }
 
@@ -524,16 +530,6 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
     return it;
 }
 
-/** returns an item whether or not it's expired. */
-item *do_item_get_nocheck(const char *key, const size_t nkey, const uint32_t hv) {
-    item *it = assoc_find(key, nkey, hv);
-    if (it) {
-        it->refcount++;
-        DEBUG_REFCNT(it, '+');
-    }
-    return it;
-}
-
 /* expires items that are more recent than the oldest_live setting. */
 void do_item_flush_expired(void) {
     int i;
@@ -550,7 +546,7 @@ void do_item_flush_expired(void) {
             if (iter->time >= settings.oldest_live) {
                 next = iter->next;
                 if ((iter->it_flags & ITEM_SLABBED) == 0) {
-                    do_item_unlink(iter, hash(ITEM_key(iter), iter->nkey, 0));
+                    do_item_unlink_nolock(iter, hash(ITEM_key(iter), iter->nkey, 0));
                 }
             } else {
                 /* We've hit the first old item. Continue to the next queue. */
