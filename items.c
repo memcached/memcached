@@ -98,6 +98,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     if (id == 0)
         return 0;
 
+    mutex_lock(&cache_lock);
     /* do a quick check if we have any expired items in the tail.. */
     item *search;
     rel_time_t oldest_live = settings.oldest_live;
@@ -133,6 +134,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             (search->exptime == 0 || search->exptime > current_time)) {
             if (settings.evict_to_free == 0) {
                 itemstats[id].outofmemory++;
+                pthread_mutex_unlock(&cache_lock);
                 return NULL;
             }
             itemstats[id].evicted++;
@@ -174,6 +176,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             search->refcount = 0;
             do_item_unlink_nolock(search, hash(ITEM_key(search), search->nkey, 0));
         }
+        pthread_mutex_unlock(&cache_lock);
         return NULL;
     }
 
@@ -193,6 +196,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     it->exptime = exptime;
     memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
     it->nsuffix = nsuffix;
+    pthread_mutex_unlock(&cache_lock);
     return it;
 }
 
