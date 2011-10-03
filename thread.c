@@ -340,9 +340,8 @@ int is_listen_thread() {
  */
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes) {
     item *it;
-    mutex_lock(&cache_lock);
+    /* do_item_alloc handles its own locks */
     it = do_item_alloc(key, nkey, flags, exptime, nbytes);
-    pthread_mutex_unlock(&cache_lock);
     return it;
 }
 
