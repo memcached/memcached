@@ -1210,6 +1210,7 @@ static void process_bin_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
+        item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.touch_cmds++;
         c->thread->stats.slab_stats[it->slabs_clsid].touch_hits++;
@@ -1297,6 +1298,7 @@ static void process_bin_get(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
+        item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.get_cmds++;
         c->thread->stats.slab_stats[it->slabs_clsid].get_hits++;
@@ -2944,6 +2946,7 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
 
     it = item_touch(key, nkey, realtime(exptime_int));
     if (it) {
+        item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.touch_cmds++;
         c->thread->stats.slab_stats[it->slabs_clsid].touch_hits++;
@@ -3089,6 +3092,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
 
         memcpy(ITEM_data(it), buf, res);
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
+        do_item_update(it);
     }
 
     if (cas) {
