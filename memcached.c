@@ -4955,6 +4955,7 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     } else {
         rlim.rlim_cur = settings.maxconns;
+        rlim.rlim_max = settings.maxconns;
         if (setrlimit(RLIMIT_NOFILE, &rlim) != 0) {
             fprintf(stderr, "failed to set rlimit for open files. Try starting as root or requesting smaller maxconns value.\n");
             exit(EX_OSERR);
