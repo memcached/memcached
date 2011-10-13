@@ -47,8 +47,10 @@ static CQ_ITEM *cqi_freelist;
 static pthread_mutex_t cqi_freelist_lock;
 
 static pthread_mutex_t *item_locks;
-/* TODO: Make this a function of the # of threads */
-#define ITEM_LOCKS 4000
+/* size of the item lock hash table */
+static uint32_t item_lock_count;
+/* size - 1 for lookup masking */
+static uint32_t item_lock_mask;
 
 static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
 
@@ -69,11 +71,11 @@ static pthread_cond_t init_cond;
 static void thread_libevent_process(int fd, short which, void *arg);
 
 void item_lock(uint32_t hv) {
-    mutex_lock(&item_locks[hv % ITEM_LOCKS]);
+    mutex_lock(&item_locks[hv & item_lock_mask]);
 }
 
 void item_unlock(uint32_t hv) {
-    pthread_mutex_unlock(&item_locks[hv % ITEM_LOCKS]);
+    pthread_mutex_unlock(&item_locks[hv & item_lock_mask]);
 }
 
 /*
@@ -623,6 +625,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  */
 void thread_init(int nthreads, struct event_base *main_base) {
     int         i;
+    int         power;
 
     pthread_mutex_init(&cache_lock, NULL);
     pthread_mutex_init(&stats_lock, NULL);
@@ -633,12 +636,27 @@ void thread_init(int nthreads, struct event_base *main_base) {
     pthread_mutex_init(&cqi_freelist_lock, NULL);
     cqi_freelist = NULL;
 
-    item_locks = calloc(ITEM_LOCKS, sizeof(pthread_mutex_t));
+    /* Want a wide lock table, but don't waste memory */
+    if (nthreads < 3) {
+        power = 10;
+    } else if (nthreads < 4) {
+        power = 11;
+    } else if (nthreads < 5) {
+        power = 12;
+    } else {
+        /* 8192 buckets, and central locks don't scale much past 5 threads */
+        power = 13;
+    }
+
+    item_lock_count = ((unsigned long int)1 << (power));
+    item_lock_mask  = item_lock_count - 1;
+
+    item_locks = calloc(item_lock_count, sizeof(pthread_mutex_t));
     if (! item_locks) {
         perror("Can't allocate item locks");
         exit(1);
     }
-    for (i = 0; i < ITEM_LOCKS; i++) {
+    for (i = 0; i < item_lock_count; i++) {
         pthread_mutex_init(&item_locks[i], NULL);
     }
 
