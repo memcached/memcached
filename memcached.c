@@ -4616,6 +4616,7 @@ int main (int argc, char **argv) {
     struct rlimit rlim;
     char unit = '\0';
     int size_max = 0;
+    int retval = EXIT_SUCCESS;
     /* listening sockets */
     static int *l_socket = NULL;
 
@@ -5107,7 +5108,9 @@ int main (int argc, char **argv) {
     drop_privileges();
 
     /* enter the event loop */
-    event_base_loop(main_base, 0);
+    if (event_base_loop(main_base, 0) != 0) {
+        retval = EXIT_FAILURE;
+    }
 
     stop_assoc_maintenance_thread();
 
@@ -5122,5 +5125,5 @@ int main (int argc, char **argv) {
     if (u_socket)
       free(u_socket);
 
-    return EXIT_SUCCESS;
+    return retval;
 }
