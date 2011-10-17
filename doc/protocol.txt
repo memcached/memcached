@@ -379,7 +379,7 @@ response to the "stats" command, together with the type of the value
 sent for this name, and the meaning of the value.
 
 In the type column below, "32u" means a 32-bit unsigned integer, "64u"
-means a 64-bit unsigner integer. '32u.32u' means two 32-bit unsigned
+means a 64-bit unsigned integer. '32u.32u' means two 32-bit unsigned
 integers separated by a colon (treat this as a floating point number).
 
 |-----------------------+---------+-------------------------------------------|
