@@ -1,0 +1,10 @@
+[Unit]
+Description=memcached daemon
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/sysconfig/memcached
+ExecStart=/usr/bin/memcached -p ${PORT} -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} $OPTIONS
+
+[Install]
+WantedBy=multi-user.target
