@@ -18,7 +18,7 @@ my $stats  = mem_stats($sock, "slabs");
 my $requested = $stats->{"31:mem_requested"};
 isnt ($requested, "0", "We should have requested some memory");
 
-sleep(2);
+sleep(3);
 print $sock "set key 0 0 66570\r\n$value2\r\n";
 is (scalar <$sock>, "STORED\r\n", "stored key");
 
