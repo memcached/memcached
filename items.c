@@ -181,10 +181,13 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     }
 
     assert(it->slabs_clsid == 0);
+    assert(it != heads[id]);
 
+    /* Item initialization can happen outside of the lock; the item's already
+     * been removed from the slab LRU.
+     */
+    pthread_mutex_unlock(&cache_lock);
     it->slabs_clsid = id;
-
-    assert(it != heads[it->slabs_clsid]);
 
     it->next = it->prev = it->h_next = 0;
     it->refcount = 1;     /* the caller will have a reference */
@@ -196,7 +199,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     it->exptime = exptime;
     memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
     it->nsuffix = nsuffix;
-    pthread_mutex_unlock(&cache_lock);
     return it;
 }
 
