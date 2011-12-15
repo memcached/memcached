@@ -104,11 +104,9 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     rel_time_t oldest_live = settings.oldest_live;
 
     search = tails[id];
-    if (search == NULL) {
-        it = slabs_alloc(ntotal, id);
-    } else if (search->refcount == 0) {
-        if ((search->time < oldest_live) || // dead by flush
-         (search->exptime != 0 && search->exptime < current_time)) {
+    if (search != NULL && search->refcount == 0) {
+        if ((search->exptime != 0 && search->exptime < current_time)
+            || (search->time < oldest_live)) {  // dead by flush
             STATS_LOCK();
             stats.reclaimed++;
             STATS_UNLOCK();
@@ -126,12 +124,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             /* Initialize the item block: */
             it->slabs_clsid = 0;
             it->refcount = 0;
-        }
-    }
-
-    if (it == NULL && (it = slabs_alloc(ntotal, id)) == NULL) {
-        if (search->refcount == 0 &&
-            (search->exptime == 0 || search->exptime > current_time)) {
+        } else if ((it = slabs_alloc(ntotal, id)) == NULL) {
             if (settings.evict_to_free == 0) {
                 itemstats[id].outofmemory++;
                 pthread_mutex_unlock(&cache_lock);
@@ -158,6 +151,9 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             it->slabs_clsid = 0;
             it->refcount = 0;
         }
+    } else {
+        /* If the LRU is empty or locked, attempt to allocate memory */
+        it = slabs_alloc(ntotal, id);
     }
 
     if (it == NULL) {
