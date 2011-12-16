@@ -158,9 +158,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
 
     if (it == NULL) {
         itemstats[id].outofmemory++;
-        /* Last ditch effort. There is a very rare bug which causes
-         * refcount leaks. We've fixed most of them, but it still happens,
-         * and it may happen in the future.
+        /* Last ditch effort. There was a very rare bug which caused
+         * refcount leaks. We leave this just in case they ever happen again.
          * We can reasonably assume no item can stay locked for more than
          * three hours, so if we find one in the tail which is that old,
          * free it anyway.
@@ -310,7 +309,7 @@ void do_item_unlink(item *it, const uint32_t hv) {
     }
 }
 
-/* FIXME: Is it necessary to keep thsi copy/pasted code? */
+/* FIXME: Is it necessary to keep this copy/pasted code? */
 void do_item_unlink_nolock(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
     if ((it->it_flags & ITEM_LINKED) != 0) {
@@ -478,6 +477,8 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     mutex_lock(&cache_lock);
     item *it = assoc_find(key, nkey, hv);
+    if (it != NULL)
+        it->refcount++;
     pthread_mutex_unlock(&cache_lock);
     int was_found = 0;
 
@@ -490,31 +491,30 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
         }
     }
 
-    if (it != NULL && settings.oldest_live != 0 && settings.oldest_live <= current_time &&
-        it->time <= settings.oldest_live) {
-        do_item_unlink(it, hv);           /* MTSAFE - item_lock held */
-        it = NULL;
-    }
-
-    if (it == NULL && was_found) {
-        fprintf(stderr, " -nuked by flush");
-        was_found--;
-    }
-
-    if (it != NULL && it->exptime != 0 && it->exptime <= current_time) {
-        do_item_unlink(it, hv);           /* MTSAFE - item_lock held */
-        it = NULL;
-    }
-
-    if (it == NULL && was_found) {
-        fprintf(stderr, " -nuked by expire");
-        was_found--;
-    }
-
     if (it != NULL) {
-        it->refcount++;
-        it->it_flags |= ITEM_FETCHED;
-        DEBUG_REFCNT(it, '+');
+        if (settings.oldest_live != 0 && settings.oldest_live <= current_time &&
+            it->time <= settings.oldest_live) {
+            mutex_lock(&cache_lock);
+            it->refcount--;
+            do_item_unlink_nolock(it, hv);
+            pthread_mutex_unlock(&cache_lock);
+            it = NULL;
+            if (was_found) {
+                fprintf(stderr, " -nuked by flush");
+            }
+        } else if (it->exptime != 0 && it->exptime <= current_time) {
+            mutex_lock(&cache_lock);
+            it->refcount--;
+            do_item_unlink_nolock(it, hv);
+            pthread_mutex_unlock(&cache_lock);
+            it = NULL;
+            if (was_found) {
+                fprintf(stderr, " -nuked by expire");
+            }
+        } else {
+            it->it_flags |= ITEM_FETCHED;
+            DEBUG_REFCNT(it, '+');
+        }
     }
 
     if (settings.verbose > 2)
