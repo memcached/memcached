@@ -123,7 +123,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
             it->slabs_clsid = 0;
-            it->refcount = 0;
         } else if ((it = slabs_alloc(ntotal, id)) == NULL) {
             if (settings.evict_to_free == 0) {
                 itemstats[id].outofmemory++;
@@ -149,7 +148,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
             it->slabs_clsid = 0;
-            it->refcount = 0;
         }
     } else {
         /* If the LRU is empty or locked, attempt to allocate memory */
@@ -181,11 +179,11 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     /* Item initialization can happen outside of the lock; the item's already
      * been removed from the slab LRU.
      */
+    it->refcount = 1;     /* the caller will have a reference */
     pthread_mutex_unlock(&cache_lock);
+    it->next = it->prev = it->h_next = 0;
     it->slabs_clsid = id;
 
-    it->next = it->prev = it->h_next = 0;
-    it->refcount = 1;     /* the caller will have a reference */
     DEBUG_REFCNT(it, '*');
     it->it_flags = settings.use_cas ? ITEM_CAS : 0;
     it->nkey = nkey;

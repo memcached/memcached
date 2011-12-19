@@ -102,6 +102,9 @@ struct stats stats;
 struct settings settings;
 time_t process_started;     /* when the process was started */
 
+struct slab_rebalance slab_rebal;
+volatile int slab_rebalance_signal;
+
 /** file scope variables **/
 static conn *listen_conn = NULL;
 static struct event_base *main_base;
@@ -170,7 +173,9 @@ static void stats_init(void) {
     stats.curr_bytes = stats.listen_disabled_num = 0;
     stats.hash_power_level = stats.hash_bytes = stats.hash_is_expanding = 0;
     stats.expired_unfetched = stats.evicted_unfetched = 0;
+    stats.slabs_moved = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
+    stats.slab_reassign_running = false;
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -218,6 +223,8 @@ static void settings_init(void) {
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.maxconns_fast = false;
     settings.hashpower_init = 0;
+    settings.slab_reassign = false;
+    settings.slab_automove = false;
 }
 
 /*
@@ -2572,6 +2579,10 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("hash_is_expanding", "%u", stats.hash_is_expanding);
     APPEND_STAT("expired_unfetched", "%llu", stats.expired_unfetched);
     APPEND_STAT("evicted_unfetched", "%llu", stats.evicted_unfetched);
+    if (settings.slab_reassign) {
+        APPEND_STAT("slab_reassign_running", "%u", stats.slab_reassign_running);
+        APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);
+    }
     STATS_UNLOCK();
 }
 
@@ -2604,6 +2615,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
+    APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
+    APPEND_STAT("slab_automove", "%s", settings.slab_automove ? "yes" : "no");
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -3290,6 +3303,45 @@ static void process_command(conn *c, char *command) {
 
         conn_set_state(c, conn_closing);
 
+    } else if (ntokens == 5 && (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0 &&
+        strcmp(tokens[COMMAND_TOKEN + 1].value, "reassign") == 0)) {
+        int src, dst, rv;
+
+        if (settings.slab_reassign == false) {
+            out_string(c, "CLIENT_ERROR slab reassignment disabled");
+            return;
+        }
+
+        src = strtol(tokens[2].value, NULL, 10);
+        dst = strtol(tokens[3].value, NULL, 10);
+
+        if (errno == ERANGE) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+
+        rv = slabs_reassign(src, dst);
+        switch (rv) {
+        case REASSIGN_OK:
+            out_string(c, "OK");
+            break;
+        case REASSIGN_RUNNING:
+            out_string(c, "BUSY");
+            break;
+        case REASSIGN_BADCLASS:
+            out_string(c, "BADCLASS");
+            break;
+        case REASSIGN_NOSPARE:
+            out_string(c, "NOSPARE");
+            break;
+        case REASSIGN_DEST_NOT_FULL:
+            out_string(c, "NOTFULL");
+            break;
+        case REASSIGN_SRC_NOT_SAFE:
+            out_string(c, "UNSAFE");
+            break;
+        }
+        return;
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {
@@ -4639,11 +4691,15 @@ int main (int argc, char **argv) {
     char *subopts_value;
     enum {
         MAXCONNS_FAST = 0,
-        HASHPOWER_INIT
+        HASHPOWER_INIT,
+        SLAB_REASSIGN,
+        SLAB_AUTOMOVE
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
         [HASHPOWER_INIT] = "hashpower",
+        [SLAB_REASSIGN] = "slab_reassign",
+        [SLAB_AUTOMOVE] = "slab_automove",
         NULL
     };
 
@@ -4889,6 +4945,12 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
+            case SLAB_REASSIGN:
+                settings.slab_reassign = true;
+                break;
+            case SLAB_AUTOMOVE:
+                settings.slab_automove = true;
+                break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
                 return 1;
@@ -5039,6 +5101,11 @@ int main (int argc, char **argv) {
     thread_init(settings.num_threads, main_base);
 
     if (start_assoc_maintenance_thread() == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (settings.slab_reassign &&
+        start_slab_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
     }
 
