@@ -42,7 +42,7 @@ sleep 2;
 
 # Check that stats counters increased
 my $slabs_after = mem_stats($sock, "slabs");
-my $stats = mem_stats($sock);
+$stats = mem_stats($sock);
 
 isnt($stats->{slabs_moved}, 0, "slabs moved is nonzero");
 
@@ -54,12 +54,12 @@ ok($slabs_before->{"25:total_pages"} != $slabs_after->{"25:total_pages"},
 
 # Try to move another slab, see that it complains
 print $sock "slabs reassign 31 25\r\n";
-is(scalar <$sock>, "NOTFULL\r\n", "Cannot re-run against class with empty space");
+is(scalar <$sock>, "NOTFULL dest class has spare memory\r\n", "Cannot re-run against class with empty space");
 
 # Try to move a page backwards. Should complain that source class isn't "safe"
 # to move from.
 print $sock "slabs reassign 25 31\r\n";
-is(scalar <$sock>, "UNSAFE\r\n", "Cannot move an unsafe slab back");
+is(scalar <$sock>, "UNSAFE src class is in an unsafe state\r\n", "Cannot move an unsafe slab back");
 
 # Try to insert items into both slabs
 print $sock "set bfoo51 0 0 70000\r\n", $bigdata, "\r\n";

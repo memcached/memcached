@@ -474,7 +474,8 @@ static int slab_rebalance_start(void) {
     if (slab_rebal.s_clsid < POWER_SMALLEST ||
         slab_rebal.s_clsid > power_largest  ||
         slab_rebal.d_clsid < POWER_SMALLEST ||
-        slab_rebal.d_clsid > power_largest)
+        slab_rebal.d_clsid > power_largest  ||
+        slab_rebal.s_clsid == slab_rebal.d_clsid)
         no_go = -2;
 
     s_cls = &slabclass[slab_rebal.s_clsid];
@@ -732,6 +733,9 @@ static void *slab_maintenance_thread(void *arg) {
 static enum reassign_result_type do_slabs_reassign(int src, int dst) {
     if (slab_rebalance_signal != 0)
         return REASSIGN_RUNNING;
+
+    if (src == dst)
+        return REASSIGN_SRC_DST_SAME;
 
     if (src < POWER_SMALLEST || src > power_largest ||
         dst < POWER_SMALLEST || dst > power_largest)

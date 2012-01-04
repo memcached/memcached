@@ -3346,19 +3346,22 @@ static void process_command(conn *c, char *command) {
                 out_string(c, "OK");
                 break;
             case REASSIGN_RUNNING:
-                out_string(c, "BUSY");
+                out_string(c, "BUSY currently processing reassign request");
                 break;
             case REASSIGN_BADCLASS:
-                out_string(c, "BADCLASS");
+                out_string(c, "BADCLASS invalid src or dst class id");
                 break;
             case REASSIGN_NOSPARE:
-                out_string(c, "NOSPARE");
+                out_string(c, "NOSPARE source class has no spare pages");
                 break;
             case REASSIGN_DEST_NOT_FULL:
-                out_string(c, "NOTFULL");
+                out_string(c, "NOTFULL dest class has spare memory");
                 break;
             case REASSIGN_SRC_NOT_SAFE:
-                out_string(c, "UNSAFE");
+                out_string(c, "UNSAFE src class is in an unsafe state");
+                break;
+            case REASSIGN_SRC_DST_SAME:
+                out_string(c, "SAME src and dst class are identical");
                 break;
             }
             return;

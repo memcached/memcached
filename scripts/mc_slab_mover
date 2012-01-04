@@ -134,7 +134,7 @@ sub run {
             printf "  %02s: %-8s (pct  ) %-10s (pct    ) %-6s (pct  ) get_hits (pct   ) cmd_set (pct  )\n",
                 'sb', 'evicted', 'items', 'pages';
             for my $slab (@$sorted) {
-                printf "  %02d: %-8d (%.2f%%) %-10s (%.4f%%) %-6d (%.2f%%) %-8d (%.3f%%) %-7d (%.2f%%)\n", 
+                printf "  %02d: %-8d (%.2f%%) %-10s (%.4f%%) %-6d (%.2f%%) %-8d (%.3f%%) %-7d (%.2f%%)\n",
                     $slab->{slab}, $slab->{evicted_d},
                     $pct->($slab->{evicted_d}, $totals->{evicted_d}),
                     $slab->{number},
