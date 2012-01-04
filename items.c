@@ -398,6 +398,15 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     return buffer;
 }
 
+void item_stats_evictions(uint64_t *evicted) {
+    int i;
+    mutex_lock(&cache_lock);
+    for (i = 0; i < LARGEST_ID; i++) {
+        evicted[i] = itemstats[i].evicted;
+    }
+    pthread_mutex_unlock(&cache_lock);
+}
+
 void do_item_stats(ADD_STAT add_stats, void *c) {
     int i;
     for (i = 0; i < LARGEST_ID; i++) {

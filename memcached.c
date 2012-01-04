@@ -3189,6 +3189,26 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
     return;
 }
 
+static void process_slabs_automove_command(conn *c, token_t *tokens, const size_t ntokens) {
+    unsigned int level;
+
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    level = strtoul(tokens[2].value, NULL, 10);
+    if (level == 0) {
+        settings.slab_automove = false;
+    } else if (level == 1) {
+        settings.slab_automove = true;
+    } else {
+        out_string(c, "ERROR");
+        return;
+    }
+    out_string(c, "OK");
+    return;
+}
+
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -3303,45 +3323,51 @@ static void process_command(conn *c, char *command) {
 
         conn_set_state(c, conn_closing);
 
-    } else if (ntokens == 5 && (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0 &&
-        strcmp(tokens[COMMAND_TOKEN + 1].value, "reassign") == 0)) {
-        int src, dst, rv;
+    } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
+        if (ntokens == 5 && strcmp(tokens[COMMAND_TOKEN + 1].value, "reassign") == 0) {
+            int src, dst, rv;
 
-        if (settings.slab_reassign == false) {
-            out_string(c, "CLIENT_ERROR slab reassignment disabled");
+            if (settings.slab_reassign == false) {
+                out_string(c, "CLIENT_ERROR slab reassignment disabled");
+                return;
+            }
+
+            src = strtol(tokens[2].value, NULL, 10);
+            dst = strtol(tokens[3].value, NULL, 10);
+
+            if (errno == ERANGE) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+
+            rv = slabs_reassign(src, dst);
+            switch (rv) {
+            case REASSIGN_OK:
+                out_string(c, "OK");
+                break;
+            case REASSIGN_RUNNING:
+                out_string(c, "BUSY");
+                break;
+            case REASSIGN_BADCLASS:
+                out_string(c, "BADCLASS");
+                break;
+            case REASSIGN_NOSPARE:
+                out_string(c, "NOSPARE");
+                break;
+            case REASSIGN_DEST_NOT_FULL:
+                out_string(c, "NOTFULL");
+                break;
+            case REASSIGN_SRC_NOT_SAFE:
+                out_string(c, "UNSAFE");
+                break;
+            }
             return;
+        } else if (ntokens == 4 &&
+            (strcmp(tokens[COMMAND_TOKEN + 1].value, "automove") == 0)) {
+            process_slabs_automove_command(c, tokens, ntokens);
+        } else {
+            out_string(c, "ERROR");
         }
-
-        src = strtol(tokens[2].value, NULL, 10);
-        dst = strtol(tokens[3].value, NULL, 10);
-
-        if (errno == ERANGE) {
-            out_string(c, "CLIENT_ERROR bad command line format");
-            return;
-        }
-
-        rv = slabs_reassign(src, dst);
-        switch (rv) {
-        case REASSIGN_OK:
-            out_string(c, "OK");
-            break;
-        case REASSIGN_RUNNING:
-            out_string(c, "BUSY");
-            break;
-        case REASSIGN_BADCLASS:
-            out_string(c, "BADCLASS");
-            break;
-        case REASSIGN_NOSPARE:
-            out_string(c, "NOSPARE");
-            break;
-        case REASSIGN_DEST_NOT_FULL:
-            out_string(c, "NOTFULL");
-            break;
-        case REASSIGN_SRC_NOT_SAFE:
-            out_string(c, "UNSAFE");
-            break;
-        }
-        return;
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {

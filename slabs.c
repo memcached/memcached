@@ -627,16 +627,83 @@ static void slab_rebalance_finish(void) {
     }
 }
 
+/* Return 1 means a decision was reached.
+ * Move to its own thread (created/destroyed as needed) once automover is more
+ * complex.
+ */
+static int slab_automove_decision(int *src, int *dst) {
+    static uint64_t evicted_old[POWER_LARGEST];
+    static unsigned int slab_zeroes[POWER_LARGEST];
+    static unsigned int slab_winner = 0;
+    static unsigned int slab_wins   = 0;
+    uint64_t evicted_new[POWER_LARGEST];
+    uint64_t evicted_diff = 0;
+    uint64_t evicted_max  = 0;
+    unsigned int highest_slab = 0;
+    unsigned int total_pages[POWER_LARGEST];
+    int i;
+    int source = 0;
+    int dest = 0;
+    static rel_time_t next_run;
+
+    /* Run less frequently than the slabmove tester. */
+    if (current_time >= next_run) {
+        next_run = current_time + 10;
+    } else {
+        return 0;
+    }
+
+    item_stats_evictions(evicted_new);
+    pthread_mutex_lock(&cache_lock);
+    for (i = POWER_SMALLEST; i < power_largest; i++) {
+        total_pages[i] = slabclass[i].slabs;
+    }
+    pthread_mutex_unlock(&cache_lock);
+
+    /* Find a candidate source; something with zero evicts 3+ times */
+    for (i = POWER_SMALLEST; i < power_largest; i++) {
+        evicted_diff = evicted_new[i] - evicted_old[i];
+        if (evicted_diff == 0 && total_pages[i] > 2) {
+            slab_zeroes[i]++;
+            if (source == 0 && slab_zeroes[i] >= 3)
+                source = i;
+        } else {
+            slab_zeroes[i] = 0;
+            if (evicted_diff > evicted_max) {
+                evicted_max = evicted_diff;
+                highest_slab = i;
+            }
+        }
+        evicted_old[i] = evicted_new[i];
+    }
+
+    /* Pick a valid destination */
+    if (slab_winner != 0 && slab_winner == highest_slab) {
+        slab_wins++;
+        if (slab_wins >= 3)
+            dest = slab_winner;
+    } else {
+        slab_wins = 1;
+        slab_winner = highest_slab;
+    }
+
+    if (source && dest) {
+        *src = source;
+        *dst = dest;
+        return 1;
+    }
+    return 0;
+}
+
 /* Slab rebalancer thread.
  * Does not use spinlocks since it is not timing sensitive. Burn less CPU and
  * go to sleep if locks are contended
  */
 static void *slab_maintenance_thread(void *arg) {
     int was_busy = 0;
+    int src, dest;
 
     while (do_run_slab_thread) {
-        /* TODO: Call code to make a calculated decision */
-
         if (slab_rebalance_signal == 1) {
             if (slab_rebalance_start() < 0) {
                 /* Handle errors with more specifity as required. */
@@ -646,6 +713,9 @@ static void *slab_maintenance_thread(void *arg) {
         } else if (slab_rebalance_signal && slab_rebal.slab_start != NULL) {
             /* If we have a decision to continue, continue it */
             was_busy = slab_rebalance_move();
+        } else if (settings.slab_automove && slab_automove_decision(&src, &dest) == 1) {
+            /* Blind to the return codes. It will retry on its own */
+            slabs_reassign(src, dest);
         }
 
         if (slab_rebal.done) {
