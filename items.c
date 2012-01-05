@@ -484,8 +484,18 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     mutex_lock(&cache_lock);
     item *it = assoc_find(key, nkey, hv);
-    if (it != NULL)
+    if (it != NULL) {
         it->refcount++;
+        /* Optimization for slab reassignment. prevents popular items from
+         * jamming in busy wait. Can only do this here to satisfy lock order
+         * of item_lock, cache_lock, slabs_lock. */
+        if (slab_rebalance_signal &&
+            ((void *)it >= slab_rebal.slab_start && (void *)it < slab_rebal.slab_end)) {
+            it->refcount--;
+            do_item_unlink_nolock(it, hv);
+            it = NULL;
+        }
+    }
     pthread_mutex_unlock(&cache_lock);
     int was_found = 0;
 
