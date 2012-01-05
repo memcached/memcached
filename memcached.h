@@ -104,7 +104,7 @@
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define STAT_KEY_LEN 128
-#define STAT_VAL_LEN 128
+#define STAT_VAL_LEN 1024
 
 /** Append a simple stat with a stat name, value format and value */
 #define APPEND_STAT(name, fmt, val) \
