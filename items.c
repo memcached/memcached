@@ -293,18 +293,18 @@ int do_item_link(item *it, const uint32_t hv) {
 
 void do_item_unlink(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
+    mutex_lock(&cache_lock);
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
         STATS_LOCK();
         stats.curr_bytes -= ITEM_ntotal(it);
         stats.curr_items -= 1;
         STATS_UNLOCK();
-        mutex_lock(&cache_lock);
         assoc_delete(ITEM_key(it), it->nkey, hv);
         item_unlink_q(it);
-        pthread_mutex_unlock(&cache_lock);
         if (it->refcount == 0) item_free(it);
     }
+    pthread_mutex_unlock(&cache_lock);
 }
 
 /* FIXME: Is it necessary to keep this copy/pasted code? */
@@ -325,6 +325,8 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
 void do_item_remove(item *it) {
     MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);
+
+    mutex_lock(&cache_lock);
     if (it->refcount != 0) {
         it->refcount--;
         DEBUG_REFCNT(it, '-');
@@ -332,6 +334,7 @@ void do_item_remove(item *it) {
     if (it->refcount == 0 && (it->it_flags & ITEM_LINKED) == 0) {
         item_free(it);
     }
+    pthread_mutex_unlock(&cache_lock);
 }
 
 void do_item_update(item *it) {
@@ -339,13 +342,13 @@ void do_item_update(item *it) {
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
 
+        mutex_lock(&cache_lock);
         if ((it->it_flags & ITEM_LINKED) != 0) {
-            mutex_lock(&cache_lock);
             item_unlink_q(it);
             it->time = current_time;
             item_link_q(it);
-            pthread_mutex_unlock(&cache_lock);
         }
+        pthread_mutex_unlock(&cache_lock);
     }
 }
 
