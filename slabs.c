@@ -249,6 +249,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
         /* return off our freelist */
         it = (item *)p->slots;
         p->slots = it->next;
+        if (it->next) it->next->prev = 0;
         p->sl_curr--;
         ret = (void *)it;
     } else {
