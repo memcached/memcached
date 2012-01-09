@@ -292,6 +292,7 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
 #endif
 
     it = (item *)ptr;
+    it->it_flags |= ITEM_SLABBED;
     it->prev = 0;
     it->next = p->slots;
     if (it->next) it->next->prev = it;
@@ -521,6 +522,10 @@ static int slab_rebalance_start(void) {
     return 0;
 }
 
+enum move_status {
+    MOVE_PASS=0, MOVE_DONE, MOVE_BUSY
+};
+
 /* refcount == 0 is safe since nobody can incr while cache_lock is held.
  * refcount != 0 is impossible since flags/etc can be modified in other
  * threads. instead, note we found a busy one and bail. logic in do_item_get
@@ -530,6 +535,8 @@ static int slab_rebalance_move(void) {
     slabclass_t *s_cls;
     int x;
     int was_busy = 0;
+    int refcount = 0;
+    enum move_status status = MOVE_PASS;
 
     pthread_mutex_lock(&cache_lock);
     pthread_mutex_lock(&slabs_lock);
@@ -538,30 +545,54 @@ static int slab_rebalance_move(void) {
 
     for (x = 0; x < slab_bulk_check; x++) {
         item *it = slab_rebal.slab_pos;
-        if (it->refcount == 0) {
-            if (it->it_flags & ITEM_SLABBED) {
-                /* remove from freelist linked list */
-                if (s_cls->slots == it) {
-                    s_cls->slots = it->next;
+        status = MOVE_PASS;
+        if (it->slabs_clsid != 255) {
+            refcount = __sync_add_and_fetch(&it->refcount, 1);
+            if (refcount == 1) { /* item is unlinked, unused */
+                if (it->it_flags & ITEM_SLABBED) {
+                    /* remove from slab freelist */
+                    if (s_cls->slots == it) {
+                        s_cls->slots = it->next;
+                    }
+                    if (it->next) it->next->prev = it->prev;
+                    if (it->prev) it->prev->next = it->next;
+                    s_cls->sl_curr--;
+                    status = MOVE_DONE;
+                } else {
+                    status = MOVE_BUSY;
                 }
-                if (it->next) it->next->prev = it->prev;
-                if (it->prev) it->prev->next = it->next;
-                s_cls->sl_curr--;
-            } else if (it->it_flags != 0) {
-                it->refcount = 1;
-                /* Call unlink with refcount == 1 so it won't free */
-                do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
+            } else if (refcount == 2) { /* item is linked but not busy */
+                if ((it->it_flags & ITEM_LINKED) != 0) {
+                    do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
+                    status = MOVE_DONE;
+                } else {
+                    /* refcount == 1 + !ITEM_LINKED means the item is being
+                     * uploaded to, or was just unlinked but hasn't been freed
+                     * yet. Let it bleed off on its own and try again later */
+                    status = MOVE_BUSY;
+                }
+            } else {
+                if (settings.verbose > 2) {
+                    fprintf(stderr, "Slab reassign hit a busy item: refcount: %d (%d -> %d)\n",
+                        it->refcount, slab_rebal.s_clsid, slab_rebal.d_clsid);
+                }
+                status = MOVE_BUSY;
+            }
+        }
+
+        switch (status) {
+            case MOVE_DONE:
                 it->refcount = 0;
-            }
-            it->it_flags = 0;
-            it->slabs_clsid = 0;
-        } else {
-            if (settings.verbose > 2) {
-                fprintf(stderr, "Slab reassign hit a busy item: refcount: %d (%d -> %d)\n",
-                    it->refcount, slab_rebal.s_clsid, slab_rebal.d_clsid);
-            }
-            slab_rebal.busy_items++;
-            was_busy++;
+                it->it_flags = 0;
+                it->slabs_clsid = 255;
+                break;
+            case MOVE_BUSY:
+                slab_rebal.busy_items++;
+                was_busy++;
+                __sync_sub_and_fetch(&it->refcount, 1);
+                break;
+            case MOVE_PASS:
+                break;
         }
 
         slab_rebal.slab_pos = (char *)slab_rebal.slab_pos + s_cls->size;

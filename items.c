@@ -104,7 +104,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     rel_time_t oldest_live = settings.oldest_live;
 
     search = tails[id];
-    if (search != NULL && search->refcount == 0) {
+    if (search != NULL && (__sync_add_and_fetch(&search->refcount, 1) == 2)) {
         if ((search->exptime != 0 && search->exptime < current_time)
             || (search->time < oldest_live)) {  // dead by flush
             STATS_LOCK();
@@ -118,7 +118,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
                 itemstats[id].expired_unfetched++;
             }
             it = search;
-            it->refcount = 1;
             slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
             do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
@@ -143,15 +142,18 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             stats.evictions++;
             STATS_UNLOCK();
             it = search;
-            it->refcount = 1;
             slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
             do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
             it->slabs_clsid = 0;
+        } else {
+            __sync_sub_and_fetch(&search->refcount, 1);
         }
     } else {
         /* If the LRU is empty or locked, attempt to allocate memory */
         it = slabs_alloc(ntotal, id);
+        if (search != NULL)
+            __sync_sub_and_fetch(&search->refcount, 1);
     }
 
     if (it == NULL) {
@@ -163,10 +165,10 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
          * free it anyway.
          */
         if (search != NULL &&
-            search->refcount != 0 &&
+            search->refcount != 2 &&
             search->time + TAIL_REPAIR_TIME < current_time) {
             itemstats[id].tailrepairs++;
-            search->refcount = 0;
+            search->refcount = 1;
             do_item_unlink_nolock(search, hash(ITEM_key(search), search->nkey, 0));
         }
         pthread_mutex_unlock(&cache_lock);
@@ -206,7 +208,6 @@ void item_free(item *it) {
     /* so slab size changer can tell later if item is already free or not */
     clsid = it->slabs_clsid;
     it->slabs_clsid = 0;
-    it->it_flags |= ITEM_SLABBED;
     DEBUG_REFCNT(it, 'F');
     slabs_free(it, ntotal, clsid);
 }
@@ -272,6 +273,7 @@ static void item_unlink_q(item *it) {
 int do_item_link(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_LINK(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
+    mutex_lock(&cache_lock);
     it->it_flags |= ITEM_LINKED;
     it->time = current_time;
 
@@ -281,11 +283,11 @@ int do_item_link(item *it, const uint32_t hv) {
     stats.total_items += 1;
     STATS_UNLOCK();
 
-    mutex_lock(&cache_lock);
     /* Allocate a new CAS ID on link. */
     ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
     assoc_insert(it, hv);
     item_link_q(it);
+    __sync_add_and_fetch(&it->refcount, 1);
     pthread_mutex_unlock(&cache_lock);
 
     return 1;
@@ -302,7 +304,7 @@ void do_item_unlink(item *it, const uint32_t hv) {
         STATS_UNLOCK();
         assoc_delete(ITEM_key(it), it->nkey, hv);
         item_unlink_q(it);
-        if (it->refcount == 0) item_free(it);
+        do_item_remove(it);
     }
     pthread_mutex_unlock(&cache_lock);
 }
@@ -318,7 +320,7 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
         STATS_UNLOCK();
         assoc_delete(ITEM_key(it), it->nkey, hv);
         item_unlink_q(it);
-        if (it->refcount == 0) item_free(it);
+        do_item_remove(it);
     }
 }
 
@@ -326,15 +328,9 @@ void do_item_remove(item *it) {
     MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);
 
-    mutex_lock(&cache_lock);
-    if (it->refcount != 0) {
-        it->refcount--;
-        DEBUG_REFCNT(it, '-');
-    }
-    if (it->refcount == 0 && (it->it_flags & ITEM_LINKED) == 0) {
+    if (__sync_sub_and_fetch(&it->refcount, 1) == 0) {
         item_free(it);
     }
-    pthread_mutex_unlock(&cache_lock);
 }
 
 void do_item_update(item *it) {
@@ -488,14 +484,14 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     mutex_lock(&cache_lock);
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
-        it->refcount++;
+        __sync_add_and_fetch(&it->refcount, 1);
         /* Optimization for slab reassignment. prevents popular items from
          * jamming in busy wait. Can only do this here to satisfy lock order
          * of item_lock, cache_lock, slabs_lock. */
         if (slab_rebalance_signal &&
             ((void *)it >= slab_rebal.slab_start && (void *)it < slab_rebal.slab_end)) {
-            it->refcount--;
             do_item_unlink_nolock(it, hv);
+            do_item_remove(it);
             it = NULL;
         }
     }
@@ -514,19 +510,15 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     if (it != NULL) {
         if (settings.oldest_live != 0 && settings.oldest_live <= current_time &&
             it->time <= settings.oldest_live) {
-            mutex_lock(&cache_lock);
-            it->refcount--;
-            do_item_unlink_nolock(it, hv);
-            pthread_mutex_unlock(&cache_lock);
+            do_item_unlink(it, hv);
+            do_item_remove(it);
             it = NULL;
             if (was_found) {
                 fprintf(stderr, " -nuked by flush");
             }
         } else if (it->exptime != 0 && it->exptime <= current_time) {
-            mutex_lock(&cache_lock);
-            it->refcount--;
-            do_item_unlink_nolock(it, hv);
-            pthread_mutex_unlock(&cache_lock);
+            do_item_unlink(it, hv);
+            do_item_remove(it);
             it = NULL;
             if (was_found) {
                 fprintf(stderr, " -nuked by expire");
