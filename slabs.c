@@ -547,7 +547,7 @@ static int slab_rebalance_move(void) {
         item *it = slab_rebal.slab_pos;
         status = MOVE_PASS;
         if (it->slabs_clsid != 255) {
-            refcount = __sync_add_and_fetch(&it->refcount, 1);
+            refcount = refcount_incr(&it->refcount);
             if (refcount == 1) { /* item is unlinked, unused */
                 if (it->it_flags & ITEM_SLABBED) {
                     /* remove from slab freelist */
@@ -589,7 +589,7 @@ static int slab_rebalance_move(void) {
             case MOVE_BUSY:
                 slab_rebal.busy_items++;
                 was_busy++;
-                __sync_sub_and_fetch(&it->refcount, 1);
+                refcount_decr(&it->refcount);
                 break;
             case MOVE_PASS:
                 break;

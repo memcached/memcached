@@ -11,6 +11,10 @@
 #include <string.h>
 #include <pthread.h>
 
+#ifdef __sun
+#include <atomic.h>
+#endif
+
 #define ITEMS_PER_ALLOC 64
 
 /* An item in the connection queue. */
@@ -38,6 +42,10 @@ pthread_mutex_t cache_lock;
 
 /* Connection lock around accepting new connections */
 pthread_mutex_t conn_lock = PTHREAD_MUTEX_INITIALIZER;
+
+#if !defined(__GNUC__) && !defined(__sun)
+pthread_mutex_t atomics_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 /* Lock for global stats */
 static pthread_mutex_t stats_lock;
@@ -69,6 +77,36 @@ static pthread_cond_t init_cond;
 
 
 static void thread_libevent_process(int fd, short which, void *arg);
+
+inline unsigned short refcount_incr(unsigned short *refcount) {
+#ifdef __GNUC__
+    return __sync_add_and_fetch(refcount, 1);
+#elif defined(__sun)
+    return atomic_inc_ushort_nv(refcount);
+#else
+    unsigned short res;
+    mutex_lock(&atomics_mutex);
+    *refcount++;
+    res = *refcount;
+    pthread_mutex_unlock(&atomics_mutex);
+    return res;
+#endif
+}
+
+inline unsigned short refcount_decr(unsigned short *refcount) {
+#ifdef __GNUC__
+    return __sync_sub_and_fetch(refcount, 1);
+#elif defined(__sun)
+    return atomic_dec_ushort_nv(refcount);
+#else
+    unsigned short res;
+    mutex_lock(&atomics_mutex);
+    *refcount--;
+    res = *refcount;
+    pthread_mutex_unlock(&atomics_mutex);
+    return res;
+#endif
+}
 
 void item_lock(uint32_t hv) {
     mutex_lock(&item_locks[hv & item_lock_mask]);

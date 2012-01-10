@@ -534,6 +534,8 @@ void  item_update(item *it);
 
 void item_lock(uint32_t hv);
 void item_unlock(uint32_t hv);
+unsigned short refcount_incr(unsigned short *refcount);
+unsigned short refcount_decr(unsigned short *refcount);
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);
