@@ -341,6 +341,56 @@ The response line to this command can be one of:
 - "NOT_FOUND\r\n" to indicate that the item with this key was not
   found.
 
+Slabs Reassign
+--------------
+
+NOTE: This command is subject to change as of this writing.
+
+The slabs reassign command is used to redistribute memory once a running
+instance has hit its limit. It might be desireable to have memory laid out
+differently than was automatically assigned after the server started.
+
+slabs reassign <source class> <dest class>\r\n
+
+- <source class> is an id number for the slab class to steal a page from
+
+- <dest class> is an id number for the slab class to move a page to
+
+The response line could be one of:
+
+- "OK" to indicate the page has been scheduled to move
+
+- "BUSY [message]" to indicate a page is already being processed, try again
+  later.
+
+- "BADCLASS [message]" a bad class id was specified
+
+- "NOSPARE [message]" source class has no spare pages
+
+- "NOTFULL [message]" dest class must be full to move new pages to it
+
+- "UNSAFE [message]" source class cannot move a page right now
+
+- "SAME [message]" must specify different source/dest ids.
+
+Slabs Automove
+--------------
+
+NOTE: This command is subject to change as of this writing.
+
+The slabs automove command enables a background thread which decides on its
+own when to move memory between slab classes. Its implementation and options
+will likely be in flux for several versions. See the wiki/mailing list for
+more details.
+
+The automover can be enabled or disabled at runtime with this command.
+
+slabs automove <1|0>
+
+- 1|0 is the indicator on whether to enable the slabs automover or not.
+
+The response should always be "OK\r\n"
+
 Statistics
 ----------
 
@@ -455,6 +505,8 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | expiring                                  |
 | evicted_unfetched     | 64u     | Items evicted from LRU that were never    |
 |                       |         | touched by get/incr/append/etc.           |
+| slab_reassign_running | bool    | If a slab page is being moved             |
+| slabs_moved           | 64u     | Total slab pages moved                    |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics
@@ -492,6 +544,11 @@ other stats command.
 | cas_enabled       | bool     | When no, CAS is not enabled for this server. |
 | tcp_backlog       | 32       | TCP listen backlog.                          |
 | auth_enabled_sasl | yes/no   | SASL auth requested and enabled.             |
+| item_size_max     | size_t   | maximum item size                            |
+| maxconns_fast     | bool     | If fast disconnects are enabled              |
+| hashpower_init    | 32       | Starting size multiplier for hash table      |
+| slab_reassign     | bool     | Whether slab page reassignment is allowed    |
+| slab_automove     | bool     | Whether slab page automover is enabled       |
 |-------------------+----------+----------------------------------------------|
 
 
