@@ -419,7 +419,7 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
                 continue;
             }
             APPEND_NUM_FMT_STAT(fmt, i, "number", "%u", sizes[i]);
-            APPEND_NUM_FMT_STAT(fmt, i, "age", "%u", tails[i]->time);
+            APPEND_NUM_FMT_STAT(fmt, i, "age", "%u", current_time - tails[i]->time);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted",
                                 "%llu", (unsigned long long)itemstats[i].evicted);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted_nonzero",
