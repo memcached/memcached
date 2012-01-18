@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 111;
+use Test::More tests => 131;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -16,14 +16,14 @@ my $sock = $server->sock;
 
 # Fill a largeish slab until it evicts (honors the -m 6)
 my $bigdata = 'x' x 70000; # slab 31
-for (1 .. 50) {
+for (1 .. 60) {
     print $sock "set bfoo$_ 0 0 70000\r\n", $bigdata, "\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key");
 }
 
 # Fill a smaller slab until it evicts
 my $smalldata = 'y' x 20000; # slab 25
-for (1 .. 50) {
+for (1 .. 60) {
     print $sock "set sfoo$_ 0 0 20000\r\n", $smalldata, "\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key");
 }
