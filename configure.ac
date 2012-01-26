@@ -454,6 +454,20 @@ fi
 
 AC_C_ALIGNMENT
 
+dnl Check for our specific usage of GCC atomics.
+dnl These were added in 4.1.2, but 32bit OS's may lack shorts and 4.1.2
+dnl lacks testable defines.
+have_gcc_atomics=no
+AC_MSG_CHECKING(for GCC atomics)
+AC_TRY_LINK([],[
+  unsigned short a;
+  unsigned short b;
+  b = __sync_add_and_fetch(&a, 1);
+  b = __sync_sub_and_fetch(&a, 2);
+  ],[have_gcc_atomics=yes
+  AC_DEFINE(HAVE_GCC_ATOMICS, 1, [GCC Atomics available])])
+AC_MSG_RESULT($have_gcc_atomics)
+
 dnl Check for the requirements for running memcached with less privileges
 dnl than the default privilege set. On Solaris we need setppriv and priv.h
 dnl If you want to add support for other platforms you should check for
