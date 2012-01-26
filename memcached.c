@@ -3329,7 +3329,7 @@ static void process_command(conn *c, char *command) {
 
         conn_set_state(c, conn_closing);
 
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
+    } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
         if (ntokens == 5 && strcmp(tokens[COMMAND_TOKEN + 1].value, "reassign") == 0) {
             int src, dst, rv;
 
