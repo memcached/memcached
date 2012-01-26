@@ -573,11 +573,15 @@ sub _handle_single_response {
     my $self = shift;
     my $myopaque = shift;
 
-    $self->{socket}->recv(my $response, ::MIN_RECV_BYTES);
-    Test::More::is(length($response), ::MIN_RECV_BYTES, "Expected read length");
+    my $hdr = "";
+    while(::MIN_RECV_BYTES - length($hdr) > 0) {
+        $self->{socket}->recv(my $response, ::MIN_RECV_BYTES - length($hdr));
+        $hdr .= $response;
+    }
+    Test::More::is(length($hdr), ::MIN_RECV_BYTES, "Expected read length");
 
     my ($magic, $cmd, $keylen, $extralen, $datatype, $status, $remaining,
-        $opaque, $ident_hi, $ident_lo) = unpack(::RES_PKT_FMT, $response);
+        $opaque, $ident_hi, $ident_lo) = unpack(::RES_PKT_FMT, $hdr);
     Test::More::is($magic, ::RES_MAGIC, "Got proper response magic");
 
     my $cas = ($ident_hi * 2 ** 32) + $ident_lo;
