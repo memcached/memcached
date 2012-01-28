@@ -172,7 +172,22 @@ $empty->('x');
 # Build the auth DB for testing.
 my $sasldb = '/tmp/test-memcached.sasldb';
 unlink $sasldb;
-system("echo testpass | saslpasswd2 -a memcached -c -p testuser");
+
+my $saslpasswd_path;
+for my $dir (split(/:/, $ENV{PATH}),
+             "/usr/bin",
+             "/usr/sbin",
+             "/usr/local/bin",
+             "/usr/local/sbin",
+    ) {
+    my $exe = $dir . '/saslpasswd2';
+    if (-x $exe) {
+        $saslpasswd_path = $exe;
+        last;
+    }
+}
+
+system("echo testpass | $saslpasswd_path -a memcached -c -p testuser");
 
 $mc = MC::Client->new;
 
