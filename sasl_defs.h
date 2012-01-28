@@ -9,6 +9,8 @@
 #include <sasl/sasl.h>
 void init_sasl(void);
 
+extern char my_sasl_hostname[1025];
+
 #else /* End of SASL support */
 
 typedef void* sasl_conn_t;

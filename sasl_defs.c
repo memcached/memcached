@@ -5,6 +5,8 @@
 #include <string.h>
 #include <sasl/saslplug.h>
 
+char my_sasl_hostname[1025];
+
 #ifdef HAVE_SASL_CB_GETCONF
 /* The locations we may search for a SASL config file if the user didn't
  * specify one in the environment variable SASL_CONF_PATH
@@ -168,6 +170,14 @@ void init_sasl(void) {
        sasl_callbacks[0].proc = NULL;
     }
 #endif
+
+    memset(my_sasl_hostname, 0, sizeof(my_sasl_hostname));
+    if (gethostname(my_sasl_hostname, sizeof(my_sasl_hostname)-1) == -1) {
+        if (settings.verbose) {
+            fprintf(stderr, "Error discovering hostname for SASL\n");
+        }
+        my_sasl_hostname[0] = '\0';
+    }
 
     if (sasl_server_init(sasl_callbacks, "memcached") != SASL_OK) {
         fprintf(stderr, "Error initializing sasl.\n");
