@@ -12,7 +12,12 @@ my $supports_sasl = supports_sasl();
 use Test::More;
 
 if (supports_sasl()) {
-    plan tests => 25;
+    if ($ENV{'RUN_SASL_TESTS'}) {
+        plan tests => 25;
+    } else {
+        plan skip_all => 'Skipping SASL tests';
+        exit 0;
+    }
 } else {
     plan tests => 1;
     eval {
