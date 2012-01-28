@@ -16,6 +16,10 @@ const char * const locations[] = {
 };
 #endif
 
+#if SASL_VERSION_FULL < 0x20125
+typedef int (*sasl_callback_ft)(void);
+#endif
+
 #ifdef ENABLE_SASL_PWDB
 #define MAX_ENTRY_LEN 256
 
