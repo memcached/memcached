@@ -18,7 +18,7 @@ const char * const locations[] = {
 };
 #endif
 
-#if SASL_VERSION_FULL < 0x20125
+#ifndef HAVE_SASL_CALLBACK_FT
 typedef int (*sasl_callback_ft)(void);
 #endif
 
