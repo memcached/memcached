@@ -78,7 +78,7 @@ static pthread_cond_t init_cond;
 
 static void thread_libevent_process(int fd, short which, void *arg);
 
-inline unsigned short refcount_incr(unsigned short *refcount) {
+unsigned short refcount_incr(unsigned short *refcount) {
 #ifdef HAVE_GCC_ATOMICS
     return __sync_add_and_fetch(refcount, 1);
 #elif defined(__sun)
@@ -93,7 +93,7 @@ inline unsigned short refcount_incr(unsigned short *refcount) {
 #endif
 }
 
-inline unsigned short refcount_decr(unsigned short *refcount) {
+unsigned short refcount_decr(unsigned short *refcount) {
 #ifdef HAVE_GCC_ATOMICS
     return __sync_sub_and_fetch(refcount, 1);
 #elif defined(__sun)
