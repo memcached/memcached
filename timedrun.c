@@ -67,12 +67,10 @@ static int wait_for_process(pid_t pid)
     return rv;
 }
 
-static int spawn_and_wait(int argc, char **argv)
+static int spawn_and_wait(char **argv)
 {
     int rv = EX_SOFTWARE;
     pid_t pid = fork();
-
-    assert(argc > 1);
 
     switch (pid) {
     case -1:
@@ -100,5 +98,5 @@ int main(int argc, char **argv)
 
     alarm(naptime);
 
-    return spawn_and_wait(argc+2, argv+2);
+    return spawn_and_wait(argv+2);
 }

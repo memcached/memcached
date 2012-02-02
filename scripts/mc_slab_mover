@@ -1,0 +1,260 @@
+#! /usr/bin/perl
+# See memcached for LICENSE
+# Copyright 2011 Dormando (dormando@rydia.net)
+
+=head1 NAME
+
+mc_slab_mover -- example utility for slab page reassignment for memcached
+
+=head1 SYNOPSIS
+
+    $ mc_slab_mover --host="127.0.0.1:11211" --verbose
+    $ mc_slab_mover --host="127.0.0.1:11211" --automove
+    $ mc_slab_mover --host="127.0.0.1:11211" --sleep=60 --loops=4 --automove
+
+=head1 DESCRIPTION
+
+This utility is an example implementation of an algorithm for reassigning
+slab memory in a running memcached instance. If memcached's built-in
+automover isn't working for you, you may use this script as an example
+base and expand on it. We welcome modifications or alternatives on the
+mailing list.
+
+=head1 ALGORITHM
+
+The default algorithm is simple, and may serve for a common case: over
+time one slab may grow in use compare to others, and as evictions stop
+in one slab and start in another it will reassign memory.
+
+If a slab has the most evictions three times in a row, it will pull a page
+from a slab which has had zero evictions three times in a row.
+
+There are many traffic patterns where this does not work well. IE: If you
+never use expirations and rely on the LRU (so all slabs always evict),
+it will not be as likely to find source pages to move.
+
+=head1 OPTIONS
+
+=over
+
+=item --host="IP:PORT"
+
+The hostname to connect to. NOTE: If connection to the host breaks, script
+will stop.
+
+=item --sleep=10
+
+How long to wait between loops for gathering stats.
+
+=item --loops=3
+
+How many loops to run before making a decision for a move.
+
+=item --verbose
+
+Prints a formatted dump of some common statistics per loop.
+
+=item --automove
+
+Enables the automover, and will attempt to move memory around if it finds
+viable candidates.
+
+=back
+
+=head1 AUTHOR
+
+Dormando E<lt>L<dormando@rydia.net>E<gt>
+
+=head1 LICENSE
+
+Licensed for use and redistribution under the same terms as Memcached itself.
+
+=cut
+
+use warnings;
+use strict;
+
+use IO::Socket::INET;
+
+use FindBin;
+use Data::Dumper qw/Dumper/;
+use Getopt::Long;
+
+my %opts = ('sleep' => 10, automove => 0, verbose => 0, loops => 3);
+GetOptions(
+        "host=s" => \$opts{host},
+        "sleep=i" => \$opts{'sleep'},
+        "loops=i" => \$opts{loops},
+        "automove" => \$opts{automove},
+        "verbose"  => \$opts{verbose},
+    ) or usage();
+
+die "Must specify at least --host='127.0.0.1:11211'" unless $opts{host};
+my $sock = IO::Socket::INET->new(PeerAddr => $opts{host},
+                                 Timeout  => 3);
+die "$!\n" unless $sock;
+
+my %stats = ();
+my %move  = (winner => 0, wins => 0);
+
+$SIG{INT} = sub {
+    print "STATS: ", Dumper(\%stats), "\n";
+    exit;
+};
+$SIG{USR1} = sub {
+    print "STATS: ", Dumper(\%stats), "\n";
+};
+run();
+
+sub usage {
+    print qq{Usage:
+    mc_slab_ratios --host="127.0.0.1:11211" --verbose --automove
+    run `perldoc mc_slab_ratios` for full information
+
+};
+    exit 1;
+}
+
+sub run {
+    my $slabs_before = grab_stats();
+
+    while (1) {
+        sleep $opts{'sleep'};
+        my $slabs_after  = grab_stats();
+
+        my ($totals, $sorted) = calc_results_evicted($slabs_before, $slabs_after);
+#        my ($totals, $sorted) = calc_results_numratio($slabs_before, $slabs_after);
+
+        my $pct = sub {
+            my ($num, $divisor) = @_;
+            return 0 unless $divisor;
+            return ($num / $divisor);
+        };
+        if ($opts{verbose}) {
+            printf "  %02s: %-8s (pct  ) %-10s (pct    ) %-6s (pct  ) get_hits (pct   ) cmd_set (pct  )\n",
+                'sb', 'evicted', 'items', 'pages';
+            for my $slab (@$sorted) {
+                printf "  %02d: %-8d (%.2f%%) %-10s (%.4f%%) %-6d (%.2f%%) %-8d (%.3f%%) %-7d (%.2f%%)\n",
+                    $slab->{slab}, $slab->{evicted_d},
+                    $pct->($slab->{evicted_d}, $totals->{evicted_d}),
+                    $slab->{number},
+                    $pct->($slab->{number}, $totals->{number}),
+                    $slab->{total_pages},
+                    $pct->($slab->{total_pages}, $totals->{total_pages}),
+                    $slab->{get_hits_d},
+                    $pct->($slab->{get_hits_d}, $totals->{get_hits_d}),
+                    $slab->{cmd_set_d},
+                    $pct->($slab->{cmd_set_d}, $totals->{cmd_set_d});
+            }
+        }
+
+        next unless @$sorted;
+        my $highest = $sorted->[-1];
+        $stats{$highest->{slab}}++;
+        print "  (winner: ", $highest->{slab}, " wins: ", $stats{$highest->{slab}}, ")\n";
+        automove_basic($totals, $sorted) if ($opts{automove});
+
+        $slabs_before = $slabs_after;
+    }
+}
+
+sub grab_stats {
+    my %slabs = ();
+    for my $stat (qw/items slabs/) {
+        print $sock "stats $stat\r\n";
+        while (my $line = <$sock>) {
+            chomp $line;
+            last if ($line =~ m/^END/);
+            if ($line =~ m/^STAT (?:items:)?(\d+):(\S+) (\S+)/) {
+                my ($slab, $var, $val) = ($1, $2, $3);
+                $slabs{$slab}->{$var} = $val;
+            }
+        }
+    }
+
+    return \%slabs;
+}
+
+# Really stupid algo, same as the initial algo built into memcached.
+# If a slab "wins" most evictions 3 times in a row, pick from a slab which
+# has had 0 evictions 3 times in a row and move it over.
+sub automove_basic {
+    my ($totals, $sorted) = @_;
+
+    my $source = 0;
+    my $dest   = 0;
+    my $high = $sorted->[-1];
+    return unless $high->{evicted_d} > 0;
+    if ($move{winner} == $high->{slab}) {
+        $move{wins}++;
+        $dest = $move{winner} if $move{wins} >= $opts{loops};
+    } else {
+        $move{wins} = 1;
+        $move{winner} = $high->{slab};
+    }
+    for my $slab (@$sorted) {
+        my $id = $slab->{slab};
+        if ($slab->{evicted_d} == 0 && $slab->{total_pages} > 2) {
+            $move{zeroes}->{$id}++;
+            $source = $id if (!$source && $move{zeroes}->{$id} >= $opts{loops});
+        } else {
+            delete $move{zeroes}->{$slab->{slab}}
+                if exists $move{zeroes}->{$slab->{slab}};
+        }
+    }
+
+    if ($source && $dest) {
+        print "  slabs reassign $source $dest\n";
+        print $sock "slabs reassign $source $dest\r\n";
+        my $res = <$sock>;
+        print "  RES: ", $res;
+    } elsif ($dest && !$source) {
+        print "FAIL: want to move memory to $dest but no valid source slab available\n";
+    }
+}
+
+# Using just the evicted stats.
+sub calc_results_evicted {
+    my ($slabs, $totals) = calc_slabs(@_);
+    my @sorted = sort { $a->{evicted_d} <=> $b->{evicted_d} } values %$slabs;
+    return ($totals, \@sorted);
+}
+
+# Weighted ratios of evictions vs total stored items
+# Seems to fail as an experiment, but it tries to weight stats.
+# In this case evictions in underused classes tend to get vastly inflated
+sub calc_results_numratio {
+    my ($slabs, $totals) = calc_slabs(@_, sub {
+        my ($sb, $sa, $s) = @_;
+        if ($s->{evicted_d}) {
+            $s->{numratio} = $s->{evicted_d} / $s->{number};
+        } else { $s->{numratio} = 0; }
+    });
+    my @sorted = sort { $a->{numratio} <=> $b->{numratio} } values %$slabs;
+    return ($totals, \@sorted);
+}
+
+sub calc_slabs {
+    my ($slabs_before, $slabs_after, $code) = @_;
+    my %slabs  = ();
+    my %totals = ();
+    for my $id (keys %$slabs_after) {
+        my $sb = $slabs_before->{$id};
+        my $sa = $slabs_after->{$id};
+        next unless ($sb && $sa);
+        my %slab = %$sa;
+        for my $key (keys %slab) {
+            # Add totals, diffs
+            if ($slab{$key} =~ m/^\d+$/) {
+                $totals{$key} += $slab{$key};
+                $slab{$key . '_d'} = $sa->{$key} - $sb->{$key};
+                $totals{$key . '_d'} += $sa->{$key} - $sb->{$key};
+            }
+        }
+        # External code
+        $code->($sb, $sa, \%slab) if $code;
+        $slab{slab} = $id;
+        $slabs{$id} = \%slab;
+    }
+    return (\%slabs, \%totals);
+}

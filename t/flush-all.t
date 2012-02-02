@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 14;
+use Test::More tests => 21;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -40,5 +40,17 @@ is(scalar <$sock>, "OK\r\n", "did flush_all in future");
 print $sock "set foo 0 0 4\r\n1234\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo = '1234'");
 mem_get_is($sock, "foo", '1234');
-sleep(2.2);
+sleep(3);
 mem_get_is($sock, "foo", undef);
+
+print $sock "set foo 0 0 5\r\n12345\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored foo = '12345'");
+mem_get_is($sock, "foo", '12345');
+print $sock "flush_all 86400\r\n";
+is(scalar <$sock>, "OK\r\n", "did flush_all for far future");
+# Check foo still exists.
+mem_get_is($sock, "foo", '12345');
+print $sock "set foo2 0 0 5\r\n54321\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored foo2 = '54321'");
+mem_get_is($sock, "foo", '12345');
+mem_get_is($sock, "foo2", '54321');

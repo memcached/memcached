@@ -43,7 +43,9 @@ sub run_server {
 
     my $childpid = fork();
 
-    my $cmd = "$builddir/timedrun 10 $exe $args";
+    my $root = '';
+    $root = "-u root" if ($< == 0);
+    my $cmd = "$builddir/timedrun 10 $exe $root $args";
 
     unless($childpid) {
         exec $cmd;

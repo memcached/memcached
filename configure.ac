@@ -302,6 +302,33 @@ AH_BOTTOM([#ifdef HAVE_INTTYPES_H
 ])
 
 dnl **********************************************************************
+dnl Figure out if this system has the stupid sasl_callback_ft
+dnl **********************************************************************
+
+AC_DEFUN([AC_HAVE_SASL_CALLBACK_FT],
+[AC_CACHE_CHECK(for sasl_callback_ft, ac_cv_has_sasl_callback_ft,
+[
+  AC_TRY_COMPILE([
+    #ifdef HAVE_SASL_SASL_H
+    #include <sasl/sasl.h>
+    #include <sasl/saslplug.h>
+    #endif
+  ],[
+    sasl_callback_ft a_callback;
+  ],[
+    ac_cv_has_sasl_callback_ft=yes
+  ],[
+    ac_cv_has_sasl_callback_ft=no
+  ])
+])
+if test $ac_cv_has_sasl_callback_ft = yes; then
+  AC_DEFINE(HAVE_SASL_CALLBACK_FT, 1, [we have sasl_callback_ft])
+fi
+])
+
+AC_HAVE_SASL_CALLBACK_FT
+
+dnl **********************************************************************
 dnl DETECT_UINT64_SUPPORT
 dnl
 dnl check if we can use a uint64_t
@@ -453,6 +480,20 @@ fi
 ])
 
 AC_C_ALIGNMENT
+
+dnl Check for our specific usage of GCC atomics.
+dnl These were added in 4.1.2, but 32bit OS's may lack shorts and 4.1.2
+dnl lacks testable defines.
+have_gcc_atomics=no
+AC_MSG_CHECKING(for GCC atomics)
+AC_TRY_LINK([],[
+  unsigned short a;
+  unsigned short b;
+  b = __sync_add_and_fetch(&a, 1);
+  b = __sync_sub_and_fetch(&a, 2);
+  ],[have_gcc_atomics=yes
+  AC_DEFINE(HAVE_GCC_ATOMICS, 1, [GCC Atomics available])])
+AC_MSG_RESULT($have_gcc_atomics)
 
 dnl Check for the requirements for running memcached with less privileges
 dnl than the default privilege set. On Solaris we need setppriv and priv.h

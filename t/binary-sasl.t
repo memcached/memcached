@@ -12,7 +12,12 @@ my $supports_sasl = supports_sasl();
 use Test::More;
 
 if (supports_sasl()) {
-    plan tests => 25;
+    if ($ENV{'RUN_SASL_TESTS'}) {
+        plan tests => 25;
+    } else {
+        plan skip_all => 'Skipping SASL tests';
+        exit 0;
+    }
 } else {
     plan tests => 1;
     eval {
@@ -172,7 +177,22 @@ $empty->('x');
 # Build the auth DB for testing.
 my $sasldb = '/tmp/test-memcached.sasldb';
 unlink $sasldb;
-system("echo testpass | saslpasswd2 -a memcached -c -p testuser");
+
+my $saslpasswd_path;
+for my $dir (split(/:/, $ENV{PATH}),
+             "/usr/bin",
+             "/usr/sbin",
+             "/usr/local/bin",
+             "/usr/local/sbin",
+    ) {
+    my $exe = $dir . '/saslpasswd2';
+    if (-x $exe) {
+        $saslpasswd_path = $exe;
+        last;
+    }
+}
+
+system("echo testpass | $saslpasswd_path -a memcached -c -p testuser");
 
 $mc = MC::Client->new;
 

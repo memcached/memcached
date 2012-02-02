@@ -102,6 +102,9 @@ struct stats stats;
 struct settings settings;
 time_t process_started;     /* when the process was started */
 
+struct slab_rebalance slab_rebal;
+volatile int slab_rebalance_signal;
+
 /** file scope variables **/
 static conn *listen_conn = NULL;
 static struct event_base *main_base;
@@ -170,7 +173,9 @@ static void stats_init(void) {
     stats.curr_bytes = stats.listen_disabled_num = 0;
     stats.hash_power_level = stats.hash_bytes = stats.hash_is_expanding = 0;
     stats.expired_unfetched = stats.evicted_unfetched = 0;
+    stats.slabs_moved = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
+    stats.slab_reassign_running = false;
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -218,6 +223,8 @@ static void settings_init(void) {
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.maxconns_fast = false;
     settings.hashpower_init = 0;
+    settings.slab_reassign = false;
+    settings.slab_automove = false;
 }
 
 /*
@@ -1597,7 +1604,9 @@ static void init_sasl_conn(conn *c) {
 
     if (!c->sasl_conn) {
         int result=sasl_server_new("memcached",
-                                   NULL, NULL, NULL, NULL,
+                                   NULL,
+                                   my_sasl_hostname[0] ? my_sasl_hostname : NULL,
+                                   NULL, NULL,
                                    NULL, 0, &c->sasl_conn);
         if (result != SASL_OK) {
             if (settings.verbose) {
@@ -2152,6 +2161,9 @@ static void process_bin_delete(conn *c) {
         uint64_t cas = ntohll(req->message.header.request.cas);
         if (cas == 0 || cas == ITEM_get_cas(it)) {
             MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.slab_stats[it->slabs_clsid].delete_hits++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
             item_unlink(it);
             write_bin_response(c, NULL, 0, 0, 0);
         } else {
@@ -2160,6 +2172,9 @@ static void process_bin_delete(conn *c) {
         item_remove(it);      /* release our reference */
     } else {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.delete_misses++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
     }
 }
 
@@ -2242,9 +2257,9 @@ static void complete_nread(conn *c) {
  *
  * Returns the state of storage.
  */
-enum store_item_type do_store_item(item *it, int comm, conn *c) {
+enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
     char *key = ITEM_key(it);
-    item *old_it = do_item_get(key, it->nkey);
+    item *old_it = do_item_get(key, it->nkey, hv);
     enum store_item_type stored = NOT_STORED;
 
     item *new_it = NULL;
@@ -2274,7 +2289,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c) {
             c->thread->stats.slab_stats[old_it->slabs_clsid].cas_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
-            item_replace(old_it, it);
+            item_replace(old_it, it, hv);
             stored = STORED;
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -2310,7 +2325,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c) {
 
                 flags = (int) strtol(ITEM_suffix(old_it), (char **) NULL, 10);
 
-                new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
+                new_it = item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
                 if (new_it == NULL) {
                     /* SERVER_ERROR out of memory */
@@ -2337,9 +2352,9 @@ enum store_item_type do_store_item(item *it, int comm, conn *c) {
 
         if (stored == NOT_STORED) {
             if (old_it != NULL)
-                item_replace(old_it, it);
+                item_replace(old_it, it, hv);
             else
-                do_item_link(it);
+                do_item_link(it, hv);
 
             c->cas = ITEM_get_cas(it);
 
@@ -2390,28 +2405,34 @@ typedef struct token_s {
 static size_t tokenize_command(char *command, token_t *tokens, const size_t max_tokens) {
     char *s, *e;
     size_t ntokens = 0;
+    size_t len = strlen(command);
+    unsigned int i = 0;
 
     assert(command != NULL && tokens != NULL && max_tokens > 1);
 
-    for (s = e = command; ntokens < max_tokens - 1; ++e) {
+    s = e = command;
+    for (i = 0; i < len; i++) {
         if (*e == ' ') {
             if (s != e) {
                 tokens[ntokens].value = s;
                 tokens[ntokens].length = e - s;
                 ntokens++;
                 *e = '\0';
+                if (ntokens == max_tokens - 1) {
+                    e++;
+                    s = e; /* so we don't add an extra token */
+                    break;
+                }
             }
             s = e + 1;
         }
-        else if (*e == '\0') {
-            if (s != e) {
-                tokens[ntokens].value = s;
-                tokens[ntokens].length = e - s;
-                ntokens++;
-            }
+        e++;
+    }
 
-            break; /* string end */
-        }
+    if (s != e) {
+        tokens[ntokens].value = s;
+        tokens[ntokens].length = e - s;
+        ntokens++;
     }
 
     /*
@@ -2566,6 +2587,10 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("hash_is_expanding", "%u", stats.hash_is_expanding);
     APPEND_STAT("expired_unfetched", "%llu", stats.expired_unfetched);
     APPEND_STAT("evicted_unfetched", "%llu", stats.evicted_unfetched);
+    if (settings.slab_reassign) {
+        APPEND_STAT("slab_reassign_running", "%u", stats.slab_reassign_running);
+        APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);
+    }
     STATS_UNLOCK();
 }
 
@@ -2598,6 +2623,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
+    APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
+    APPEND_STAT("slab_automove", "%s", settings.slab_automove ? "yes" : "no");
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -3026,13 +3053,14 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
  */
 enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
                                     const bool incr, const int64_t delta,
-                                    char *buf, uint64_t *cas) {
+                                    char *buf, uint64_t *cas,
+                                    const uint32_t hv) {
     char *ptr;
     uint64_t value;
     int res;
     item *it;
 
-    it = do_item_get(key, nkey);
+    it = do_item_get(key, nkey, hv);
     if (!it) {
         return DELTA_ITEM_NOT_FOUND;
     }
@@ -3073,14 +3101,14 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     res = strlen(buf);
     if (res + 2 > it->nbytes || it->refcount != 1) { /* need to realloc */
         item *new_it;
-        new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
+        new_it = item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2 );
         if (new_it == 0) {
             do_item_remove(it);
             return EOM;
         }
         memcpy(ITEM_data(new_it), buf, res);
         memcpy(ITEM_data(new_it) + res, "\r\n", 2);
-        item_replace(it, new_it);
+        item_replace(it, new_it, hv);
         // Overwrite the older item's CAS with our new CAS since we're
         // returning the CAS of the old item below.
         ITEM_set_cas(it, (settings.use_cas) ? ITEM_get_cas(new_it) : 0);
@@ -3088,7 +3116,9 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     } else { /* replace in-place */
         /* When changing the value without replacing the item, we
            need to update the CAS on the existing item. */
+        mutex_lock(&cache_lock); /* FIXME */
         ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+        pthread_mutex_unlock(&cache_lock);
 
         memcpy(ITEM_data(it), buf, res);
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
@@ -3163,6 +3193,26 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
 
     level = strtoul(tokens[1].value, NULL, 10);
     settings.verbose = level > MAX_VERBOSITY_LEVEL ? MAX_VERBOSITY_LEVEL : level;
+    out_string(c, "OK");
+    return;
+}
+
+static void process_slabs_automove_command(conn *c, token_t *tokens, const size_t ntokens) {
+    unsigned int level;
+
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    level = strtoul(tokens[2].value, NULL, 10);
+    if (level == 0) {
+        settings.slab_automove = false;
+    } else if (level == 1) {
+        settings.slab_automove = true;
+    } else {
+        out_string(c, "ERROR");
+        return;
+    }
     out_string(c, "OK");
     return;
 }
@@ -3281,6 +3331,54 @@ static void process_command(conn *c, char *command) {
 
         conn_set_state(c, conn_closing);
 
+    } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
+        if (ntokens == 5 && strcmp(tokens[COMMAND_TOKEN + 1].value, "reassign") == 0) {
+            int src, dst, rv;
+
+            if (settings.slab_reassign == false) {
+                out_string(c, "CLIENT_ERROR slab reassignment disabled");
+                return;
+            }
+
+            src = strtol(tokens[2].value, NULL, 10);
+            dst = strtol(tokens[3].value, NULL, 10);
+
+            if (errno == ERANGE) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+
+            rv = slabs_reassign(src, dst);
+            switch (rv) {
+            case REASSIGN_OK:
+                out_string(c, "OK");
+                break;
+            case REASSIGN_RUNNING:
+                out_string(c, "BUSY currently processing reassign request");
+                break;
+            case REASSIGN_BADCLASS:
+                out_string(c, "BADCLASS invalid src or dst class id");
+                break;
+            case REASSIGN_NOSPARE:
+                out_string(c, "NOSPARE source class has no spare pages");
+                break;
+            case REASSIGN_DEST_NOT_FULL:
+                out_string(c, "NOTFULL dest class has spare memory");
+                break;
+            case REASSIGN_SRC_NOT_SAFE:
+                out_string(c, "UNSAFE src class is in an unsafe state");
+                break;
+            case REASSIGN_SRC_DST_SAME:
+                out_string(c, "SAME src and dst class are identical");
+                break;
+            }
+            return;
+        } else if (ntokens == 4 &&
+            (strcmp(tokens[COMMAND_TOKEN + 1].value, "automove") == 0)) {
+            process_slabs_automove_command(c, tokens, ntokens);
+        } else {
+            out_string(c, "ERROR");
+        }
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {
@@ -4616,6 +4714,7 @@ int main (int argc, char **argv) {
     struct rlimit rlim;
     char unit = '\0';
     int size_max = 0;
+    int retval = EXIT_SUCCESS;
     /* listening sockets */
     static int *l_socket = NULL;
 
@@ -4629,11 +4728,15 @@ int main (int argc, char **argv) {
     char *subopts_value;
     enum {
         MAXCONNS_FAST = 0,
-        HASHPOWER_INIT
+        HASHPOWER_INIT,
+        SLAB_REASSIGN,
+        SLAB_AUTOMOVE
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
         [HASHPOWER_INIT] = "hashpower",
+        [SLAB_REASSIGN] = "slab_reassign",
+        [SLAB_AUTOMOVE] = "slab_automove",
         NULL
     };
 
@@ -4879,6 +4982,12 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
+            case SLAB_REASSIGN:
+                settings.slab_reassign = true;
+                break;
+            case SLAB_AUTOMOVE:
+                settings.slab_automove = true;
+                break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
                 return 1;
@@ -4955,6 +5064,7 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     } else {
         rlim.rlim_cur = settings.maxconns;
+        rlim.rlim_max = settings.maxconns;
         if (setrlimit(RLIMIT_NOFILE, &rlim) != 0) {
             fprintf(stderr, "failed to set rlimit for open files. Try starting as root or requesting smaller maxconns value.\n");
             exit(EX_OSERR);
@@ -5028,6 +5138,11 @@ int main (int argc, char **argv) {
     thread_init(settings.num_threads, main_base);
 
     if (start_assoc_maintenance_thread() == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (settings.slab_reassign &&
+        start_slab_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
     }
 
@@ -5106,7 +5221,9 @@ int main (int argc, char **argv) {
     drop_privileges();
 
     /* enter the event loop */
-    event_base_loop(main_base, 0);
+    if (event_base_loop(main_base, 0) != 0) {
+        retval = EXIT_FAILURE;
+    }
 
     stop_assoc_maintenance_thread();
 
@@ -5121,5 +5238,5 @@ int main (int argc, char **argv) {
     if (u_socket)
       free(u_socket);
 
-    return EXIT_SUCCESS;
+    return retval;
 }

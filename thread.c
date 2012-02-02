@@ -11,6 +11,10 @@
 #include <string.h>
 #include <pthread.h>
 
+#ifdef __sun
+#include <atomic.h>
+#endif
+
 #define ITEMS_PER_ALLOC 64
 
 /* An item in the connection queue. */
@@ -39,12 +43,22 @@ pthread_mutex_t cache_lock;
 /* Connection lock around accepting new connections */
 pthread_mutex_t conn_lock = PTHREAD_MUTEX_INITIALIZER;
 
+#if !defined(HAVE_GCC_ATOMICS) && !defined(__sun)
+pthread_mutex_t atomics_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
 /* Lock for global stats */
 static pthread_mutex_t stats_lock;
 
 /* Free list of CQ_ITEM structs */
 static CQ_ITEM *cqi_freelist;
 static pthread_mutex_t cqi_freelist_lock;
+
+static pthread_mutex_t *item_locks;
+/* size of the item lock hash table */
+static uint32_t item_lock_count;
+/* size - 1 for lookup masking */
+static uint32_t item_lock_mask;
 
 static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
 
@@ -63,6 +77,44 @@ static pthread_cond_t init_cond;
 
 
 static void thread_libevent_process(int fd, short which, void *arg);
+
+inline unsigned short refcount_incr(unsigned short *refcount) {
+#ifdef HAVE_GCC_ATOMICS
+    return __sync_add_and_fetch(refcount, 1);
+#elif defined(__sun)
+    return atomic_inc_ushort_nv(refcount);
+#else
+    unsigned short res;
+    mutex_lock(&atomics_mutex);
+    (*refcount)++;
+    res = *refcount;
+    pthread_mutex_unlock(&atomics_mutex);
+    return res;
+#endif
+}
+
+inline unsigned short refcount_decr(unsigned short *refcount) {
+#ifdef HAVE_GCC_ATOMICS
+    return __sync_sub_and_fetch(refcount, 1);
+#elif defined(__sun)
+    return atomic_dec_ushort_nv(refcount);
+#else
+    unsigned short res;
+    mutex_lock(&atomics_mutex);
+    (*refcount)--;
+    res = *refcount;
+    pthread_mutex_unlock(&atomics_mutex);
+    return res;
+#endif
+}
+
+void item_lock(uint32_t hv) {
+    mutex_lock(&item_locks[hv & item_lock_mask]);
+}
+
+void item_unlock(uint32_t hv) {
+    pthread_mutex_unlock(&item_locks[hv & item_lock_mask]);
+}
 
 /*
  * Initializes a connection queue.
@@ -328,9 +380,8 @@ int is_listen_thread() {
  */
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes) {
     item *it;
-    pthread_mutex_lock(&cache_lock);
+    /* do_item_alloc handles its own locks */
     it = do_item_alloc(key, nkey, flags, exptime, nbytes);
-    pthread_mutex_unlock(&cache_lock);
     return it;
 }
 
@@ -340,17 +391,21 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
  */
 item *item_get(const char *key, const size_t nkey) {
     item *it;
-    pthread_mutex_lock(&cache_lock);
-    it = do_item_get(key, nkey);
-    pthread_mutex_unlock(&cache_lock);
+    uint32_t hv;
+    hv = hash(key, nkey, 0);
+    item_lock(hv);
+    it = do_item_get(key, nkey, hv);
+    item_unlock(hv);
     return it;
 }
 
 item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
     item *it;
-    pthread_mutex_lock(&cache_lock);
-    it = do_item_touch(key, nkey, exptime);
-    pthread_mutex_unlock(&cache_lock);
+    uint32_t hv;
+    hv = hash(key, nkey, 0);
+    item_lock(hv);
+    it = do_item_touch(key, nkey, exptime, hv);
+    item_unlock(hv);
     return it;
 }
 
@@ -359,10 +414,12 @@ item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
  */
 int item_link(item *item) {
     int ret;
+    uint32_t hv;
 
-    pthread_mutex_lock(&cache_lock);
-    ret = do_item_link(item);
-    pthread_mutex_unlock(&cache_lock);
+    hv = hash(ITEM_key(item), item->nkey, 0);
+    item_lock(hv);
+    ret = do_item_link(item, hv);
+    item_unlock(hv);
     return ret;
 }
 
@@ -371,9 +428,12 @@ int item_link(item *item) {
  * needed.
  */
 void item_remove(item *item) {
-    pthread_mutex_lock(&cache_lock);
+    uint32_t hv;
+    hv = hash(ITEM_key(item), item->nkey, 0);
+
+    item_lock(hv);
     do_item_remove(item);
-    pthread_mutex_unlock(&cache_lock);
+    item_unlock(hv);
 }
 
 /*
@@ -381,26 +441,31 @@ void item_remove(item *item) {
  * Unprotected by a mutex lock since the core server does not require
  * it to be thread-safe.
  */
-int item_replace(item *old_it, item *new_it) {
-    return do_item_replace(old_it, new_it);
+int item_replace(item *old_it, item *new_it, const uint32_t hv) {
+    return do_item_replace(old_it, new_it, hv);
 }
 
 /*
  * Unlinks an item from the LRU and hashtable.
  */
 void item_unlink(item *item) {
-    pthread_mutex_lock(&cache_lock);
-    do_item_unlink(item);
-    pthread_mutex_unlock(&cache_lock);
+    uint32_t hv;
+    hv = hash(ITEM_key(item), item->nkey, 0);
+    item_lock(hv);
+    do_item_unlink(item, hv);
+    item_unlock(hv);
 }
 
 /*
  * Moves an item to the back of the LRU queue.
  */
 void item_update(item *item) {
-    pthread_mutex_lock(&cache_lock);
+    uint32_t hv;
+    hv = hash(ITEM_key(item), item->nkey, 0);
+
+    item_lock(hv);
     do_item_update(item);
-    pthread_mutex_unlock(&cache_lock);
+    item_unlock(hv);
 }
 
 /*
@@ -411,10 +476,12 @@ enum delta_result_type add_delta(conn *c, const char *key,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas) {
     enum delta_result_type ret;
+    uint32_t hv;
 
-    pthread_mutex_lock(&cache_lock);
-    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas);
-    pthread_mutex_unlock(&cache_lock);
+    hv = hash(key, nkey, 0);
+    item_lock(hv);
+    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas, hv);
+    item_unlock(hv);
     return ret;
 }
 
@@ -423,10 +490,12 @@ enum delta_result_type add_delta(conn *c, const char *key,
  */
 enum store_item_type store_item(item *item, int comm, conn* c) {
     enum store_item_type ret;
+    uint32_t hv;
 
-    pthread_mutex_lock(&cache_lock);
-    ret = do_store_item(item, comm, c);
-    pthread_mutex_unlock(&cache_lock);
+    hv = hash(ITEM_key(item), item->nkey, 0);
+    item_lock(hv);
+    ret = do_store_item(item, comm, c, hv);
+    item_unlock(hv);
     return ret;
 }
 
@@ -434,7 +503,7 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
  * Flushes expired items after a flush_all call
  */
 void item_flush_expired() {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_flush_expired();
     pthread_mutex_unlock(&cache_lock);
 }
@@ -445,7 +514,7 @@ void item_flush_expired() {
 char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes) {
     char *ret;
 
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     ret = do_item_cachedump(slabs_clsid, limit, bytes);
     pthread_mutex_unlock(&cache_lock);
     return ret;
@@ -455,7 +524,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
  * Dumps statistics about slab classes
  */
 void  item_stats(ADD_STAT add_stats, void *c) {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_stats(add_stats, c);
     pthread_mutex_unlock(&cache_lock);
 }
@@ -464,7 +533,7 @@ void  item_stats(ADD_STAT add_stats, void *c) {
  * Dumps a list of objects of each size in 32-byte increments
  */
 void  item_stats_sizes(ADD_STAT add_stats, void *c) {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_item_stats_sizes(add_stats, c);
     pthread_mutex_unlock(&cache_lock);
 }
@@ -594,6 +663,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  */
 void thread_init(int nthreads, struct event_base *main_base) {
     int         i;
+    int         power;
 
     pthread_mutex_init(&cache_lock, NULL);
     pthread_mutex_init(&stats_lock, NULL);
@@ -603,6 +673,30 @@ void thread_init(int nthreads, struct event_base *main_base) {
 
     pthread_mutex_init(&cqi_freelist_lock, NULL);
     cqi_freelist = NULL;
+
+    /* Want a wide lock table, but don't waste memory */
+    if (nthreads < 3) {
+        power = 10;
+    } else if (nthreads < 4) {
+        power = 11;
+    } else if (nthreads < 5) {
+        power = 12;
+    } else {
+        /* 8192 buckets, and central locks don't scale much past 5 threads */
+        power = 13;
+    }
+
+    item_lock_count = ((unsigned long int)1 << (power));
+    item_lock_mask  = item_lock_count - 1;
+
+    item_locks = calloc(item_lock_count, sizeof(pthread_mutex_t));
+    if (! item_locks) {
+        perror("Can't allocate item locks");
+        exit(1);
+    }
+    for (i = 0; i < item_lock_count; i++) {
+        pthread_mutex_init(&item_locks[i], NULL);
+    }
 
     threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
     if (! threads) {

@@ -265,6 +265,8 @@ struct stats {
     bool          hash_is_expanding; /* If the hash table is being expanded */
     uint64_t      expired_unfetched; /* items reclaimed but never touched */
     uint64_t      evicted_unfetched; /* items evicted but never touched */
+    bool          slab_reassign_running; /* slab reassign in progress */
+    uint64_t      slabs_moved;       /* times slabs were moved around */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -298,6 +300,8 @@ struct settings {
     int item_size_max;        /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
+    bool slab_reassign;     /* Whether or not slab reassignment is allowed */
+    bool slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
 };
 
@@ -452,6 +456,21 @@ struct conn {
 /* current time of day (updated periodically) */
 extern volatile rel_time_t current_time;
 
+/* TODO: Move to slabs.h? */
+extern volatile int slab_rebalance_signal;
+
+struct slab_rebalance {
+    void *slab_start;
+    void *slab_end;
+    void *slab_pos;
+    int s_clsid;
+    int d_clsid;
+    int busy_items;
+    uint8_t done;
+};
+
+extern struct slab_rebalance slab_rebal;
+
 /*
  * Functions
  */
@@ -459,11 +478,18 @@ void do_accept_new_conns(const bool do_accept);
 enum delta_result_type do_add_delta(conn *c, const char *key,
                                     const size_t nkey, const bool incr,
                                     const int64_t delta, char *buf,
-                                    uint64_t *cas);
-enum store_item_type do_store_item(item *item, int comm, conn* c);
+                                    uint64_t *cas, const uint32_t hv);
+enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 extern int daemonize(int nochdir, int noclose);
 
+static inline int mutex_lock(pthread_mutex_t *mutex)
+{
+    while (pthread_mutex_trylock(mutex));
+    return 0;
+}
+
+#define mutex_unlock(x) pthread_mutex_unlock(x)
 
 #include "stats.h"
 #include "slabs.h"
@@ -500,12 +526,16 @@ item *item_get(const char *key, const size_t nkey);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime);
 int   item_link(item *it);
 void  item_remove(item *it);
-int   item_replace(item *it, item *new_it);
+int   item_replace(item *it, item *new_it, const uint32_t hv);
 void  item_stats(ADD_STAT add_stats, void *c);
 void  item_stats_sizes(ADD_STAT add_stats, void *c);
 void  item_unlink(item *it);
 void  item_update(item *it);
 
+void item_lock(uint32_t hv);
+void item_unlock(uint32_t hv);
+unsigned short refcount_incr(unsigned short *refcount);
+unsigned short refcount_decr(unsigned short *refcount);
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);

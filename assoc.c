@@ -73,8 +73,7 @@ void assoc_init(const int hashtable_init) {
     STATS_UNLOCK();
 }
 
-item *assoc_find(const char *key, const size_t nkey) {
-    uint32_t hv = hash(key, nkey, 0);
+item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
     item *it;
     unsigned int oldbucket;
 
@@ -103,8 +102,7 @@ item *assoc_find(const char *key, const size_t nkey) {
 /* returns the address of the item pointer before the key.  if *item == 0,
    the item wasn't found */
 
-static item** _hashitem_before (const char *key, const size_t nkey) {
-    uint32_t hv = hash(key, nkey, 0);
+static item** _hashitem_before (const char *key, const size_t nkey, const uint32_t hv) {
     item **pos;
     unsigned int oldbucket;
 
@@ -146,13 +144,11 @@ static void assoc_expand(void) {
 }
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
-int assoc_insert(item *it) {
-    uint32_t hv;
+int assoc_insert(item *it, const uint32_t hv) {
     unsigned int oldbucket;
 
-    assert(assoc_find(ITEM_key(it), it->nkey) == 0);  /* shouldn't have duplicately named things defined */
+//    assert(assoc_find(ITEM_key(it), it->nkey) == 0);  /* shouldn't have duplicately named things defined */
 
-    hv = hash(ITEM_key(it), it->nkey, 0);
     if (expanding &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
     {
@@ -172,8 +168,8 @@ int assoc_insert(item *it) {
     return 1;
 }
 
-void assoc_delete(const char *key, const size_t nkey) {
-    item **before = _hashitem_before(key, nkey);
+void assoc_delete(const char *key, const size_t nkey, const uint32_t hv) {
+    item **before = _hashitem_before(key, nkey, hv);
 
     if (*before) {
         item *nxt;
@@ -205,7 +201,7 @@ static void *assoc_maintenance_thread(void *arg) {
 
         /* Lock the cache, and bulk move multiple buckets to the new
          * hash table. */
-        pthread_mutex_lock(&cache_lock);
+        mutex_lock(&cache_lock);
 
         for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             item *it, *next;
@@ -264,7 +260,7 @@ int start_assoc_maintenance_thread() {
 }
 
 void stop_assoc_maintenance_thread() {
-    pthread_mutex_lock(&cache_lock);
+    mutex_lock(&cache_lock);
     do_run_maintenance_thread = 0;
     pthread_cond_signal(&maintenance_cond);
     pthread_mutex_unlock(&cache_lock);
