@@ -106,7 +106,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
     search = tails[id];
     if (search != NULL && (refcount_incr(&search->refcount) == 2)) {
         if ((search->exptime != 0 && search->exptime < current_time)
-            || (search->time < oldest_live)) {  // dead by flush
+            || (search->time <= oldest_live && oldest_live <= current_time)) {  // dead by flush
             STATS_LOCK();
             stats.reclaimed++;
             STATS_UNLOCK();
