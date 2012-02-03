@@ -4767,6 +4767,7 @@ static void usage(void) {
            "-vvv          extremely verbose (also print internal state transitions)\n"
            "-h            print this help and exit\n"
            "-i            print memcached and libevent license\n"
+           "-V            print version and exit\n"
            "-P <file>     save PID in <file>, only used with -d option\n"
            "-f <factor>   chunk size growth factor (default: 1.25)\n"
            "-n <bytes>    minimum space allocated for key+value+flags (default: 48)\n");
@@ -5091,7 +5092,7 @@ int main (int argc, char **argv) {
           "M"   /* return error on memory exhausted */
           "c:"  /* max simultaneous connections */
           "k"   /* lock down all paged memory */
-          "hi"  /* help, licence info */
+          "hiV" /* help, licence info, version */
           "r"   /* maximize core file limit */
           "v"   /* verbose */
           "d"   /* daemon mode */
@@ -5148,6 +5149,9 @@ int main (int argc, char **argv) {
             exit(EXIT_SUCCESS);
         case 'i':
             usage_license();
+            exit(EXIT_SUCCESS);
+        case 'V':
+            printf(PACKAGE " " VERSION "\n");
             exit(EXIT_SUCCESS);
         case 'k':
             lock_memory = true;
