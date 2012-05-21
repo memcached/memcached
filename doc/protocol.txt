@@ -406,7 +406,7 @@ settings, documented below.  In the other form it has some arguments:
 stats <args>\r\n
 
 Depending on <args>, various internal data is sent by the server. The
-kinds of arguments and the data sent are not documented in this vesion
+kinds of arguments and the data sent are not documented in this version
 of the protocol, and are subject to change for the convenience of
 memcache developers.
 
@@ -531,7 +531,7 @@ other stats command.
 | udpport           | 32       | UDP listen port.                             |
 | inter             | string   | Listen interface.                            |
 | verbosity         | 32       | 0 = none, 1 = some, 2 = lots                 |
-| oldest            | 32u      | Age of the oldest honored object.            |
+| oldest            | 32u      | Age of the oldest honoured object.            |
 | evictions         | on/off   | When off, LRU evictions are disabled.        |
 | domain_socket     | string   | Path to the domain socket (if any).          |
 | umask             | 32 (oct) | umask for the creation of the domain socket. |
