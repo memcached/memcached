@@ -416,7 +416,7 @@ settings, documented below.  In the other form it has some arguments:
 stats <args>\r\n
 
 Depending on <args>, various internal data is sent by the server. The
-kinds of arguments and the data sent are not documented in this vesion
+kinds of arguments and the data sent are not documented in this version
 of the protocol, and are subject to change for the convenience of
 memcache developers.
 
