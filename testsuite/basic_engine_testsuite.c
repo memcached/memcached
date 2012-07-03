@@ -446,6 +446,24 @@ static void eviction_stats_handler(const char *key, const uint16_t klen,
 }
 
 static enum test_result lru_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
+    bool supported = false;
+    const engine_info *info = h1->get_info(h);
+    if (info != NULL) {
+        uint32_t nfeats = info->num_features;
+        assert (nfeats > 0);
+        const feature_info *fi = info->features;
+        while (nfeats-- > 0) {
+            if (fi->feature == ENGINE_FEATURE_LRU) {
+                supported = true;
+                break;
+            }
+        }
+    }
+
+    if (!supported) {
+        return SKIPPED;
+    }
+
     item *test_item = NULL;
     const char *hot_key = "hot_key";
     uint64_t cas = 0;
