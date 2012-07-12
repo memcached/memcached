@@ -3745,7 +3745,7 @@ static enum transmit_result transmit(conn *c) {
 
 static void drive_machine(conn *c) {
     bool stop = false;
-    int sfd, flags = 1;
+    int sfd;
     socklen_t addrlen;
     struct sockaddr_storage addr;
     int nreqs = settings.reqs_per_event;
@@ -3759,7 +3759,12 @@ static void drive_machine(conn *c) {
         switch(c->state) {
         case conn_listening:
             addrlen = sizeof(addr);
-            if ((sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen)) == -1) {
+#if (HAVE_ACCEPT4)
+            sfd = accept4(c->sfd, (struct sockaddr *)&addr, &addrlen, SOCK_NONBLOCK);
+#else
+            sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen);
+#endif
+            if (sfd == -1) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     /* these are transient, so don't log anything */
                     stop = true;
@@ -3774,13 +3779,14 @@ static void drive_machine(conn *c) {
                 }
                 break;
             }
-            if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
-                fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
+
+#if !(HAVE_ACCEPT4)
+            if (fcntl(sfd, F_SETFL, fcntl(sfd, F_GETFL) | O_NONBLOCK) < 0) {
                 perror("setting O_NONBLOCK");
                 close(sfd);
                 break;
             }
-
+#endif
             if (settings.maxconns_fast &&
                 stats.curr_conns + stats.reserved_fds >= settings.maxconns - 1) {
                 str = "ERROR Too many open connections\r\n";
