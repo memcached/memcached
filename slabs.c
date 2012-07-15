@@ -30,9 +30,6 @@ typedef struct {
     void *slots;           /* list of item ptrs */
     unsigned int sl_curr;   /* total free items in list */
 
-    void *end_page_ptr;         /* pointer to next free item at end of page, or 0 */
-    unsigned int end_page_free; /* number of items remaining at end of last alloced page */
-
     unsigned int slabs;     /* how many slabs were allocated for this class */
 
     void **slab_list;       /* array of slab pointers */
@@ -215,8 +212,6 @@ static int do_slabs_newslab(const unsigned int id) {
 
     memset(ptr, 0, (size_t)len);
     split_slab_page_into_freelist(ptr, id);
-//    p->end_page_ptr = ptr;
-//    p->end_page_free = p->perslab;
 
     p->slab_list[p->slabs++] = ptr;
     mem_malloced += len;
@@ -252,8 +247,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
 
     /* fail unless we have space at the end of a recently allocated page,
        we have something on our freelist, or we could allocate a new page */
-    if (! (p->end_page_ptr != 0 || p->sl_curr != 0 ||
-           do_slabs_newslab(id) != 0)) {
+    if (! (p->sl_curr != 0 || do_slabs_newslab(id) != 0)) {
         /* We don't have more memory available */
         ret = NULL;
     } else if (p->sl_curr != 0) {
@@ -263,15 +257,6 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
         if (it->next) it->next->prev = 0;
         p->sl_curr--;
         ret = (void *)it;
-    } else {
-        /* if we recently allocated a whole page, return from that */
-        assert(p->end_page_ptr != NULL);
-        ret = p->end_page_ptr;
-        if (--p->end_page_free != 0) {
-            p->end_page_ptr = ((caddr_t)p->end_page_ptr) + p->size;
-        } else {
-            p->end_page_ptr = 0;
-        }
     }
 
     if (ret) {
@@ -374,9 +359,10 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_STAT(i, "total_pages", "%u", slabs);
             APPEND_NUM_STAT(i, "total_chunks", "%u", slabs * perslab);
             APPEND_NUM_STAT(i, "used_chunks", "%u",
-                            slabs*perslab - p->sl_curr - p->end_page_free);
+                            slabs*perslab - p->sl_curr);
             APPEND_NUM_STAT(i, "free_chunks", "%u", p->sl_curr);
-            APPEND_NUM_STAT(i, "free_chunks_end", "%u", p->end_page_free);
+            /* Stat is dead, but displaying zero instead of removing it. */
+            APPEND_NUM_STAT(i, "free_chunks_end", "%u", 0);
             APPEND_NUM_STAT(i, "mem_requested", "%llu",
                             (unsigned long long)p->requested);
             APPEND_NUM_STAT(i, "get_hits", "%llu",
@@ -494,8 +480,7 @@ static int slab_rebalance_start(void) {
     s_cls = &slabclass[slab_rebal.s_clsid];
     d_cls = &slabclass[slab_rebal.d_clsid];
 
-    if (d_cls->end_page_ptr || s_cls->end_page_ptr ||
-        !grow_slab_list(slab_rebal.d_clsid)) {
+    if (!grow_slab_list(slab_rebal.d_clsid)) {
         no_go = -1;
     }
 
@@ -648,8 +633,6 @@ static void slab_rebalance_finish(void) {
     d_cls->slab_list[d_cls->slabs++] = slab_rebal.slab_start;
     split_slab_page_into_freelist(slab_rebal.slab_start,
         slab_rebal.d_clsid);
-//    d_cls->end_page_ptr = slab_rebal.slab_start;
-//    d_cls->end_page_free = d_cls->perslab;
 
     slab_rebal.done       = 0;
     slab_rebal.s_clsid    = 0;
@@ -788,12 +771,6 @@ static enum reassign_result_type do_slabs_reassign(int src, int dst) {
 
     if (slabclass[src].slabs < 2)
         return REASSIGN_NOSPARE;
-
-    if (slabclass[dst].end_page_ptr)
-        return REASSIGN_DEST_NOT_FULL;
-
-    if (slabclass[src].end_page_ptr)
-        return REASSIGN_SRC_NOT_SAFE;
 
     slab_rebal.s_clsid = src;
     slab_rebal.d_clsid = dst;

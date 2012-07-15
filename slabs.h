@@ -38,7 +38,7 @@ void stop_slab_maintenance_thread(void);
 
 enum reassign_result_type {
     REASSIGN_OK=0, REASSIGN_RUNNING, REASSIGN_BADCLASS, REASSIGN_NOSPARE,
-    REASSIGN_DEST_NOT_FULL, REASSIGN_SRC_NOT_SAFE, REASSIGN_SRC_DST_SAME
+    REASSIGN_SRC_DST_SAME
 };
 
 enum reassign_result_type slabs_reassign(int src, int dst);
