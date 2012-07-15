@@ -61,6 +61,7 @@ static pthread_mutex_t slabs_lock = PTHREAD_MUTEX_INITIALIZER;
  */
 static int do_slabs_newslab(const unsigned int id);
 static void *memory_allocate(size_t size);
+static void do_slabs_free(void *ptr, const size_t size, unsigned int id);
 
 #ifndef DONT_PREALLOC_SLABS
 /* Preallocate as many slab pages as possible (called from slabs_init)
@@ -189,6 +190,15 @@ static int grow_slab_list (const unsigned int id) {
     return 1;
 }
 
+static void split_slab_page_into_freelist(char *ptr, const unsigned int id) {
+    slabclass_t *p = &slabclass[id];
+    int x;
+    for (x = 0; x < p->perslab; x++) {
+        do_slabs_free(ptr, 0, id);
+        ptr += p->size;
+    }
+}
+
 static int do_slabs_newslab(const unsigned int id) {
     slabclass_t *p = &slabclass[id];
     int len = settings.slab_reassign ? settings.item_size_max
@@ -204,8 +214,9 @@ static int do_slabs_newslab(const unsigned int id) {
     }
 
     memset(ptr, 0, (size_t)len);
-    p->end_page_ptr = ptr;
-    p->end_page_free = p->perslab;
+    split_slab_page_into_freelist(ptr, id);
+//    p->end_page_ptr = ptr;
+//    p->end_page_free = p->perslab;
 
     p->slab_list[p->slabs++] = ptr;
     mem_malloced += len;
@@ -635,8 +646,10 @@ static void slab_rebalance_finish(void) {
     memset(slab_rebal.slab_start, 0, (size_t)settings.item_size_max);
 
     d_cls->slab_list[d_cls->slabs++] = slab_rebal.slab_start;
-    d_cls->end_page_ptr = slab_rebal.slab_start;
-    d_cls->end_page_free = d_cls->perslab;
+    split_slab_page_into_freelist(slab_rebal.slab_start,
+        slab_rebal.d_clsid);
+//    d_cls->end_page_ptr = slab_rebal.slab_start;
+//    d_cls->end_page_free = d_cls->perslab;
 
     slab_rebal.done       = 0;
     slab_rebal.s_clsid    = 0;
