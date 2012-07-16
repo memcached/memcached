@@ -786,12 +786,38 @@ static void *slab_rebalance_thread(void *arg) {
     return NULL;
 }
 
+/* Iterate at most once through the slab classes and pick a "random" source.
+ * I like this better than calling rand() since rand() is slow enough that we
+ * can just check all of the classes once instead.
+ */
+static int slabs_reassign_pick_any(int dst) {
+    static int cur = POWER_SMALLEST - 1;
+    int tries = power_largest - POWER_SMALLEST + 1;
+    for (; tries > 0; tries--) {
+        cur++;
+        if (cur > power_largest)
+            cur = POWER_SMALLEST;
+        if (cur == dst)
+            continue;
+        if (slabclass[cur].slabs > 1) {
+            return cur;
+        }
+    }
+    return -1;
+}
+
 static enum reassign_result_type do_slabs_reassign(int src, int dst) {
     if (slab_rebalance_signal != 0)
         return REASSIGN_RUNNING;
 
     if (src == dst)
         return REASSIGN_SRC_DST_SAME;
+
+    /* Special indicator to choose ourselves. */
+    if (src == -1) {
+        src = slabs_reassign_pick_any(dst);
+        /* TODO: If we end up back at -1, return a new error type */
+    }
 
     if (src < POWER_SMALLEST || src > power_largest ||
         dst < POWER_SMALLEST || dst > power_largest)
