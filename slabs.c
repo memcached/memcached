@@ -457,7 +457,9 @@ void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal)
 }
 
 static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t slab_rebalance_cond = PTHREAD_COND_INITIALIZER;
 static volatile int do_run_slab_thread = 1;
+static volatile int do_run_slab_rebalance_thread = 1;
 
 #define DEFAULT_SLAB_BULK_CHECK 1
 int slab_bulk_check = DEFAULT_SLAB_BULK_CHECK;
@@ -729,31 +731,57 @@ static int slab_automove_decision(int *src, int *dst) {
  * go to sleep if locks are contended
  */
 static void *slab_maintenance_thread(void *arg) {
-    int was_busy = 0;
     int src, dest;
 
     while (do_run_slab_thread) {
+        if (settings.slab_automove) {
+            if (slab_automove_decision(&src, &dest) == 1) {
+                /* Blind to the return codes. It will retry on its own */
+                slabs_reassign(src, dest);
+            }
+            sleep(1);
+        } else {
+            /* Don't wake as often if we're not enabled.
+             * This is lazier than setting up a condition right now. */
+            sleep(5);
+        }
+    }
+    return NULL;
+}
+
+/* Slab mover thread.
+ * Sits waiting for a condition to jump off and shovel some memory about
+ */
+static void *slab_rebalance_thread(void *arg) {
+    int was_busy = 0;
+    
+    while (do_run_slab_rebalance_thread) {
         if (slab_rebalance_signal == 1) {
             if (slab_rebalance_start() < 0) {
                 /* Handle errors with more specifity as required. */
                 slab_rebalance_signal = 0;
             }
 
+            was_busy = 0;
         } else if (slab_rebalance_signal && slab_rebal.slab_start != NULL) {
-            /* If we have a decision to continue, continue it */
             was_busy = slab_rebalance_move();
-        } else if (settings.slab_automove && slab_automove_decision(&src, &dest) == 1) {
-            /* Blind to the return codes. It will retry on its own */
-            slabs_reassign(src, dest);
         }
 
         if (slab_rebal.done) {
             slab_rebalance_finish();
+            /* Wrap the conditional with slabs_lock so we can't accidentally miss
+             * a signal */
+            /* FIXME: Technically there's a race between
+             * slab_rebalance_finish() and the wait here. move this around?
+             */
+            mutex_lock(&slabs_lock);
+            pthread_cond_wait(&slab_rebalance_cond, &slabs_lock);
+            pthread_mutex_unlock(&slabs_lock);
+        } else if (was_busy) {
+            /* Stuck waiting for some items to unlock, so slow down a bit
+             * to give them a chance to free up */
+            usleep(50);
         }
-
-        /* Sleep a bit if no work to do, or waiting on busy objects */
-        if (was_busy || !slab_rebalance_signal)
-            sleep(1);
     }
     return NULL;
 }
@@ -776,6 +804,7 @@ static enum reassign_result_type do_slabs_reassign(int src, int dst) {
     slab_rebal.d_clsid = dst;
 
     slab_rebalance_signal = 1;
+    pthread_cond_signal(&slab_rebalance_cond);
 
     return REASSIGN_OK;
 }
@@ -789,6 +818,7 @@ enum reassign_result_type slabs_reassign(int src, int dst) {
 }
 
 static pthread_t maintenance_tid;
+static pthread_t rebalance_tid;
 
 int start_slab_maintenance_thread(void) {
     int ret;
@@ -801,9 +831,20 @@ int start_slab_maintenance_thread(void) {
             slab_bulk_check = DEFAULT_SLAB_BULK_CHECK;
         }
     }
+
+    if (pthread_cond_init(&slab_rebalance_cond, NULL) != 0) {
+        fprintf(stderr, "Can't intiialize rebalance condition\n");
+        return -1;
+    }
+
     if ((ret = pthread_create(&maintenance_tid, NULL,
                               slab_maintenance_thread, NULL)) != 0) {
-        fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
+        fprintf(stderr, "Can't create slab maint thread: %s\n", strerror(ret));
+        return -1;
+    }
+    if ((ret = pthread_create(&rebalance_tid, NULL,
+                              slab_rebalance_thread, NULL)) != 0) {
+        fprintf(stderr, "Can't create rebal thread: %s\n", strerror(ret));
         return -1;
     }
     return 0;
@@ -812,9 +853,11 @@ int start_slab_maintenance_thread(void) {
 void stop_slab_maintenance_thread(void) {
     mutex_lock(&cache_lock);
     do_run_slab_thread = 0;
+    do_run_slab_rebalance_thread = 0;
     pthread_cond_signal(&maintenance_cond);
     pthread_mutex_unlock(&cache_lock);
 
     /* Wait for the maintenance thread to stop */
     pthread_join(maintenance_tid, NULL);
+    pthread_join(rebalance_tid, NULL);
 }
