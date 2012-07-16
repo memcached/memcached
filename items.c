@@ -146,6 +146,16 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
             /* Initialize the item block: */
             it->slabs_clsid = 0;
+
+            /* If we've just evicted an item, and the automover is set to
+             * angry bird mode, attempt to rip memory into this slab class.
+             * TODO: Move valid object detection into a function, and on a
+             * "successful" memory pull, look behind and see if the next alloc
+             * would be an eviction. Then kick off the slab mover before the
+             * eviction happens.
+             */
+            if (settings.slab_automove == 2)
+                slabs_reassign(-1, id);
         } else {
             refcount_decr(&search->refcount);
         }

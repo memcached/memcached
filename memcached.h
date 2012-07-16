@@ -301,7 +301,7 @@ struct settings {
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
-    bool slab_automove;     /* Whether or not to automatically move slabs */
+    int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
 };
 

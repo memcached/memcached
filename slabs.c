@@ -734,7 +734,7 @@ static void *slab_maintenance_thread(void *arg) {
     int src, dest;
 
     while (do_run_slab_thread) {
-        if (settings.slab_automove) {
+        if (settings.slab_automove == 1) {
             if (slab_automove_decision(&src, &dest) == 1) {
                 /* Blind to the return codes. It will retry on its own */
                 slabs_reassign(src, dest);
@@ -769,6 +769,13 @@ static void *slab_rebalance_thread(void *arg) {
 
         if (slab_rebal.done) {
             slab_rebalance_finish();
+        } else if (was_busy) {
+            /* Stuck waiting for some items to unlock, so slow down a bit
+             * to give them a chance to free up */
+            usleep(50);
+        }
+
+        if (slab_rebalance_signal == 0) {
             /* Wrap the conditional with slabs_lock so we can't accidentally miss
              * a signal */
             /* FIXME: Technically there's a race between
@@ -777,10 +784,6 @@ static void *slab_rebalance_thread(void *arg) {
             mutex_lock(&slabs_lock);
             pthread_cond_wait(&slab_rebalance_cond, &slabs_lock);
             pthread_mutex_unlock(&slabs_lock);
-        } else if (was_busy) {
-            /* Stuck waiting for some items to unlock, so slow down a bit
-             * to give them a chance to free up */
-            usleep(50);
         }
     }
     return NULL;

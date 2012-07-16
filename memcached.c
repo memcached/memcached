@@ -224,7 +224,7 @@ static void settings_init(void) {
     settings.maxconns_fast = false;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
-    settings.slab_automove = false;
+    settings.slab_automove = 0;
 }
 
 /*
@@ -2624,7 +2624,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
-    APPEND_STAT("slab_automove", "%s", settings.slab_automove ? "yes" : "no");
+    APPEND_STAT("slab_automove", "%d", settings.slab_automove);
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -3206,9 +3206,9 @@ static void process_slabs_automove_command(conn *c, token_t *tokens, const size_
 
     level = strtoul(tokens[2].value, NULL, 10);
     if (level == 0) {
-        settings.slab_automove = false;
-    } else if (level == 1) {
-        settings.slab_automove = true;
+        settings.slab_automove = 0;
+    } else if (level == 1 || level == 2) {
+        settings.slab_automove = level;
     } else {
         out_string(c, "ERROR");
         return;
@@ -4980,7 +4980,15 @@ int main (int argc, char **argv) {
                 settings.slab_reassign = true;
                 break;
             case SLAB_AUTOMOVE:
-                settings.slab_automove = true;
+                if (subopts_value == NULL) {
+                    settings.slab_automove = 1;
+                    break;
+                }
+                settings.slab_automove = atoi(subopts_value);
+                if (settings.slab_automove < 0 || settings.slab_automove > 2) {
+                    fprintf(stderr, "slab_automove must be between 0 and 2\n");
+                    return 1;
+                }
                 break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
