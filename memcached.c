@@ -1197,8 +1197,8 @@ static void process_bin_touch(conn *c) {
     protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
-    protocol_binary_request_touch *t = (void *)&c->binary_header;
-    uint32_t exptime = ntohl(t->message.body.expiration);
+    protocol_binary_request_touch *t = binary_get_request(c);
+    time_t exptime = ntohl(t->message.body.expiration);
 
     if (settings.verbose > 1) {
         int ii;
