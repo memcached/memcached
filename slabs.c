@@ -52,6 +52,7 @@ static size_t mem_avail = 0;
  * Access to the slab allocator is protected by this lock
  */
 static pthread_mutex_t slabs_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t slabs_rebalance_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
  * Forward Declarations
@@ -754,7 +755,7 @@ static void *slab_maintenance_thread(void *arg) {
  */
 static void *slab_rebalance_thread(void *arg) {
     int was_busy = 0;
-    
+
     while (do_run_slab_rebalance_thread) {
         if (slab_rebalance_signal == 1) {
             if (slab_rebalance_start() < 0) {
@@ -776,14 +777,8 @@ static void *slab_rebalance_thread(void *arg) {
         }
 
         if (slab_rebalance_signal == 0) {
-            /* Wrap the conditional with slabs_lock so we can't accidentally miss
-             * a signal */
-            /* FIXME: Technically there's a race between
-             * slab_rebalance_finish() and the wait here. move this around?
-             */
-            mutex_lock(&slabs_lock);
-            pthread_cond_wait(&slab_rebalance_cond, &slabs_lock);
-            pthread_mutex_unlock(&slabs_lock);
+            /* always hold this lock while we're running */
+            pthread_cond_wait(&slab_rebalance_cond, &slabs_rebalance_lock);
         }
     }
     return NULL;
@@ -840,9 +835,11 @@ static enum reassign_result_type do_slabs_reassign(int src, int dst) {
 
 enum reassign_result_type slabs_reassign(int src, int dst) {
     enum reassign_result_type ret;
-    mutex_lock(&slabs_lock);
+    if (pthread_mutex_trylock(&slabs_rebalance_lock) != 0) {
+        return REASSIGN_RUNNING;
+    }
     ret = do_slabs_reassign(src, dst);
-    pthread_mutex_unlock(&slabs_lock);
+    pthread_mutex_unlock(&slabs_rebalance_lock);
     return ret;
 }
 
@@ -865,6 +862,7 @@ int start_slab_maintenance_thread(void) {
         fprintf(stderr, "Can't intiialize rebalance condition\n");
         return -1;
     }
+    pthread_mutex_init(&slabs_rebalance_lock, NULL);
 
     if ((ret = pthread_create(&maintenance_tid, NULL,
                               slab_maintenance_thread, NULL)) != 0) {
