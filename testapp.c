@@ -382,8 +382,8 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     if (daemon) {
         /* loop and wait for the pid file.. There is a potential race
          * condition that the server just created the file but isn't
-         * finished writing the content, but I'll take the chance....
-         */
+         * finished writing the content, so we loop a few times
+         * reading as well */
         while (access(pid_file, F_OK) == -1) {
             usleep(10);
         }
@@ -394,7 +394,11 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
                     strerror(errno));
             assert(false);
         }
-        assert(fgets(buffer, sizeof(buffer), fp) != NULL);
+
+        /* Avoid race by retrying 20 times */
+        for (int x = 0; x < 20 && fgets(buffer, sizeof(buffer), fp) == NULL; x++) {
+            usleep(10);
+        }
         fclose(fp);
 
         int32_t val;
