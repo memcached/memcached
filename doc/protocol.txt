@@ -354,6 +354,8 @@ slabs reassign <source class> <dest class>\r\n
 
 - <source class> is an id number for the slab class to steal a page from
 
+A source class id of -1 means "pick from any valid class"
+
 - <dest class> is an id number for the slab class to move a page to
 
 The response line could be one of:
@@ -385,11 +387,19 @@ more details.
 
 The automover can be enabled or disabled at runtime with this command.
 
-slabs automove <1|0>
+slabs automove <0|1>
 
-- 1|0 is the indicator on whether to enable the slabs automover or not.
+- 0|1|2 is the indicator on whether to enable the slabs automover or not.
 
 The response should always be "OK\r\n"
+
+- <0> means to set the thread on standby
+
+- <1> means to run the builtin slow algorithm to choose pages to move
+
+- <2> is a highly aggressive mode which causes pages to be moved every time
+  there is an eviction. It is not recommended to run for very long in this
+  mode unless your access patterns are very well understood.
 
 Statistics
 ----------
