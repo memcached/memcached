@@ -4670,7 +4670,7 @@ static int enable_large_pages(void) {
 
     return ret;
 #else
-    return 0;
+    return -1;
 #endif
 }
 
@@ -4891,6 +4891,9 @@ int main (int argc, char **argv) {
         case 'L' :
             if (enable_large_pages() == 0) {
                 preallocate = true;
+            } else {
+                fprintf(stderr, "Cannot enable large pages on this system\n");
+                return 1;
             }
             break;
         case 'C' :
