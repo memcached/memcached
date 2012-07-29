@@ -4892,7 +4892,8 @@ int main (int argc, char **argv) {
             if (enable_large_pages() == 0) {
                 preallocate = true;
             } else {
-                fprintf(stderr, "Cannot enable large pages on this system\n");
+                fprintf(stderr, "Cannot enable large pages on this system\n"
+                    "(There is no Linux support as of this version)\n");
                 return 1;
             }
             break;

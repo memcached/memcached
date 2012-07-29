@@ -72,7 +72,6 @@
 #define POWER_SMALLEST 1
 #define POWER_LARGEST  200
 #define CHUNK_ALIGN_BYTES 8
-#define DONT_PREALLOC_SLABS
 #define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
 
 /** How long an object can reasonably be assumed to be locked before

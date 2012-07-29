@@ -61,7 +61,6 @@ static int do_slabs_newslab(const unsigned int id);
 static void *memory_allocate(size_t size);
 static void do_slabs_free(void *ptr, const size_t size, unsigned int id);
 
-#ifndef DONT_PREALLOC_SLABS
 /* Preallocate as many slab pages as possible (called from slabs_init)
    on start-up, so users don't get confused out-of-memory errors when
    they do have free (in-slab) space, but no space to make new slabs.
@@ -69,7 +68,6 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id);
    slab types can be made.  if max memory is less than 18 MB, only the
    smaller ones will be made.  */
 static void slabs_preallocate (const unsigned int maxslabs);
-#endif
 
 /*
  * Figures out which slab class (chunk size) is required to store an item of
@@ -145,18 +143,11 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
 
     }
 
-#ifndef DONT_PREALLOC_SLABS
-    {
-        char *pre_alloc = getenv("T_MEMD_SLABS_ALLOC");
-
-        if (pre_alloc == NULL || atoi(pre_alloc) != 0) {
-            slabs_preallocate(power_largest);
-        }
+    if (prealloc) {
+        slabs_preallocate(power_largest);
     }
-#endif
 }
 
-#ifndef DONT_PREALLOC_SLABS
 static void slabs_preallocate (const unsigned int maxslabs) {
     int i;
     unsigned int prealloc = 0;
@@ -170,11 +161,15 @@ static void slabs_preallocate (const unsigned int maxslabs) {
     for (i = POWER_SMALLEST; i <= POWER_LARGEST; i++) {
         if (++prealloc > maxslabs)
             return;
-        do_slabs_newslab(i);
+        if (do_slabs_newslab(i) == 0) {
+            fprintf(stderr, "Error while preallocating slab memory!\n"
+                "If using -L or other prealloc options, max memory must be "
+                "at least %d megabytes.\n", power_largest);
+            exit(1);
+        }
     }
 
 }
-#endif
 
 static int grow_slab_list (const unsigned int id) {
     slabclass_t *p = &slabclass[id];
