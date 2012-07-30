@@ -273,6 +273,10 @@ is($mc->decr("x", 211), 0, "Floor is zero");
     $check->("totouch", 0, "toast2");
 
     # Test miss as well
+    $mc->set("totouch", "toast3", 0, 1);
+    my $res = $mc->touch("totouch", 1);
+    sleep 3;
+    $empty->("totouch");
 }
 
 # diag "Silent set.";
