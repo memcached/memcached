@@ -445,7 +445,6 @@ int slab_bulk_check = DEFAULT_SLAB_BULK_CHECK;
 
 static int slab_rebalance_start(void) {
     slabclass_t *s_cls;
-    slabclass_t *d_cls;
     int no_go = 0;
 
     pthread_mutex_lock(&cache_lock);
@@ -459,7 +458,6 @@ static int slab_rebalance_start(void) {
         no_go = -2;
 
     s_cls = &slabclass[slab_rebal.s_clsid];
-    d_cls = &slabclass[slab_rebal.d_clsid];
 
     if (!grow_slab_list(slab_rebal.d_clsid)) {
         no_go = -1;
