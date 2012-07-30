@@ -6,7 +6,7 @@ our @files;
 BEGIN {
     chdir "$Bin/.." or die;
 
-    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am);
+    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md);
     push(@exempted, glob("doc/*.xml"));
     push(@exempted, glob("doc/xml2rfc/*.xsl"));
     push(@exempted, glob("m4/*backport*m4"));
