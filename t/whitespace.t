@@ -29,7 +29,7 @@ BEGIN {
 use Test::More tests => scalar(@files);
 
 foreach my $f (@files) {
-    open(my $fh, $f) or die;
+    open(my $fh, $f) or die "Cannot open file $f: $!";
     my $before = do { local $/; <$fh>; };
     close ($fh);
     my $after = $before;
