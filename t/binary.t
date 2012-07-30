@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3539;
+use Test::More tests => 3549;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -274,7 +274,7 @@ is($mc->decr("x", 211), 0, "Floor is zero");
 
     # Test miss as well
     $mc->set("totouch", "toast3", 0, 1);
-    my $res = $mc->touch("totouch", 1);
+    $res = $mc->touch("totouch", 1);
     sleep 3;
     $empty->("totouch");
 }
