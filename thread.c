@@ -88,7 +88,7 @@ unsigned short refcount_incr(unsigned short *refcount) {
     mutex_lock(&atomics_mutex);
     (*refcount)++;
     res = *refcount;
-    pthread_mutex_unlock(&atomics_mutex);
+    mutex_unlock(&atomics_mutex);
     return res;
 #endif
 }
@@ -103,7 +103,7 @@ unsigned short refcount_decr(unsigned short *refcount) {
     mutex_lock(&atomics_mutex);
     (*refcount)--;
     res = *refcount;
-    pthread_mutex_unlock(&atomics_mutex);
+    mutex_unlock(&atomics_mutex);
     return res;
 #endif
 }
@@ -113,7 +113,7 @@ void item_lock(uint32_t hv) {
 }
 
 void item_unlock(uint32_t hv) {
-    pthread_mutex_unlock(&item_locks[hv & item_lock_mask]);
+    mutex_unlock(&item_locks[hv & item_lock_mask]);
 }
 
 /*
@@ -505,7 +505,7 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
 void item_flush_expired() {
     mutex_lock(&cache_lock);
     do_item_flush_expired();
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
 }
 
 /*
@@ -516,7 +516,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
 
     mutex_lock(&cache_lock);
     ret = do_item_cachedump(slabs_clsid, limit, bytes);
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
     return ret;
 }
 
@@ -526,7 +526,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
 void  item_stats(ADD_STAT add_stats, void *c) {
     mutex_lock(&cache_lock);
     do_item_stats(add_stats, c);
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
 }
 
 /*
@@ -535,7 +535,7 @@ void  item_stats(ADD_STAT add_stats, void *c) {
 void  item_stats_sizes(ADD_STAT add_stats, void *c) {
     mutex_lock(&cache_lock);
     do_item_stats_sizes(add_stats, c);
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
 }
 
 /******************************* GLOBAL STATS ******************************/

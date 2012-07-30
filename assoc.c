@@ -235,7 +235,7 @@ static void *assoc_maintenance_thread(void *arg) {
             pthread_cond_wait(&maintenance_cond, &cache_lock);
         }
 
-        pthread_mutex_unlock(&cache_lock);
+        mutex_unlock(&cache_lock);
     }
     return NULL;
 }
@@ -263,7 +263,7 @@ void stop_assoc_maintenance_thread() {
     mutex_lock(&cache_lock);
     do_run_maintenance_thread = 0;
     pthread_cond_signal(&maintenance_cond);
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
 
     /* Wait for the maintenance thread to stop */
     pthread_join(maintenance_tid, NULL);
