@@ -112,6 +112,10 @@ void item_lock(uint32_t hv) {
     mutex_lock(&item_locks[hv & item_lock_mask]);
 }
 
+int item_trylock(uint32_t hv) {
+    return pthread_mutex_trylock(&item_locks[hv & item_lock_mask]);
+}
+
 void item_unlock(uint32_t hv) {
     mutex_unlock(&item_locks[hv & item_lock_mask]);
 }
@@ -381,7 +385,7 @@ int is_listen_thread() {
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes) {
     item *it;
     /* do_item_alloc handles its own locks */
-    it = do_item_alloc(key, nkey, flags, exptime, nbytes);
+    it = do_item_alloc(key, nkey, flags, exptime, nbytes, 0);
     return it;
 }
 

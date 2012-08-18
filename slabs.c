@@ -498,7 +498,7 @@ static int slab_rebalance_start(void) {
 }
 
 enum move_status {
-    MOVE_PASS=0, MOVE_DONE, MOVE_BUSY
+    MOVE_PASS=0, MOVE_DONE, MOVE_BUSY, MOVE_LOCKED
 };
 
 /* refcount == 0 is safe since nobody can incr while cache_lock is held.
@@ -522,36 +522,42 @@ static int slab_rebalance_move(void) {
         item *it = slab_rebal.slab_pos;
         status = MOVE_PASS;
         if (it->slabs_clsid != 255) {
-            refcount = refcount_incr(&it->refcount);
-            if (refcount == 1) { /* item is unlinked, unused */
-                if (it->it_flags & ITEM_SLABBED) {
-                    /* remove from slab freelist */
-                    if (s_cls->slots == it) {
-                        s_cls->slots = it->next;
-                    }
-                    if (it->next) it->next->prev = it->prev;
-                    if (it->prev) it->prev->next = it->next;
-                    s_cls->sl_curr--;
-                    status = MOVE_DONE;
-                } else {
-                    status = MOVE_BUSY;
-                }
-            } else if (refcount == 2) { /* item is linked but not busy */
-                if ((it->it_flags & ITEM_LINKED) != 0) {
-                    do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
-                    status = MOVE_DONE;
-                } else {
-                    /* refcount == 1 + !ITEM_LINKED means the item is being
-                     * uploaded to, or was just unlinked but hasn't been freed
-                     * yet. Let it bleed off on its own and try again later */
-                    status = MOVE_BUSY;
-                }
+            uint32_t hv = hash(ITEM_key(it), it->nkey, 0);
+            if (item_trylock(hv) != 0) {
+                status = MOVE_LOCKED;
             } else {
-                if (settings.verbose > 2) {
-                    fprintf(stderr, "Slab reassign hit a busy item: refcount: %d (%d -> %d)\n",
-                        it->refcount, slab_rebal.s_clsid, slab_rebal.d_clsid);
+                refcount = refcount_incr(&it->refcount);
+                if (refcount == 1) { /* item is unlinked, unused */
+                    if (it->it_flags & ITEM_SLABBED) {
+                        /* remove from slab freelist */
+                        if (s_cls->slots == it) {
+                            s_cls->slots = it->next;
+                        }
+                        if (it->next) it->next->prev = it->prev;
+                        if (it->prev) it->prev->next = it->next;
+                        s_cls->sl_curr--;
+                        status = MOVE_DONE;
+                    } else {
+                        status = MOVE_BUSY;
+                    }
+                } else if (refcount == 2) { /* item is linked but not busy */
+                    if ((it->it_flags & ITEM_LINKED) != 0) {
+                        do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
+                        status = MOVE_DONE;
+                    } else {
+                        /* refcount == 1 + !ITEM_LINKED means the item is being
+                         * uploaded to, or was just unlinked but hasn't been freed
+                         * yet. Let it bleed off on its own and try again later */
+                        status = MOVE_BUSY;
+                    }
+                } else {
+                    if (settings.verbose > 2) {
+                        fprintf(stderr, "Slab reassign hit a busy item: refcount: %d (%d -> %d)\n",
+                            it->refcount, slab_rebal.s_clsid, slab_rebal.d_clsid);
+                    }
+                    status = MOVE_BUSY;
                 }
-                status = MOVE_BUSY;
+                item_unlock(hv);
             }
         }
 
@@ -562,9 +568,10 @@ static int slab_rebalance_move(void) {
                 it->slabs_clsid = 255;
                 break;
             case MOVE_BUSY:
+                refcount_decr(&it->refcount);
+            case MOVE_LOCKED:
                 slab_rebal.busy_items++;
                 was_busy++;
-                refcount_decr(&it->refcount);
                 break;
             case MOVE_PASS:
                 break;

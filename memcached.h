@@ -532,6 +532,7 @@ void  item_unlink(item *it);
 void  item_update(item *it);
 
 void item_lock(uint32_t hv);
+int item_trylock(uint32_t hv);
 void item_unlock(uint32_t hv);
 unsigned short refcount_incr(unsigned short *refcount);
 unsigned short refcount_decr(unsigned short *refcount);

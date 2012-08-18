@@ -85,7 +85,9 @@ static size_t item_make_header(const uint8_t nkey, const int flags, const int nb
 }
 
 /*@null@*/
-item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes) {
+item *do_item_alloc(char *key, const size_t nkey, const int flags,
+                    const rel_time_t exptime, const int nbytes,
+                    const uint32_t cur_hv) {
     uint8_t nsuffix;
     item *it = NULL;
     char suffix[40];
@@ -100,13 +102,39 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
 
     mutex_lock(&cache_lock);
     /* do a quick check if we have any expired items in the tail.. */
+    int tries = 5;
+    int tried_alloc = 0;
     item *search;
     rel_time_t oldest_live = settings.oldest_live;
 
     search = tails[id];
-    if (search != NULL && (refcount_incr(&search->refcount) == 2)) {
+    /* We walk up *only* for locked items. Never searching for expired.
+     * Waste of CPU for almost all deployments */
+    for (; tries > 0 && search != NULL; tries--, search=search->prev) {
+        uint32_t hv = hash(ITEM_key(search), search->nkey, 0);
+        /* Attempt to hash item lock the "search" item. If locked, no
+         * other callers can incr the refcount
+         */
+        if (hv != cur_hv && item_trylock(hv) != 0)
+            continue;
+        /* Now see if the item is refcount locked */
+        if (refcount_incr(&search->refcount) != 2) {
+            refcount_decr(&search->refcount);
+            /* Old rare bug could cause a refcount leak. We haven't seen
+             * it in years, but we leave this code in to prevent failures
+             * just in case */
+            if (search->time + TAIL_REPAIR_TIME < current_time) {
+                itemstats[id].tailrepairs++;
+                search->refcount = 1;
+                do_item_unlink_nolock(search, hv);
+            }
+            item_unlock(hv);
+            continue;
+        }
+
+        /* Expired or flushed */
         if ((search->exptime != 0 && search->exptime < current_time)
-            || (search->time <= oldest_live && oldest_live <= current_time)) {  // dead by flush
+            || (search->time <= oldest_live && oldest_live <= current_time)) {
             STATS_LOCK();
             stats.reclaimed++;
             STATS_UNLOCK();
@@ -119,68 +147,55 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_tim
             }
             it = search;
             slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-            do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
+            do_item_unlink_nolock(it, hv);
             /* Initialize the item block: */
             it->slabs_clsid = 0;
         } else if ((it = slabs_alloc(ntotal, id)) == NULL) {
+            tried_alloc = 1;
             if (settings.evict_to_free == 0) {
                 itemstats[id].outofmemory++;
-                mutex_unlock(&cache_lock);
-                return NULL;
-            }
-            itemstats[id].evicted++;
-            itemstats[id].evicted_time = current_time - search->time;
-            if (search->exptime != 0)
-                itemstats[id].evicted_nonzero++;
-            if ((search->it_flags & ITEM_FETCHED) == 0) {
+            } else {
+                itemstats[id].evicted++;
+                itemstats[id].evicted_time = current_time - search->time;
+                if (search->exptime != 0)
+                    itemstats[id].evicted_nonzero++;
+                if ((search->it_flags & ITEM_FETCHED) == 0) {
+                    STATS_LOCK();
+                    stats.evicted_unfetched++;
+                    STATS_UNLOCK();
+                    itemstats[id].evicted_unfetched++;
+                }
                 STATS_LOCK();
-                stats.evicted_unfetched++;
+                stats.evictions++;
                 STATS_UNLOCK();
-                itemstats[id].evicted_unfetched++;
-            }
-            STATS_LOCK();
-            stats.evictions++;
-            STATS_UNLOCK();
-            it = search;
-            slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-            do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
-            /* Initialize the item block: */
-            it->slabs_clsid = 0;
+                it = search;
+                slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
+                do_item_unlink_nolock(it, hv);
+                /* Initialize the item block: */
+                it->slabs_clsid = 0;
 
-            /* If we've just evicted an item, and the automover is set to
-             * angry bird mode, attempt to rip memory into this slab class.
-             * TODO: Move valid object detection into a function, and on a
-             * "successful" memory pull, look behind and see if the next alloc
-             * would be an eviction. Then kick off the slab mover before the
-             * eviction happens.
-             */
-            if (settings.slab_automove == 2)
-                slabs_reassign(-1, id);
-        } else {
-            refcount_decr(&search->refcount);
+                /* If we've just evicted an item, and the automover is set to
+                 * angry bird mode, attempt to rip memory into this slab class.
+                 * TODO: Move valid object detection into a function, and on a
+                 * "successful" memory pull, look behind and see if the next alloc
+                 * would be an eviction. Then kick off the slab mover before the
+                 * eviction happens.
+                 */
+                if (settings.slab_automove == 2)
+                    slabs_reassign(-1, id);
+            }
         }
-    } else {
-        /* If the LRU is empty or locked, attempt to allocate memory */
-        it = slabs_alloc(ntotal, id);
-        if (search != NULL)
-            refcount_decr(&search->refcount);
+
+        refcount_decr(&search->refcount);
+        item_unlock(hv);
+        break;
     }
+
+    if (!tried_alloc && (tries == 0 || search == NULL))
+        it = slabs_alloc(ntotal, id);
 
     if (it == NULL) {
         itemstats[id].outofmemory++;
-        /* Last ditch effort. There was a very rare bug which caused
-         * refcount leaks. We leave this just in case they ever happen again.
-         * We can reasonably assume no item can stay locked for more than
-         * three hours, so if we find one in the tail which is that old,
-         * free it anyway.
-         */
-        if (search != NULL &&
-            search->refcount != 2 &&
-            search->time + TAIL_REPAIR_TIME < current_time) {
-            itemstats[id].tailrepairs++;
-            search->refcount = 1;
-            do_item_unlink_nolock(search, hash(ITEM_key(search), search->nkey, 0));
-        }
         mutex_unlock(&cache_lock);
         return NULL;
     }
