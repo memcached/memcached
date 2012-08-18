@@ -522,8 +522,9 @@ static int slab_rebalance_move(void) {
         item *it = slab_rebal.slab_pos;
         status = MOVE_PASS;
         if (it->slabs_clsid != 255) {
+            void *hold_lock = NULL;
             uint32_t hv = hash(ITEM_key(it), it->nkey, 0);
-            if (item_trylock(hv) != 0) {
+            if ((hold_lock = item_trylock(hv)) == NULL) {
                 status = MOVE_LOCKED;
             } else {
                 refcount = refcount_incr(&it->refcount);
@@ -557,7 +558,7 @@ static int slab_rebalance_move(void) {
                     }
                     status = MOVE_BUSY;
                 }
-                item_unlock(hv);
+                item_trylock_unlock(hold_lock);
             }
         }
 
@@ -738,6 +739,8 @@ static void *slab_maintenance_thread(void *arg) {
  */
 static void *slab_rebalance_thread(void *arg) {
     int was_busy = 0;
+    /* So we first pass into cond_wait with the mutex held */
+    mutex_lock(&slabs_rebalance_lock);
 
     while (do_run_slab_rebalance_thread) {
         if (slab_rebalance_signal == 1) {
@@ -824,6 +827,15 @@ enum reassign_result_type slabs_reassign(int src, int dst) {
     ret = do_slabs_reassign(src, dst);
     pthread_mutex_unlock(&slabs_rebalance_lock);
     return ret;
+}
+
+/* If we hold this lock, rebalancer can't wake up or move */
+void slabs_rebalancer_pause(void) {
+    pthread_mutex_lock(&slabs_rebalance_lock);
+}
+
+void slabs_rebalancer_resume(void) {
+    pthread_mutex_unlock(&slabs_rebalance_lock);
 }
 
 static pthread_t maintenance_tid;

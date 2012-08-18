@@ -105,6 +105,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     int tries = 5;
     int tried_alloc = 0;
     item *search;
+    void *hold_lock = NULL;
     rel_time_t oldest_live = settings.oldest_live;
 
     search = tails[id];
@@ -115,7 +116,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
         /* Attempt to hash item lock the "search" item. If locked, no
          * other callers can incr the refcount
          */
-        if (hv != cur_hv && item_trylock(hv) != 0)
+        /* FIXME: I think we need to mask the hv here for comparison? */
+        if (hv != cur_hv && (hold_lock = item_trylock(hv)) == NULL)
             continue;
         /* Now see if the item is refcount locked */
         if (refcount_incr(&search->refcount) != 2) {
@@ -128,7 +130,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
                 search->refcount = 1;
                 do_item_unlink_nolock(search, hv);
             }
-            item_unlock(hv);
+            if (hold_lock)
+                item_trylock_unlock(hold_lock);
             continue;
         }
 
@@ -187,7 +190,9 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
         }
 
         refcount_decr(&search->refcount);
-        item_unlock(hv);
+        /* If hash values were equal, we don't grab a second lock */
+        if (hold_lock)
+            item_trylock_unlock(hold_lock);
         break;
     }
 
@@ -506,7 +511,7 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 
 /** wrapper around assoc_find which does the lazy expiration logic */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
-    mutex_lock(&cache_lock);
+    //mutex_lock(&cache_lock);
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(&it->refcount);
@@ -520,7 +525,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
             it = NULL;
         }
     }
-    mutex_unlock(&cache_lock);
+    //mutex_unlock(&cache_lock);
     int was_found = 0;
 
     if (settings.verbose > 2) {
