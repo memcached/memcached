@@ -2585,8 +2585,6 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("hash_power_level", "%u", stats.hash_power_level);
     APPEND_STAT("hash_bytes", "%llu", (unsigned long long)stats.hash_bytes);
     APPEND_STAT("hash_is_expanding", "%u", stats.hash_is_expanding);
-    APPEND_STAT("expired_unfetched", "%llu", stats.expired_unfetched);
-    APPEND_STAT("evicted_unfetched", "%llu", stats.evicted_unfetched);
     if (settings.slab_reassign) {
         APPEND_STAT("slab_reassign_running", "%u", stats.slab_reassign_running);
         APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);

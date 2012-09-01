@@ -631,6 +631,12 @@ void  item_stats(ADD_STAT add_stats, void *c) {
     mutex_unlock(&cache_lock);
 }
 
+void  item_stats_totals(ADD_STAT add_stats, void *c) {
+    mutex_lock(&cache_lock);
+    do_item_stats_totals(add_stats, c);
+    mutex_unlock(&cache_lock);
+}
+
 /*
  * Dumps a list of objects of each size in 32-byte increments
  */

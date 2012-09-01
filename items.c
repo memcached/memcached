@@ -138,14 +138,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
         /* Expired or flushed */
         if ((search->exptime != 0 && search->exptime < current_time)
             || (search->time <= oldest_live && oldest_live <= current_time)) {
-            STATS_LOCK();
-            stats.reclaimed++;
-            STATS_UNLOCK();
             itemstats[id].reclaimed++;
             if ((search->it_flags & ITEM_FETCHED) == 0) {
-                STATS_LOCK();
-                stats.expired_unfetched++;
-                STATS_UNLOCK();
                 itemstats[id].expired_unfetched++;
             }
             it = search;
@@ -163,14 +157,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
                 if (search->exptime != 0)
                     itemstats[id].evicted_nonzero++;
                 if ((search->it_flags & ITEM_FETCHED) == 0) {
-                    STATS_LOCK();
-                    stats.evicted_unfetched++;
-                    STATS_UNLOCK();
                     itemstats[id].evicted_unfetched++;
                 }
-                STATS_LOCK();
-                stats.evictions++;
-                STATS_UNLOCK();
                 it = search;
                 slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
                 do_item_unlink_nolock(it, hv);
@@ -434,6 +422,26 @@ void item_stats_evictions(uint64_t *evicted) {
         evicted[i] = itemstats[i].evicted;
     }
     mutex_unlock(&cache_lock);
+}
+
+void do_item_stats_totals(ADD_STAT add_stats, void *c) {
+    itemstats_t totals;
+    memset(&totals, 0, sizeof(itemstats_t));
+    int i;
+    for (i = 0; i < LARGEST_ID; i++) {
+        totals.expired_unfetched += itemstats[i].expired_unfetched;
+        totals.evicted_unfetched += itemstats[i].evicted_unfetched;
+        totals.evicted += itemstats[i].evicted;
+        totals.reclaimed += itemstats[i].reclaimed;
+    }
+    APPEND_STAT("expired_unfetched", "%llu",
+                (unsigned long long)totals.expired_unfetched);
+    APPEND_STAT("evicted_unfetched", "%llu",
+                (unsigned long long)totals.evicted_unfetched);
+    APPEND_STAT("evictions", "%llu",
+                (unsigned long long)totals.evicted);
+    APPEND_STAT("reclaimed", "%llu",
+                (unsigned long long)totals.reclaimed);
 }
 
 void do_item_stats(ADD_STAT add_stats, void *c) {

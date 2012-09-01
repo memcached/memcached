@@ -533,6 +533,7 @@ int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it, const uint32_t hv);
 void  item_stats(ADD_STAT add_stats, void *c);
+void  item_stats_totals(ADD_STAT add_stats, void *c);
 void  item_stats_sizes(ADD_STAT add_stats, void *c);
 void  item_unlink(item *it);
 void  item_update(item *it);

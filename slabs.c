@@ -293,11 +293,8 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
             APPEND_STAT("bytes", "%llu", (unsigned long long)stats.curr_bytes);
             APPEND_STAT("curr_items", "%u", stats.curr_items);
             APPEND_STAT("total_items", "%u", stats.total_items);
-            APPEND_STAT("evictions", "%llu",
-                        (unsigned long long)stats.evictions);
-            APPEND_STAT("reclaimed", "%llu",
-                        (unsigned long long)stats.reclaimed);
             STATS_UNLOCK();
+            item_stats_totals(add_stats, c);
         } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
             item_stats(add_stats, c);
         } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
