@@ -49,6 +49,8 @@ AC_DEFUN([DETECT_SUNCC],
 ])
 
 DETECT_SUNCC([CFLAGS="-mt $CFLAGS"], [])
+AS_IF([test "$ICC" = "yes" -o "$GCC" = "yes"],
+      [CFLAGS="$CFLAGS -pthread"])
 
 if test "$ICC" = "no"; then
    AC_PROG_CC_C99
@@ -140,11 +142,7 @@ AC_ARG_ENABLE(coverage,
   [AS_HELP_STRING([--disable-coverage],[Disable code coverage])])
 
 if test "x$enable_coverage" != "xno"; then
-   if test "$ICC" = "yes"
-   then
-      dnl ICC trying to be gcc, but not well
-      CFLAGS="$CFLAGS -pthread"
-   elif test "$GCC" = "yes"
+   if test "$GCC" = "yes" -a "$ICC" != "yes"
    then
       CFLAGS="$CFLAGS -pthread"
       AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
