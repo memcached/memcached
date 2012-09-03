@@ -244,9 +244,10 @@ static void *assoc_maintenance_thread(void *arg) {
         if (!expanding) {
             /* finished expanding. tell all threads to use fine-grained locks */
             switch_item_lock_type(ITEM_LOCK_GRANULAR);
-            started_expanding = false;
             slabs_rebalancer_resume();
             /* We are done expanding.. just wait for next invocation */
+            mutex_lock(&cache_lock);
+            started_expanding = false;
             pthread_cond_wait(&maintenance_cond, &cache_lock);
             /* Before doing anything, tell threads to use a global lock */
             mutex_unlock(&cache_lock);
