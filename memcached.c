@@ -226,6 +226,7 @@ static void settings_init(void) {
     settings.slab_reassign = false;
     settings.slab_automove = 0;
     settings.shutdown_command = false;
+    settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
 }
 
 /*
@@ -2624,6 +2625,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
+    APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4523,6 +4525,9 @@ static void usage(void) {
            "                table should be. Can be grown at runtime if not big enough.\n"
            "                Set this based on \"STAT hash_power_level\" before a \n"
            "                restart.\n"
+           "              - tail_repair_time: Time in seconds that indicates how long to wait before\n"
+           "                forcefully taking over the LRU tail item whose refcount has leaked.\n"
+           "                The default is 3 hours.\n"
            );
     return;
 }
@@ -4757,13 +4762,15 @@ int main (int argc, char **argv) {
         MAXCONNS_FAST = 0,
         HASHPOWER_INIT,
         SLAB_REASSIGN,
-        SLAB_AUTOMOVE
+        SLAB_AUTOMOVE,
+        TAIL_REPAIR_TIME
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
         [HASHPOWER_INIT] = "hashpower",
         [SLAB_REASSIGN] = "slab_reassign",
         [SLAB_AUTOMOVE] = "slab_automove",
+        [TAIL_REPAIR_TIME] = "tail_repair_time",
         NULL
     };
 
@@ -5032,6 +5039,13 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "slab_automove must be between 0 and 2\n");
                     return 1;
                 }
+                break;
+            case TAIL_REPAIR_TIME:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing numeric argument for tail_repair_time\n");
+                    return 1;
+                }
+                settings.tail_repair_time = atoi(subopts_value);
                 break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
