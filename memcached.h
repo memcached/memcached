@@ -76,7 +76,7 @@
 
 /** How long an object can reasonably be assumed to be locked before
     harvesting it on a low memory condition. */
-#define TAIL_REPAIR_TIME (3 * 3600)
+#define TAIL_REPAIR_TIME_DEFAULT (3 * 3600)
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
 #define ITEM_get_cas(i) (((i)->it_flags & ITEM_CAS) ? \
@@ -307,6 +307,7 @@ struct settings {
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
+    int tail_repair_time;   /* LRU tail refcount leak repair time */
 };
 
 extern struct stats stats;

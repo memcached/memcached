@@ -125,7 +125,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             /* Old rare bug could cause a refcount leak. We haven't seen
              * it in years, but we leave this code in to prevent failures
              * just in case */
-            if (search->time + TAIL_REPAIR_TIME < current_time) {
+            if (search->time + settings.tail_repair_time < current_time) {
                 itemstats[id].tailrepairs++;
                 search->refcount = 1;
                 do_item_unlink_nolock(search, hv);
