@@ -700,6 +700,10 @@ static int add_iov(conn *c, const void *buf, int len) {
 
     assert(c != NULL);
 
+    if (len == 0) {
+        return 0;
+    }
+
     do {
         m = &c->msglist[c->msgused - 1];
 
@@ -1001,9 +1005,7 @@ static void write_bin_error(conn *c, protocol_binary_response_status err, int sw
 
     len = strlen(errstr);
     add_bin_header(c, err, 0, 0, len);
-    if (len > 0) {
-        add_iov(c, errstr, len);
-    }
+    add_iov(c, errstr, len);
     conn_set_state(c, conn_mwrite);
     if(swallow > 0) {
         c->sbytes = swallow;
@@ -1018,9 +1020,7 @@ static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen)
     if (!c->noreply || c->cmd == PROTOCOL_BINARY_CMD_GET ||
         c->cmd == PROTOCOL_BINARY_CMD_GETK) {
         add_bin_header(c, 0, hlen, keylen, dlen);
-        if(dlen > 0) {
-            add_iov(c, d, dlen);
-        }
+        add_iov(c, d, dlen);
         conn_set_state(c, conn_mwrite);
         c->write_and_go = conn_new_cmd;
     } else {
@@ -1743,9 +1743,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
         break;
     case SASL_CONTINUE:
         add_bin_header(c, PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE, 0, 0, outlen);
-        if(outlen > 0) {
-            add_iov(c, out, outlen);
-        }
+        add_iov(c, out, outlen);
         conn_set_state(c, conn_mwrite);
         c->write_and_go = conn_new_cmd;
         break;
@@ -3680,11 +3678,12 @@ void do_accept_new_conns(const bool do_accept) {
 static enum transmit_result transmit(conn *c) {
     assert(c != NULL);
 
-    if (c->msgcurr < c->msgused &&
+    while (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
         /* Finished writing the current msg; advance to the next. */
         c->msgcurr++;
     }
+
     if (c->msgcurr < c->msgused) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
