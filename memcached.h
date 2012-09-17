@@ -307,6 +307,7 @@ struct settings {
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
+    bool shutdown_command; /* allow shutdown command */
 };
 
 extern struct stats stats;
