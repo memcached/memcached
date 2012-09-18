@@ -145,7 +145,7 @@ static int sasl_log(void *context, int level, const char *message)
 
 static sasl_callback_t sasl_callbacks[] = {
 #ifdef ENABLE_SASL_PWDB
-   { SASL_CB_SERVER_USERDB_CHECKPASS, sasl_server_userdb_checkpass, NULL },
+   { SASL_CB_SERVER_USERDB_CHECKPASS, (sasl_callback_ft)sasl_server_userdb_checkpass, NULL },
 #endif
 
    { SASL_CB_LOG, (sasl_callback_ft)sasl_log, NULL },
