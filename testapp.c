@@ -334,6 +334,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = tmo;
         }
         argv[arg++] = "./memcached-debug";
+        argv[arg++] = "-A";
         argv[arg++] = "-p";
         argv[arg++] = "-1";
         argv[arg++] = "-U";
@@ -636,7 +637,30 @@ static enum test_return start_memcached_server(void) {
 
 static enum test_return stop_memcached_server(void) {
     close(sock);
-    assert(kill(server_pid, SIGTERM) == 0);
+    if (server_pid != -1) {
+        assert(kill(server_pid, SIGTERM) == 0);
+    }
+
+    return TEST_PASS;
+}
+
+static enum test_return shutdown_memcached_server(void) {
+    char buffer[1024];
+
+    close(sock);
+    sock = connect_server("127.0.0.1", port, false);
+
+    send_ascii_command("shutdown");
+    /* verify that the server closed the connection */
+    assert(read(sock, buffer, sizeof(buffer)) == 0);
+
+    close(sock);
+
+    /* We set server_pid to -1 so that we don't later call kill() */
+    if (kill(server_pid, 0) == 0) {
+        server_pid = -1;
+    }
+
     return TEST_PASS;
 }
 
@@ -1905,6 +1929,7 @@ struct testcase testcases[] = {
     { "binary_stat", test_binary_stat },
     { "binary_illegal", test_binary_illegal },
     { "binary_pipeline_hickup", test_binary_pipeline_hickup },
+    { "shutdown", shutdown_memcached_server },
     { "stop_server", stop_memcached_server },
     { NULL, NULL }
 };

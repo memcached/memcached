@@ -225,6 +225,7 @@ static void settings_init(void) {
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
+    settings.shutdown_command = false;
 }
 
 /*
@@ -3329,6 +3330,14 @@ static void process_command(conn *c, char *command) {
 
         conn_set_state(c, conn_closing);
 
+    } else if (ntokens == 2 && (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0)) {
+
+        conn_set_state(c, conn_closing);
+
+        if (settings.shutdown_command == true) {
+            raise(SIGINT);
+        }
+
     } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
         if (ntokens == 5 && strcmp(tokens[COMMAND_TOKEN + 1].value, "reassign") == 0) {
             int src, dst, rv;
@@ -4445,6 +4454,7 @@ static void usage(void) {
     printf("-p <num>      TCP port number to listen on (default: 11211)\n"
            "-U <num>      UDP port number to listen on (default: 11211, 0 is off)\n"
            "-s <file>     UNIX socket path to listen on (disables network support)\n"
+           "-A            enable ascii \"shutdown\" command\n"
            "-a <mask>     access mask for UNIX socket, in octal (default: 0700)\n"
            "-l <addr>     interface to listen on (default: INADDR_ANY, all addresses)\n"
            "              <addr> may be specified as host:port. If you don't specify\n"
@@ -4748,6 +4758,7 @@ int main (int argc, char **argv) {
     /* process arguments */
     while (-1 != (c = getopt(argc, argv,
           "a:"  /* access mask for unix socket */
+          "A"  /* enable admin shutdown commannd */
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
@@ -4776,6 +4787,11 @@ int main (int argc, char **argv) {
           "o:"  /* Extended generic options */
         ))) {
         switch (c) {
+        case 'A':
+            /* enables "shutdown" command */
+            settings.shutdown_command = true;
+            break;
+
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
             settings.access= strtol(optarg,NULL,8);
