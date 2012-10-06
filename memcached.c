@@ -3334,7 +3334,7 @@ static void process_command(conn *c, char *command) {
 
         conn_set_state(c, conn_closing);
 
-        if (settings.shutdown_command == false) {
+        if (settings.shutdown_command == true) {
             raise(SIGINT);
         }
 
