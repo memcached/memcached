@@ -263,8 +263,12 @@ static CQ_ITEM *cqi_new(void) {
 
         /* Allocate a bunch of items at once to reduce fragmentation */
         item = malloc(sizeof(CQ_ITEM) * ITEMS_PER_ALLOC);
-        if (NULL == item)
+        if (NULL == item) {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
             return NULL;
+        }
 
         /*
          * Link together all the new items except the first one
