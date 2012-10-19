@@ -6,6 +6,9 @@
 # Author:
 #   Brad Fitzpatrick <brad@danga.com>
 #
+# Contributor:
+#   Andrey Niakhaichyk <andrey@niakhaichyk.org>
+#
 # License:
 #   public domain.  I give up all rights to this
 #   tool.  modify and copy at will.
@@ -30,6 +33,10 @@ if ($mode eq "display") {
     ;
 } elsif ($mode eq 'stats') {
     ;
+} elsif ($mode eq 'settings') {
+    ;
+} elsif ($mode eq 'sizes') {
+    ;
 } else {
     undef $mode;
 }
@@ -41,6 +48,8 @@ die
        memcached-tool 10.0.0.5:11211 display    # shows slabs
        memcached-tool 10.0.0.5:11211            # same.  (default is display)
        memcached-tool 10.0.0.5:11211 stats      # shows general stats
+       memcached-tool 10.0.0.5:11211 settings   # shows settings stats
+       memcached-tool 10.0.0.5:11211 sizes      # shows sizes stats
        memcached-tool 10.0.0.5:11211 dump       # dumps keys and values
 " unless $addr && $mode;
 
@@ -129,6 +138,47 @@ if ($mode eq 'stats') {
     exit;
 }
 
+if ($mode eq 'settings') {
+    my %items;
+
+    print $sock "stats settings\r\n";
+
+    while (<$sock>) {
+        last if /^END/;
+        chomp;
+        if (/^STAT\s+(\S*)\s+(.*)/) {
+            $items{$1} = $2;
+        }
+    }
+    printf ("#%-17s %5s %11s\n", $addr, "Field", "Value");
+    foreach my $name (sort(keys(%items))) {
+        printf ("%24s %12s\n", $name, $items{$name});
+
+    }
+    exit;
+}
+
+
+if ($mode eq 'sizes') {
+    my %items;
+
+    print $sock "stats sizes\r\n";
+
+    while (<$sock>) {
+        last if /^END/;
+        chomp;
+        if (/^STAT\s+(\S*)\s+(.*)/) {
+            $items{$1} = $2;
+        }
+    }
+    printf ("#%-17s %5s %11s\n", $addr, "Size", "Count");
+    foreach my $name (sort(keys(%items))) {
+        printf ("%24s %12s\n", $name, $items{$name});
+
+    }
+    exit;
+}
+
 # display mode:
 
 my %items;  # class -> { number, age, chunk_size, chunks_per_page,
@@ -140,8 +190,7 @@ my $max = 0;
 while (<$sock>) {
     last if /^END/;
     if (/^STAT items:(\d+):(\w+) (\d+)/) {
-        $items{$1}{$2} = $3;
-        $max = $1;
+        $items{$1}{$2} = $3;        
     }
 }
 
@@ -150,6 +199,7 @@ while (<$sock>) {
     last if /^END/;
     if (/^STAT (\d+):(\w+) (\d+)/) {
         $items{$1}{$2} = $3;
+	$max = $1;
     }
 }
 
