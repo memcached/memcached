@@ -226,6 +226,7 @@ static void settings_init(void) {
     settings.slab_reassign = false;
     settings.slab_automove = 0;
     settings.shutdown_command = false;
+    settings.thread_affinity = false;
 }
 
 /*
@@ -4520,6 +4521,7 @@ static void usage(void) {
            "              is turned on automatically; if not, then it may be turned on\n"
            "              by sending the \"stats detail on\" command to the server.\n");
     printf("-t <num>      number of threads to use (default: 4)\n");
+    printf("-T            set distinct cpu affinity for threads, round-robin\n");
     printf("-R            Maximum number of requests per event, limits the number of\n"
            "              requests process for a given connection to prevent \n"
            "              starvation (default: 20)\n");
@@ -4807,6 +4809,7 @@ int main (int argc, char **argv) {
           "f:"  /* factor? */
           "n:"  /* minimum space allocated for key+value+flags */
           "t:"  /* threads */
+          "T"   /* thread-cpu affinity */
           "D:"  /* prefix delimiter? */
           "L"   /* Large memory pages */
           "R:"  /* max requests per event */
@@ -4936,6 +4939,9 @@ int main (int argc, char **argv) {
                                 " Set this value to the number of cores in"
                                 " your machine or less.\n");
             }
+            break;
+        case 'T':
+            settings.thread_affinity = true;
             break;
         case 'D':
             if (! optarg || ! optarg[0]) {

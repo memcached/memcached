@@ -312,6 +312,7 @@ struct settings {
     long long unsigned test_data_size;
 	 long long unsigned test_data_amount;
 	 bool load_test_data;
+    bool thread_affinity;
 };
 
 extern struct stats stats;
