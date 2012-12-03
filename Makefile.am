@@ -103,3 +103,16 @@ docs:
 
 dist-hook:
 	rm -f $(distdir)/*/*~ $(distdir)/t/lib/*~ $(distdir)/*~
+
+maintainer-clean-local:
+	-rm Makefile.in
+	-rm aclocal.m4
+	-rm config.guess
+	-rm config.sub
+	-rm depcomp
+	-rm install-sh
+	-rm ltmain.sh
+	-rm missing
+	-rm configure
+	-rm config.log
+	-rm config.status
