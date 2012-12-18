@@ -4702,6 +4702,14 @@ static bool sanitycheck(void) {
         }
     }
 
+    if (strcmp(ever, LIBEVENT_VERSION) != 0) {
+        fprintf(stderr, "Running with a libevent version (%s) different from the"
+                " one we were built with (%s).\n"
+                " Try rerun ./configure --with-libevent=PATH.\n",
+                ever, LIBEVENT_VERSION);
+        return false;
+    }
+
     return true;
 }
 
