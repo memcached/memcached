@@ -26,7 +26,7 @@ locate_binary() {
 
 echo "aclocal..."
 if test x$ACLOCAL = x; then
-  ACLOCAL=`locate_binary aclocal-1.11 aclocal-1.10 aclocal-1.9 aclocal19 aclocal-1.7 aclocal17 aclocal-1.5 aclocal15 aclocal`
+  ACLOCAL=`locate_binary aclocal-1.12 aclocal-1.11 aclocal-1.10 aclocal-1.9 aclocal19 aclocal-1.7 aclocal17 aclocal-1.5 aclocal15 aclocal`
   if test x$ACLOCAL = x; then
     die "Did not find a supported aclocal"
   fi
