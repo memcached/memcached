@@ -2190,7 +2190,12 @@ static void process_bin_delete(conn *c) {
     assert(c != NULL);
 
     if (settings.verbose > 1) {
-        fprintf(stderr, "Deleting %s\n", key);
+        int ii;
+        fprintf(stderr, "Deleting ");
+        for (ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        fprintf(stderr, "\n");
     }
 
     if (settings.detail_enabled) {
