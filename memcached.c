@@ -4625,7 +4625,9 @@ static void remove_pidfile(const char *pid_file) {
 
 static void sig_handler(const int sig) {
     printf("SIGINT handled.\n");
-    exit(EXIT_SUCCESS);
+    if(event_base_loopbreak(main_base) != 0) {
+      exit(EXIT_SUCCESS);
+    }
 }
 
 #ifndef HAVE_SIGIGNORE
