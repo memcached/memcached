@@ -176,6 +176,7 @@ static void stats_init(void) {
     stats.slabs_moved = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
     stats.slab_reassign_running = false;
+    stats.time_in_listen_disabled_us = 0;
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -2581,6 +2582,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
     APPEND_STAT("accepting_conns", "%u", stats.accepting_conns);
     APPEND_STAT("listen_disabled_num", "%llu", (unsigned long long)stats.listen_disabled_num);
+    APPEND_STAT("time_in_listen_disabled_us", "%llu", stats.time_in_listen_disabled_us);
     APPEND_STAT("threads", "%d", settings.num_threads);
     APPEND_STAT("conn_yields", "%llu", (unsigned long long)thread_stats.conn_yields);
     APPEND_STAT("hash_power_level", "%u", stats.hash_power_level);
@@ -3666,11 +3668,19 @@ void do_accept_new_conns(const bool do_accept) {
 
     if (do_accept) {
         STATS_LOCK();
+        struct timeval maxconns_exited;
+        uint64_t elapsed_us;
+        gettimeofday(&maxconns_exited,NULL);
+        elapsed_us =
+            (maxconns_exited.tv_sec - stats.maxconns_entered.tv_sec) * 1000000
+            + (maxconns_exited.tv_usec - stats.maxconns_entered.tv_usec);
+        stats.time_in_listen_disabled_us += elapsed_us;
         stats.accepting_conns = true;
         STATS_UNLOCK();
     } else {
         STATS_LOCK();
         stats.accepting_conns = false;
+        gettimeofday(&stats.maxconns_entered,NULL);
         stats.listen_disabled_num++;
         STATS_UNLOCK();
         allow_new_conns = false;
