@@ -308,6 +308,7 @@ struct settings {
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
     bool shutdown_command; /* allow shutdown command */
+    bool flush_enabled;     /* flush_all enabled */
 };
 
 extern struct stats stats;
