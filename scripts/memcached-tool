@@ -16,7 +16,7 @@ use IO::Socket::INET;
 
 my $addr = shift;
 my $mode = shift || "display";
-my ($from, $to);
+my ($from, $to, $bucket_no);
 
 if ($mode eq "display") {
     undef $mode if @ARGV;
@@ -27,7 +27,9 @@ if ($mode eq "display") {
     undef $mode if $to   < 6 || $to   > 17;
     print STDERR "ERROR: parameters out of range\n\n" unless $mode;
 } elsif ($mode eq 'dump') {
-    ;
+    $bucket_no = shift;
+    undef $mode if $bucket_no && $bucket_no !~ /^\d+$/;
+    print STDERR "ERROR: parameter is a not number\n\n" unless $mode;
 } elsif ($mode eq 'stats') {
     ;
 } else {
@@ -38,10 +40,10 @@ undef $mode if @ARGV;
 
 die
     "Usage: memcached-tool <host[:port] | /path/to/socket> [mode]\n
-       memcached-tool 10.0.0.5:11211 display    # shows slabs
-       memcached-tool 10.0.0.5:11211            # same.  (default is display)
-       memcached-tool 10.0.0.5:11211 stats      # shows general stats
-       memcached-tool 10.0.0.5:11211 dump       # dumps keys and values
+       memcached-tool 10.0.0.5:11211 display         # shows slabs
+       memcached-tool 10.0.0.5:11211                 # same.  (default is display)
+       memcached-tool 10.0.0.5:11211 stats           # shows general stats
+       memcached-tool 10.0.0.5:11211 dump [baket_no] # dumps keys and values (baket_no, Dump only selected baket)
 " unless $addr && $mode;
 
 
@@ -77,8 +79,10 @@ if ($mode eq 'dump') {
     print STDERR "Dumping memcache contents\n";
     print STDERR "  Number of buckets: " . scalar(keys(%items)) . "\n";
     print STDERR "  Number of items  : $totalitems\n";
+    print STDERR "  Selected baket   : $bucket_no\n" if $bucket_no;
 
     foreach my $bucket (sort(keys(%items))) {
+	next if $bucket_no && $bucket != $bucket_no;
         print STDERR "Dumping bucket $bucket - " . $items{$bucket} . " total items\n";
         print $sock "stats cachedump $bucket $items{$bucket}\r\n";
         my %keyexp;
