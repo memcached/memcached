@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3549;
+use Test::More tests => 3560;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -190,6 +190,15 @@ is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
     $rv =()= eval { $mc->decr('issue48'); };
     ok($@ && $@->delta_badval, "Expected invalid value when decrementing text.");
     $check->('issue48', 0, "text");
+}
+
+# diag "Issue 320 - incr/decr wrong length for initial value";
+{
+    $mc->flush;
+    is($mc->incr("issue320", 1, 1, 0), 1, "incr initial value is 1");
+    my (undef, $rv, undef) = $mc->get("issue320");
+    is(length($rv), 1, "initial value length is 1");
+    is($rv, "1", "initial value is 1");
 }
 
 
