@@ -5216,6 +5216,9 @@ int main (int argc, char **argv) {
             break;
         case 'l':
             if (settings.inter != NULL) {
+                if (strstr(settings.inter, optarg) != NULL) {
+                    break;
+                }
                 size_t len = strlen(settings.inter) + strlen(optarg) + 2;
                 char *p = malloc(len);
                 if (p == NULL) {
