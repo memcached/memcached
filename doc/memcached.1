@@ -119,6 +119,9 @@ could reduce the number of TLB misses and improve the performance. In order to
 get large pages from the OS, memcached will allocate the total item-cache in
 one large chunk. Only available if supported on your OS.
 .TP
+.B \-b <num>
+Set the backlog queue limit to <num> connections. The default is 1024.
+.TP
 .B \-B <proto>
 Specify the binding protocol to use.  By default, the server will
 autonegotiate client connections.  By using this option, you can
@@ -130,6 +133,10 @@ Override the default size of each slab page. Default is 1mb. Default is 1m,
 minimum is 1k, max is 128m. Adjusting this value changes the item size limit.
 Beware that this also increases the number of slabs (use -v to view), and the
 overal memory usage of memcached.
+.TP
+.B \-S
+Turn on SASL authentication. This option is only meaningful if memcached was
+compiled with SASL support enabled.
 .TP
 .B \-F
 Disables the "flush_all" command. The cmd_flush counter will increment, but
