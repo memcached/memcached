@@ -1,0 +1,71 @@
+.TH MEMCACHED-TOOL 1 "Jul 2, 2013"
+.SH NAME
+memcached-tool \- stats and management tool for memcached
+
+.SH SYNOPSIS
+.B memcached-tool
+.RI < host [: port "] | " /path/to/socket "> ["  mode ]
+
+.SH DESCRIPTION
+.B memcached-tool
+is a Perl script used to print statistics from a running memcached instance.
+The first parameter specifies the address of the daemon either by a hostname,
+optionally followed by the port number (the default is 11211), or a path to
+UNIX domain socket. The second parameter specifies the mode in which the tool
+should run.
+
+.SH MODES
+.TP
+.B display
+Print slab class statistics. This is the default mode if no mode is specified.
+The printed columns are:
+.RS
+.TP
+.B #
+Number of the slab class.
+.TP
+.B Item_Size
+The amount of space each chunk uses. One item uses one chunk of the
+appropriate size.
+.TP
+.B Max_age
+Age of the oldest item in the LRU.
+.TP
+.B Pages
+Total number of pages allocated to the slab class.
+.TP
+.B Count
+Number of items presently stored in this class. Expired items are not
+automatically excluded.
+.TP
+.B Full?
+Yes if there are no free chunks at the end of the last allocated page.
+.TP
+.B Evicted
+Number of times an item had to be evicted from the LRU before it expired.
+.TP
+.B Evict_Time
+Seconds since the last access for the most recent item evicted from this
+class.
+.TP
+.B OOM
+Number of times the underlying slab class was unable to store a new item.
+.RE
+
+.TP
+.B stats
+Print general-purpose statistics of the daemon. Each line contains the name of
+the statistic and its value.
+.TP
+.B dump
+Make a partial dump of the cache written in the add statements of the
+memcached protocol.
+
+.SH SEE ALSO
+.BR memcached (1),
+.br
+.B http://www.memcached.org
+
+.SH AUTHOR
+The memcached-tool script was written by Brad Fitzpatrick
+.B <brad@danga.com>
