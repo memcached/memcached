@@ -67,6 +67,8 @@ extern "C"
         PROTOCOL_BINARY_RESPONSE_EINVAL = 0x04,
         PROTOCOL_BINARY_RESPONSE_NOT_STORED = 0x05,
         PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL = 0x06,
+        PROTOCOL_BINARY_RESPONSE_LOCKED = 0x10,
+        PROTOCOL_BINARY_RESPONSE_NOT_LOCKED = 0x11,
         PROTOCOL_BINARY_RESPONSE_AUTH_ERROR = 0x20,
         PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE = 0x21,
         PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND = 0x81,
@@ -131,8 +133,27 @@ extern "C"
         PROTOCOL_BINARY_CMD_RINCR     = 0x39,
         PROTOCOL_BINARY_CMD_RINCRQ    = 0x3a,
         PROTOCOL_BINARY_CMD_RDECR     = 0x3b,
-        PROTOCOL_BINARY_CMD_RDECRQ    = 0x3c
+        PROTOCOL_BINARY_CMD_RDECRQ    = 0x3c,
         /* End Range operations */
+
+        /* These commands are used for server-side locking operations and
+         * exist within this header for use in other projects.  Server-side
+         * locking are not expected to be implemented in the memcached
+         * server itself.
+         */
+        PROTOCOL_BINARY_CMD_LOCK      = 0x40,
+        PROTOCOL_BINARY_CMD_LOCKQ     = 0x41,
+        PROTOCOL_BINARY_CMD_UNLOCK    = 0x42,
+        PROTOCOL_BINARY_CMD_UNLOCKQ   = 0x43,
+        PROTOCOL_BINARY_CMD_UNLOCKALL = 0x44,
+        PROTOCOL_BINARY_CMD_UNLOCKALLQ= 0x45,
+        PROTOCOL_BINARY_CMD_LAG       = 0x46,
+        PROTOCOL_BINARY_CMD_LAGQ      = 0x47,
+        PROTOCOL_BINARY_CMD_LAGK      = 0x48,
+        PROTOCOL_BINARY_CMD_LAGKQ     = 0x49,
+        PROTOCOL_BINARY_CMD_RAU       = 0x4a,
+        PROTOCOL_BINARY_CMD_RAUQ      = 0x4b
+        /* End Lock operations */
 
     } protocol_binary_command;
 
