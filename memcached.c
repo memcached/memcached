@@ -3623,6 +3623,9 @@ static enum try_read_result try_read_network(conn *c) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;
             }
+            if (settings.verbose > 0)
+                fprintf(stderr, "Couldn't read into input buffer: %s\n",
+                    strerror(errno));
             return READ_ERROR;
         }
     }
