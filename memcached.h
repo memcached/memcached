@@ -308,6 +308,9 @@ struct settings {
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
     bool shutdown_command; /* allow shutdown command */
+    long long unsigned test_data_size;
+	 long long unsigned test_data_amount;
+	 bool load_test_data;
 };
 
 extern struct stats stats;
@@ -513,7 +516,6 @@ static inline int mutex_lock(pthread_mutex_t *mutex)
  */
 
 void thread_init(int nthreads, struct event_base *main_base);
-int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 
 /* Lock wrappers for cache functions that are called from main loop. */

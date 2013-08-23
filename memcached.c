@@ -4505,6 +4505,9 @@ static void usage(void) {
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
     printf("-I            Override the size of each slab page. Adjusts max item size\n"
            "              (default: 1mb, min: 1k, max: 128m)\n");
+    printf("-Z <num>      Load <num> dummy items into the cache at startup.\n");
+    printf("-X <num>      Dummy items should be of size <num>. Only applicable if\n"
+           "              `-Z` used.\n");
 #ifdef ENABLE_SASL
     printf("-S            Turn on Sasl authentication\n");
 #endif
@@ -4789,8 +4792,19 @@ int main (int argc, char **argv) {
           "I:"  /* Max item size */
           "S"   /* Sasl ON */
           "o:"  /* Extended generic options */
+          "X:"  /* Item size to load for testing */
+          "Z:"  /* Total number of items to load for testing */
         ))) {
         switch (c) {
+        case 'X':
+            settings.test_data_size = atoll(optarg);
+            break;
+
+        case 'Z':
+            settings.test_data_amount = atoll(optarg);
+            settings.load_test_data = true;
+            break;
+
         case 'A':
             /* enables "shutdown" command */
             settings.shutdown_command = true;
@@ -5243,6 +5257,27 @@ int main (int argc, char **argv) {
 
     /* Drop privileges no longer needed */
     drop_privileges();
+
+    /* Load test data if requested */
+    if (settings.load_test_data) {
+        if (settings.verbose > 0) {
+            fprintf(stderr, "Loading test data [amount: %llu, size: %llu]...",
+                settings.test_data_amount, settings.test_data_size);
+        }
+        char buf[1024];
+        size_t loaded = 0;
+        int nbuf = 0;
+        item *it;
+        conn c;
+        while (loaded < settings.test_data_amount) {
+            nbuf = snprintf(buf, 1024, "key-%lu", loaded++);
+            it = item_alloc(buf, nbuf, 0, 0, settings.test_data_size);
+            store_item(it, NREAD_ADD, &c);
+        }
+        if (settings.verbose > 0) {
+            fprintf(stderr, "finished!\n");
+        }
+    }
 
     /* enter the event loop */
     if (event_base_loop(main_base, 0) != 0) {
