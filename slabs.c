@@ -118,7 +118,6 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
             size += CHUNK_ALIGN_BYTES - (size & (CHUNK_ALIGN_BYTES - 1));
 	}
 
-
         slabclass[i].size = size;
         slabclass[i].perslab = settings.item_size_max / slabclass[i].size;
         size *= factor;
