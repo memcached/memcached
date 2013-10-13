@@ -874,7 +874,7 @@ void stop_slab_maintenance_thread(void) {
     mutex_lock(&cache_lock);
     do_run_slab_thread = 0;
     do_run_slab_rebalance_thread = 0;
-    pthread_cond_signal(&maintenance_cond);
+    pthread_cond_signal(&slab_rebalance_cond);
     pthread_mutex_unlock(&cache_lock);
 
     /* Wait for the maintenance thread to stop */
