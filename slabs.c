@@ -114,8 +114,10 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
 
     while (++i < POWER_LARGEST && size <= settings.item_size_max / factor) {
         /* Make sure items are always n-byte aligned */
-        if (size % CHUNK_ALIGN_BYTES)
-            size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
+        if (size & (CHUNK_ALIGN_BYTES - 1)) {
+            size += CHUNK_ALIGN_BYTES - (size & (CHUNK_ALIGN_BYTES - 1));
+	}
+
 
         slabclass[i].size = size;
         slabclass[i].perslab = settings.item_size_max / slabclass[i].size;
@@ -382,9 +384,9 @@ static void *memory_allocate(size_t size) {
         }
 
         /* mem_current pointer _must_ be aligned!!! */
-        if (size % CHUNK_ALIGN_BYTES) {
-            size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
-        }
+        if (size & (CHUNK_ALIGN_BYTES - 1)) {
+            size += CHUNK_ALIGN_BYTES - (size & (CHUNK_ALIGN_BYTES - 1));
+	}
 
         mem_current = ((char*)mem_current) + size;
         if (size < mem_avail) {
