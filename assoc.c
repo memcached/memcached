@@ -201,6 +201,8 @@ static volatile int do_run_maintenance_thread = 1;
 #define DEFAULT_HASH_BULK_MOVE 1
 int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 
+static pthread_mutex_t assoc_maintenance_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static bool first_call_assoc_maintenance_thread = true;
 
 static void slabs_rebalancer_resume_safe(){
@@ -218,6 +220,7 @@ static void slabs_rebalancer_pause_safe(){
 
 static void *assoc_maintenance_thread(void *arg) {
 
+    mutex_lock(&assoc_maintenance_lock);
     while (do_run_maintenance_thread) {
         int ii = 0;
 
@@ -261,11 +264,9 @@ static void *assoc_maintenance_thread(void *arg) {
             switch_item_lock_type(ITEM_LOCK_GRANULAR);
             slabs_rebalancer_resume_safe();
             /* We are done expanding.. just wait for next invocation */
-            mutex_lock(&cache_lock);
             started_expanding = false;
-            pthread_cond_wait(&maintenance_cond, &cache_lock);
+            pthread_cond_wait(&maintenance_cond, &assoc_maintenance_lock);
             /* Before doing anything, tell threads to use a global lock */
-            mutex_unlock(&cache_lock);
             slabs_rebalancer_pause_safe();
             switch_item_lock_type(ITEM_LOCK_GLOBAL);
             mutex_lock(&cache_lock);
@@ -296,10 +297,10 @@ int start_assoc_maintenance_thread() {
 }
 
 void stop_assoc_maintenance_thread() {
-    mutex_lock(&cache_lock);
+    mutex_lock(&assoc_maintenance_lock);
     do_run_maintenance_thread = 0;
     pthread_cond_signal(&maintenance_cond);
-    mutex_unlock(&cache_lock);
+    mutex_unlock(&assoc_maintenance_lock);
 
     /* Wait for the maintenance thread to stop */
     pthread_join(maintenance_tid, NULL);
