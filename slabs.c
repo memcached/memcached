@@ -433,7 +433,7 @@ void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal)
     pthread_mutex_unlock(&slabs_lock);
 }
 
-static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
+//static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t slab_rebalance_cond = PTHREAD_COND_INITIALIZER;
 static volatile int do_run_slab_thread = 1;
 static volatile int do_run_slab_rebalance_thread = 1;
@@ -871,11 +871,11 @@ int start_slab_maintenance_thread(void) {
 }
 
 void stop_slab_maintenance_thread(void) {
-    mutex_lock(&cache_lock);
+    mutex_lock(&slabs_rebalance_lock);
     do_run_slab_thread = 0;
     do_run_slab_rebalance_thread = 0;
     pthread_cond_signal(&slab_rebalance_cond);
-    pthread_mutex_unlock(&cache_lock);
+    pthread_mutex_unlock(&slabs_rebalance_lock);
 
     /* Wait for the maintenance thread to stop */
     pthread_join(maintenance_tid, NULL);
