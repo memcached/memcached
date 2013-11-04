@@ -1602,6 +1602,12 @@ static void init_sasl_conn(conn *c) {
     /* should something else be returned? */
     if (!settings.sasl)
         return;
+    
+     /* are we doing fake sasl? */
+     if (settings.sasl_fake) {
+         c->sasl_conn = NULL;
+          return;
+    }
 
     if (!c->sasl_conn) {
         int result=sasl_server_new("memcached",
@@ -1627,15 +1633,22 @@ static void bin_list_sasl_mechs(conn *c) {
         return;
     }
 
-    init_sasl_conn(c);
     const char *result_string = NULL;
     unsigned int string_length = 0;
-    int result=sasl_listmech(c->sasl_conn, NULL,
-                             "",   /* What to prepend the string with */
-                             " ",  /* What to separate mechanisms with */
-                             "",   /* What to append to the string */
-                             &result_string, &string_length,
-                             NULL);
+    int result = SASL_OK;
+    if (settings.sasl_fake) {
+        result_string = "PLAIN";
+        string_length = 5;
+    } else {
+        init_sasl_conn(c);
+        result = sasl_listmech(c->sasl_conn, NULL,
+                                          "",   /* What to prepend the string with */
+                                          " ",  /* What to separate mechanisms with */
+                                          "",   /* What to append to the string */
+                                          &result_string, &string_length,
+                                          NULL);
+    }
+
     if (result != SASL_OK) {
         /* Perhaps there's a better error for this... */
         if (settings.verbose) {
@@ -1709,14 +1722,22 @@ static void process_bin_complete_sasl_auth(conn *c) {
 
     switch (c->cmd) {
     case PROTOCOL_BINARY_CMD_SASL_AUTH:
-        result = sasl_server_start(c->sasl_conn, mech,
-                                   challenge, vlen,
-                                   &out, &outlen);
+        if (settings.sasl_fake) {
+            result = SASL_OK;
+        } else {
+            result = sasl_server_start(c->sasl_conn, mech,
+                                       challenge, vlen,
+                                       &out, &outlen);
+        }
         break;
     case PROTOCOL_BINARY_CMD_SASL_STEP:
-        result = sasl_server_step(c->sasl_conn,
-                                  challenge, vlen,
-                                  &out, &outlen);
+        if (settings.sasl_fake) {
+            result = SASL_OK;
+        } else {
+            result = sasl_server_step(c->sasl_conn,
+                                      challenge, vlen,
+                                      &out, &outlen);
+        }
         break;
     default:
         assert(false); /* CMD should be one of the above */
@@ -1777,6 +1798,8 @@ static bool authenticated(conn *c) {
             const void *uname = NULL;
             sasl_getprop(c->sasl_conn, SASL_USERNAME, &uname);
             rv = uname != NULL;
+        } else if (settings.sasl_fake) {
+            rv = true;
         }
     }
 
@@ -4511,6 +4534,7 @@ static void usage(void) {
 #ifdef ENABLE_SASL
     printf("-S            Turn on Sasl authentication\n");
 #endif
+    printf("-F            Turn on fake SASL authentication.\n");
     printf("-o            Comma separated list of extended or experimental options\n"
            "              - (EXPERIMENTAL) maxconns_fast: immediately close new\n"
            "                connections if over maxconns limit\n"
@@ -4791,6 +4815,7 @@ int main (int argc, char **argv) {
           "B:"  /* Binding protocol */
           "I:"  /* Max item size */
           "S"   /* Sasl ON */
+          "F"   /* Fake SASL? */
           "o:"  /* Extended generic options */
           "X:"  /* Item size to load for testing */
           "Z:"  /* Total number of items to load for testing */
@@ -4979,6 +5004,10 @@ int main (int argc, char **argv) {
                 );
             }
             break;
+        case 'F': /* set fake sasl to true */
+              settings.sasl = true;
+                settings.sasl_fake = true;
+                break;
         case 'S': /* set Sasl authentication to true. Default is false */
 #ifndef ENABLE_SASL
             fprintf(stderr, "This server is not built with SASL support.\n");
@@ -5126,7 +5155,7 @@ int main (int argc, char **argv) {
     }
 
     /* Initialize Sasl if -S was specified */
-    if (settings.sasl) {
+    if (settings.sasl && !settings.sasl_fake) {
         init_sasl();
     }
 
