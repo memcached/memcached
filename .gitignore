@@ -4,6 +4,7 @@
 *.gcno
 *.tcov
 .deps
+.env
 INSTALL
 Makefile
 Makefile.in
