@@ -375,7 +375,7 @@ static void *memory_allocate(size_t size) {
         /* We are not using a preallocated large memory chunk */
         ret = malloc(size);
         if (settings.verbose > 0) {
-           fprintf(stderr, "allocate slab! [total: %ld]\n"
+           fprintf(stderr, "allocate slab! [total: %ld]\n",
                mem_malloced + size);
         }
     } else {
