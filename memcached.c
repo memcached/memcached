@@ -4941,6 +4941,7 @@ int main (int argc, char **argv) {
     char *pid_file = NULL;
     struct passwd *pw;
     struct rlimit rlim;
+    char *buf;
     char unit = '\0';
     int size_max = 0;
     int retval = EXIT_SUCCESS;
@@ -5162,18 +5163,19 @@ int main (int argc, char **argv) {
             }
             break;
         case 'I':
-            unit = optarg[strlen(optarg)-1];
+            buf = strdup(optarg);
+            unit = buf[strlen(buf)-1];
             if (unit == 'k' || unit == 'm' ||
                 unit == 'K' || unit == 'M') {
-                optarg[strlen(optarg)-1] = '\0';
-                size_max = atoi(optarg);
+                buf[strlen(buf)-1] = '\0';
+                size_max = atoi(buf);
                 if (unit == 'k' || unit == 'K')
                     size_max *= 1024;
                 if (unit == 'm' || unit == 'M')
                     size_max *= 1024 * 1024;
                 settings.item_size_max = size_max;
             } else {
-                settings.item_size_max = atoi(optarg);
+                settings.item_size_max = atoi(buf);
             }
             if (settings.item_size_max < 1024) {
                 fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
@@ -5190,6 +5192,7 @@ int main (int argc, char **argv) {
                     " and will decrease your memory efficiency.\n"
                 );
             }
+            free(buf);
             break;
         case 'S': /* set Sasl authentication to true. Default is false */
 #ifndef ENABLE_SASL
