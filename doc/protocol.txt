@@ -278,7 +278,7 @@ in-place, incrementing or decrementing it. The data for the item is
 treated as decimal representation of a 64-bit unsigned integer.  If
 the current data value does not conform to such a representation, the
 incr/decr commands return an error (memcached <= 1.2.6 treated the
-bogus value as if it were 0, leading to confusing). Also, the item
+bogus value as if it were 0, leading to confusion). Also, the item
 must already exist for incr/decr to work; these commands won't pretend
 that a non-existent key exists with value 0; instead, they will fail.
 
