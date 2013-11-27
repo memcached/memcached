@@ -36,6 +36,27 @@ AC_DEFUN([DETECT_ICC],
 DETECT_ICC([], [])
 
 dnl **********************************************************************
+dnl DETECT_CLANG ([ACTION-IF-YES], [ACTION-IF-NO])
+dnl
+dnl check if compiler is clang, and if so run the ACTION-IF-YES sets the
+dnl $CLANG variable to "yes" or "no"
+dnl **********************************************************************
+AC_DEFUN([DETECT_CLANG],
+[
+    AC_MSG_CHECKING([for clang in use])
+    AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM([], [[
+    #ifndef __clang__
+           not clang
+    #endif
+    ]])],
+    [CLANG=yes], [CLANG=no])
+    AC_MSG_RESULT([$CLANG])
+    AS_IF([test "$CLANG" = "yes"],[$1],[$2])
+])
+DETECT_CLANG([],[])
+
+dnl **********************************************************************
 dnl DETECT_SUNCC ([ACTION-IF-YES], [ACTION-IF-NO])
 dnl
 dnl check if this is the Sun Studio compiler, and if so run the ACTION-IF-YES
@@ -50,7 +71,9 @@ AC_DEFUN([DETECT_SUNCC],
 
 DETECT_SUNCC([CFLAGS="-mt $CFLAGS"], [])
 AS_IF([test "$ICC" = "yes" -o "$GCC" = "yes"],
-      [CFLAGS="$CFLAGS -pthread"])
+[
+    AS_IF(test "$CLANG" = "no",[CFLAGS="$CFLAGS -pthread"])
+])
 
 if test "$ICC" = "no"; then
    AC_PROG_CC_C99
@@ -67,6 +90,7 @@ AC_ARG_ENABLE(sasl_pwdb,
 
 AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
       [enable_sasl=yes ])
+
 
 
 dnl **********************************************************************
@@ -142,7 +166,7 @@ AC_ARG_ENABLE(coverage,
   [AS_HELP_STRING([--disable-coverage],[Disable code coverage])])
 
 if test "x$enable_coverage" != "xno"; then
-   if test "$GCC" = "yes" -a "$ICC" != "yes"
+   if test "$GCC" = "yes" -a "$ICC" != "yes" -a "$CLANG" != "yes"
    then
       CFLAGS="$CFLAGS -pthread"
       AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
@@ -162,6 +186,14 @@ if test "x$enable_coverage" != "xno"; then
       AC_PATH_PROG([PROFILER], [tcov], "no", [$PATH])
       if test "x$PROFILER" != "xno"; then
          PROFILER_FLAGS=-xprofile=tcov
+      fi
+   elif test "x$CLANG" != "xno"
+   then
+      AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
+      if test "x$PROFILER" != "xno"
+      then
+          PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"
+          PROFILER_LDFLAGS=
       fi
    fi
 fi
