@@ -2595,7 +2595,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 
 static void process_stat_settings(ADD_STAT add_stats, void *c) {
     assert(add_stats);
-    APPEND_STAT("maxbytes", "%u", (unsigned int)settings.maxbytes);
+    APPEND_STAT("maxbytes", "%llu", (unsigned long long)settings.maxbytes);
     APPEND_STAT("maxconns", "%d", settings.maxconns);
     APPEND_STAT("tcpport", "%d", settings.port);
     APPEND_STAT("udpport", "%d", settings.udpport);
