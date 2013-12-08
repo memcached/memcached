@@ -3,10 +3,10 @@ use strict;
 use FindBin qw($Bin);
 chdir "$Bin/.." or die;
 
-my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md);
+my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md config.in);
 push(@exempted, glob("doc/*.xml"));
 push(@exempted, glob("doc/xml2rfc/*.xsl"));
-push(@exempted, glob("m4/*backport*m4"));
+push(@exempted, glob("m4/*m4"));
 my %exempted_hash = map { $_ => 1 } @exempted;
 
 my @stuff = split /\0/, `git ls-files -z -c -m -o --exclude-standard`;
