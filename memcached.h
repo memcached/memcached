@@ -271,6 +271,8 @@ struct stats {
     uint64_t      evicted_unfetched; /* items evicted but never touched */
     bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
+    uint64_t      time_in_listen_disabled_us;  /* elapsed time in microseconds while server unable to process new connections */
+    struct timeval maxconns_entered;  /* last time maxconns entered */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
