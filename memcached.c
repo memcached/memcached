@@ -170,6 +170,7 @@ static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = stats.reclaimed = 0;
     stats.touch_cmds = stats.touch_misses = stats.touch_hits = stats.rejected_conns = 0;
+    stats.malloc_fails = 0;
     stats.curr_bytes = stats.listen_disabled_num = 0;
     stats.hash_power_level = stats.hash_bytes = stats.hash_is_expanding = 0;
     stats.expired_unfetched = stats.evicted_unfetched = 0;
@@ -189,6 +190,7 @@ static void stats_reset(void) {
     STATS_LOCK();
     stats.total_items = stats.total_conns = 0;
     stats.rejected_conns = 0;
+    stats.malloc_fails = 0;
     stats.evictions = 0;
     stats.reclaimed = 0;
     stats.listen_disabled_num = 0;
@@ -241,8 +243,12 @@ static int add_msghdr(conn *c)
 
     if (c->msgsize == c->msgused) {
         msg = realloc(c->msglist, c->msgsize * 2 * sizeof(struct msghdr));
-        if (! msg)
+        if (! msg) {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
             return -1;
+        }
         c->msglist = msg;
         c->msgsize *= 2;
     }
@@ -357,7 +363,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     if (NULL == c) {
         if (!(c = (conn *)calloc(1, sizeof(conn)))) {
-            fprintf(stderr, "calloc()\n");
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            fprintf(stderr, "Failed to allocate connection object\n");
             return NULL;
         }
         MEMCACHED_CONN_CREATE(c);
@@ -387,7 +396,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         if (c->rbuf == 0 || c->wbuf == 0 || c->ilist == 0 || c->iov == 0 ||
                 c->msglist == 0 || c->suffixlist == 0) {
             conn_free(c);
-            fprintf(stderr, "malloc()\n");
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            fprintf(stderr, "Failed to allocate buffers for connection\n");
             return NULL;
         }
 
@@ -671,8 +683,12 @@ static int ensure_iov_space(conn *c) {
         int i, iovnum;
         struct iovec *new_iov = (struct iovec *)realloc(c->iov,
                                 (c->iovsize * 2) * sizeof(struct iovec));
-        if (! new_iov)
+        if (! new_iov) {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
             return -1;
+        }
         c->iov = new_iov;
         c->iovsize *= 2;
 
@@ -755,12 +771,18 @@ static int build_udp_headers(conn *c) {
 
     if (c->msgused > c->hdrsize) {
         void *new_hdrbuf;
-        if (c->hdrbuf)
+        if (c->hdrbuf) {
             new_hdrbuf = realloc(c->hdrbuf, c->msgused * 2 * UDP_HEADER_SIZE);
-        else
+        } else {
             new_hdrbuf = malloc(c->msgused * 2 * UDP_HEADER_SIZE);
-        if (! new_hdrbuf)
+        }
+
+        if (! new_hdrbuf) {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
             return -1;
+        }
         c->hdrbuf = (unsigned char *)new_hdrbuf;
         c->hdrsize = c->msgused * 2;
     }
@@ -1437,6 +1459,9 @@ static bool grow_stats_buf(conn *c, size_t needed) {
             c->stats.buffer = ptr;
             c->stats.size = nsize;
         } else {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
             rv = false;
         }
     }
@@ -1560,6 +1585,9 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
             }
             char *newm = realloc(c->rbuf, nsize);
             if (newm == NULL) {
+                STATS_LOCK();
+                stats.malloc_fails++;
+                STATS_UNLOCK();
                 if (settings.verbose) {
                     fprintf(stderr, "%d: Failed to grow buffer.. closing connection\n",
                             c->sfd);
@@ -2590,6 +2618,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("slab_reassign_running", "%u", stats.slab_reassign_running);
         APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);
     }
+    APPEND_STAT("malloc_fails", "%llu",
+                (unsigned long long)stats.malloc_fails);
     STATS_UNLOCK();
 }
 
@@ -2734,6 +2764,9 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                         c->isize *= 2;
                         c->ilist = new_list;
                     } else {
+                        STATS_LOCK();
+                        stats.malloc_fails++;
+                        STATS_UNLOCK();
                         item_remove(it);
                         break;
                     }
@@ -2759,6 +2792,9 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                         c->suffixsize *= 2;
                         c->suffixlist  = new_suffix_list;
                     } else {
+                        STATS_LOCK();
+                        stats.malloc_fails++;
+                        STATS_UNLOCK();
                         item_remove(it);
                         break;
                     }
@@ -2766,9 +2802,12 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                   suffix = cache_alloc(c->thread->suffix_cache);
                   if (suffix == NULL) {
-                    out_string(c, "SERVER_ERROR out of memory making CAS suffix");
-                    item_remove(it);
-                    return;
+                      STATS_LOCK();
+                      stats.malloc_fails++;
+                      STATS_UNLOCK();
+                      out_string(c, "SERVER_ERROR out of memory making CAS suffix");
+                      item_remove(it);
+                      return;
                   }
                   *(c->suffixlist + i) = suffix;
                   int suffix_len = snprintf(suffix, SUFFIX_SIZE,
@@ -3591,8 +3630,12 @@ static enum try_read_result try_read_network(conn *c) {
             ++num_allocs;
             char *new_rbuf = realloc(c->rbuf, c->rsize * 2);
             if (!new_rbuf) {
-                if (settings.verbose > 0)
+                STATS_LOCK();
+                stats.malloc_fails++;
+                STATS_UNLOCK();
+                if (settings.verbose > 0) {
                     fprintf(stderr, "Couldn't realloc input buffer\n");
+                }
                 c->rbytes = 0; /* ignore what we read */
                 out_string(c, "SERVER_ERROR out of memory reading request");
                 c->write_and_go = conn_closing;
