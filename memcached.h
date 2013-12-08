@@ -303,11 +303,16 @@ struct settings {
     int backlog;
     int item_size_max;        /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
+	 bool sasl_fake;         /* SASL auth where we accept any user */
     bool maxconns_fast;     /* Whether or not to early close connections */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
     bool shutdown_command; /* allow shutdown command */
+    long long unsigned test_data_size;
+	 long long unsigned test_data_amount;
+	 bool load_test_data;
+    bool thread_affinity;
 };
 
 extern struct stats stats;
@@ -513,7 +518,6 @@ static inline int mutex_lock(pthread_mutex_t *mutex)
  */
 
 void thread_init(int nthreads, struct event_base *main_base);
-int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 
 /* Lock wrappers for cache functions that are called from main loop. */

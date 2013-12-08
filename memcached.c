@@ -226,6 +226,7 @@ static void settings_init(void) {
     settings.slab_reassign = false;
     settings.slab_automove = 0;
     settings.shutdown_command = false;
+    settings.thread_affinity = false;
 }
 
 /*
@@ -1602,6 +1603,12 @@ static void init_sasl_conn(conn *c) {
     /* should something else be returned? */
     if (!settings.sasl)
         return;
+    
+     /* are we doing fake sasl? */
+     if (settings.sasl_fake) {
+         c->sasl_conn = NULL;
+          return;
+    }
 
     if (!c->sasl_conn) {
         int result=sasl_server_new("memcached",
@@ -1627,15 +1634,22 @@ static void bin_list_sasl_mechs(conn *c) {
         return;
     }
 
-    init_sasl_conn(c);
     const char *result_string = NULL;
     unsigned int string_length = 0;
-    int result=sasl_listmech(c->sasl_conn, NULL,
-                             "",   /* What to prepend the string with */
-                             " ",  /* What to separate mechanisms with */
-                             "",   /* What to append to the string */
-                             &result_string, &string_length,
-                             NULL);
+    int result = SASL_OK;
+    if (settings.sasl_fake) {
+        result_string = "PLAIN";
+        string_length = 5;
+    } else {
+        init_sasl_conn(c);
+        result = sasl_listmech(c->sasl_conn, NULL,
+                                          "",   /* What to prepend the string with */
+                                          " ",  /* What to separate mechanisms with */
+                                          "",   /* What to append to the string */
+                                          &result_string, &string_length,
+                                          NULL);
+    }
+
     if (result != SASL_OK) {
         /* Perhaps there's a better error for this... */
         if (settings.verbose) {
@@ -1709,14 +1723,22 @@ static void process_bin_complete_sasl_auth(conn *c) {
 
     switch (c->cmd) {
     case PROTOCOL_BINARY_CMD_SASL_AUTH:
-        result = sasl_server_start(c->sasl_conn, mech,
-                                   challenge, vlen,
-                                   &out, &outlen);
+        if (settings.sasl_fake) {
+            result = SASL_OK;
+        } else {
+            result = sasl_server_start(c->sasl_conn, mech,
+                                       challenge, vlen,
+                                       &out, &outlen);
+        }
         break;
     case PROTOCOL_BINARY_CMD_SASL_STEP:
-        result = sasl_server_step(c->sasl_conn,
-                                  challenge, vlen,
-                                  &out, &outlen);
+        if (settings.sasl_fake) {
+            result = SASL_OK;
+        } else {
+            result = sasl_server_step(c->sasl_conn,
+                                      challenge, vlen,
+                                      &out, &outlen);
+        }
         break;
     default:
         assert(false); /* CMD should be one of the above */
@@ -1777,6 +1799,8 @@ static bool authenticated(conn *c) {
             const void *uname = NULL;
             sasl_getprop(c->sasl_conn, SASL_USERNAME, &uname);
             rv = uname != NULL;
+        } else if (settings.sasl_fake) {
+            rv = true;
         }
     }
 
@@ -3623,6 +3647,9 @@ static enum try_read_result try_read_network(conn *c) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;
             }
+            if (settings.verbose > 0)
+                fprintf(stderr, "Couldn't read into input buffer: %s\n",
+                    strerror(errno));
             return READ_ERROR;
         }
     }
@@ -4494,6 +4521,7 @@ static void usage(void) {
            "              is turned on automatically; if not, then it may be turned on\n"
            "              by sending the \"stats detail on\" command to the server.\n");
     printf("-t <num>      number of threads to use (default: 4)\n");
+    printf("-T            set distinct cpu affinity for threads, round-robin\n");
     printf("-R            Maximum number of requests per event, limits the number of\n"
            "              requests process for a given connection to prevent \n"
            "              starvation (default: 20)\n");
@@ -4502,9 +4530,13 @@ static void usage(void) {
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
     printf("-I            Override the size of each slab page. Adjusts max item size\n"
            "              (default: 1mb, min: 1k, max: 128m)\n");
+    printf("-Z <num>      Load <num> dummy items into the cache at startup.\n");
+    printf("-X <num>      Dummy items should be of size <num>. Only applicable if\n"
+           "              `-Z` used.\n");
 #ifdef ENABLE_SASL
     printf("-S            Turn on Sasl authentication\n");
 #endif
+    printf("-F            Turn on fake SASL authentication.\n");
     printf("-o            Comma separated list of extended or experimental options\n"
            "              - (EXPERIMENTAL) maxconns_fast: immediately close new\n"
            "                connections if over maxconns limit\n"
@@ -4777,6 +4809,7 @@ int main (int argc, char **argv) {
           "f:"  /* factor? */
           "n:"  /* minimum space allocated for key+value+flags */
           "t:"  /* threads */
+          "T"   /* thread-cpu affinity */
           "D:"  /* prefix delimiter? */
           "L"   /* Large memory pages */
           "R:"  /* max requests per event */
@@ -4785,9 +4818,21 @@ int main (int argc, char **argv) {
           "B:"  /* Binding protocol */
           "I:"  /* Max item size */
           "S"   /* Sasl ON */
+          "F"   /* Fake SASL? */
           "o:"  /* Extended generic options */
+          "X:"  /* Item size to load for testing */
+          "Z:"  /* Total number of items to load for testing */
         ))) {
         switch (c) {
+        case 'X':
+            settings.test_data_size = atoll(optarg);
+            break;
+
+        case 'Z':
+            settings.test_data_amount = atoll(optarg);
+            settings.load_test_data = true;
+            break;
+
         case 'A':
             /* enables "shutdown" command */
             settings.shutdown_command = true;
@@ -4895,6 +4940,9 @@ int main (int argc, char **argv) {
                                 " your machine or less.\n");
             }
             break;
+        case 'T':
+            settings.thread_affinity = true;
+            break;
         case 'D':
             if (! optarg || ! optarg[0]) {
                 fprintf(stderr, "No delimiter specified\n");
@@ -4962,6 +5010,10 @@ int main (int argc, char **argv) {
                 );
             }
             break;
+        case 'F': /* set fake sasl to true */
+              settings.sasl = true;
+                settings.sasl_fake = true;
+                break;
         case 'S': /* set Sasl authentication to true. Default is false */
 #ifndef ENABLE_SASL
             fprintf(stderr, "This server is not built with SASL support.\n");
@@ -5109,7 +5161,7 @@ int main (int argc, char **argv) {
     }
 
     /* Initialize Sasl if -S was specified */
-    if (settings.sasl) {
+    if (settings.sasl && !settings.sasl_fake) {
         init_sasl();
     }
 
@@ -5240,6 +5292,27 @@ int main (int argc, char **argv) {
 
     /* Drop privileges no longer needed */
     drop_privileges();
+
+    /* Load test data if requested */
+    if (settings.load_test_data) {
+        if (settings.verbose > 0) {
+            fprintf(stderr, "Loading test data [amount: %llu, size: %llu]...",
+                settings.test_data_amount, settings.test_data_size);
+        }
+        char buf[1024];
+        size_t loaded = 0;
+        int nbuf = 0;
+        item *it;
+        conn c;
+        while (loaded < settings.test_data_amount) {
+            nbuf = snprintf(buf, 1024, "key-%lu", loaded++);
+            it = item_alloc(buf, nbuf, 0, 0, settings.test_data_size);
+            store_item(it, NREAD_ADD, &c);
+        }
+        if (settings.verbose > 0) {
+            fprintf(stderr, "finished!\n");
+        }
+    }
 
     /* enter the event loop */
     if (event_base_loop(main_base, 0) != 0) {
