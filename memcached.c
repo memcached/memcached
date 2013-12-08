@@ -3871,6 +3871,16 @@ static void drive_machine(conn *c) {
                 complete_nread(c);
                 break;
             }
+
+            /* seems that we don't recieved int */
+            if (c->rlbytes < 0) {
+                if (settings.verbose > 0)
+                    fprintf(stderr, "Invalid rlbytes to read:  len %u\n", c->rlbytes);
+
+                conn_set_state(c, conn_closing);
+                break;
+            }
+
             /* first check if we have leftovers in the conn_read buffer */
             if (c->rbytes > 0) {
                 int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
