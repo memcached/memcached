@@ -226,6 +226,7 @@ static void settings_init(void) {
     settings.slab_reassign = false;
     settings.slab_automove = 0;
     settings.shutdown_command = false;
+    settings.flush_enabled = true;
 }
 
 /*
@@ -2121,6 +2122,12 @@ static void process_bin_flush(conn *c) {
     time_t exptime = 0;
     protocol_binary_request_flush* req = binary_get_request(c);
 
+    if (!settings.flush_enabled) {
+      // flush_all is not allowed but we log it on stats
+      write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+      return;
+    }
+
     if (c->binary_header.request.extlen == sizeof(req->message.body)) {
         exptime = ntohl(req->message.body.expiration);
     }
@@ -2624,6 +2631,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
+    APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
 }
 
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
@@ -3294,6 +3302,12 @@ static void process_command(conn *c, char *command) {
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.flush_cmds++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        if (!settings.flush_enabled) {
+            // flush_all is not allowed but we log it on stats
+            out_string(c, "CLIENT_ERROR flush_all not allowed");
+            return;
+        }
 
         if(ntokens == (c->noreply ? 3 : 2)) {
             settings.oldest_live = current_time - 1;
@@ -4505,6 +4519,7 @@ static void usage(void) {
 #ifdef ENABLE_SASL
     printf("-S            Turn on Sasl authentication\n");
 #endif
+    printf("-F            Disable flush_all command\n");
     printf("-o            Comma separated list of extended or experimental options\n"
            "              - (EXPERIMENTAL) maxconns_fast: immediately close new\n"
            "                connections if over maxconns limit\n"
@@ -4785,6 +4800,7 @@ int main (int argc, char **argv) {
           "B:"  /* Binding protocol */
           "I:"  /* Max item size */
           "S"   /* Sasl ON */
+          "F"   /* Disable flush_all */
           "o:"  /* Extended generic options */
         ))) {
         switch (c) {
@@ -4968,6 +4984,9 @@ int main (int argc, char **argv) {
             exit(EX_USAGE);
 #endif
             settings.sasl = true;
+            break;
+       case 'F' :
+            settings.flush_enabled = false;
             break;
         case 'o': /* It's sub-opts time! */
             subopts = optarg;
