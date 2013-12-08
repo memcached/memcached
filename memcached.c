@@ -3860,6 +3860,7 @@ static void drive_machine(conn *c) {
                         if (settings.verbose > 0)
                             fprintf(stderr, "Couldn't update event\n");
                         conn_set_state(c, conn_closing);
+                        break;
                     }
                 }
                 stop = true;
