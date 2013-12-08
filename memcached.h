@@ -381,19 +381,19 @@ struct conn {
 
     char   *rbuf;   /** buffer to read commands into */
     char   *rcurr;  /** but if we parsed some already, this is where we stopped */
-    int    rsize;   /** total allocated size of rbuf */
-    int    rbytes;  /** how much data, starting from rcur, do we have unparsed */
+    unsigned int  rsize;   /** total allocated size of rbuf */
+    unsigned int  rbytes;  /** how much data, starting from rcur, do we have unparsed */
 
     char   *wbuf;
     char   *wcurr;
-    int    wsize;
-    int    wbytes;
+    unsigned int  wsize;
+    unsigned int  wbytes;
     /** which state to go into after finishing current write */
     enum conn_states  write_and_go;
     void   *write_and_free; /** free this memory after finishing writing */
 
     char   *ritem;  /** when we read in an item's value, it goes here */
-    int    rlbytes;
+    unsigned int  rlbytes;
 
     /* data for the nread state */
 
@@ -406,38 +406,38 @@ struct conn {
     void   *item;     /* for commands set/add/replace  */
 
     /* data for the swallow state */
-    int    sbytes;    /* how many bytes to swallow */
+    unsigned int  sbytes;    /* how many bytes to swallow */
 
     /* data for the mwrite state */
     struct iovec *iov;
-    int    iovsize;   /* number of elements allocated in iov[] */
-    int    iovused;   /* number of elements used in iov[] */
+    unsigned int    iovsize;   /* number of elements allocated in iov[] */
+    unsigned int    iovused;   /* number of elements used in iov[] */
 
     struct msghdr *msglist;
-    int    msgsize;   /* number of elements allocated in msglist[] */
-    int    msgused;   /* number of elements used in msglist[] */
-    int    msgcurr;   /* element in msglist[] being transmitted now */
-    int    msgbytes;  /* number of bytes in current msg */
+    unsigned int    msgsize;   /* number of elements allocated in msglist[] */
+    unsigned int    msgused;   /* number of elements used in msglist[] */
+    unsigned int    msgcurr;   /* element in msglist[] being transmitted now */
+    unsigned int    msgbytes;  /* number of bytes in current msg */
 
     item   **ilist;   /* list of items to write out */
-    int    isize;
+    unsigned int    isize;
     item   **icurr;
-    int    ileft;
+    unsigned int   ileft;
 
     char   **suffixlist;
-    int    suffixsize;
+    unsigned int    suffixsize;
     char   **suffixcurr;
-    int    suffixleft;
+    unsigned int    suffixleft;
 
     enum protocol protocol;   /* which protocol this connection speaks */
     enum network_transport transport; /* what transport is used by this connection */
 
     /* data for UDP clients */
-    int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
+    unsigned int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
     struct sockaddr request_addr; /* Who sent the most recent request */
     socklen_t request_addr_size;
     unsigned char *hdrbuf; /* udp packet headers */
-    int    hdrsize;   /* number of headers' worth of space is allocated */
+    unsigned int    hdrsize;   /* number of headers' worth of space is allocated */
 
     bool   noreply;   /* True if the reply should not be sent. */
     /* current stats command */
@@ -453,7 +453,7 @@ struct conn {
     uint64_t cas; /* the cas to return */
     short cmd; /* current command being processed */
     int opaque;
-    int keylen;
+    unsigned int keylen;
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
 };

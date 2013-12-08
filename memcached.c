@@ -1658,8 +1658,12 @@ static void process_bin_sasl_auth(conn *c) {
 
     assert(c->binary_header.request.extlen == 0);
 
-    int nkey = c->binary_header.request.keylen;
-    int vlen = c->binary_header.request.bodylen - nkey;
+    uint32_t nkey = c->binary_header.request.keylen;
+    uint32_t vlen = 0;
+
+    if ( nkey <= c->binary_header.request.bodylen) {
+      vlen = c->binary_header.request.bodylen - nkey;
+    } else { abort(); }
 
     if (nkey > MAX_SASL_MECH_LEN) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, vlen);
@@ -1693,8 +1697,12 @@ static void process_bin_complete_sasl_auth(conn *c) {
     assert(c->item);
     init_sasl_conn(c);
 
-    int nkey = c->binary_header.request.keylen;
-    int vlen = c->binary_header.request.bodylen - nkey;
+    uint32_t nkey = c->binary_header.request.keylen;
+    uint32_t vlen = 0;
+
+    if ( nkey <= c->binary_header.request.bodylen) {
+      vlen = c->binary_header.request.bodylen - nkey;
+    } else { abort(); }
 
     char mech[nkey+1];
     memcpy(mech, ITEM_key((item*)c->item), nkey);
@@ -1975,8 +1983,8 @@ static void dispatch_bin_command(conn *c) {
 
 static void process_bin_update(conn *c) {
     char *key;
-    int nkey;
-    int vlen;
+    uint32_t nkey = 0;
+    uint32_t vlen = 0;
     item *it;
     protocol_binary_request_set* req = binary_get_request(c);
 
@@ -1989,7 +1997,9 @@ static void process_bin_update(conn *c) {
     req->message.body.flags = ntohl(req->message.body.flags);
     req->message.body.expiration = ntohl(req->message.body.expiration);
 
-    vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
+    if ( nkey + c->binary_header.request.extlen <= c->binary_header.request.bodylen) {
+      vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
+    } else { abort(); }
 
     if (settings.verbose > 1) {
         int ii;
@@ -2066,15 +2076,18 @@ static void process_bin_update(conn *c) {
 
 static void process_bin_append_prepend(conn *c) {
     char *key;
-    int nkey;
-    int vlen;
+    uint32_t nkey = 0;
+    uint32_t vlen = 0;
     item *it;
 
     assert(c != NULL);
 
     key = binary_get_key(c);
     nkey = c->binary_header.request.keylen;
-    vlen = c->binary_header.request.bodylen - nkey;
+
+    if ( nkey <= c->binary_header.request.bodylen) {
+      vlen = c->binary_header.request.bodylen - nkey;
+    } else { abort(); }
 
     if (settings.verbose > 1) {
         fprintf(stderr, "Value len is %d\n", vlen);
