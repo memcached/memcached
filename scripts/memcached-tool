@@ -159,7 +159,6 @@ if ($mode eq 'settings') {
     printf ("#%-17s %5s %11s\n", $addr, "Field", "Value");
     foreach my $name (sort(keys(%items))) {
         printf ("%24s %12s\n", $name, $items{$name});
-
     }
     exit;
 }
@@ -180,7 +179,6 @@ if ($mode eq 'sizes') {
     printf ("#%-17s %5s %11s\n", $addr, "Size", "Count");
     foreach my $name (sort(keys(%items))) {
         printf ("%24s %12s\n", $name, $items{$name});
-
     }
     exit;
 }
