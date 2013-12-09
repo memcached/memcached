@@ -1087,12 +1087,16 @@ static void complete_incr_bin(conn *c) {
         if (req->message.body.expiration != 0xffffffff) {
             /* Save some room for the response */
             rsp->message.body.value = htonll(req->message.body.initial);
+
+            snprintf(tmpbuf, INCR_MAX_STORAGE_LEN, "%llu",
+                (unsigned long long)req->message.body.initial);
+            int res = strlen(tmpbuf);
             it = item_alloc(key, nkey, 0, realtime(req->message.body.expiration),
-                            INCR_MAX_STORAGE_LEN);
+                            res + 2);
 
             if (it != NULL) {
-                snprintf(ITEM_data(it), INCR_MAX_STORAGE_LEN, "%llu",
-                         (unsigned long long)req->message.body.initial);
+                memcpy(ITEM_data(it), tmpbuf, res);
+                memcpy(ITEM_data(it) + res, "\r\n", 2);
 
                 if (store_item(it, NREAD_ADD, c)) {
                     c->cas = ITEM_get_cas(it);
