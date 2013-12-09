@@ -51,6 +51,12 @@ die
        memcached-tool 10.0.0.5:11211 settings   # shows settings stats
        memcached-tool 10.0.0.5:11211 sizes      # shows sizes stats
        memcached-tool 10.0.0.5:11211 dump       # dumps keys and values
+
+WARNING! sizes is a development command.
+As of 1.4 it is still the only command which will lock your memcached instance for some time.
+If you have many millions of stored items, it can become unresponsive for several minutes.
+Run this at your own risk. It is roadmapped to either make this feature optional
+or at least speed it up.
 " unless $addr && $mode;
 
 
@@ -190,7 +196,7 @@ my $max = 0;
 while (<$sock>) {
     last if /^END/;
     if (/^STAT items:(\d+):(\w+) (\d+)/) {
-        $items{$1}{$2} = $3;        
+        $items{$1}{$2} = $3;
     }
 }
 
@@ -199,7 +205,7 @@ while (<$sock>) {
     last if /^END/;
     if (/^STAT (\d+):(\w+) (\d+)/) {
         $items{$1}{$2} = $3;
-	$max = $1;
+        $max = $1;
     }
 }
 
