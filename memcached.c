@@ -5046,6 +5046,10 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 settings.tail_repair_time = atoi(subopts_value);
+                if (settings.tail_repair_time < 10) {
+                    fprintf(stderr, "Cannot set tail_repair_time to less than 10 seconds\n");
+                    return 1;
+                }
                 break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);

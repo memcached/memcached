@@ -76,7 +76,7 @@
 
 /** How long an object can reasonably be assumed to be locked before
     harvesting it on a low memory condition. */
-#define TAIL_REPAIR_TIME_DEFAULT (3 * 3600)
+#define TAIL_REPAIR_TIME_DEFAULT (1 * 3600)
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
 #define ITEM_get_cas(i) (((i)->it_flags & ITEM_CAS) ? \
