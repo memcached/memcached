@@ -5583,8 +5583,8 @@ void event_handler(const int fd, const short which, void *arg) {
     LIBEVENT_THREAD *thr = c->thread;
 
     // Do we have pending closes?
-    const size_t max_items = 256;
-    conn *pending_close[max_items];
+    const size_t max_items = MAX_PENDING_CLOSE;
+    conn *pending_close[MAX_PENDING_CLOSE];
     size_t n_pending_close = 0;
     if (thr != NULL) {
         LOCK_THREAD(thr);

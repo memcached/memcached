@@ -67,6 +67,8 @@
 #define DEFAULT_REQS_PER_EVENT     20
 #define DEFAULT_REQS_PER_TAP_EVENT 50
 
+#define MAX_PENDING_CLOSE 256
+
 /** Append a simple stat with a stat name, value format and value */
 #define APPEND_STAT(name, fmt, val) \
     append_stat(name, add_stats, c, fmt, val);

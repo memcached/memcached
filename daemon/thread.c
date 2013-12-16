@@ -471,7 +471,6 @@ void finalize_list(conn **list, size_t items) {
     }
 }
 
-
 static void libevent_tap_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     assert(me->type == TAP);
@@ -490,9 +489,9 @@ static void libevent_tap_process(int fd, short which, void *arg) {
     }
 
     // Do we have pending closes?
-    const size_t max_items = 256;
+    const size_t max_items = MAX_PENDING_CLOSE;
     LOCK_THREAD(me);
-    conn *pending_close[max_items];
+    conn *pending_close[MAX_PENDING_CLOSE];
     size_t n_pending_close = 0;
 
     if (me->pending_close && me->last_checked != current_time) {
@@ -504,7 +503,7 @@ static void libevent_tap_process(int fd, short which, void *arg) {
     }
 
     // Now copy the pending IO buffer and run them...
-    conn *pending_io[max_items];
+    conn *pending_io[256];
     size_t n_items = list_to_array(pending_io, max_items, &me->pending_io);
 
     UNLOCK_THREAD(me);

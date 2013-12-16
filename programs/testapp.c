@@ -2234,10 +2234,12 @@ static enum test_return test_binary_bad_tap_ttl(void) {
     return TEST_PASS;
 }
 
+#define max_fds_issue_101 2
+
 static enum test_return test_issue_101(void) {
-    const int max = 2;
+    const int max = max_fds_issue_101;
     enum test_return ret = TEST_PASS;
-    int fds[max];
+    int fds[max_fds_issue_101];
     int ii = 0;
     pid_t child = 0;
 

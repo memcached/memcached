@@ -321,9 +321,9 @@ static void *incr_test_main(void *arg) {
  */
 static enum test_result mt_incr_test(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 #ifdef __arm__
-    const int max_threads = 1;
+    #define max_threads 1
 #else
-    const int max_threads = 30;
+    #define max_threads 30
 #endif
     pthread_t tid[max_threads];
 
