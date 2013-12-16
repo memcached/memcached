@@ -1760,6 +1760,9 @@ static void process_bin_get(conn *c) {
     case ENGINE_NOT_MY_VBUCKET:
         write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET, 0);
         break;
+    case ENGINE_TMPFAIL:
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ETMPFAIL, 0);
+        break;
     default:
         /* @todo add proper error handling! */
         settings.extensions.logger->log(EXTENSION_LOG_WARNING, c,
