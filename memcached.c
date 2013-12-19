@@ -3163,8 +3163,19 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     snprintf(buf, INCR_MAX_STORAGE_LEN, "%llu", (unsigned long long)value);
     res = strlen(buf);
     /* refcount == 2 means we are the only ones holding the item, and it is
-     * linked. */
-    if (res + 2 > it->nbytes || it->refcount != 2) { /* need to realloc */
+     * linked. We hold the item's lock in this function, so refcount cannot
+     * increase. */
+    if (res + 2 <= it->nbytes && it->refcount == 2) { /* replace in-place */
+        /* When changing the value without replacing the item, we
+           need to update the CAS on the existing item. */
+        mutex_lock(&cache_lock); /* FIXME */
+        ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+        mutex_unlock(&cache_lock);
+
+        memcpy(ITEM_data(it), buf, res);
+        memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
+        do_item_update(it);
+    } else if (it->refcount > 1) {
         item *new_it;
         new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2, hv);
         if (new_it == 0) {
@@ -3178,16 +3189,15 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         // returning the CAS of the old item below.
         ITEM_set_cas(it, (settings.use_cas) ? ITEM_get_cas(new_it) : 0);
         do_item_remove(new_it);       /* release our reference */
-    } else { /* replace in-place */
-        /* When changing the value without replacing the item, we
-           need to update the CAS on the existing item. */
-        mutex_lock(&cache_lock); /* FIXME */
-        ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
-        mutex_unlock(&cache_lock);
-
-        memcpy(ITEM_data(it), buf, res);
-        memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
-        do_item_update(it);
+    } else {
+        /* Should never get here. This means we somehow fetched an unlinked
+         * item. TODO: Add a counter? */
+        if (settings.verbose) {
+            fprintf(stderr, "Tried to do incr/decr on invalid item\n");
+        }
+        if (it->refcount == 1)
+            do_item_remove(it);
+        return DELTA_ITEM_NOT_FOUND;
     }
 
     if (cas) {
