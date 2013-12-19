@@ -540,7 +540,7 @@ static int slab_rebalance_move(void) {
                     }
                 } else if (refcount == 2) { /* item is linked but not busy */
                     if ((it->it_flags & ITEM_LINKED) != 0) {
-                        do_item_unlink_nolock(it, hash(ITEM_key(it), it->nkey, 0));
+                        do_item_unlink_nolock(it, hv);
                         status = MOVE_DONE;
                     } else {
                         /* refcount == 1 + !ITEM_LINKED means the item is being
