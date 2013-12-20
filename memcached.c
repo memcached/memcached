@@ -3798,8 +3798,10 @@ static void drive_machine(conn *c) {
     int nreqs = settings.reqs_per_event;
     int res;
     const char *str;
-#if (HAVE_ACCEPT4)
+#ifdef HAVE_ACCEPT4
     static int  use_accept4 = 1;
+#else
+    static int  use_accept4 = 0;
 #endif
 
     assert(c != NULL);
@@ -3809,7 +3811,7 @@ static void drive_machine(conn *c) {
         switch(c->state) {
         case conn_listening:
             addrlen = sizeof(addr);
-#if (HAVE_ACCEPT4)
+#ifdef HAVE_ACCEPT4
             if (use_accept4) {
                 sfd = accept4(c->sfd, (struct sockaddr *)&addr, &addrlen, SOCK_NONBLOCK);
             } else {
@@ -3819,16 +3821,11 @@ static void drive_machine(conn *c) {
             sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen);
 #endif
             if (sfd == -1) {
-#if (HAVE_ACCEPT4)
-
                 if (use_accept4 && errno == ENOSYS) {
                     use_accept4 = 0;
                     continue;
                 }
                 perror(use_accept4 ? "accept4()" : "accept()");
-#else
-                perror("accept()");
-#endif
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     /* these are transient, so don't log anything */
                     stop = true;
@@ -3843,17 +3840,13 @@ static void drive_machine(conn *c) {
                 }
                 break;
             }
-#if (HAVE_ACCEPT4)
             if (!use_accept4) {
-#endif
                 if (fcntl(sfd, F_SETFL, fcntl(sfd, F_GETFL) | O_NONBLOCK) < 0) {
                     perror("setting O_NONBLOCK");
                     close(sfd);
                     break;
                 }
-#if (HAVE_ACCEPT4)
             }
-#endif
 
             if (settings.maxconns_fast &&
                 stats.curr_conns + stats.reserved_fds >= settings.maxconns - 1) {
