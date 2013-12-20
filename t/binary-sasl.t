@@ -13,7 +13,7 @@ use Test::More;
 
 if (supports_sasl()) {
     if ($ENV{'RUN_SASL_TESTS'}) {
-        plan tests => 25;
+        plan tests => 33;
     } else {
         plan skip_all => 'Skipping SASL tests';
         exit 0;
@@ -229,6 +229,38 @@ $check->('x','somevalue');
 }
 $empty->('x');
 
+{
+    my $mc = MC::Client->new;
+
+    # Attempt bad authentication.
+    is ($mc->authenticate('testuser', 'wrongpassword'), 0x20, "bad auth");
+
+    # This should fail because $mc is not authenticated
+    my ($status, $val)= $mc->set('x', "somevalue");
+    ok($status, "this fails to authenticate");
+    cmp_ok($status,'==',ERR_AUTH_ERROR, "error code matches");
+}
+$empty->('x', 'somevalue');
+
+{
+    my $mc = MC::Client->new;
+
+    # Attempt bad authentication.
+    is ($mc->authenticate('testuser', 'wrongpassword'), 0x20, "bad auth");
+
+    # Mix an authenticated connection and an unauthenticated connection to
+    # confirm c->authenticated is not shared among connections
+    my $mc2 = MC::Client->new;
+    is ($mc2->authenticate('testuser', 'testpass'), 0, "authenticated");
+    my ($status, $val)= $mc2->set('x', "somevalue");
+    ok(! $status);
+
+    # This should fail because $mc is not authenticated
+    ($status, $val)= $mc->set('x', "somevalue");
+    ok($status, "this fails to authenticate");
+    cmp_ok($status,'==',ERR_AUTH_ERROR, "error code matches");
+}
+
 # check the SASL stats, make sure they track things correctly
 # note: the enabled or not is presence checked in stats.t
 
@@ -241,8 +273,8 @@ $empty->('x');
 
 {
     my %stats = $mc->stats('');
-    is ($stats{'auth_cmds'}, 2, "auth commands counted");
-    is ($stats{'auth_errors'}, 1, "auth errors correct");
+    is ($stats{'auth_cmds'}, 5, "auth commands counted");
+    is ($stats{'auth_errors'}, 3, "auth errors correct");
 }
 
 

@@ -376,6 +376,7 @@ typedef struct conn conn;
 struct conn {
     int    sfd;
     sasl_conn_t *sasl_conn;
+    bool authenticated;
     enum conn_states  state;
     enum bin_substates substate;
     struct event event;
