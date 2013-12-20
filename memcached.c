@@ -2856,8 +2856,14 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 }
 
 
-                if (settings.verbose > 1)
-                    fprintf(stderr, ">%d sending key %s\n", c->sfd, ITEM_key(it));
+                if (settings.verbose > 1) {
+                    int ii;
+                    fprintf(stderr, ">%d sending key ", c->sfd);
+                    for (ii = 0; ii < it->nkey; ++ii) {
+                        fprintf(stderr, "%c", key[ii]);
+                    }
+                    fprintf(stderr, "\n");
+                }
 
                 /* item_get() has incremented it->refcount for us */
                 pthread_mutex_lock(&c->thread->stats.mutex);

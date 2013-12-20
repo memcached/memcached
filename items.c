@@ -537,11 +537,15 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     int was_found = 0;
 
     if (settings.verbose > 2) {
+        int ii;
         if (it == NULL) {
-            fprintf(stderr, "> NOT FOUND %s", key);
+            fprintf(stderr, "> NOT FOUND ");
         } else {
-            fprintf(stderr, "> FOUND KEY %s", ITEM_key(it));
+            fprintf(stderr, "> FOUND KEY ");
             was_found++;
+        }
+        for (ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
         }
     }
 
