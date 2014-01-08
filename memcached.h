@@ -311,6 +311,7 @@ struct settings {
     bool shutdown_command; /* allow shutdown command */
     int tail_repair_time;   /* LRU tail refcount leak repair time */
     bool flush_enabled;     /* flush_all enabled */
+    int anti_stampede;
 };
 
 extern struct stats stats;
@@ -324,7 +325,7 @@ extern struct settings settings;
 #define ITEM_SLABBED 4
 
 #define ITEM_FETCHED 8
-
+#define ITEM_FAKE_MISSED 16
 /**
  * Structure for storing items within memcached.
  */
