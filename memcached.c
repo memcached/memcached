@@ -230,6 +230,7 @@ static void settings_init(void) {
     settings.shutdown_command = false;
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
+    settings.anti_stampede = 0;
 }
 
 /*
@@ -4623,6 +4624,13 @@ static void usage(void) {
 #ifdef ENABLE_SASL
     printf("-S            Turn on Sasl authentication\n");
 #endif
+    printf("-H            Stampede(Thundering Herd) protetcion threshold - fake-miss items that are\n"
+           "              about to expire near this value (for example if this is 5 and the\n"
+           "              item has 5 seconds before expiry, every GET request there is a chance\n"
+           "              that memcached will fake NOT FOUND to this specific GET request).\n"
+           "              There will be only 1 fake miss every time the item is about to expire\n"
+           "              more info: http://en.wikipedia.org/wiki/Thundering_herd_problem\n"
+           "              0 means disabled (default: 0)\n");
     printf("-F            Disable flush_all command\n");
     printf("-o            Comma separated list of extended or experimental options\n"
            "              - (EXPERIMENTAL) maxconns_fast: immediately close new\n"
@@ -4924,6 +4932,7 @@ int main (int argc, char **argv) {
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
           "o:"  /* Extended generic options */
+          "H:"  /* Stampede(thundering herd) protection */
         ))) {
         switch (c) {
         case 'A':
@@ -4989,6 +4998,8 @@ int main (int argc, char **argv) {
         case 'r':
             maxcore = 1;
             break;
+        case 'H':
+            settings.anti_stampede = atoi(optarg);
         case 'R':
             settings.reqs_per_event = atoi(optarg);
             if (settings.reqs_per_event == 0) {
