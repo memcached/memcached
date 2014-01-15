@@ -150,6 +150,7 @@ enum conn_states {
     conn_swallow,    /**< swallowing unnecessary bytes w/o storing */
     conn_closing,    /**< closing this connection */
     conn_mwrite,     /**< writing out many items sequentially */
+    conn_closed,     /**< connection is closed */
     conn_max_state   /**< Max state value (used for assertion) */
 };
 
@@ -379,6 +380,7 @@ struct conn {
     bool authenticated;
     enum conn_states  state;
     enum bin_substates substate;
+    rel_time_t last_cmd_time;
     struct event event;
     short  ev_flags;
     short  which;   /** which events were just triggered */
@@ -462,6 +464,8 @@ struct conn {
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
 };
 
+/* array of conn structures, indexed by file descriptor */
+extern conn **conns;
 
 /* current time of day (updated periodically) */
 extern volatile rel_time_t current_time;
