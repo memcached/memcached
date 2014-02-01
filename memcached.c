@@ -2769,6 +2769,9 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
             if(nkey > KEY_MAX_LENGTH) {
                 out_string(c, "CLIENT_ERROR bad command line format");
+                while (i-- > 0) {
+                    item_remove(*(c->ilist + i));
+                }
                 return;
             }
 
@@ -2826,6 +2829,9 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       STATS_UNLOCK();
                       out_string(c, "SERVER_ERROR out of memory making CAS suffix");
                       item_remove(it);
+                      while (i-- > 0) {
+                          item_remove(*(c->ilist + i));
+                      }
                       return;
                   }
                   *(c->suffixlist + i) = suffix;
@@ -2919,8 +2925,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         conn_set_state(c, conn_mwrite);
         c->msgcurr = 0;
     }
-
-    return;
 }
 
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
