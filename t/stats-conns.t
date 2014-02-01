@@ -27,7 +27,7 @@ while (<$stats_sock>) {
 }
 
 like($stats, qr/STAT \d+:addr /);
-$stats =~ m/STAT (\d+):addr (\/[^\r\n]*)/g;
+$stats =~ m/STAT (\d+):addr unix:(\/[^\r\n]*)/g;
 my $listen_fd = $1;
 is($2, $filename, "unix domain socket path reported correctly");
 $stats =~ m/STAT (\d+):state conn_listening\r\n/g;
@@ -59,7 +59,7 @@ while (<$stats_sock>) {
 }
 
 like($stats, qr/STAT \d+:state conn_listen/, "there is a listen socket");
-$stats =~ m/STAT \d+:addr 0.0.0.0:(\d+) udp/;
+$stats =~ m/STAT \d+:addr udp:0.0.0.0:(\d+)/;
 is($1, $server->udpport, "udp port number is correct");
-$stats =~ m/STAT \d+:addr 0.0.0.0:(\d+) tcp/;
+$stats =~ m/STAT \d+:addr tcp:0.0.0.0:(\d+)/;
 is($1, $server->port, "tcp port number is correct");
