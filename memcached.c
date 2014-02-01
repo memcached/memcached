@@ -487,7 +487,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     return c;
 }
 
-static void conn_cleanup(conn *c) {
+static void conn_release_items(conn *c) {
     assert(c != NULL);
 
     if (c->item) {
@@ -495,10 +495,12 @@ static void conn_cleanup(conn *c) {
         c->item = 0;
     }
 
-    if (c->ileft != 0) {
-        for (; c->ileft > 0; c->ileft--,c->icurr++) {
-            item_remove(*(c->icurr));
-        }
+    while (c->ileft > 0) {
+        item *it = *(c->icurr);
+        assert((it->it_flags & ITEM_SLABBED) == 0);
+        item_remove(it);
+        c->icurr++;
+        c->ileft--;
     }
 
     if (c->suffixleft != 0) {
@@ -506,6 +508,15 @@ static void conn_cleanup(conn *c) {
             cache_free(c->thread->suffix_cache, *(c->suffixcurr));
         }
     }
+
+    c->icurr = c->ilist;
+    c->suffixcurr = c->suffixlist;
+}
+
+static void conn_cleanup(conn *c) {
+    assert(c != NULL);
+
+    conn_release_items(c);
 
     if (c->write_and_free) {
         free(c->write_and_free);
@@ -4115,19 +4126,7 @@ static void drive_machine(conn *c) {
             switch (transmit(c)) {
             case TRANSMIT_COMPLETE:
                 if (c->state == conn_mwrite) {
-                    while (c->ileft > 0) {
-                        item *it = *(c->icurr);
-                        assert((it->it_flags & ITEM_SLABBED) == 0);
-                        item_remove(it);
-                        c->icurr++;
-                        c->ileft--;
-                    }
-                    while (c->suffixleft > 0) {
-                        char *suffix = *(c->suffixcurr);
-                        cache_free(c->thread->suffix_cache, suffix);
-                        c->suffixcurr++;
-                        c->suffixleft--;
-                    }
+                    conn_release_items(c);
                     /* XXX:  I don't know why this wasn't the general case */
                     if(c->protocol == binary_prot) {
                         conn_set_state(c, c->write_and_go);
