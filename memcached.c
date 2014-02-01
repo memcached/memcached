@@ -1232,26 +1232,33 @@ static void complete_update_bin(conn *c) {
     c->item = 0;
 }
 
-static void process_bin_touch(conn *c) {
+static void process_bin_get_or_touch(conn *c) {
     item *it;
 
     protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
-    protocol_binary_request_touch *t = binary_get_request(c);
-    time_t exptime = ntohl(t->message.body.expiration);
+    int should_touch = (c->cmd == PROTOCOL_BINARY_CMD_TOUCH ||
+                        c->cmd == PROTOCOL_BINARY_CMD_GAT ||
+                        c->cmd == PROTOCOL_BINARY_CMD_GATK);
+    int should_return_key = (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
+                             c->cmd == PROTOCOL_BINARY_CMD_GATK);
+    int should_return_value = (c->cmd != PROTOCOL_BINARY_CMD_TOUCH);
 
     if (settings.verbose > 1) {
-        int ii;
-        /* May be GAT/GATQ/etc */
-        fprintf(stderr, "<%d TOUCH ", c->sfd);
-        for (ii = 0; ii < nkey; ++ii) {
-            fprintf(stderr, "%c", key[ii]);
-        }
-        fprintf(stderr, "\n");
+        fprintf(stderr, "<%d %s ", c->sfd, should_touch ? "TOUCH" : "GET");
+        fwrite(key, 1, nkey, stderr);
+        fputc('\n', stderr);
     }
 
-    it = item_touch(key, nkey, realtime(exptime));
+    if (should_touch) {
+        protocol_binary_request_touch *t = binary_get_request(c);
+        time_t exptime = ntohl(t->message.body.expiration);
+
+        it = item_touch(key, nkey, realtime(exptime));
+    } else {
+        it = item_get(key, nkey);
+    }
 
     if (it) {
         /* the length has two unnecessary bytes ("\r\n") */
@@ -1260,16 +1267,26 @@ static void process_bin_touch(conn *c) {
 
         item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.touch_cmds++;
-        c->thread->stats.slab_stats[it->slabs_clsid].touch_hits++;
+        if (should_touch) {
+            c->thread->stats.touch_cmds++;
+            c->thread->stats.slab_stats[it->slabs_clsid].touch_hits++;
+        } else {
+            c->thread->stats.get_cmds++;
+            c->thread->stats.slab_stats[it->slabs_clsid].get_hits++;
+        }
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
-                                it->nbytes, ITEM_get_cas(it));
+        if (should_touch) {
+            MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
+                                    it->nbytes, ITEM_get_cas(it));
+        } else {
+            MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                                  it->nbytes, ITEM_get_cas(it));
+        }
 
         if (c->cmd == PROTOCOL_BINARY_CMD_TOUCH) {
             bodylen -= it->nbytes - 2;
-        } else if (c->cmd == PROTOCOL_BINARY_CMD_GATK) {
+        } else if (should_return_key) {
             bodylen += nkey;
             keylen = nkey;
         }
@@ -1281,12 +1298,12 @@ static void process_bin_touch(conn *c) {
         rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
-        if (c->cmd == PROTOCOL_BINARY_CMD_GATK) {
+        if (should_return_key) {
             add_iov(c, ITEM_key(it), nkey);
         }
 
-        /* Add the data minus the CRLF */
-        if (c->cmd != PROTOCOL_BINARY_CMD_TOUCH) {
+        if (should_return_value) {
+            /* Add the data minus the CRLF */
             add_iov(c, ITEM_data(it), it->nbytes - 2);
         }
 
@@ -1296,98 +1313,25 @@ static void process_bin_touch(conn *c) {
         c->item = it;
     } else {
         pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.touch_cmds++;
-        c->thread->stats.touch_misses++;
+        if (should_touch) {
+            c->thread->stats.touch_cmds++;
+            c->thread->stats.touch_misses++;
+        } else {
+            c->thread->stats.get_cmds++;
+            c->thread->stats.get_misses++;
+        }
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        MEMCACHED_COMMAND_TOUCH(c->sfd, key, nkey, -1, 0);
+        if (should_touch) {
+            MEMCACHED_COMMAND_TOUCH(c->sfd, key, nkey, -1, 0);
+        } else {
+            MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
+        }
 
         if (c->noreply) {
             conn_set_state(c, conn_new_cmd);
         } else {
-            if (c->cmd == PROTOCOL_BINARY_CMD_GATK) {
-                char *ofs = c->wbuf + sizeof(protocol_binary_response_header);
-                add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
-                        0, nkey, nkey);
-                memcpy(ofs, key, nkey);
-                add_iov(c, ofs, nkey);
-                conn_set_state(c, conn_mwrite);
-                c->write_and_go = conn_new_cmd;
-            } else {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
-            }
-        }
-    }
-
-    if (settings.detail_enabled) {
-        stats_prefix_record_get(key, nkey, NULL != it);
-    }
-}
-
-static void process_bin_get(conn *c) {
-    item *it;
-
-    protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
-    char* key = binary_get_key(c);
-    size_t nkey = c->binary_header.request.keylen;
-
-    if (settings.verbose > 1) {
-        int ii;
-        fprintf(stderr, "<%d GET ", c->sfd);
-        for (ii = 0; ii < nkey; ++ii) {
-            fprintf(stderr, "%c", key[ii]);
-        }
-        fprintf(stderr, "\n");
-    }
-
-    it = item_get(key, nkey);
-    if (it) {
-        /* the length has two unnecessary bytes ("\r\n") */
-        uint16_t keylen = 0;
-        uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
-
-        item_update(it);
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.get_cmds++;
-        c->thread->stats.slab_stats[it->slabs_clsid].get_hits++;
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                              it->nbytes, ITEM_get_cas(it));
-
-        if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
-            bodylen += nkey;
-            keylen = nkey;
-        }
-        add_bin_header(c, 0, sizeof(rsp->message.body), keylen, bodylen);
-        rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
-
-        // add the flags
-        rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
-        add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
-
-        if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
-            add_iov(c, ITEM_key(it), nkey);
-        }
-
-        /* Add the data minus the CRLF */
-        add_iov(c, ITEM_data(it), it->nbytes - 2);
-        conn_set_state(c, conn_mwrite);
-        c->write_and_go = conn_new_cmd;
-        /* Remember this command so we can garbage collect it later */
-        c->item = it;
-    } else {
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.get_cmds++;
-        c->thread->stats.get_misses++;
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-
-        MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
-
-        if (c->noreply) {
-            conn_set_state(c, conn_new_cmd);
-        } else {
-            if (c->cmd == PROTOCOL_BINARY_CMD_GETK) {
+            if (should_return_key) {
                 char *ofs = c->wbuf + sizeof(protocol_binary_response_header);
                 add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
                         0, nkey, nkey);
@@ -2252,10 +2196,8 @@ static void complete_nread_binary(conn *c) {
         complete_update_bin(c);
         break;
     case bin_reading_get_key:
-        process_bin_get(c);
-        break;
     case bin_reading_touch_key:
-        process_bin_touch(c);
+        process_bin_get_or_touch(c);
         break;
     case bin_reading_stat:
         process_bin_stat(c);
