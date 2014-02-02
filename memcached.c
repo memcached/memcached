@@ -93,7 +93,8 @@ static void write_and_free(conn *c, char *buf, int bytes);
 static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
 static int add_msghdr(conn *c);
-
+static void write_bin_error(conn *c, protocol_binary_response_status err,
+                            int swallow);
 
 static void conn_free(conn *c);
 
@@ -860,6 +861,18 @@ static void out_string(conn *c, const char *str) {
 }
 
 /*
+ * Outputs a protocol-specific "out of memory" error. For ASCII clients,
+ * this is equivalent to out_string().
+ */
+static void out_of_memory(conn *c, char *ascii_error) {
+    if (c->protocol == binary_prot) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+    } else {
+        out_string(c, ascii_error);
+    }
+}
+
+/*
  * we get here after reading the value in set/add/replace commands. The command
  * has been stored in c->cmd, and the item is ready in c->item.
  */
@@ -960,8 +973,10 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     c->msgused = 0;
     c->iovused = 0;
     if (add_msghdr(c) != 0) {
-        /* XXX:  out_string is inappropriate here */
-        out_string(c, "SERVER_ERROR out of memory");
+        /* This should never run out of memory because iov and msg lists
+         * have minimum sizes big enough to hold an error response.
+         */
+        out_of_memory(c, "SERVER_ERROR out of memory adding binary header");
         return;
     }
 
@@ -2454,7 +2469,7 @@ static void write_and_free(conn *c, char *buf, int bytes) {
         conn_set_state(c, conn_write);
         c->write_and_go = conn_new_cmd;
     } else {
-        out_string(c, "SERVER_ERROR out of memory writing stats");
+        out_of_memory(c, "SERVER_ERROR out of memory writing stats");
     }
 }
 
@@ -2682,7 +2697,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
            is invalid. query the engine and see. */
         if (get_stats(subcommand, strlen(subcommand), &append_stats, c)) {
             if (c->stats.buffer == NULL) {
-                out_string(c, "SERVER_ERROR out of memory writing stats");
+                out_of_memory(c, "SERVER_ERROR out of memory writing stats");
             } else {
                 write_and_free(c, c->stats.buffer, c->stats.offset);
                 c->stats.buffer = NULL;
@@ -2697,7 +2712,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     append_stats(NULL, 0, NULL, 0, c);
 
     if (c->stats.buffer == NULL) {
-        out_string(c, "SERVER_ERROR out of memory writing stats");
+        out_of_memory(c, "SERVER_ERROR out of memory writing stats");
     } else {
         write_and_free(c, c->stats.buffer, c->stats.offset);
         c->stats.buffer = NULL;
@@ -2780,7 +2795,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       STATS_LOCK();
                       stats.malloc_fails++;
                       STATS_UNLOCK();
-                      out_string(c, "SERVER_ERROR out of memory making CAS suffix");
+                      out_of_memory(c, "SERVER_ERROR out of memory making CAS suffix");
                       item_remove(it);
                       while (i-- > 0) {
                           item_remove(*(c->ilist + i));
@@ -2872,7 +2887,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     */
     if (key_token->value != NULL || add_iov(c, "END\r\n", 5) != 0
         || (IS_UDP(c->transport) && build_udp_headers(c) != 0)) {
-        out_string(c, "SERVER_ERROR out of memory writing get response");
+        out_of_memory(c, "SERVER_ERROR out of memory writing get response");
     }
     else {
         conn_set_state(c, conn_mwrite);
@@ -2942,7 +2957,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         if (! item_size_ok(nkey, flags, vlen))
             out_string(c, "SERVER_ERROR object too large for cache");
         else
-            out_string(c, "SERVER_ERROR out of memory storing object");
+            out_of_memory(c, "SERVER_ERROR out of memory storing object");
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         c->sbytes = vlen;
@@ -3042,7 +3057,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         out_string(c, "CLIENT_ERROR cannot increment or decrement non-numeric value");
         break;
     case EOM:
-        out_string(c, "SERVER_ERROR out of memory");
+        out_of_memory(c, "SERVER_ERROR out of memory");
         break;
     case DELTA_ITEM_NOT_FOUND:
         pthread_mutex_lock(&c->thread->stats.mutex);
@@ -3271,7 +3286,7 @@ static void process_command(conn *c, char *command) {
     c->msgused = 0;
     c->iovused = 0;
     if (add_msghdr(c) != 0) {
-        out_string(c, "SERVER_ERROR out of memory preparing response");
+        out_of_memory(c, "SERVER_ERROR out of memory preparing response");
         return;
     }
 
@@ -3499,7 +3514,7 @@ static int try_read_command(conn *c) {
             c->msgused = 0;
             c->iovused = 0;
             if (add_msghdr(c) != 0) {
-                out_string(c, "SERVER_ERROR out of memory");
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
                 return 0;
             }
 
@@ -3638,7 +3653,7 @@ static enum try_read_result try_read_network(conn *c) {
                     fprintf(stderr, "Couldn't realloc input buffer\n");
                 }
                 c->rbytes = 0; /* ignore what we read */
-                out_string(c, "SERVER_ERROR out of memory reading request");
+                out_of_memory(c, "SERVER_ERROR out of memory reading request");
                 c->write_and_go = conn_closing;
                 return READ_MEMORY_ERROR;
             }
