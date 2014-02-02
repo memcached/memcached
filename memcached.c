@@ -94,7 +94,7 @@ static int ensure_iov_space(conn *c);
 static int add_iov(conn *c, const void *buf, int len);
 static int add_msghdr(conn *c);
 static void write_bin_error(conn *c, protocol_binary_response_status err,
-                            int swallow);
+                            const char *errstr, int swallow);
 
 static void conn_free(conn *c);
 
@@ -865,8 +865,15 @@ static void out_string(conn *c, const char *str) {
  * this is equivalent to out_string().
  */
 static void out_of_memory(conn *c, char *ascii_error) {
+    const static char error_prefix[] = "SERVER_ERROR ";
+    const static int error_prefix_len = sizeof(error_prefix) - 1;
+
     if (c->protocol == binary_prot) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        /* Strip off the generic error prefix; it's irrelevant in binary */
+        if (!strncmp(ascii_error, error_prefix, error_prefix_len)) {
+            ascii_error += error_prefix_len;
+        }
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, ascii_error, 0);
     } else {
         out_string(c, ascii_error);
     }
@@ -1009,42 +1016,49 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     add_iov(c, c->wbuf, sizeof(header->response));
 }
 
-static void write_bin_error(conn *c, protocol_binary_response_status err, int swallow) {
-    const char *errstr = "Unknown error";
+/**
+ * Writes a binary error response. If errstr is supplied, it is used as the
+ * error text; otherwise a generic description of the error status code is
+ * included.
+ */
+static void write_bin_error(conn *c, protocol_binary_response_status err,
+                            const char *errstr, int swallow) {
     size_t len;
 
-    switch (err) {
-    case PROTOCOL_BINARY_RESPONSE_ENOMEM:
-        errstr = "Out of memory";
-        break;
-    case PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND:
-        errstr = "Unknown command";
-        break;
-    case PROTOCOL_BINARY_RESPONSE_KEY_ENOENT:
-        errstr = "Not found";
-        break;
-    case PROTOCOL_BINARY_RESPONSE_EINVAL:
-        errstr = "Invalid arguments";
-        break;
-    case PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS:
-        errstr = "Data exists for key.";
-        break;
-    case PROTOCOL_BINARY_RESPONSE_E2BIG:
-        errstr = "Too large.";
-        break;
-    case PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL:
-        errstr = "Non-numeric server-side value for incr or decr";
-        break;
-    case PROTOCOL_BINARY_RESPONSE_NOT_STORED:
-        errstr = "Not stored.";
-        break;
-    case PROTOCOL_BINARY_RESPONSE_AUTH_ERROR:
-        errstr = "Auth failure.";
-        break;
-    default:
-        assert(false);
-        errstr = "UNHANDLED ERROR";
-        fprintf(stderr, ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
+    if (!errstr) {
+        switch (err) {
+        case PROTOCOL_BINARY_RESPONSE_ENOMEM:
+            errstr = "Out of memory";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND:
+            errstr = "Unknown command";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_KEY_ENOENT:
+            errstr = "Not found";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_EINVAL:
+            errstr = "Invalid arguments";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS:
+            errstr = "Data exists for key.";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_E2BIG:
+            errstr = "Too large.";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL:
+            errstr = "Non-numeric server-side value for incr or decr";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_NOT_STORED:
+            errstr = "Not stored.";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_AUTH_ERROR:
+            errstr = "Auth failure.";
+            break;
+        default:
+            assert(false);
+            errstr = "UNHANDLED ERROR";
+            fprintf(stderr, ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
+        }
     }
 
     if (settings.verbose > 1) {
@@ -1129,10 +1143,10 @@ static void complete_incr_bin(conn *c) {
                            sizeof(rsp->message.body.value));
         break;
     case NON_NUMERIC:
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL, NULL, 0);
         break;
     case EOM:
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        out_of_memory(c, "SERVER_ERROR Out of memory incrementing value");
         break;
     case DELTA_ITEM_NOT_FOUND:
         if (req->message.body.expiration != 0xffffffff) {
@@ -1153,11 +1167,13 @@ static void complete_incr_bin(conn *c) {
                     c->cas = ITEM_get_cas(it);
                     write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
                 } else {
-                    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED, 0);
+                    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED,
+                                    NULL, 0);
                 }
                 item_remove(it);         /* release our reference */
             } else {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                out_of_memory(c,
+                        "SERVER_ERROR Out of memory allocating new item");
             }
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -1168,11 +1184,11 @@ static void complete_incr_bin(conn *c) {
             }
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         }
         break;
     case DELTA_ITEM_CAS_MISMATCH:
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
         break;
     }
 }
@@ -1227,10 +1243,10 @@ static void complete_update_bin(conn *c) {
         write_bin_response(c, NULL, 0, 0, 0);
         break;
     case EXISTS:
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
         break;
     case NOT_FOUND:
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         break;
     case NOT_STORED:
         if (c->cmd == NREAD_ADD) {
@@ -1240,7 +1256,7 @@ static void complete_update_bin(conn *c) {
         } else {
             eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
         }
-        write_bin_error(c, eno, 0);
+        write_bin_error(c, eno, NULL, 0);
     }
 
     item_remove(c->item);       /* release the c->item reference */
@@ -1355,7 +1371,8 @@ static void process_bin_get_or_touch(conn *c) {
                 conn_set_state(c, conn_mwrite);
                 c->write_and_go = conn_new_cmd;
             } else {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
+                                NULL, 0);
             }
         }
     }
@@ -1501,7 +1518,7 @@ static void process_bin_stat(conn *c) {
             int len;
             char *dump_buf = stats_prefix_dump(&len);
             if (dump_buf == NULL || len <= 0) {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                out_of_memory(c, "SERVER_ERROR Out of memory generating stats");
                 return ;
             } else {
                 append_stats("detailed", strlen("detailed"), dump_buf, len, c);
@@ -1512,19 +1529,19 @@ static void process_bin_stat(conn *c) {
         } else if (strncmp(subcmd_pos, " off", 4) == 0) {
             settings.detail_enabled = 0;
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
             return;
         }
     } else {
         if (get_stats(subcommand, nkey, &append_stats, c)) {
             if (c->stats.buffer == NULL) {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                out_of_memory(c, "SERVER_ERROR Out of memory generating stats");
             } else {
                 write_and_free(c, c->stats.buffer, c->stats.offset);
                 c->stats.buffer = NULL;
             }
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         }
 
         return;
@@ -1533,7 +1550,7 @@ static void process_bin_stat(conn *c) {
     /* Append termination package and start the transfer */
     append_stats(NULL, 0, NULL, 0, c);
     if (c->stats.buffer == NULL) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+        out_of_memory(c, "SERVER_ERROR Out of memory preparing to send stats");
     } else {
         write_and_free(c, c->stats.buffer, c->stats.offset);
         c->stats.buffer = NULL;
@@ -1594,7 +1611,7 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
 
 /* Just write an error message and disconnect the client */
 static void handle_binary_protocol_error(conn *c) {
-    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, 0);
+    write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, NULL, 0);
     if (settings.verbose) {
         fprintf(stderr, "Protocol error (opcode %02x), close connection %d\n",
                 c->binary_header.request.opcode, c->sfd);
@@ -1628,7 +1645,7 @@ static void init_sasl_conn(conn *c) {
 static void bin_list_sasl_mechs(conn *c) {
     // Guard against a disabled SASL.
     if (!settings.sasl) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, NULL,
                         c->binary_header.request.bodylen
                         - c->binary_header.request.keylen);
         return;
@@ -1648,7 +1665,7 @@ static void bin_list_sasl_mechs(conn *c) {
         if (settings.verbose) {
             fprintf(stderr, "Failed to list SASL mechanisms.\n");
         }
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, NULL, 0);
         return;
     }
     write_bin_response(c, (char*)result_string, 0, 0, string_length);
@@ -1657,7 +1674,7 @@ static void bin_list_sasl_mechs(conn *c) {
 static void process_bin_sasl_auth(conn *c) {
     // Guard for handling disabled SASL on the server.
     if (!settings.sasl) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND,
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, NULL,
                         c->binary_header.request.bodylen
                         - c->binary_header.request.keylen);
         return;
@@ -1669,7 +1686,7 @@ static void process_bin_sasl_auth(conn *c) {
     int vlen = c->binary_header.request.bodylen - nkey;
 
     if (nkey > MAX_SASL_MECH_LEN) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, vlen);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, NULL, vlen);
         c->write_and_go = conn_swallow;
         return;
     }
@@ -1680,7 +1697,7 @@ static void process_bin_sasl_auth(conn *c) {
     item *it = item_alloc(key, nkey, 0, 0, vlen);
 
     if (it == 0) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, NULL, vlen);
         c->write_and_go = conn_swallow;
         return;
     }
@@ -1761,7 +1778,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
     default:
         if (settings.verbose)
             fprintf(stderr, "Unknown sasl response:  %d\n", result);
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, NULL, 0);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.auth_cmds++;
         c->thread->stats.auth_errors++;
@@ -1800,7 +1817,7 @@ static void dispatch_bin_command(conn *c) {
     uint32_t bodylen = c->binary_header.request.bodylen;
 
     if (settings.sasl && !authenticated(c)) {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, NULL, 0);
         c->write_and_go = conn_closing;
         return;
     }
@@ -1970,7 +1987,8 @@ static void dispatch_bin_command(conn *c) {
             }
             break;
         default:
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, bodylen);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, NULL,
+                            bodylen);
     }
 
     if (protocol_error)
@@ -2021,9 +2039,9 @@ static void process_bin_update(conn *c) {
 
     if (it == 0) {
         if (! item_size_ok(nkey, req->message.body.flags, vlen + 2)) {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, NULL, vlen);
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
+            out_of_memory(c, "SERVER_ERROR Out of memory allocating item");
         }
 
         /* Avoid stale data persisting in cache because we failed alloc.
@@ -2092,9 +2110,9 @@ static void process_bin_append_prepend(conn *c) {
 
     if (it == 0) {
         if (! item_size_ok(nkey, 0, vlen + 2)) {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, NULL, vlen);
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
+            out_of_memory(c, "SERVER_ERROR Out of memory allocating item");
         }
         /* swallow the data line */
         c->write_and_go = conn_swallow;
@@ -2127,7 +2145,7 @@ static void process_bin_flush(conn *c) {
 
     if (!settings.flush_enabled) {
       // flush_all is not allowed but we log it on stats
-      write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, 0);
+      write_bin_error(c, PROTOCOL_BINARY_RESPONSE_AUTH_ERROR, NULL, 0);
       return;
     }
 
@@ -2183,11 +2201,11 @@ static void process_bin_delete(conn *c) {
             item_unlink(it);
             write_bin_response(c, NULL, 0, 0, 0);
         } else {
-            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, 0);
+            write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
         }
         item_remove(it);      /* release our reference */
     } else {
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.delete_misses++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -3514,7 +3532,8 @@ static int try_read_command(conn *c) {
             c->msgused = 0;
             c->iovused = 0;
             if (add_msghdr(c) != 0) {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, 0);
+                out_of_memory(c,
+                        "SERVER_ERROR Out of memory allocating headers");
                 return 0;
             }
 
