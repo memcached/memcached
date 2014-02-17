@@ -691,6 +691,62 @@ END\r\n
   wasted in a slab class.  If you see a lot of waste, consider tuning
   the slab factor.
 
+
+Connection statistics
+---------------------
+The "stats" command with the argument of "conns" returns information
+about currently active connections and about sockets that are listening
+for new connections. The data is returned in the format:
+
+STAT <file descriptor>:<stat> <value>\r\n
+
+The server terminates this list with the line
+
+END\r\n
+
+The following "stat" keywords may be present:
+
+|---------------------+------------------------------------------------------|
+| Name                | Meaning                                              |
+|---------------------+------------------------------------------------------|
+| addr                | The address of the remote side. For listening        |
+|                     | sockets this is the listen address. Note that some   |
+|                     | socket types (such as UNIX-domain) don't have        |
+|                     | meaningful remote addresses.                         |
+| state               | The current state of the connection. See below.      |
+| secs_since_last_cmd | The number of seconds since the most recently        |
+|                     | issued command on the connection. This measures      |
+|                     | the time since the start of the command, so if       |
+|                     | "state" indicates a command is currently executing,  |
+|                     | this will be the number of seconds the current       |
+|                     | command has been running.                            |
+|---------------------+------------------------------------------------------|
+
+The value of the "state" stat may be one of the following:
+
+|----------------+-----------------------------------------------------------|
+| Name           | Meaning                                                   |
+|----------------+-----------------------------------------------------------|
+| conn_closing   | Shutting down the connection.                             |
+| conn_listening | Listening for new connections or a new UDP request.       |
+| conn_mwrite    | Writing a complex response, e.g., to a "get" command.     |
+| conn_new_cmd   | Connection is being prepared to accept a new command.     |
+| conn_nread     | Reading extended data, typically for a command such as    |
+|                | "set" or "put".                                           |
+| conn_parse_cmd | The server has received a command and is in the middle    |
+|                | of parsing it or executing it.                            |
+| conn_read      | Reading newly-arrived command data.                       |
+| conn_swallow   | Discarding excess input, e.g., after an error has         |
+|                | occurred.                                                 |
+| conn_waiting   | A partial command has been received and the server is     |
+|                | waiting for the rest of it to arrive (note the difference |
+|                | between this and conn_nread).                             |
+| conn_write     | Writing a simple response (anything that doesn't involve  |
+|                | sending back multiple lines of response data).            |
+|----------------+-----------------------------------------------------------|
+
+
+
 Other commands
 --------------
 
