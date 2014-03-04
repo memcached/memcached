@@ -553,6 +553,13 @@ AM_CONDITIONAL([BUILD_CACHE], [test "x$build_cache" = "xyes"])
 AC_ARG_ENABLE(docs,
   [AS_HELP_STRING([--disable-docs],[Disable documentation generation])])
 
+AC_ARG_ENABLE(idle-timeouts,
+  [AS_HELP_STRING([--enable-idle-timeouts],[Enable per-connection idle timeouts (not for high-volume use!)])])
+
+AS_IF([test "x$enable_idle_timeouts" = "xyes"],
+  [AC_DEFINE([ENABLE_IDLE_TIMEOUTS], 1,
+    [Set to nonzero if you want per-connection idle timeouts (not intended for extremely high connecton count usage)])])
+
 AC_PATH_PROG([XML2RFC], [xml2rfc], "no")
 AC_PATH_PROG([XSLTPROC], [xsltproc], "no")
 

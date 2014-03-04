@@ -250,6 +250,9 @@ struct stats {
     unsigned int  curr_conns;
     unsigned int  total_conns;
     uint64_t      rejected_conns;
+#ifdef ENABLE_IDLE_TIMEOUTS
+    uint64_t      idle_disc_conns;
+#endif
     uint64_t      malloc_fails;
     unsigned int  reserved_fds;
     unsigned int  conn_structs;
@@ -311,6 +314,9 @@ struct settings {
     bool shutdown_command; /* allow shutdown command */
     int tail_repair_time;   /* LRU tail refcount leak repair time */
     bool flush_enabled;     /* flush_all enabled */
+#ifdef ENABLE_IDLE_TIMEOUTS
+    unsigned int idle_timeout; /* Disconnect after this many idle seconds */
+#endif
 };
 
 extern struct stats stats;
@@ -450,6 +456,11 @@ struct conn {
         size_t size;
         size_t offset;
     } stats;
+
+    /* timeout extension */
+    unsigned int timeout;
+    unsigned int *timeout_pending;
+    struct event timeout_event;
 
     /* Binary protocol stuff */
     /* This is where the binary header goes */
