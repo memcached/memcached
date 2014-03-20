@@ -54,6 +54,13 @@
 #endif
 #endif
 
+#ifdef ENABLE_IDLE_TIMEOUTS
+#define IS_CONNECTED_STATE(st) ((st) > conn_listening && \
+                                (st) < conn_max_state && \
+                                (st) != conn_closing)
+#define IS_CONNECTED(c)       (!IS_UDP((c)->transport) && IS_CONNECTED_STATE((c)->state))
+#endif
+
 /*
  * forward declarations
  */
@@ -97,6 +104,12 @@ static void write_bin_error(conn *c, protocol_binary_response_status err,
                             const char *errstr, int swallow);
 
 static void conn_free(conn *c);
+
+#ifdef ENABLE_IDLE_TIMEOUTS
+/* timeout event handler */
+static void timeout_event_handler(const int fd, const short which, void *arg);
+static bool update_timeout_event(conn *c, int remove, struct event_base *base);
+#endif
 
 /** exported globals **/
 struct stats stats;
@@ -178,6 +191,9 @@ static void stats_init(void) {
     stats.slabs_moved = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
     stats.slab_reassign_running = false;
+#ifdef ENABLE_IDLE_TIMEOUTS
+    stats.idle_disc_conns = 0;
+#endif
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -191,6 +207,9 @@ static void stats_reset(void) {
     STATS_LOCK();
     stats.total_items = stats.total_conns = 0;
     stats.rejected_conns = 0;
+#ifdef ENABLE_IDLE_TIMEOUTS
+    stats.idle_disc_conns = 0;
+#endif
     stats.malloc_fails = 0;
     stats.evictions = 0;
     stats.reclaimed = 0;
@@ -231,6 +250,13 @@ static void settings_init(void) {
     settings.shutdown_command = false;
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
+#ifdef ENABLE_IDLE_TIMEOUTS
+#if IDLE_TIMEOUT_DEFAULT
+    settings.idle_timeout = IDLE_TIMEOUT_DEFAULT;
+#else
+    settings.idle_timeout = 0;
+#endif
+#endif /* ENABLE_IDLE_TIMEOUTS */
 }
 
 /*
@@ -381,6 +407,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->msglist = 0;
         c->hdrbuf = 0;
 
+#ifdef ENABLE_IDLE_TIMEOUTS
+        c->timeout = 0;
+        c->timeout_pending = NULL;
+#endif
+
         c->rsize = read_buffer_size;
         c->wsize = DATA_BUFFER_SIZE;
         c->isize = ITEM_LIST_INITIAL;
@@ -413,6 +444,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->transport = transport;
     c->protocol = settings.binding_protocol;
+
+#ifdef ENABLE_IDLE_TIMEOUTS
+    c->timeout = settings.idle_timeout;
+    c->timeout_pending = NULL;
+#endif
 
     /* unix socket mode doesn't need this, so zeroed out.  but why
      * is this done for every command?  presumably for UDP
@@ -478,6 +514,12 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         return NULL;
     }
 
+#ifdef ENABLE_IDLE_TIMEOUTS
+    if (IS_CONNECTED(c) && c->timeout > 0 && !c->timeout_pending &&
+                                    !update_timeout_event(c,0,base))
+        return NULL;
+#endif /* ENABLE_IDLE_TIMEOUTS */
+
     STATS_LOCK();
     stats.curr_conns++;
     stats.total_conns++;
@@ -516,6 +558,11 @@ static void conn_release_items(conn *c) {
 
 static void conn_cleanup(conn *c) {
     assert(c != NULL);
+
+#ifdef ENABLE_IDLE_TIMEOUTS
+    if (c->timeout_pending)
+        update_timeout_event(c,1,NULL);
+#endif /* ENABLE_IDLE_TIMEOUTS */
 
     conn_release_items(c);
 
@@ -561,6 +608,13 @@ void conn_free(conn *c) {
 
 static void conn_close(conn *c) {
     assert(c != NULL);
+
+#ifdef ENABLE_IDLE_TIMEOUTS
+    if (c->timeout_pending) {
+        c->timeout_pending = NULL;
+        event_del(&c->timeout_event);
+    }
+#endif
 
     /* delete the event, the socket and the conn */
     event_del(&c->event);
@@ -682,6 +736,29 @@ static void conn_set_state(conn *c, enum conn_states state) {
             MEMCACHED_PROCESS_COMMAND_END(c->sfd, c->wbuf, c->wbytes);
         }
         c->state = state;
+#ifdef ENABLE_IDLE_TIMEOUTS
+        /* Make sure a timeout is set for stream connections that we
+         * are switching into an active i/o state for. update_event()
+         * may not have picked this up if the previous state was
+         * non-applicable.
+         */
+        if (!IS_UDP(c->transport) && c->timeout > 0 && !(c->timeout_pending)) {
+            switch(state) {
+            case conn_read:
+            case conn_write:
+            case conn_nread:
+            case conn_swallow:
+            case conn_mwrite:
+                update_timeout_event(c,0,NULL);
+            default:
+                break;
+            }
+        }
+    }
+
+    if (c->state == conn_listening && settings.idle_timeout > 0) {
+        update_timeout_event(c,1,NULL);
+#endif /* ENABLE_IDLE_TIMEOUTS */
     }
 }
 
@@ -2586,6 +2663,11 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     if (settings.maxconns_fast) {
         APPEND_STAT("rejected_connections", "%llu", (unsigned long long)stats.rejected_conns);
     }
+#ifdef ENABLE_IDLE_TIMEOUTS
+    if (settings.idle_timeout > 0) {
+        APPEND_STAT("idle_disconnected_connections", "%llu", (unsigned long long)stats.idle_disc_conns);
+    }
+#endif /* ENABLE_IDLE_TIMEOUTS */
     APPEND_STAT("connection_structures", "%u", stats.conn_structs);
     APPEND_STAT("reserved_fds", "%u", stats.reserved_fds);
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
@@ -3707,18 +3789,71 @@ static enum try_read_result try_read_network(conn *c) {
     return gotdata;
 }
 
+#ifdef ENABLE_IDLE_TIMEOUTS
+static bool update_timeout_event(conn *c, int remove, struct event_base *base) {
+    assert(c != NULL);
+
+    if(c->timeout_pending != NULL && evtimer_del(&c->timeout_event) == -1) {
+        c->timeout_pending = NULL;
+        perror("evtimer_del");
+        return false;
+    } else c->timeout_pending = NULL;
+
+    if(!remove) {
+        struct timeval t = { 0, 0 };
+
+        t.tv_sec = c->timeout;
+
+        c->timeout_pending = &c->timeout;
+        evtimer_set(&c->timeout_event, timeout_event_handler, c);
+        event_base_set((base ? base : c->event.ev_base), &c->timeout_event);
+
+        if(evtimer_add(&c->timeout_event,&t) == -1) {
+            c->timeout_pending = NULL;
+            perror("evtimer_add");
+            event_del(&c->event);
+            return false;
+        }
+
+        if (settings.verbose > 1 && c->timeout_pending)
+            fprintf(stderr,"fd %d: (re-)set timeout to %u seconds in state %s.\n",
+                    c->sfd,*(c->timeout_pending),state_text(c->state));
+    }
+
+    return true;
+}
+#endif /* ENABLE_IDLE_TIMEOUTS */
+
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
 
     struct event_base *base = c->event.ev_base;
+
+#ifdef ENABLE_IDLE_TIMEOUTS
+    if (IS_CONNECTED(c) && c->timeout > 0 && (!(c->timeout_pending) ||
+                                             *(c->timeout_pending) == 0)) {
+        if(!update_timeout_event(c,0,NULL)) {
+            event_del(&c->event);
+            return false;
+        }
+    } else if(c->timeout_pending)
+        update_timeout_event(c,1,NULL);
+#endif /* ENABLE_IDLE_TIMEOUTS */
+
     if (c->ev_flags == new_flags)
         return true;
-    if (event_del(&c->event) == -1) return false;
+    if (event_del(&c->event) == -1) goto update_event_failure;
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = new_flags;
-    if (event_add(&c->event, 0) == -1) return false;
+    if (event_add(&c->event, 0) == -1) goto update_event_failure;
     return true;
+
+update_event_failure:
+#ifdef ENABLE_IDLE_TIMEOUTS
+    if (c->timeout_pending) update_timeout_event(c,1,NULL);
+#endif /* ENABLE_IDLE_TIMEOUTS */
+    return false;
 }
 
 /*
@@ -4153,6 +4288,38 @@ static void drive_machine(conn *c) {
     return;
 }
 
+#ifdef ENABLE_IDLE_TIMEOUTS
+static void timeout_event_handler(const int fd, const short which, void *arg)
+{
+    static unsigned int marker = 0;
+    conn *c = (conn*)arg;
+    unsigned int *timeout_pending;
+
+    assert(c != NULL);
+    timeout_pending  = c->timeout_pending;
+    c->timeout_pending = NULL;
+
+    if (settings.verbose > 1)
+        fprintf(stderr,"fd %d: idle timeout event, state %s, timeout %d seconds.\n",
+                c->sfd,state_text(c->state),(timeout_pending ? (int)*timeout_pending: -1));
+    if (timeout_pending && *timeout_pending > 0) {
+        if (IS_CONNECTED(c)) {
+            if (settings.verbose > 0)
+                fprintf(stderr,"fd %d: idle disconnect (%u seconds)\n",
+                        c->sfd,*timeout_pending);
+            c->timeout_pending = &marker;
+            STATS_LOCK();
+            stats.idle_disc_conns++;
+            STATS_UNLOCK();
+            conn_set_state(c, conn_closing);
+            drive_machine(c);
+        } else if (settings.verbose > 0)
+            fprintf(stderr,"fd %d: ignoring unexpected idle timeout (%u seconds) while in state %s.\n",
+                    c->sfd,*timeout_pending,state_text(c->state));
+    }
+}
+#endif /* ENABLE_IDLE_TIMEOUTS */
+
 void event_handler(const int fd, const short which, void *arg) {
     conn *c;
 
@@ -4169,8 +4336,13 @@ void event_handler(const int fd, const short which, void *arg) {
         return;
     }
 
-    drive_machine(c);
+#ifdef ENABLE_IDLE_TIMEOUTS
+    /* reset timer if present */
+    if (c->timeout_pending && *(c->timeout_pending) > 0)
+        update_timeout_event(c,1,NULL);
+#endif /* ENABLE_IDLE_TIMEOUTS */
 
+    drive_machine(c);
     /* wait for next event */
     return;
 }
@@ -4599,6 +4771,9 @@ static void usage(void) {
     printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
     printf("-I            Override the size of each slab page. Adjusts max item size\n"
            "              (default: 1mb, min: 1k, max: 128m)\n");
+#ifdef ENABLE_IDLE_TIMEOUTS
+    printf("-T <seconds>  disconnect idle sessions after <seconds> (0 to disable [default])\n");
+#endif
 #ifdef ENABLE_SASL
     printf("-S            Turn on Sasl authentication\n");
 #endif
@@ -4903,6 +5078,9 @@ int main (int argc, char **argv) {
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
           "o:"  /* Extended generic options */
+#ifdef ENABLE_IDLE_TIMEOUTS
+          "T:"  /* Idle timeout */
+#endif
         ))) {
         switch (c) {
         case 'A':
@@ -5147,6 +5325,15 @@ int main (int argc, char **argv) {
 
             }
             break;
+#ifdef ENABLE_IDLE_TIMEOUTS
+        case 'T':
+            settings.idle_timeout = atoi(optarg);
+            if (settings.idle_timeout < 0) {
+                fprintf(stderr, "Idle timeout must be greater than or equal to 0\n");
+                return 1;
+            }
+            break;
+#endif /* ENABLE_IDLE_TIMEOUTS */
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
@@ -5392,3 +5579,5 @@ int main (int argc, char **argv) {
 
     return retval;
 }
+
+/* vi: set sts=4 sw=4 ai et tw=0: */
