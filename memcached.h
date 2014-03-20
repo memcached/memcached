@@ -457,10 +457,12 @@ struct conn {
         size_t offset;
     } stats;
 
+#ifdef ENABLE_IDLE_TIMEOUTS
     /* timeout extension */
     unsigned int timeout;
     unsigned int *timeout_pending;
     struct event timeout_event;
+#endif
 
     /* Binary protocol stuff */
     /* This is where the binary header goes */
