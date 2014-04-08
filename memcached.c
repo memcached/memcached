@@ -2640,7 +2640,21 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("domain_socket", "%s",
                 settings.socketpath ? settings.socketpath : "NULL");
     APPEND_STAT("umask", "%o", settings.access);
-    APPEND_STAT("growth_factor", "%.2f", settings.factor);
+    
+    char fbuff[255] = "", *pbuff = &fbuff[0];
+    for (int i=0; i < FACTOR_MAX_COUNT && settings.factor[i] != (double)0; i++) {
+
+        if (i > 0) {
+            pbuff ++;
+        }
+        
+        sprintf(pbuff, "%f",  settings.factor[i]);
+        pbuff += strlen(pbuff);
+        *pbuff = ',';
+    }
+    *pbuff = 0;
+    
+    APPEND_STAT("growth_factor", "%s", fbuff);
     APPEND_STAT("chunk_size", "%d", settings.chunk_size);
     APPEND_STAT("num_threads", "%d", settings.num_threads);
     APPEND_STAT("num_threads_per_udp", "%d", settings.num_threads_per_udp);
