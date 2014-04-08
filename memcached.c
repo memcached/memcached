@@ -214,8 +214,9 @@ static void settings_init(void) {
     settings.oldest_live = 0;
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
     settings.socketpath = NULL;       /* by default, not using a unix socket */
-    settings.factor = 1.25;
-    settings.chunk_size = 48;         /* space for a modest key and value */
+    settings.factor[0] = 1.25;
+    settings.factor[1] = 0;
+	settings.chunk_size = 48;         /* space for a modest key and value */
     settings.num_threads = 4;         /* N workers */
     settings.num_threads_per_udp = 0;
     settings.prefix_delimiter = ':';
@@ -2639,7 +2640,21 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("domain_socket", "%s",
                 settings.socketpath ? settings.socketpath : "NULL");
     APPEND_STAT("umask", "%o", settings.access);
-    APPEND_STAT("growth_factor", "%.2f", settings.factor);
+    
+    char fbuff[255] = "", *pbuff = &fbuff[0];
+    for (int i=0; i < FACTOR_MAX_COUNT && settings.factor[i] != (double)0; i++) {
+
+        if (i > 0) {
+            pbuff ++;
+        }
+        
+        sprintf(pbuff, "%f",  settings.factor[i]);
+        pbuff += strlen(pbuff);
+        *pbuff = ',';
+    }
+    *pbuff = 0;
+    
+    APPEND_STAT("growth_factor", "%s", fbuff);
     APPEND_STAT("chunk_size", "%d", settings.chunk_size);
     APPEND_STAT("num_threads", "%d", settings.num_threads);
     APPEND_STAT("num_threads_per_udp", "%d", settings.num_threads_per_udp);
@@ -4578,7 +4593,9 @@ static void usage(void) {
            "-h            print this help and exit\n"
            "-i            print memcached and libevent license\n"
            "-P <file>     save PID in <file>, only used with -d option\n"
-           "-f <factor>   chunk size growth factor (default: 1.25)\n"
+           "-f <F1,..Fn>  chunk size growth factor (default: 1.25), you can enter\n"
+           "              several factors, that'll be used proportionally. Separate\n"
+           "              by comma\n"
            "-n <bytes>    minimum space allocated for key+value+flags (default: 48)\n");
     printf("-L            Try to use large memory pages (if available). Increasing\n"
            "              the memory page size could reduce the number of TLB misses\n"
@@ -4982,11 +4999,37 @@ int main (int argc, char **argv) {
             pid_file = optarg;
             break;
         case 'f':
-            settings.factor = atof(optarg);
-            if (settings.factor <= 1.0) {
-                fprintf(stderr, "Factor must be greater than 1\n");
-                return 1;
-            }
+            
+            ;int i = 0;
+            while(true)
+            {
+                if (i >= FACTOR_MAX_COUNT) {
+                    fprintf(stderr, "Too many factors specified, maximum is: %d\n", FACTOR_MAX_COUNT);
+                    return 1;
+                }
+                
+                char* pch = strchr(optarg, ',');
+                if (pch != NULL)
+                    *pch = 0;
+                if (strlen(optarg) == 0) {
+                    fprintf(stderr, "Factor component not specified, please check format\n");
+                }
+                
+                double _tmp = atof(optarg);
+                if (_tmp == 0) {
+                    fprintf(stderr, "Factor attribute can't be 0, or incorrect floating value: `%s`.\n", optarg);
+                    return 1;
+                }
+
+                settings.factor[i++] = _tmp;
+
+                if (pch == NULL || strlen(optarg) == 0)
+                    break;
+                    optarg = pch+1;
+                }
+            settings.factor[i] = 0;
+            break;
+
             break;
         case 'n':
             settings.chunk_size = atoi(optarg);
@@ -5276,6 +5319,7 @@ int main (int argc, char **argv) {
     stats_init();
     assoc_init(settings.hashpower_init);
     conn_init();
+    
     slabs_init(settings.maxbytes, settings.factor, preallocate);
 
     /*
