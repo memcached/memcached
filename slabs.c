@@ -92,7 +92,8 @@ unsigned int slabs_clsid(const size_t size) {
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-void slabs_init(const size_t limit, const double factor, const bool prealloc) {
+void slabs_init(const size_t limit, const double* factors, const bool prealloc) {
+
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
 
@@ -112,21 +113,56 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
 
     memset(slabclass, 0, sizeof(slabclass));
 
-    while (++i < POWER_LARGEST && size <= settings.item_size_max / factor) {
-        /* Make sure items are always n-byte aligned */
+	int factor_count = 0;	// first factor is minumum value
+	int factor_curr = 0;
+	const double *f = factors;
+	while (*f != 0) {
+		factor_count++;
+		f += 1;
+	}
+
+	int _perslab = -1;
+	int _perslab_last = -1;
+    while (i < POWER_LARGEST - 1) {
+
+        factor_curr = (int) ( ( (double)i / (double)POWER_LARGEST ) * (double)factor_count );
+        double factor = factors[factor_curr];
+		
+		/* Make sure items are always n-byte aligned */
         if (size % CHUNK_ALIGN_BYTES)
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
+        
+        _perslab = (int)(settings.item_size_max / size);
+		if (size >= settings.item_size_max)
+			break;
+		if (_perslab <= 1)
+			break;
 
-        slabclass[i].size = size;
-        slabclass[i].perslab = settings.item_size_max / slabclass[i].size;
-        size *= factor;
-        if (settings.verbose > 1) {
-            fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
-                    i, slabclass[i].size, slabclass[i].perslab);
-        }
+		if (_perslab_last != _perslab) {
+			i++;
+	        slabclass[i].size = size;
+		    slabclass[i].perslab = _perslab;
+
+		    if (settings.verbose > 1) {
+			    fprintf(stderr, "slab class %3d: chunk size %9u (factor #: %i) perslab %7u\n",
+                 i, slabclass[i].size, factor_curr+1, slabclass[i].perslab);
+			}
+		}
+		_perslab_last = _perslab;
+       
+		if (factor > 0) {
+			int _newsize = size * factor;
+			if (_newsize <= size)
+				size += 1;
+			else
+				size = _newsize;
+		}
+		else
+			size += CHUNK_ALIGN_BYTES > -factor ? CHUNK_ALIGN_BYTES : -factor;
     }
 
-    power_largest = i;
+	i++;
+	power_largest = i;
     slabclass[power_largest].size = settings.item_size_max;
     slabclass[power_largest].perslab = 1;
     if (settings.verbose > 1) {
@@ -146,6 +182,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
     if (prealloc) {
         slabs_preallocate(power_largest);
     }
+
 }
 
 static void slabs_preallocate (const unsigned int maxslabs) {

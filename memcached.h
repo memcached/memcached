@@ -63,6 +63,9 @@
 /* Initial power multiplier for the hash table */
 #define HASHPOWER_DEFAULT 16
 
+/* maximum number of factors the user can specify */
+#define FACTOR_MAX_COUNT 10
+
 /* unistd.h is here */
 #if HAVE_UNISTD_H
 # include <unistd.h>
@@ -291,7 +294,7 @@ struct settings {
     int evict_to_free;
     char *socketpath;   /* path to unix socket if using local socket */
     int access;  /* access mask (a la chmod) for unix domain socket */
-    double factor;          /* chunk size growth factor */
+    double factor[FACTOR_MAX_COUNT+1];          /* chunk size growth factor */
     int chunk_size;
     int num_threads;        /* number of worker (without dispatcher) libevent threads to run */
     int num_threads_per_udp; /* number of worker threads serving each udp socket */
