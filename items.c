@@ -342,6 +342,24 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
     }
 }
 
+/* slawek */
+void do_item_unlink_nolock_nostat(item *it, const uint32_t hv, uint64_t *items_removed, uint64_t *bytes_removed) {
+    MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
+    if ((it->it_flags & ITEM_LINKED) != 0) {
+        it->it_flags &= ~ITEM_LINKED;
+        
+        *items_removed += 1;
+        *bytes_removed += ITEM_ntotal(it);
+       
+        assoc_delete(ITEM_key(it), it->nkey, hv);
+        item_unlink_q(it);
+        do_item_remove(it);
+    }
+}
+
+
+
+
 void do_item_remove(item *it) {
     MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);

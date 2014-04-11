@@ -196,6 +196,15 @@ static void stats_reset(void) {
     stats.reclaimed = 0;
     stats.listen_disabled_num = 0;
     stats_prefix_clear();
+    
+    /* slawek - reclaim patch */
+    stats.reclaimed_fast = 0;
+    stats.reclaimed_fast_bytes = 0;
+    stats.reclaim_item_passes = 0;
+    stats.reclaim_item_found = 0;
+    stats.reclaim_slab_memory_passes = 0;
+    // <<
+    
     STATS_UNLOCK();
     threadlocal_stats_reset();
     item_stats_reset();
@@ -2702,7 +2711,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         return ;
     } else if (strcmp(subcommand, "settings") == 0) {
         process_stat_settings(&append_stats, c);
-    } else if (strcmp(subcommand, "cachedump") == 0) {
+    } else if (strcmp(subcommand, "cachedump") == 0 || /* slawek */ strcmp(subcommand, "cacheremove") == 0) {
         char *buf;
         unsigned int bytes, id, limit = 0;
 
@@ -2722,7 +2731,26 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        buf = item_cachedump(id, limit, &bytes);
+        /* slawek - reclaim patch */
+	if (strcmp(subcommand, "cacheremove") == 0)
+	{
+            unsigned int remove_limit = 0;
+            if (ntokens >= 6)
+            {
+                if (!safe_strtoul(tokens[4].value, &remove_limit))
+                {
+                    remove_limit = 0;
+                }
+            }
+
+            buf = item_cacheremove(id, limit, remove_limit, &bytes);
+	}
+	else
+        {
+            buf = item_cachedump(id, limit, &bytes);
+        }
+        // <<
+        
         write_and_free(c, buf, bytes);
         return ;
     } else {

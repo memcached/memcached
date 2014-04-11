@@ -37,6 +37,12 @@ typedef struct {
 
     unsigned int killing;  /* index+1 of dying slab, or zero if none */
     size_t requested; /* The number of requested bytes */
+
+    /* slawek - reclaim patch */
+    unsigned int reclaimed_slab_num;
+    unsigned int reclaimed_slab_item_num;
+    // <<
+
 } slabclass_t;
 
 static slabclass_t slabclass[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -330,6 +336,13 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
             APPEND_STAT("bytes", "%llu", (unsigned long long)stats.curr_bytes);
             APPEND_STAT("curr_items", "%u", stats.curr_items);
             APPEND_STAT("total_items", "%u", stats.total_items);
+            
+            APPEND_STAT("*reclaimed_fast", "%llu", (unsigned long long)stats.reclaimed_fast);
+            APPEND_STAT("*reclaimed_fast_bytes", "%llu", (unsigned long long)stats.reclaimed_fast_bytes);
+            APPEND_STAT("*reclaim_item_passes", "%llu", (unsigned long long)stats.reclaim_item_passes);
+            APPEND_STAT("*reclaim_item_found", "%llu", (unsigned long long)stats.reclaim_item_found);
+            APPEND_STAT("*reclaim_slab_memory_passes", "%llu", (unsigned long long)stats.reclaim_slab_memory_passes);           
+            
             STATS_UNLOCK();
             item_stats_totals(add_stats, c);
         } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
@@ -916,4 +929,133 @@ void stop_slab_maintenance_thread(void) {
     /* Wait for the maintenance thread to stop */
     pthread_join(maintenance_tid, NULL);
     pthread_join(rebalance_tid, NULL);
+}
+
+
+/* slawek - reclaim patch */
+char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int limit, const unsigned int limit_remove, unsigned int *bytes) {
+    uint32_t hv;
+
+    char* buffer = malloc((size_t) 4 * 1024);
+    unsigned int bufcurr = 0;
+    char temp[1024];
+    
+    slabclass_t* slab = &slabclass[slabs_clsid];
+    if (slab->list_size == 0 || slabs_clsid > power_largest /*slabclass[power_largest] is defined*/ )
+    {
+        // return as slab is currently empty (0 items, nothing even allocated!)
+        int len = snprintf(temp, sizeof(temp), "Slab %d is currently empty (not allocated), no cleaning done\r\n", slabs_clsid);
+	memcpy(buffer + bufcurr, temp, len);
+	bufcurr += len;
+        
+        memcpy(buffer + bufcurr, "END\r\n", 6);
+        bufcurr += 5;
+	*bytes = bufcurr;
+        return buffer;
+    }
+    
+    slab->reclaimed_slab_item_num++;
+    bool slab_changed = false;
+    if (slab->reclaimed_slab_item_num >= slab->perslab)
+    {
+        // we're switching slabs
+        slab->reclaimed_slab_num = (slab->reclaimed_slab_num + 1) % (slab->list_size);
+        slab->reclaimed_slab_item_num = 0;
+        slab_changed = true;
+    }
+    
+    unsigned int _ipos_start = slab->reclaimed_slab_item_num;
+    
+    item *it_first = NULL;
+    int i=0;
+    for (; i < slab->list_size; i++)
+    {
+        it_first = (void *)(slab->slab_list[slab->reclaimed_slab_num]);
+        if (it_first != NULL)
+            break;
+        
+        // we're switching slabs
+        slab->reclaimed_slab_num = (slab->reclaimed_slab_num + 1) % slab->list_size;
+        slab->reclaimed_slab_item_num = 0;
+    }
+    
+    if (it_first == NULL)
+    {
+        // oh crap, no items found in whole slab class, return the good news!
+        int len = snprintf(temp, sizeof(temp), "Slab %d is currently empty (no items), no cleaning done\r\n", slabs_clsid);
+	memcpy(buffer + bufcurr, temp, len);
+	bufcurr += len;
+        
+        memcpy(buffer + bufcurr, "END\r\n", 6);
+        bufcurr += 5;
+	*bytes = bufcurr;
+        return buffer;
+    }
+    
+    int start = slab->reclaimed_slab_item_num;
+    int end = start + limit;
+    if (end > slab->perslab || limit == 0)
+        end = slab->perslab;
+    
+    // run the cleaning, taking limits into account!
+    uint64_t items_removed = 0;
+    uint64_t bytes_removed = 0;
+    
+    item *it = (void*) ((char*)it_first + (slab->size*start));
+    i=start;
+    int items_found = 0;
+    for (; i<end; i++)
+    {
+        if ( (it->it_flags & ITEM_SLABBED) == 0 && it->refcount > 0 /* from remove items */
+            && it->slabs_clsid > 0 )
+        {
+            items_found ++;
+            
+            // check if we can expire the item
+            if (it->exptime != 0 && it->exptime <= current_time)
+            {
+                assert(it->nkey <= KEY_MAX_LENGTH);
+        
+                hv = hash(ITEM_key(it), it->nkey, 0);
+                do_item_unlink_nolock_nostat(it, hv, &items_removed, &bytes_removed);
+                //do_item_remove(it); item will get removed automatically in unlink function!
+            
+                if (items_removed > limit_remove && limit_remove > 0)
+                    break;
+            }
+        }
+        
+        it = (void*) (((char*)it) + slab->size);
+    }
+    
+    // let's update position!
+    slab->reclaimed_slab_item_num = i;
+    
+    // update stats
+    STATS_LOCK();
+    stats.curr_bytes -= bytes_removed;
+    stats.curr_items -= items_removed;
+    
+    stats.reclaimed_fast += items_removed;
+    stats.reclaimed_fast_bytes += bytes_removed;
+    stats.reclaim_item_passes += (i - start);
+    stats.reclaim_item_found += items_found;
+    stats.reclaim_slab_memory_passes += (slab_changed ? 1 : 0);
+    STATS_UNLOCK();
+      
+    
+    int len = snprintf(temp, sizeof(temp),
+        "Expiring items in SLAB: %d, Memory region: %d / %d, Item pos: S:%d / E:%d\r\n"
+        "Scanned items: %d (Found: %d) / Expired: %llu (%llu KB)\r\n"
+        "Limits ... Items: %u, Max Remove: %u (0 - none)\r\n"
+            ,slabs_clsid, slab->reclaimed_slab_num, slab->list_size, _ipos_start, slab->reclaimed_slab_item_num,
+            (i - start), items_found, items_removed, ( (bytes_removed+1023) / 1024),
+            limit, limit_remove);
+    memcpy(buffer + bufcurr, temp, len);
+    bufcurr += len;
+        
+    memcpy(buffer + bufcurr, "END\r\n", 6);
+    bufcurr += 5;
+    *bytes = bufcurr;
+    return buffer;
 }

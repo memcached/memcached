@@ -275,6 +275,14 @@ struct stats {
     uint64_t      evicted_unfetched; /* items evicted but never touched */
     bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
+
+    /* slawek - reclaim patch */
+    uint64_t      reclaimed_fast;
+    uint64_t	  reclaimed_fast_bytes;
+    uint64_t      reclaim_item_passes;
+    uint64_t      reclaim_item_found;
+    uint64_t      reclaim_slab_memory_passes;
+    // <<
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -534,6 +542,7 @@ bool  conn_add_to_freelist(conn *c);
 int   is_listen_thread(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
+char *item_cacheremove(const unsigned int slabs_clsid, const unsigned int limit, const unsigned int limit_remove, unsigned int *bytes); // slawek
 void  item_flush_expired(void);
 item *item_get(const char *key, const size_t nkey);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime);
