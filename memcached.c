@@ -225,7 +225,7 @@ static void settings_init(void) {
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.factor[0] = 1.25;
     settings.factor[1] = 0;
-	settings.chunk_size = 48;         /* space for a modest key and value */
+    settings.chunk_size = 48;         /* space for a modest key and value */
     settings.num_threads = 4;         /* N workers */
     settings.num_threads_per_udp = 0;
     settings.prefix_delimiter = ':';

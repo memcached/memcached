@@ -959,7 +959,7 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
     if (slab->reclaimed_slab_item_num >= slab->perslab)
     {
         // we're switching slabs
-        slab->reclaimed_slab_num = (slab->reclaimed_slab_num + 1) % (slab->list_size);
+        slab->reclaimed_slab_num = (slab->reclaimed_slab_num + 1) % (slab->slabs);
         slab->reclaimed_slab_item_num = 0;
         slab_changed = true;
     }
@@ -968,20 +968,20 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
     
     item *it_first = NULL;
     int i=0;
-    for (; i < slab->list_size; i++)
+    for (; i < slab->slabs; i++)
     {
         it_first = (void *)(slab->slab_list[slab->reclaimed_slab_num]);
         if (it_first != NULL)
             break;
         
         // we're switching slabs
-        slab->reclaimed_slab_num = (slab->reclaimed_slab_num + 1) % slab->list_size;
+        slab->reclaimed_slab_num = (slab->reclaimed_slab_num + 1) % slab->slabs;
         slab->reclaimed_slab_item_num = 0;
     }
     
     if (it_first == NULL)
     {
-        // oh crap, no items found in whole slab class, return the good news!
+        // oh crap, no items found in whole slab class, return the good news! 
         int len = snprintf(temp, sizeof(temp), "Slab %d is currently empty (no items), no cleaning done\r\n", slabs_clsid);
 	memcpy(buffer + bufcurr, temp, len);
 	bufcurr += len;
@@ -993,8 +993,10 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
     }
     
     int start = slab->reclaimed_slab_item_num;
+    if (start >= slab->perslab)
+        start = 0;
     int end = start + limit;
-    if (end > slab->perslab || limit == 0)
+    if (end >= slab->perslab || limit == 0)
         end = slab->perslab;
     
     // run the cleaning, taking limits into account!
@@ -1049,7 +1051,7 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
         "Scanned items: %d (Found: %d) / Expired: %llu (%llu KB)\r\n"
         "Limits ... Items: %u, Max Remove: %u (0 - none)\r\n"
             ,slabs_clsid, slab->reclaimed_slab_num, slab->list_size, _ipos_start, slab->reclaimed_slab_item_num,
-            (i - start), items_found, items_removed, ( (bytes_removed+1023) / 1024),
+            (i - start), items_found, (unsigned long long) items_removed, (unsigned long long) ( (bytes_removed+1023) / 1024),
             limit, limit_remove);
     memcpy(buffer + bufcurr, temp, len);
     bufcurr += len;
