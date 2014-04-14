@@ -229,6 +229,7 @@ static void settings_init(void) {
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.maxconns_fast = false;
+    settings.lrucrawler = false;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -3552,6 +3553,28 @@ static void process_command(conn *c, char *command) {
         } else if (ntokens == 4 &&
             (strcmp(tokens[COMMAND_TOKEN + 1].value, "automove") == 0)) {
             process_slabs_automove_command(c, tokens, ntokens);
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "lrucrawler") == 0) {
+        /* FIXME: Need a lock to serialize item crawler commands */
+        if (ntokens == 3) {
+            if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "enable") == 0)) {
+                if (start_item_crawler_thread() == 0) {
+                    out_string(c, "OK");
+                } else {
+                    out_string(c, "ERROR failed to start lru crawler thread");
+                }
+            } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
+                if (stop_item_crawler_thread() == 0) {
+                    out_string(c, "OK");
+                } else {
+                    out_string(c, "ERROR failed to stop lru crawler thread");
+                }
+            } else {
+                out_string(c, "ERROR");
+            }
+            return;
         } else {
             out_string(c, "ERROR");
         }

@@ -306,6 +306,7 @@ struct settings {
     int item_size_max;        /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
+    bool lrucrawler;        /* Whether or not to enable the autocrawler thread */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
@@ -326,6 +327,10 @@ extern struct settings settings;
 #define ITEM_SLABBED 4
 
 #define ITEM_FETCHED 8
+
+/* Not necessary: Can make the item magic in some other way (?) */
+/* Item is a depth charge, crawling up the list looking for expired items */
+#define ITEM_CRAWLER 16
 
 /**
  * Structure for storing items within memcached.
@@ -353,6 +358,20 @@ typedef struct _stritem {
     /* then " flags length\r\n" (no terminating null) */
     /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
+
+typedef struct {
+    struct _stritem *next;
+    struct _stritem *prev;
+    struct _stritem *h_next;    /* hash chain next */
+    rel_time_t      time;       /* least recent access */
+    rel_time_t      exptime;    /* expire time */
+    int             nbytes;     /* size of data */
+    unsigned short  refcount;
+    uint8_t         nsuffix;    /* length of flags-and-length string */
+    uint8_t         it_flags;   /* ITEM_* above */
+    uint8_t         slabs_clsid;/* which slab class we're in */
+    uint8_t         nkey;       /* key length, w/terminating null and padding */
+} crawler;
 
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */

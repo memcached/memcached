@@ -12,6 +12,7 @@
 #include <string.h>
 #include <time.h>
 #include <assert.h>
+#include <unistd.h>
 
 /* Forward Declarations */
 static void item_link_q(item *it);
@@ -38,8 +39,11 @@ typedef struct {
 
 static item *heads[LARGEST_ID];
 static item *tails[LARGEST_ID];
+static crawler crawlers[LARGEST_ID];
 static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
+
+static volatile int do_run_lru_crawler_thread = 0;
 
 void item_stats_reset(void) {
     mutex_lock(&cache_lock);
@@ -112,6 +116,11 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     /* We walk up *only* for locked items. Never searching for expired.
      * Waste of CPU for almost all deployments */
     for (; tries > 0 && search != NULL; tries--, search=search->prev) {
+        if (search->it_flags & ITEM_CRAWLER) {
+            /* We are a crawler, ignore it. */
+            tries++;
+            continue;
+        }
         uint32_t hv = hash(ITEM_key(search), search->nkey);
         /* Attempt to hash item lock the "search" item. If locked, no
          * other callers can incr the refcount
@@ -611,4 +620,243 @@ void do_item_flush_expired(void) {
             }
         }
     }
+}
+
+static void crawler_link_q(item *it) { /* item is the new tail */
+    item **head, **tail;
+    assert(it->slabs_clsid < LARGEST_ID);
+    assert(it->it_flags == ITEM_CRAWLER);
+
+    head = &heads[it->slabs_clsid];
+    tail = &tails[it->slabs_clsid];
+    assert(*tail != 0);
+    assert(it != *tail);
+    assert((*head && *tail) || (*head == 0 && *tail == 0));
+    it->prev = *tail;
+    it->next = 0;
+    if (it->prev) {
+        assert(it->prev->next == 0);
+        it->prev->next = it;
+    }
+    *tail = it;
+    if (*head == 0) *head = it;
+    return;
+}
+
+static void crawler_unlink_q(item *it) {
+    item **head, **tail;
+    assert(it->slabs_clsid < LARGEST_ID);
+    head = &heads[it->slabs_clsid];
+    tail = &tails[it->slabs_clsid];
+
+    if (*head == it) {
+        assert(it->prev == 0);
+        *head = it->next;
+    }
+    if (*tail == it) {
+        assert(it->next == 0);
+        *tail = it->prev;
+    }
+    assert(it->next != it);
+    assert(it->prev != it);
+
+    if (it->next) it->next->prev = it->prev;
+    if (it->prev) it->prev->next = it->next;
+    return;
+}
+
+static int crawler_crawl_q(item *it) {
+    item **head, **tail;
+    assert(it->it_flags == ITEM_CRAWLER);
+    assert(it->slabs_clsid < LARGEST_ID);
+    head = &heads[it->slabs_clsid];
+    tail = &tails[it->slabs_clsid];
+
+    /* We've hit the head, pop off */
+    if (it->prev == 0) {
+        assert(*head == it);
+        if (it->next) {
+            *head = it->next;
+            assert(it->next->prev == it);
+            it->next->prev = 0;
+        }
+        return 1; /* Done */
+    }
+
+    /* Swing ourselves in front of the next item */
+    /* NB: If there is a prev, we can't be the head */
+    assert(it->prev != it);
+    if (it->prev) {
+        if (*head == it->prev) {
+            /* Prev was the head, now we're the head */
+            /* FIXME: Rewire so shifting to the head does the above logic instead */
+            *head = it;
+        }
+        if (*tail == it) {
+            /* We are the tail, now they are the tail */
+            *tail = it->prev;
+        }
+        assert(it->next != it);
+        if (it->next) {
+            assert(it->prev->next == it);
+            it->prev->next = it->next;
+            it->next->prev = it->prev;
+        } else {
+            /* Tail. Move this above? */
+            it->prev->next = 0;
+        }
+        /* prev->prev's next is it->prev */
+        it->next = it->prev;
+        it->prev = it->next->prev;
+        it->next->prev = it;
+        /* New it->prev now, if we're not at the head. */
+        if (it->prev) {
+            it->prev->next = it;
+        }
+    }
+    assert(it->next != it);
+    assert(it->prev != it);
+
+    return 0; /* success */
+}
+
+/* TODO's:
+  - tunable sleep between runs
+  - tunable sleep between item crawls
+  - kick off crawler only when memory is low (?)
+  - kick off crawler when reclaims aren't happening (?)
+  - remove need for ITEM_CRAWLER flag (nbytes == 0/something)
+  - add statistics (items crawled, items relcaimed by crawler, memory
+     totals?)
+  - only scan N items from tail before giving up and popping (option)
+  - split up into more functions?
+  - tests
+  - run mc-crusher against it to see performance loss.
+  - allow loading compiled object to do the "Scan" stage, so users can simply
+    write their own algorithm (removal based on keys, content, etc).
+ */
+static void *item_crawler_thread(void *arg) {
+    int crawler_count = 0;
+    int i;
+
+    if (settings.verbose > 2)
+        fprintf(stderr, "Starting LRU crawler background thread\n");
+    while (do_run_lru_crawler_thread) {
+    for (i = 0; i < LARGEST_ID; i++) {
+        if (tails[i] != NULL) {
+            if (settings.verbose > 2)
+                fprintf(stderr, "Kicking LRU crawler off for slab %d\n", i);
+            crawlers[i].nbytes = 0;
+            crawlers[i].it_flags = ITEM_CRAWLER;
+            crawlers[i].next = 0;
+            crawlers[i].prev = 0;
+            crawlers[i].slabs_clsid = i;
+            mutex_lock(&cache_lock);
+            crawler_link_q((item *)&crawlers[i]);
+            mutex_unlock(&cache_lock);
+            crawler_count++;
+        }
+    }
+
+    /* Not right: Should be able to kick off new crawlers anytime */
+    while (crawler_count) {
+        int ret;
+        item *search = NULL;
+        void *hold_lock = NULL;
+        rel_time_t oldest_live = settings.oldest_live;
+
+        for (i = 0; i < LARGEST_ID; i++) {
+            if (crawlers[i].it_flags == ITEM_CRAWLER) {
+                /* FIXME: This should just return what to work on or NULL */
+                mutex_lock(&cache_lock);
+                ret = crawler_crawl_q((item *)&crawlers[i]);
+                if (ret == 1) {
+                    if (settings.verbose > 2)
+                        fprintf(stderr, "Nothing left to crawl for %d\n", i);
+                    crawlers[i].it_flags = 0;
+                    crawler_count--;
+                    crawler_unlink_q((item *)&crawlers[i]);
+                    mutex_unlock(&cache_lock);
+                    continue;
+                }
+                search = crawlers[i].next;
+                uint32_t hv = hash(ITEM_key(search), search->nkey, 0);
+                /* Attempt to hash item lock the "search" item. If locked, no
+                 * other callers can incr the refcount
+                 */
+                if ((hold_lock = item_trylock(hv)) == NULL) {
+                    mutex_unlock(&cache_lock);
+                    continue;
+                }
+                /* Now see if the item is refcount locked */
+                if (refcount_incr(&search->refcount) != 2) {
+                    refcount_decr(&search->refcount);
+                    if (hold_lock)
+                        item_trylock_unlock(hold_lock);
+                    mutex_unlock(&cache_lock);
+                    continue;
+                }
+
+                if ((search->exptime != 0 && search->exptime < current_time)
+                    || (search->time <= oldest_live && oldest_live <= current_time)) {
+                    itemstats[i].reclaimed++;
+
+                    if (settings.verbose > 1) {
+                        int ii;
+                        char *key = ITEM_key(search);
+                        fprintf(stderr, "LRU crawler found an expired item (flags: %d): ", search->it_flags);
+                        for (ii = 0; ii < search->nkey; ++ii) {
+                            fprintf(stderr, "%c", key[ii]);
+                        }
+                        fprintf(stderr, "\n");
+                    }
+                    if ((search->it_flags & ITEM_FETCHED) == 0) {
+                        itemstats[i].expired_unfetched++;
+                    }
+                    do_item_unlink_nolock(search, hv);
+                    /* Initialize the item block: */
+                    search->slabs_clsid = 0;
+                    slabs_free(search, ITEM_ntotal(search), i);
+                } else {
+                    refcount_decr(&search->refcount);
+                }
+                if (hold_lock)
+                    item_trylock_unlock(hold_lock);
+                mutex_unlock(&cache_lock);
+            }
+        }
+        usleep(100);
+    }
+    if (settings.verbose > 2)
+        fprintf(stderr, "LRU crawler thread sleeping\n");
+    sleep(5);
+    }
+    if (settings.verbose > 2)
+        fprintf(stderr, "LRU crawler thread stopping\n");
+
+    return NULL;
+}
+
+static pthread_t item_crawler_tid;
+
+int stop_item_crawler_thread(void) {
+    int ret;
+    do_run_lru_crawler_thread = 0;
+    if ((ret = pthread_join(item_crawler_tid, NULL)) != 0) {
+        fprintf(stderr, "Failed to stop LRU crawler thread: %s\n", strerror(ret));
+        return -1;
+    }
+    return 0;
+}
+
+int start_item_crawler_thread(void) {
+    int ret;
+    do_run_lru_crawler_thread = 1;
+    if ((ret = pthread_create(&item_crawler_tid, NULL,
+        item_crawler_thread, NULL)) != 0) {
+        fprintf(stderr, "Can't create LRU crawler thread: %s\n",
+strerror(ret));
+        return -1;
+    }
+    return 0;
 }
