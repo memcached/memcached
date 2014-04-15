@@ -665,6 +665,8 @@ static void crawler_unlink_q(item *it) {
     return;
 }
 
+/* This is too convoluted, but it's a difficult shuffle. Try to rewrite it
+ * more clearly. */
 static item *crawler_crawl_q(item *it) {
     item **head, **tail;
     assert(it->it_flags == ITEM_CRAWLER);
@@ -689,7 +691,6 @@ static item *crawler_crawl_q(item *it) {
     if (it->prev) {
         if (*head == it->prev) {
             /* Prev was the head, now we're the head */
-            /* FIXME: Rewire so shifting to the head does the above logic instead */
             *head = it;
         }
         if (*tail == it) {
