@@ -328,10 +328,6 @@ extern struct settings settings;
 
 #define ITEM_FETCHED 8
 
-/* Not necessary: Can make the item magic in some other way (?) */
-/* Item is a depth charge, crawling up the list looking for expired items */
-#define ITEM_CRAWLER 16
-
 /**
  * Structure for storing items within memcached.
  */

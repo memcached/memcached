@@ -116,7 +116,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     /* We walk up *only* for locked items. Never searching for expired.
      * Waste of CPU for almost all deployments */
     for (; tries > 0 && search != NULL; tries--, search=search->prev) {
-        if (search->it_flags & ITEM_CRAWLER) {
+        if (search->nbytes == 0 && search->nkey == 0 && search->it_flags == 1) {
             /* We are a crawler, ignore it. */
             tries++;
             continue;
@@ -625,7 +625,8 @@ void do_item_flush_expired(void) {
 static void crawler_link_q(item *it) { /* item is the new tail */
     item **head, **tail;
     assert(it->slabs_clsid < LARGEST_ID);
-    assert(it->it_flags == ITEM_CRAWLER);
+    assert(it->it_flags == 1);
+    assert(it->nbytes == 0);
 
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
@@ -669,7 +670,8 @@ static void crawler_unlink_q(item *it) {
  * more clearly. */
 static item *crawler_crawl_q(item *it) {
     item **head, **tail;
-    assert(it->it_flags == ITEM_CRAWLER);
+    assert(it->it_flags == 1);
+    assert(it->nbytes == 0);
     assert(it->slabs_clsid < LARGEST_ID);
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
@@ -726,7 +728,6 @@ static item *crawler_crawl_q(item *it) {
   - tunable sleep between item crawls
   - kick off crawler only when memory is low (?)
   - kick off crawler when reclaims aren't happening (?)
-  - remove need for ITEM_CRAWLER flag (nbytes == 0/something)
   - add statistics (items crawled, items relcaimed by crawler, memory
      totals?)
   - only scan N items from tail before giving up and popping (option)
@@ -748,7 +749,8 @@ static void *item_crawler_thread(void *arg) {
             if (settings.verbose > 2)
                 fprintf(stderr, "Kicking LRU crawler off for slab %d\n", i);
             crawlers[i].nbytes = 0;
-            crawlers[i].it_flags = ITEM_CRAWLER;
+            crawlers[i].nkey = 0;
+            crawlers[i].it_flags = 1; /* For a crawler, this means enabled. */
             crawlers[i].next = 0;
             crawlers[i].prev = 0;
             crawlers[i].slabs_clsid = i;
@@ -766,7 +768,7 @@ static void *item_crawler_thread(void *arg) {
         rel_time_t oldest_live = settings.oldest_live;
 
         for (i = 0; i < LARGEST_ID; i++) {
-            if (crawlers[i].it_flags == ITEM_CRAWLER) {
+            if (crawlers[i].it_flags == 1) {
                 mutex_lock(&cache_lock);
                 search = crawler_crawl_q((item *)&crawlers[i]);
                 if (search == NULL) {
