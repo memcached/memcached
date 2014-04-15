@@ -44,7 +44,11 @@ static crawler crawlers[LARGEST_ID];
 static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
 
+static int crawler_count = 0;
 static volatile int do_run_lru_crawler_thread = 0;
+static int lru_crawler_initialized = 0;
+static pthread_mutex_t lru_crawler_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
 
 void item_stats_reset(void) {
     mutex_lock(&cache_lock);
@@ -744,30 +748,20 @@ static item *crawler_crawl_q(item *it) {
     write their own algorithm (removal based on keys, content, etc).
  */
 static void *item_crawler_thread(void *arg) {
-    int crawler_count = 0;
     int i;
 
     if (settings.verbose > 2)
         fprintf(stderr, "Starting LRU crawler background thread\n");
     while (do_run_lru_crawler_thread) {
-    for (i = 0; i < LARGEST_ID; i++) {
-        if (tails[i] != NULL) {
-            if (settings.verbose > 2)
-                fprintf(stderr, "Kicking LRU crawler off for slab %d\n", i);
-            crawlers[i].nbytes = 0;
-            crawlers[i].nkey = 0;
-            crawlers[i].it_flags = 1; /* For a crawler, this means enabled. */
-            crawlers[i].next = 0;
-            crawlers[i].prev = 0;
-            crawlers[i].slabs_clsid = i;
-            mutex_lock(&cache_lock);
-            crawler_link_q((item *)&crawlers[i]);
-            mutex_unlock(&cache_lock);
-            crawler_count++;
-        }
-    }
+    pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
+    /* TODO: Don't need to hold the crawler lock once we've decided to crawl
+     * some stuff. This isn't very flexible though: Should be able to signal
+     * and stop crawlers while they're running.
+     */
+    STATS_LOCK();
+    stats.lru_crawler_running = true;
+    STATS_UNLOCK();
 
-    /* Not right: Should be able to kick off new crawlers anytime */
     while (crawler_count) {
         item *search = NULL;
         void *hold_lock = NULL;
@@ -775,7 +769,7 @@ static void *item_crawler_thread(void *arg) {
 
         for (i = 0; i < LARGEST_ID; i++) {
             if (crawlers[i].it_flags == 1) {
-                mutex_lock(&cache_lock);
+                pthread_mutex_lock(&cache_lock);
                 search = crawler_crawl_q((item *)&crawlers[i]);
                 if (search == NULL) {
                     if (settings.verbose > 2)
@@ -783,7 +777,7 @@ static void *item_crawler_thread(void *arg) {
                     crawlers[i].it_flags = 0;
                     crawler_count--;
                     crawler_unlink_q((item *)&crawlers[i]);
-                    mutex_unlock(&cache_lock);
+                    pthread_mutex_unlock(&cache_lock);
                     continue;
                 }
                 uint32_t hv = hash(ITEM_key(search), search->nkey, 0);
@@ -791,7 +785,7 @@ static void *item_crawler_thread(void *arg) {
                  * other callers can incr the refcount
                  */
                 if ((hold_lock = item_trylock(hv)) == NULL) {
-                    mutex_unlock(&cache_lock);
+                    pthread_mutex_unlock(&cache_lock);
                     continue;
                 }
                 /* Now see if the item is refcount locked */
@@ -799,7 +793,7 @@ static void *item_crawler_thread(void *arg) {
                     refcount_decr(&search->refcount);
                     if (hold_lock)
                         item_trylock_unlock(hold_lock);
-                    mutex_unlock(&cache_lock);
+                    pthread_mutex_unlock(&cache_lock);
                     continue;
                 }
 
@@ -828,14 +822,17 @@ static void *item_crawler_thread(void *arg) {
                 }
                 if (hold_lock)
                     item_trylock_unlock(hold_lock);
-                mutex_unlock(&cache_lock);
+                pthread_mutex_unlock(&cache_lock);
             }
         }
         usleep(100);
     }
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread sleeping\n");
-    sleep(1);
+    STATS_LOCK();
+    stats.lru_crawler_running = false;
+    STATS_UNLOCK();
+    pthread_mutex_unlock(&lru_crawler_lock);
     }
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread stopping\n");
@@ -847,7 +844,10 @@ static pthread_t item_crawler_tid;
 
 int stop_item_crawler_thread(void) {
     int ret;
+    pthread_mutex_lock(&lru_crawler_lock);
     do_run_lru_crawler_thread = 0;
+    pthread_cond_signal(&lru_crawler_cond);
+    pthread_mutex_unlock(&lru_crawler_lock);
     if ((ret = pthread_join(item_crawler_tid, NULL)) != 0) {
         fprintf(stderr, "Failed to stop LRU crawler thread: %s\n", strerror(ret));
         return -1;
@@ -857,12 +857,55 @@ int stop_item_crawler_thread(void) {
 
 int start_item_crawler_thread(void) {
     int ret;
+
+    pthread_mutex_lock(&lru_crawler_lock);
     do_run_lru_crawler_thread = 1;
     if ((ret = pthread_create(&item_crawler_tid, NULL,
         item_crawler_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create LRU crawler thread: %s\n",
-strerror(ret));
+            strerror(ret));
+        pthread_mutex_unlock(&lru_crawler_lock);
         return -1;
+    }
+    pthread_mutex_unlock(&lru_crawler_lock);
+
+    return 0;
+}
+
+enum crawler_result_type lru_crawler_crawl(int sid) {
+    if (pthread_mutex_trylock(&lru_crawler_lock) != 0) {
+        return CRAWLER_RUNNING;
+    }
+    if (sid < POWER_SMALLEST || sid > POWER_LARGEST) {
+        return CRAWLER_BADCLASS;
+    }
+    pthread_mutex_lock(&cache_lock);
+    if (tails[sid] != NULL) {
+        if (settings.verbose > 2)
+            fprintf(stderr, "Kicking LRU crawler off for slab %d\n", sid);
+        crawlers[sid].nbytes = 0;
+        crawlers[sid].nkey = 0;
+        crawlers[sid].it_flags = 1; /* For a crawler, this means enabled. */
+        crawlers[sid].next = 0;
+        crawlers[sid].prev = 0;
+        crawlers[sid].slabs_clsid = sid;
+        crawler_link_q((item *)&crawlers[sid]);
+        crawler_count++;
+    }
+    pthread_mutex_unlock(&cache_lock);
+    pthread_cond_signal(&lru_crawler_cond);
+    pthread_mutex_unlock(&lru_crawler_lock);
+    return CRAWLER_OK;
+}
+
+int init_lru_crawler(void) {
+    if (lru_crawler_initialized == 0) {
+        if (pthread_cond_init(&lru_crawler_cond, NULL) != 0) {
+            fprintf(stderr, "Can't initialize lru crawler condition\n");
+            return -1;
+        }
+        pthread_mutex_init(&lru_crawler_lock, NULL);
+        lru_crawler_initialized = 1;
     }
     return 0;
 }

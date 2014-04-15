@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 188;
+use Test::More tests => 189;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -36,6 +36,8 @@ for (1 .. 30) {
     is($slabs->{"1:used_chunks"}, 90, "slab1 has 90 used chunks");
 }
 
+sleep 3;
+
 print $sock "lru_crawler enable\r\n";
 is(scalar <$sock>, "OK\r\n", "enabled lru crawler");
 {
@@ -43,8 +45,12 @@ is(scalar <$sock>, "OK\r\n", "enabled lru crawler");
     is($stats->{lru_crawler}, "yes");
 }
 
-# TODO: counter for how often it's run? then poll that?
-sleep 5;
+print $sock "lru_crawler crawl 1\r\n";
+is(scalar <$sock>, "OK\r\n", "kicked lru crawler");
+while (1) {
+    my $stats = mem_stats($sock);
+    last unless $stats->{lru_crawler_running};
+}
 
 {
     my $slabs = mem_stats($sock, "slabs");

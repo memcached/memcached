@@ -27,5 +27,11 @@ void item_stats_reset(void);
 extern pthread_mutex_t cache_lock;
 void item_stats_evictions(uint64_t *evicted);
 
+enum crawler_result_type {
+    CRAWLER_OK=0, CRAWLER_RUNNING, CRAWLER_BADCLASS
+};
+
 int start_item_crawler_thread(void);
 int stop_item_crawler_thread(void);
+int init_lru_crawler(void);
+enum crawler_result_type lru_crawler_crawl(int sid);
