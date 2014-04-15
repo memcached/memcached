@@ -229,7 +229,7 @@ static void settings_init(void) {
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.maxconns_fast = false;
-    settings.lrucrawler = false;
+    settings.lru_crawler = false;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -2648,6 +2648,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
+    APPEND_STAT("lru_crawler", "%s", settings.lru_crawler ? "yes" : "no");
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
     APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
@@ -3556,17 +3557,19 @@ static void process_command(conn *c, char *command) {
         } else {
             out_string(c, "ERROR");
         }
-    } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "lrucrawler") == 0) {
+    } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
         /* FIXME: Need a lock to serialize item crawler commands */
         if (ntokens == 3) {
             if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "enable") == 0)) {
                 if (start_item_crawler_thread() == 0) {
+                    settings.lru_crawler = true;
                     out_string(c, "OK");
                 } else {
                     out_string(c, "ERROR failed to start lru crawler thread");
                 }
             } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
                 if (stop_item_crawler_thread() == 0) {
+                    settings.lru_crawler = false;
                     out_string(c, "OK");
                 } else {
                     out_string(c, "ERROR failed to stop lru crawler thread");

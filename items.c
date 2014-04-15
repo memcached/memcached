@@ -829,7 +829,7 @@ static void *item_crawler_thread(void *arg) {
     }
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread sleeping\n");
-    sleep(5);
+    sleep(1);
     }
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread stopping\n");
