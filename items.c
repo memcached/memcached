@@ -734,6 +734,7 @@ static item *crawler_crawl_q(item *it) {
 }
 
 /* TODO's:
+  - documentation
   - tunable sleep between runs
   - tunable sleep between item crawls
   - kick off crawler only when memory is low (?)
@@ -742,7 +743,6 @@ static item *crawler_crawl_q(item *it) {
      totals?)
   - only scan N items from tail before giving up and popping (option)
   - split up into more functions?
-  - tests
   - run mc-crusher against it to see performance loss.
   - allow loading compiled object to do the "Scan" stage, so users can simply
     write their own algorithm (removal based on keys, content, etc).
