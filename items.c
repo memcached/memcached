@@ -665,7 +665,7 @@ static void crawler_unlink_q(item *it) {
     return;
 }
 
-static int crawler_crawl_q(item *it) {
+static item *crawler_crawl_q(item *it) {
     item **head, **tail;
     assert(it->it_flags == ITEM_CRAWLER);
     assert(it->slabs_clsid < LARGEST_ID);
@@ -680,7 +680,7 @@ static int crawler_crawl_q(item *it) {
             assert(it->next->prev == it);
             it->next->prev = 0;
         }
-        return 1; /* Done */
+        return NULL; /* Done */
     }
 
     /* Swing ourselves in front of the next item */
@@ -717,7 +717,7 @@ static int crawler_crawl_q(item *it) {
     assert(it->next != it);
     assert(it->prev != it);
 
-    return 0; /* success */
+    return it->next; /* success */
 }
 
 /* TODO's:
@@ -760,17 +760,15 @@ static void *item_crawler_thread(void *arg) {
 
     /* Not right: Should be able to kick off new crawlers anytime */
     while (crawler_count) {
-        int ret;
         item *search = NULL;
         void *hold_lock = NULL;
         rel_time_t oldest_live = settings.oldest_live;
 
         for (i = 0; i < LARGEST_ID; i++) {
             if (crawlers[i].it_flags == ITEM_CRAWLER) {
-                /* FIXME: This should just return what to work on or NULL */
                 mutex_lock(&cache_lock);
-                ret = crawler_crawl_q((item *)&crawlers[i]);
-                if (ret == 1) {
+                search = crawler_crawl_q((item *)&crawlers[i]);
+                if (search == NULL) {
                     if (settings.verbose > 2)
                         fprintf(stderr, "Nothing left to crawl for %d\n", i);
                     crawlers[i].it_flags = 0;
@@ -779,7 +777,6 @@ static void *item_crawler_thread(void *arg) {
                     mutex_unlock(&cache_lock);
                     continue;
                 }
-                search = crawlers[i].next;
                 uint32_t hv = hash(ITEM_key(search), search->nkey, 0);
                 /* Attempt to hash item lock the "search" item. If locked, no
                  * other callers can incr the refcount
