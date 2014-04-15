@@ -936,7 +936,13 @@ void stop_slab_maintenance_thread(void) {
 char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int limit, const unsigned int limit_remove, unsigned int *bytes) {
     uint32_t hv;
 
-    char* buffer = malloc((size_t) 4 * 1024);
+    const short clean_stats_size = 255;
+    unsigned short stats_times[clean_stats_size];
+    unsigned short stats_expired[clean_stats_size];
+    memset(&stats_times, 0, sizeof(short) * clean_stats_size);
+    memset(&stats_expired, 0, sizeof(short) * clean_stats_size);
+    
+    char* buffer = malloc((size_t) 16 * 1024);
     unsigned int bufcurr = 0;
     char temp[1024];
     
@@ -1006,6 +1012,8 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
     item *it = (void*) ((char*)it_first + (slab->size*start));
     i=start;
     int items_found = 0;
+    
+    int _ttl_left = 0;
     for (; i<end; i++)
     {
         if ( (it->it_flags & ITEM_SLABBED) == 0 && it->refcount > 0 /* from remove items */
@@ -1013,10 +1021,20 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
         {
             items_found ++;
             
+            if (it->exptime == 0)
+                continue;
+            
             // check if we can expire the item
-            if (it->exptime != 0 && it->exptime <= current_time)
+            _ttl_left = it->exptime - current_time;
+            
+            if (/*it->exptime <= current_time*/ _ttl_left <= 0)
             {
                 assert(it->nkey <= KEY_MAX_LENGTH);
+                
+                _ttl_left = 0-_ttl_left;
+                if (_ttl_left >= clean_stats_size)
+                    _ttl_left = clean_stats_size-1;
+                stats_expired[_ttl_left]++;
         
                 hv = hash(ITEM_key(it), it->nkey, 0);
                 do_item_unlink_nolock_nostat(it, hv, &items_removed, &bytes_removed);
@@ -1024,6 +1042,12 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
             
                 if (items_removed > limit_remove && limit_remove > 0)
                     break;
+            }
+            else
+            {
+                if (_ttl_left >= clean_stats_size)
+                    _ttl_left = clean_stats_size-1;
+                stats_times[_ttl_left] ++;
             }
         }
         
@@ -1055,8 +1079,32 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
             limit, limit_remove);
     memcpy(buffer + bufcurr, temp, len);
     bufcurr += len;
+    
+    len = snprintf(temp, sizeof(temp), "TTLs: ");
+    memcpy(buffer + bufcurr, temp, len);
+    bufcurr += len;
+    for (i=0; i<clean_stats_size; i++)
+    {
+        int len = snprintf(temp, sizeof(temp), "%d,", stats_times[i]);
+        memcpy(buffer + bufcurr, temp, len);
+        bufcurr += len;
+    }
+    bufcurr --;
+    *(buffer + bufcurr) = 0;
+    
+    len = snprintf(temp, sizeof(temp), "\r\nExpired Age: ");
+    memcpy(buffer + bufcurr, temp, len);
+    bufcurr += len;
+    for (i=0; i<clean_stats_size; i++)
+    {
+        int len = snprintf(temp, sizeof(temp), "%d,", stats_expired[i]);
+        memcpy(buffer + bufcurr, temp, len);
+        bufcurr += len;
+    }
+    bufcurr --;
+    *(buffer + bufcurr) = 0;
         
-    memcpy(buffer + bufcurr, "END\r\n", 6);
+    memcpy(buffer + bufcurr, "\r\nEND\r\n", 6);
     bufcurr += 5;
     *bytes = bufcurr;
     return buffer;
