@@ -50,7 +50,7 @@ sleep 5;
     my $slabs = mem_stats($sock, "slabs");
     is($slabs->{"1:used_chunks"}, 60, "slab1 now has 60 used chunks");
     my $items = mem_stats($sock, "items");
-    is($items->{"items:1:reclaimed"}, 30, "slab1 has 30 reclaims");
+    is($items->{"items:1:crawler_reclaimed"}, 30, "slab1 has 30 reclaims");
 }
 
 for (1 .. 30) {

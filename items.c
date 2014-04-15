@@ -35,6 +35,7 @@ typedef struct {
     uint64_t tailrepairs;
     uint64_t expired_unfetched;
     uint64_t evicted_unfetched;
+    uint64_t crawler_reclaimed;
 } itemstats_t;
 
 static item *heads[LARGEST_ID];
@@ -443,6 +444,7 @@ void do_item_stats_totals(ADD_STAT add_stats, void *c) {
         totals.evicted_unfetched += itemstats[i].evicted_unfetched;
         totals.evicted += itemstats[i].evicted;
         totals.reclaimed += itemstats[i].reclaimed;
+        totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
     }
     APPEND_STAT("expired_unfetched", "%llu",
                 (unsigned long long)totals.expired_unfetched);
@@ -452,6 +454,8 @@ void do_item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.evicted);
     APPEND_STAT("reclaimed", "%llu",
                 (unsigned long long)totals.reclaimed);
+    APPEND_STAT("crawler_reclaimed", "%llu",
+                (unsigned long long)totals.crawler_reclaimed);
 }
 
 void do_item_stats(ADD_STAT add_stats, void *c) {
@@ -484,6 +488,8 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
                                 "%llu", (unsigned long long)itemstats[i].expired_unfetched);
             APPEND_NUM_FMT_STAT(fmt, i, "evicted_unfetched",
                                 "%llu", (unsigned long long)itemstats[i].evicted_unfetched);
+            APPEND_NUM_FMT_STAT(fmt, i, "crawler_reclaimed",
+                                "%llu", (unsigned long long)itemstats[i].crawler_reclaimed);
         }
     }
 
@@ -799,7 +805,7 @@ static void *item_crawler_thread(void *arg) {
 
                 if ((search->exptime != 0 && search->exptime < current_time)
                     || (search->time <= oldest_live && oldest_live <= current_time)) {
-                    itemstats[i].reclaimed++;
+                    itemstats[i].crawler_reclaimed++;
 
                     if (settings.verbose > 1) {
                         int ii;
