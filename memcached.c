@@ -3563,18 +3563,13 @@ static void process_command(conn *c, char *command) {
         }
     } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
         if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "crawl") == 0) {
-            int sid, rv;
+            int rv;
             if (settings.lru_crawler == false) {
                 out_string(c, "CLIENT_ERROR lru crawler disabled");
                 return;
             }
-            sid = strtol(tokens[2].value, NULL, 10);
 
-            if (errno == ERANGE) {
-                out_string(c, "CLIENT_ERROR bad command line format");
-                return;
-            }
-            rv = lru_crawler_crawl(sid);
+            rv = lru_crawler_crawl(tokens[2].value);
             switch(rv) {
             case CRAWLER_OK:
                 out_string(c, "OK");

@@ -872,25 +872,41 @@ int start_item_crawler_thread(void) {
     return 0;
 }
 
-enum crawler_result_type lru_crawler_crawl(int sid) {
+enum crawler_result_type lru_crawler_crawl(char *slabs) {
+    char *b = NULL;
+    uint32_t sid = 0;
+    uint8_t tocrawl[POWER_LARGEST];
     if (pthread_mutex_trylock(&lru_crawler_lock) != 0) {
         return CRAWLER_RUNNING;
     }
-    if (sid < POWER_SMALLEST || sid > POWER_LARGEST) {
-        return CRAWLER_BADCLASS;
-    }
     pthread_mutex_lock(&cache_lock);
-    if (tails[sid] != NULL) {
-        if (settings.verbose > 2)
-            fprintf(stderr, "Kicking LRU crawler off for slab %d\n", sid);
-        crawlers[sid].nbytes = 0;
-        crawlers[sid].nkey = 0;
-        crawlers[sid].it_flags = 1; /* For a crawler, this means enabled. */
-        crawlers[sid].next = 0;
-        crawlers[sid].prev = 0;
-        crawlers[sid].slabs_clsid = sid;
-        crawler_link_q((item *)&crawlers[sid]);
-        crawler_count++;
+
+    for (char *p = strtok_r(slabs, ",", &b);
+         p != NULL;
+         p = strtok_r(NULL, ",", &b)) {
+
+        if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
+                || sid > POWER_LARGEST) {
+            pthread_mutex_unlock(&cache_lock);
+            pthread_mutex_unlock(&lru_crawler_lock);
+            return CRAWLER_BADCLASS;
+        }
+        tocrawl[sid] = 1;
+    }
+
+    for (sid = 0; sid < LARGEST_ID; sid++) {
+        if (tocrawl[sid] != 0 && tails[sid] != NULL) {
+            if (settings.verbose > 2)
+                fprintf(stderr, "Kicking LRU crawler off for slab %d\n", sid);
+            crawlers[sid].nbytes = 0;
+            crawlers[sid].nkey = 0;
+            crawlers[sid].it_flags = 1; /* For a crawler, this means enabled. */
+            crawlers[sid].next = 0;
+            crawlers[sid].prev = 0;
+            crawlers[sid].slabs_clsid = sid;
+            crawler_link_q((item *)&crawlers[sid]);
+            crawler_count++;
+        }
     }
     pthread_mutex_unlock(&cache_lock);
     pthread_cond_signal(&lru_crawler_cond);
