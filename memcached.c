@@ -3600,14 +3600,12 @@ static void process_command(conn *c, char *command) {
         } else if (ntokens == 3) {
             if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "enable") == 0)) {
                 if (start_item_crawler_thread() == 0) {
-                    settings.lru_crawler = true;
                     out_string(c, "OK");
                 } else {
                     out_string(c, "ERROR failed to start lru crawler thread");
                 }
             } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
                 if (stop_item_crawler_thread() == 0) {
-                    settings.lru_crawler = false;
                     out_string(c, "OK");
                 } else {
                     out_string(c, "ERROR failed to stop lru crawler thread");
@@ -5031,6 +5029,8 @@ int main (int argc, char **argv) {
         SLAB_AUTOMOVE,
         TAIL_REPAIR_TIME,
         HASH_ALGORITHM
+        LRU_CRAWLER,
+        LRU_CRAWLER_SLEEP
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5039,6 +5039,8 @@ int main (int argc, char **argv) {
         [SLAB_AUTOMOVE] = "slab_automove",
         [TAIL_REPAIR_TIME] = "tail_repair_time",
         [HASH_ALGORITHM] = "hash_algorithm",
+        [LRU_CRAWLER] = "lru_crawler",
+        [LRU_CRAWLER_SLEEP] = "lru_crawler_sleep",
         NULL
     };
 
@@ -5336,6 +5338,19 @@ int main (int argc, char **argv) {
                     hash_type = MURMUR3_HASH;
                 } else {
                     fprintf(stderr, "Unknown hash_algorithm option (jenkins, murmur3)\n");
+                    return 1;
+                }
+                break;
+            case LRU_CRAWLER:
+                if (start_item_crawler_thread() != 0) {
+                    fprintf(stderr, "Failed to enable LRU crawler thread\n");
+                    return 1;
+                }
+                break;
+            case LRU_CRAWLER_SLEEP:
+                settings.lru_crawler_sleep = atoi(subopts_value);
+                if (settings.lru_crawler_sleep > 1000000 || settings.lru_crawler_sleep < 0) {
+                    fprintf(stderr, "LRU crawler sleep must be between 0 and 1 second\n");
                     return 1;
                 }
                 break;

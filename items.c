@@ -853,14 +853,18 @@ int stop_item_crawler_thread(void) {
         fprintf(stderr, "Failed to stop LRU crawler thread: %s\n", strerror(ret));
         return -1;
     }
+    settings.lru_crawler = false;
     return 0;
 }
 
 int start_item_crawler_thread(void) {
     int ret;
 
+    if (settings.lru_crawler)
+        return -1;
     pthread_mutex_lock(&lru_crawler_lock);
     do_run_lru_crawler_thread = 1;
+    settings.lru_crawler = true;
     if ((ret = pthread_create(&item_crawler_tid, NULL,
         item_crawler_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create LRU crawler thread: %s\n",
