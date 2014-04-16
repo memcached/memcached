@@ -231,6 +231,7 @@ static void settings_init(void) {
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.maxconns_fast = false;
     settings.lru_crawler = false;
+    settings.lru_crawler_sleep = 100;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -2655,6 +2656,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
     APPEND_STAT("lru_crawler", "%s", settings.lru_crawler ? "yes" : "no");
+    APPEND_STAT("lru_crawler_sleep", "%d", settings.lru_crawler_sleep);
     APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
     APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
     APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
@@ -3581,6 +3583,19 @@ static void process_command(conn *c, char *command) {
                 out_string(c, "BADCLASS invalid class id");
                 break;
             }
+            return;
+        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "sleep") == 0) {
+            uint32_t tosleep;
+            if (!safe_strtoul(tokens[2].value, &tosleep)) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+            if (tosleep > 1000000) {
+                out_string(c, "CLIENT_ERROR sleep must be one second or less");
+                return;
+            }
+            settings.lru_crawler_sleep = tosleep;
+            out_string(c, "OK");
             return;
         } else if (ntokens == 3) {
             if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "enable") == 0)) {

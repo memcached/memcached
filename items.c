@@ -825,7 +825,8 @@ static void *item_crawler_thread(void *arg) {
                 pthread_mutex_unlock(&cache_lock);
             }
         }
-        usleep(100);
+        if (settings.lru_crawler_sleep)
+            usleep(settings.lru_crawler_sleep);
     }
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread sleeping\n");

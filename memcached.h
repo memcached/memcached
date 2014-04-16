@@ -315,6 +315,7 @@ struct settings {
     int tail_repair_time;   /* LRU tail refcount leak repair time */
     bool flush_enabled;     /* flush_all enabled */
     char *hash_algorithm;     /* Hash algorithm in use */
+    int lru_crawler_sleep;  /* Microsecond sleep between items */
 };
 
 extern struct stats stats;
