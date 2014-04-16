@@ -12,7 +12,7 @@ use Cwd;
 my $builddir = getcwd;
 
 
-@EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
+@EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_getss mem_gets_is mem_getss_is mem_stats
              supports_sasl free_port);
 
 sub sleep {
@@ -92,6 +92,40 @@ sub mem_gets {
     }
 
 }
+
+
+sub mem_getss {
+    # works on single-line values only.  no newlines in value.
+    my ($sock_opts, $exptime, $key) = @_;
+    my $opts = ref $sock_opts eq "HASH" ? $sock_opts : {};
+    my $sock = ref $sock_opts eq "HASH" ? $opts->{sock} : $sock_opts;
+    my $val;
+    my $expect_flags = $opts->{flags} || 0;
+
+   print $sock "getss $exptime $key\r\n";
+    my $response = <$sock>;
+    if ($response =~ /^END/) {
+        return "ERROR";
+    }
+    else
+    {
+        $response =~ /VALUE (.*) (\d+) (\d+) (\d+)/;
+        my $flags = $2;
+        my $len = $3;
+        my $identifier = $4;
+
+        read $sock, $val , $len;
+
+        # get the END
+        $_ = <$sock>;
+        $_ = <$sock>;
+
+
+        return ($identifier,$val,$flags);
+    }
+
+}
+
 sub mem_gets_is {
     # works on single-line values only.  no newlines in value.
     my ($sock_opts, $identifier, $key, $val, $msg) = @_;
@@ -120,6 +154,11 @@ sub mem_gets_is {
         $body .= scalar(<$sock>) . scalar(<$sock>);
         Test::More::is($body, $expected, $msg);
     }
+}
+
+sub mem_getss_is {
+    #my $self = shift;
+    mem_gets_is(@_);
 }
 
 sub free_port {

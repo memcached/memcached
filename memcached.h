@@ -38,6 +38,14 @@
  * Plus a few for spaces, \r\n, \0 */
 #define SUFFIX_SIZE 24
 
+/*
+ * Size of lease data. it store nothing, but it should no less than the
+ *  max length of a 32-bit number converted to string is 11 bytes.
+ *  NOT including the ending '\r\n'
+ *  record the left time before expire is return to client.
+ */
+#define LEASE_DATA_SIZE (11)
+
 /** Initial size of list of items being returned by "get". */
 #define ITEM_LIST_INITIAL 200
 
@@ -101,6 +109,10 @@
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
          + (item)->nsuffix + (item)->nbytes \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
+#define ITEM_lease_test(item) ((item)->it_flags & ITEM_LEASE)
+#define lease_test(flag) (((flag)&settings.lease_mask)==settings.lease_flag)
+#define lease_set(flag) ((flag)|=settings.lease_flag)
 
 #define STAT_KEY_LEN 128
 #define STAT_VAL_LEN 128
@@ -213,7 +225,10 @@ struct slab_stats {
     uint64_t  touch_hits;
     uint64_t  delete_hits;
     uint64_t  cas_hits;
+    uint64_t  lease_hits;
     uint64_t  cas_badval;
+    uint64_t  lease_badval;
+    uint64_t  lease_set;
     uint64_t  incr_hits;
     uint64_t  decr_hits;
 };
@@ -237,6 +252,10 @@ struct thread_stats {
     uint64_t          conn_yields; /* # of yields for connections (-R option)*/
     uint64_t          auth_cmds;
     uint64_t          auth_errors;
+    uint64_t          lease_cnt;
+    uint64_t          lease_rewrite;
+    uint64_t          lease_getss;
+    uint64_t          lease_deletess;
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
 };
 
@@ -312,6 +331,8 @@ struct settings {
     bool shutdown_command; /* allow shutdown command */
     int tail_repair_time;   /* LRU tail refcount leak repair time */
     bool flush_enabled;     /* flush_all enabled */
+    uint16_t lease_flag;       /* lease enabled and specify the flag return to client if item is a lease. 0: disable */
+    uint16_t lease_mask;  /* lease flag mask. it specify which bits of the flag are use as a lease flags  */
 };
 
 extern struct stats stats;
@@ -325,7 +346,7 @@ extern struct settings settings;
 #define ITEM_SLABBED 4
 
 #define ITEM_FETCHED 8
-
+#define ITEM_LEASE 16
 /**
  * Structure for storing items within memcached.
  */
@@ -546,6 +567,7 @@ void  item_stats_totals(ADD_STAT add_stats, void *c);
 void  item_stats_sizes(ADD_STAT add_stats, void *c);
 void  item_unlink(item *it);
 void  item_update(item *it);
+uint64_t item_add_lease(char *key, const size_t nkey,rel_time_t exptime);
 
 void item_lock_global(void);
 void item_unlock_global(void);

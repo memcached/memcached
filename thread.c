@@ -579,6 +579,44 @@ void item_update(item *item) {
 }
 
 /*
+ *  Add a lease type item. Check the key if miss before adding
+ */
+
+static time_t lease_expire = 10;
+uint64_t item_add_lease(char *key, const size_t nkey,rel_time_t exptime) {
+    item *it, *old_it;
+    char *data;
+    uint32_t hv;
+    uint64_t return_cas=0;
+
+    exptime = exptime?exptime:lease_expire; /*set a default if 0*/
+    it = item_alloc(key, nkey, settings.lease_flag, exptime, LEASE_DATA_SIZE+2);
+
+
+    hv = hash(key, nkey, 0);
+
+    data = (char*)ITEM_data(it);
+    //set the end of the data;
+    memset(data, ' ', LEASE_DATA_SIZE+2);
+    data[LEASE_DATA_SIZE+0] = '\r';
+    data[LEASE_DATA_SIZE+1] = '\n';
+    it->it_flags |= ITEM_LEASE;
+    item_lock(hv);
+
+    /* delete old item if it exist. just for thread-safe*/
+    if ((old_it = do_item_get(key, nkey, hv))){
+        do_item_unlink(old_it, hv);
+        do_item_remove(old_it);
+    }
+    do_item_link(it, hv);
+    return_cas = ITEM_get_cas(it);
+    do_item_remove(it);
+    item_unlock(hv);
+    return return_cas;
+}
+
+
+/*
  * Does arithmetic on a numeric item value.
  */
 enum delta_result_type add_delta(conn *c, const char *key,
@@ -692,7 +730,10 @@ void threadlocal_stats_reset(void) {
             threads[ii].stats.slab_stats[sid].incr_hits = 0;
             threads[ii].stats.slab_stats[sid].decr_hits = 0;
             threads[ii].stats.slab_stats[sid].cas_hits = 0;
+            threads[ii].stats.slab_stats[sid].lease_hits = 0;
             threads[ii].stats.slab_stats[sid].cas_badval = 0;
+            threads[ii].stats.slab_stats[sid].lease_badval = 0;
+            threads[ii].stats.slab_stats[sid].lease_set = 0;
         }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
@@ -741,6 +782,12 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
                 threads[ii].stats.slab_stats[sid].cas_hits;
             stats->slab_stats[sid].cas_badval +=
                 threads[ii].stats.slab_stats[sid].cas_badval;
+            stats->slab_stats[sid].lease_hits +=
+                threads[ii].stats.slab_stats[sid].lease_hits;
+            stats->slab_stats[sid].lease_badval +=
+                threads[ii].stats.slab_stats[sid].lease_badval;
+            stats->slab_stats[sid].lease_set +=
+                threads[ii].stats.slab_stats[sid].lease_set;
         }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
@@ -758,6 +805,9 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     out->decr_hits = 0;
     out->cas_hits = 0;
     out->cas_badval = 0;
+    out->lease_hits = 0;
+    out->lease_badval = 0;
+    out->lease_set = 0;
 
     for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
         out->set_cmds += stats->slab_stats[sid].set_cmds;
@@ -768,6 +818,9 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
         out->incr_hits += stats->slab_stats[sid].incr_hits;
         out->cas_hits += stats->slab_stats[sid].cas_hits;
         out->cas_badval += stats->slab_stats[sid].cas_badval;
+        out->lease_hits += stats->slab_stats[sid].lease_hits;
+        out->lease_badval += stats->slab_stats[sid].lease_badval;
+        out->lease_set += stats->slab_stats[sid].lease_set;
     }
 }
 

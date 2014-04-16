@@ -235,6 +235,8 @@ static void settings_init(void) {
     settings.shutdown_command = false;
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
+    settings.lease_flag = 0;
+    settings.lease_mask = 0xffff;
 }
 
 /*
@@ -884,6 +886,7 @@ static void complete_nread_ascii(conn *c) {
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.slab_stats[it->slabs_clsid].set_cmds++;
+    if (ITEM_lease_test(it))c->thread->stats.slab_stats[it->slabs_clsid].lease_set++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
@@ -1194,6 +1197,7 @@ static void complete_update_bin(conn *c) {
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.slab_stats[it->slabs_clsid].set_cmds++;
+    if (ITEM_lease_test(it))c->thread->stats.slab_stats[it->slabs_clsid].lease_set++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     /* We don't actually receive the trailing two characters in the bin
@@ -2311,6 +2315,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             // I'm updating the stats for the one that's getting pushed out
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[old_it->slabs_clsid].cas_hits++;
+            if (ITEM_lease_test(old_it))c->thread->stats.slab_stats[old_it->slabs_clsid].lease_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
             item_replace(old_it, it, hv);
@@ -2318,6 +2323,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[old_it->slabs_clsid].cas_badval++;
+            if (ITEM_lease_test(old_it))c->thread->stats.slab_stats[old_it->slabs_clsid].lease_badval++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
             if(settings.verbose > 1) {
@@ -2615,6 +2621,14 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     }
     APPEND_STAT("malloc_fails", "%llu",
                 (unsigned long long)stats.malloc_fails);
+
+    APPEND_STAT("lease_cnt", "%llu", (unsigned long long)thread_stats.lease_cnt);
+    APPEND_STAT("lease_rewrite", "%llu", (unsigned long long)thread_stats.lease_rewrite);
+    APPEND_STAT("lease_getss", "%llu", (unsigned long long)thread_stats.lease_getss);
+    APPEND_STAT("lease_deletess", "%llu", (unsigned long long)thread_stats.lease_deletess);
+    APPEND_STAT("lease_badval", "%llu", (unsigned long long)slab_stats.lease_badval);
+    APPEND_STAT("lease_hits", "%llu", (unsigned long long)slab_stats.lease_hits);
+    APPEND_STAT("lease_set", "%llu", (unsigned long long)slab_stats.lease_set);
     STATS_UNLOCK();
 }
 
@@ -2651,6 +2665,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
     APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
     APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
+    APPEND_STAT("lease_flag", "%#4X", settings.lease_flag);
+    APPEND_STAT("lease_mask", "%#4X", settings.lease_mask);
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -2838,15 +2854,157 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
+
+/*Wrap the process from process_get_command for send item to mbuffer. For reuse.*/
+static inline int send_get_result(char *key,size_t nkey,item *it, conn *c, int *i, bool return_cas, bool new_lease){
+    char *suffix;
+    assert(c != NULL);
+    assert(it != NULL);
+    assert(i != NULL);
+
+    if (*i >= c->isize) {
+        item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
+        if (new_list) {
+            c->isize *= 2;
+            c->ilist = new_list;
+        } else {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            item_remove(it);
+            return 0;
+        }
+    }
+
+    /*
+     * Construct the response. Each hit adds three elements to the
+     * outgoing data list:
+     *   "VALUE "
+     *   key
+     *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
+     */
+
+
+
+    if (return_cas)
+    {
+      int nbytes;
+      MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                            it->nbytes, ITEM_get_cas(it));
+      /* Goofy mid-flight realloc. */
+      if (*i >= c->suffixsize) {
+        char **new_suffix_list = realloc(c->suffixlist,
+                               sizeof(char *) * c->suffixsize * 2);
+        if (new_suffix_list) {
+            c->suffixsize *= 2;
+            c->suffixlist  = new_suffix_list;
+        } else {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            item_remove(it);
+            return 0;
+        }
+      }
+
+      suffix = cache_alloc(c->thread->suffix_cache);
+      if (suffix == NULL) {
+          STATS_LOCK();
+          stats.malloc_fails++;
+          STATS_UNLOCK();
+          out_of_memory(c, "SERVER_ERROR out of memory making CAS suffix");
+          item_remove(it);
+          while ((*i)-- > 0) {
+              item_remove(*(c->ilist + *i));
+          }
+          return 0;
+      }
+
+        /*
+         * Return the time left before expire if the item is a lease.
+         * It seem not thread-safe. But no one can delete the item. i think it will woke OK.
+         */
+        nbytes = it->nbytes;
+        if (ITEM_lease_test(it)){
+            int len = 0;
+            int left_time = ((it->exptime < current_time) || new_lease)?0:(it->exptime - current_time);
+            len = snprintf(ITEM_data(it),LEASE_DATA_SIZE,"%d",left_time);
+            /*appending space to match the 'nbytes', no more then the number LEASE_DATA_SIZE*/
+            while (len < LEASE_DATA_SIZE){
+                len += snprintf(ITEM_data(it)+len,LEASE_DATA_SIZE-len,"%s","            ");
+            }
+            nbytes = LEASE_DATA_SIZE+2;
+        }
+
+      *(c->suffixlist + *i) = suffix;
+      int suffix_len = snprintf(suffix, SUFFIX_SIZE,
+                                " %llu\r\n",
+                                (unsigned long long)ITEM_get_cas(it));
+      if (add_iov(c, "VALUE ", 6) != 0 ||
+          add_iov(c, ITEM_key(it), it->nkey) != 0 ||
+          add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
+          add_iov(c, suffix, suffix_len) != 0 ||
+          add_iov(c, ITEM_data(it), nbytes) != 0)
+          {
+              item_remove(it);
+              return 0;
+          }
+    }
+    else
+    {
+      MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                            it->nbytes, ITEM_get_cas(it));
+      if (add_iov(c, "VALUE ", 6) != 0 ||
+          add_iov(c, ITEM_key(it), it->nkey) != 0 ||
+          add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
+          {
+              item_remove(it);
+              return 0;
+          }
+    }
+
+
+    if (settings.verbose > 1) {
+        int ii;
+        fprintf(stderr, ">%d sending key ", c->sfd);
+        for (ii = 0; ii < it->nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
+        fprintf(stderr, "\n");
+    }
+
+    *(c->ilist + *i) = it;
+    (*i)++;
+
+    return 1; /*success*/
+}
+
+
 /* ntokens is overwritten here... shrug.. */
-static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
+static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas, bool strong_cas) {
     char *key;
     size_t nkey;
     int i = 0;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
-    char *suffix;
+    int lease_ret = 0;
+    time_t exptime = 0;
     assert(c != NULL);
+
+    /*
+     * strong cas command: getss lease_time key [key...]
+     */
+    if (strong_cas){
+        int exptime_int=0;
+        if (! safe_strtol(tokens[1].value, &exptime_int)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+
+        /* It is said: Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
+        exptime = exptime_int;
+        key_token = &tokens[KEY_TOKEN+1];
+    }
 
     do {
         while(key_token->length != 0) {
@@ -2866,111 +3024,40 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
-            if (it) {
-                if (i >= c->isize) {
-                    item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
-                    if (new_list) {
-                        c->isize *= 2;
-                        c->ilist = new_list;
-                    } else {
-                        STATS_LOCK();
-                        stats.malloc_fails++;
-                        STATS_UNLOCK();
-                        item_remove(it);
-                        break;
-                    }
+
+            if (it && !ITEM_lease_test(it)) {  /* Hit a normal item*/
+                if (0 == send_get_result(key,nkey,it, c, &i, return_cas, false)){
+                    break;
                 }
-
-                /*
-                 * Construct the response. Each hit adds three elements to the
-                 * outgoing data list:
-                 *   "VALUE "
-                 *   key
-                 *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
-                 */
-
-                if (return_cas)
-                {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                                        it->nbytes, ITEM_get_cas(it));
-                  /* Goofy mid-flight realloc. */
-                  if (i >= c->suffixsize) {
-                    char **new_suffix_list = realloc(c->suffixlist,
-                                           sizeof(char *) * c->suffixsize * 2);
-                    if (new_suffix_list) {
-                        c->suffixsize *= 2;
-                        c->suffixlist  = new_suffix_list;
-                    } else {
-                        STATS_LOCK();
-                        stats.malloc_fails++;
-                        STATS_UNLOCK();
-                        item_remove(it);
-                        break;
-                    }
-                  }
-
-                  suffix = cache_alloc(c->thread->suffix_cache);
-                  if (suffix == NULL) {
-                      STATS_LOCK();
-                      stats.malloc_fails++;
-                      STATS_UNLOCK();
-                      out_of_memory(c, "SERVER_ERROR out of memory making CAS suffix");
-                      item_remove(it);
-                      while (i-- > 0) {
-                          item_remove(*(c->ilist + i));
-                      }
-                      return;
-                  }
-                  *(c->suffixlist + i) = suffix;
-                  int suffix_len = snprintf(suffix, SUFFIX_SIZE,
-                                            " %llu\r\n",
-                                            (unsigned long long)ITEM_get_cas(it));
-                  if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
-                      add_iov(c, suffix, suffix_len) != 0 ||
-                      add_iov(c, ITEM_data(it), it->nbytes) != 0)
-                      {
-                          item_remove(it);
-                          break;
-                      }
-                }
-                else
-                {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                                        it->nbytes, ITEM_get_cas(it));
-                  if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
-                      {
-                          item_remove(it);
-                          break;
-                      }
-                }
-
-
-                if (settings.verbose > 1) {
-                    int ii;
-                    fprintf(stderr, ">%d sending key ", c->sfd);
-                    for (ii = 0; ii < it->nkey; ++ii) {
-                        fprintf(stderr, "%c", key[ii]);
-                    }
-                    fprintf(stderr, "\n");
-                }
-
                 /* item_get() has incremented it->refcount for us */
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.slab_stats[it->slabs_clsid].get_hits++;
                 c->thread->stats.get_cmds++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
                 item_update(it);
-                *(c->ilist + i) = it;
-                i++;
 
-            } else {
+            } else {  /* Hit miss or hit a lease*/
+                bool new_lease = false;
+                /*Create a lease if hit-miss && getss*/
+                if (strong_cas && !it && 0 != item_add_lease(key,nkey,realtime(exptime))){
+                    it = item_get(key, nkey);
+                    new_lease = true;
+                }
+
+                /*Return the lease if it is getss*/
+                if (strong_cas && it){
+                    lease_ret = send_get_result(key,nkey,it, c, &i, return_cas, new_lease);
+
+                } else {
+                    /*Do nothing, normal miss*/
+                }
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.get_misses++;
                 c->thread->stats.get_cmds++;
+                if (new_lease){
+                    c->thread->stats.lease_cnt++;
+                    c->thread->stats.lease_getss++;
+                }
                 pthread_mutex_unlock(&c->thread->stats.mutex);
                 MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
             }
@@ -3094,6 +3181,22 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         return;
     }
     ITEM_set_cas(it, req_cas_id);
+
+    /*
+     * any 'update' operation except 'cas' will dirty the lease, make it validation for nobody.
+     * This also make lease compatible for all update operation.
+    */
+    if (settings.lease_flag && !handle_cas ){
+        item *old_item;
+        if ((old_item = item_get(key, nkey)) && ITEM_lease_test(old_item)){
+             it->exptime =old_item->exptime;/* Inherit the expire time of the lease node*/
+             item_unlink(old_item);
+             item_remove(old_item);
+             pthread_mutex_lock(&c->thread->stats.mutex);
+             c->thread->stats.lease_rewrite++;
+             pthread_mutex_unlock(&c->thread->stats.mutex);
+        }
+    }
 
     c->item = it;
     c->ritem = ITEM_data(it);
@@ -3298,18 +3401,35 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     return OK;
 }
 
-static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens, bool delete_cas) {
     char *key;
     size_t nkey;
     item *it;
+    uint64_t return_cas=0;
+    time_t exptime = 0;
+    int token_pos= KEY_TOKEN;
 
     assert(c != NULL);
 
     if (ntokens > 3) {
-        bool hold_is_zero = strcmp(tokens[KEY_TOKEN+1].value, "0") == 0;
-        bool sets_noreply = set_noreply_maybe(c, tokens, ntokens);
-        bool valid = (ntokens == 4 && (hold_is_zero || sets_noreply))
-            || (ntokens == 5 && hold_is_zero && sets_noreply);
+        bool valid = false;
+        if (delete_cas){
+            int exptime_int=0;
+            if (! safe_strtol(tokens[1].value, &exptime_int)) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+
+            /* It is said: Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
+            exptime = exptime_int;
+            valid = true;
+            token_pos ++;
+        } else {
+            bool hold_is_zero = strcmp(tokens[token_pos+1].value, "0") == 0;
+            bool sets_noreply = set_noreply_maybe(c, tokens, ntokens);
+            valid = (ntokens == 4 && (hold_is_zero || sets_noreply))
+                || (ntokens == 5 && hold_is_zero && sets_noreply);
+        }
         if (!valid) {
             out_string(c, "CLIENT_ERROR bad command line format.  "
                        "Usage: delete <key> [noreply]");
@@ -3318,8 +3438,8 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     }
 
 
-    key = tokens[KEY_TOKEN].value;
-    nkey = tokens[KEY_TOKEN].length;
+    key = tokens[token_pos].value;
+    nkey = tokens[token_pos].length;
 
     if(nkey > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
@@ -3332,21 +3452,49 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
 
     it = item_get(key, nkey);
     if (it) {
+        bool is_lease;
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.slab_stats[it->slabs_clsid].delete_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
+        if (!delete_cas){
+            exptime = (it->exptime > current_time)?(it->exptime - current_time):0;
+        }
 
+        is_lease = ITEM_lease_test(it);
         item_unlink(it);
         item_remove(it);      /* release our reference */
-        out_string(c, "DELETED");
+
+        /*Both deletess and delete a lease will create a lease*/
+        if ((delete_cas || is_lease) && 0 != (return_cas = item_add_lease(key,nkey,realtime(exptime)))){
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.lease_cnt++;
+            c->thread->stats.lease_deletess++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+        }
+
+        if (delete_cas){
+            char buff[32];
+            snprintf(buff,32,"DELETED %llu", (unsigned long long)return_cas);
+            out_string(c, buff);
+        } else if (is_lease){
+            out_string(c, "NOT_FOUND");
+        } else {
+            out_string(c, "DELETED");
+        }
     } else {
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.delete_misses++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        out_string(c, "NOT_FOUND");
+        if (delete_cas  && 0 != (return_cas = item_add_lease(key,nkey,realtime(exptime)))){
+            char buff[32];
+            snprintf(buff,32,"NOT_FOUND %llu", (unsigned long long)return_cas);
+            out_string(c, buff);
+        } else {
+            out_string(c, "NOT_FOUND");
+        }
     }
 }
 
@@ -3414,7 +3562,7 @@ static void process_command(conn *c, char *command) {
         ((strcmp(tokens[COMMAND_TOKEN].value, "get") == 0) ||
          (strcmp(tokens[COMMAND_TOKEN].value, "bget") == 0))) {
 
-        process_get_command(c, tokens, ntokens, false);
+        process_get_command(c, tokens, ntokens, false, false);
 
     } else if ((ntokens == 6 || ntokens == 7) &&
                ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
@@ -3435,7 +3583,11 @@ static void process_command(conn *c, char *command) {
 
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "gets") == 0)) {
 
-        process_get_command(c, tokens, ntokens, true);
+        process_get_command(c, tokens, ntokens, true, false);
+
+    } else if (ntokens >= 4 && settings.lease_flag && (strcmp(tokens[COMMAND_TOKEN].value, "getss") == 0)) {
+
+        process_get_command(c, tokens, ntokens, true, true);
 
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
@@ -3443,7 +3595,11 @@ static void process_command(conn *c, char *command) {
 
     } else if (ntokens >= 3 && ntokens <= 5 && (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0)) {
 
-        process_delete_command(c, tokens, ntokens);
+        process_delete_command(c, tokens, ntokens, false);
+
+    } else if ((ntokens == 3 || ntokens == 4) && settings.lease_flag && (strcmp(tokens[COMMAND_TOKEN].value, "deletess") == 0)) {
+
+        process_delete_command(c, tokens, ntokens, true);
 
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "touch") == 0)) {
 
@@ -4715,6 +4871,10 @@ static void usage(void) {
     printf("-S            Turn on Sasl authentication\n");
 #endif
     printf("-F            Disable flush_all command\n");
+    printf("-z            Enable lease and specify a flag return to client if item is a lease. "
+           "              Lease is a approach to prevent stale data and "
+           "              thundering herd, as it is mentioned at the paper of Facebook. "
+           "              Make sure your client support it before it is enable.\n");
     printf("-o            Comma separated list of extended or experimental options\n"
            "              - (EXPERIMENTAL) maxconns_fast: immediately close new\n"
            "                connections if over maxconns limit\n"
@@ -5015,6 +5175,7 @@ int main (int argc, char **argv) {
           "I:"  /* Max item size */
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
+          "z:"   /* Enable lease */
           "o:"  /* Extended generic options */
         ))) {
         switch (c) {
@@ -5204,6 +5365,16 @@ int main (int argc, char **argv) {
        case 'F' :
             settings.flush_enabled = false;
             break;
+       case 'z' :
+       {
+            char *pmask = strstr(optarg,":");
+
+            if (pmask)settings.lease_mask = strtol(pmask+1,0,0);
+            settings.lease_flag  = strtol(optarg,0,0);
+            settings.lease_flag &= settings.lease_mask;
+            settings.use_cas     = true;
+            break;
+       }
         case 'o': /* It's sub-opts time! */
             subopts = optarg;
 

@@ -1,0 +1,119 @@
+Strong cas:
+---------------------
+
+    It is devoted to prevent setting stale data to the cache at multi-clients 
+environment, and also prevent thundering herds phenomenon.
+
+Abstract:
+-----------
+
+1. A type of item called "lease", similar to that mentioned at Facebook's 
+paper "Scaling Memcache at Facebook"; I also think it is a concept of 
+'dirty lock', because anybody try to update it will replace itself expiration 
+to the lease's expiration. 
+2. Add two command: 'getss' and 'deletess', they are similar to gets and delete.
+    a)Lease like a loose-lock for a key, and "loose" means that client can
+     ignore the lock and over-write the key's value; When a 'getss' operation
+     encounter a miss, cache server will create a lease item for the key to 
+     "lock" the key, and return the 'cas unique' as a identifier to the client;
+     The client should use 'cas' to store a new value for the key; If a 
+     client want to update a key's value, it should use 'deletess' instead of 
+     'delete' to delete the old value of the key, and the 'deletess' will 
+     also create a lease to lock the key, then return the identifier to the 
+     client.
+3. Compatible with old feature of memcache.
+
+Detail
+--------
+
+To enable the strong cas feature, using the option '-z <flag>:<mask>'. 
+'flag' and 'mask' specify the special flag to tell the client that it get 
+a lease.  They are format of hex.
+
+At the server side:
+1) Retrieval command:
+    getss: gets <exptime> <key>*, <exptime> is the expiration time of the 
+            lease when creating a lease. operation:
+        a) Encounter a normal item: action the same as 'get' command.
+        b) Encounter a lease: return a lease item with the flag specified in 
+           the option; and it also return the remain time for the lease 
+           to the client.
+        c) Encounter hit-miss: create an item with the 'lease' internal flag, 
+           using the specify expiration. Remain time that return to client 
+           is 0, it specify this is a new lease. 
+        d) It should never return a miss to client. In this case it returns 
+           error instead.
+           
+        Each lease item sent by the server looks like this:
+        VALUE <key> <lease-flags> <bytes> [<cas unique>]\r\n<remain time>\r\n
+        
+  note: get/gets: can't not see the lease, it will return miss (null) even if 
+        there exist a lease item for the key;
+        
+2) Storage commands:
+    cas: process a lease as a normal item, check the identifier before set 
+        the value. No modification to this command.
+    Other update command(including Increment/Decrement):
+        when these commands encounter a lease, they record the expiration 
+        then delete the lease. The new item that they update will be replaced 
+        the expiration to the recorded expiration. It looks like it is 
+        dirtied by the lease.
+    
+3) Deletion command:
+    deletess: delete <exptime> <key>. delete the key, even if it is a lease; 
+        then create a lease returning to client. <expire> is the expire time 
+        of the lease.
+    delete: if exist a lease, delete command record the expiration time of the 
+        lease, then create a new lease with the record expiration time. 
+        Return NOT_FOUND, and do NOT return the cas identifier; 
+        else if no lease,  do something just as a normal delete command.
+        
+    
+    Each lease item sent by the server looks like this(at case deletess):
+        "DELETED <cas unique>\r\n" to indicate success, return the cas id.;
+        "NOT_FOUND  <cas unique>\r\n" to indicate that the item with 
+            this key was not found .
+        
+4) Touch:
+    Touch command can not touch the lease item.
+    "NOT_FOUND\r\n" to indicate that the item with this key was
+     not found or it is a lease.
+    
+5) stats:
+    add below items to the end of each table.
+    
+General-purpose statistics: 
+|-----------------------+---------+-------------------------------------------| 
+| Name                  | Type    | Meaning                                   |
+|-----------------------+---------+-------------------------------------------| 
+| lease_cnt             | 64u     | Lease total number add to the cache       |
+| lease_rewrite         | 64u     | Lease counter that it is rewrit           |
+| lease_getss           | 64u     | Lease counter created by getss command    |
+| lease_deletess        | 64u     | Lease counter created by deletess command |
+| lease_hit             | 64u     | counter of match the lease of cas         |
+| lease_badval          | 64u     | counter of mismatch the lease of cas      | 
+| lease_set             | 64u     | counter of lease overwrited by set        |
+
+
+Settings statistics:
+|-------------------+----------+----------------------------------------------| 
+| Name              | Type     | Meaning                                      | 
+|-------------------+----------+----------------------------------------------| 
+| lease_flag        | u16      | Specified  flag for the lease                |
+| lease_mask        | u16      | Specified  mask for the lease's flag         |
+
+Item statistics: 
+Name                   Meaning
+------------------------------
+    Slab statistics:
+|-------------------+----------+----------------------------------------------| 
+| Name              | Type     | Meaning                                      | 
+|-------------------+----------+----------------------------------------------| 
+| lease_hits        | u64   | Counter of hit lease                            |
+| lease_badval      | u64   | Counter of mismatch the lease of cas            |
+| lease_set         | 64u   | counter of lease overwrited by set              |
+
+
+6) Other commands:
+   no infection.
+ 

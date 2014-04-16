@@ -581,6 +581,12 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
 item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
                     const uint32_t hv) {
     item *it = do_item_get(key, nkey, hv);
+
+    if (it != NULL && ITEM_lease_test(it)) {
+           do_item_remove(it); /* release the refcounter of get operation*/
+           it = NULL;
+       }
+
     if (it != NULL) {
         it->exptime = exptime;
     }
