@@ -733,20 +733,37 @@ static item *crawler_crawl_q(item *it) {
     return it->next; /* success */
 }
 
-/* TODO's:
-  - documentation
-  - tunable sleep between runs
-  - tunable sleep between item crawls
-  - kick off crawler only when memory is low (?)
-  - kick off crawler when reclaims aren't happening (?)
-  - add statistics (items crawled, items relcaimed by crawler, memory
-     totals?)
-  - only scan N items from tail before giving up and popping (option)
-  - split up into more functions?
-  - run mc-crusher against it to see performance loss.
-  - allow loading compiled object to do the "Scan" stage, so users can simply
-    write their own algorithm (removal based on keys, content, etc).
+/* I pulled this out to make the main thread clearer, but it reaches into the
+ * main thread's values too much. Should rethink again.
  */
+static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
+    rel_time_t oldest_live = settings.oldest_live;
+    if ((search->exptime != 0 && search->exptime < current_time)
+        || (search->time <= oldest_live && oldest_live <= current_time)) {
+        itemstats[i].crawler_reclaimed++;
+
+        if (settings.verbose > 1) {
+            int ii;
+            char *key = ITEM_key(search);
+            fprintf(stderr, "LRU crawler found an expired item (flags: %d, slab: %d): ",
+                search->it_flags, search->slabs_clsid);
+            for (ii = 0; ii < search->nkey; ++ii) {
+                fprintf(stderr, "%c", key[ii]);
+            }
+            fprintf(stderr, "\n");
+        }
+        if ((search->it_flags & ITEM_FETCHED) == 0) {
+            itemstats[i].expired_unfetched++;
+        }
+        do_item_unlink_nolock(search, hv);
+        /* Initialize the item block: */
+        search->slabs_clsid = 0;
+        slabs_free(search, ITEM_ntotal(search), i);
+    } else {
+        refcount_decr(&search->refcount);
+    }
+}
+
 static void *item_crawler_thread(void *arg) {
     int i;
 
@@ -754,10 +771,6 @@ static void *item_crawler_thread(void *arg) {
         fprintf(stderr, "Starting LRU crawler background thread\n");
     while (do_run_lru_crawler_thread) {
     pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
-    /* TODO: Don't need to hold the crawler lock once we've decided to crawl
-     * some stuff. This isn't very flexible though: Should be able to signal
-     * and stop crawlers while they're running.
-     */
     STATS_LOCK();
     stats.lru_crawler_running = true;
     STATS_UNLOCK();
@@ -765,68 +778,51 @@ static void *item_crawler_thread(void *arg) {
     while (crawler_count) {
         item *search = NULL;
         void *hold_lock = NULL;
-        rel_time_t oldest_live = settings.oldest_live;
 
         for (i = 0; i < LARGEST_ID; i++) {
-            if (crawlers[i].it_flags == 1) {
-                pthread_mutex_lock(&cache_lock);
-                search = crawler_crawl_q((item *)&crawlers[i]);
-                if (search == NULL) {
-                    if (settings.verbose > 2)
-                        fprintf(stderr, "Nothing left to crawl for %d\n", i);
-                    crawlers[i].it_flags = 0;
-                    crawler_count--;
-                    crawler_unlink_q((item *)&crawlers[i]);
-                    pthread_mutex_unlock(&cache_lock);
-                    continue;
-                }
-                uint32_t hv = hash(ITEM_key(search), search->nkey, 0);
-                /* Attempt to hash item lock the "search" item. If locked, no
-                 * other callers can incr the refcount
-                 */
-                if ((hold_lock = item_trylock(hv)) == NULL) {
-                    pthread_mutex_unlock(&cache_lock);
-                    continue;
-                }
-                /* Now see if the item is refcount locked */
-                if (refcount_incr(&search->refcount) != 2) {
-                    refcount_decr(&search->refcount);
-                    if (hold_lock)
-                        item_trylock_unlock(hold_lock);
-                    pthread_mutex_unlock(&cache_lock);
-                    continue;
-                }
-
-                if ((search->exptime != 0 && search->exptime < current_time)
-                    || (search->time <= oldest_live && oldest_live <= current_time)) {
-                    itemstats[i].crawler_reclaimed++;
-
-                    if (settings.verbose > 1) {
-                        int ii;
-                        char *key = ITEM_key(search);
-                        fprintf(stderr, "LRU crawler found an expired item (flags: %d): ", search->it_flags);
-                        for (ii = 0; ii < search->nkey; ++ii) {
-                            fprintf(stderr, "%c", key[ii]);
-                        }
-                        fprintf(stderr, "\n");
-                    }
-                    if ((search->it_flags & ITEM_FETCHED) == 0) {
-                        itemstats[i].expired_unfetched++;
-                    }
-                    do_item_unlink_nolock(search, hv);
-                    /* Initialize the item block: */
-                    search->slabs_clsid = 0;
-                    slabs_free(search, ITEM_ntotal(search), i);
-                } else {
-                    refcount_decr(&search->refcount);
-                }
+            if (crawlers[i].it_flags != 1) {
+                continue;
+            }
+            pthread_mutex_lock(&cache_lock);
+            search = crawler_crawl_q((item *)&crawlers[i]);
+            if (search == NULL) {
+                if (settings.verbose > 2)
+                    fprintf(stderr, "Nothing left to crawl for %d\n", i);
+                crawlers[i].it_flags = 0;
+                crawler_count--;
+                crawler_unlink_q((item *)&crawlers[i]);
+                pthread_mutex_unlock(&cache_lock);
+                continue;
+            }
+            uint32_t hv = hash(ITEM_key(search), search->nkey, 0);
+            /* Attempt to hash item lock the "search" item. If locked, no
+             * other callers can incr the refcount
+             */
+            if ((hold_lock = item_trylock(hv)) == NULL) {
+                pthread_mutex_unlock(&cache_lock);
+                continue;
+            }
+            /* Now see if the item is refcount locked */
+            if (refcount_incr(&search->refcount) != 2) {
+                refcount_decr(&search->refcount);
                 if (hold_lock)
                     item_trylock_unlock(hold_lock);
                 pthread_mutex_unlock(&cache_lock);
+                continue;
             }
+
+            /* Frees the item or decrements the refcount. */
+            /* Interface for this could improve: do the free/decr here
+             * instead? */
+            item_crawler_evaluate(search, hv, i);
+
+            if (hold_lock)
+                item_trylock_unlock(hold_lock);
+            pthread_mutex_unlock(&cache_lock);
+
+            if (settings.lru_crawler_sleep)
+                usleep(settings.lru_crawler_sleep);
         }
-        if (settings.lru_crawler_sleep)
-            usleep(settings.lru_crawler_sleep);
     }
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread sleeping\n");
