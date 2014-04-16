@@ -935,6 +935,7 @@ void stop_slab_maintenance_thread(void) {
 /* slawek - reclaim patch */
 char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int limit, const unsigned int limit_remove, unsigned int *bytes) {
     uint32_t hv;
+    void *hold_lock = NULL;
 
     const short clean_stats_size = 255;
     unsigned short stats_times[clean_stats_size];
@@ -1016,6 +1017,12 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
     int _ttl_left = 0;
     for (; i<end; i++)
     {
+        // iterate over items at start, so we won't have to iterate near each continue
+        if (i!=start) {
+            it = (void*) (((char*)it) + slab->size);
+        }
+        
+        // dirty reads, prevent locking!
         if ( (it->it_flags & ITEM_SLABBED) == 0 && it->refcount > 0 /* from remove items */
             && it->slabs_clsid > 0 )
         {
@@ -1023,35 +1030,71 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
             
             if (it->exptime == 0)
                 continue;
-            
-            // check if we can expire the item
-            _ttl_left = it->exptime - current_time;
-            
-            if (/*it->exptime <= current_time*/ _ttl_left <= 0)
-            {
-                assert(it->nkey <= KEY_MAX_LENGTH);
+        }
+        else
+            continue;
                 
-                _ttl_left = 0-_ttl_left;
-                if (_ttl_left >= clean_stats_size)
-                    _ttl_left = clean_stats_size-1;
-                stats_expired[_ttl_left]++;
+        // check if we can expire the item
+        _ttl_left = it->exptime - current_time;
         
-                hv = hash(ITEM_key(it), it->nkey, 0);
-                do_item_unlink_nolock_nostat(it, hv, &items_removed, &bytes_removed);
-                //do_item_remove(it); item will get removed automatically in unlink function!
+        if (_ttl_left > 0)
+        {
+            if (_ttl_left >= clean_stats_size)
+                _ttl_left = clean_stats_size-1;
+            stats_times[_ttl_left] ++;
             
-                if (items_removed > limit_remove && limit_remove > 0)
-                    break;
-            }
-            else
-            {
-                if (_ttl_left >= clean_stats_size)
-                    _ttl_left = clean_stats_size-1;
-                stats_times[_ttl_left] ++;
-            }
+            continue;
+        }
+        else
+        {
+            _ttl_left = 0-_ttl_left;
+            if (_ttl_left >= clean_stats_size)
+                _ttl_left = clean_stats_size-1;
+            stats_expired[_ttl_left]++;
         }
         
-        it = (void*) (((char*)it) + slab->size);
+        
+        // dirty reads ends here, proceed with locking!
+        hv = hash(ITEM_key(it), it->nkey, 0);
+        /* Attempt to hash item lock the item. If locked, no
+        * other callers can incr the refcount */
+        if ((hold_lock = item_trylock(hv)) == NULL) {
+            continue;
+        }
+       
+        /* Now see if the item is refcount locked */
+        if (refcount_incr(&it->refcount) != 2) {
+            refcount_decr(&it->refcount);
+            
+            if (hold_lock) {
+                item_trylock_unlock(hold_lock);
+            }
+            continue;
+        }
+        
+        // LOCKED, proceed with removing!
+        assert(it->nkey <= KEY_MAX_LENGTH);
+        _ttl_left = it->exptime - current_time;
+        
+        
+        if ( (it->it_flags & ITEM_SLABBED) == 0 && it->refcount > 0 /* from remove items */
+            && it->slabs_clsid > 0 && _ttl_left <= 0)
+        {
+            //do_item_remove(it); item will get removed automatically in unlink function!
+            do_item_unlink_nolock_nostat(it, hv, &items_removed, &bytes_removed);
+            
+            /* Initialize the item block: */
+            it->slabs_clsid = 0;
+            slabs_free(it, ITEM_ntotal(it), slabs_clsid);
+        }
+        else
+        {
+            refcount_decr(&it->refcount);
+        }
+        
+        if (hold_lock) {
+            item_trylock_unlock(hold_lock);
+        }
     }
     
     // let's update position!
@@ -1071,10 +1114,10 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
       
     
     int len = snprintf(temp, sizeof(temp),
-        "Expiring items in SLAB: %d, Memory region: %d / %d, Item pos: S:%d / E:%d\r\n"
+        "Expiring items in SLAB: %d, Memory region: %d / %d (max: %d), Item pos: S:%d / E:%d\r\n"
         "Scanned items: %d (Found: %d) / Expired: %llu (%llu KB)\r\n"
         "Limits ... Items: %u, Max Remove: %u (0 - none)\r\n"
-            ,slabs_clsid, slab->reclaimed_slab_num, slab->list_size, _ipos_start, slab->reclaimed_slab_item_num,
+            ,slabs_clsid, slab->reclaimed_slab_num, slab->slabs, slab->list_size, _ipos_start, slab->reclaimed_slab_item_num,
             (i - start), items_found, (unsigned long long) items_removed, (unsigned long long) ( (bytes_removed+1023) / 1024),
             limit, limit_remove);
     memcpy(buffer + bufcurr, temp, len);
@@ -1104,8 +1147,8 @@ char *do_item_cacheremove(const unsigned int slabs_clsid, const unsigned int lim
     bufcurr --;
     *(buffer + bufcurr) = 0;
         
-    memcpy(buffer + bufcurr, "\r\nEND\r\n", 6);
-    bufcurr += 5;
+    memcpy(buffer + bufcurr, "\r\nEND\r\n", 8);
+    bufcurr += 7;
     *bytes = bufcurr;
     return buffer;
 }
