@@ -18,13 +18,6 @@
 static void item_link_q(item *it);
 static void item_unlink_q(item *it);
 
-/*
- * We only reposition items in the LRU queue if they haven't been repositioned
- * in this many seconds. That saves us from churning on frequently-accessed
- * items.
- */
-#define ITEM_UPDATE_INTERVAL 60
-
 #define LARGEST_ID POWER_LARGEST
 typedef struct {
     uint64_t evicted;

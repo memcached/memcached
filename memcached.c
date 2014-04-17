@@ -188,7 +188,7 @@ static void stats_init(void) {
        did, so time(0) - time.started is never zero.  if so, things
        like 'settings.oldest_live' which act as booleans as well as
        values are now false in boolean context... */
-    process_started = time(0) - 2;
+    process_started = time(0) - ITEM_UPDATE_INTERVAL - 2;
     stats_prefix_init();
 }
 
@@ -2562,7 +2562,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     STATS_LOCK();
 
     APPEND_STAT("pid", "%lu", (long)pid);
-    APPEND_STAT("uptime", "%u", now);
+    APPEND_STAT("uptime", "%u", now - ITEM_UPDATE_INTERVAL);
     APPEND_STAT("time", "%ld", now + (long)process_started);
     APPEND_STAT("version", "%s", VERSION);
     APPEND_STAT("libevent", "%s", event_get_version());
@@ -4708,7 +4708,7 @@ static void clock_handler(const int fd, const short which, void *arg) {
         struct timespec ts;
         if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
             monotonic = true;
-            monotonic_start = ts.tv_sec - 2;
+            monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
         }
 #endif
     }
