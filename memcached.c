@@ -232,6 +232,7 @@ static void settings_init(void) {
     settings.maxconns_fast = false;
     settings.lru_crawler = false;
     settings.lru_crawler_sleep = 100;
+    settings.lru_crawler_tocrawl = 0;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -2657,6 +2658,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
     APPEND_STAT("lru_crawler", "%s", settings.lru_crawler ? "yes" : "no");
     APPEND_STAT("lru_crawler_sleep", "%d", settings.lru_crawler_sleep);
+    APPEND_STAT("lru_crawler_tocrawl", "%lu", (unsigned long)settings.lru_crawler_tocrawl);
     APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
     APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
     APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
@@ -3583,6 +3585,15 @@ static void process_command(conn *c, char *command) {
                 out_string(c, "BADCLASS invalid class id");
                 break;
             }
+            return;
+        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "tocrawl") == 0) {
+            uint32_t tocrawl;
+             if (!safe_strtoul(tokens[2].value, &tocrawl)) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+            settings.lru_crawler_tocrawl = tocrawl;
+            out_string(c, "OK");
             return;
         } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "sleep") == 0) {
             uint32_t tosleep;
@@ -4793,6 +4804,8 @@ static void usage(void) {
            "              - lru_crawler: Enable LRU Crawler background thread\n"
            "              - lru_crawler_sleep: Microseconds to sleep between items\n"
            "                default is 100.\n"
+           "              - lru_crawler_tocrawl: Max items to crawl per slab per run\n"
+           "                default is 0 (unlimited)\n"
            );
     return;
 }
@@ -5022,6 +5035,7 @@ int main (int argc, char **argv) {
     bool tcp_specified = false;
     bool udp_specified = false;
     enum hashfunc_type hash_type = JENKINS_HASH;
+    uint32_t tocrawl;
 
     char *subopts;
     char *subopts_value;
@@ -5033,7 +5047,8 @@ int main (int argc, char **argv) {
         TAIL_REPAIR_TIME,
         HASH_ALGORITHM,
         LRU_CRAWLER,
-        LRU_CRAWLER_SLEEP
+        LRU_CRAWLER_SLEEP,
+        LRU_CRAWLER_TOCRAWL
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5044,6 +5059,7 @@ int main (int argc, char **argv) {
         [HASH_ALGORITHM] = "hash_algorithm",
         [LRU_CRAWLER] = "lru_crawler",
         [LRU_CRAWLER_SLEEP] = "lru_crawler_sleep",
+        [LRU_CRAWLER_TOCRAWL] = "lru_crawler_tocrawl",
         NULL
     };
 
@@ -5356,6 +5372,13 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "LRU crawler sleep must be between 0 and 1 second\n");
                     return 1;
                 }
+                break;
+            case LRU_CRAWLER_TOCRAWL:
+                if (!safe_strtoul(subopts_value, &tocrawl)) {
+                    fprintf(stderr, "lru_crawler_tocrawl takes a numeric 32bit value\n");
+                    return 1;
+                }
+                settings.lru_crawler_tocrawl = tocrawl;
                 break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);

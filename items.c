@@ -789,7 +789,8 @@ static void *item_crawler_thread(void *arg) {
             }
             pthread_mutex_lock(&cache_lock);
             search = crawler_crawl_q((item *)&crawlers[i]);
-            if (search == NULL) {
+            if (search == NULL ||
+                (crawlers[i].remaining && --crawlers[i].remaining < 1)) {
                 if (settings.verbose > 2)
                     fprintf(stderr, "Nothing left to crawl for %d\n", i);
                 crawlers[i].it_flags = 0;
@@ -915,6 +916,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
             crawlers[sid].next = 0;
             crawlers[sid].prev = 0;
             crawlers[sid].time = 0;
+            crawlers[sid].remaining = settings.lru_crawler_tocrawl;
             crawlers[sid].slabs_clsid = sid;
             crawler_link_q((item *)&crawlers[sid]);
             crawler_count++;

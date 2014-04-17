@@ -433,7 +433,19 @@ The response line could be one of:
 
 - "OK"
 
-- "CLIENT_ERROR [message]" indicating a formato or bounds issue.
+- "CLIENT_ERROR [message]" indicating a format or bounds issue.
+
+lru_crawler tocrawl <32u>
+
+- The maximum number of items to inspect in a slab class per run request. This
+  allows you to avoid scanning all of very large slabs when it is unlikely to
+  find items to expire.
+
+The response line could be one of:
+
+- "OK"
+
+- "CLIENT_ERROR [message]" indicating a format or bound issue.
 
 lru_crawler crawl <classid,classid,classid|all>
 
@@ -614,7 +626,8 @@ other stats command.
 | slab_automove     | bool     | Whether slab page automover is enabled       |
 | hash_algorithm    | char     | Hash table algorithm in use                  |
 | lru_crawler       | bool     | Whether the LRU crawler is enabled           |
-| lru_Crawler_sleep | 32       | Microseconds to sleep between LRU crawls     |
+| lru_crawler_sleep | 32       | Microseconds to sleep between LRU crawls     |
+| lru_crawler_tocrawl| 32u     | Max items to crawl per slab per run          |
 |-------------------+----------+----------------------------------------------|
 
 

@@ -316,6 +316,7 @@ struct settings {
     bool flush_enabled;     /* flush_all enabled */
     char *hash_algorithm;     /* Hash algorithm in use */
     int lru_crawler_sleep;  /* Microsecond sleep between items */
+    uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
 };
 
 extern struct stats stats;
@@ -369,6 +370,7 @@ typedef struct {
     uint8_t         it_flags;   /* ITEM_* above */
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
+    uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
 } crawler;
 
 typedef struct {
