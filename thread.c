@@ -631,6 +631,18 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
 }
 
 /*
+ * Removes part of expired cache - SLAWEK
+ */
+char *item_cacheremove(unsigned int slabs_clsid, unsigned int limit, unsigned int limit_remove, unsigned int *bytes) {
+    char *ret;
+
+    mutex_lock(&cache_lock);
+    ret = do_item_cacheremove(slabs_clsid, limit, limit_remove, bytes);
+    pthread_mutex_unlock(&cache_lock);
+    return ret;
+}
+
+/*
  * Dumps statistics about slab classes
  */
 void  item_stats(ADD_STAT add_stats, void *c) {

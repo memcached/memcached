@@ -63,6 +63,9 @@
 /* Initial power multiplier for the hash table */
 #define HASHPOWER_DEFAULT 16
 
+/* maximum number of factors the user can specify */
+#define FACTOR_MAX_COUNT 10
+
 /* unistd.h is here */
 #if HAVE_UNISTD_H
 # include <unistd.h>
@@ -273,6 +276,14 @@ struct stats {
     uint64_t      evicted_unfetched; /* items evicted but never touched */
     bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
+
+    /* slawek - reclaim patch */
+    uint64_t      reclaimed_fast;
+    uint64_t	  reclaimed_fast_bytes;
+    uint64_t      reclaim_item_passes;
+    uint64_t      reclaim_item_found;
+    uint64_t      reclaim_slab_memory_passes;
+    // <<
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -292,7 +303,7 @@ struct settings {
     int evict_to_free;
     char *socketpath;   /* path to unix socket if using local socket */
     int access;  /* access mask (a la chmod) for unix domain socket */
-    double factor;          /* chunk size growth factor */
+    double factor[FACTOR_MAX_COUNT+1];          /* chunk size growth factor */
     int chunk_size;
     int num_threads;        /* number of worker (without dispatcher) libevent threads to run */
     int num_threads_per_udp; /* number of worker threads serving each udp socket */
@@ -535,6 +546,7 @@ bool  conn_add_to_freelist(conn *c);
 int   is_listen_thread(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
+char *item_cacheremove(const unsigned int slabs_clsid, const unsigned int limit, const unsigned int limit_remove, unsigned int *bytes); // slawek
 void  item_flush_expired(void);
 item *item_get(const char *key, const size_t nkey);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime);
