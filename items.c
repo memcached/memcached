@@ -409,6 +409,10 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
 
     while (it != NULL && (limit == 0 || shown < limit)) {
         assert(it->nkey <= KEY_MAX_LENGTH);
+        if (it->nbytes == 0 && it->nkey == 0) {
+            it = it->next;
+            continue;
+        }
         /* Copy the key since it may not be null-terminated in the struct */
         strncpy(key_temp, ITEM_key(it), it->nkey);
         key_temp[it->nkey] = 0x00; /* terminate */
@@ -619,7 +623,8 @@ void do_item_flush_expired(void) {
          * The oldest_live checking will auto-expire the remaining items.
          */
         for (iter = heads[i]; iter != NULL; iter = next) {
-            if (iter->time >= settings.oldest_live) {
+            /* iter->time of 0 are magic objects. */
+            if (iter->time != 0 && iter->time >= settings.oldest_live) {
                 next = iter->next;
                 if ((iter->it_flags & ITEM_SLABBED) == 0) {
                     do_item_unlink_nolock(iter, hash(ITEM_key(iter), iter->nkey));
@@ -909,6 +914,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
             crawlers[sid].it_flags = 1; /* For a crawler, this means enabled. */
             crawlers[sid].next = 0;
             crawlers[sid].prev = 0;
+            crawlers[sid].time = 0;
             crawlers[sid].slabs_clsid = sid;
             crawler_link_q((item *)&crawlers[sid]);
             crawler_count++;
