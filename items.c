@@ -112,7 +112,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     /* We walk up *only* for locked items. Never searching for expired.
      * Waste of CPU for almost all deployments */
     for (; tries > 0 && search != NULL; tries--, search=search->prev) {
-        uint32_t hv = hash(ITEM_key(search), search->nkey, 0);
+        uint32_t hv = hash(ITEM_key(search), search->nkey);
         /* Attempt to hash item lock the "search" item. If locked, no
          * other callers can incr the refcount
          */
@@ -603,7 +603,7 @@ void do_item_flush_expired(void) {
             if (iter->time >= settings.oldest_live) {
                 next = iter->next;
                 if ((iter->it_flags & ITEM_SLABBED) == 0) {
-                    do_item_unlink_nolock(iter, hash(ITEM_key(iter), iter->nkey, 0));
+                    do_item_unlink_nolock(iter, hash(ITEM_key(iter), iter->nkey));
                 }
             } else {
                 /* We've hit the first old item. Continue to the next queue. */

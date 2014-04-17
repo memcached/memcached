@@ -312,6 +312,7 @@ struct settings {
     bool shutdown_command; /* allow shutdown command */
     int tail_repair_time;   /* LRU tail refcount leak repair time */
     bool flush_enabled;     /* flush_all enabled */
+    char *hash_algorithm;     /* Hash algorithm in use */
 };
 
 extern struct stats stats;

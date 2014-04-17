@@ -218,7 +218,7 @@ static void *assoc_maintenance_thread(void *arg) {
             for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
                 next = it->h_next;
 
-                bucket = hash(ITEM_key(it), it->nkey, 0) & hashmask(hashpower);
+                bucket = hash(ITEM_key(it), it->nkey) & hashmask(hashpower);
                 it->h_next = primary_hashtable[bucket];
                 primary_hashtable[bucket] = it;
             }

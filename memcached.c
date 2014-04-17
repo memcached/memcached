@@ -2651,6 +2651,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
     APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
     APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
+    APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -4725,6 +4726,8 @@ static void usage(void) {
            "              - tail_repair_time: Time in seconds that indicates how long to wait before\n"
            "                forcefully taking over the LRU tail item whose refcount has leaked.\n"
            "                The default is 3 hours.\n"
+           "              - hash_algorithm: The hash table algorithm\n"
+           "                default is jenkins hash. options: jenkins, murmur3\n"
            );
     return;
 }
@@ -4953,6 +4956,7 @@ int main (int argc, char **argv) {
     bool protocol_specified = false;
     bool tcp_specified = false;
     bool udp_specified = false;
+    enum hashfunc_type hash_type = JENKINS_HASH;
 
     char *subopts;
     char *subopts_value;
@@ -4961,7 +4965,8 @@ int main (int argc, char **argv) {
         HASHPOWER_INIT,
         SLAB_REASSIGN,
         SLAB_AUTOMOVE,
-        TAIL_REPAIR_TIME
+        TAIL_REPAIR_TIME,
+        HASH_ALGORITHM
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -4969,6 +4974,7 @@ int main (int argc, char **argv) {
         [SLAB_REASSIGN] = "slab_reassign",
         [SLAB_AUTOMOVE] = "slab_automove",
         [TAIL_REPAIR_TIME] = "tail_repair_time",
+        [HASH_ALGORITHM] = "hash_algorithm",
         NULL
     };
 
@@ -5255,6 +5261,20 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
+            case HASH_ALGORITHM:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing hash_algorithm argument\n");
+                    return 1;
+                };
+                if (strcmp(subopts_value, "jenkins") == 0) {
+                    hash_type = JENKINS_HASH;
+                } else if (strcmp(subopts_value, "murmur3") == 0) {
+                    hash_type = MURMUR3_HASH;
+                } else {
+                    fprintf(stderr, "Unknown hash_algorithm option (jenkins, murmur3)\n");
+                    return 1;
+                }
+                break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
                 return 1;
@@ -5266,6 +5286,11 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
         }
+    }
+
+    if (hash_init(hash_type) != 0) {
+        fprintf(stderr, "Failed to initialize hash_algorithm!\n");
+        exit(EX_USAGE);
     }
 
     /*
