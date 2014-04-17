@@ -881,17 +881,23 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
     }
     pthread_mutex_lock(&cache_lock);
 
-    for (char *p = strtok_r(slabs, ",", &b);
-         p != NULL;
-         p = strtok_r(NULL, ",", &b)) {
-
-        if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
-                || sid > POWER_LARGEST) {
-            pthread_mutex_unlock(&cache_lock);
-            pthread_mutex_unlock(&lru_crawler_lock);
-            return CRAWLER_BADCLASS;
+    if (strcmp(slabs, "all") == 0) {
+        for (sid = 0; sid < LARGEST_ID; sid++) {
+            tocrawl[sid] = 1;
         }
-        tocrawl[sid] = 1;
+    } else {
+        for (char *p = strtok_r(slabs, ",", &b);
+             p != NULL;
+             p = strtok_r(NULL, ",", &b)) {
+
+            if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
+                    || sid > POWER_LARGEST) {
+                pthread_mutex_unlock(&cache_lock);
+                pthread_mutex_unlock(&lru_crawler_lock);
+                return CRAWLER_BADCLASS;
+            }
+            tocrawl[sid] = 1;
+        }
     }
 
     for (sid = 0; sid < LARGEST_ID; sid++) {

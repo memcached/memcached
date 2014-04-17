@@ -435,12 +435,15 @@ The response line could be one of:
 
 - "CLIENT_ERROR [message]" indicating a formato or bounds issue.
 
-lru_crawler crawl <classid,classid,classid>
+lru_crawler crawl <classid,classid,classid|all>
 
 - Takes a single, or a list of, numeric classids (ie: 1,3,10). This instructs
   the crawler to start at the tail of each of these classids and run to the
   head. The crawler cannot be stopped or restarted until it completes the
   previous request.
+
+  The special keyword "all" instructs it to crawl all slabs with items in
+  them.
 
 The response line could be one of:
 
