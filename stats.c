@@ -83,7 +83,7 @@ static PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
         return NULL;
     }
 
-    hashval = hash(key, length, 0) % PREFIX_HASH_SIZE;
+    hashval = hash(key, length) % PREFIX_HASH_SIZE;
 
     for (pfs = prefix_stats[hashval]; NULL != pfs; pfs = pfs->next) {
         if (strncmp(pfs->prefix, key, length) == 0)
@@ -295,7 +295,7 @@ static void test_prefix_record_set() {
 }
 
 static void test_prefix_dump() {
-    int hashval = hash("abc", 3, 0) % PREFIX_HASH_SIZE;
+    int hashval = hash("abc", 3) % PREFIX_HASH_SIZE;
     char tmp[500];
     char *expected;
     int keynum;
@@ -331,7 +331,7 @@ static void test_prefix_dump() {
     /* Find a key that hashes to the same bucket as "abc" */
     for (keynum = 0; keynum < PREFIX_HASH_SIZE * 100; keynum++) {
         snprintf(tmp, sizeof(tmp), "%d", keynum);
-        if (hashval == hash(tmp, strlen(tmp), 0) % PREFIX_HASH_SIZE) {
+        if (hashval == hash(tmp, strlen(tmp)) % PREFIX_HASH_SIZE) {
             break;
         }
     }
