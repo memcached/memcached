@@ -4790,6 +4790,9 @@ static void usage(void) {
            "                The default is 3 hours.\n"
            "              - hash_algorithm: The hash table algorithm\n"
            "                default is jenkins hash. options: jenkins, murmur3\n"
+           "              - lru_crawler: Enable LRU Crawler background thread\n"
+           "              - lru_crawler_sleep: Microseconds to sleep between items\n"
+           "                default is 100.\n"
            );
     return;
 }
