@@ -756,9 +756,8 @@ static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
             itemstats[i].expired_unfetched++;
         }
         do_item_unlink_nolock(search, hv);
-        /* Initialize the item block: */
-        search->slabs_clsid = 0;
-        slabs_free(search, ITEM_ntotal(search), i);
+        do_item_remove(search);
+        assert(search->slabs_clsid == 0);
     } else {
         refcount_decr(&search->refcount);
     }
