@@ -273,6 +273,7 @@ struct stats {
     uint64_t      evicted_unfetched; /* items evicted but never touched */
     bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
+    bool          lru_crawler_running; /* crawl in progress */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -306,6 +307,7 @@ struct settings {
     int item_size_max;        /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
+    bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
@@ -313,6 +315,8 @@ struct settings {
     int tail_repair_time;   /* LRU tail refcount leak repair time */
     bool flush_enabled;     /* flush_all enabled */
     char *hash_algorithm;     /* Hash algorithm in use */
+    int lru_crawler_sleep;  /* Microsecond sleep between items */
+    uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
 };
 
 extern struct stats stats;
@@ -353,6 +357,21 @@ typedef struct _stritem {
     /* then " flags length\r\n" (no terminating null) */
     /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
+
+typedef struct {
+    struct _stritem *next;
+    struct _stritem *prev;
+    struct _stritem *h_next;    /* hash chain next */
+    rel_time_t      time;       /* least recent access */
+    rel_time_t      exptime;    /* expire time */
+    int             nbytes;     /* size of data */
+    unsigned short  refcount;
+    uint8_t         nsuffix;    /* length of flags-and-length string */
+    uint8_t         it_flags;   /* ITEM_* above */
+    uint8_t         slabs_clsid;/* which slab class we're in */
+    uint8_t         nkey;       /* key length, w/terminating null and padding */
+    uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
+} crawler;
 
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
