@@ -794,7 +794,7 @@ static void *item_crawler_thread(void *arg) {
                 pthread_mutex_unlock(&cache_lock);
                 continue;
             }
-            uint32_t hv = hash(ITEM_key(search), search->nkey, 0);
+            uint32_t hv = hash(ITEM_key(search), search->nkey);
             /* Attempt to hash item lock the "search" item. If locked, no
              * other callers can incr the refcount
              */

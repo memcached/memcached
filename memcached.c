@@ -5028,7 +5028,7 @@ int main (int argc, char **argv) {
         SLAB_REASSIGN,
         SLAB_AUTOMOVE,
         TAIL_REPAIR_TIME,
-        HASH_ALGORITHM
+        HASH_ALGORITHM,
         LRU_CRAWLER,
         LRU_CRAWLER_SLEEP
     };
