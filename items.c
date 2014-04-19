@@ -769,9 +769,6 @@ static void *item_crawler_thread(void *arg) {
         fprintf(stderr, "Starting LRU crawler background thread\n");
     while (do_run_lru_crawler_thread) {
     pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
-    STATS_LOCK();
-    stats.lru_crawler_running = true;
-    STATS_UNLOCK();
 
     while (crawler_count) {
         item *search = NULL;
@@ -918,6 +915,9 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
     }
     pthread_mutex_unlock(&cache_lock);
     pthread_cond_signal(&lru_crawler_cond);
+    STATS_LOCK();
+    stats.lru_crawler_running = true;
+    STATS_UNLOCK();
     pthread_mutex_unlock(&lru_crawler_lock);
     return CRAWLER_OK;
 }
