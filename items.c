@@ -764,6 +764,7 @@ static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
 static void *item_crawler_thread(void *arg) {
     int i;
 
+    pthread_mutex_lock(&lru_crawler_lock);
     if (settings.verbose > 2)
         fprintf(stderr, "Starting LRU crawler background thread\n");
     while (do_run_lru_crawler_thread) {
@@ -827,8 +828,8 @@ static void *item_crawler_thread(void *arg) {
     STATS_LOCK();
     stats.lru_crawler_running = false;
     STATS_UNLOCK();
-    pthread_mutex_unlock(&lru_crawler_lock);
     }
+    pthread_mutex_unlock(&lru_crawler_lock);
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread stopping\n");
 
