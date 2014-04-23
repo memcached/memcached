@@ -235,7 +235,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
     if (! (p->sl_curr != 0 || do_slabs_newslab(id) != 0)) {
         /* We don't have more memory available */
         ret = NULL;
-    } else if (p->sl_curr != 0) {
+    } else if (p->sl_curr != 0 && p->slots) {
         /* return off our freelist */
         it = (item *)p->slots;
         p->slots = it->next;
