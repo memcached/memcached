@@ -56,6 +56,7 @@ static pthread_mutex_t cqi_freelist_lock;
 static pthread_mutex_t *item_locks;
 /* size of the item lock hash table */
 static uint32_t item_lock_count;
+static unsigned int item_lock_hashpower;
 #define hashsize(n) ((unsigned long int)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 /* this lock is temporarily engaged during a hash table expansion */
@@ -123,7 +124,7 @@ void item_unlock_global(void) {
 void item_lock(uint32_t hv) {
     uint8_t *lock_type = pthread_getspecific(item_lock_type_key);
     if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
-        mutex_lock(&item_locks[(hv & hashmask(hashpower)) % item_lock_count]);
+        mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
     } else {
         mutex_lock(&item_global_lock);
     }
@@ -137,7 +138,7 @@ void item_lock(uint32_t hv) {
  * switch so it should stay safe.
  */
 void *item_trylock(uint32_t hv) {
-    pthread_mutex_t *lock = &item_locks[(hv & hashmask(hashpower)) % item_lock_count];
+    pthread_mutex_t *lock = &item_locks[hv & hashmask(item_lock_hashpower)];
     if (pthread_mutex_trylock(lock) == 0) {
         return lock;
     }
@@ -151,7 +152,7 @@ void item_trylock_unlock(void *lock) {
 void item_unlock(uint32_t hv) {
     uint8_t *lock_type = pthread_getspecific(item_lock_type_key);
     if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
-        mutex_unlock(&item_locks[(hv & hashmask(hashpower)) % item_lock_count]);
+        mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
     } else {
         mutex_unlock(&item_global_lock);
     }
@@ -803,6 +804,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
     }
 
     item_lock_count = hashsize(power);
+    item_lock_hashpower = power;
 
     item_locks = calloc(item_lock_count, sizeof(pthread_mutex_t));
     if (! item_locks) {
