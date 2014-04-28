@@ -82,8 +82,8 @@
 #define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
 
 /** How long an object can reasonably be assumed to be locked before
-    harvesting it on a low memory condition. */
-#define TAIL_REPAIR_TIME_DEFAULT (1 * 3600)
+    harvesting it on a low memory condition. Default: disabled. */
+#define TAIL_REPAIR_TIME_DEFAULT 0
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
 #define ITEM_get_cas(i) (((i)->it_flags & ITEM_CAS) ? \
