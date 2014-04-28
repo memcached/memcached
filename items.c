@@ -123,8 +123,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
         /* Attempt to hash item lock the "search" item. If locked, no
          * other callers can incr the refcount
          */
-        /* FIXME: I think we need to mask the hv here for comparison? */
-        if (hv != cur_hv && (hold_lock = item_trylock(hv)) == NULL)
+        /* Don't accidentally grab ourselves, or bail if we can't quicklock */
+        if (hv == cur_hv || (hold_lock = item_trylock(hv)) == NULL)
             continue;
         /* Now see if the item is refcount locked */
         if (refcount_incr(&search->refcount) != 2) {
