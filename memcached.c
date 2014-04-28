@@ -2427,7 +2427,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     enum store_item_type stored = NOT_STORED;
 
     item *new_it = NULL;
-    int flags;
+    uint32_t flags;
 
     if (old_it != NULL && comm == NREAD_ADD) {
         /* add only adds a nonexistent item, but promote to head of LRU */
@@ -2488,7 +2488,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                 /* we have it and old_it here - alloc memory to hold both */
                 /* flags was already lost - so recover them from ITEM_suffix(it) */
 
-                flags = (int) strtol(ITEM_suffix(old_it), (char **) NULL, 10);
+                flags = (uint32_t) strtoul(ITEM_suffix(old_it), (char **) NULL, 10);
 
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */, hv);
 
@@ -3446,7 +3446,8 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         do_item_update(it);
     } else if (it->refcount > 1) {
         item *new_it;
-        new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2, hv);
+        uint32_t flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
+        new_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, res + 2, hv);
         if (new_it == 0) {
             do_item_remove(it);
             return EOM;

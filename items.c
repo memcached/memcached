@@ -144,14 +144,14 @@ static unsigned int noexp_lru_size(int slabs_clsid) {
  *
  * Returns the total size of the header.
  */
-static size_t item_make_header(const uint8_t nkey, const int flags, const int nbytes,
+static size_t item_make_header(const uint8_t nkey, const unsigned int flags, const int nbytes,
                      char *suffix, uint8_t *nsuffix) {
     /* suffix is defined at 40 chars elsewhere.. */
-    *nsuffix = (uint8_t) snprintf(suffix, 40, " %d %d\r\n", flags, nbytes - 2);
+    *nsuffix = (uint8_t) snprintf(suffix, 40, " %u %d\r\n", flags, nbytes - 2);
     return sizeof(item) + nkey + *nsuffix + nbytes;
 }
 
-item *do_item_alloc(char *key, const size_t nkey, const int flags,
+item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
                     const rel_time_t exptime, const int nbytes,
                     const uint32_t cur_hv) {
     int i;
