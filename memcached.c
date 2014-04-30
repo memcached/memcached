@@ -2,7 +2,7 @@
 /*
  *  memcached - memory caching daemon
  *
- *       http://www.danga.com/memcached/
+ *       http://www.memcached.org/
  *
  *  Copyright 2003 Danga Interactive, Inc.  All rights reserved.
  *

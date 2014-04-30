@@ -5,8 +5,8 @@ Summary:        High Performance, Distributed Memory Object Cache
 
 Group:          System Environment/Daemons
 License:        BSD
-URL:            http://www.danga.com/memcached/
-Source0:        http://memcached.googlecode.com/files/%{name}-@FULLVERSION@.tar.gz
+URL:            http://memcached.org
+Source0:        http://memcached.org/files/%{name}-@FULLVERSION@.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:  libevent-devel
