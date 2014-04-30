@@ -4321,6 +4321,11 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_closed:
+            /* This should never happen: but it does! The event is deleted,
+             * yet somehow fires again. Ignore it and break out. */
+            stop = true;
+            break;
+
         case conn_max_state:
             assert(false);
             break;
