@@ -4321,8 +4321,8 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_closed:
-            /* This should never happen: but it does! The event is deleted,
-             * yet somehow fires again. Ignore it and break out. */
+            /* This possibly only ever happens if you have built against a
+             * broken libevent and event_del fails. */
             stop = true;
             break;
 
