@@ -568,8 +568,8 @@ static void conn_close(conn *c) {
     conn_cleanup(c);
 
     MEMCACHED_CONN_RELEASE(c->sfd);
-    close(c->sfd);
     conn_set_state(c, conn_closed);
+    close(c->sfd);
 
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
@@ -4321,9 +4321,8 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_closed:
-            /* This possibly only ever happens if you have built against a
-             * broken libevent and event_del fails. */
-            stop = true;
+            /* This only happens if dormando is an idiot. */
+            abort();
             break;
 
         case conn_max_state:
