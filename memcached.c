@@ -5004,7 +5004,7 @@ static bool sanitycheck(void) {
     if (ever != NULL) {
         if (strncmp(ever, "1.", 2) == 0) {
             /* Require at least 1.3 (that's still a couple of years old) */
-            if ((ever[2] == '1' || ever[2] == '2') && !isdigit(ever[3])) {
+            if (('0' <= ever[2] && ever[2] < '3') && !isdigit(ever[3])) {
                 fprintf(stderr, "You are using libevent %s.\nPlease upgrade to"
                         " a more recent version (1.3 or newer)\n",
                         event_get_version());
