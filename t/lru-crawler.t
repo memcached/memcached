@@ -50,6 +50,7 @@ is(scalar <$sock>, "OK\r\n", "kicked lru crawler");
 while (1) {
     my $stats = mem_stats($sock);
     last unless $stats->{lru_crawler_running};
+    sleep 1;
 }
 
 {
