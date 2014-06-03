@@ -1,0 +1,26 @@
+description "memcached-server - high-performance memory caching daemon (instance)"
+author "Cameron Norman <camerontnorman@gmail.com>"
+
+stop on stop-memcached-servers or runlevel [016]
+
+expect daemon
+respawn
+
+# Instance w/ default value so main server starts without SERVER param
+env SERVER=""
+instance $SERVER
+usage "SERVER - instance of memcached with corresponding /etc/memcached_$SERVER config"
+
+script
+    if test "x$SERVER" = "x"; then
+        name="memcached"
+    else
+        name="memcached_$SERVER"
+    fi
+
+    test -f /etc/${name}.conf || {
+        echo "No config found, not starting."; exit 1
+    }
+
+    exec /usr/share/memcached/scripts/start-memcached /etc/${name}.conf /var/run/${name}.pid
+end script
