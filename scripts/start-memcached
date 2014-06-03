@@ -97,7 +97,7 @@ if(-e $pidfile)
         print STDERR "memcached is already running.\n";
         exit;
     }else{
-        `rm -f $localpid`;
+        unlink $pidfile;
     }
 
 }
