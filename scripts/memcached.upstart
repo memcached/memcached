@@ -1,0 +1,25 @@
+description "memcached - high performance memory caching daemon"
+author "Cameron Norman <camerontnorman@gmail.com>"
+
+start on filesystem
+stop on runlevel [016]
+
+pre-start script
+    ret=0
+
+    test -x /usr/bin/memcached || { stop; exit 0; }
+
+    # Main
+    start memcached-server || ret=$?
+    # Instances
+    for i in /etc/memcached_*.conf; do
+        i=${i#/etc/memcached_}
+        i=${i%.conf}
+        test "$i" = "*" && continue
+        start memcached-server SERVER=$i || ret=$?
+    done
+
+    exit $ret
+end script
+
+post-stop exec initctl emit stop-memcached-servers
