@@ -16,8 +16,8 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-#plan skip_all => "Higher probability to test #370 and #260 SHOULD under artificial conditions, read the test comment first plz.";
-#exit 0;
+plan skip_all => "Higher probability to test #370 and #260 SHOULD under artificial conditions, read the test comment first plz.";
+exit 0;
 plan tests => 12;
 # assuming max slab is 1M and max mem is 2M
 my $server = new_memcached("-m 3");
