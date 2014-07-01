@@ -150,11 +150,17 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             if ((search->it_flags & ITEM_FETCHED) == 0) {
                 itemstats[id].expired_unfetched++;
             }
-            it = search;
-            slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-            do_item_unlink_nolock(it, hv);
-            /* Initialize the item block: */
-            it->slabs_clsid = 0;
+            slabs_adjust_mem_requested(search->slabs_clsid, ITEM_ntotal(search), ntotal);
+            do_item_unlink_nolock(search, hv);
+            /*after unlinked, the item is impossible to fetch by other
+             * threads, so it is safe to check the refcount again. issue#370
+             * refcount == 1 means that i m the only guy holding the item*/
+            if (search->refcount == 1){
+                it = search;
+                /* Initialize the item block: */
+                it->slabs_clsid = 0;
+            }
+
         } else if ((it = slabs_alloc(ntotal, id)) == NULL) {
             tried_alloc = 1;
             if (settings.evict_to_free == 0) {
@@ -167,11 +173,17 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
                 if ((search->it_flags & ITEM_FETCHED) == 0) {
                     itemstats[id].evicted_unfetched++;
                 }
-                it = search;
-                slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-                do_item_unlink_nolock(it, hv);
-                /* Initialize the item block: */
-                it->slabs_clsid = 0;
+                slabs_adjust_mem_requested(search->slabs_clsid, ITEM_ntotal(search), ntotal);
+                do_item_unlink_nolock(search, hv);
+
+                /*after unlinked, the item is impossible to fetch by other
+                 * threads, so it is safe to check the refcount again. issue#370
+                 * refcount == 1 means that i m the only guy holding the item*/
+                if (search->refcount == 1){
+                    it = search;
+                    /* Initialize the item block: */
+                    it->slabs_clsid = 0;
+               }
 
                 /* If we've just evicted an item, and the automover is set to
                  * angry bird mode, attempt to rip memory into this slab class.
