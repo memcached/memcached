@@ -79,7 +79,7 @@ print $sock "set test_key 0 0 $len\r\n$big\r\n";
 sleep 2;
 print $sock2 "get $key1\r\n";
 
-is(scalar <$sock>, "STORED\r\n", "set test_key again");
+is(scalar <$sock>, "SERVER_ERROR out of memory storing object\r\n", "set test_key again, out of memory");
 ok(scalar <$sock2> == "$big\r\n", "get $key1");
 
 
