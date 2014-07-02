@@ -135,7 +135,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             if (settings.tail_repair_time &&
                     search->time + settings.tail_repair_time < current_time) {
                 itemstats[id].tailrepairs++;
-                search->refcount = 1;
+                /*it is not thread safe to reset the refcount when it in the link.*/
+                /*search->refcount = 1;*/
                 do_item_unlink_nolock(search, hv);
             }
             if (hold_lock)
