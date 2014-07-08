@@ -26,10 +26,13 @@ Unix socket path to listen on (disables network support).
 .B \-a <perms>
 Permissions (in octal format) for Unix socket created with \-s option.
 .TP
-.B \-l <ip_addr>
-Listen on <ip_addr>; default to INADDR_ANY. This is an important option to
-consider as there is no other way to secure the installation. Binding to an
-internal or firewalled network interface is suggested.
+.B \-l <addr>
+Listen on <addr>; default to INADDR_ANY. <addr> may be specified as host:port.
+If you don't specify a port number, the value you specified with -p or -U is
+used. You may specify multiple addresses separated by comma or by using -l
+multiple times. This is an important option to consider as there is no other
+way to secure the installation. Binding to an internal or firewalled network
+interface is suggested.
 .TP
 .B \-d
 Run memcached as a daemon.
