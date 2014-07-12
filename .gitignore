@@ -39,3 +39,4 @@ doc/protocol-binary.txt
 /timedrun
 /doc/doxy
 /memcached.spec
+.*.swp
