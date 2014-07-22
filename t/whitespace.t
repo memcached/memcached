@@ -6,10 +6,11 @@ our @files;
 BEGIN {
     chdir "$Bin/.." or die;
 
-    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am);
+    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md);
     push(@exempted, glob("doc/*.xml"));
     push(@exempted, glob("doc/xml2rfc/*.xsl"));
     push(@exempted, glob("m4/*backport*m4"));
+    push(@exempted, glob("*.orig"));
     my %exempted_hash = map { $_ => 1 } @exempted;
 
     my @stuff = split /\0/, `git ls-files -z -c -m -o --exclude-standard`;
@@ -29,7 +30,7 @@ BEGIN {
 use Test::More tests => scalar(@files);
 
 foreach my $f (@files) {
-    open(my $fh, $f) or die;
+    open(my $fh, $f) or die "Cannot open file $f: $!";
     my $before = do { local $/; <$fh>; };
     close ($fh);
     my $after = $before;

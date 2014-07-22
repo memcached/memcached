@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 21;
+use Test::More tests => 25;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -54,3 +54,16 @@ print $sock "set foo2 0 0 5\r\n54321\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo2 = '54321'");
 mem_get_is($sock, "foo", '12345');
 mem_get_is($sock, "foo2", '54321');
+
+# Test -F option which disables flush_all
+$server = new_memcached('-F');
+$sock = $server->sock;
+
+print $sock "set foo 0 0 7\r\nfooval2\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored foo");
+
+mem_get_is($sock, "foo", "fooval2");
+print $sock "flush_all\r\n";
+is(scalar <$sock>, "CLIENT_ERROR flush_all not allowed\r\n", "flush_all was not allowed");
+mem_get_is($sock, "foo", "fooval2");
+

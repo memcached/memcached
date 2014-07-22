@@ -1,0 +1,46 @@
+WARNING: This document is currently a stub. It is incomplete, but provided to
+give a vague overview of how threads are implemented.
+
+Multithreading in memcached *was* originally simple:
+
+- One listener thread
+- N "event worker" threads
+- Some misc background threads
+
+Each worker thread is assigned connections, and runs its own epoll loop. The
+central hash table, LRU lists, and some statistics counters are covered by
+global locks. Protocol parsing, data transfer happens in threads. Data lookups
+and modifications happen under central locks.
+
+THIS HAS CHANGED!
+
+I do need to flesh this out more, and it'll need a lot more tuning, but it has
+changed in the following ways:
+
+- A secondary small hash table of locks is used to lock an item by its hash
+  value. This prevents multiple threads from acting on the same item at the
+  same time.
+- This secondary hash table is mapped to the central hash tables buckets. This
+  allows multiple threads to access the hash table in parallel. Only one
+  thread may read or write against a particular hash table bucket.
+- atomic refcounts per item are used to manage garbage collection and
+  mutability.
+- A central lock is still held around any "item modifications" - any change to
+  any item flags on any item, the LRU state, or refcount incrementing are
+  still centrally locked.
+
+- When pulling an item off of the LRU tail for eviction or re-allocation, the
+  system must attempt to lock the item's bucket, which is done with a trylock
+  to avoid deadlocks. If a bucket is in use (and not by that thread) it will
+  walk up the LRU a little in an attempt to fetch a non-busy item.
+
+Since I'm sick of hearing it:
+
+- If you remove the per-thread stats lock, CPU usage goes down by less than a
+  point of a percent, and it does not improve scalability.
+- In my testing, the remaining global STATS_LOCK calls never seem to collide.
+
+Yes, more stats can be moved to threads, and those locks can actually be
+removed entirely on x86-64 systems. However my tests haven't shown that as
+beneficial so far, so I've prioritized other work. Apologies for the rant but
+it's a common question.

@@ -34,7 +34,6 @@ struct conn_queue {
     CQ_ITEM *head;
     CQ_ITEM *tail;
     pthread_mutex_t lock;
-    pthread_cond_t  cond;
 };
 
 /* Lock for cache operations (item_*, assoc_*) */
@@ -57,8 +56,13 @@ static pthread_mutex_t cqi_freelist_lock;
 static pthread_mutex_t *item_locks;
 /* size of the item lock hash table */
 static uint32_t item_lock_count;
-/* size - 1 for lookup masking */
-static uint32_t item_lock_mask;
+static unsigned int item_lock_hashpower;
+#define hashsize(n) ((unsigned long int)1<<(n))
+#define hashmask(n) (hashsize(n)-1)
+/* this lock is temporarily engaged during a hash table expansion */
+static pthread_mutex_t item_global_lock;
+/* thread-specific variable for deeply finding the item lock type */
+static pthread_key_t item_lock_type_key;
 
 static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
 
@@ -88,7 +92,7 @@ unsigned short refcount_incr(unsigned short *refcount) {
     mutex_lock(&atomics_mutex);
     (*refcount)++;
     res = *refcount;
-    pthread_mutex_unlock(&atomics_mutex);
+    mutex_unlock(&atomics_mutex);
     return res;
 #endif
 }
@@ -103,17 +107,97 @@ unsigned short refcount_decr(unsigned short *refcount) {
     mutex_lock(&atomics_mutex);
     (*refcount)--;
     res = *refcount;
-    pthread_mutex_unlock(&atomics_mutex);
+    mutex_unlock(&atomics_mutex);
     return res;
 #endif
 }
 
+/* Convenience functions for calling *only* when in ITEM_LOCK_GLOBAL mode */
+void item_lock_global(void) {
+    mutex_lock(&item_global_lock);
+}
+
+void item_unlock_global(void) {
+    mutex_unlock(&item_global_lock);
+}
+
 void item_lock(uint32_t hv) {
-    mutex_lock(&item_locks[hv & item_lock_mask]);
+    uint8_t *lock_type = pthread_getspecific(item_lock_type_key);
+    if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
+        mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
+    } else {
+        mutex_lock(&item_global_lock);
+    }
+}
+
+/* Special case. When ITEM_LOCK_GLOBAL mode is enabled, this should become a
+ * no-op, as it's only called from within the item lock if necessary.
+ * However, we can't mix a no-op and threads which are still synchronizing to
+ * GLOBAL. So instead we just always try to lock. When in GLOBAL mode this
+ * turns into an effective no-op. Threads re-synchronize after the power level
+ * switch so it should stay safe.
+ */
+void *item_trylock(uint32_t hv) {
+    pthread_mutex_t *lock = &item_locks[hv & hashmask(item_lock_hashpower)];
+    if (pthread_mutex_trylock(lock) == 0) {
+        return lock;
+    }
+    return NULL;
+}
+
+void item_trylock_unlock(void *lock) {
+    mutex_unlock((pthread_mutex_t *) lock);
 }
 
 void item_unlock(uint32_t hv) {
-    pthread_mutex_unlock(&item_locks[hv & item_lock_mask]);
+    uint8_t *lock_type = pthread_getspecific(item_lock_type_key);
+    if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
+        mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
+    } else {
+        mutex_unlock(&item_global_lock);
+    }
+}
+
+static void wait_for_thread_registration(int nthreads) {
+    while (init_count < nthreads) {
+        pthread_cond_wait(&init_cond, &init_lock);
+    }
+}
+
+static void register_thread_initialized(void) {
+    pthread_mutex_lock(&init_lock);
+    init_count++;
+    pthread_cond_signal(&init_cond);
+    pthread_mutex_unlock(&init_lock);
+}
+
+void switch_item_lock_type(enum item_lock_types type) {
+    char buf[1];
+    int i;
+
+    switch (type) {
+        case ITEM_LOCK_GRANULAR:
+            buf[0] = 'l';
+            break;
+        case ITEM_LOCK_GLOBAL:
+            buf[0] = 'g';
+            break;
+        default:
+            fprintf(stderr, "Unknown lock type: %d\n", type);
+            assert(1 == 0);
+            break;
+    }
+
+    pthread_mutex_lock(&init_lock);
+    init_count = 0;
+    for (i = 0; i < settings.num_threads; i++) {
+        if (write(threads[i].notify_send_fd, buf, 1) != 1) {
+            perror("Failed writing to notify pipe");
+            /* TODO: This is a fatal problem. Can it ever happen temporarily? */
+        }
+    }
+    wait_for_thread_registration(settings.num_threads);
+    pthread_mutex_unlock(&init_lock);
 }
 
 /*
@@ -121,7 +205,6 @@ void item_unlock(uint32_t hv) {
  */
 static void cq_init(CQ *cq) {
     pthread_mutex_init(&cq->lock, NULL);
-    pthread_cond_init(&cq->cond, NULL);
     cq->head = NULL;
     cq->tail = NULL;
 }
@@ -158,7 +241,6 @@ static void cq_push(CQ *cq, CQ_ITEM *item) {
     else
         cq->tail->next = item;
     cq->tail = item;
-    pthread_cond_signal(&cq->cond);
     pthread_mutex_unlock(&cq->lock);
 }
 
@@ -179,8 +261,12 @@ static CQ_ITEM *cqi_new(void) {
 
         /* Allocate a bunch of items at once to reduce fragmentation */
         item = malloc(sizeof(CQ_ITEM) * ITEMS_PER_ALLOC);
-        if (NULL == item)
+        if (NULL == item) {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
             return NULL;
+        }
 
         /*
          * Link together all the new items except the first one
@@ -278,7 +364,6 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     }
 }
 
-
 /*
  * Worker thread: main event loop
  */
@@ -289,10 +374,14 @@ static void *worker_libevent(void *arg) {
      * all threads have finished initializing.
      */
 
-    pthread_mutex_lock(&init_lock);
-    init_count++;
-    pthread_cond_signal(&init_cond);
-    pthread_mutex_unlock(&init_lock);
+    /* set an indexable thread-specific memory item for the lock type.
+     * this could be unnecessary if we pass the conn *c struct through
+     * all item_lock calls...
+     */
+    me->item_lock_type = ITEM_LOCK_GRANULAR;
+    pthread_setspecific(item_lock_type_key, &me->item_lock_type);
+
+    register_thread_initialized();
 
     event_base_loop(me->base, 0);
     return NULL;
@@ -312,6 +401,8 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         if (settings.verbose > 0)
             fprintf(stderr, "Can't read from libevent pipe\n");
 
+    switch (buf[0]) {
+    case 'c':
     item = cq_pop(me->new_conn_queue);
 
     if (NULL != item) {
@@ -333,6 +424,17 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         }
         cqi_free(item);
     }
+        break;
+    /* we were told to flip the lock type and report in */
+    case 'l':
+    me->item_lock_type = ITEM_LOCK_GRANULAR;
+    register_thread_initialized();
+        break;
+    case 'g':
+    me->item_lock_type = ITEM_LOCK_GLOBAL;
+    register_thread_initialized();
+        break;
+    }
 }
 
 /* Which thread we assigned a connection to most recently. */
@@ -346,6 +448,14 @@ static int last_thread = -1;
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport) {
     CQ_ITEM *item = cqi_new();
+    char buf[1];
+    if (item == NULL) {
+        close(sfd);
+        /* given that malloc failed this may also fail, but let's try */
+        fprintf(stderr, "Failed to allocate memory for connection object\n");
+        return ;
+    }
+
     int tid = (last_thread + 1) % settings.num_threads;
 
     LIBEVENT_THREAD *thread = threads + tid;
@@ -361,7 +471,8 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     cq_push(thread->new_conn_queue, item);
 
     MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
-    if (write(thread->notify_send_fd, "", 1) != 1) {
+    buf[0] = 'c';
+    if (write(thread->notify_send_fd, buf, 1) != 1) {
         perror("Writing to thread notify pipe");
     }
 }
@@ -381,7 +492,7 @@ int is_listen_thread() {
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes) {
     item *it;
     /* do_item_alloc handles its own locks */
-    it = do_item_alloc(key, nkey, flags, exptime, nbytes);
+    it = do_item_alloc(key, nkey, flags, exptime, nbytes, 0);
     return it;
 }
 
@@ -392,7 +503,7 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
 item *item_get(const char *key, const size_t nkey) {
     item *it;
     uint32_t hv;
-    hv = hash(key, nkey, 0);
+    hv = hash(key, nkey);
     item_lock(hv);
     it = do_item_get(key, nkey, hv);
     item_unlock(hv);
@@ -402,7 +513,7 @@ item *item_get(const char *key, const size_t nkey) {
 item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
     item *it;
     uint32_t hv;
-    hv = hash(key, nkey, 0);
+    hv = hash(key, nkey);
     item_lock(hv);
     it = do_item_touch(key, nkey, exptime, hv);
     item_unlock(hv);
@@ -416,7 +527,7 @@ int item_link(item *item) {
     int ret;
     uint32_t hv;
 
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
     ret = do_item_link(item, hv);
     item_unlock(hv);
@@ -429,7 +540,7 @@ int item_link(item *item) {
  */
 void item_remove(item *item) {
     uint32_t hv;
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
 
     item_lock(hv);
     do_item_remove(item);
@@ -450,7 +561,7 @@ int item_replace(item *old_it, item *new_it, const uint32_t hv) {
  */
 void item_unlink(item *item) {
     uint32_t hv;
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
     do_item_unlink(item, hv);
     item_unlock(hv);
@@ -461,7 +572,7 @@ void item_unlink(item *item) {
  */
 void item_update(item *item) {
     uint32_t hv;
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
 
     item_lock(hv);
     do_item_update(item);
@@ -478,7 +589,7 @@ enum delta_result_type add_delta(conn *c, const char *key,
     enum delta_result_type ret;
     uint32_t hv;
 
-    hv = hash(key, nkey, 0);
+    hv = hash(key, nkey);
     item_lock(hv);
     ret = do_add_delta(c, key, nkey, incr, delta, buf, cas, hv);
     item_unlock(hv);
@@ -492,7 +603,7 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
     enum store_item_type ret;
     uint32_t hv;
 
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
     ret = do_store_item(item, comm, c, hv);
     item_unlock(hv);
@@ -505,7 +616,7 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
 void item_flush_expired() {
     mutex_lock(&cache_lock);
     do_item_flush_expired();
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
 }
 
 /*
@@ -516,7 +627,7 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
 
     mutex_lock(&cache_lock);
     ret = do_item_cachedump(slabs_clsid, limit, bytes);
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
     return ret;
 }
 
@@ -526,7 +637,13 @@ char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int 
 void  item_stats(ADD_STAT add_stats, void *c) {
     mutex_lock(&cache_lock);
     do_item_stats(add_stats, c);
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
+}
+
+void  item_stats_totals(ADD_STAT add_stats, void *c) {
+    mutex_lock(&cache_lock);
+    do_item_stats_totals(add_stats, c);
+    mutex_unlock(&cache_lock);
 }
 
 /*
@@ -535,7 +652,7 @@ void  item_stats(ADD_STAT add_stats, void *c) {
 void  item_stats_sizes(ADD_STAT add_stats, void *c) {
     mutex_lock(&cache_lock);
     do_item_stats_sizes(add_stats, c);
-    pthread_mutex_unlock(&cache_lock);
+    mutex_unlock(&cache_lock);
 }
 
 /******************************* GLOBAL STATS ******************************/
@@ -686,8 +803,8 @@ void thread_init(int nthreads, struct event_base *main_base) {
         power = 13;
     }
 
-    item_lock_count = ((unsigned long int)1 << (power));
-    item_lock_mask  = item_lock_count - 1;
+    item_lock_count = hashsize(power);
+    item_lock_hashpower = power;
 
     item_locks = calloc(item_lock_count, sizeof(pthread_mutex_t));
     if (! item_locks) {
@@ -697,6 +814,8 @@ void thread_init(int nthreads, struct event_base *main_base) {
     for (i = 0; i < item_lock_count; i++) {
         pthread_mutex_init(&item_locks[i], NULL);
     }
+    pthread_key_create(&item_lock_type_key, NULL);
+    pthread_mutex_init(&item_global_lock, NULL);
 
     threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
     if (! threads) {
@@ -729,9 +848,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);
-    while (init_count < nthreads) {
-        pthread_cond_wait(&init_cond, &init_lock);
-    }
+    wait_for_thread_registration(nthreads);
     pthread_mutex_unlock(&init_lock);
 }
 

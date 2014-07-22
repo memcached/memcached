@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3539;
+use Test::More tests => 3603;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -192,6 +192,15 @@ is($mc->incr("x", 2**33), 8589934804, "Blast the 32bit border");
     $check->('issue48', 0, "text");
 }
 
+# diag "Issue 320 - incr/decr wrong length for initial value";
+{
+    $mc->flush;
+    is($mc->incr("issue320", 1, 1, 0), 1, "incr initial value is 1");
+    my (undef, $rv, undef) = $mc->get("issue320");
+    is(length($rv), 1, "initial value length is 1");
+    is($rv, "1", "initial value is 1");
+}
+
 
 # diag "Test decrement";
 $mc->flush;
@@ -273,6 +282,10 @@ is($mc->decr("x", 211), 0, "Floor is zero");
     $check->("totouch", 0, "toast2");
 
     # Test miss as well
+    $mc->set("totouch", "toast3", 0, 1);
+    $res = $mc->touch("totouch", 1);
+    sleep 3;
+    $empty->("totouch");
 }
 
 # diag "Silent set.";
@@ -410,6 +423,7 @@ $mc->silent_mutation(::CMD_ADDQ, 'silentadd', 'silentaddval');
     is('NULL', $stats{'domain_socket'});
     is('on', $stats{'evictions'});
     is('yes', $stats{'cas_enabled'});
+    is('yes', $stats{'flush_enabled'});
 }
 
 # diag "Test quit commands.";

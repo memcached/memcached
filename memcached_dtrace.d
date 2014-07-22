@@ -251,6 +251,17 @@ provider memcached {
    probe command__append(int connid, const char *key, int keylen, int size, int64_t casid);
 
    /**
+    * Fired for an touch-command.
+    * @param connid connection id
+    * @param key requested key
+    * @param keylen length of the key
+    * @param size the new size of the key's data (or signed int -1 if
+    *             not found)
+    * @param casid the casid for the item
+    */
+   probe command__touch(int connid, const char *key, int keylen, int size, int64_t casid);
+
+   /**
     * Fired for a cas-command.
     * @param connid connection id
     * @param key requested key

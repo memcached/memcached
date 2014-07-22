@@ -26,7 +26,7 @@ locate_binary() {
 
 echo "aclocal..."
 if test x$ACLOCAL = x; then
-  ACLOCAL=`locate_binary aclocal-1.11 aclocal-1.10 aclocal-1.9 aclocal19 aclocal-1.7 aclocal17 aclocal-1.5 aclocal15 aclocal`
+  ACLOCAL=`locate_binary aclocal-1.14 aclocal-1.13 aclocal-1.12 aclocal-1.11 aclocal-1.10 aclocal-1.9 aclocal19 aclocal-1.7 aclocal17 aclocal-1.5 aclocal15 aclocal`
   if test x$ACLOCAL = x; then
     die "Did not find a supported aclocal"
   fi
@@ -39,7 +39,7 @@ $AUTOHEADER || exit 1
 
 echo "automake..."
 if test x$AUTOMAKE = x; then
-  AUTOMAKE=`locate_binary automake-1.11 automake-1.10 automake-1.9 automake-1.7`
+  AUTOMAKE=`locate_binary automake-1.14 automake-1.13 automake-1.12 automake-1.11 automake-1.10 automake-1.9 automake-1.7`
   if test x$AUTOMAKE = x; then
     die "Did not find a supported automake"
   fi

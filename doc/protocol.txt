@@ -278,7 +278,7 @@ in-place, incrementing or decrementing it. The data for the item is
 treated as decimal representation of a 64-bit unsigned integer.  If
 the current data value does not conform to such a representation, the
 incr/decr commands return an error (memcached <= 1.2.6 treated the
-bogus value as if it were 0, leading to confusing). Also, the item
+bogus value as if it were 0, leading to confusion). Also, the item
 must already exist for incr/decr to work; these commands won't pretend
 that a non-existent key exists with value 0; instead, they will fail.
 
@@ -354,6 +354,8 @@ slabs reassign <source class> <dest class>\r\n
 
 - <source class> is an id number for the slab class to steal a page from
 
+A source class id of -1 means "pick from any valid class"
+
 - <dest class> is an id number for the slab class to move a page to
 
 The response line could be one of:
@@ -385,11 +387,83 @@ more details.
 
 The automover can be enabled or disabled at runtime with this command.
 
-slabs automove <1|0>
+slabs automove <0|1>
 
-- 1|0 is the indicator on whether to enable the slabs automover or not.
+- 0|1|2 is the indicator on whether to enable the slabs automover or not.
 
 The response should always be "OK\r\n"
+
+- <0> means to set the thread on standby
+
+- <1> means to run the builtin slow algorithm to choose pages to move
+
+- <2> is a highly aggressive mode which causes pages to be moved every time
+  there is an eviction. It is not recommended to run for very long in this
+  mode unless your access patterns are very well understood.
+
+LRU_Crawler
+-----------
+
+NOTE: This command (and related commands) are subject to change as of this
+writing.
+
+The LRU Crawler is an optional background thread which will walk from the tail
+toward the head of requested slab classes, actively freeing memory for expired
+items. This is useful if you have a mix of items with both long and short
+TTL's, but aren't accessed very often. This system is not required for normal
+usage, and can add small amounts of latency and increase CPU usage.
+
+lru_crawler <enable|disable>
+
+- Enable or disable the LRU Crawler background thread.
+
+The response line could be one of:
+
+- "OK" to indicate the crawler has been started or stopped.
+
+- "ERROR [message]" something went wrong while enabling or disabling.
+
+lru_crawler sleep <microseconds>
+
+- The number of microseconds to sleep inbetween each item checked for
+  expiration. Smaller numbers will obviously impact the system more.
+  A value of "0" disables the sleep, "1000000" (one second) is the max.
+
+The response line could be one of:
+
+- "OK"
+
+- "CLIENT_ERROR [message]" indicating a format or bounds issue.
+
+lru_crawler tocrawl <32u>
+
+- The maximum number of items to inspect in a slab class per run request. This
+  allows you to avoid scanning all of very large slabs when it is unlikely to
+  find items to expire.
+
+The response line could be one of:
+
+- "OK"
+
+- "CLIENT_ERROR [message]" indicating a format or bound issue.
+
+lru_crawler crawl <classid,classid,classid|all>
+
+- Takes a single, or a list of, numeric classids (ie: 1,3,10). This instructs
+  the crawler to start at the tail of each of these classids and run to the
+  head. The crawler cannot be stopped or restarted until it completes the
+  previous request.
+
+  The special keyword "all" instructs it to crawl all slabs with items in
+  them.
+
+The response line could be one of:
+
+- "OK" to indicate successful launch.
+
+- "BUSY [message]" to indicate the crawler is already processing a request.
+
+- "BADCLASS [message]" to indicate an invalid class was specified.
 
 Statistics
 ----------
@@ -406,7 +480,7 @@ settings, documented below.  In the other form it has some arguments:
 stats <args>\r\n
 
 Depending on <args>, various internal data is sent by the server. The
-kinds of arguments and the data sent are not documented in this vesion
+kinds of arguments and the data sent are not documented in this version
 of the protocol, and are subject to change for the convenience of
 memcache developers.
 
@@ -507,6 +581,7 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | touched by get/incr/append/etc.           |
 | slab_reassign_running | bool    | If a slab page is being moved             |
 | slabs_moved           | 64u     | Total slab pages moved                    |
+| crawler_reclaimed     | 64u     | Total items freed by LRU Crawler          |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics
@@ -549,6 +624,10 @@ other stats command.
 | hashpower_init    | 32       | Starting size multiplier for hash table      |
 | slab_reassign     | bool     | Whether slab page reassignment is allowed    |
 | slab_automove     | bool     | Whether slab page automover is enabled       |
+| hash_algorithm    | char     | Hash table algorithm in use                  |
+| lru_crawler       | bool     | Whether the LRU crawler is enabled           |
+| lru_crawler_sleep | 32       | Microseconds to sleep between LRU crawls     |
+| lru_crawler_tocrawl| 32u     | Max items to crawl per slab per run          |
 |-------------------+----------+----------------------------------------------|
 
 
@@ -597,6 +676,7 @@ expired_unfetched      Number of expired items reclaimed from the LRU which
                        were never touched after being set.
 evicted_unfetched      Number of valid items evicted from the LRU which were
                        never touched after being set.
+crawler_reclaimed      Number of items freed by the LRU Crawler.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.
@@ -680,6 +760,62 @@ END\r\n
   slab. (total_chunks * chunk_size) - mem_requested shows memory
   wasted in a slab class.  If you see a lot of waste, consider tuning
   the slab factor.
+
+
+Connection statistics
+---------------------
+The "stats" command with the argument of "conns" returns information
+about currently active connections and about sockets that are listening
+for new connections. The data is returned in the format:
+
+STAT <file descriptor>:<stat> <value>\r\n
+
+The server terminates this list with the line
+
+END\r\n
+
+The following "stat" keywords may be present:
+
+|---------------------+------------------------------------------------------|
+| Name                | Meaning                                              |
+|---------------------+------------------------------------------------------|
+| addr                | The address of the remote side. For listening        |
+|                     | sockets this is the listen address. Note that some   |
+|                     | socket types (such as UNIX-domain) don't have        |
+|                     | meaningful remote addresses.                         |
+| state               | The current state of the connection. See below.      |
+| secs_since_last_cmd | The number of seconds since the most recently        |
+|                     | issued command on the connection. This measures      |
+|                     | the time since the start of the command, so if       |
+|                     | "state" indicates a command is currently executing,  |
+|                     | this will be the number of seconds the current       |
+|                     | command has been running.                            |
+|---------------------+------------------------------------------------------|
+
+The value of the "state" stat may be one of the following:
+
+|----------------+-----------------------------------------------------------|
+| Name           | Meaning                                                   |
+|----------------+-----------------------------------------------------------|
+| conn_closing   | Shutting down the connection.                             |
+| conn_listening | Listening for new connections or a new UDP request.       |
+| conn_mwrite    | Writing a complex response, e.g., to a "get" command.     |
+| conn_new_cmd   | Connection is being prepared to accept a new command.     |
+| conn_nread     | Reading extended data, typically for a command such as    |
+|                | "set" or "put".                                           |
+| conn_parse_cmd | The server has received a command and is in the middle    |
+|                | of parsing it or executing it.                            |
+| conn_read      | Reading newly-arrived command data.                       |
+| conn_swallow   | Discarding excess input, e.g., after an error has         |
+|                | occurred.                                                 |
+| conn_waiting   | A partial command has been received and the server is     |
+|                | waiting for the rest of it to arrive (note the difference |
+|                | between this and conn_nread).                             |
+| conn_write     | Writing a simple response (anything that doesn't involve  |
+|                | sending back multiple lines of response data).            |
+|----------------+-----------------------------------------------------------|
+
+
 
 Other commands
 --------------

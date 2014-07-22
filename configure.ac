@@ -36,6 +36,27 @@ AC_DEFUN([DETECT_ICC],
 DETECT_ICC([], [])
 
 dnl **********************************************************************
+dnl DETECT_CLANG ([ACTION-IF-YES], [ACTION-IF-NO])
+dnl
+dnl check if compiler is clang, and if so run the ACTION-IF-YES sets the
+dnl $CLANG variable to "yes" or "no"
+dnl **********************************************************************
+AC_DEFUN([DETECT_CLANG],
+[
+    AC_MSG_CHECKING([for clang in use])
+    AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM([], [[
+    #ifndef __clang__
+           not clang
+    #endif
+    ]])],
+    [CLANG=yes], [CLANG=no])
+    AC_MSG_RESULT([$CLANG])
+    AS_IF([test "$CLANG" = "yes"],[$1],[$2])
+])
+DETECT_CLANG([],[])
+
+dnl **********************************************************************
 dnl DETECT_SUNCC ([ACTION-IF-YES], [ACTION-IF-NO])
 dnl
 dnl check if this is the Sun Studio compiler, and if so run the ACTION-IF-YES
@@ -49,6 +70,10 @@ AC_DEFUN([DETECT_SUNCC],
 ])
 
 DETECT_SUNCC([CFLAGS="-mt $CFLAGS"], [])
+AS_IF([test "$ICC" = "yes" -o "$GCC" = "yes"],
+[
+    AS_IF(test "$CLANG" = "no",[CFLAGS="$CFLAGS -pthread"])
+])
 
 if test "$ICC" = "no"; then
    AC_PROG_CC_C99
@@ -65,6 +90,7 @@ AC_ARG_ENABLE(sasl_pwdb,
 
 AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
       [enable_sasl=yes ])
+
 
 
 dnl **********************************************************************
@@ -140,11 +166,7 @@ AC_ARG_ENABLE(coverage,
   [AS_HELP_STRING([--disable-coverage],[Disable code coverage])])
 
 if test "x$enable_coverage" != "xno"; then
-   if test "$ICC" = "yes"
-   then
-      dnl ICC trying to be gcc, but not well
-      CFLAGS="$CFLAGS -pthread"
-   elif test "$GCC" = "yes"
+   if test "$GCC" = "yes" -a "$ICC" != "yes" -a "$CLANG" != "yes"
    then
       CFLAGS="$CFLAGS -pthread"
       AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
@@ -164,6 +186,14 @@ if test "x$enable_coverage" != "xno"; then
       AC_PATH_PROG([PROFILER], [tcov], "no", [$PATH])
       if test "x$PROFILER" != "xno"; then
          PROFILER_FLAGS=-xprofile=tcov
+      fi
+   elif test "x$CLANG" != "xno"
+   then
+      AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
+      if test "x$PROFILER" != "xno"
+      then
+          PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"
+          PROFILER_LDFLAGS=
       fi
    fi
 fi
@@ -446,6 +476,7 @@ AC_CHECK_FUNCS(getpagesizes)
 AC_CHECK_FUNCS(memcntl)
 AC_CHECK_FUNCS(sigignore)
 AC_CHECK_FUNCS(clock_gettime)
+AC_CHECK_FUNCS([accept4], [AC_DEFINE(HAVE_ACCEPT4, 1, [Define to 1 if support accept4])])
 
 AC_DEFUN([AC_C_ALIGNMENT],
 [AC_CACHE_CHECK(for alignment, ac_cv_c_alignment,
@@ -462,9 +493,18 @@ AC_DEFUN([AC_C_ALIGNMENT],
        *ptr = 0x1;
 
        // catch unaligned word access (ARM cpus)
-       *buf =  1; *(buf +1) = 2; *(buf + 2) = 2; *(buf + 3) = 3; *(buf + 4) = 4;
+#ifdef ENDIAN_BIG
+#define ALIGNMENT 0x02030405
+#else
+#define ALIGNMENT 0x05040302
+#endif
+       *(buf + 0) = 1;
+       *(buf + 1) = 2;
+       *(buf + 2) = 3;
+       *(buf + 3) = 4;
+       *(buf + 4) = 5;
        int* i = (int*)(buf+1);
-       return (84148994 == i) ? 0 : 1;
+       return (ALIGNMENT == *i) ? 0 : 1;
     ])
   ],[
     ac_cv_c_alignment=none

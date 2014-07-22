@@ -65,6 +65,7 @@ void cache_destroy(cache_t *cache) {
     free(cache->name);
     free(cache->ptr);
     pthread_mutex_destroy(&cache->mutex);
+    free(cache);
 }
 
 void* cache_alloc(cache_t *cache) {

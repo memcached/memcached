@@ -131,6 +131,10 @@ minimum is 1k, max is 128m. Adjusting this value changes the item size limit.
 Beware that this also increases the number of slabs (use -v to view), and the
 overal memory usage of memcached.
 .TP
+.B \-F
+Disables the "flush_all" command. The cmd_flush counter will increment, but
+clients will receive an error message and the flush will not occur.
+.TP
 .B \-o <options>
 Comma separated list of extended or experimental options. See -h or wiki for
 up to date list.
@@ -142,7 +146,7 @@ the BSD license. Note that daemon clients are licensed separately.
 .SH SEE ALSO
 The README file that comes with memcached
 .br
-.B http://www.danga.com/memcached
+.B http://www.memcached.org
 .SH AUTHOR
 The memcached daemon was written by Anatoly Vorobey
 .B <mellon@pobox.com>

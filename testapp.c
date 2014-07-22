@@ -334,6 +334,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = tmo;
         }
         argv[arg++] = "./memcached-debug";
+        argv[arg++] = "-A";
         argv[arg++] = "-p";
         argv[arg++] = "-1";
         argv[arg++] = "-U";
@@ -382,8 +383,8 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     if (daemon) {
         /* loop and wait for the pid file.. There is a potential race
          * condition that the server just created the file but isn't
-         * finished writing the content, but I'll take the chance....
-         */
+         * finished writing the content, so we loop a few times
+         * reading as well */
         while (access(pid_file, F_OK) == -1) {
             usleep(10);
         }
@@ -394,7 +395,11 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
                     strerror(errno));
             assert(false);
         }
-        assert(fgets(buffer, sizeof(buffer), fp) != NULL);
+
+        /* Avoid race by retrying 20 times */
+        for (int x = 0; x < 20 && fgets(buffer, sizeof(buffer), fp) == NULL; x++) {
+            usleep(10);
+        }
         fclose(fp);
 
         int32_t val;
@@ -632,7 +637,30 @@ static enum test_return start_memcached_server(void) {
 
 static enum test_return stop_memcached_server(void) {
     close(sock);
-    assert(kill(server_pid, SIGTERM) == 0);
+    if (server_pid != -1) {
+        assert(kill(server_pid, SIGTERM) == 0);
+    }
+
+    return TEST_PASS;
+}
+
+static enum test_return shutdown_memcached_server(void) {
+    char buffer[1024];
+
+    close(sock);
+    sock = connect_server("127.0.0.1", port, false);
+
+    send_ascii_command("shutdown\r\n");
+    /* verify that the server closed the connection */
+    assert(read(sock, buffer, sizeof(buffer)) == 0);
+
+    close(sock);
+
+    /* We set server_pid to -1 so that we don't later call kill() */
+    if (kill(server_pid, 0) == 0) {
+        server_pid = -1;
+    }
+
     return TEST_PASS;
 }
 
@@ -1779,7 +1807,7 @@ static enum test_return test_binary_pipeline_hickup(void)
 
 
 static enum test_return test_issue_101(void) {
-    const int max = 2;
+    enum { max = 2 };
     enum test_return ret = TEST_PASS;
     int fds[max];
     int ii = 0;
@@ -1901,6 +1929,7 @@ struct testcase testcases[] = {
     { "binary_stat", test_binary_stat },
     { "binary_illegal", test_binary_illegal },
     { "binary_pipeline_hickup", test_binary_pipeline_hickup },
+    { "shutdown", shutdown_memcached_server },
     { "stop_server", stop_memcached_server },
     { NULL, NULL }
 };

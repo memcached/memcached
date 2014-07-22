@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 131;
+use Test::More tests => 130;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -52,14 +52,16 @@ ok($slabs_before->{"31:total_pages"} != $slabs_after->{"31:total_pages"},
 ok($slabs_before->{"25:total_pages"} != $slabs_after->{"25:total_pages"},
     "slab 25 pagecount changed");
 
-# Try to move another slab, see that it complains
+# Try to move another slab, see that you can move two in a row
 print $sock "slabs reassign 31 25\r\n";
-like(scalar <$sock>, qr/^NOTFULL/, "Cannot re-run against class with empty space");
+like(scalar <$sock>, qr/^OK/, "Cannot re-run against class with empty space");
 
 # Try to move a page backwards. Should complain that source class isn't "safe"
 # to move from.
-print $sock "slabs reassign 25 31\r\n";
-like(scalar <$sock>, qr/^UNSAFE/, "Cannot move an unsafe slab back");
+# TODO: Wait until the above command completes, then try to move it back?
+# Seems pointless...
+#print $sock "slabs reassign 25 31\r\n";
+#like(scalar <$sock>, qr/^UNSAFE/, "Cannot move an unsafe slab back");
 
 # Try to insert items into both slabs
 print $sock "set bfoo51 0 0 70000\r\n", $bigdata, "\r\n";
