@@ -7,7 +7,7 @@
 <?rfc sortrefs="yes" ?>
 <?rfc compact="yes" ?>
 <?rfc subcompact="yes" ?>
-<rfc category="info" docName="draft-stone-memcache-udp-01" ipr="none">
+<rfc category="info" docName="draft-stone-memcache-udp-01" ipr="trust200902">
 
   <front>
 
@@ -215,10 +215,10 @@ Total 24 bytes
 
   <back>
     <references title="Normative References">
-      <dwdrfc-ref anchor='UDP' src='http://xml.resource.org/public/rfc/bibxml/reference.RFC.0768.xml'/>
-      <dwdrfc-ref anchor='KEYWORDS' src='http://xml.resource.org/public/rfc/bibxml/reference.RFC.2119.xml'/>
+      <dwdrfc-ref anchor='UDP' src='reference.RFC.0768.xml'/>
+      <dwdrfc-ref anchor='KEYWORDS' src='reference.RFC.2119.xml'/>
       <!-- FIXME: Get a draft reference for the base document. -->
-      <dwdrfc-ref anchor='MEMCACHE' src='http://xml.resource.org/public/rfc/bibxml/reference.RFC.2119.xml'/>
+      <dwdrfc-ref anchor='MEMCACHE' src='reference.RFC.2119.xml'/>
     </references>
   </back>
 

@@ -9,12 +9,15 @@ BUILT_SOURCES += protocol-binary.txt protocol-binary-range.txt
 MOSTLYCLEANFILES = protocol-binary.txt protocol-binary-range.txt
 endif
 
-%.txt: %.full
-	@XML2RFC@ $< $@
+protocol-binary.txt: $(.TARGET:R).full
+	@XML2RFC@ -c @abs_builddir@ $(.TARGET:R).full $@
 
-%.chk: %.xml xml2rfc/rfc2629-refchk.xsl
-	@XSLTPROC@ xml2rfc/rfc2629-refchk.xsl $< >$@
+protocol-binary-range.txt: $(.TARGET:R).full
+	@XML2RFC@ -c @abs_builddir@ $(.TARGET:R).full $@
 
-%.full: %.xml xml2rfc/rfc2629-noinc.xsl
-	@XSLTPROC@ xml2rfc/rfc2629-noinc.xsl $< >$@
+protocol-binary.full: $(.TARGET:R).xml xml2rfc/rfc2629-noinc.xsl
+	@XSLTPROC@ --nonet xml2rfc/rfc2629-noinc.xsl $(.TARGET:R).xml > $@
+
+protocol-binary-range.full: $(.TARGET:R).xml xml2rfc/rfc2629-noinc.xsl
+	@XSLTPROC@ --nonet xml2rfc/rfc2629-noinc.xsl $(.TARGET:R).xml > $@
 
