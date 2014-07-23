@@ -7,7 +7,7 @@
 <?rfc sortrefs="yes" ?>
 <?rfc compact="yes" ?>
 <?rfc subcompact="yes" ?>
-<rfc category="info" docName="draft-stone-memcache-udp-01" ipr="none">
+<rfc category="info" docName="draft-stone-memcache-udp-01" ipr="trust200902">
 
   <front>
 
