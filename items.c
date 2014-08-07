@@ -404,8 +404,8 @@ char *do_item_cachedump(const unsigned int slabs_clsid, int limit, unsigned int 
 
     /*If the limit is negative, dump keys not expired only*/
     if (limit < 0){
-    	limit = -1 * limit;
-    	noexp = 1;
+        limit = -1 * limit;
+        noexp = 1;
     }
 
 
@@ -418,8 +418,8 @@ char *do_item_cachedump(const unsigned int slabs_clsid, int limit, unsigned int 
 
         /*limit is -1: dump keys not expired*/
         if (noexp == 1 && it->exptime != 0 && it->exptime < current_time){
-        	it = it->next;
-        	continue;
+            it = it->next;
+            continue;
         }
 
         /* Copy the key since it may not be null-terminated in the struct */
@@ -429,14 +429,14 @@ char *do_item_cachedump(const unsigned int slabs_clsid, int limit, unsigned int 
                        key_temp, it->nbytes - 2,
                        (unsigned long)it->exptime + process_started);
         if (bufcurr + len + 6 > memlimit){  /* 6 is END\r\n\0 */
-        	void *new_buffer = realloc(buffer,memlimit*2);
-        	if (new_buffer){
-        		memlimit = memlimit*2;
-        		buffer = new_buffer;
-        	}else{
-        		free(buffer);
-        		return NULL;
-        	}
+            void *new_buffer = realloc(buffer,memlimit*2);
+            if (new_buffer){
+                memlimit = memlimit*2;
+                buffer = new_buffer;
+            }else{
+                free(buffer);
+                return NULL;
+            }
         }
         memcpy(buffer + bufcurr, temp, len);
         bufcurr += len;
