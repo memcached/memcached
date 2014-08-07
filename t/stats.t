@@ -81,7 +81,7 @@ foreach my $key (qw(total_items curr_items cmd_get cmd_set get_hits)) {
 }
 
 my $cnt = 0;
-my $prefix_key = 'x'*200;
+my $prefix_key = "x"x200;
 while ($cnt < 10000){
  print $sock "set a-$prefix_key$cnt 0 0 6\r\nfooval\r\n";
  is(scalar <$sock>, "STORED\r\n", "stored foo");
@@ -89,13 +89,13 @@ while ($cnt < 10000){
  is(scalar <$sock>, "STORED\r\n", "stored foo");
  $cnt++;
 }
-sleep(5);
-my $cache_dump = mem_stats($sock, " cachedump 1 100000000");
-ok(defined $cache_dump->{"a-${prefix_key}1000"}, "got keys from cachedump");
-ok(defined $cache_dump->{"b-${prefix_key}1000"}, "got keys from cachedump");
-my $cache_dump = mem_stats($sock, " cachedump 1 -100000000");
-ok(defined $cache_dump->{"a-${prefix_key}1000"}, "got keys from cachedump");
-is($cache_dump->{"b-${prefix_key}1000"}, undef, "got no expired key from cachedump");
+sleep(7);
+my $cache_dump = mem_stats($sock, " cachedump 6 100000000");
+ok(defined $cache_dump->{"a-${prefix_key}9999"}, "got keys from cachedump");
+ok(defined $cache_dump->{"b-${prefix_key}9999"}, "got keys from cachedump");
+my $cache_dump = mem_stats($sock, " cachedump 6 -100000000");
+ok(defined $cache_dump->{"a-${prefix_key}9999"}, "got keys from cachedump");
+is($cache_dump->{"b-${prefix_key}9999"}, undef, "got no expired key from cachedump");
 
 print $sock "delete foo\r\n";
 is(scalar <$sock>, "DELETED\r\n", "deleted foo");

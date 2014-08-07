@@ -437,7 +437,6 @@ char *do_item_cachedump(const unsigned int slabs_clsid, int limit, unsigned int 
         		free(buffer);
         		return NULL;
         	}
-        	break;
         }
         memcpy(buffer + bufcurr, temp, len);
         bufcurr += len;
