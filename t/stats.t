@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 95;
+use Test::More tests => 20098;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -80,8 +80,22 @@ foreach my $key (qw(total_items curr_items cmd_get cmd_set get_hits)) {
     is($stats->{$key}, 1, "after one set/one get $key is 1");
 }
 
-my $cache_dump = mem_stats($sock, " cachedump 1 100");
-ok(defined $cache_dump->{'foo'}, "got foo from cachedump");
+my $cnt = 0;
+my $prefix_key = 'x'*200;
+while ($cnt < 10000){
+ print $sock "set a-$prefix_key$cnt 0 0 6\r\nfooval\r\n";
+ is(scalar <$sock>, "STORED\r\n", "stored foo");
+ print $sock "set b-$prefix_key$cnt 0 5 6\r\nfooval\r\n";
+ is(scalar <$sock>, "STORED\r\n", "stored foo");
+ $cnt++;
+}
+sleep(5);
+my $cache_dump = mem_stats($sock, " cachedump 1 100000000");
+ok(defined $cache_dump->{"a-${prefix_key}1000"}, "got keys from cachedump");
+ok(defined $cache_dump->{"b-${prefix_key}1000"}, "got keys from cachedump");
+my $cache_dump = mem_stats($sock, " cachedump 1 -100000000");
+ok(defined $cache_dump->{"a-${prefix_key}1000"}, "got keys from cachedump");
+is($cache_dump->{"b-${prefix_key}1000"}, undef, "got no expired key from cachedump");
 
 print $sock "delete foo\r\n";
 is(scalar <$sock>, "DELETED\r\n", "deleted foo");

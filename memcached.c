@@ -2799,7 +2799,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         process_stat_settings(&append_stats, c);
     } else if (strcmp(subcommand, "cachedump") == 0) {
         char *buf;
-        unsigned int bytes, id, limit = 0;
+        unsigned int bytes, id;
+        int limit = 0;
 
         if (ntokens < 5) {
             out_string(c, "CLIENT_ERROR bad command line");
@@ -2807,7 +2808,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         }
 
         if (!safe_strtoul(tokens[2].value, &id) ||
-            !safe_strtoul(tokens[3].value, &limit)) {
+            !safe_strtol(tokens[3].value, &limit)){
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }

@@ -622,7 +622,7 @@ void item_flush_expired() {
 /*
  * Dumps part of the cache
  */
-char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes) {
+char *item_cachedump(unsigned int slabs_clsid, int limit, unsigned int *bytes) {
     char *ret;
 
     mutex_lock(&cache_lock);
