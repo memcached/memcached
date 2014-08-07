@@ -385,7 +385,7 @@ int do_item_replace(item *it, item *new_it, const uint32_t hv) {
 }
 
 /*@null@*/
-char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
+char *do_item_cachedump(const unsigned int slabs_clsid, int limit, unsigned int *bytes) {
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
     unsigned int bufcurr;
@@ -394,6 +394,7 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     unsigned int shown = 0;
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
+    int noexp = 0;
 
     it = heads[slabs_clsid];
 
@@ -401,20 +402,42 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     if (buffer == 0) return NULL;
     bufcurr = 0;
 
+    /*If the limit is negative, dump keys not expired only*/
+    if (limit < 0){
+        limit = -1 * limit;
+        noexp = 1;
+    }
+
+
     while (it != NULL && (limit == 0 || shown < limit)) {
         assert(it->nkey <= KEY_MAX_LENGTH);
         if (it->nbytes == 0 && it->nkey == 0) {
             it = it->next;
             continue;
         }
+
+        /*limit is -1: dump keys not expired*/
+        if (noexp == 1 && it->exptime != 0 && it->exptime < current_time){
+            it = it->next;
+            continue;
+        }
+
         /* Copy the key since it may not be null-terminated in the struct */
         strncpy(key_temp, ITEM_key(it), it->nkey);
         key_temp[it->nkey] = 0x00; /* terminate */
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n",
                        key_temp, it->nbytes - 2,
                        (unsigned long)it->exptime + process_started);
-        if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
-            break;
+        if (bufcurr + len + 6 > memlimit){  /* 6 is END\r\n\0 */
+            void *new_buffer = realloc(buffer,memlimit*2);
+            if (new_buffer){
+                memlimit = memlimit*2;
+                buffer = new_buffer;
+            }else{
+                free(buffer);
+                return NULL;
+            }
+        }
         memcpy(buffer + bufcurr, temp, len);
         bufcurr += len;
         shown++;
