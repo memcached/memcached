@@ -23,9 +23,11 @@ my $sock = $server->sock;
 ## STAT curr_connections 10
 ## STAT total_connections 11
 ## STAT connection_structures 11
+## STAT reserved_fds 20
 ## STAT cmd_get 0
 ## STAT cmd_set 0
 ## STAT cmd_flush 0
+## STAT cmd_touch 0
 ## STAT get_hits 0
 ## STAT get_misses 0
 ## STAT delete_misses 0
@@ -37,6 +39,8 @@ my $sock = $server->sock;
 ## STAT cas_misses 0
 ## STAT cas_hits 0
 ## STAT cas_badval 0
+## STAT touch_hits 0
+## STAT touch_misses 0
 ## STAT auth_cmds 0
 ## STAT auth_unknowns 0
 ## STAT bytes_read 7
@@ -46,24 +50,31 @@ my $sock = $server->sock;
 ## STAT listen_disabled_num 0
 ## STAT threads 4
 ## STAT conn_yields 0
+## STAT hash_power_level 16
+## STAT hash_bytes 524288
+## STAT hash_is_expanding 0
+## STAT malloc_fails 0
 ## STAT bytes 0
 ## STAT curr_items 0
 ## STAT total_items 0
+## STAT expired_unfetched 0
+## STAT evicted_unfetched 0
 ## STAT evictions 0
 ## STAT reclaimed 0
-
+## STAT crawler_reclaimed 0
+## STAT reflocked 0
 # note that auth stats are tested in auth specfic tests
 
 
 my $stats = mem_stats($sock);
 
 # Test number of keys
-is(scalar(keys(%$stats)), 50, "50 stats values");
+is(scalar(keys(%$stats)), 51, "51 stats values");
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses
                  bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits
-                 decr_misses listen_disabled_num)) {
+                 decr_misses listen_disabled_num reflocked)) {
     is($stats->{$key}, 0, "initial $key is zero");
 }
 is($stats->{accepting_conns}, 1, "initial accepting_conns is one");
@@ -188,6 +199,7 @@ is(0, $stats->{'cas_hits'});
 is(0, $stats->{'cas_badval'});
 is(0, $stats->{'evictions'});
 is(0, $stats->{'reclaimed'});
+is(0, $stats->{'reflocked'});
 
 print $sock "flush_all\r\n";
 is(scalar <$sock>, "OK\r\n", "flushed");

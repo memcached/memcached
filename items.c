@@ -29,6 +29,7 @@ typedef struct {
     uint64_t expired_unfetched;
     uint64_t evicted_unfetched;
     uint64_t crawler_reclaimed;
+    uint64_t reflocked;
 } itemstats_t;
 
 static item *heads[LARGEST_ID];
@@ -138,6 +139,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             tries_reflocked--;
             tries++;
             refcount_decr(&search->refcount);
+            itemstats[id].reflocked++;
             /* Old rare bug could cause a refcount leak. We haven't seen
              * it in years, but we leave this code in to prevent failures
              * just in case */
@@ -475,6 +477,7 @@ void do_item_stats_totals(ADD_STAT add_stats, void *c) {
         totals.evicted += itemstats[i].evicted;
         totals.reclaimed += itemstats[i].reclaimed;
         totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
+        totals.reflocked += itemstats[i].reflocked;
     }
     APPEND_STAT("expired_unfetched", "%llu",
                 (unsigned long long)totals.expired_unfetched);
@@ -486,6 +489,8 @@ void do_item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.reclaimed);
     APPEND_STAT("crawler_reclaimed", "%llu",
                 (unsigned long long)totals.crawler_reclaimed);
+    APPEND_STAT("reflocked", "%llu",
+                (unsigned long long)totals.reflocked);
 }
 
 void do_item_stats(ADD_STAT add_stats, void *c) {
@@ -520,6 +525,8 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
                                 "%llu", (unsigned long long)itemstats[i].evicted_unfetched);
             APPEND_NUM_FMT_STAT(fmt, i, "crawler_reclaimed",
                                 "%llu", (unsigned long long)itemstats[i].crawler_reclaimed);
+            APPEND_NUM_FMT_STAT(fmt, i, "reflocked",
+                                "%llu", (unsigned long long)itemstats[i].reflocked);
         }
     }
 
