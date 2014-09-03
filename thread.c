@@ -391,10 +391,13 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     CQ_ITEM *item;
     char buf[1];
+    unsigned int timeout_fd;
 
-    if (read(fd, buf, 1) != 1)
+    if (read(fd, buf, 1) != 1) {
         if (settings.verbose > 0)
             fprintf(stderr, "Can't read from libevent pipe\n");
+        return;
+    }
 
     switch (buf[0]) {
     case 'c':
@@ -424,6 +427,15 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     /* we were told to pause and report in */
     case 'p':
         register_thread_initialized();
+        break;
+    /* a client socket timed out */
+    case 't':
+        if (read(fd, &timeout_fd, sizeof(timeout_fd)) != sizeof(timeout_fd)) {
+            if (settings.verbose > 0)
+                fprintf(stderr, "Can't read timeout fd from libevent pipe\n");
+            return;
+        }
+        conn_close_idle(conns[timeout_fd]);
         break;
     }
 }
@@ -673,6 +685,7 @@ void threadlocal_stats_reset(void) {
         threads[ii].stats.conn_yields = 0;
         threads[ii].stats.auth_cmds = 0;
         threads[ii].stats.auth_errors = 0;
+        threads[ii].stats.idle_kicks = 0;
 
         for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
             threads[ii].stats.slab_stats[sid].set_cmds = 0;
@@ -714,6 +727,7 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
         stats->conn_yields += threads[ii].stats.conn_yields;
         stats->auth_cmds += threads[ii].stats.auth_cmds;
         stats->auth_errors += threads[ii].stats.auth_errors;
+        stats->idle_kicks += threads[ii].stats.idle_kicks;
 
         for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
             stats->slab_stats[sid].set_cmds +=

@@ -202,6 +202,7 @@ enum pause_thread_types {
     RESUME_WORKER_THREADS
 };
 
+#define IS_TCP(x) (x == tcp_transport)
 #define IS_UDP(x) (x == udp_transport)
 
 #define NREAD_ADD 1
@@ -254,6 +255,7 @@ struct thread_stats {
     uint64_t          conn_yields; /* # of yields for connections (-R option)*/
     uint64_t          auth_cmds;
     uint64_t          auth_errors;
+    uint64_t          idle_kicks;  /* idle connections killed */
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
 };
 
@@ -353,6 +355,7 @@ struct settings {
     int warm_lru_pct; /* percentage of slab space for WARM_LRU */
     int crawls_persleep; /* Number of LRU crawls to run before sleeping */
     bool expirezero_does_not_evict; /* exptime == 0 goes into NOEXP_LRU */
+    int idle_timeout;       /* Number of seconds to let connections idle */
 };
 
 extern struct stats stats;
@@ -592,6 +595,7 @@ enum delta_result_type add_delta(conn *c, const char *key,
 void accept_new_conns(const bool do_accept);
 conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
+void  conn_close_idle(conn *c);
 int   is_listen_thread(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 item *item_get(const char *key, const size_t nkey, conn *c);
