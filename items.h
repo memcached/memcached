@@ -11,6 +11,7 @@ void do_item_unlink(item *it, const uint32_t hv);
 void do_item_unlink_nolock(item *it, const uint32_t hv);
 void do_item_remove(item *it);
 void do_item_update(item *it);   /** update LRU time to current and reposition */
+void do_item_update_nolock(item *it);
 int  do_item_replace(item *it, item *new_it, const uint32_t hv);
 
 /*@null@*/

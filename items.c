@@ -105,15 +105,20 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     mutex_lock(&cache_lock);
     /* do a quick check if we have any expired items in the tail.. */
     int tries = 5;
+    /* Avoid hangs if a slab has nothing but refcounted stuff in it. */
+    int tries_reflocked = 1000;
     int tried_alloc = 0;
     item *search;
+    item *next_it;
     void *hold_lock = NULL;
     rel_time_t oldest_live = settings.oldest_live;
 
     search = tails[id];
     /* We walk up *only* for locked items. Never searching for expired.
      * Waste of CPU for almost all deployments */
-    for (; tries > 0 && search != NULL; tries--, search=search->prev) {
+    for (; tries > 0 && search != NULL; tries--, search=next_it) {
+        /* we might relink search mid-loop, so search->prev isn't reliable */
+        next_it = search->prev;
         if (search->nbytes == 0 && search->nkey == 0 && search->it_flags == 1) {
             /* We are a crawler, ignore it. */
             tries++;
@@ -128,6 +133,10 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             continue;
         /* Now see if the item is refcount locked */
         if (refcount_incr(&search->refcount) != 2) {
+            /* Avoid pathological case with ref'ed items in tail */
+            do_item_update_nolock(search);
+            tries_reflocked--;
+            tries++;
             refcount_decr(&search->refcount);
             /* Old rare bug could cause a refcount leak. We haven't seen
              * it in years, but we leave this code in to prevent failures
@@ -140,6 +149,10 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             }
             if (hold_lock)
                 item_trylock_unlock(hold_lock);
+
+            if (tries_reflocked < 1)
+                break;
+
             continue;
         }
 
@@ -357,6 +370,21 @@ void do_item_remove(item *it) {
 
     if (refcount_decr(&it->refcount) == 0) {
         item_free(it);
+    }
+}
+
+/* Copy/paste to avoid adding two extra branches for all common calls, since
+ * _nolock is only used in an uncommon case. */
+void do_item_update_nolock(item *it) {
+    MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
+    if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
+        assert((it->it_flags & ITEM_SLABBED) == 0);
+
+        if ((it->it_flags & ITEM_LINKED) != 0) {
+            item_unlink_q(it);
+            it->time = current_time;
+            item_link_q(it);
+        }
     }
 }
 
