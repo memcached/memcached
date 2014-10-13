@@ -581,7 +581,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
          * of item_lock, cache_lock, slabs_lock. */
         if (slab_rebalance_signal &&
             ((void *)it >= slab_rebal.slab_start && (void *)it < slab_rebal.slab_end)) {
-            do_item_unlink_nolock(it, hv);
+            do_item_unlink(it, hv);
             do_item_remove(it);
             it = NULL;
         }

@@ -126,6 +126,7 @@ void item_lock(uint32_t hv) {
     if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
         mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
     } else {
+        mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
         mutex_lock(&item_global_lock);
     }
 }
@@ -155,6 +156,7 @@ void item_unlock(uint32_t hv) {
         mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
     } else {
         mutex_unlock(&item_global_lock);
+        mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
     }
 }
 
