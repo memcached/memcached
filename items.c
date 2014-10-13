@@ -29,7 +29,7 @@ typedef struct {
     uint64_t expired_unfetched;
     uint64_t evicted_unfetched;
     uint64_t crawler_reclaimed;
-    uint64_t reflocked;
+    uint64_t lrutail_reflocked;
 } itemstats_t;
 
 static item *heads[LARGEST_ID];
@@ -107,7 +107,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     /* do a quick check if we have any expired items in the tail.. */
     int tries = 5;
     /* Avoid hangs if a slab has nothing but refcounted stuff in it. */
-    int tries_reflocked = 1000;
+    int tries_lrutail_reflocked = 1000;
     int tried_alloc = 0;
     item *search;
     item *next_it;
@@ -136,10 +136,10 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
         if (refcount_incr(&search->refcount) != 2) {
             /* Avoid pathological case with ref'ed items in tail */
             do_item_update_nolock(search);
-            tries_reflocked--;
+            tries_lrutail_reflocked--;
             tries++;
             refcount_decr(&search->refcount);
-            itemstats[id].reflocked++;
+            itemstats[id].lrutail_reflocked++;
             /* Old rare bug could cause a refcount leak. We haven't seen
              * it in years, but we leave this code in to prevent failures
              * just in case */
@@ -152,7 +152,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             if (hold_lock)
                 item_trylock_unlock(hold_lock);
 
-            if (tries_reflocked < 1)
+            if (tries_lrutail_reflocked < 1)
                 break;
 
             continue;
@@ -477,7 +477,7 @@ void do_item_stats_totals(ADD_STAT add_stats, void *c) {
         totals.evicted += itemstats[i].evicted;
         totals.reclaimed += itemstats[i].reclaimed;
         totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
-        totals.reflocked += itemstats[i].reflocked;
+        totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
     }
     APPEND_STAT("expired_unfetched", "%llu",
                 (unsigned long long)totals.expired_unfetched);
@@ -489,8 +489,8 @@ void do_item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.reclaimed);
     APPEND_STAT("crawler_reclaimed", "%llu",
                 (unsigned long long)totals.crawler_reclaimed);
-    APPEND_STAT("reflocked", "%llu",
-                (unsigned long long)totals.reflocked);
+    APPEND_STAT("lrutail_reflocked", "%llu",
+                (unsigned long long)totals.lrutail_reflocked);
 }
 
 void do_item_stats(ADD_STAT add_stats, void *c) {
@@ -525,8 +525,8 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
                                 "%llu", (unsigned long long)itemstats[i].evicted_unfetched);
             APPEND_NUM_FMT_STAT(fmt, i, "crawler_reclaimed",
                                 "%llu", (unsigned long long)itemstats[i].crawler_reclaimed);
-            APPEND_NUM_FMT_STAT(fmt, i, "reflocked",
-                                "%llu", (unsigned long long)itemstats[i].reflocked);
+            APPEND_NUM_FMT_STAT(fmt, i, "lrutail_reflocked",
+                                "%llu", (unsigned long long)itemstats[i].lrutail_reflocked);
         }
     }
 

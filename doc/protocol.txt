@@ -582,6 +582,8 @@ integers separated by a colon (treat this as a floating point number).
 | slab_reassign_running | bool    | If a slab page is being moved             |
 | slabs_moved           | 64u     | Total slab pages moved                    |
 | crawler_reclaimed     | 64u     | Total items freed by LRU Crawler          |
+| lrutail_reflocked     | 64u     | Times LRU tail was found with active ref. |
+|                       |         | Items moved to head to avoid OOM errors.  |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics

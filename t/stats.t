@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 95;
+use Test::More tests => 97;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -62,7 +62,7 @@ my $sock = $server->sock;
 ## STAT evictions 0
 ## STAT reclaimed 0
 ## STAT crawler_reclaimed 0
-## STAT reflocked 0
+## STAT lrutail_reflocked 0
 # note that auth stats are tested in auth specfic tests
 
 
@@ -74,7 +74,7 @@ is(scalar(keys(%$stats)), 51, "51 stats values");
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses
                  bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits
-                 decr_misses listen_disabled_num reflocked)) {
+                 decr_misses listen_disabled_num lrutail_reflocked)) {
     is($stats->{$key}, 0, "initial $key is zero");
 }
 is($stats->{accepting_conns}, 1, "initial accepting_conns is one");
@@ -199,7 +199,7 @@ is(0, $stats->{'cas_hits'});
 is(0, $stats->{'cas_badval'});
 is(0, $stats->{'evictions'});
 is(0, $stats->{'reclaimed'});
-is(0, $stats->{'reflocked'});
+is(0, $stats->{'lrutail_reflocked'});
 
 print $sock "flush_all\r\n";
 is(scalar <$sock>, "OK\r\n", "flushed");

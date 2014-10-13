@@ -31,11 +31,11 @@ chop $mget;
 my $stats  = mem_stats($sock, "items");
 isnt($stats->{"items:31:evicted"}, "0", "check evicted");
 
-my $reflocked = $stats->{"items:31:reflocked"};
-is($reflocked, "0", "check no slab reflocked");
+my $lrutail_reflocked = $stats->{"items:31:lrutail_reflocked"};
+is($lrutail_reflocked, "0", "check no slab lrutail_reflocked");
 
 $stats = mem_stats($sock);
-is($stats->{"reflocked"}, "0", "check no total reflocked");
+is($stats->{"lrutail_reflocked"}, "0", "check no total lrutail_reflocked");
 
 # Don't intend to read the results, need to fill the socket.
 # TODO: This test would be smarter if we cranked down the socket buffers
@@ -51,10 +51,10 @@ for ($key = 121; $key < 240; $key++) {
 
 $stats = mem_stats($sock, "items");
 is($stats->{"items:31:outofmemory"}, "0", "check no oom");
-isnt($stats->{"items:31:reflocked"}, "0", "count reflocked");
+isnt($stats->{"items:31:lrutail_reflocked"}, "0", "count lrutail_reflocked");
 
 $stats = mem_stats($sock);
-isnt($stats->{"reflocked"}, "0", "count total reflocked");
+isnt($stats->{"lrutail_reflocked"}, "0", "count total lrutail_reflocked");
 
 # Clear out all that 'hung' traffic
 while(<$hangsock> !~ /END/) { };
@@ -69,8 +69,8 @@ print $hangsock2 "get $revkeys\r\n";
 
 for ($key = 240; $key < 260; $key++) {
     print $sock "set key$key 0 0 66560\r\n$value\r\n";
-    is(scalar <$sock>, "SERVER_ERROR out of memory storing object\r\n", "oom fully reflocked");
+    is(scalar <$sock>, "SERVER_ERROR out of memory storing object\r\n", "oom fully lrutail_reflocked");
 }
 
 $stats = mem_stats($sock, "items");
-isnt($stats->{"items:31:outofmemory"}, "0", "count reflocked oom");
+isnt($stats->{"items:31:outofmemory"}, "0", "count lrutail_reflocked oom");
