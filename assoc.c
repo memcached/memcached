@@ -146,6 +146,12 @@ static void assoc_expand(void) {
 static void assoc_start_expand(void) {
     if (started_expanding)
         return;
+
+    /*With this condition, we can expanding holding only one item lock,
+     * and it should always be false*/
+    if (item_lock_hashpower >= hashpower)
+        return;
+
     started_expanding = true;
     pthread_cond_signal(&maintenance_cond);
 }
@@ -205,7 +211,6 @@ static void *assoc_maintenance_thread(void *arg) {
 
     while (do_run_maintenance_thread) {
         int ii = 0;
-        int wait_flag = 0;
 
         /* As there is only one thread process expanding, and we hold the item
          * lock, it seems not necessary to hold the cache_lock . */
@@ -214,64 +219,46 @@ static void *assoc_maintenance_thread(void *arg) {
 
         for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             item *it, *next;
-            int bucket,dst_bucket;
-            void *first_lock = NULL, *second_lock = NULL;
+            int bucket;
+            void *item_lock = NULL;
 
 
             /* bucket = hv & hashmask(hashpower) =>the bucket of hash table
              * is the lowest N bits of the hv, and the bucket of item_locks is
              *  also the lowest M bits of hv, and N is greater than M.
-             *  So we can process expanding with no more than 2 item_lock */
-            /*Get first lock for the slot in old hashtable*/
-            if ((first_lock = item_trylock(expand_bucket))){
-				/*Get the lock for the slot in new hashtable, and care that
-				 * it may equal to the first lock*/
-            	dst_bucket = (expand_bucket*2)& hashmask(hashpower);
-            	if (((expand_bucket & hashmask(item_lock_hashpower))
-            		   == (dst_bucket & hashmask(item_lock_hashpower)))
-            	   	   || (second_lock = item_trylock(dst_bucket))){
-					for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
-						next = it->h_next;
-						bucket = hash(ITEM_key(it), it->nkey) & hashmask(hashpower);
-						it->h_next = primary_hashtable[bucket];
-						primary_hashtable[bucket] = it;
-					}
+             *  So we can process expanding with only one item_lock. cool! */
+            /*Get item lock for the slot in old hashtable*/
+            if ((item_lock = item_trylock(expand_bucket))){
+                    for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
+                        next = it->h_next;
+                        bucket = hash(ITEM_key(it), it->nkey) & hashmask(hashpower);
+                        it->h_next = primary_hashtable[bucket];
+                        primary_hashtable[bucket] = it;
+                    }
 
-					old_hashtable[expand_bucket] = NULL;
+                    old_hashtable[expand_bucket] = NULL;
 
-					expand_bucket++;
-					if (expand_bucket == hashsize(hashpower - 1)) {
-						expanding = false;
-						free(old_hashtable);
-						STATS_LOCK();
-						stats.hash_bytes -= hashsize(hashpower - 1) * sizeof(void *);
-						stats.hash_is_expanding = 0;
-						STATS_UNLOCK();
-						if (settings.verbose > 1)
-							fprintf(stderr, "Hash table expansion done\n");
-					}
-            	}else{  /*get second lock fail*/
-            		wait_flag = 1;
+                    expand_bucket++;
+                    if (expand_bucket == hashsize(hashpower - 1)) {
+                        expanding = false;
+                        free(old_hashtable);
+                        STATS_LOCK();
+                        stats.hash_bytes -= hashsize(hashpower - 1) * sizeof(void *);
+                        stats.hash_is_expanding = 0;
+                        STATS_UNLOCK();
+                        if (settings.verbose > 1)
+                            fprintf(stderr, "Hash table expansion done\n");
+                    }
 
-            	}
-            }else{/*get first lock fail*/
-            	wait_flag = 1;
+            }else{
+                /*wait for 100ms. since only one expanding thread, it's not
+                 * necessary to sleep a random value*/
+                usleep(100*1000);
             }
 
-            if (first_lock){
-            	item_trylock_unlock(first_lock);
-            	first_lock = NULL;
-            }
-            if (second_lock){
-				item_trylock_unlock(second_lock);
-				second_lock = NULL;
-            }
-
-            if (wait_flag){
-            	/*wait for 100ms. since only one expanding thread, it's not
-            	 * necessary to sleep a random value*/
-            	usleep(100*1000);
-            	wait_flag = 0;
+            if (item_lock){
+                item_trylock_unlock(item_lock);
+                item_lock = NULL;
             }
         }
 
