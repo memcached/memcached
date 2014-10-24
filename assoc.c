@@ -52,7 +52,7 @@ static unsigned int hash_items = 0;
 /* Flag: Are we in the middle of expanding now? */
 static bool expanding = false;
 static bool started_expanding = false;
-
+static int hashpower_delta = 0;
 /*
  * During expansion we migrate values with bucket granularity; this is how
  * far we've gotten so far. Ranges from 0 .. hashsize(hashpower - 1) - 1.
@@ -79,7 +79,7 @@ item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
     unsigned int oldbucket;
 
     if (expanding &&
-        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+        (oldbucket = (hv & hashmask(hashpower - hashpower_delta))) >= expand_bucket)
     {
         it = old_hashtable[oldbucket];
     } else {
@@ -108,7 +108,7 @@ static item** _hashitem_before (const char *key, const size_t nkey, const uint32
     unsigned int oldbucket;
 
     if (expanding &&
-        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
+        (oldbucket = (hv & hashmask(hashpower - hashpower_delta))) >= expand_bucket)
     {
         pos = &old_hashtable[oldbucket];
     } else {
@@ -124,12 +124,18 @@ static item** _hashitem_before (const char *key, const size_t nkey, const uint32
 /* grows the hashtable to the next power of 2. */
 static void assoc_expand(void) {
     old_hashtable = primary_hashtable;
+    hashpower_delta = 1;
 
-    primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));
+
+    if (hash_items < hashsize(hashpower)){
+    	hashpower_delta = -1;
+    }
+
+    primary_hashtable = calloc(hashsize(hashpower + hashpower_delta), sizeof(void *));
     if (primary_hashtable) {
         if (settings.verbose > 1)
             fprintf(stderr, "Hash table expansion starting\n");
-        hashpower++;
+        hashpower += hashpower_delta;
         expanding = true;
         expand_bucket = 0;
         STATS_LOCK();
@@ -196,6 +202,11 @@ void assoc_delete(const char *key, const size_t nkey, const uint32_t hv) {
         *before = nxt;
         return;
     }
+
+    if (! expanding && hashpower > settings.hashpower_init && hash_items < (hashsize(hashpower-1) * 2) / 3) {
+        assoc_start_expand();
+    }
+
     /* Note:  we never actually get here.  the callers don't delete things
        they can't find. */
     assert(*before != 0);
@@ -239,12 +250,13 @@ static void *assoc_maintenance_thread(void *arg) {
                     old_hashtable[expand_bucket] = NULL;
 
                     expand_bucket++;
-                    if (expand_bucket == hashsize(hashpower - 1)) {
+                    if (expand_bucket == hashsize(hashpower - hashpower_delta)) {
                         expanding = false;
                         free(old_hashtable);
                         STATS_LOCK();
-                        stats.hash_bytes -= hashsize(hashpower - 1) * sizeof(void *);
+                        stats.hash_bytes -= hashsize(hashpower - hashpower_delta) * sizeof(void *);
                         stats.hash_is_expanding = 0;
+                        hashpower_delta = 0;
                         STATS_UNLOCK();
                         if (settings.verbose > 1)
                             fprintf(stderr, "Hash table expansion done\n");
