@@ -800,6 +800,43 @@ static off_t storage_command(char*buf,
     return key_offset + keylen + dtalen;
 }
 
+static off_t ext_command(char* buf,
+                         size_t bufsz,
+                         uint8_t cmd,
+                         const void* ext,
+                         size_t extlen,
+                         const void* key,
+                         size_t keylen,
+                         const void* dta,
+                         size_t dtalen) {
+    protocol_binary_request_no_extras *request = (void*)buf;
+    assert(bufsz > sizeof(*request) + extlen + keylen + dtalen);
+
+    memset(request, 0, sizeof(*request));
+    request->message.header.request.magic = PROTOCOL_BINARY_REQ;
+    request->message.header.request.opcode = cmd;
+    request->message.header.request.extlen = extlen;
+    request->message.header.request.keylen = htons(keylen);
+    request->message.header.request.bodylen = htonl(extlen + keylen + dtalen);
+    request->message.header.request.opaque = 0xdeadbeef;
+
+    off_t ext_offset = sizeof(protocol_binary_request_no_extras);
+    off_t key_offset = ext_offset + extlen;
+    off_t dta_offset = key_offset + keylen;
+
+    if (ext != NULL) {
+        memcpy(buf + ext_offset, ext, extlen);
+    }
+    if (key != NULL) {
+        memcpy(buf + key_offset, key, keylen);
+    }
+    if (dta != NULL) {
+        memcpy(buf + dta_offset, dta, dtalen);
+    }
+
+    return sizeof(*request) + extlen + keylen + dtalen;
+}
+
 static off_t raw_command(char* buf,
                          size_t bufsz,
                          uint8_t cmd,
@@ -808,26 +845,7 @@ static off_t raw_command(char* buf,
                          const void* dta,
                          size_t dtalen) {
     /* all of the storage commands use the same command layout */
-    protocol_binary_request_no_extras *request = (void*)buf;
-    assert(bufsz > sizeof(*request) + keylen + dtalen);
-
-    memset(request, 0, sizeof(*request));
-    request->message.header.request.magic = PROTOCOL_BINARY_REQ;
-    request->message.header.request.opcode = cmd;
-    request->message.header.request.keylen = htons(keylen);
-    request->message.header.request.bodylen = htonl(keylen + dtalen);
-    request->message.header.request.opaque = 0xdeadbeef;
-
-    off_t key_offset = sizeof(protocol_binary_request_no_extras);
-
-    if (key != NULL) {
-        memcpy(buf + key_offset, key, keylen);
-    }
-    if (dta != NULL) {
-        memcpy(buf + key_offset + keylen, dta, dtalen);
-    }
-
-    return sizeof(*request) + keylen + dtalen;
+    return ext_command(buf, bufsz, cmd, NULL, 0, key, keylen, dta, dtalen);
 }
 
 static off_t flush_command(char* buf, size_t bufsz, uint8_t cmd, uint32_t exptime, bool use_extra) {
@@ -976,6 +994,8 @@ static void validate_response_header(protocol_binary_response_no_extras *respons
 
         case PROTOCOL_BINARY_CMD_GET:
         case PROTOCOL_BINARY_CMD_GETQ:
+        case PROTOCOL_BINARY_CMD_GAT:
+        case PROTOCOL_BINARY_CMD_GATQ:
             assert(response->message.header.response.keylen == 0);
             assert(response->message.header.response.extlen == 4);
             assert(response->message.header.response.cas != 0);
@@ -983,6 +1003,8 @@ static void validate_response_header(protocol_binary_response_no_extras *respons
 
         case PROTOCOL_BINARY_CMD_GETK:
         case PROTOCOL_BINARY_CMD_GETKQ:
+        case PROTOCOL_BINARY_CMD_GATK:
+        case PROTOCOL_BINARY_CMD_GATKQ:
             assert(response->message.header.response.keylen != 0);
             assert(response->message.header.response.extlen == 4);
             assert(response->message.header.response.cas != 0);
@@ -1248,7 +1270,14 @@ static enum test_return test_binary_get_impl(const char *key, uint8_t cmd) {
         protocol_binary_response_no_extras response;
         char bytes[1024];
     } send, receive;
-    size_t len = raw_command(send.bytes, sizeof(send.bytes), cmd,
+
+    uint32_t expiration = htonl(3600);
+    size_t extlen = 0;
+    if (cmd == PROTOCOL_BINARY_CMD_GAT || cmd == PROTOCOL_BINARY_CMD_GATK)
+        extlen = sizeof(expiration);
+
+    size_t len = ext_command(send.bytes, sizeof(send.bytes), cmd,
+                             extlen ? &expiration : NULL, extlen,
                              key, strlen(key), NULL, 0);
 
     safe_send(send.bytes, len, false);
@@ -1273,8 +1302,9 @@ static enum test_return test_binary_get_impl(const char *key, uint8_t cmd) {
             protocol_binary_request_no_extras request;
             char bytes[1024];
         } temp;
-        size_t l = raw_command(temp.bytes, sizeof(temp.bytes),
-                               cmd, key, strlen(key), NULL, 0);
+        size_t l = ext_command(temp.bytes, sizeof(temp.bytes), cmd,
+                               extlen ? &expiration : NULL, extlen,
+                               key, strlen(key), NULL, 0);
         memcpy(send.bytes + len, temp.bytes, l);
         len += l;
     }
@@ -1297,6 +1327,14 @@ static enum test_return test_binary_getk(void) {
     return test_binary_get_impl("test_binary_getk", PROTOCOL_BINARY_CMD_GETK);
 }
 
+static enum test_return test_binary_gat(void) {
+    return test_binary_get_impl("test_binary_gat", PROTOCOL_BINARY_CMD_GAT);
+}
+
+static enum test_return test_binary_gatk(void) {
+    return test_binary_get_impl("test_binary_gatk", PROTOCOL_BINARY_CMD_GATK);
+}
+
 static enum test_return test_binary_getq_impl(const char *key, uint8_t cmd) {
     const char *missing = "test_binary_getq_missing";
     union {
@@ -1304,19 +1342,27 @@ static enum test_return test_binary_getq_impl(const char *key, uint8_t cmd) {
         protocol_binary_response_no_extras response;
         char bytes[1024];
     } send, temp, receive;
+
+    uint32_t expiration = htonl(3600);
+    size_t extlen = 0;
+    if (cmd == PROTOCOL_BINARY_CMD_GATQ || cmd == PROTOCOL_BINARY_CMD_GATKQ)
+        extlen = sizeof(expiration);
+
     size_t len = storage_command(send.bytes, sizeof(send.bytes),
                                  PROTOCOL_BINARY_CMD_ADD,
                                  key, strlen(key), NULL, 0,
                                  0, 0);
-    size_t len2 = raw_command(temp.bytes, sizeof(temp.bytes), cmd,
-                             missing, strlen(missing), NULL, 0);
+    size_t len2 = ext_command(temp.bytes, sizeof(temp.bytes), cmd,
+                              extlen ? &expiration : NULL, extlen,
+                              missing, strlen(missing), NULL, 0);
     /* I need to change the first opaque so that I can separate the two
      * return packets */
     temp.request.message.header.request.opaque = 0xfeedface;
     memcpy(send.bytes + len, temp.bytes, len2);
     len += len2;
 
-    len2 = raw_command(temp.bytes, sizeof(temp.bytes), cmd,
+    len2 = ext_command(temp.bytes, sizeof(temp.bytes), cmd,
+                       extlen ? &expiration : NULL, extlen,
                        key, strlen(key), NULL, 0);
     memcpy(send.bytes + len, temp.bytes, len2);
     len += len2;
@@ -1339,6 +1385,14 @@ static enum test_return test_binary_getq(void) {
 
 static enum test_return test_binary_getkq(void) {
     return test_binary_getq_impl("test_binary_getkq", PROTOCOL_BINARY_CMD_GETKQ);
+}
+
+static enum test_return test_binary_gatq(void) {
+    return test_binary_getq_impl("test_binary_gatq", PROTOCOL_BINARY_CMD_GATQ);
+}
+
+static enum test_return test_binary_gatkq(void) {
+    return test_binary_getq_impl("test_binary_gatkq", PROTOCOL_BINARY_CMD_GATKQ);
 }
 
 static enum test_return test_binary_incr_impl(const char* key, uint8_t cmd) {
@@ -1915,6 +1969,10 @@ struct testcase testcases[] = {
     { "binary_getq", test_binary_getq },
     { "binary_getk", test_binary_getk },
     { "binary_getkq", test_binary_getkq },
+    { "binary_gat", test_binary_gat },
+    { "binary_gatq", test_binary_gatq },
+    { "binary_gatk", test_binary_gatk },
+    { "binary_gatkq", test_binary_gatkq },
     { "binary_incr", test_binary_incr },
     { "binary_incrq", test_binary_incrq },
     { "binary_decr", test_binary_decr },
