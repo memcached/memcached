@@ -1868,7 +1868,7 @@ static void dispatch_bin_command(conn *c) {
         c->cmd = PROTOCOL_BINARY_CMD_GAT;
         break;
     case PROTOCOL_BINARY_CMD_GATKQ:
-        c->cmd = PROTOCOL_BINARY_CMD_GAT;
+        c->cmd = PROTOCOL_BINARY_CMD_GATK;
         break;
     default:
         c->noreply = false;
