@@ -188,7 +188,7 @@ After this line, the client sends the data block:
 - <data block> is a chunk of arbitrary 8-bit data of length <bytes>
   from the previous line.
 
-After sending the command line and the data blockm the client awaits
+After sending the command line and the data block the client awaits
 the reply, which may be:
 
 - "STORED\r\n", to indicate success.
