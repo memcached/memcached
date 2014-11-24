@@ -4935,7 +4935,7 @@ static void remove_pidfile(const char *pid_file) {
 }
 
 static void sig_handler(const int sig) {
-    printf("SIGINT handled.\n");
+    printf("Signal handled: %s.\n", strsignal(sig));
     exit(EXIT_SUCCESS);
 }
 
@@ -5071,8 +5071,9 @@ int main (int argc, char **argv) {
         return EX_OSERR;
     }
 
-    /* handle SIGINT */
+    /* handle SIGINT and SIGTERM */
     signal(SIGINT, sig_handler);
+    signal(SIGTERM, sig_handler);
 
     /* init settings */
     settings_init();
