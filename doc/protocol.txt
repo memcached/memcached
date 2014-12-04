@@ -401,6 +401,70 @@ The response should always be "OK\r\n"
   there is an eviction. It is not recommended to run for very long in this
   mode unless your access patterns are very well understood.
 
+LRU_Crawler
+-----------
+
+NOTE: This command (and related commands) are subject to change as of this
+writing.
+
+The LRU Crawler is an optional background thread which will walk from the tail
+toward the head of requested slab classes, actively freeing memory for expired
+items. This is useful if you have a mix of items with both long and short
+TTL's, but aren't accessed very often. This system is not required for normal
+usage, and can add small amounts of latency and increase CPU usage.
+
+lru_crawler <enable|disable>
+
+- Enable or disable the LRU Crawler background thread.
+
+The response line could be one of:
+
+- "OK" to indicate the crawler has been started or stopped.
+
+- "ERROR [message]" something went wrong while enabling or disabling.
+
+lru_crawler sleep <microseconds>
+
+- The number of microseconds to sleep inbetween each item checked for
+  expiration. Smaller numbers will obviously impact the system more.
+  A value of "0" disables the sleep, "1000000" (one second) is the max.
+
+The response line could be one of:
+
+- "OK"
+
+- "CLIENT_ERROR [message]" indicating a format or bounds issue.
+
+lru_crawler tocrawl <32u>
+
+- The maximum number of items to inspect in a slab class per run request. This
+  allows you to avoid scanning all of very large slabs when it is unlikely to
+  find items to expire.
+
+The response line could be one of:
+
+- "OK"
+
+- "CLIENT_ERROR [message]" indicating a format or bound issue.
+
+lru_crawler crawl <classid,classid,classid|all>
+
+- Takes a single, or a list of, numeric classids (ie: 1,3,10). This instructs
+  the crawler to start at the tail of each of these classids and run to the
+  head. The crawler cannot be stopped or restarted until it completes the
+  previous request.
+
+  The special keyword "all" instructs it to crawl all slabs with items in
+  them.
+
+The response line could be one of:
+
+- "OK" to indicate successful launch.
+
+- "BUSY [message]" to indicate the crawler is already processing a request.
+
+- "BADCLASS [message]" to indicate an invalid class was specified.
+
 Statistics
 ----------
 
@@ -517,6 +581,7 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | touched by get/incr/append/etc.           |
 | slab_reassign_running | bool    | If a slab page is being moved             |
 | slabs_moved           | 64u     | Total slab pages moved                    |
+| crawler_reclaimed     | 64u     | Total items freed by LRU Crawler          |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics
@@ -559,6 +624,10 @@ other stats command.
 | hashpower_init    | 32       | Starting size multiplier for hash table      |
 | slab_reassign     | bool     | Whether slab page reassignment is allowed    |
 | slab_automove     | bool     | Whether slab page automover is enabled       |
+| hash_algorithm    | char     | Hash table algorithm in use                  |
+| lru_crawler       | bool     | Whether the LRU crawler is enabled           |
+| lru_crawler_sleep | 32       | Microseconds to sleep between LRU crawls     |
+| lru_crawler_tocrawl| 32u     | Max items to crawl per slab per run          |
 |-------------------+----------+----------------------------------------------|
 
 
@@ -607,6 +676,7 @@ expired_unfetched      Number of expired items reclaimed from the LRU which
                        were never touched after being set.
 evicted_unfetched      Number of valid items evicted from the LRU which were
                        never touched after being set.
+crawler_reclaimed      Number of items freed by the LRU Crawler.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.

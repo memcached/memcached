@@ -527,7 +527,7 @@ static int slab_rebalance_move(void) {
         status = MOVE_PASS;
         if (it->slabs_clsid != 255) {
             void *hold_lock = NULL;
-            uint32_t hv = hash(ITEM_key(it), it->nkey, 0);
+            uint32_t hv = hash(ITEM_key(it), it->nkey);
             if ((hold_lock = item_trylock(hv)) == NULL) {
                 status = MOVE_LOCKED;
             } else {

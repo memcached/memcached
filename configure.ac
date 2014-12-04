@@ -493,9 +493,18 @@ AC_DEFUN([AC_C_ALIGNMENT],
        *ptr = 0x1;
 
        // catch unaligned word access (ARM cpus)
-       *buf =  1; *(buf +1) = 2; *(buf + 2) = 2; *(buf + 3) = 3; *(buf + 4) = 4;
+#ifdef ENDIAN_BIG
+#define ALIGNMENT 0x02030405
+#else
+#define ALIGNMENT 0x05040302
+#endif
+       *(buf + 0) = 1;
+       *(buf + 1) = 2;
+       *(buf + 2) = 3;
+       *(buf + 3) = 4;
+       *(buf + 4) = 5;
        int* i = (int*)(buf+1);
-       return (84148994 == i) ? 0 : 1;
+       return (ALIGNMENT == *i) ? 0 : 1;
     ])
   ],[
     ac_cv_c_alignment=none

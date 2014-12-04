@@ -71,6 +71,13 @@
 /* Initial power multiplier for the hash table */
 #define HASHPOWER_DEFAULT 16
 
+/*
+ * We only reposition items in the LRU queue if they haven't been repositioned
+ * in this many seconds. That saves us from churning on frequently-accessed
+ * items.
+ */
+#define ITEM_UPDATE_INTERVAL 60
+
 /* unistd.h is here */
 #if HAVE_UNISTD_H
 # include <unistd.h>
@@ -83,8 +90,8 @@
 #define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
 
 /** How long an object can reasonably be assumed to be locked before
-    harvesting it on a low memory condition. */
-#define TAIL_REPAIR_TIME_DEFAULT (1 * 3600)
+    harvesting it on a low memory condition. Default: disabled. */
+#define TAIL_REPAIR_TIME_DEFAULT 0
 
 /* warning: don't use these macros with a function, as it evals its arg twice */
 #define ITEM_get_cas(i) (((i)->it_flags & ITEM_CAS) ? \
@@ -292,6 +299,7 @@ struct stats {
     uint64_t      evicted_unfetched; /* items evicted but never touched */
     bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
+    bool          lru_crawler_running; /* crawl in progress */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -325,6 +333,7 @@ struct settings {
     int item_size_max;        /* Maximum item size, and upper end for slabs */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
+    bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
@@ -333,6 +342,9 @@ struct settings {
     bool flush_enabled;     /* flush_all enabled */
     uint16_t lease_flag;       /* lease enabled and specify the flag return to client if item is a lease. 0: disable */
     uint16_t lease_mask;  /* lease flag mask. it specify which bits of the flag are use as a lease flags  */
+    char *hash_algorithm;     /* Hash algorithm in use */
+    int lru_crawler_sleep;  /* Microsecond sleep between items */
+    uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
 };
 
 extern struct stats stats;
@@ -373,6 +385,21 @@ typedef struct _stritem {
     /* then " flags length\r\n" (no terminating null) */
     /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
+
+typedef struct {
+    struct _stritem *next;
+    struct _stritem *prev;
+    struct _stritem *h_next;    /* hash chain next */
+    rel_time_t      time;       /* least recent access */
+    rel_time_t      exptime;    /* expire time */
+    int             nbytes;     /* size of data */
+    unsigned short  refcount;
+    uint8_t         nsuffix;    /* length of flags-and-length string */
+    uint8_t         it_flags;   /* ITEM_* above */
+    uint8_t         slabs_clsid;/* which slab class we're in */
+    uint8_t         nkey;       /* key length, w/terminating null and padding */
+    uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
+} crawler;
 
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */

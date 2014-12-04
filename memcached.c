@@ -2,7 +2,7 @@
 /*
  *  memcached - memory caching daemon
  *
- *       http://www.danga.com/memcached/
+ *       http://www.memcached.org/
  *
  *  Copyright 2003 Danga Interactive, Inc.  All rights reserved.
  *
@@ -182,12 +182,13 @@ static void stats_init(void) {
     stats.slabs_moved = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
     stats.slab_reassign_running = false;
+    stats.lru_crawler_running = false;
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
        like 'settings.oldest_live' which act as booleans as well as
        values are now false in boolean context... */
-    process_started = time(0) - 2;
+    process_started = time(0) - ITEM_UPDATE_INTERVAL - 2;
     stats_prefix_init();
 }
 
@@ -229,6 +230,9 @@ static void settings_init(void) {
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.maxconns_fast = false;
+    settings.lru_crawler = false;
+    settings.lru_crawler_sleep = 100;
+    settings.lru_crawler_tocrawl = 0;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -566,8 +570,8 @@ static void conn_close(conn *c) {
     conn_cleanup(c);
 
     MEMCACHED_CONN_RELEASE(c->sfd);
-    close(c->sfd);
     conn_set_state(c, conn_closed);
+    close(c->sfd);
 
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
@@ -2564,7 +2568,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     STATS_LOCK();
 
     APPEND_STAT("pid", "%lu", (long)pid);
-    APPEND_STAT("uptime", "%u", now);
+    APPEND_STAT("uptime", "%u", now - ITEM_UPDATE_INTERVAL);
     APPEND_STAT("time", "%ld", now + (long)process_started);
     APPEND_STAT("version", "%s", VERSION);
     APPEND_STAT("libevent", "%s", event_get_version());
@@ -2619,6 +2623,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("slab_reassign_running", "%u", stats.slab_reassign_running);
         APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);
     }
+    if (settings.lru_crawler) {
+        APPEND_STAT("lru_crawler_running", "%u", stats.lru_crawler_running);
+    }
     APPEND_STAT("malloc_fails", "%llu",
                 (unsigned long long)stats.malloc_fails);
 
@@ -2663,10 +2670,15 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
+    APPEND_STAT("lru_crawler", "%s", settings.lru_crawler ? "yes" : "no");
+    APPEND_STAT("lru_crawler_sleep", "%d", settings.lru_crawler_sleep);
+    APPEND_STAT("lru_crawler_tocrawl", "%lu", (unsigned long)settings.lru_crawler_tocrawl);
     APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
     APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
     APPEND_STAT("lease_flag", "%#4X", settings.lease_flag);
     APPEND_STAT("lease_mask", "%#4X", settings.lease_mask);
+    APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
+
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -3710,6 +3722,69 @@ static void process_command(conn *c, char *command) {
         } else {
             out_string(c, "ERROR");
         }
+    } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
+        if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "crawl") == 0) {
+            int rv;
+            if (settings.lru_crawler == false) {
+                out_string(c, "CLIENT_ERROR lru crawler disabled");
+                return;
+            }
+
+            rv = lru_crawler_crawl(tokens[2].value);
+            switch(rv) {
+            case CRAWLER_OK:
+                out_string(c, "OK");
+                break;
+            case CRAWLER_RUNNING:
+                out_string(c, "BUSY currently processing crawler request");
+                break;
+            case CRAWLER_BADCLASS:
+                out_string(c, "BADCLASS invalid class id");
+                break;
+            }
+            return;
+        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "tocrawl") == 0) {
+            uint32_t tocrawl;
+             if (!safe_strtoul(tokens[2].value, &tocrawl)) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+            settings.lru_crawler_tocrawl = tocrawl;
+            out_string(c, "OK");
+            return;
+        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "sleep") == 0) {
+            uint32_t tosleep;
+            if (!safe_strtoul(tokens[2].value, &tosleep)) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
+            if (tosleep > 1000000) {
+                out_string(c, "CLIENT_ERROR sleep must be one second or less");
+                return;
+            }
+            settings.lru_crawler_sleep = tosleep;
+            out_string(c, "OK");
+            return;
+        } else if (ntokens == 3) {
+            if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "enable") == 0)) {
+                if (start_item_crawler_thread() == 0) {
+                    out_string(c, "OK");
+                } else {
+                    out_string(c, "ERROR failed to start lru crawler thread");
+                }
+            } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
+                if (stop_item_crawler_thread() == 0) {
+                    out_string(c, "OK");
+                } else {
+                    out_string(c, "ERROR failed to stop lru crawler thread");
+                }
+            } else {
+                out_string(c, "ERROR");
+            }
+            return;
+        } else {
+            out_string(c, "ERROR");
+        }
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {
@@ -4403,6 +4478,10 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_closed:
+            /* This only happens if dormando is an idiot. */
+            abort();
+            break;
+
         case conn_max_state:
             assert(false);
             break;
@@ -4790,7 +4869,7 @@ static void clock_handler(const int fd, const short which, void *arg) {
         struct timespec ts;
         if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
             monotonic = true;
-            monotonic_start = ts.tv_sec - 2;
+            monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
         }
 #endif
     }
@@ -4885,6 +4964,13 @@ static void usage(void) {
            "              - tail_repair_time: Time in seconds that indicates how long to wait before\n"
            "                forcefully taking over the LRU tail item whose refcount has leaked.\n"
            "                The default is 3 hours.\n"
+           "              - hash_algorithm: The hash table algorithm\n"
+           "                default is jenkins hash. options: jenkins, murmur3\n"
+           "              - lru_crawler: Enable LRU Crawler background thread\n"
+           "              - lru_crawler_sleep: Microseconds to sleep between items\n"
+           "                default is 100.\n"
+           "              - lru_crawler_tocrawl: Max items to crawl per slab per run\n"
+           "                default is 0 (unlimited)\n"
            );
     return;
 }
@@ -5113,6 +5199,8 @@ int main (int argc, char **argv) {
     bool protocol_specified = false;
     bool tcp_specified = false;
     bool udp_specified = false;
+    enum hashfunc_type hash_type = JENKINS_HASH;
+    uint32_t tocrawl;
 
     char *subopts;
     char *subopts_value;
@@ -5121,7 +5209,11 @@ int main (int argc, char **argv) {
         HASHPOWER_INIT,
         SLAB_REASSIGN,
         SLAB_AUTOMOVE,
-        TAIL_REPAIR_TIME
+        TAIL_REPAIR_TIME,
+        HASH_ALGORITHM,
+        LRU_CRAWLER,
+        LRU_CRAWLER_SLEEP,
+        LRU_CRAWLER_TOCRAWL
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5129,6 +5221,10 @@ int main (int argc, char **argv) {
         [SLAB_REASSIGN] = "slab_reassign",
         [SLAB_AUTOMOVE] = "slab_automove",
         [TAIL_REPAIR_TIME] = "tail_repair_time",
+        [HASH_ALGORITHM] = "hash_algorithm",
+        [LRU_CRAWLER] = "lru_crawler",
+        [LRU_CRAWLER_SLEEP] = "lru_crawler_sleep",
+        [LRU_CRAWLER_TOCRAWL] = "lru_crawler_tocrawl",
         NULL
     };
 
@@ -5426,6 +5522,40 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
+            case HASH_ALGORITHM:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing hash_algorithm argument\n");
+                    return 1;
+                };
+                if (strcmp(subopts_value, "jenkins") == 0) {
+                    hash_type = JENKINS_HASH;
+                } else if (strcmp(subopts_value, "murmur3") == 0) {
+                    hash_type = MURMUR3_HASH;
+                } else {
+                    fprintf(stderr, "Unknown hash_algorithm option (jenkins, murmur3)\n");
+                    return 1;
+                }
+                break;
+            case LRU_CRAWLER:
+                if (start_item_crawler_thread() != 0) {
+                    fprintf(stderr, "Failed to enable LRU crawler thread\n");
+                    return 1;
+                }
+                break;
+            case LRU_CRAWLER_SLEEP:
+                settings.lru_crawler_sleep = atoi(subopts_value);
+                if (settings.lru_crawler_sleep > 1000000 || settings.lru_crawler_sleep < 0) {
+                    fprintf(stderr, "LRU crawler sleep must be between 0 and 1 second\n");
+                    return 1;
+                }
+                break;
+            case LRU_CRAWLER_TOCRAWL:
+                if (!safe_strtoul(subopts_value, &tocrawl)) {
+                    fprintf(stderr, "lru_crawler_tocrawl takes a numeric 32bit value\n");
+                    return 1;
+                }
+                settings.lru_crawler_tocrawl = tocrawl;
+                break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
                 return 1;
@@ -5437,6 +5567,11 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
         }
+    }
+
+    if (hash_init(hash_type) != 0) {
+        fprintf(stderr, "Failed to initialize hash_algorithm!\n");
+        exit(EX_USAGE);
     }
 
     /*
@@ -5583,6 +5718,9 @@ int main (int argc, char **argv) {
         start_slab_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
     }
+
+    /* Run regardless of initializing it later */
+    init_lru_crawler();
 
     /* initialise clock event */
     clock_handler(0, 0, 0);

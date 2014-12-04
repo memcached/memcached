@@ -56,6 +56,7 @@ static pthread_mutex_t cqi_freelist_lock;
 static pthread_mutex_t *item_locks;
 /* size of the item lock hash table */
 static uint32_t item_lock_count;
+static unsigned int item_lock_hashpower;
 #define hashsize(n) ((unsigned long int)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 /* this lock is temporarily engaged during a hash table expansion */
@@ -123,7 +124,7 @@ void item_unlock_global(void) {
 void item_lock(uint32_t hv) {
     uint8_t *lock_type = pthread_getspecific(item_lock_type_key);
     if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
-        mutex_lock(&item_locks[(hv & hashmask(hashpower)) % item_lock_count]);
+        mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
     } else {
         mutex_lock(&item_global_lock);
     }
@@ -137,7 +138,7 @@ void item_lock(uint32_t hv) {
  * switch so it should stay safe.
  */
 void *item_trylock(uint32_t hv) {
-    pthread_mutex_t *lock = &item_locks[(hv & hashmask(hashpower)) % item_lock_count];
+    pthread_mutex_t *lock = &item_locks[hv & hashmask(item_lock_hashpower)];
     if (pthread_mutex_trylock(lock) == 0) {
         return lock;
     }
@@ -151,7 +152,7 @@ void item_trylock_unlock(void *lock) {
 void item_unlock(uint32_t hv) {
     uint8_t *lock_type = pthread_getspecific(item_lock_type_key);
     if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
-        mutex_unlock(&item_locks[(hv & hashmask(hashpower)) % item_lock_count]);
+        mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
     } else {
         mutex_unlock(&item_global_lock);
     }
@@ -502,7 +503,7 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
 item *item_get(const char *key, const size_t nkey) {
     item *it;
     uint32_t hv;
-    hv = hash(key, nkey, 0);
+    hv = hash(key, nkey);
     item_lock(hv);
     it = do_item_get(key, nkey, hv);
     item_unlock(hv);
@@ -512,7 +513,7 @@ item *item_get(const char *key, const size_t nkey) {
 item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
     item *it;
     uint32_t hv;
-    hv = hash(key, nkey, 0);
+    hv = hash(key, nkey);
     item_lock(hv);
     it = do_item_touch(key, nkey, exptime, hv);
     item_unlock(hv);
@@ -526,7 +527,7 @@ int item_link(item *item) {
     int ret;
     uint32_t hv;
 
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
     ret = do_item_link(item, hv);
     item_unlock(hv);
@@ -539,7 +540,7 @@ int item_link(item *item) {
  */
 void item_remove(item *item) {
     uint32_t hv;
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
 
     item_lock(hv);
     do_item_remove(item);
@@ -560,7 +561,7 @@ int item_replace(item *old_it, item *new_it, const uint32_t hv) {
  */
 void item_unlink(item *item) {
     uint32_t hv;
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
     do_item_unlink(item, hv);
     item_unlock(hv);
@@ -571,7 +572,7 @@ void item_unlink(item *item) {
  */
 void item_update(item *item) {
     uint32_t hv;
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
 
     item_lock(hv);
     do_item_update(item);
@@ -593,7 +594,7 @@ uint64_t item_add_lease(char *key, const size_t nkey,rel_time_t exptime) {
     it = item_alloc(key, nkey, settings.lease_flag, exptime, LEASE_DATA_SIZE+2);
 
 
-    hv = hash(key, nkey, 0);
+    hv = hash(key, nkey);
 
     data = (char*)ITEM_data(it);
     //set the end of the data;
@@ -626,7 +627,7 @@ enum delta_result_type add_delta(conn *c, const char *key,
     enum delta_result_type ret;
     uint32_t hv;
 
-    hv = hash(key, nkey, 0);
+    hv = hash(key, nkey);
     item_lock(hv);
     ret = do_add_delta(c, key, nkey, incr, delta, buf, cas, hv);
     item_unlock(hv);
@@ -640,7 +641,7 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
     enum store_item_type ret;
     uint32_t hv;
 
-    hv = hash(ITEM_key(item), item->nkey, 0);
+    hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
     ret = do_store_item(item, comm, c, hv);
     item_unlock(hv);
@@ -856,6 +857,7 @@ void thread_init(int nthreads, struct event_base *main_base) {
     }
 
     item_lock_count = hashsize(power);
+    item_lock_hashpower = power;
 
     item_locks = calloc(item_lock_count, sizeof(pthread_mutex_t));
     if (! item_locks) {
