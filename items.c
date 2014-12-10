@@ -899,7 +899,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
     }
 
     for (sid = 0; sid < LARGEST_ID; sid++) {
-        if (tocrawl[sid] != 0 && tails[sid] != NULL) {
+        if (tocrawl[sid] != 0 && tails[sid] != NULL && !crawlers[sid].it_flags) {
             if (settings.verbose > 2)
                 fprintf(stderr, "Kicking LRU crawler off for slab %d\n", sid);
             crawlers[sid].nbytes = 0;
