@@ -3400,6 +3400,9 @@ static void process_slabs_automove_command(conn *c, token_t *tokens, const size_
         out_string(c, "ERROR");
         return;
     }
+    if (level == 3 && settings.lru_crawler_interval==0)
+        settings.lru_crawler_interval =3600;
+
     out_string(c, "OK");
     return;
 }
@@ -4816,13 +4819,14 @@ static void usage(void) {
            "                Slab_reassign should be enable at the same time.\n"
            "                1: Rebalance when detect evicted happan, using a timer (1s interval).\n"
            "                2: Rebalance when evicted happen;\n"
-           "                3: Release memory to system if too many(more than 2/3) items is free in slabs,\n"
+           "                3: Release memory to system if too many items is free in slabs,\n"
            "                   lru_crawler should enable at the same time.\n"
-    	   "              - release_mem_sleep: Interval (in second) between release two pages ."
-    	   "              - release_mem_start: The percent of memory usage when start memory release. "
-    	   "                It will start release memory when less than this point. Default is 50."
-     	   "              - release_mem_stop: The percent of memory usage when stop memory release. "
-     	   "                It will stop release memory when greater than this point. Default is 80."
+           "              - release_mem_sleep: Interval (in second) between release two pages.\n"
+           "                default is 30s.\n"
+           "              - release_mem_start: The percent of memory usage when start memory release.\n"
+           "                It will start release memory when less than this point. Default is 50.\n"
+           "              - release_mem_stop: The percent of memory usage when stop memory release. \n"
+           "                It will stop release memory when greater than this point. Default is 80.\n"
            "              - tail_repair_time: Time in seconds that indicates how long to wait before\n"
            "                forcefully taking over the LRU tail item whose refcount has leaked.\n"
            "                The default is 3 hours.\n"
@@ -4833,6 +4837,8 @@ static void usage(void) {
            "                default is 100.\n"
            "              - lru_crawler_tocrawl: Max items to crawl per slab per run\n"
            "                default is 0 (unlimited)\n"
+           "              - lru_crawler_interval: The interval that automatically executes \n"
+           "                lru_crawler when slab_reassign is enable. Default is 0.\n"
            );
     return;
 }
@@ -5373,7 +5379,7 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 if (settings.slab_automove==3){
-                	if (settings.lru_crawler_interval==0)settings.lru_crawler_interval =7200;
+                    if (settings.lru_crawler_interval==0)settings.lru_crawler_interval =3600;
                 }
                 break;
             case RELEASE_MEM_SLEEP:
