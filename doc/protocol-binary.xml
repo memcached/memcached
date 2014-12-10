@@ -7,7 +7,7 @@
 <?rfc sortrefs="yes" ?>
 <?rfc compact="yes" ?>
 <?rfc subcompact="yes" ?>
-<rfc category="info" docName="draft-stone-memcache-binary-01" ipr="none">
+<rfc category="info" docName="draft-stone-memcache-binary-01" ipr="trust200902">
   <front>
     <title> Memcache Binary Protocol </title>
 
@@ -1436,7 +1436,7 @@ Value               : The textual string "3078"
           </abstract>
         </front>
       </reference>
-      <dwdrfc-ref anchor="KEYWORDS" src='http://xml.resource.org/public/rfc/bibxml/reference.RFC.2119.xml'/>
+      <dwdrfc-ref anchor="KEYWORDS" src='reference.RFC.2119.xml'/>
     </references>
 
     <section anchor="acknowledgments" title="Acknowledgments">
