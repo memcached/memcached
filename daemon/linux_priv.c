@@ -9,12 +9,8 @@
 #include <asm/unistd.h>
 #include "memcached.h"
 
-#define ARG1_LO 16
-#define ARG1_HI 20
 #define ARG2_LO 24
 #define ARG2_HI 28
-#define ARG3_LO 32
-#define ARG3_HI 36
 
 #define ARCH_OFFSET 4
 #define SYSCALL_NR_OFFSET 0
