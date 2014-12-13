@@ -351,6 +351,10 @@ static void *worker_libevent(void *arg) {
         abort();
     }
 
+    if (settings.drop_privileges) {
+        drop_worker_privileges();
+    }
+
     register_thread_initialized();
 
     event_base_loop(me->base, 0);

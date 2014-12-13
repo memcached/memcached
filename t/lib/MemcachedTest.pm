@@ -14,7 +14,7 @@ my $builddir = getcwd;
 my @unixsockets = ();
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
-             supports_sasl free_port);
+             supports_sasl free_port supports_drop_priv);
 
 sub sleep {
     my $n = shift;
@@ -149,6 +149,12 @@ sub supports_sasl {
     return 0;
 }
 
+sub supports_drop_priv {
+    my $output = `$builddir/memcached-debug -h`;
+    return 1 if $output =~ /no_drop_privileges/i;
+    return 0;
+}
+
 sub new_memcached {
     my ($args, $passed_port) = @_;
     my $port = $passed_port;
@@ -168,6 +174,7 @@ sub new_memcached {
     if ($< == 0) {
         $args .= " -u root";
     }
+    $args .= " -o relaxed_privileges";
 
     my $udpport;
     if ($args =~ /-l (\S+)/) {

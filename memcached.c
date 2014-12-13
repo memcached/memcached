@@ -258,6 +258,10 @@ static void settings_init(void) {
     settings.crawls_persleep = 1000;
     settings.logger_watcher_buf_size = LOGGER_WATCHER_BUF_SIZE;
     settings.logger_buf_size = LOGGER_BUF_SIZE;
+    settings.drop_privileges = true;
+#ifdef MEMCACHED_DEBUG
+    settings.relaxed_privileges = false;
+#endif
 }
 
 /*
@@ -3841,6 +3845,31 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
     return;
 }
 
+#ifdef MEMCACHED_DEBUG
+static void process_misbehave_command(conn *c) {
+    int allowed = 0;
+
+    // try opening new TCP socket
+    int i = socket(AF_INET, SOCK_STREAM, 0);
+    if (i != -1) {
+        allowed++;
+        close(i);
+    }
+
+    // try executing new commands
+    system("sleep 0");
+    if (i != -1) {
+        allowed++;
+    }
+
+    if (allowed) {
+        out_string(c, "ERROR");
+    } else {
+        out_string(c, "OK");
+    }
+}
+#endif
+
 static void process_slabs_automove_command(conn *c, token_t *tokens, const size_t ntokens) {
     unsigned int level;
     double ratio;
@@ -4281,6 +4310,11 @@ static void process_command(conn *c, char *command) {
         process_verbosity_command(c, tokens, ntokens);
     } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "lru") == 0) {
         process_lru_command(c, tokens, ntokens);
+#ifdef MEMCACHED_DEBUG
+    // commands which exist only for testing the memcached's security protection
+    } else if (ntokens == 2 && (strcmp(tokens[COMMAND_TOKEN].value, "misbehave") == 0)) {
+        process_misbehave_command(c);
+#endif
     } else {
         out_string(c, "ERROR");
     }
@@ -5606,6 +5640,13 @@ static void usage(void) {
            "   - modern:              enables options which will be default in future.\n"
            "             currently: nothing\n"
            "   - no_modern:           uses defaults of previous major version (1.4.x)\n"
+#ifdef HAVE_DROP_PRIVILEGES
+           "   - no_drop_privileges: Disable drop_privileges in case it causes issues with\n"
+           "                          some customisation.\n"
+#ifdef MEMCACHED_DEBUG
+           "   - relaxed_privileges: Running tests requires extra privileges.\n"
+#endif
+#endif
            );
     return;
 }
@@ -5917,6 +5958,10 @@ int main (int argc, char **argv) {
         INLINE_ASCII_RESP,
         NO_LRU_CRAWLER,
         NO_LRU_MAINTAINER,
+        NO_DROP_PRIVILEGES,
+#ifdef MEMCACHED_DEBUG
+        RELAXED_PRIVILEGES,
+#endif
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5952,6 +5997,10 @@ int main (int argc, char **argv) {
         [INLINE_ASCII_RESP] = "inline_ascii_resp",
         [NO_LRU_CRAWLER] = "no_lru_crawler",
         [NO_LRU_MAINTAINER] = "no_lru_maintainer",
+        [NO_DROP_PRIVILEGES] = "no_drop_privileges",
+#ifdef MEMCACHED_DEBUG
+        [RELAXED_PRIVILEGES] = "relaxed_privileges",
+#endif
         NULL
     };
 
@@ -6503,6 +6552,14 @@ int main (int argc, char **argv) {
                 start_lru_crawler = false;
                 start_lru_maintainer = false;
                 break;
+            case NO_DROP_PRIVILEGES:
+                settings.drop_privileges = false;
+                break;
+#ifdef MEMCACHED_DEBUG
+            case RELAXED_PRIVILEGES:
+                settings.relaxed_privileges = true;
+                break;
+#endif
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
                 return 1;
@@ -6801,7 +6858,9 @@ int main (int argc, char **argv) {
     }
 
     /* Drop privileges no longer needed */
-    drop_privileges();
+    if (settings.drop_privileges) {
+        drop_privileges();
+    }
 
     /* Initialize the uriencode lookup table. */
     uriencode_init();
