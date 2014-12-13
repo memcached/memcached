@@ -33,6 +33,11 @@ if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += solaris_priv.c
 endif
 
+if BUILD_LINUX_PRIVS
+memcached_SOURCES += linux_priv.c
+LDFLAGS += -lseccomp
+endif
+
 if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
@@ -59,6 +64,8 @@ memcached_debug_LDADD += memcached_debug_dtrace.o
 memcached_debug_DEPENDENCIES += memcached_debug_dtrace.o
 CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
 endif
+
+memcached_debug_CFLAGS += -DMEMCACHED_DEBUG
 
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d
