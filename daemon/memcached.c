@@ -264,6 +264,7 @@ static void settings_init(void) {
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.require_sasl = false;
     settings.extensions.logger = get_stderr_logger();
+    settings.seccomp = false;
 }
 
 /*

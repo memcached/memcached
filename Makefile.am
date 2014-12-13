@@ -118,6 +118,10 @@ if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += daemon/solaris_priv.c
 endif
 
+if BUILD_LINUX_PRIVS
+memcached_SOURCES += daemon/linux_priv.c
+endif
+
 if ENABLE_SASL
 memcached_SOURCES += daemon/sasl_defs.c
 endif

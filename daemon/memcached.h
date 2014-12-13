@@ -202,6 +202,7 @@ struct settings {
         EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *ascii;
         EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *binary;
     } extensions;
+    bool seccomp;
 };
 
 struct engine_event_handler {
@@ -451,6 +452,12 @@ void conn_close(conn *c);
 extern void drop_privileges(void);
 #else
 #define drop_privileges()
+#endif
+
+#if HAVE_DROP_WORKER_PRIVILEGES
+extern void drop_worker_privileges(void);
+#else
+#define drop_worker_privileges()
 #endif
 
 /* connection state machine */
