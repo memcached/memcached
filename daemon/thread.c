@@ -299,6 +299,9 @@ static void *worker_libevent(void *arg) {
     pthread_mutex_lock(&init_lock);
     init_count++;
     pthread_cond_signal(&init_cond);
+    if (settings.drop_privileges) {
+        drop_worker_privileges();
+    }
     pthread_mutex_unlock(&init_lock);
 
     event_base_loop(me->base, 0);

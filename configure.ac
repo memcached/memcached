@@ -90,6 +90,8 @@ AM_PROG_CC_C_O
 AC_PROG_INSTALL
 AC_C_BIGENDIAN
 
+AC_ARG_ENABLE(seccomp,
+  [AS_HELP_STRING([--enable-seccomp],[Enable seccomp restrictions])])
 AC_ARG_ENABLE([bundled-libevent],
   [AS_HELP_STRING([--enable-bundled-libevent],
           [Build with the bundled libevent. @<:@default=on@:>@])],
@@ -131,7 +133,7 @@ unsigned long val = SASL_CB_GETCONF;
                      [Set to nonzero if your SASL implementation supports SASL_CB_GETCONF])])
 ])
 
-AC_CHECK_HEADERS_ONCE(link.h dlfcn.h inttypes.h umem.h priv.h sasl/sasl.h sysexits.h sys/wait.h sys/socket.h netinet/in.h netdb.h unistd.h sys/un.h sys/stat.h sys/resource.h sys/uio.h netinet/tcp.h pwd.h sys/mman.h syslog.h windows.h)
+AC_CHECK_HEADERS_ONCE(link.h dlfcn.h inttypes.h umem.h priv.h sys/prctl.h linux/filter.h linux/seccomp.h sasl/sasl.h sysexits.h sys/wait.h sys/socket.h netinet/in.h netdb.h unistd.h sys/un.h sys/stat.h sys/resource.h sys/uio.h netinet/tcp.h pwd.h sys/mman.h syslog.h windows.h)
 
 AM_CONDITIONAL(BUILD_SYSLOG_LOGGER, test "x$ac_cv_header_syslog_h" = "xyes")
 AM_CONDITIONAL(BUILD_EVENTLOG_LOGGER, test "x$ac_cv_header_windows_h" = "xyes")
@@ -486,7 +488,19 @@ AC_CHECK_FUNCS(setppriv, [
    ])
 ],[])
 
+AC_CHECK_FUNCS(prctl, [
+   AS_IF([test "x$ac_cv_header_sys_prctl_h" = "xyes" -a "x$ac_cv_header_linux_filter_h" = "xyes" -a "x$ac_cv_header_linux_seccomp_h" = "xyes" -a "x$enable_seccomp" = "xyes" ], [
+      AC_DEFINE([HAVE_DROP_PRIVILEGES], 1,
+         [Define this if you have an implementation of drop_privileges()])
+      build_linux_privs=yes
+      AC_DEFINE([HAVE_DROP_WORKER_PRIVILEGES], 1,
+         [Define this if you have an implementation of drop_worker_privileges()])
+      build_linux_privs=yes
+   ])
+],[])
+
 AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
+AM_CONDITIONAL([BUILD_LINUX_PRIVS],[test "$build_linux_privs" = "yes"])
 
 AS_IF([ test "x$ac_cv_header_umem_h" = "xyes" ], [
    AC_DEFINE([HAVE_UMEM_H], 1,
