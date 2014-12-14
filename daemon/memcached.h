@@ -202,7 +202,7 @@ struct settings {
         EXTENSION_ASCII_PROTOCOL_DESCRIPTOR *ascii;
         EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *binary;
     } extensions;
-    bool seccomp;
+    bool drop_privileges;
 };
 
 struct engine_event_handler {

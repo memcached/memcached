@@ -264,7 +264,7 @@ static void settings_init(void) {
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.require_sasl = false;
     settings.extensions.logger = get_stderr_logger();
-    settings.seccomp = false;
+    settings.drop_privileges = true;
 }
 
 /*
@@ -6131,6 +6131,10 @@ static void usage(void) {
     printf("-X module,cfg Load the module and initialize it with the config\n");
     printf("-E engine     Load engine as the storage engine\n");
     printf("-e config     Pass config as configuration options to the storage engine\n");
+#ifdef HAVE_DROP_PRIVILEGES
+    printf("-o            Do not drop privileges (useful in case extra restrictions\n"
+           "              conflicts with custom extensions)\n");
+#endif
     printf("\nEnvironment variables:\n"
            "MEMCACHED_PORT_FILENAME   File to write port information to\n"
            "MEMCACHED_REQS_TAP_EVENT  Similar to -R but for tap_ship_log\n");
@@ -6985,6 +6989,7 @@ int main (int argc, char **argv) {
           "e:"  /* Engine options */
           "q"   /* Disallow detailed stats */
           "X:"  /* Load extension */
+          "o"   /* Do not drop privileges (where supported) */
         ))) {
         switch (c) {
         case 'a':
@@ -7205,6 +7210,9 @@ int main (int argc, char **argv) {
                     *(ptr - 1) = ',';
                 }
             }
+            break;
+        case 'o':
+            settings.drop_privileges = false;
             break;
         default:
             settings.extensions.logger->log(EXTENSION_LOG_WARNING, NULL,
@@ -7522,7 +7530,9 @@ int main (int argc, char **argv) {
     }
 
     /* Drop privileges no longer needed */
-    drop_privileges();
+    if (settings.drop_privileges) {
+        drop_privileges();
+    }
 
     if (!memcached_shutdown) {
         /* enter the event loop */
