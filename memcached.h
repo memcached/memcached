@@ -280,6 +280,7 @@ struct stats {
     uint64_t      evicted_unfetched; /* items evicted but never touched */
     bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
+    uint64_t      slabs_freed;       /* times slabs were freed */
     bool          lru_crawler_running; /* crawl in progress */
 };
 
@@ -323,7 +324,11 @@ struct settings {
     bool flush_enabled;     /* flush_all enabled */
     char *hash_algorithm;     /* Hash algorithm in use */
     int lru_crawler_sleep;  /* Microsecond sleep between items */
-    uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
+    int release_mem_sleep;  /* Second sleep between release each page */
+    int release_mem_start;  /* The percent of memory usage when start release memory*/
+    int release_mem_stop;   /* The percent of memory usage when stop release memory*/
+    int lru_crawler_interval; /* The interval of run the lru_crawler for all slab*/
+   uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
 };
 
 extern struct stats stats;
