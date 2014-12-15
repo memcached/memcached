@@ -5540,7 +5540,7 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     }
     /* start up worker threads if MT mode */
-    thread_init(settings.num_threads, main_base);
+    memcached_thread_init(settings.num_threads, main_base);
 
     if (start_assoc_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);

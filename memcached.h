@@ -547,7 +547,7 @@ static inline int mutex_lock(pthread_mutex_t *mutex)
  * also #define-d to directly call the underlying code in singlethreaded mode.
  */
 
-void thread_init(int nthreads, struct event_base *main_base);
+void memcached_thread_init(int nthreads, struct event_base *main_base);
 int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 

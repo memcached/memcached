@@ -370,7 +370,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
 static void *worker_libevent(void *arg) {
     LIBEVENT_THREAD *me = arg;
 
-    /* Any per-thread setup can happen here; thread_init() will block until
+    /* Any per-thread setup can happen here; memcached_thread_init() will block until
      * all threads have finished initializing.
      */
 
@@ -778,7 +778,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  * nthreads  Number of worker event handler threads to spawn
  * main_base Event base for main thread
  */
-void thread_init(int nthreads, struct event_base *main_base) {
+void memcached_thread_init(int nthreads, struct event_base *main_base) {
     int         i;
     int         power;
 
