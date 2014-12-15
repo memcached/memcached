@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 189;
+use Test::More tests => 221;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -73,3 +73,28 @@ is(scalar <$sock>, "OK\r\n", "disabled lru crawler");
     is($stats->{lru_crawler}, "no");
 }
 
+$server->stop;
+
+# Test initializing crawler from starttime.
+$server = new_memcached('-m 32 -o lru_crawler');
+$sock = $server->sock;
+
+for (1 .. 30) {
+    print $sock "set sfoo$_ 0 1 2\r\nok\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored key");
+}
+
+sleep 3;
+
+print $sock "lru_crawler crawl 1\r\n";
+is(scalar <$sock>, "OK\r\n", "kicked lru crawler");
+while (1) {
+    my $stats = mem_stats($sock);
+    last unless $stats->{lru_crawler_running};
+    sleep 1;
+}
+
+{
+    my $slabs = mem_stats($sock, "slabs");
+    is($slabs->{"1:used_chunks"}, 0, "slab1 now has 0 used chunks");
+}

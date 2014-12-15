@@ -5078,6 +5078,9 @@ int main (int argc, char **argv) {
     /* init settings */
     settings_init();
 
+    /* Run regardless of initializing it later */
+    init_lru_crawler();
+
     /* set stderr non-buffering (for running under, say, daemontools) */
     setbuf(stderr, NULL);
 
@@ -5550,9 +5553,6 @@ int main (int argc, char **argv) {
         start_slab_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
     }
-
-    /* Run regardless of initializing it later */
-    init_lru_crawler();
 
     /* initialise clock event */
     clock_handler(0, 0, 0);
