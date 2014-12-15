@@ -214,21 +214,17 @@ static void *assoc_maintenance_thread(void *arg) {
 
         /* As there is only one thread process expanding, and we hold the item
          * lock, it seems not necessary to hold the cache_lock . */
-        /*item_lock_global();*/
-        /*mutex_lock(&cache_lock);*/
-
         for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             item *it, *next;
             int bucket;
             void *item_lock = NULL;
-
 
             /* bucket = hv & hashmask(hashpower) =>the bucket of hash table
              * is the lowest N bits of the hv, and the bucket of item_locks is
              *  also the lowest M bits of hv, and N is greater than M.
              *  So we can process expanding with only one item_lock. cool! */
             /*Get item lock for the slot in old hashtable*/
-            if ((item_lock = item_trylock(expand_bucket))){
+            if ((item_lock = item_trylock(expand_bucket))) {
                     for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
                         next = it->h_next;
                         bucket = hash(ITEM_key(it), it->nkey) & hashmask(hashpower);
@@ -250,33 +246,23 @@ static void *assoc_maintenance_thread(void *arg) {
                             fprintf(stderr, "Hash table expansion done\n");
                     }
 
-            }else{
+            } else {
                 /*wait for 100ms. since only one expanding thread, it's not
                  * necessary to sleep a random value*/
                 usleep(100*1000);
             }
 
-            if (item_lock){
+            if (item_lock) {
                 item_trylock_unlock(item_lock);
                 item_lock = NULL;
             }
         }
 
-        /*mutex_unlock(&cache_lock);*/
-        /*item_unlock_global();*/
-
         if (!expanding) {
-            /* finished expanding. tell all threads to use fine-grained locks */
-            /*switch_item_lock_type(ITEM_LOCK_GRANULAR);
-            slabs_rebalancer_resume();*/
             /* We are done expanding.. just wait for next invocation */
             mutex_lock(&cache_lock);
             started_expanding = false;
             pthread_cond_wait(&maintenance_cond, &cache_lock);
-            /*mutex_unlock(&cache_lock);
-            slabs_rebalancer_pause();
-            switch_item_lock_type(ITEM_LOCK_GLOBAL);
-            mutex_lock(&cache_lock);*/
             assoc_expand();
             mutex_unlock(&cache_lock);
         }
