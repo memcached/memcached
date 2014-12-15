@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 110;
+use Test::More tests => 111;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -26,6 +26,11 @@ for (1 .. 100) {
     is(scalar <$sock>, "STORED\r\n");
 }
 
+my $stats = mem_stats($sock);
+my $pid = $stats->{pid};
+#print $pid;
+my $mem_before_release=`ps -p $pid -orss= `;
+print "Memory before release is(kB):".$mem_before_release;
 
 
 {
@@ -36,6 +41,11 @@ for (1 .. 100) {
 #wait for expire and release memory.
 print "wait for expire and release memory... \n";
 sleep 32+26;
+
+# check the memory is released.
+my $mem_after_release=`ps -p $pid -orss= `;
+print "Memory after release is(kB):".$mem_after_release;
+is(($mem_before_release-$mem_after_release)>=2048, 1==1, " release memory to system ok.");
 
 {
     my $slabs = mem_stats($sock, "slabs");

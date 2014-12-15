@@ -618,11 +618,11 @@ static void slab_rebalance_finish(void) {
     s_cls->killing = 0;
 
     //it is releasing memory to system
-    if (slab_rebal.d_clsid == -1){
+    if (slab_rebal.d_clsid == -1) {
         free(slab_rebal.slab_start);
         mem_malloced -= settings.item_size_max; /*same as do_slabs_newslab*/
         if (s_cls->slabs>0 && 100*s_cls->sl_curr/s_cls->perslab/s_cls->slabs
-             > (100-settings.release_mem_stop)){
+             > (100-settings.release_mem_stop)) {
             /*clean the rebalance flag to stop release memory to system*/
             s_cls->status_flag &= ~SLAB_ST_REBALANCE;
         }
@@ -631,7 +631,7 @@ static void slab_rebalance_finish(void) {
         stats.slab_reassign_running = false;
         stats.slabs_freed++;
         STATS_UNLOCK();
-    }else{
+    } else {
         d_cls   = &slabclass[slab_rebal.d_clsid];
         memset(slab_rebal.slab_start, 0, (size_t)settings.item_size_max);
 
@@ -700,7 +700,7 @@ static int slab_free_memory_decision(int *src) {
         free_ratio = 100*slabclass[cur].sl_curr/slabclass[cur].perslab/slabclass[cur].slabs;
         if (free_ratio>(100-settings.release_mem_start)
                 || ((slabclass[cur].status_flag & SLAB_ST_REBALANCE)
-                    && free_ratio > (100-settings.release_mem_stop))){
+                    && free_ratio > (100-settings.release_mem_stop))) {
             ret = 1;
             *src = cur;
             last_release = current_time;
@@ -802,7 +802,7 @@ static void *slab_maintenance_thread(void *arg) {
             sleep(5);
         }
         if (settings.lru_crawler && settings.lru_crawler_interval>0
-                && lru_ts+settings.lru_crawler_interval<current_time){
+                && lru_ts+settings.lru_crawler_interval<current_time) {
             lru_ts = current_time;
             lru_crawler_crawl("all");
         }
@@ -899,7 +899,7 @@ enum reassign_result_type slabs_reassign(int src, int dst) {
     enum reassign_result_type ret;
 
     //It is pre-assign, never free the memory
-    if (dst == -1 && mem_base != NULL){
+    if (dst == -1 && mem_base != NULL) {
         return REASSIGN_NOSPARE;
     }
 
