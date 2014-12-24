@@ -309,7 +309,7 @@
 	  uint8_t types.
 
 	* Major refactoring - move API calls for assoc/items/slabs to
-	  their own individual header files.  Add apropriate const and
+	  their own individual header files.  Add appropriate const and
 	  static declarations as appropriate.
 	
 	* Avoid type-punning.  Do a more efficient realloc inside the
@@ -404,7 +404,7 @@
 	  causing expiration times to not be processed correctly.
 
 2006-08-21
-	* Nathan Neulinger <nneul@umr.edu>: fix incompatabilities with
+	* Nathan Neulinger <nneul@umr.edu>: fix incompatibilities with
 	  unix domain socket support and the UDP code and clean up stale 
 	  sockets
 

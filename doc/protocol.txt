@@ -347,7 +347,7 @@ Slabs Reassign
 NOTE: This command is subject to change as of this writing.
 
 The slabs reassign command is used to redistribute memory once a running
-instance has hit its limit. It might be desireable to have memory laid out
+instance has hit its limit. It might be desirable to have memory laid out
 differently than was automatically assigned after the server started.
 
 slabs reassign <source class> <dest class>\r\n
@@ -425,7 +425,7 @@ The response line could be one of:
 
 lru_crawler sleep <microseconds>
 
-- The number of microseconds to sleep inbetween each item checked for
+- The number of microseconds to sleep in between each item checked for
   expiration. Smaller numbers will obviously impact the system more.
   A value of "0" disables the sleep, "1000000" (one second) is the max.
 

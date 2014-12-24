@@ -66,7 +66,7 @@ static FORCE_INLINE uint32_t fmix32 ( uint32_t h )
 
 //-----------------------------------------------------------------------------
 
-/* Defintion modified slightly from the public domain interface (no seed +
+/* Definition modified slightly from the public domain interface (no seed +
  * return value */
 uint32_t MurmurHash3_x86_32 ( const void * key, size_t length)
 {
