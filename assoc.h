@@ -7,3 +7,4 @@ void do_assoc_move_next_bucket(void);
 int start_assoc_maintenance_thread(void);
 void stop_assoc_maintenance_thread(void);
 extern unsigned int hashpower;
+extern unsigned int item_lock_hashpower;
