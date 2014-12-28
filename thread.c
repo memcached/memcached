@@ -47,7 +47,7 @@ pthread_mutex_t atomics_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 /* Lock for global stats */
-static pthread_mutex_t stats_lock;
+static pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* Lock to cause worker threads to hang up after being woken */
 static pthread_mutex_t worker_hang_lock;
@@ -770,7 +770,6 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
     int         power;
 
     pthread_mutex_init(&cache_lock, NULL);
-    pthread_mutex_init(&stats_lock, NULL);
     pthread_mutex_init(&worker_hang_lock, NULL);
 
     pthread_mutex_init(&init_lock, NULL);
