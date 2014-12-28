@@ -36,3 +36,5 @@ int start_item_crawler_thread(void);
 int stop_item_crawler_thread(void);
 int init_lru_crawler(void);
 enum crawler_result_type lru_crawler_crawl(char *slabs);
+void lru_crawler_pause(void);
+void lru_crawler_resume(void);

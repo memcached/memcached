@@ -49,6 +49,9 @@ pthread_mutex_t atomics_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Lock for global stats */
 static pthread_mutex_t stats_lock;
 
+/* Lock to cause worker threads to hang up after being woken */
+static pthread_mutex_t worker_hang_lock;
+
 /* Free list of CQ_ITEM structs */
 static CQ_ITEM *cqi_freelist;
 static pthread_mutex_t cqi_freelist_lock;
@@ -59,10 +62,6 @@ static uint32_t item_lock_count;
 unsigned int item_lock_hashpower;
 #define hashsize(n) ((unsigned long int)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
-/* this lock is temporarily engaged during a hash table expansion */
-static pthread_mutex_t item_global_lock;
-/* thread-specific variable for deeply finding the item lock type */
-static pthread_key_t item_lock_type_key;
 
 static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
 
@@ -112,22 +111,8 @@ unsigned short refcount_decr(unsigned short *refcount) {
 #endif
 }
 
-/* Convenience functions for calling *only* when in ITEM_LOCK_GLOBAL mode */
-void item_lock_global(void) {
-    mutex_lock(&item_global_lock);
-}
-
-void item_unlock_global(void) {
-    mutex_unlock(&item_global_lock);
-}
-
 void item_lock(uint32_t hv) {
-    uint8_t *lock_type = pthread_getspecific(item_lock_type_key);
-    if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
-        mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
-    } else {
-        mutex_lock(&item_global_lock);
-    }
+    mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
 }
 
 /* Special case. When ITEM_LOCK_GLOBAL mode is enabled, this should become a
@@ -150,12 +135,7 @@ void item_trylock_unlock(void *lock) {
 }
 
 void item_unlock(uint32_t hv) {
-    uint8_t *lock_type = pthread_getspecific(item_lock_type_key);
-    if (likely(*lock_type == ITEM_LOCK_GRANULAR)) {
-        mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
-    } else {
-        mutex_unlock(&item_global_lock);
-    }
+    mutex_unlock(&item_locks[hv & hashmask(item_lock_hashpower)]);
 }
 
 static void wait_for_thread_registration(int nthreads) {
@@ -169,23 +149,42 @@ static void register_thread_initialized(void) {
     init_count++;
     pthread_cond_signal(&init_cond);
     pthread_mutex_unlock(&init_lock);
+    /* Force worker threads to pile up if someone wants us to */
+    pthread_mutex_lock(&worker_hang_lock);
+    pthread_mutex_unlock(&worker_hang_lock);
 }
 
-void switch_item_lock_type(enum item_lock_types type) {
+/* Must not be called with any deeper locks held:
+ * item locks, cache_lock, stats_lock, etc
+ */
+void pause_threads(enum pause_thread_types type) {
     char buf[1];
     int i;
 
+    buf[0] = 0;
     switch (type) {
-        case ITEM_LOCK_GRANULAR:
-            buf[0] = 'l';
+        case PAUSE_ALL_THREADS:
+            slabs_rebalancer_pause();
+            lru_crawler_pause();
+        case PAUSE_WORKER_THREADS:
+            buf[0] = 'p';
+            pthread_mutex_lock(&worker_hang_lock);
             break;
-        case ITEM_LOCK_GLOBAL:
-            buf[0] = 'g';
+        case RESUME_ALL_THREADS:
+            slabs_rebalancer_resume();
+            lru_crawler_resume();
+        case RESUME_WORKER_THREADS:
+            pthread_mutex_unlock(&worker_hang_lock);
             break;
         default:
             fprintf(stderr, "Unknown lock type: %d\n", type);
             assert(1 == 0);
             break;
+    }
+
+    /* Only send a message if we have one. */
+    if (buf[0] == 0) {
+        return;
     }
 
     pthread_mutex_lock(&init_lock);
@@ -374,13 +373,6 @@ static void *worker_libevent(void *arg) {
      * all threads have finished initializing.
      */
 
-    /* set an indexable thread-specific memory item for the lock type.
-     * this could be unnecessary if we pass the conn *c struct through
-     * all item_lock calls...
-     */
-    me->item_lock_type = ITEM_LOCK_GRANULAR;
-    pthread_setspecific(item_lock_type_key, &me->item_lock_type);
-
     register_thread_initialized();
 
     event_base_loop(me->base, 0);
@@ -425,13 +417,8 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         cqi_free(item);
     }
         break;
-    /* we were told to flip the lock type and report in */
-    case 'l':
-    me->item_lock_type = ITEM_LOCK_GRANULAR;
-    register_thread_initialized();
-        break;
-    case 'g':
-    me->item_lock_type = ITEM_LOCK_GLOBAL;
+    /* we were told to pause and report in */
+    case 'p':
     register_thread_initialized();
         break;
     }
@@ -784,6 +771,7 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
 
     pthread_mutex_init(&cache_lock, NULL);
     pthread_mutex_init(&stats_lock, NULL);
+    pthread_mutex_init(&worker_hang_lock, NULL);
 
     pthread_mutex_init(&init_lock, NULL);
     pthread_cond_init(&init_cond, NULL);
@@ -803,6 +791,13 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
         power = 13;
     }
 
+    if (power >= hashpower) {
+        fprintf(stderr, "Hash table power size (%d) cannot be equal to or less than item lock table (%d)\n", hashpower, power);
+        fprintf(stderr, "Item lock table grows with `-t N` (worker threadcount)\n");
+        fprintf(stderr, "Hash table grows with `-o hashpower=N` \n");
+        exit(1);
+    }
+
     item_lock_count = hashsize(power);
     item_lock_hashpower = power;
 
@@ -814,8 +809,6 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
     for (i = 0; i < item_lock_count; i++) {
         pthread_mutex_init(&item_locks[i], NULL);
     }
-    pthread_key_create(&item_lock_type_key, NULL);
-    pthread_mutex_init(&item_global_lock, NULL);
 
     threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
     if (! threads) {

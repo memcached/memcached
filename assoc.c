@@ -26,7 +26,7 @@
 #include <pthread.h>
 
 static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
-
+static pthread_mutex_t maintenance_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
@@ -147,11 +147,6 @@ static void assoc_start_expand(void) {
     if (started_expanding)
         return;
 
-    /*With this condition, we can expanding holding only one item lock,
-     * and it should always be false*/
-    if (item_lock_hashpower >= hashpower)
-        return;
-
     started_expanding = true;
     pthread_cond_signal(&maintenance_cond);
 }
@@ -209,11 +204,11 @@ int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 
 static void *assoc_maintenance_thread(void *arg) {
 
+    mutex_lock(&maintenance_lock);
     while (do_run_maintenance_thread) {
         int ii = 0;
 
-        /* As there is only one thread process expanding, and we hold the item
-         * lock, it seems not necessary to hold the cache_lock . */
+        /* There is only one expansion thread, so no need to global lock. */
         for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             item *it, *next;
             int bucket;
@@ -223,7 +218,6 @@ static void *assoc_maintenance_thread(void *arg) {
              * is the lowest N bits of the hv, and the bucket of item_locks is
              *  also the lowest M bits of hv, and N is greater than M.
              *  So we can process expanding with only one item_lock. cool! */
-            /*Get item lock for the slot in old hashtable*/
             if ((item_lock = item_trylock(expand_bucket))) {
                     for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
                         next = it->h_next;
@@ -247,9 +241,7 @@ static void *assoc_maintenance_thread(void *arg) {
                     }
 
             } else {
-                /*wait for 100ms. since only one expanding thread, it's not
-                 * necessary to sleep a random value*/
-                usleep(100*1000);
+                usleep(10*1000);
             }
 
             if (item_lock) {
@@ -260,11 +252,18 @@ static void *assoc_maintenance_thread(void *arg) {
 
         if (!expanding) {
             /* We are done expanding.. just wait for next invocation */
-            mutex_lock(&cache_lock);
             started_expanding = false;
-            pthread_cond_wait(&maintenance_cond, &cache_lock);
+            pthread_cond_wait(&maintenance_cond, &maintenance_lock);
+            /* assoc_expand() swaps out the hash table entirely, so we need
+             * all threads to not hold any references related to the hash
+             * table while this happens.
+             * This is instead of a more complex, possibly slower algorithm to
+             * allow dynamic hash table expansion without causing significant
+             * wait times.
+             */
+            pause_threads(PAUSE_ALL_THREADS);
             assoc_expand();
-            mutex_unlock(&cache_lock);
+            pause_threads(RESUME_ALL_THREADS);
         }
     }
     return NULL;
@@ -281,6 +280,7 @@ int start_assoc_maintenance_thread() {
             hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
         }
     }
+    pthread_mutex_init(&maintenance_lock, NULL);
     if ((ret = pthread_create(&maintenance_tid, NULL,
                               assoc_maintenance_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
@@ -290,13 +290,12 @@ int start_assoc_maintenance_thread() {
 }
 
 void stop_assoc_maintenance_thread() {
-    mutex_lock(&cache_lock);
+    mutex_lock(&maintenance_lock);
     do_run_maintenance_thread = 0;
     pthread_cond_signal(&maintenance_cond);
-    mutex_unlock(&cache_lock);
+    mutex_unlock(&maintenance_lock);
 
     /* Wait for the maintenance thread to stop */
     pthread_join(maintenance_tid, NULL);
 }
-
 

@@ -958,6 +958,15 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
     return CRAWLER_OK;
 }
 
+/* If we hold this lock, crawler can't wake up or move */
+void lru_crawler_pause(void) {
+    pthread_mutex_lock(&lru_crawler_lock);
+}
+
+void lru_crawler_resume(void) {
+    pthread_mutex_unlock(&lru_crawler_lock);
+}
+
 int init_lru_crawler(void) {
     if (lru_crawler_initialized == 0) {
         if (pthread_cond_init(&lru_crawler_cond, NULL) != 0) {
