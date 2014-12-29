@@ -432,7 +432,6 @@ void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal)
     pthread_mutex_unlock(&slabs_lock);
 }
 
-static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t slab_rebalance_cond = PTHREAD_COND_INITIALIZER;
 static volatile int do_run_slab_thread = 1;
 static volatile int do_run_slab_rebalance_thread = 1;
@@ -444,7 +443,6 @@ static int slab_rebalance_start(void) {
     slabclass_t *s_cls;
     int no_go = 0;
 
-    pthread_mutex_lock(&cache_lock);
     pthread_mutex_lock(&slabs_lock);
 
     if (slab_rebal.s_clsid < POWER_SMALLEST ||
@@ -465,7 +463,6 @@ static int slab_rebalance_start(void) {
 
     if (no_go != 0) {
         pthread_mutex_unlock(&slabs_lock);
-        pthread_mutex_unlock(&cache_lock);
         return no_go; /* Should use a wrapper function... */
     }
 
@@ -485,7 +482,6 @@ static int slab_rebalance_start(void) {
     }
 
     pthread_mutex_unlock(&slabs_lock);
-    pthread_mutex_unlock(&cache_lock);
 
     STATS_LOCK();
     stats.slab_reassign_running = true;
@@ -498,7 +494,7 @@ enum move_status {
     MOVE_PASS=0, MOVE_DONE, MOVE_BUSY, MOVE_LOCKED
 };
 
-/* refcount == 0 is safe since nobody can incr while cache_lock is held.
+/* refcount == 0 is safe since nobody can incr while item_lock is held.
  * refcount != 0 is impossible since flags/etc can be modified in other
  * threads. instead, note we found a busy one and bail. logic in do_item_get
  * will prevent busy items from continuing to be busy
@@ -510,7 +506,6 @@ static int slab_rebalance_move(void) {
     int refcount = 0;
     enum move_status status = MOVE_PASS;
 
-    pthread_mutex_lock(&cache_lock);
     pthread_mutex_lock(&slabs_lock);
 
     s_cls = &slabclass[slab_rebal.s_clsid];
@@ -555,6 +550,9 @@ static int slab_rebalance_move(void) {
                     }
                     status = MOVE_BUSY;
                 }
+                /* Item lock must be held while modifying refcount */
+                if (status == MOVE_BUSY)
+                    refcount_decr(&it->refcount);
                 item_trylock_unlock(hold_lock);
             }
         }
@@ -566,7 +564,6 @@ static int slab_rebalance_move(void) {
                 it->slabs_clsid = 255;
                 break;
             case MOVE_BUSY:
-                refcount_decr(&it->refcount);
             case MOVE_LOCKED:
                 slab_rebal.busy_items++;
                 was_busy++;
@@ -591,7 +588,6 @@ static int slab_rebalance_move(void) {
     }
 
     pthread_mutex_unlock(&slabs_lock);
-    pthread_mutex_unlock(&cache_lock);
 
     return was_busy;
 }
@@ -600,7 +596,6 @@ static void slab_rebalance_finish(void) {
     slabclass_t *s_cls;
     slabclass_t *d_cls;
 
-    pthread_mutex_lock(&cache_lock);
     pthread_mutex_lock(&slabs_lock);
 
     s_cls = &slabclass[slab_rebal.s_clsid];
@@ -628,7 +623,6 @@ static void slab_rebalance_finish(void) {
     slab_rebalance_signal = 0;
 
     pthread_mutex_unlock(&slabs_lock);
-    pthread_mutex_unlock(&cache_lock);
 
     STATS_LOCK();
     stats.slab_reassign_running = false;
@@ -667,11 +661,11 @@ static int slab_automove_decision(int *src, int *dst) {
     }
 
     item_stats_evictions(evicted_new);
-    pthread_mutex_lock(&cache_lock);
+    pthread_mutex_lock(&slabs_lock);
     for (i = POWER_SMALLEST; i < power_largest; i++) {
         total_pages[i] = slabclass[i].slabs;
     }
-    pthread_mutex_unlock(&cache_lock);
+    pthread_mutex_unlock(&slabs_lock);
 
     /* Find a candidate source; something with zero evicts 3+ times */
     for (i = POWER_SMALLEST; i < power_largest; i++) {
@@ -869,12 +863,14 @@ int start_slab_maintenance_thread(void) {
     return 0;
 }
 
+/* The maintenance thread is on a sleep/loop cycle, so it should join after a
+ * short wait */
 void stop_slab_maintenance_thread(void) {
-    mutex_lock(&cache_lock);
+    mutex_lock(&slabs_rebalance_lock);
     do_run_slab_thread = 0;
     do_run_slab_rebalance_thread = 0;
-    pthread_cond_signal(&maintenance_cond);
-    pthread_mutex_unlock(&cache_lock);
+    pthread_cond_signal(&slab_rebalance_cond);
+    pthread_mutex_unlock(&slabs_rebalance_lock);
 
     /* Wait for the maintenance thread to stop */
     pthread_join(maintenance_tid, NULL);

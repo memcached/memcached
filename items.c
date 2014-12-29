@@ -43,6 +43,7 @@ static volatile int do_run_lru_crawler_thread = 0;
 static int lru_crawler_initialized = 0;
 static pthread_mutex_t lru_crawler_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void item_stats_reset(void) {
     mutex_lock(&cache_lock);
@@ -52,9 +53,13 @@ void item_stats_reset(void) {
 
 
 /* Get the next CAS id for a new item. */
+/* TODO: refactor some atomics for this. */
 uint64_t get_cas_id(void) {
     static uint64_t cas_id = 0;
-    return ++cas_id;
+    pthread_mutex_lock(&cas_id_lock);
+    uint64_t next_id = ++cas_id;
+    pthread_mutex_unlock(&cas_id_lock);
+    return next_id;
 }
 
 /* Enable this for reference-count debugging. */
@@ -314,7 +319,6 @@ static void item_unlink_q(item *it) {
 int do_item_link(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_LINK(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
-    mutex_lock(&cache_lock);
     it->it_flags |= ITEM_LINKED;
     it->time = current_time;
 
@@ -327,16 +331,16 @@ int do_item_link(item *it, const uint32_t hv) {
     /* Allocate a new CAS ID on link. */
     ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
     assoc_insert(it, hv);
+    mutex_lock(&cache_lock);
     item_link_q(it);
-    refcount_incr(&it->refcount);
     mutex_unlock(&cache_lock);
+    refcount_incr(&it->refcount);
 
     return 1;
 }
 
 void do_item_unlink(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
-    mutex_lock(&cache_lock);
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
         STATS_LOCK();
@@ -344,10 +348,11 @@ void do_item_unlink(item *it, const uint32_t hv) {
         stats.curr_items -= 1;
         STATS_UNLOCK();
         assoc_delete(ITEM_key(it), it->nkey, hv);
+        mutex_lock(&cache_lock);
         item_unlink_q(it);
+        mutex_unlock(&cache_lock);
         do_item_remove(it);
     }
-    mutex_unlock(&cache_lock);
 }
 
 /* FIXME: Is it necessary to keep this copy/pasted code? */
@@ -395,13 +400,13 @@ void do_item_update(item *it) {
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
 
-        mutex_lock(&cache_lock);
         if ((it->it_flags & ITEM_LINKED) != 0) {
+            mutex_lock(&cache_lock);
             item_unlink_q(it);
             it->time = current_time;
             item_link_q(it);
+            mutex_unlock(&cache_lock);
         }
-        mutex_unlock(&cache_lock);
     }
 }
 
@@ -572,21 +577,30 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 
 /** wrapper around assoc_find which does the lazy expiration logic */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
-    //mutex_lock(&cache_lock);
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(&it->refcount);
         /* Optimization for slab reassignment. prevents popular items from
          * jamming in busy wait. Can only do this here to satisfy lock order
-         * of item_lock, cache_lock, slabs_lock. */
-        if (slab_rebalance_signal &&
+         * of item_lock, slabs_lock. */
+        /* This was made unsafe by removal of the cache_lock:
+         * slab_rebalance_signal and slab_rebal.* are modified in a separate
+         * thread under slabs_lock. If slab_rebalance_signal = 1, slab_start =
+         * NULL (0), but slab_end is still equal to some value, this would end
+         * up unlinking every item fetched.
+         * This is either an acceptable loss, or if slab_rebalance_signal is
+         * true, slab_start/slab_end should be put behind the slabs_lock.
+         * Which would cause a huge potential slowdown.
+         * Could also use a specific lock for slab_rebal.* and
+         * slab_rebalance_signal (shorter lock?)
+         */
+        /*if (slab_rebalance_signal &&
             ((void *)it >= slab_rebal.slab_start && (void *)it < slab_rebal.slab_end)) {
             do_item_unlink(it, hv);
             do_item_remove(it);
             it = NULL;
-        }
+        }*/
     }
-    //mutex_unlock(&cache_lock);
     int was_found = 0;
 
     if (settings.verbose > 2) {
@@ -912,7 +926,6 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
     if (pthread_mutex_trylock(&lru_crawler_lock) != 0) {
         return CRAWLER_RUNNING;
     }
-    pthread_mutex_lock(&cache_lock);
 
     if (strcmp(slabs, "all") == 0) {
         for (sid = 0; sid < LARGEST_ID; sid++) {
@@ -925,7 +938,6 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
 
             if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
                     || sid >= POWER_LARGEST) {
-                pthread_mutex_unlock(&cache_lock);
                 pthread_mutex_unlock(&lru_crawler_lock);
                 return CRAWLER_BADCLASS;
             }
@@ -934,6 +946,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
     }
 
     for (sid = 0; sid < LARGEST_ID; sid++) {
+        pthread_mutex_lock(&cache_lock);
         if (tocrawl[sid] != 0 && tails[sid] != NULL) {
             if (settings.verbose > 2)
                 fprintf(stderr, "Kicking LRU crawler off for slab %d\n", sid);
@@ -948,8 +961,8 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
             crawler_link_q((item *)&crawlers[sid]);
             crawler_count++;
         }
+        pthread_mutex_unlock(&cache_lock);
     }
-    pthread_mutex_unlock(&cache_lock);
     pthread_cond_signal(&lru_crawler_cond);
     STATS_LOCK();
     stats.lru_crawler_running = true;

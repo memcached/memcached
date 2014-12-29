@@ -36,7 +36,8 @@ struct conn_queue {
     pthread_mutex_t lock;
 };
 
-/* Lock for cache operations (item_*, assoc_*) */
+/* Lock for cache LRU operations
+ * Was old global lock for all item_*, assoc_*, etc operations */
 pthread_mutex_t cache_lock;
 
 /* Connection lock around accepting new connections */
@@ -111,17 +112,18 @@ unsigned short refcount_decr(unsigned short *refcount) {
 #endif
 }
 
+/* item_lock() must be held for an item before any modifications to either its
+ * associated hash bucket, or the structure itself.
+ * LRU modifications must hold the item lock, and the LRU lock.
+ * LRU's accessing items must item_trylock() before modifying an item.
+ * Items accessable from an LRU must not be freed or modified
+ * without first locking and removing from the LRU.
+ */
+
 void item_lock(uint32_t hv) {
     mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
 }
 
-/* Special case. When ITEM_LOCK_GLOBAL mode is enabled, this should become a
- * no-op, as it's only called from within the item lock if necessary.
- * However, we can't mix a no-op and threads which are still synchronizing to
- * GLOBAL. So instead we just always try to lock. When in GLOBAL mode this
- * turns into an effective no-op. Threads re-synchronize after the power level
- * switch so it should stay safe.
- */
 void *item_trylock(uint32_t hv) {
     pthread_mutex_t *lock = &item_locks[hv & hashmask(item_lock_hashpower)];
     if (pthread_mutex_trylock(lock) == 0) {
@@ -154,9 +156,7 @@ static void register_thread_initialized(void) {
     pthread_mutex_unlock(&worker_hang_lock);
 }
 
-/* Must not be called with any deeper locks held:
- * item locks, cache_lock, stats_lock, etc
- */
+/* Must not be called with any deeper locks held */
 void pause_threads(enum pause_thread_types type) {
     char buf[1];
     int i;

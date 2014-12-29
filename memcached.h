@@ -344,8 +344,10 @@ extern struct settings settings;
  * Structure for storing items within memcached.
  */
 typedef struct _stritem {
+    /* Protected by LRU locks */
     struct _stritem *next;
     struct _stritem *prev;
+    /* Rest are protected by an item lock */
     struct _stritem *h_next;    /* hash chain next */
     rel_time_t      time;       /* least recent access */
     rel_time_t      exptime;    /* expire time */
