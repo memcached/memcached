@@ -924,7 +924,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
              p = strtok_r(NULL, ",", &b)) {
 
             if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
-                    || sid > POWER_LARGEST) {
+                    || sid >= POWER_LARGEST) {
                 pthread_mutex_unlock(&cache_lock);
                 pthread_mutex_unlock(&lru_crawler_lock);
                 return CRAWLER_BADCLASS;
