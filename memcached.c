@@ -3230,6 +3230,11 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         return DELTA_ITEM_NOT_FOUND;
     }
 
+    /* Can't delta zero byte values. 2-byte are the "\r\n" */
+    if (it->nbytes <= 2) {
+        return NON_NUMERIC;
+    }
+
     if (cas != NULL && *cas != 0 && ITEM_get_cas(it) != *cas) {
         do_item_remove(it);
         return DELTA_ITEM_CAS_MISMATCH;
