@@ -217,6 +217,7 @@ static void settings_init(void) {
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
     settings.oldest_live = 0;
+    settings.oldest_cas = 0;          /* supplements accuracy of oldest_live */
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.factor = 1.25;
@@ -2138,6 +2139,7 @@ static void process_bin_append_prepend(conn *c) {
 static void process_bin_flush(conn *c) {
     time_t exptime = 0;
     protocol_binary_request_flush* req = binary_get_request(c);
+    rel_time_t new_oldest = 0;
 
     if (!settings.flush_enabled) {
       // flush_all is not allowed but we log it on stats
@@ -2150,11 +2152,17 @@ static void process_bin_flush(conn *c) {
     }
 
     if (exptime > 0) {
-        settings.oldest_live = realtime(exptime) - 1;
+        new_oldest = realtime(exptime);
     } else {
-        settings.oldest_live = current_time - 1;
+        new_oldest = current_time;
     }
-    item_flush_expired();
+    if (settings.use_cas) {
+        settings.oldest_live = new_oldest - 1;
+        if (settings.oldest_live <= current_time)
+            settings.oldest_cas = get_cas_id();
+    } else {
+        settings.oldest_live = new_oldest;
+    }
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.flush_cmds++;
@@ -3469,6 +3477,7 @@ static void process_command(conn *c, char *command) {
 
     } else if (ntokens >= 2 && ntokens <= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0)) {
         time_t exptime = 0;
+        rel_time_t new_oldest = 0;
 
         set_noreply_maybe(c, tokens, ntokens);
 
@@ -3482,17 +3491,12 @@ static void process_command(conn *c, char *command) {
             return;
         }
 
-        if(ntokens == (c->noreply ? 3 : 2)) {
-            settings.oldest_live = current_time - 1;
-            item_flush_expired();
-            out_string(c, "OK");
-            return;
-        }
-
-        exptime = strtol(tokens[1].value, NULL, 10);
-        if(errno == ERANGE) {
-            out_string(c, "CLIENT_ERROR bad command line format");
-            return;
+        if (ntokens != (c->noreply ? 3 : 2)) {
+            exptime = strtol(tokens[1].value, NULL, 10);
+            if(errno == ERANGE) {
+                out_string(c, "CLIENT_ERROR bad command line format");
+                return;
+            }
         }
 
         /*
@@ -3501,11 +3505,19 @@ static void process_command(conn *c, char *command) {
           value.  So we process exptime == 0 the same way we do when
           no delay is given at all.
         */
-        if (exptime > 0)
-            settings.oldest_live = realtime(exptime) - 1;
-        else /* exptime == 0 */
-            settings.oldest_live = current_time - 1;
-        item_flush_expired();
+        if (exptime > 0) {
+            new_oldest = realtime(exptime);
+        } else { /* exptime == 0 */
+            new_oldest = current_time;
+        }
+
+        if (settings.use_cas) {
+            settings.oldest_live = new_oldest - 1;
+            if (settings.oldest_live <= current_time)
+                settings.oldest_cas = get_cas_id();
+        } else {
+            settings.oldest_live = new_oldest;
+        }
         out_string(c, "OK");
         return;
 

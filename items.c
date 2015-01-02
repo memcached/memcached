@@ -62,6 +62,19 @@ uint64_t get_cas_id(void) {
     return next_id;
 }
 
+static int is_flushed(item *it) {
+    rel_time_t oldest_live = settings.oldest_live;
+    uint64_t cas = ITEM_get_cas(it);
+    uint64_t oldest_cas = settings.oldest_cas;
+    if (oldest_live == 0 || oldest_live > current_time)
+        return 0;
+    if ((it->time <= oldest_live)
+            || (oldest_cas != 0 && cas != 0 && cas < oldest_cas)) {
+        return 1;
+    }
+    return 0;
+}
+
 /* Enable this for reference-count debugging. */
 #if 0
 # define DEBUG_REFCNT(it,op) \
@@ -117,7 +130,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     item *search;
     item *next_it;
     void *hold_lock = NULL;
-    rel_time_t oldest_live = settings.oldest_live;
 
     search = tails[id];
     /* We walk up *only* for locked items. Never searching for expired.
@@ -165,7 +177,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
 
         /* Expired or flushed */
         if ((search->exptime != 0 && search->exptime < current_time)
-            || (search->time <= oldest_live && oldest_live <= current_time)) {
+            || is_flushed(search)) {
             itemstats[id].reclaimed++;
             if ((search->it_flags & ITEM_FETCHED) == 0) {
                 itemstats[id].expired_unfetched++;
@@ -617,8 +629,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     }
 
     if (it != NULL) {
-        if (settings.oldest_live != 0 && settings.oldest_live <= current_time &&
-            it->time <= settings.oldest_live) {
+        if (is_flushed(it)) {
             do_item_unlink(it, hv);
             do_item_remove(it);
             it = NULL;
@@ -651,33 +662,6 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
         it->exptime = exptime;
     }
     return it;
-}
-
-/* expires items that are more recent than the oldest_live setting. */
-void do_item_flush_expired(void) {
-    int i;
-    item *iter, *next;
-    if (settings.oldest_live == 0)
-        return;
-    for (i = 0; i < LARGEST_ID; i++) {
-        /* The LRU is sorted in decreasing time order, and an item's timestamp
-         * is never newer than its last access time, so we only need to walk
-         * back until we hit an item older than the oldest_live time.
-         * The oldest_live checking will auto-expire the remaining items.
-         */
-        for (iter = heads[i]; iter != NULL; iter = next) {
-            /* iter->time of 0 are magic objects. */
-            if (iter->time != 0 && iter->time >= settings.oldest_live) {
-                next = iter->next;
-                if ((iter->it_flags & ITEM_SLABBED) == 0) {
-                    do_item_unlink_nolock(iter, hash(ITEM_key(iter), iter->nkey));
-                }
-            } else {
-                /* We've hit the first old item. Continue to the next queue. */
-                break;
-            }
-        }
-    }
 }
 
 static void crawler_link_q(item *it) { /* item is the new tail */
@@ -785,9 +769,8 @@ static item *crawler_crawl_q(item *it) {
  * main thread's values too much. Should rethink again.
  */
 static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
-    rel_time_t oldest_live = settings.oldest_live;
     if ((search->exptime != 0 && search->exptime < current_time)
-        || (search->time <= oldest_live && oldest_live <= current_time)) {
+        || is_flushed(search)) {
         itemstats[i].crawler_reclaimed++;
 
         if (settings.verbose > 1) {

@@ -598,15 +598,6 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
 }
 
 /*
- * Flushes expired items after a flush_all call
- */
-void item_flush_expired() {
-    mutex_lock(&cache_lock);
-    do_item_flush_expired();
-    mutex_unlock(&cache_lock);
-}
-
-/*
  * Dumps part of the cache
  */
 char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes) {
