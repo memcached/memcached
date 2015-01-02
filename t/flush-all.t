@@ -91,7 +91,7 @@ for (1..50) {
         next;
     } elsif ($line =~ /^END/) {
         $failed_nocas++;
-        next;
+        last;
     }
 }
 is($failed_nocas, 1, "failed to set value after flush with no CAS at least once");
