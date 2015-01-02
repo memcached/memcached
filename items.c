@@ -432,6 +432,12 @@ int do_item_replace(item *it, item *new_it, const uint32_t hv) {
 }
 
 /*@null@*/
+/* This is walking the line of violating lock order, but I think it's safe.
+ * If the LRU lock is held, an item in the LRU cannot be wiped and freed.
+ * The data could possibly be overwritten, but this is only accessing the
+ * headers.
+ * It may not be the best idea to leave it like this, but for now it's safe.
+ */
 char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
@@ -553,6 +559,10 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
 
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
+/* Locks are correct based on a technicality. Holds LRU lock while doing the
+ * work, so items can't go invalid, and it's only looking at header sizes
+ * which don't change.
+ */
 void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 
     /* max 1MB object, divided into 32 bytes size buckets */
