@@ -888,7 +888,7 @@ static void complete_nread_ascii(conn *c) {
     enum store_item_type ret;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.slab_stats[it->slabs_clsid].set_cmds++;
+    c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
@@ -1198,7 +1198,7 @@ static void complete_update_bin(conn *c) {
     item *it = c->item;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.slab_stats[it->slabs_clsid].set_cmds++;
+    c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
     /* We don't actually receive the trailing two characters in the bin
@@ -1297,10 +1297,10 @@ static void process_bin_get_or_touch(conn *c) {
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
-            c->thread->stats.slab_stats[it->slabs_clsid].touch_hits++;
+            c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
         } else {
             c->thread->stats.get_cmds++;
-            c->thread->stats.slab_stats[it->slabs_clsid].get_hits++;
+            c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
@@ -2200,7 +2200,7 @@ static void process_bin_delete(conn *c) {
         if (cas == 0 || cas == ITEM_get_cas(it)) {
             MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
             pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[it->slabs_clsid].delete_hits++;
+            c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
             item_unlink(it);
             write_bin_response(c, NULL, 0, 0, 0);
@@ -2322,14 +2322,14 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             // it and old_it may belong to different classes.
             // I'm updating the stats for the one that's getting pushed out
             pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[old_it->slabs_clsid].cas_hits++;
+            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
             item_replace(old_it, it, hv);
             stored = STORED;
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[old_it->slabs_clsid].cas_badval++;
+            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
             if(settings.verbose > 1) {
@@ -2820,7 +2820,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        if (id >= POWER_LARGEST) {
+        if (id >= MAX_NUMBER_OF_SLAB_CLASSES) {
             out_string(c, "CLIENT_ERROR Illegal slab id");
             return;
         }
@@ -2979,7 +2979,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                 /* item_get() has incremented it->refcount for us */
                 pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.slab_stats[it->slabs_clsid].get_hits++;
+                c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
                 c->thread->stats.get_cmds++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
                 item_update(it);
@@ -3149,7 +3149,7 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
         item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.touch_cmds++;
-        c->thread->stats.slab_stats[it->slabs_clsid].touch_hits++;
+        c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         out_string(c, "TOUCHED");
@@ -3269,9 +3269,9 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     if (incr) {
-        c->thread->stats.slab_stats[it->slabs_clsid].incr_hits++;
+        c->thread->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
     } else {
-        c->thread->stats.slab_stats[it->slabs_clsid].decr_hits++;
+        c->thread->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
     }
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
@@ -3357,7 +3357,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
         pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.slab_stats[it->slabs_clsid].delete_hits++;
+        c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         item_unlink(it);

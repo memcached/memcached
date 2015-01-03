@@ -18,6 +18,11 @@
 static void item_link_q(item *it);
 static void item_unlink_q(item *it);
 
+#define HOT_LRU 0
+#define WARM_LRU 64
+#define COLD_LRU 128
+#define NOEXP_LRU 192
+
 #define LARGEST_ID POWER_LARGEST
 typedef struct {
     uint64_t evicted;
@@ -46,9 +51,12 @@ static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void item_stats_reset(void) {
-    mutex_lock(&cache_lock);
-    memset(itemstats, 0, sizeof(itemstats));
-    mutex_unlock(&cache_lock);
+    int i;
+    for (i = 0; i < LARGEST_ID; i++) {
+        pthread_mutex_lock(&lru_locks[i]);
+        memset(&itemstats[i], 0, sizeof(itemstats_t));
+        pthread_mutex_unlock(&lru_locks[i]);
+    }
 }
 
 
@@ -105,8 +113,57 @@ static size_t item_make_header(const uint8_t nkey, const int flags, const int nb
     return sizeof(item) + nkey + *nsuffix + nbytes;
 }
 
-/*@null@*/
 item *do_item_alloc(char *key, const size_t nkey, const int flags,
+                    const rel_time_t exptime, const int nbytes,
+                    const uint32_t cur_hv) {
+    uint8_t nsuffix;
+    item *it = NULL;
+    char suffix[40];
+    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
+    if (settings.use_cas) {
+        ntotal += sizeof(uint64_t);
+    }
+
+    unsigned int id = slabs_clsid(ntotal);
+    if (id == 0)
+        return 0;
+
+    it = slabs_alloc(ntotal, id);
+
+    if (it == NULL) {
+        pthread_mutex_lock(&lru_locks[id]);
+        itemstats[id].outofmemory++;
+        pthread_mutex_unlock(&lru_locks[id]);
+        return NULL;
+    }
+
+    assert(it->slabs_clsid == 0);
+    //assert(it != heads[id]);
+
+    /* Item initialization can happen outside of the lock; the item's already
+     * been removed from the slab LRU.
+     */
+    it->refcount = 1;     /* the caller will have a reference */
+    it->next = it->prev = it->h_next = 0;
+    /* Items are initially loaded into the HOT_LRU. This is '0' but I want at
+     * least a note here. Compiler (hopefully?) optimizes this out.
+     */
+    id |= HOT_LRU;
+    it->slabs_clsid = id;
+
+    DEBUG_REFCNT(it, '*');
+    it->it_flags = settings.use_cas ? ITEM_CAS : 0;
+    it->nkey = nkey;
+    it->nbytes = nbytes;
+    memcpy(ITEM_key(it), key, nkey);
+    it->exptime = exptime;
+    memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
+    it->nsuffix = nsuffix;
+    return it;
+}
+
+/*@null@*/
+item *do_item_alloc_old(char *key, const size_t nkey, const int flags,
                     const rel_time_t exptime, const int nbytes,
                     const uint32_t cur_hv) {
     uint8_t nsuffix;
@@ -264,7 +321,7 @@ void item_free(item *it) {
     assert(it->refcount == 0);
 
     /* so slab size changer can tell later if item is already free or not */
-    clsid = it->slabs_clsid;
+    clsid = ITEM_clsid(it);
     it->slabs_clsid = 0;
     DEBUG_REFCNT(it, 'F');
     slabs_free(it, ntotal, clsid);
@@ -287,7 +344,7 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
     return slabs_clsid(ntotal) != 0;
 }
 
-static void item_link_q(item *it) { /* item is the new head */
+static void do_item_link_q(item *it) { /* item is the new head */
     item **head, **tail;
     assert(it->slabs_clsid < LARGEST_ID);
     assert((it->it_flags & ITEM_SLABBED) == 0);
@@ -305,7 +362,13 @@ static void item_link_q(item *it) { /* item is the new head */
     return;
 }
 
-static void item_unlink_q(item *it) {
+static void item_link_q(item *it) {
+    pthread_mutex_lock(&lru_locks[it->slabs_clsid]);
+    do_item_link_q(it);
+    pthread_mutex_unlock(&lru_locks[it->slabs_clsid]);
+}
+
+static void do_item_unlink_q(item *it) {
     item **head, **tail;
     assert(it->slabs_clsid < LARGEST_ID);
     head = &heads[it->slabs_clsid];
@@ -328,6 +391,12 @@ static void item_unlink_q(item *it) {
     return;
 }
 
+static void item_unlink_q(item *it) {
+    pthread_mutex_lock(&lru_locks[it->slabs_clsid]);
+    do_item_unlink_q(it);
+    pthread_mutex_unlock(&lru_locks[it->slabs_clsid]);
+}
+
 int do_item_link(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_LINK(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
@@ -343,9 +412,7 @@ int do_item_link(item *it, const uint32_t hv) {
     /* Allocate a new CAS ID on link. */
     ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
     assoc_insert(it, hv);
-    mutex_lock(&cache_lock);
     item_link_q(it);
-    mutex_unlock(&cache_lock);
     refcount_incr(&it->refcount);
 
     return 1;
@@ -360,9 +427,7 @@ void do_item_unlink(item *it, const uint32_t hv) {
         stats.curr_items -= 1;
         STATS_UNLOCK();
         assoc_delete(ITEM_key(it), it->nkey, hv);
-        mutex_lock(&cache_lock);
         item_unlink_q(it);
-        mutex_unlock(&cache_lock);
         do_item_remove(it);
     }
 }
@@ -377,7 +442,7 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
         stats.curr_items -= 1;
         STATS_UNLOCK();
         assoc_delete(ITEM_key(it), it->nkey, hv);
-        item_unlink_q(it);
+        do_item_unlink_q(it);
         do_item_remove(it);
     }
 }
@@ -394,7 +459,7 @@ void do_item_remove(item *it) {
 
 /* Copy/paste to avoid adding two extra branches for all common calls, since
  * _nolock is only used in an uncommon case. */
-void do_item_update_nolock(item *it) {
+/*void do_item_update_nolock(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
@@ -405,9 +470,17 @@ void do_item_update_nolock(item *it) {
             item_link_q(it);
         }
     }
+}*/
+void do_item_update_nolock(item *it) {
+    return;
 }
 
+/* This is a no-op with the new item allocator. */
 void do_item_update(item *it) {
+    return;
+}
+
+/*void do_item_update(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
@@ -420,7 +493,7 @@ void do_item_update(item *it) {
             mutex_unlock(&cache_lock);
         }
     }
-}
+}*/
 
 int do_item_replace(item *it, item *new_it, const uint32_t hv) {
     MEMCACHED_ITEM_REPLACE(ITEM_key(it), it->nkey, it->nbytes,
@@ -437,8 +510,9 @@ int do_item_replace(item *it, item *new_it, const uint32_t hv) {
  * The data could possibly be overwritten, but this is only accessing the
  * headers.
  * It may not be the best idea to leave it like this, but for now it's safe.
+ * FIXME: only dumps the hot LRU now
  */
-char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
+char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
     char *buffer;
     unsigned int bufcurr;
@@ -448,10 +522,13 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
 
+    pthread_mutex_lock(&lru_locks[slabs_clsid]);
     it = heads[slabs_clsid];
 
     buffer = malloc((size_t)memlimit);
-    if (buffer == 0) return NULL;
+    if (buffer == 0) {
+        return NULL;
+    }
     bufcurr = 0;
 
     while (it != NULL && (limit == 0 || shown < limit)) {
@@ -478,29 +555,32 @@ char *do_item_cachedump(const unsigned int slabs_clsid, const unsigned int limit
     bufcurr += 5;
 
     *bytes = bufcurr;
+    pthread_mutex_unlock(&lru_locks[slabs_clsid]);
     return buffer;
 }
 
 void item_stats_evictions(uint64_t *evicted) {
     int i;
-    mutex_lock(&cache_lock);
     for (i = 0; i < LARGEST_ID; i++) {
+        pthread_mutex_lock(&lru_locks[i]);
         evicted[i] = itemstats[i].evicted;
+        pthread_mutex_unlock(&lru_locks[i]);
     }
-    mutex_unlock(&cache_lock);
 }
 
-void do_item_stats_totals(ADD_STAT add_stats, void *c) {
+void item_stats_totals(ADD_STAT add_stats, void *c) {
     itemstats_t totals;
     memset(&totals, 0, sizeof(itemstats_t));
     int i;
     for (i = 0; i < LARGEST_ID; i++) {
+        pthread_mutex_lock(&lru_locks[i]);
         totals.expired_unfetched += itemstats[i].expired_unfetched;
         totals.evicted_unfetched += itemstats[i].evicted_unfetched;
         totals.evicted += itemstats[i].evicted;
         totals.reclaimed += itemstats[i].reclaimed;
         totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
         totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
+        pthread_mutex_unlock(&lru_locks[i]);
     }
     APPEND_STAT("expired_unfetched", "%llu",
                 (unsigned long long)totals.expired_unfetched);
@@ -516,9 +596,10 @@ void do_item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.lrutail_reflocked);
 }
 
-void do_item_stats(ADD_STAT add_stats, void *c) {
+void item_stats(ADD_STAT add_stats, void *c) {
     int i;
     for (i = 0; i < LARGEST_ID; i++) {
+        pthread_mutex_lock(&lru_locks[i]);
         if (tails[i] != NULL) {
             const char *fmt = "items:%d:%s";
             char key_str[STAT_KEY_LEN];
@@ -551,6 +632,7 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_FMT_STAT(fmt, i, "lrutail_reflocked",
                                 "%llu", (unsigned long long)itemstats[i].lrutail_reflocked);
         }
+        pthread_mutex_unlock(&lru_locks[i]);
     }
 
     /* getting here means both ascii and binary terminators fit */
@@ -562,8 +644,9 @@ void do_item_stats(ADD_STAT add_stats, void *c) {
 /* Locks are correct based on a technicality. Holds LRU lock while doing the
  * work, so items can't go invalid, and it's only looking at header sizes
  * which don't change.
+ * FIXME: Now only accounts for the HOT LRU
  */
-void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
+void item_stats_sizes(ADD_STAT add_stats, void *c) {
 
     /* max 1MB object, divided into 32 bytes size buckets */
     const int num_buckets = 32768;
@@ -574,6 +657,7 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
 
         /* build the histogram */
         for (i = 0; i < LARGEST_ID; i++) {
+            pthread_mutex_lock(&lru_locks[i]);
             item *iter = heads[i];
             while (iter) {
                 int ntotal = ITEM_ntotal(iter);
@@ -582,6 +666,7 @@ void do_item_stats_sizes(ADD_STAT add_stats, void *c) {
                 if (bucket < num_buckets) histogram[bucket]++;
                 iter = iter->next;
             }
+            pthread_mutex_unlock(&lru_locks[i]);
         }
 
         /* write the buffer */
@@ -654,7 +739,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
                 fprintf(stderr, " -nuked by expire");
             }
         } else {
-            it->it_flags |= ITEM_FETCHED;
+            it->it_flags |= ITEM_FETCHED|ITEM_ACTIVE;
             DEBUG_REFCNT(it, '+');
         }
     }
@@ -817,11 +902,11 @@ static void *item_crawler_thread(void *arg) {
         item *search = NULL;
         void *hold_lock = NULL;
 
-        for (i = 0; i < LARGEST_ID; i++) {
+        for (i = POWER_SMALLEST; i < LARGEST_ID; i++) {
             if (crawlers[i].it_flags != 1) {
                 continue;
             }
-            pthread_mutex_lock(&cache_lock);
+            pthread_mutex_lock(&lru_locks[i]);
             search = crawler_crawl_q((item *)&crawlers[i]);
             if (search == NULL ||
                 (crawlers[i].remaining && --crawlers[i].remaining < 1)) {
@@ -830,7 +915,7 @@ static void *item_crawler_thread(void *arg) {
                 crawlers[i].it_flags = 0;
                 crawler_count--;
                 crawler_unlink_q((item *)&crawlers[i]);
-                pthread_mutex_unlock(&cache_lock);
+                pthread_mutex_unlock(&lru_locks[i]);
                 continue;
             }
             uint32_t hv = hash(ITEM_key(search), search->nkey);
@@ -838,7 +923,7 @@ static void *item_crawler_thread(void *arg) {
              * other callers can incr the refcount
              */
             if ((hold_lock = item_trylock(hv)) == NULL) {
-                pthread_mutex_unlock(&cache_lock);
+                pthread_mutex_unlock(&lru_locks[i]);
                 continue;
             }
             /* Now see if the item is refcount locked */
@@ -846,7 +931,7 @@ static void *item_crawler_thread(void *arg) {
                 refcount_decr(&search->refcount);
                 if (hold_lock)
                     item_trylock_unlock(hold_lock);
-                pthread_mutex_unlock(&cache_lock);
+                pthread_mutex_unlock(&lru_locks[i]);
                 continue;
             }
 
@@ -857,7 +942,7 @@ static void *item_crawler_thread(void *arg) {
 
             if (hold_lock)
                 item_trylock_unlock(hold_lock);
-            pthread_mutex_unlock(&cache_lock);
+            pthread_mutex_unlock(&lru_locks[i]);
 
             if (settings.lru_crawler_sleep)
                 usleep(settings.lru_crawler_sleep);
@@ -915,7 +1000,7 @@ int start_item_crawler_thread(void) {
 enum crawler_result_type lru_crawler_crawl(char *slabs) {
     char *b = NULL;
     uint32_t sid = 0;
-    uint8_t tocrawl[POWER_LARGEST];
+    uint8_t tocrawl[LARGEST_ID];
     if (pthread_mutex_trylock(&lru_crawler_lock) != 0) {
         return CRAWLER_RUNNING;
     }
@@ -930,7 +1015,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
              p = strtok_r(NULL, ",", &b)) {
 
             if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
-                    || sid >= POWER_LARGEST) {
+                    || sid >= LARGEST_ID) {
                 pthread_mutex_unlock(&lru_crawler_lock);
                 return CRAWLER_BADCLASS;
             }
@@ -938,8 +1023,8 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
         }
     }
 
-    for (sid = 0; sid < LARGEST_ID; sid++) {
-        pthread_mutex_lock(&cache_lock);
+    for (sid = POWER_SMALLEST; sid < LARGEST_ID; sid++) {
+        pthread_mutex_lock(&lru_locks[sid]);
         if (tocrawl[sid] != 0 && tails[sid] != NULL) {
             if (settings.verbose > 2)
                 fprintf(stderr, "Kicking LRU crawler off for slab %d\n", sid);
@@ -954,7 +1039,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
             crawler_link_q((item *)&crawlers[sid]);
             crawler_count++;
         }
-        pthread_mutex_unlock(&cache_lock);
+        pthread_mutex_unlock(&lru_locks[sid]);
     }
     pthread_cond_signal(&lru_crawler_cond);
     STATS_LOCK();

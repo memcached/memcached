@@ -39,6 +39,7 @@ struct conn_queue {
 /* Lock for cache LRU operations
  * Was old global lock for all item_*, assoc_*, etc operations */
 pthread_mutex_t cache_lock;
+pthread_mutex_t lru_locks[POWER_LARGEST];
 
 /* Connection lock around accepting new connections */
 pthread_mutex_t conn_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -597,42 +598,6 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
     return ret;
 }
 
-/*
- * Dumps part of the cache
- */
-char *item_cachedump(unsigned int slabs_clsid, unsigned int limit, unsigned int *bytes) {
-    char *ret;
-
-    mutex_lock(&cache_lock);
-    ret = do_item_cachedump(slabs_clsid, limit, bytes);
-    mutex_unlock(&cache_lock);
-    return ret;
-}
-
-/*
- * Dumps statistics about slab classes
- */
-void  item_stats(ADD_STAT add_stats, void *c) {
-    mutex_lock(&cache_lock);
-    do_item_stats(add_stats, c);
-    mutex_unlock(&cache_lock);
-}
-
-void  item_stats_totals(ADD_STAT add_stats, void *c) {
-    mutex_lock(&cache_lock);
-    do_item_stats_totals(add_stats, c);
-    mutex_unlock(&cache_lock);
-}
-
-/*
- * Dumps a list of objects of each size in 32-byte increments
- */
-void  item_stats_sizes(ADD_STAT add_stats, void *c) {
-    mutex_lock(&cache_lock);
-    do_item_stats_sizes(add_stats, c);
-    mutex_unlock(&cache_lock);
-}
-
 /******************************* GLOBAL STATS ******************************/
 
 void STATS_LOCK() {
@@ -761,6 +726,9 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
     int         power;
 
     pthread_mutex_init(&cache_lock, NULL);
+    for (i = 0; i < POWER_LARGEST; i++) {
+        pthread_mutex_init(&lru_locks[i], NULL);
+    }
     pthread_mutex_init(&worker_hang_lock, NULL);
 
     pthread_mutex_init(&init_lock, NULL);

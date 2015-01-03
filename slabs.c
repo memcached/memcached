@@ -112,7 +112,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
 
     memset(slabclass, 0, sizeof(slabclass));
 
-    while (++i < POWER_LARGEST && size <= settings.item_size_max / factor) {
+    while (++i < MAX_NUMBER_OF_SLAB_CLASSES && size <= settings.item_size_max / factor) {
         /* Make sure items are always n-byte aligned */
         if (size % CHUNK_ALIGN_BYTES)
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
@@ -158,7 +158,7 @@ static void slabs_preallocate (const unsigned int maxslabs) {
        list.  if you really don't want this, you can rebuild without
        these three lines.  */
 
-    for (i = POWER_SMALLEST; i <= POWER_LARGEST; i++) {
+    for (i = POWER_SMALLEST; i <= MAX_NUMBER_OF_SLAB_CLASSES; i++) {
         if (++prealloc > maxslabs)
             return;
         if (do_slabs_newslab(i) == 0) {
@@ -639,15 +639,15 @@ static void slab_rebalance_finish(void) {
  * complex.
  */
 static int slab_automove_decision(int *src, int *dst) {
-    static uint64_t evicted_old[POWER_LARGEST];
-    static unsigned int slab_zeroes[POWER_LARGEST];
+    static uint64_t evicted_old[MAX_NUMBER_OF_SLAB_CLASSES];
+    static unsigned int slab_zeroes[MAX_NUMBER_OF_SLAB_CLASSES];
     static unsigned int slab_winner = 0;
     static unsigned int slab_wins   = 0;
-    uint64_t evicted_new[POWER_LARGEST];
+    uint64_t evicted_new[MAX_NUMBER_OF_SLAB_CLASSES];
     uint64_t evicted_diff = 0;
     uint64_t evicted_max  = 0;
     unsigned int highest_slab = 0;
-    unsigned int total_pages[POWER_LARGEST];
+    unsigned int total_pages[MAX_NUMBER_OF_SLAB_CLASSES];
     int i;
     int source = 0;
     int dest = 0;

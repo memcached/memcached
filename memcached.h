@@ -77,9 +77,10 @@
 
 /* Slab sizing definitions. */
 #define POWER_SMALLEST 1
-#define POWER_LARGEST  200
+#define POWER_LARGEST  255
 #define CHUNK_ALIGN_BYTES 8
-#define MAX_NUMBER_OF_SLAB_CLASSES (POWER_LARGEST + 1)
+/* slab class max is a 6-bit number, -1. */
+#define MAX_NUMBER_OF_SLAB_CLASSES 63
 
 /** How long an object can reasonably be assumed to be locked before
     harvesting it on a low memory condition. Default: disabled. */
@@ -108,6 +109,8 @@
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
          + (item)->nsuffix + (item)->nbytes \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+
+#define ITEM_clsid(item) ((item)->slabs_clsid & ~(3<<6))
 
 #define STAT_KEY_LEN 128
 #define STAT_VAL_LEN 128
@@ -339,7 +342,10 @@ extern struct settings settings;
 /* temp */
 #define ITEM_SLABBED 4
 
+/* Item was fetched at least once in its lifetime */
 #define ITEM_FETCHED 8
+/* Appended on fetch, removed on LRU shuffling */
+#define ITEM_ACTIVE 16
 
 /**
  * Structure for storing items within memcached.
@@ -565,15 +571,11 @@ conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 int   is_listen_thread(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
-char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
 item *item_get(const char *key, const size_t nkey);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it, const uint32_t hv);
-void  item_stats(ADD_STAT add_stats, void *c);
-void  item_stats_totals(ADD_STAT add_stats, void *c);
-void  item_stats_sizes(ADD_STAT add_stats, void *c);
 void  item_unlink(item *it);
 void  item_update(item *it);
 
