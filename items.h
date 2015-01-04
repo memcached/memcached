@@ -33,6 +33,13 @@ enum crawler_result_type {
     CRAWLER_OK=0, CRAWLER_RUNNING, CRAWLER_BADCLASS
 };
 
+int start_lru_maintainer_thread(void);
+int stop_lru_maintainer_thread(void);
+int init_lru_maintainer(void);
+void lru_maintainer_pause(void);
+void lru_maintainer_resume(void);
+void lru_maintainer_wake(int slabs_clsid);
+
 int start_item_crawler_thread(void);
 int stop_item_crawler_thread(void);
 int init_lru_crawler(void);

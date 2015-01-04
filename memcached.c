@@ -5096,6 +5096,7 @@ int main (int argc, char **argv) {
 
     /* Run regardless of initializing it later */
     init_lru_crawler();
+    init_lru_maintainer();
 
     /* set stderr non-buffering (for running under, say, daemontools) */
     setbuf(stderr, NULL);
@@ -5562,6 +5563,10 @@ int main (int argc, char **argv) {
     memcached_thread_init(settings.num_threads, main_base);
 
     if (start_assoc_maintenance_thread() == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (start_lru_maintainer_thread() == -1) {
         exit(EXIT_FAILURE);
     }
 

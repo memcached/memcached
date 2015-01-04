@@ -45,9 +45,14 @@ static unsigned int sizes[LARGEST_ID];
 
 static int crawler_count = 0;
 static volatile int do_run_lru_crawler_thread = 0;
+static volatile int do_run_lru_maintainer_thread = 0;
 static int lru_crawler_initialized = 0;
+static int lru_maintainer_initialized = 0;
+static int lru_maintainer_check_clsid = 0;
 static pthread_mutex_t lru_crawler_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  lru_maintainer_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void item_stats_reset(void) {
@@ -140,9 +145,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     assert(it->slabs_clsid == 0);
     //assert(it != heads[id]);
 
-    /* Item initialization can happen outside of the lock; the item's already
-     * been removed from the slab LRU.
-     */
     it->refcount = 1;     /* the caller will have a reference */
     it->next = it->prev = it->h_next = 0;
     /* Items are initially loaded into the HOT_LRU. This is '0' but I want at
@@ -459,20 +461,17 @@ void do_item_remove(item *it) {
 
 /* Copy/paste to avoid adding two extra branches for all common calls, since
  * _nolock is only used in an uncommon case. */
-/*void do_item_update_nolock(item *it) {
+void do_item_update_nolock(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
 
         if ((it->it_flags & ITEM_LINKED) != 0) {
-            item_unlink_q(it);
+            do_item_unlink_q(it);
             it->time = current_time;
-            item_link_q(it);
+            do_item_link_q(it);
         }
     }
-}*/
-void do_item_update_nolock(item *it) {
-    return;
 }
 
 /* This is a no-op with the new item allocator. */
@@ -758,6 +757,304 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
     }
     return it;
 }
+
+/*** LRU MAINTENANCE THREAD ***/
+
+/* Returns number of items remove, expired, or evicted */
+/* FIXME: I *think* since we're always intending to pop an item from the
+ * bottom of cold, we only need to hold the cold LRU lock long enough to
+ * iten_lock something valid. Then we remove the lock, and can fiddle with the
+ * item. However, do_item_unlink_nolock() will need an option for "skip the
+ * LRU removal"
+ */
+static int lru_pull_tail(const int orig_id, const int cur_lru,
+        const unsigned int total_chunks, const bool do_evict) {
+    item *it = NULL;
+    int id = orig_id;
+    int removed = 0;
+    if (id == 0)
+        return 0;
+
+    /* do a quick check if we have any expired items in the tail.. */
+    int tries = 5;
+    item *search;
+    item *next_it;
+    void *hold_lock = NULL;
+    unsigned int move_to_lru = 0;
+    uint64_t limit;
+
+    id |= cur_lru;
+    pthread_mutex_lock(&lru_locks[id]);
+    search = tails[id];
+    /* We walk up *only* for locked items, and if bottom is expired.
+     * never search for expired entries, wastes CPU if there are none. */
+    for (; tries > 0 && search != NULL; tries--, search=next_it) {
+        /* we might relink search mid-loop, so search->prev isn't reliable */
+        next_it = search->prev;
+        if (search->nbytes == 0 && search->nkey == 0 && search->it_flags == 1) {
+            /* We are a crawler, ignore it. */
+            tries++;
+            continue;
+        }
+        uint32_t hv = hash(ITEM_key(search), search->nkey);
+        /* Attempt to hash item lock the "search" item. If locked, no
+         * other callers can incr the refcount
+         */
+        /* Don't accidentally grab ourselves, or bail if we can't quicklock */
+        if ((hold_lock = item_trylock(hv)) == NULL)
+            continue;
+        /* Now see if the item is refcount locked */
+        if (refcount_incr(&search->refcount) != 2) {
+            /* Note pathological case with ref'ed items in tail.
+             * Can still unlink the item, but it won't be reusable yet */
+            itemstats[id].lrutail_reflocked++;
+            /* In case of refcount leaks, enable for quick workaround. */
+            /* WARNING: This can cause terrible corruption */
+            if (settings.tail_repair_time &&
+                    search->time + settings.tail_repair_time < current_time) {
+                itemstats[id].tailrepairs++;
+                search->refcount = 1;
+                /* This will call item_remove -> item_free since refcnt is 1 */
+                do_item_unlink_nolock(search, hv);
+                item_trylock_unlock(hold_lock);
+                continue;
+            }
+        }
+
+        /* Expired or flushed */
+        if ((search->exptime != 0 && search->exptime < current_time)
+            || is_flushed(search)) {
+            itemstats[id].reclaimed++;
+            if ((search->it_flags & ITEM_FETCHED) == 0) {
+                itemstats[id].expired_unfetched++;
+            }
+            /* refcnt 2 -> 1 */
+            do_item_unlink_nolock(it, hv);
+            /* refcnt 1 -> 0 -> item_free */
+            do_item_remove(it);
+            item_trylock_unlock(hold_lock);
+            removed++;
+
+            /* If all we're finding are expired, can keep going */
+            continue;
+        }
+
+        /* If we're HOT_LRU or WARM_LRU and over size limit, send to COLD_LRU.
+         * If we're COLD_LRU, send to WARM_LRU unless we need to evict
+         */
+        /* FIXME: Hardcoded percentage */
+        /* FIXME: Won't aggressively pull from cold into warm */
+        switch (cur_lru) {
+            case HOT_LRU:
+                limit = total_chunks * 32 / 100;
+            case WARM_LRU:
+                limit = total_chunks * 32 / 100;
+                if (sizes[id] > limit) {
+                    /* FIXME: Counter for move-to-cold */
+                    move_to_lru = COLD_LRU;
+                    do_item_unlink_q(search);
+                    it = search;
+                    removed++;
+                    break;
+                } else if ((search->it_flags & ITEM_ACTIVE) != 0) {
+                    /* Only allow ACTIVE relinking if we're not too large. */
+                    fprintf(stderr, "doing item update from %d\n", orig_id);
+                    search->it_flags &= ~ITEM_ACTIVE;
+                    do_item_update_nolock(search);
+                    do_item_remove(search);
+                    item_trylock_unlock(hold_lock);
+                } else {
+                    /* Don't want to move to COLD, not active, bail out */
+                    it = search;
+                }
+                break;
+            case COLD_LRU:
+                it = search; /* No matter what, we're stopping */
+                if (do_evict) {
+                    if (settings.evict_to_free == 0) {
+                        /* FIXME: New counter that means "tried to evict" */
+                        itemstats[id].outofmemory++;
+                        break;
+                    }
+                    itemstats[id].evicted++;
+                    itemstats[id].evicted_time = current_time - search->time;
+                    if (search->exptime != 0)
+                        itemstats[id].evicted_nonzero++;
+                    if ((search->it_flags & ITEM_FETCHED) == 0) {
+                        itemstats[id].evicted_unfetched++;
+                    }
+                    do_item_unlink_nolock(it, hv);
+                    removed++;
+                } else if ((search->it_flags & ITEM_ACTIVE) != 0) {
+                    search->it_flags &= ~ITEM_ACTIVE;
+                    move_to_lru = WARM_LRU;
+                    do_item_unlink_q(search);
+                    /* Don't tick removed, since we haven't freed anything */
+                }
+                break;
+        }
+        if (it != NULL)
+            break;
+    }
+
+    pthread_mutex_unlock(&lru_locks[id]);
+
+    if (it != NULL) {
+        if (move_to_lru) {
+            fprintf(stderr, "moving from [%d]_lru to [%d]_lru\n", cur_lru, move_to_lru);
+            it->slabs_clsid &= ~(3>>6);
+            fprintf(stderr, "- removed cur_lru %d\n", it->slabs_clsid);
+            it->slabs_clsid |= move_to_lru;
+            fprintf(stderr, "- added [%d]_lru %d\n", move_to_lru, it->slabs_clsid);
+            item_link_q(it);
+        }
+        do_item_remove(it);
+        item_trylock_unlock(hold_lock);
+    }
+
+    return removed;
+}
+
+/* Loop up to N times:
+ * If too many items are in HOT_LRU, push to COLD_LRU
+ * If too many items are in WARM_LRU, push to COLD_LRU
+ * If too many items are in COLD_LRU, poke COLD_LRU tail
+ * If too many items are in COLD_LRU and are below low watermark, start evicting
+ */
+static void lru_maintainer_juggle(const int slabs_clsid) {
+    int i;
+    bool mem_limit_reached = false;
+    unsigned int total_chunks = 0;
+    unsigned int free_chunks = slabs_available_chunks(slabs_clsid,
+            &mem_limit_reached, &total_chunks);
+    //fprintf(stderr, "really starting LRU juggle\n");
+
+    /* Juggle HOT/WARM up to N times */
+    for (i = 0; i < 50; i++) {
+        if (!lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false) &&
+            !lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false)) {
+            break;
+        }
+    }
+
+    /* Less than high watermark */
+    /* If less than low watermark and no more pages available, evict */
+    /* FIXME: More tries if it shuffled .... something? */
+    for (i = 0; i < 50 && free_chunks < 100; i++) {
+        int removed = lru_pull_tail(slabs_clsid, COLD_LRU, total_chunks,
+                (free_chunks < 50 && mem_limit_reached) ? true : false);
+        if (removed == 0)
+            break;
+        free_chunks += removed;
+    }
+}
+
+static pthread_t lru_maintainer_tid;
+
+static void *lru_maintainer_thread(void *arg) {
+    int i;
+
+    pthread_mutex_lock(&lru_maintainer_lock);
+    if (settings.verbose > 2)
+        fprintf(stderr, "Starting LRU maintainer background thread\n");
+    while (do_run_lru_maintainer_thread) {
+        struct timespec ts;
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        /* FIXME: #define or optionize the sleep */
+        ts.tv_sec = tv.tv_sec + 1;
+        pthread_cond_timedwait(&lru_maintainer_cond, &lru_maintainer_lock, &ts);
+
+        fprintf(stderr, "LRU maintainer thread running\n");
+        /* We were asked to immediately wake up and poke a particular slab
+         * class due to a low watermark being hit */
+        if (lru_maintainer_check_clsid != 0) {
+            lru_maintainer_juggle(lru_maintainer_check_clsid);
+            lru_maintainer_check_clsid = 0;
+        } else {
+            for (i = POWER_SMALLEST; i < MAX_NUMBER_OF_SLAB_CLASSES; i++) {
+                lru_maintainer_juggle(i);
+            }
+        }
+
+        if (settings.verbose > 2)
+            fprintf(stderr, "LRU maintainer thread sleeping\n");
+    }
+    pthread_mutex_unlock(&lru_maintainer_lock);
+    if (settings.verbose > 2)
+        fprintf(stderr, "LRU maintainer thread stopping\n");
+
+    return NULL;
+}
+int stop_lru_maintainer_thread(void) {
+    int ret;
+    pthread_mutex_lock(&lru_maintainer_lock);
+    do_run_lru_maintainer_thread = 0;
+    pthread_cond_signal(&lru_maintainer_cond);
+    pthread_mutex_unlock(&lru_maintainer_lock);
+    if ((ret = pthread_join(lru_maintainer_tid, NULL)) != 0) {
+        fprintf(stderr, "Failed to stop LRU maintainer thread: %s\n", strerror(ret));
+        return -1;
+    }
+    //settings.lru_maintainer_thread = false;
+    return 0;
+}
+
+int start_lru_maintainer_thread(void) {
+    int ret;
+
+    pthread_mutex_lock(&lru_maintainer_lock);
+    do_run_lru_maintainer_thread = 1;
+    //settings.lru_maintainer_thread = true;
+    if ((ret = pthread_create(&lru_maintainer_tid, NULL,
+        lru_maintainer_thread, NULL)) != 0) {
+        fprintf(stderr, "Can't create LRU maintainer thread: %s\n",
+            strerror(ret));
+        pthread_mutex_unlock(&lru_maintainer_lock);
+        return -1;
+    }
+    pthread_mutex_unlock(&lru_maintainer_lock);
+
+    return 0;
+}
+
+/* If we hold this lock, crawler can't wake up or move */
+void lru_maintainer_pause(void) {
+    pthread_mutex_lock(&lru_maintainer_lock);
+}
+
+void lru_maintainer_resume(void) {
+    pthread_mutex_unlock(&lru_maintainer_lock);
+}
+
+/* Attempt to wake the LRU maintenance thread early. Can specify which slab
+ * class to immediately inspect for efficiency
+ */
+void lru_maintainer_wake(int slabs_clsid) {
+    if (pthread_mutex_trylock(&lru_maintainer_lock) != 0) {
+        return;
+    }
+    if (settings.verbose > 2)
+        fprintf(stderr, "Signalling LRU maintainer to wake up\n");
+
+    lru_maintainer_check_clsid = slabs_clsid;
+    pthread_cond_signal(&lru_maintainer_cond);
+    pthread_mutex_unlock(&lru_maintainer_lock);
+}
+
+int init_lru_maintainer(void) {
+    if (lru_maintainer_initialized == 0) {
+        if (pthread_cond_init(&lru_maintainer_cond, NULL) != 0) {
+            fprintf(stderr, "Can't initialize lru maintainer condition\n");
+            return -1;
+        }
+        pthread_mutex_init(&lru_maintainer_lock, NULL);
+        lru_maintainer_initialized = 1;
+    }
+    return 0;
+}
+
+/*** ITEM CRAWLER THREAD ***/
 
 static void crawler_link_q(item *it) { /* item is the new tail */
     item **head, **tail;

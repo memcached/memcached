@@ -42,6 +42,9 @@ typedef struct {
 static slabclass_t slabclass[MAX_NUMBER_OF_SLAB_CLASSES];
 static size_t mem_limit = 0;
 static size_t mem_malloced = 0;
+/* If the memory limit has been hit once. Used as a hint to decide when to
+ * early-wake the LRU maintenance thread */
+static bool mem_limit_reached = false;
 static int power_largest;
 
 static void *mem_base = NULL;
@@ -198,8 +201,13 @@ static int do_slabs_newslab(const unsigned int id) {
         : p->size * p->perslab;
     char *ptr;
 
-    if ((mem_limit && mem_malloced + len > mem_limit && p->slabs > 0) ||
-        (grow_slab_list(id) == 0) ||
+    if ((mem_limit && mem_malloced + len > mem_limit && p->slabs > 0)) {
+        mem_limit_reached = true;
+        MEMCACHED_SLABS_SLABCLASS_ALLOCATE_FAILED(id);
+        return 0;
+    }
+
+    if ((grow_slab_list(id) == 0) ||
         ((ptr = memory_allocate((size_t)len)) == 0)) {
 
         MEMCACHED_SLABS_SLABCLASS_ALLOCATE_FAILED(id);
@@ -249,6 +257,11 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
         MEMCACHED_SLABS_ALLOCATE(size, id, p->size, ret);
     } else {
         MEMCACHED_SLABS_ALLOCATE_FAILED(size, id);
+    }
+
+    /* FIXME: needs to be a per-slab watermark. */
+    if (mem_limit_reached && p->sl_curr < 50) {
+        lru_maintainer_wake(id);
     }
 
     return ret;
@@ -430,6 +443,20 @@ void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal)
     p = &slabclass[id];
     p->requested = p->requested - old + ntotal;
     pthread_mutex_unlock(&slabs_lock);
+}
+
+unsigned int slabs_available_chunks(const unsigned int id, bool *mem_flag,
+        unsigned int *total_chunks) {
+    unsigned int ret;
+    slabclass_t *p;
+
+    pthread_mutex_lock(&slabs_lock);
+    p = &slabclass[id];
+    ret = p->sl_curr;
+    *mem_flag = mem_limit_reached;
+    *total_chunks = p->slabs * p->perslab;
+    pthread_mutex_unlock(&slabs_lock);
+    return ret;
 }
 
 static pthread_cond_t slab_rebalance_cond = PTHREAD_COND_INITIALIZER;

@@ -167,6 +167,7 @@ void pause_threads(enum pause_thread_types type) {
         case PAUSE_ALL_THREADS:
             slabs_rebalancer_pause();
             lru_crawler_pause();
+            lru_maintainer_pause();
         case PAUSE_WORKER_THREADS:
             buf[0] = 'p';
             pthread_mutex_lock(&worker_hang_lock);
@@ -174,6 +175,7 @@ void pause_threads(enum pause_thread_types type) {
         case RESUME_ALL_THREADS:
             slabs_rebalancer_resume();
             lru_crawler_resume();
+            lru_maintainer_resume();
         case RESUME_WORKER_THREADS:
             pthread_mutex_unlock(&worker_hang_lock);
             break;
