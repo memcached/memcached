@@ -286,6 +286,7 @@ struct stats {
     bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
     bool          lru_crawler_running; /* crawl in progress */
+    uint64_t      lru_maintainer_juggles; /* number of LRU bg pokes */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -321,6 +322,7 @@ struct settings {
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
     bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
+    bool lru_maintainer_thread; /* LRU maintainer background thread */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */

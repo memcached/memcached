@@ -27,7 +27,6 @@ static void item_unlink_q(item *it);
 typedef struct {
     uint64_t evicted;
     uint64_t evicted_nonzero;
-    rel_time_t evicted_time;
     uint64_t reclaimed;
     uint64_t outofmemory;
     uint64_t tailrepairs;
@@ -35,6 +34,10 @@ typedef struct {
     uint64_t evicted_unfetched;
     uint64_t crawler_reclaimed;
     uint64_t lrutail_reflocked;
+    uint64_t moves_to_cold;
+    uint64_t moves_to_warm;
+    uint64_t moves_within_lru;
+    rel_time_t evicted_time;
 } itemstats_t;
 
 static item *heads[LARGEST_ID];
@@ -579,6 +582,9 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
         totals.reclaimed += itemstats[i].reclaimed;
         totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
         totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
+        totals.moves_to_cold += itemstats[i].moves_to_cold;
+        totals.moves_to_warm += itemstats[i].moves_to_warm;
+        totals.moves_within_lru += itemstats[i].moves_within_lru;
         pthread_mutex_unlock(&lru_locks[i]);
     }
     APPEND_STAT("expired_unfetched", "%llu",
@@ -593,6 +599,12 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.crawler_reclaimed);
     APPEND_STAT("lrutail_reflocked", "%llu",
                 (unsigned long long)totals.lrutail_reflocked);
+    APPEND_STAT("moves_to_cold", "%llu",
+                (unsigned long long)totals.moves_to_cold);
+    APPEND_STAT("moves_to_warm", "%llu",
+                (unsigned long long)totals.moves_to_warm);
+    APPEND_STAT("moves_within_lru", "%llu",
+                (unsigned long long)totals.moves_within_lru);
 }
 
 void item_stats(ADD_STAT add_stats, void *c) {
@@ -630,6 +642,12 @@ void item_stats(ADD_STAT add_stats, void *c) {
                                 "%llu", (unsigned long long)itemstats[i].crawler_reclaimed);
             APPEND_NUM_FMT_STAT(fmt, i, "lrutail_reflocked",
                                 "%llu", (unsigned long long)itemstats[i].lrutail_reflocked);
+            APPEND_NUM_FMT_STAT(fmt, i, "moves_to_cold",
+                                "%llu", (unsigned long long)itemstats[i].moves_to_cold);
+            APPEND_NUM_FMT_STAT(fmt, i, "moves_to_warm",
+                                "%llu", (unsigned long long)itemstats[i].moves_to_warm);
+            APPEND_NUM_FMT_STAT(fmt, i, "moves_within_lru",
+                                "%llu", (unsigned long long)itemstats[i].moves_within_lru);
         }
         pthread_mutex_unlock(&lru_locks[i]);
     }
@@ -761,21 +779,14 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 /*** LRU MAINTENANCE THREAD ***/
 
 /* Returns number of items remove, expired, or evicted */
-/* FIXME: I *think* since we're always intending to pop an item from the
- * bottom of cold, we only need to hold the cold LRU lock long enough to
- * iten_lock something valid. Then we remove the lock, and can fiddle with the
- * item. However, do_item_unlink_nolock() will need an option for "skip the
- * LRU removal"
- */
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const unsigned int total_chunks, const bool do_evict) {
+        const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv) {
     item *it = NULL;
     int id = orig_id;
     int removed = 0;
     if (id == 0)
         return 0;
 
-    /* do a quick check if we have any expired items in the tail.. */
     int tries = 5;
     item *search;
     item *next_it;
@@ -798,10 +809,9 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
         }
         uint32_t hv = hash(ITEM_key(search), search->nkey);
         /* Attempt to hash item lock the "search" item. If locked, no
-         * other callers can incr the refcount
+         * other callers can incr the refcount. Also skip ourselves.
          */
-        /* Don't accidentally grab ourselves, or bail if we can't quicklock */
-        if ((hold_lock = item_trylock(hv)) == NULL)
+        if (hv == cur_hv || (hold_lock = item_trylock(hv)) == NULL)
             continue;
         /* Now see if the item is refcount locked */
         if (refcount_incr(&search->refcount) != 2) {
@@ -843,14 +853,13 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
          * If we're COLD_LRU, send to WARM_LRU unless we need to evict
          */
         /* FIXME: Hardcoded percentage */
-        /* FIXME: Won't aggressively pull from cold into warm */
         switch (cur_lru) {
             case HOT_LRU:
                 limit = total_chunks * 32 / 100;
             case WARM_LRU:
                 limit = total_chunks * 32 / 100;
                 if (sizes[id] > limit) {
-                    /* FIXME: Counter for move-to-cold */
+                    itemstats[id].moves_to_cold++;
                     move_to_lru = COLD_LRU;
                     do_item_unlink_q(search);
                     it = search;
@@ -858,7 +867,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     break;
                 } else if ((search->it_flags & ITEM_ACTIVE) != 0) {
                     /* Only allow ACTIVE relinking if we're not too large. */
-                    fprintf(stderr, "doing item update from %d\n", orig_id);
+                    itemstats[id].moves_within_lru++;
                     search->it_flags &= ~ITEM_ACTIVE;
                     do_item_update_nolock(search);
                     do_item_remove(search);
@@ -872,8 +881,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                 it = search; /* No matter what, we're stopping */
                 if (do_evict) {
                     if (settings.evict_to_free == 0) {
-                        /* FIXME: New counter that means "tried to evict" */
-                        itemstats[id].outofmemory++;
+                        /* Don't think we need a counter for this. It'll OOM.  */
                         break;
                     }
                     itemstats[id].evicted++;
@@ -886,6 +894,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     do_item_unlink_nolock(it, hv);
                     removed++;
                 } else if ((search->it_flags & ITEM_ACTIVE) != 0) {
+                    itemstats[id].moves_to_warm++;
                     search->it_flags &= ~ITEM_ACTIVE;
                     move_to_lru = WARM_LRU;
                     do_item_unlink_q(search);
@@ -901,11 +910,8 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
 
     if (it != NULL) {
         if (move_to_lru) {
-            fprintf(stderr, "moving from [%d]_lru to [%d]_lru\n", cur_lru, move_to_lru);
             it->slabs_clsid &= ~(3>>6);
-            fprintf(stderr, "- removed cur_lru %d\n", it->slabs_clsid);
             it->slabs_clsid |= move_to_lru;
-            fprintf(stderr, "- added [%d]_lru %d\n", move_to_lru, it->slabs_clsid);
             item_link_q(it);
         }
         do_item_remove(it);
@@ -927,25 +933,26 @@ static void lru_maintainer_juggle(const int slabs_clsid) {
     unsigned int total_chunks = 0;
     unsigned int free_chunks = slabs_available_chunks(slabs_clsid,
             &mem_limit_reached, &total_chunks);
-    //fprintf(stderr, "really starting LRU juggle\n");
+    STATS_LOCK();
+    stats.lru_maintainer_juggles++;
+    STATS_UNLOCK();
 
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 50; i++) {
-        if (!lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false) &&
-            !lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false)) {
-            break;
+        int do_more = 0;
+        int removed = 0;
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false, 0) &&
+            lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false, 0)) {
+            do_more++;
         }
-    }
-
-    /* Less than high watermark */
-    /* If less than low watermark and no more pages available, evict */
-    /* FIXME: More tries if it shuffled .... something? */
-    for (i = 0; i < 50 && free_chunks < 100; i++) {
-        int removed = lru_pull_tail(slabs_clsid, COLD_LRU, total_chunks,
-                (free_chunks < 50 && mem_limit_reached) ? true : false);
-        if (removed == 0)
-            break;
+        /* FIXME: evictions under low watermark is hardcoded */
+        removed = lru_pull_tail(slabs_clsid, COLD_LRU, total_chunks,
+                (free_chunks < 50 && mem_limit_reached) ? true : false, 0);
+        if (removed != 0)
+            do_more++;
         free_chunks += removed;
+        if (do_more == 0)
+            break;
     }
 }
 
@@ -965,7 +972,8 @@ static void *lru_maintainer_thread(void *arg) {
         ts.tv_sec = tv.tv_sec + 1;
         pthread_cond_timedwait(&lru_maintainer_cond, &lru_maintainer_lock, &ts);
 
-        fprintf(stderr, "LRU maintainer thread running\n");
+        if (verbose > 2)
+            fprintf(stderr, "LRU maintainer thread running\n");
         /* We were asked to immediately wake up and poke a particular slab
          * class due to a low watermark being hit */
         if (lru_maintainer_check_clsid != 0) {
@@ -996,7 +1004,7 @@ int stop_lru_maintainer_thread(void) {
         fprintf(stderr, "Failed to stop LRU maintainer thread: %s\n", strerror(ret));
         return -1;
     }
-    //settings.lru_maintainer_thread = false;
+    settings.lru_maintainer_thread = false;
     return 0;
 }
 
@@ -1005,7 +1013,7 @@ int start_lru_maintainer_thread(void) {
 
     pthread_mutex_lock(&lru_maintainer_lock);
     do_run_lru_maintainer_thread = 1;
-    //settings.lru_maintainer_thread = true;
+    settings.lru_maintainer_thread = true;
     if ((ret = pthread_create(&lru_maintainer_tid, NULL,
         lru_maintainer_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create LRU maintainer thread: %s\n",
