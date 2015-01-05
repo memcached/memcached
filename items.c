@@ -22,6 +22,7 @@ static void item_unlink_q(item *it);
 #define WARM_LRU 64
 #define COLD_LRU 128
 #define NOEXP_LRU 192
+static unsigned int lru_type_map[4] = {HOT_LRU, WARM_LRU, COLD_LRU, NOEXP_LRU};
 
 #define LARGEST_ID POWER_LARGEST
 typedef struct {
@@ -435,31 +436,41 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
 }
 
 void item_stats_evictions(uint64_t *evicted) {
-    int i;
-    for (i = 0; i < LARGEST_ID; i++) {
-        pthread_mutex_lock(&lru_locks[i]);
-        evicted[i] = itemstats[i].evicted;
-        pthread_mutex_unlock(&lru_locks[i]);
+    int n;
+    for (n = 0; n < MAX_NUMBER_OF_SLAB_CLASSES; n++) {
+        int i;
+        int x;
+        for (x = 0; x < 4; x++) {
+            i = n | lru_type_map[x];
+            pthread_mutex_lock(&lru_locks[i]);
+            evicted[i] = itemstats[i].evicted;
+            pthread_mutex_unlock(&lru_locks[i]);
+        }
     }
 }
 
 void item_stats_totals(ADD_STAT add_stats, void *c) {
     itemstats_t totals;
     memset(&totals, 0, sizeof(itemstats_t));
-    int i;
-    for (i = 0; i < LARGEST_ID; i++) {
-        pthread_mutex_lock(&lru_locks[i]);
-        totals.expired_unfetched += itemstats[i].expired_unfetched;
-        totals.evicted_unfetched += itemstats[i].evicted_unfetched;
-        totals.evicted += itemstats[i].evicted;
-        totals.reclaimed += itemstats[i].reclaimed;
-        totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
-        totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
-        totals.moves_to_cold += itemstats[i].moves_to_cold;
-        totals.moves_to_warm += itemstats[i].moves_to_warm;
-        totals.moves_within_lru += itemstats[i].moves_within_lru;
-        totals.direct_reclaims += itemstats[i].direct_reclaims;
-        pthread_mutex_unlock(&lru_locks[i]);
+    int n;
+    for (n = 0; n < MAX_NUMBER_OF_SLAB_CLASSES; n++) {
+        int x;
+        int i;
+        for (x = 0; x < 4; x++) {
+            i = n | lru_type_map[x];
+            pthread_mutex_lock(&lru_locks[i]);
+            totals.expired_unfetched += itemstats[i].expired_unfetched;
+            totals.evicted_unfetched += itemstats[i].evicted_unfetched;
+            totals.evicted += itemstats[i].evicted;
+            totals.reclaimed += itemstats[i].reclaimed;
+            totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
+            totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
+            totals.moves_to_cold += itemstats[i].moves_to_cold;
+            totals.moves_to_warm += itemstats[i].moves_to_warm;
+            totals.moves_within_lru += itemstats[i].moves_within_lru;
+            totals.direct_reclaims += itemstats[i].direct_reclaims;
+            pthread_mutex_unlock(&lru_locks[i]);
+        }
     }
     APPEND_STAT("expired_unfetched", "%llu",
                 (unsigned long long)totals.expired_unfetched);
@@ -484,50 +495,70 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
 }
 
 void item_stats(ADD_STAT add_stats, void *c) {
-    int i;
-    for (i = 0; i < LARGEST_ID; i++) {
-        pthread_mutex_lock(&lru_locks[i]);
-        if (tails[i] != NULL) {
-            const char *fmt = "items:%d:%s";
-            char key_str[STAT_KEY_LEN];
-            char val_str[STAT_VAL_LEN];
-            int klen = 0, vlen = 0;
-            if (tails[i] == NULL) {
-                /* We removed all of the items in this slab class */
-                continue;
-            }
-            APPEND_NUM_FMT_STAT(fmt, i, "number", "%u", sizes[i]);
-            APPEND_NUM_FMT_STAT(fmt, i, "age", "%u", current_time - tails[i]->time);
-            APPEND_NUM_FMT_STAT(fmt, i, "evicted",
-                                "%llu", (unsigned long long)itemstats[i].evicted);
-            APPEND_NUM_FMT_STAT(fmt, i, "evicted_nonzero",
-                                "%llu", (unsigned long long)itemstats[i].evicted_nonzero);
-            APPEND_NUM_FMT_STAT(fmt, i, "evicted_time",
-                                "%u", itemstats[i].evicted_time);
-            APPEND_NUM_FMT_STAT(fmt, i, "outofmemory",
-                                "%llu", (unsigned long long)itemstats[i].outofmemory);
-            APPEND_NUM_FMT_STAT(fmt, i, "tailrepairs",
-                                "%llu", (unsigned long long)itemstats[i].tailrepairs);
-            APPEND_NUM_FMT_STAT(fmt, i, "reclaimed",
-                                "%llu", (unsigned long long)itemstats[i].reclaimed);
-            APPEND_NUM_FMT_STAT(fmt, i, "expired_unfetched",
-                                "%llu", (unsigned long long)itemstats[i].expired_unfetched);
-            APPEND_NUM_FMT_STAT(fmt, i, "evicted_unfetched",
-                                "%llu", (unsigned long long)itemstats[i].evicted_unfetched);
-            APPEND_NUM_FMT_STAT(fmt, i, "crawler_reclaimed",
-                                "%llu", (unsigned long long)itemstats[i].crawler_reclaimed);
-            APPEND_NUM_FMT_STAT(fmt, i, "lrutail_reflocked",
-                                "%llu", (unsigned long long)itemstats[i].lrutail_reflocked);
-            APPEND_NUM_FMT_STAT(fmt, i, "moves_to_cold",
-                                "%llu", (unsigned long long)itemstats[i].moves_to_cold);
-            APPEND_NUM_FMT_STAT(fmt, i, "moves_to_warm",
-                                "%llu", (unsigned long long)itemstats[i].moves_to_warm);
-            APPEND_NUM_FMT_STAT(fmt, i, "moves_within_lru",
-                                "%llu", (unsigned long long)itemstats[i].moves_within_lru);
-            APPEND_NUM_FMT_STAT(fmt, i, "direct_reclaims",
-                                "%llu", (unsigned long long)itemstats[i].direct_reclaims);
+    itemstats_t totals;
+    int n;
+    for (n = 0; n < MAX_NUMBER_OF_SLAB_CLASSES; n++) {
+        memset(&totals, 0, sizeof(itemstats_t));
+        int x;
+        int i;
+        unsigned int size = 0;
+        unsigned int age  = 0;
+        const char *fmt = "items:%d:%s";
+        char key_str[STAT_KEY_LEN];
+        char val_str[STAT_VAL_LEN];
+        int klen = 0, vlen = 0;
+        for (x = 0; x < 4; x++) {
+            i = n | lru_type_map[x];
+            pthread_mutex_lock(&lru_locks[i]);
+            totals.evicted += itemstats[i].evicted;
+            totals.evicted_nonzero += itemstats[i].evicted_nonzero;
+            totals.outofmemory += itemstats[i].outofmemory;
+            totals.tailrepairs += itemstats[i].tailrepairs;
+            totals.expired_unfetched += itemstats[i].expired_unfetched;
+            totals.evicted_unfetched += itemstats[i].evicted_unfetched;
+            totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
+            totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
+            totals.moves_to_cold += itemstats[i].moves_to_cold;
+            totals.moves_to_warm += itemstats[i].moves_to_warm;
+            totals.moves_within_lru += itemstats[i].moves_within_lru;
+            totals.direct_reclaims += itemstats[i].direct_reclaims;
+            size += sizes[i];
+            if (lru_type_map[x] == COLD_LRU && tails[i] != NULL)
+                age = current_time - tails[i]->time;
+            pthread_mutex_unlock(&lru_locks[i]);
         }
-        pthread_mutex_unlock(&lru_locks[i]);
+        if (size == 0)
+            continue;
+        APPEND_NUM_FMT_STAT(fmt, n, "number", "%u", size);
+        APPEND_NUM_FMT_STAT(fmt, n, "age", "%u", age);
+        APPEND_NUM_FMT_STAT(fmt, n, "evicted",
+                            "%llu", (unsigned long long)totals.evicted);
+        APPEND_NUM_FMT_STAT(fmt, n, "evicted_nonzero",
+                            "%llu", (unsigned long long)totals.evicted_nonzero);
+        APPEND_NUM_FMT_STAT(fmt, n, "evicted_time",
+                            "%u", totals.evicted_time);
+        APPEND_NUM_FMT_STAT(fmt, n, "outofmemory",
+                            "%llu", (unsigned long long)totals.outofmemory);
+        APPEND_NUM_FMT_STAT(fmt, n, "tailrepairs",
+                            "%llu", (unsigned long long)totals.tailrepairs);
+        APPEND_NUM_FMT_STAT(fmt, n, "reclaimed",
+                            "%llu", (unsigned long long)totals.reclaimed);
+        APPEND_NUM_FMT_STAT(fmt, n, "expired_unfetched",
+                            "%llu", (unsigned long long)totals.expired_unfetched);
+        APPEND_NUM_FMT_STAT(fmt, n, "evicted_unfetched",
+                            "%llu", (unsigned long long)totals.evicted_unfetched);
+        APPEND_NUM_FMT_STAT(fmt, n, "crawler_reclaimed",
+                            "%llu", (unsigned long long)totals.crawler_reclaimed);
+        APPEND_NUM_FMT_STAT(fmt, n, "lrutail_reflocked",
+                            "%llu", (unsigned long long)totals.lrutail_reflocked);
+        APPEND_NUM_FMT_STAT(fmt, n, "moves_to_cold",
+                            "%llu", (unsigned long long)totals.moves_to_cold);
+        APPEND_NUM_FMT_STAT(fmt, n, "moves_to_warm",
+                            "%llu", (unsigned long long)totals.moves_to_warm);
+        APPEND_NUM_FMT_STAT(fmt, n, "moves_within_lru",
+                            "%llu", (unsigned long long)totals.moves_within_lru);
+        APPEND_NUM_FMT_STAT(fmt, n, "direct_reclaims",
+                            "%llu", (unsigned long long)totals.direct_reclaims);
     }
 
     /* getting here means both ascii and binary terminators fit */
