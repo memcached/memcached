@@ -575,7 +575,6 @@ void item_stats(ADD_STAT add_stats, void *c) {
 /* Locks are correct based on a technicality. Holds LRU lock while doing the
  * work, so items can't go invalid, and it's only looking at header sizes
  * which don't change.
- * FIXME: Now only accounts for the HOT LRU
  */
 void item_stats_sizes(ADD_STAT add_stats, void *c) {
 
@@ -1221,11 +1220,13 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
              p = strtok_r(NULL, ",", &b)) {
 
             if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
-                    || sid >= LARGEST_ID) {
+                    || sid >= MAX_NUMBER_OF_SLAB_CLASSES) {
                 pthread_mutex_unlock(&lru_crawler_lock);
                 return CRAWLER_BADCLASS;
             }
-            tocrawl[sid] = 1;
+            tocrawl[sid | HOT_LRU] = 1;
+            tocrawl[sid | WARM_LRU] = 1;
+            tocrawl[sid | COLD_LRU] = 1;
         }
     }
 
@@ -1233,7 +1234,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
         pthread_mutex_lock(&lru_locks[sid]);
         if (tocrawl[sid] != 0 && tails[sid] != NULL) {
             if (settings.verbose > 2)
-                fprintf(stderr, "Kicking LRU crawler off for slab %d\n", sid);
+                fprintf(stderr, "Kicking LRU crawler off for LRU %d\n", sid);
             crawlers[sid].nbytes = 0;
             crawlers[sid].nkey = 0;
             crawlers[sid].it_flags = 1; /* For a crawler, this means enabled. */
