@@ -503,6 +503,7 @@ void item_stats(ADD_STAT add_stats, void *c) {
         int i;
         unsigned int size = 0;
         unsigned int age  = 0;
+        unsigned int lru_size_map[4];
         const char *fmt = "items:%d:%s";
         char key_str[STAT_KEY_LEN];
         char val_str[STAT_VAL_LEN];
@@ -523,6 +524,7 @@ void item_stats(ADD_STAT add_stats, void *c) {
             totals.moves_within_lru += itemstats[i].moves_within_lru;
             totals.direct_reclaims += itemstats[i].direct_reclaims;
             size += sizes[i];
+            lru_size_map[x] = sizes[i];
             if (lru_type_map[x] == COLD_LRU && tails[i] != NULL)
                 age = current_time - tails[i]->time;
             pthread_mutex_unlock(&lru_locks[i]);
@@ -530,6 +532,9 @@ void item_stats(ADD_STAT add_stats, void *c) {
         if (size == 0)
             continue;
         APPEND_NUM_FMT_STAT(fmt, n, "number", "%u", size);
+        APPEND_NUM_FMT_STAT(fmt, n, "number_hot", "%u", lru_size_map[0]);
+        APPEND_NUM_FMT_STAT(fmt, n, "number_warm", "%u", lru_size_map[1]);
+        APPEND_NUM_FMT_STAT(fmt, n, "number_cold", "%u", lru_size_map[2]);
         APPEND_NUM_FMT_STAT(fmt, n, "age", "%u", age);
         APPEND_NUM_FMT_STAT(fmt, n, "evicted",
                             "%llu", (unsigned long long)totals.evicted);
@@ -839,11 +844,10 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
 static int lru_maintainer_juggle(const int slabs_clsid) {
     int i;
     int did_moves = 0;
-    //bool mem_limit_reached = false;
+    bool mem_limit_reached = false;
     unsigned int total_chunks = 0;
     /* FIXME: if free_chunks below high watermark, increase aggressiveness */
-/*    unsigned int free_chunks = slabs_available_chunks(slabs_clsid,
-            &mem_limit_reached, &total_chunks);*/
+    slabs_available_chunks(slabs_clsid, &mem_limit_reached, &total_chunks);
     STATS_LOCK();
     stats.lru_maintainer_juggles++;
     STATS_UNLOCK();
@@ -851,7 +855,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 500; i++) {
         int do_more = 0;
-        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false, 0) &&
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false, 0) ||
             lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false, 0)) {
             do_more++;
         }
