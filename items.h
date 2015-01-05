@@ -2,7 +2,6 @@
 uint64_t get_cas_id(void);
 
 /*@null@*/
-item *do_item_alloc_old(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes, const uint32_t cur_hv);
 item *do_item_alloc(char *key, const size_t nkey, const int flags, const rel_time_t exptime, const int nbytes, const uint32_t cur_hv);
 void item_free(item *it);
 bool item_size_ok(const size_t nkey, const int flags, const int nbytes);
@@ -38,7 +37,6 @@ int stop_lru_maintainer_thread(void);
 int init_lru_maintainer(void);
 void lru_maintainer_pause(void);
 void lru_maintainer_resume(void);
-void lru_maintainer_wake(int slabs_clsid);
 
 int start_item_crawler_thread(void);
 int stop_item_crawler_thread(void);

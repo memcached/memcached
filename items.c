@@ -37,6 +37,7 @@ typedef struct {
     uint64_t moves_to_cold;
     uint64_t moves_to_warm;
     uint64_t moves_within_lru;
+    uint64_t direct_reclaims;
     rel_time_t evicted_time;
 } itemstats_t;
 
@@ -55,7 +56,6 @@ static int lru_maintainer_check_clsid = 0;
 static pthread_mutex_t lru_crawler_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t  lru_maintainer_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void item_stats_reset(void) {
@@ -67,6 +67,8 @@ void item_stats_reset(void) {
     }
 }
 
+static int lru_pull_tail(const int orig_id, const int cur_lru,
+        const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv);
 
 /* Get the next CAS id for a new item. */
 /* TODO: refactor some atomics for this. */
@@ -124,9 +126,11 @@ static size_t item_make_header(const uint8_t nkey, const int flags, const int nb
 item *do_item_alloc(char *key, const size_t nkey, const int flags,
                     const rel_time_t exptime, const int nbytes,
                     const uint32_t cur_hv) {
+    int i;
     uint8_t nsuffix;
     item *it = NULL;
     char suffix[40];
+    unsigned int total_chunks;
     size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
     if (settings.use_cas) {
         ntotal += sizeof(uint64_t);
@@ -136,7 +140,28 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     if (id == 0)
         return 0;
 
-    it = slabs_alloc(ntotal, id);
+    /* If no memory is available, attempt a direct LRU juggle/eviction */
+    /* This is a race sin order to simplify lru_pull_tail; in cases where
+     * locked items are on the tail, you want them to fall out and cause
+     * occasional OOM's, rather than internally work around them.
+     * This also gives one fewer code path for a slab alloc/free
+     */
+    for (i = 0; i < 5; i++) {
+        it = slabs_alloc(ntotal, id, &total_chunks);
+        if (it == NULL) {
+            lru_pull_tail(id, HOT_LRU, total_chunks, false, cur_hv);
+            lru_pull_tail(id, WARM_LRU, total_chunks, false, cur_hv);
+            lru_pull_tail(id, COLD_LRU, total_chunks, true, cur_hv);
+        } else {
+            break;
+        }
+    }
+
+    if (i > 0) {
+        pthread_mutex_lock(&lru_locks[id]);
+        itemstats[id].direct_reclaims += i;
+        pthread_mutex_unlock(&lru_locks[id]);
+    }
 
     if (it == NULL) {
         pthread_mutex_lock(&lru_locks[id]);
@@ -154,156 +179,6 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
      * least a note here. Compiler (hopefully?) optimizes this out.
      */
     id |= HOT_LRU;
-    it->slabs_clsid = id;
-
-    DEBUG_REFCNT(it, '*');
-    it->it_flags = settings.use_cas ? ITEM_CAS : 0;
-    it->nkey = nkey;
-    it->nbytes = nbytes;
-    memcpy(ITEM_key(it), key, nkey);
-    it->exptime = exptime;
-    memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
-    it->nsuffix = nsuffix;
-    return it;
-}
-
-/*@null@*/
-item *do_item_alloc_old(char *key, const size_t nkey, const int flags,
-                    const rel_time_t exptime, const int nbytes,
-                    const uint32_t cur_hv) {
-    uint8_t nsuffix;
-    item *it = NULL;
-    char suffix[40];
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
-    if (settings.use_cas) {
-        ntotal += sizeof(uint64_t);
-    }
-
-    unsigned int id = slabs_clsid(ntotal);
-    if (id == 0)
-        return 0;
-
-    mutex_lock(&cache_lock);
-    /* do a quick check if we have any expired items in the tail.. */
-    int tries = 5;
-    /* Avoid hangs if a slab has nothing but refcounted stuff in it. */
-    int tries_lrutail_reflocked = 1000;
-    int tried_alloc = 0;
-    item *search;
-    item *next_it;
-    void *hold_lock = NULL;
-
-    search = tails[id];
-    /* We walk up *only* for locked items. Never searching for expired.
-     * Waste of CPU for almost all deployments */
-    for (; tries > 0 && search != NULL; tries--, search=next_it) {
-        /* we might relink search mid-loop, so search->prev isn't reliable */
-        next_it = search->prev;
-        if (search->nbytes == 0 && search->nkey == 0 && search->it_flags == 1) {
-            /* We are a crawler, ignore it. */
-            tries++;
-            continue;
-        }
-        uint32_t hv = hash(ITEM_key(search), search->nkey);
-        /* Attempt to hash item lock the "search" item. If locked, no
-         * other callers can incr the refcount
-         */
-        /* Don't accidentally grab ourselves, or bail if we can't quicklock */
-        if (hv == cur_hv || (hold_lock = item_trylock(hv)) == NULL)
-            continue;
-        /* Now see if the item is refcount locked */
-        if (refcount_incr(&search->refcount) != 2) {
-            /* Avoid pathological case with ref'ed items in tail */
-            do_item_update_nolock(search);
-            tries_lrutail_reflocked--;
-            tries++;
-            refcount_decr(&search->refcount);
-            itemstats[id].lrutail_reflocked++;
-            /* Old rare bug could cause a refcount leak. We haven't seen
-             * it in years, but we leave this code in to prevent failures
-             * just in case */
-            if (settings.tail_repair_time &&
-                    search->time + settings.tail_repair_time < current_time) {
-                itemstats[id].tailrepairs++;
-                search->refcount = 1;
-                do_item_unlink_nolock(search, hv);
-            }
-            if (hold_lock)
-                item_trylock_unlock(hold_lock);
-
-            if (tries_lrutail_reflocked < 1)
-                break;
-
-            continue;
-        }
-
-        /* Expired or flushed */
-        if ((search->exptime != 0 && search->exptime < current_time)
-            || is_flushed(search)) {
-            itemstats[id].reclaimed++;
-            if ((search->it_flags & ITEM_FETCHED) == 0) {
-                itemstats[id].expired_unfetched++;
-            }
-            it = search;
-            slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-            do_item_unlink_nolock(it, hv);
-            /* Initialize the item block: */
-            it->slabs_clsid = 0;
-        } else if ((it = slabs_alloc(ntotal, id)) == NULL) {
-            tried_alloc = 1;
-            if (settings.evict_to_free == 0) {
-                itemstats[id].outofmemory++;
-            } else {
-                itemstats[id].evicted++;
-                itemstats[id].evicted_time = current_time - search->time;
-                if (search->exptime != 0)
-                    itemstats[id].evicted_nonzero++;
-                if ((search->it_flags & ITEM_FETCHED) == 0) {
-                    itemstats[id].evicted_unfetched++;
-                }
-                it = search;
-                slabs_adjust_mem_requested(it->slabs_clsid, ITEM_ntotal(it), ntotal);
-                do_item_unlink_nolock(it, hv);
-                /* Initialize the item block: */
-                it->slabs_clsid = 0;
-
-                /* If we've just evicted an item, and the automover is set to
-                 * angry bird mode, attempt to rip memory into this slab class.
-                 * TODO: Move valid object detection into a function, and on a
-                 * "successful" memory pull, look behind and see if the next alloc
-                 * would be an eviction. Then kick off the slab mover before the
-                 * eviction happens.
-                 */
-                if (settings.slab_automove == 2)
-                    slabs_reassign(-1, id);
-            }
-        }
-
-        refcount_decr(&search->refcount);
-        /* If hash values were equal, we don't grab a second lock */
-        if (hold_lock)
-            item_trylock_unlock(hold_lock);
-        break;
-    }
-
-    if (!tried_alloc && (tries == 0 || search == NULL))
-        it = slabs_alloc(ntotal, id);
-
-    if (it == NULL) {
-        itemstats[id].outofmemory++;
-        mutex_unlock(&cache_lock);
-        return NULL;
-    }
-
-    assert(it->slabs_clsid == 0);
-    assert(it != heads[id]);
-
-    /* Item initialization can happen outside of the lock; the item's already
-     * been removed from the slab LRU.
-     */
-    it->refcount = 1;     /* the caller will have a reference */
-    mutex_unlock(&cache_lock);
-    it->next = it->prev = it->h_next = 0;
     it->slabs_clsid = id;
 
     DEBUG_REFCNT(it, '*');
@@ -477,25 +352,23 @@ void do_item_update_nolock(item *it) {
     }
 }
 
-/* This is a no-op with the new item allocator. */
+/* Currently only bumps the accessed time. When compat mode is implemented it
+ * can also bump the LRU
+ */
 void do_item_update(item *it) {
-    return;
-}
-
-/*void do_item_update(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
 
         if ((it->it_flags & ITEM_LINKED) != 0) {
-            mutex_lock(&cache_lock);
-            item_unlink_q(it);
             it->time = current_time;
+            /*
+            item_unlink_q(it);
             item_link_q(it);
-            mutex_unlock(&cache_lock);
+            */
         }
     }
-}*/
+}
 
 int do_item_replace(item *it, item *new_it, const uint32_t hv) {
     MEMCACHED_ITEM_REPLACE(ITEM_key(it), it->nkey, it->nbytes,
@@ -585,6 +458,7 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
         totals.moves_to_cold += itemstats[i].moves_to_cold;
         totals.moves_to_warm += itemstats[i].moves_to_warm;
         totals.moves_within_lru += itemstats[i].moves_within_lru;
+        totals.direct_reclaims += itemstats[i].direct_reclaims;
         pthread_mutex_unlock(&lru_locks[i]);
     }
     APPEND_STAT("expired_unfetched", "%llu",
@@ -605,6 +479,8 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.moves_to_warm);
     APPEND_STAT("moves_within_lru", "%llu",
                 (unsigned long long)totals.moves_within_lru);
+    APPEND_STAT("direct_reclaims", "%llu",
+                (unsigned long long)totals.direct_reclaims);
 }
 
 void item_stats(ADD_STAT add_stats, void *c) {
@@ -648,6 +524,8 @@ void item_stats(ADD_STAT add_stats, void *c) {
                                 "%llu", (unsigned long long)itemstats[i].moves_to_warm);
             APPEND_NUM_FMT_STAT(fmt, i, "moves_within_lru",
                                 "%llu", (unsigned long long)itemstats[i].moves_within_lru);
+            APPEND_NUM_FMT_STAT(fmt, i, "direct_reclaims",
+                                "%llu", (unsigned long long)itemstats[i].direct_reclaims);
         }
         pthread_mutex_unlock(&lru_locks[i]);
     }
@@ -839,9 +717,9 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                 itemstats[id].expired_unfetched++;
             }
             /* refcnt 2 -> 1 */
-            do_item_unlink_nolock(it, hv);
+            do_item_unlink_nolock(search, hv);
             /* refcnt 1 -> 0 -> item_free */
-            do_item_remove(it);
+            do_item_remove(search);
             item_trylock_unlock(hold_lock);
             removed++;
 
@@ -891,14 +769,14 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     if ((search->it_flags & ITEM_FETCHED) == 0) {
                         itemstats[id].evicted_unfetched++;
                     }
-                    do_item_unlink_nolock(it, hv);
+                    do_item_unlink_nolock(search, hv);
                     removed++;
                 } else if ((search->it_flags & ITEM_ACTIVE) != 0) {
                     itemstats[id].moves_to_warm++;
                     search->it_flags &= ~ITEM_ACTIVE;
                     move_to_lru = WARM_LRU;
                     do_item_unlink_q(search);
-                    /* Don't tick removed, since we haven't freed anything */
+                    removed++;
                 }
                 break;
         }
@@ -927,62 +805,69 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
  * If too many items are in COLD_LRU, poke COLD_LRU tail
  * If too many items are in COLD_LRU and are below low watermark, start evicting
  */
-static void lru_maintainer_juggle(const int slabs_clsid) {
+static int lru_maintainer_juggle(const int slabs_clsid) {
     int i;
-    bool mem_limit_reached = false;
+    int did_moves = 0;
+    //bool mem_limit_reached = false;
     unsigned int total_chunks = 0;
-    unsigned int free_chunks = slabs_available_chunks(slabs_clsid,
-            &mem_limit_reached, &total_chunks);
+    /* FIXME: if free_chunks below high watermark, increase aggressiveness */
+/*    unsigned int free_chunks = slabs_available_chunks(slabs_clsid,
+            &mem_limit_reached, &total_chunks);*/
     STATS_LOCK();
     stats.lru_maintainer_juggles++;
     STATS_UNLOCK();
 
     /* Juggle HOT/WARM up to N times */
-    for (i = 0; i < 50; i++) {
+    for (i = 0; i < 500; i++) {
         int do_more = 0;
-        int removed = 0;
         if (lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false, 0) &&
             lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false, 0)) {
             do_more++;
         }
-        /* FIXME: evictions under low watermark is hardcoded */
-        removed = lru_pull_tail(slabs_clsid, COLD_LRU, total_chunks,
-                (free_chunks < 50 && mem_limit_reached) ? true : false, 0);
-        if (removed != 0)
-            do_more++;
-        free_chunks += removed;
+        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_chunks, false, 0);
         if (do_more == 0)
             break;
+        did_moves++;
     }
+    return did_moves;
 }
 
 static pthread_t lru_maintainer_tid;
 
+#define MAX_LRU_MAINTAINER_SLEEP 1000000
+#define MIN_LRU_MAINTAINER_SLEEP 1000
+
 static void *lru_maintainer_thread(void *arg) {
     int i;
+    useconds_t to_sleep = MIN_LRU_MAINTAINER_SLEEP;
 
     pthread_mutex_lock(&lru_maintainer_lock);
     if (settings.verbose > 2)
         fprintf(stderr, "Starting LRU maintainer background thread\n");
     while (do_run_lru_maintainer_thread) {
-        struct timespec ts;
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        /* FIXME: #define or optionize the sleep */
-        ts.tv_sec = tv.tv_sec + 1;
-        pthread_cond_timedwait(&lru_maintainer_cond, &lru_maintainer_lock, &ts);
+        int did_moves = 0;
+        pthread_mutex_unlock(&lru_maintainer_lock);
+        usleep(to_sleep);
+        pthread_mutex_lock(&lru_maintainer_lock);
 
-        if (verbose > 2)
+        if (settings.verbose > 2)
             fprintf(stderr, "LRU maintainer thread running\n");
         /* We were asked to immediately wake up and poke a particular slab
          * class due to a low watermark being hit */
         if (lru_maintainer_check_clsid != 0) {
-            lru_maintainer_juggle(lru_maintainer_check_clsid);
+            did_moves = lru_maintainer_juggle(lru_maintainer_check_clsid);
             lru_maintainer_check_clsid = 0;
         } else {
             for (i = POWER_SMALLEST; i < MAX_NUMBER_OF_SLAB_CLASSES; i++) {
-                lru_maintainer_juggle(i);
+                did_moves += lru_maintainer_juggle(i);
             }
+        }
+        if (did_moves == 0) {
+            if (to_sleep < MAX_LRU_MAINTAINER_SLEEP)
+                to_sleep += 1000;
+        } else {
+            /* FIXME: Slew rampdown? */
+            to_sleep = MIN_LRU_MAINTAINER_SLEEP;
         }
 
         if (settings.verbose > 2)
@@ -997,8 +882,8 @@ static void *lru_maintainer_thread(void *arg) {
 int stop_lru_maintainer_thread(void) {
     int ret;
     pthread_mutex_lock(&lru_maintainer_lock);
+    /* LRU thread is a sleep loop, will die on its own */
     do_run_lru_maintainer_thread = 0;
-    pthread_cond_signal(&lru_maintainer_cond);
     pthread_mutex_unlock(&lru_maintainer_lock);
     if ((ret = pthread_join(lru_maintainer_tid, NULL)) != 0) {
         fprintf(stderr, "Failed to stop LRU maintainer thread: %s\n", strerror(ret));
@@ -1035,27 +920,8 @@ void lru_maintainer_resume(void) {
     pthread_mutex_unlock(&lru_maintainer_lock);
 }
 
-/* Attempt to wake the LRU maintenance thread early. Can specify which slab
- * class to immediately inspect for efficiency
- */
-void lru_maintainer_wake(int slabs_clsid) {
-    if (pthread_mutex_trylock(&lru_maintainer_lock) != 0) {
-        return;
-    }
-    if (settings.verbose > 2)
-        fprintf(stderr, "Signalling LRU maintainer to wake up\n");
-
-    lru_maintainer_check_clsid = slabs_clsid;
-    pthread_cond_signal(&lru_maintainer_cond);
-    pthread_mutex_unlock(&lru_maintainer_lock);
-}
-
 int init_lru_maintainer(void) {
     if (lru_maintainer_initialized == 0) {
-        if (pthread_cond_init(&lru_maintainer_cond, NULL) != 0) {
-            fprintf(stderr, "Can't initialize lru maintainer condition\n");
-            return -1;
-        }
         pthread_mutex_init(&lru_maintainer_lock, NULL);
         lru_maintainer_initialized = 1;
     }

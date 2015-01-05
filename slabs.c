@@ -225,7 +225,7 @@ static int do_slabs_newslab(const unsigned int id) {
 }
 
 /*@null@*/
-static void *do_slabs_alloc(const size_t size, unsigned int id) {
+static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *total_chunks) {
     slabclass_t *p;
     void *ret = NULL;
     item *it = NULL;
@@ -238,6 +238,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
     p = &slabclass[id];
     assert(p->sl_curr == 0 || ((item *)p->slots)->slabs_clsid == 0);
 
+    *total_chunks = p->slabs * p->perslab;
     /* fail unless we have space at the end of a recently allocated page,
        we have something on our freelist, or we could allocate a new page */
     if (! (p->sl_curr != 0 || do_slabs_newslab(id) != 0)) {
@@ -257,11 +258,6 @@ static void *do_slabs_alloc(const size_t size, unsigned int id) {
         MEMCACHED_SLABS_ALLOCATE(size, id, p->size, ret);
     } else {
         MEMCACHED_SLABS_ALLOCATE_FAILED(size, id);
-    }
-
-    /* FIXME: needs to be a per-slab watermark. */
-    if (mem_limit_reached && p->sl_curr < 50) {
-        lru_maintainer_wake(id);
     }
 
     return ret;
@@ -410,11 +406,11 @@ static void *memory_allocate(size_t size) {
     return ret;
 }
 
-void *slabs_alloc(size_t size, unsigned int id) {
+void *slabs_alloc(size_t size, unsigned int id, unsigned int *total_chunks) {
     void *ret;
 
     pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_alloc(size, id);
+    ret = do_slabs_alloc(size, id, total_chunks);
     pthread_mutex_unlock(&slabs_lock);
     return ret;
 }

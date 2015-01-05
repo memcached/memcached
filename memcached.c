@@ -180,6 +180,7 @@ static void stats_init(void) {
     stats.hash_power_level = stats.hash_bytes = stats.hash_is_expanding = 0;
     stats.expired_unfetched = stats.evicted_unfetched = 0;
     stats.slabs_moved = 0;
+    stats.lru_maintainer_juggles = 0;
     stats.accepting_conns = true; /* assuming we start in this state. */
     stats.slab_reassign_running = false;
     stats.lru_crawler_running = false;
@@ -2627,6 +2628,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     }
     if (settings.lru_crawler) {
         APPEND_STAT("lru_crawler_running", "%u", stats.lru_crawler_running);
+    }
+    if (settings.lru_maintainer_thread) {
+        APPEND_STAT("lru_maintainer_juggles", "%llu", (unsigned long long)stats.lru_maintainer_juggles);
     }
     APPEND_STAT("malloc_fails", "%llu",
                 (unsigned long long)stats.malloc_fails);
