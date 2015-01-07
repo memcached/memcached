@@ -29,7 +29,7 @@ extern pthread_mutex_t lru_locks[POWER_LARGEST];
 void item_stats_evictions(uint64_t *evicted);
 
 enum crawler_result_type {
-    CRAWLER_OK=0, CRAWLER_RUNNING, CRAWLER_BADCLASS
+    CRAWLER_OK=0, CRAWLER_RUNNING, CRAWLER_BADCLASS, CRAWLER_NOTSTARTED
 };
 
 int start_lru_maintainer_thread(void);

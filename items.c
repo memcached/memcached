@@ -42,11 +42,23 @@ typedef struct {
     rel_time_t evicted_time;
 } itemstats_t;
 
+typedef struct {
+    uint64_t histo[60];
+    uint64_t ttl_hourplus;
+    uint64_t noexp;
+    uint64_t reclaimed;
+    uint64_t seen;
+    rel_time_t start_time;
+    rel_time_t end_time;
+    bool run_complete;
+} crawlerstats_t;
+
 static item *heads[LARGEST_ID];
 static item *tails[LARGEST_ID];
 static crawler crawlers[LARGEST_ID];
 static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
+static crawlerstats_t crawlerstats[MAX_NUMBER_OF_SLAB_CLASSES];
 
 static int crawler_count = 0;
 static volatile int do_run_lru_crawler_thread = 0;
@@ -56,6 +68,7 @@ static int lru_maintainer_initialized = 0;
 static int lru_maintainer_check_clsid = 0;
 static pthread_mutex_t lru_crawler_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t lru_crawler_stats_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -866,6 +879,71 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     return did_moves;
 }
 
+/* Will crawl all slab classes a minimum of once per hour */
+#define MAX_MAINTCRAWL_WAIT 60 * 60
+
+/* Hoping user input will improve this function. This is all a wild guess.
+ * Operation: Kicks crawler for each slab id. Crawlers take some statistics as
+ * to items with nonzero expirations. It then buckets how many items will
+ * expire per minute for the next hour.
+ * This function checks the results of a run, and if it things more than 1% of
+ * expirable objects are ready to go, kick the crawler again to reap.
+ * It will also kick the crawler once per minute regardless, waiting a minute
+ * longer for each time it has no work to do, up to an hour wait time.
+ * The latter is to avoid newly started daemons from waiting too long before
+ * retrying a crawl.
+ */
+static void lru_maintainer_crawler_check(void) {
+    int i;
+    char buf[10];
+    static rel_time_t last_crawls[MAX_NUMBER_OF_SLAB_CLASSES];
+    static rel_time_t next_crawl_wait[MAX_NUMBER_OF_SLAB_CLASSES];
+    for (i = POWER_SMALLEST; i < MAX_NUMBER_OF_SLAB_CLASSES; i++) {
+        crawlerstats_t *s = &crawlerstats[i];
+        /* We've not successfully kicked off a crawl yet. */
+        if (last_crawls[i] == 0) {
+            snprintf(buf, 10, "%d", i);
+            if (lru_crawler_crawl(buf) == CRAWLER_OK) {
+                last_crawls[i] = current_time;
+            }
+        }
+        pthread_mutex_lock(&lru_crawler_stats_lock);
+        if (s->run_complete) {
+            int x;
+            /* Should we crawl again? */
+            uint64_t possible_reclaims = s->seen - s->noexp;
+            uint64_t available_reclaims = 0;
+            /* Need to think we can free at least 1% of the items before
+             * crawling. */
+            /* FIXME: Configurable? */
+            uint64_t low_watermark = (s->seen / 100) + 1;
+            rel_time_t since_run = current_time - s->end_time;
+            /* Don't bother if the payoff is too low. */
+            if (settings.verbose > 1)
+                fprintf(stderr, "maint crawler: low_watermark: %llu, possible_reclaims: %llu, since_run: %u\n",
+                        (unsigned long long)low_watermark, (unsigned long long)possible_reclaims,
+                        (unsigned int)since_run);
+            for (x = 0; x < 60; x++) {
+                if (since_run < (x * 60) + 60)
+                    break;
+                available_reclaims += s->histo[x];
+            }
+            if (available_reclaims > low_watermark) {
+                last_crawls[i] = 0;
+                if (next_crawl_wait[i] > 60)
+                    next_crawl_wait[i] -= 60;
+            } else if (since_run > 5 && since_run > next_crawl_wait[i]) {
+                last_crawls[i] = 0;
+                if (next_crawl_wait[i] < MAX_MAINTCRAWL_WAIT)
+                    next_crawl_wait[i] += 60;
+            }
+            if (settings.verbose > 1)
+                fprintf(stderr, "maint crawler: available reclaims: %llu, next_crawl: %u\n", (unsigned long long)available_reclaims, next_crawl_wait[i]);
+        }
+        pthread_mutex_unlock(&lru_crawler_stats_lock);
+    }
+}
+
 static pthread_t lru_maintainer_tid;
 
 #define MAX_LRU_MAINTAINER_SLEEP 1000000
@@ -874,6 +952,7 @@ static pthread_t lru_maintainer_tid;
 static void *lru_maintainer_thread(void *arg) {
     int i;
     useconds_t to_sleep = MIN_LRU_MAINTAINER_SLEEP;
+    rel_time_t last_crawler_check = 0;
 
     pthread_mutex_lock(&lru_maintainer_lock);
     if (settings.verbose > 2)
@@ -902,6 +981,11 @@ static void *lru_maintainer_thread(void *arg) {
         } else {
             /* FIXME: Slew rampdown? */
             to_sleep = MIN_LRU_MAINTAINER_SLEEP;
+        }
+        /* Once per second at most */
+        if (settings.lru_crawler && last_crawler_check != current_time) {
+            lru_maintainer_crawler_check();
+            last_crawler_check = current_time;
         }
 
         if (settings.verbose > 2)
@@ -1069,9 +1153,12 @@ static item *crawler_crawl_q(item *it) {
  * main thread's values too much. Should rethink again.
  */
 static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
+    int slab_id = i & ~(3>>6);
+    crawlerstats_t *s = &crawlerstats[slab_id];
     if ((search->exptime != 0 && search->exptime < current_time)
         || is_flushed(search)) {
         itemstats[i].crawler_reclaimed++;
+        s->reclaimed++;
 
         if (settings.verbose > 1) {
             int ii;
@@ -1090,7 +1177,17 @@ static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
         do_item_remove(search);
         assert(search->slabs_clsid == 0);
     } else {
+        s->seen++;
         refcount_decr(&search->refcount);
+        if (search->exptime == 0) {
+            s->noexp++;
+        } else if (search->exptime - current_time > 3599) {
+            s->ttl_hourplus++;
+        } else {
+            rel_time_t ttl_remain = search->exptime - current_time;
+            int bucket = ttl_remain / 60;
+            s->histo[bucket]++;
+        }
     }
 }
 
@@ -1121,6 +1218,10 @@ static void *item_crawler_thread(void *arg) {
                 crawler_count--;
                 crawler_unlink_q((item *)&crawlers[i]);
                 pthread_mutex_unlock(&lru_locks[i]);
+                pthread_mutex_lock(&lru_crawler_stats_lock);
+                crawlerstats[i & ~(3>>6)].end_time = current_time;
+                crawlerstats[i & ~(3>>6)].run_complete = true;
+                pthread_mutex_unlock(&lru_crawler_stats_lock);
                 continue;
             }
             uint32_t hv = hash(ITEM_key(search), search->nkey);
@@ -1143,7 +1244,9 @@ static void *item_crawler_thread(void *arg) {
             /* Frees the item or decrements the refcount. */
             /* Interface for this could improve: do the free/decr here
              * instead? */
+            pthread_mutex_lock(&lru_crawler_stats_lock);
             item_crawler_evaluate(search, hv, i);
+            pthread_mutex_unlock(&lru_crawler_stats_lock);
 
             if (hold_lock)
                 item_trylock_unlock(hold_lock);
@@ -1202,14 +1305,21 @@ int start_item_crawler_thread(void) {
     return 0;
 }
 
+/* FIXME: Split this into two functions: one to kick a crawler for a sid, and one to
+ * parse the string. LRU maintainer code is generating a string to set up a
+ * sid.
+ * Also only clear the crawlerstats once per sid.
+ */
 enum crawler_result_type lru_crawler_crawl(char *slabs) {
     char *b = NULL;
     uint32_t sid = 0;
+    int starts = 0;
     uint8_t tocrawl[LARGEST_ID];
     if (pthread_mutex_trylock(&lru_crawler_lock) != 0) {
         return CRAWLER_RUNNING;
     }
 
+    memset(tocrawl, 0, sizeof(uint8_t) * LARGEST_ID);
     if (strcmp(slabs, "all") == 0) {
         for (sid = 0; sid < LARGEST_ID; sid++) {
             tocrawl[sid] = 1;
@@ -1245,15 +1355,25 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
             crawlers[sid].slabs_clsid = sid;
             crawler_link_q((item *)&crawlers[sid]);
             crawler_count++;
+            starts++;
+            pthread_mutex_lock(&lru_crawler_stats_lock);
+            memset(&crawlerstats[sid & ~(3>>6)], 0, sizeof(crawlerstats_t));
+            crawlerstats[sid & ~(3>>6)].start_time = current_time;
+            pthread_mutex_unlock(&lru_crawler_stats_lock);
         }
         pthread_mutex_unlock(&lru_locks[sid]);
     }
-    pthread_cond_signal(&lru_crawler_cond);
-    STATS_LOCK();
-    stats.lru_crawler_running = true;
-    STATS_UNLOCK();
-    pthread_mutex_unlock(&lru_crawler_lock);
-    return CRAWLER_OK;
+    if (starts) {
+        pthread_cond_signal(&lru_crawler_cond);
+        STATS_LOCK();
+        stats.lru_crawler_running = true;
+        STATS_UNLOCK();
+        pthread_mutex_unlock(&lru_crawler_lock);
+        return CRAWLER_OK;
+    } else {
+        pthread_mutex_unlock(&lru_crawler_lock);
+        return CRAWLER_NOTSTARTED;
+    }
 }
 
 /* If we hold this lock, crawler can't wake up or move */
@@ -1267,6 +1387,7 @@ void lru_crawler_resume(void) {
 
 int init_lru_crawler(void) {
     if (lru_crawler_initialized == 0) {
+        memset(&crawlerstats, 0, sizeof(crawlerstats_t) * MAX_NUMBER_OF_SLAB_CLASSES);
         if (pthread_cond_init(&lru_crawler_cond, NULL) != 0) {
             fprintf(stderr, "Can't initialize lru crawler condition\n");
             return -1;

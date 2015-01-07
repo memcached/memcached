@@ -3603,6 +3603,9 @@ static void process_command(conn *c, char *command) {
             case CRAWLER_BADCLASS:
                 out_string(c, "BADCLASS invalid class id");
                 break;
+            case CRAWLER_NOTSTARTED:
+                out_string(c, "NOTSTARTED no items to crawl");
+                break;
             }
             return;
         } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "tocrawl") == 0) {

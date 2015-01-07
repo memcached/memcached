@@ -449,8 +449,10 @@ unsigned int slabs_available_chunks(const unsigned int id, bool *mem_flag,
     pthread_mutex_lock(&slabs_lock);
     p = &slabclass[id];
     ret = p->sl_curr;
-    *mem_flag = mem_limit_reached;
-    *total_chunks = p->slabs * p->perslab;
+    if (mem_flag != NULL)
+        *mem_flag = mem_limit_reached;
+    if (total_chunks != NULL)
+        *total_chunks = p->slabs * p->perslab;
     pthread_mutex_unlock(&slabs_lock);
     return ret;
 }
