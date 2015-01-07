@@ -187,7 +187,7 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     assert(it->slabs_clsid == 0);
     //assert(it != heads[id]);
 
-    it->refcount = 1;     /* the caller will have a reference */
+    /* Refcount is seeded to 1 by slabs_alloc() */
     it->next = it->prev = it->h_next = 0;
     /* Items are initially loaded into the HOT_LRU. This is '0' but I want at
      * least a note here. Compiler (hopefully?) optimizes this out.
@@ -216,7 +216,6 @@ void item_free(item *it) {
 
     /* so slab size changer can tell later if item is already free or not */
     clsid = ITEM_clsid(it);
-    it->slabs_clsid = 0;
     DEBUG_REFCNT(it, 'F');
     slabs_free(it, ntotal, clsid);
 }

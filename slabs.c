@@ -249,6 +249,10 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *to
         it = (item *)p->slots;
         p->slots = it->next;
         if (it->next) it->next->prev = 0;
+        /* Kill flag and initialize refcount here for lock safety in slab
+         * mover's freeness detection. */
+        it->it_flags &= ~ITEM_SLABBED;
+        it->refcount = 1;
         p->sl_curr--;
         ret = (void *)it;
     }
@@ -267,7 +271,6 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
     item *it;
 
-    assert(((item *)ptr)->slabs_clsid == 0);
     assert(id >= POWER_SMALLEST && id <= power_largest);
     if (id < POWER_SMALLEST || id > power_largest)
         return;
@@ -277,6 +280,7 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
 
     it = (item *)ptr;
     it->it_flags |= ITEM_SLABBED;
+    it->slabs_clsid = 0;
     it->prev = 0;
     it->next = p->slots;
     if (it->next) it->next->prev = it;
@@ -523,6 +527,18 @@ enum move_status {
  * refcount != 0 is impossible since flags/etc can be modified in other
  * threads. instead, note we found a busy one and bail. logic in do_item_get
  * will prevent busy items from continuing to be busy
+ * NOTE: This is checking it_flags outside of an item lock. I believe this
+ * works since it_flags is 8 bits, and we're only ever comparing a single bit
+ * regardless. ITEM_SLABBED bit will always be correct since we're holding the
+ * lock which modifies that bit. ITEM_LINKED won't exist if we're between an
+ * item having ITEM_SLABBED removed, and the key hasn't been added to the item
+ * yet. The memory barrier from the slabs lock should order the key write and the
+ * flags to the item?
+ * If ITEM_LINKED did exist and was just removed, but we still see it, that's
+ * still safe since it will have a valid key, which we then lock, and then
+ * recheck everything.
+ * This may not be safe on all platforms; If not, slabs_alloc() will need to
+ * seed the item key while holding slabs_lock.
  */
 static int slab_rebalance_move(void) {
     slabclass_t *s_cls;
@@ -539,46 +555,53 @@ static int slab_rebalance_move(void) {
         item *it = slab_rebal.slab_pos;
         status = MOVE_PASS;
         if (it->slabs_clsid != 255) {
-            void *hold_lock = NULL;
-            uint32_t hv = hash(ITEM_key(it), it->nkey);
-            if ((hold_lock = item_trylock(hv)) == NULL) {
-                status = MOVE_LOCKED;
-            } else {
-                refcount = refcount_incr(&it->refcount);
-                if (refcount == 1) { /* item is unlinked, unused */
-                    if (it->it_flags & ITEM_SLABBED) {
-                        /* remove from slab freelist */
-                        if (s_cls->slots == it) {
-                            s_cls->slots = it->next;
-                        }
-                        if (it->next) it->next->prev = it->prev;
-                        if (it->prev) it->prev->next = it->next;
-                        s_cls->sl_curr--;
-                        status = MOVE_DONE;
-                    } else {
-                        status = MOVE_BUSY;
-                    }
-                } else if (refcount == 2) { /* item is linked but not busy */
-                    if ((it->it_flags & ITEM_LINKED) != 0) {
-                        do_item_unlink_nolock(it, hv);
-                        status = MOVE_DONE;
-                    } else {
-                        /* refcount == 1 + !ITEM_LINKED means the item is being
-                         * uploaded to, or was just unlinked but hasn't been freed
-                         * yet. Let it bleed off on its own and try again later */
-                        status = MOVE_BUSY;
-                    }
-                } else {
-                    if (settings.verbose > 2) {
-                        fprintf(stderr, "Slab reassign hit a busy item: refcount: %d (%d -> %d)\n",
-                            it->refcount, slab_rebal.s_clsid, slab_rebal.d_clsid);
-                    }
-                    status = MOVE_BUSY;
+            /* ITEM_SLABBED can only be added/removed under the slabs_lock */
+            if (it->it_flags & ITEM_SLABBED) {
+                /* remove from slab freelist */
+                if (s_cls->slots == it) {
+                    s_cls->slots = it->next;
                 }
-                /* Item lock must be held while modifying refcount */
-                if (status == MOVE_BUSY)
-                    refcount_decr(&it->refcount);
-                item_trylock_unlock(hold_lock);
+                if (it->next) it->next->prev = it->prev;
+                if (it->prev) it->prev->next = it->next;
+                s_cls->sl_curr--;
+                status = MOVE_DONE;
+            } else if ((it->it_flags & ITEM_LINKED) != 0) {
+                /* If it doesn't have ITEM_SLABBED, the item could be in any
+                 * state on its way to being freed or written to. If no
+                 * ITEM_SLABBED, but it's had ITEM_LINKED, it must be active
+                 * and have the key written to it already.
+                 */
+                void *hold_lock = NULL;
+                uint32_t hv = hash(ITEM_key(it), it->nkey);
+                if ((hold_lock = item_trylock(hv)) == NULL) {
+                    status = MOVE_LOCKED;
+                } else {
+                    refcount = refcount_incr(&it->refcount);
+                    if (refcount == 2) { /* item is linked but not busy */
+                        /* Double check ITEM_LINKED flag here, since we're
+                         * past a memory barrier from the mutex.
+                         */
+                        if ((it->it_flags & ITEM_LINKED) != 0) {
+                            do_item_unlink_nolock(it, hv);
+                            status = MOVE_DONE;
+                        } else {
+                            /* refcount == 1 + !ITEM_LINKED means the item is being
+                             * uploaded to, or was just unlinked but hasn't been freed
+                             * yet. Let it bleed off on its own and try again later */
+                            status = MOVE_BUSY;
+                        }
+                    } else {
+                        if (settings.verbose > 2) {
+                            fprintf(stderr, "Slab reassign hit a busy item: refcount: %d (%d -> %d)\n",
+                                it->refcount, slab_rebal.s_clsid, slab_rebal.d_clsid);
+                        }
+                        status = MOVE_BUSY;
+                    }
+                    /* Item lock must be held while modifying refcount */
+                    if (status == MOVE_BUSY)
+                        refcount_decr(&it->refcount);
+                    item_trylock_unlock(hold_lock);
+                }
             }
         }
 
