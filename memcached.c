@@ -235,6 +235,7 @@ static void settings_init(void) {
     settings.lru_crawler = false;
     settings.lru_crawler_sleep = 100;
     settings.lru_crawler_tocrawl = 0;
+    settings.lru_maintainer_thread = false;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -5075,7 +5076,8 @@ int main (int argc, char **argv) {
         HASH_ALGORITHM,
         LRU_CRAWLER,
         LRU_CRAWLER_SLEEP,
-        LRU_CRAWLER_TOCRAWL
+        LRU_CRAWLER_TOCRAWL,
+        LRU_MAINTAINER
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5087,6 +5089,7 @@ int main (int argc, char **argv) {
         [LRU_CRAWLER] = "lru_crawler",
         [LRU_CRAWLER_SLEEP] = "lru_crawler_sleep",
         [LRU_CRAWLER_TOCRAWL] = "lru_crawler_tocrawl",
+        [LRU_MAINTAINER] = "lru_maintainer",
         NULL
     };
 
@@ -5415,6 +5418,12 @@ int main (int argc, char **argv) {
                 }
                 settings.lru_crawler_tocrawl = tocrawl;
                 break;
+            case LRU_MAINTAINER:
+                if (start_lru_maintainer_thread() != 0) {
+                    fprintf(stderr, "Failed to enable LRU maintainer thread\n");
+                    return 1;
+                }
+                break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
                 return 1;
@@ -5570,10 +5579,6 @@ int main (int argc, char **argv) {
     memcached_thread_init(settings.num_threads, main_base);
 
     if (start_assoc_maintenance_thread() == -1) {
-        exit(EXIT_FAILURE);
-    }
-
-    if (start_lru_maintainer_thread() == -1) {
         exit(EXIT_FAILURE);
     }
 

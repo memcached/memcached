@@ -161,11 +161,19 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
      * This also gives one fewer code path for a slab alloc/free
      */
     for (i = 0; i < 5; i++) {
+        /* Try to reclaim memory first */
+        if (!settings.lru_maintainer_thread) {
+            lru_pull_tail(id, COLD_LRU, 0, false, cur_hv);
+        }
         it = slabs_alloc(ntotal, id, &total_chunks);
         if (it == NULL) {
-            lru_pull_tail(id, HOT_LRU, total_chunks, false, cur_hv);
-            lru_pull_tail(id, WARM_LRU, total_chunks, false, cur_hv);
-            lru_pull_tail(id, COLD_LRU, total_chunks, true, cur_hv);
+            if (settings.lru_maintainer_thread) {
+                lru_pull_tail(id, HOT_LRU, total_chunks, false, cur_hv);
+                lru_pull_tail(id, WARM_LRU, total_chunks, false, cur_hv);
+                lru_pull_tail(id, COLD_LRU, total_chunks, true, cur_hv);
+            } else {
+                lru_pull_tail(id, COLD_LRU, 0, true, cur_hv);
+            }
         } else {
             break;
         }
@@ -192,7 +200,12 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     /* Items are initially loaded into the HOT_LRU. This is '0' but I want at
      * least a note here. Compiler (hopefully?) optimizes this out.
      */
-    id |= HOT_LRU;
+    if (settings.lru_maintainer_thread) {
+        id |= HOT_LRU;
+    } else {
+        /* There is only COLD in compat-mode */
+        id |= COLD_LRU;
+    }
     it->slabs_clsid = id;
 
     DEBUG_REFCNT(it, '*');
@@ -375,10 +388,10 @@ void do_item_update(item *it) {
 
         if ((it->it_flags & ITEM_LINKED) != 0) {
             it->time = current_time;
-            /*
-            item_unlink_q(it);
-            item_link_q(it);
-            */
+            if (!settings.lru_maintainer_thread) {
+                item_unlink_q(it);
+                item_link_q(it);
+            }
         }
     }
 }
@@ -409,9 +422,12 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     unsigned int shown = 0;
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
+    unsigned int id = slabs_clsid;
+    if (!settings.lru_maintainer_thread)
+        id |= COLD_LRU;
 
-    pthread_mutex_lock(&lru_locks[slabs_clsid]);
-    it = heads[slabs_clsid];
+    pthread_mutex_lock(&lru_locks[id]);
+    it = heads[id];
 
     buffer = malloc((size_t)memlimit);
     if (buffer == 0) {
@@ -443,7 +459,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     bufcurr += 5;
 
     *bytes = bufcurr;
-    pthread_mutex_unlock(&lru_locks[slabs_clsid]);
+    pthread_mutex_unlock(&lru_locks[id]);
     return buffer;
 }
 
@@ -496,14 +512,16 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.crawler_reclaimed);
     APPEND_STAT("lrutail_reflocked", "%llu",
                 (unsigned long long)totals.lrutail_reflocked);
-    APPEND_STAT("moves_to_cold", "%llu",
-                (unsigned long long)totals.moves_to_cold);
-    APPEND_STAT("moves_to_warm", "%llu",
-                (unsigned long long)totals.moves_to_warm);
-    APPEND_STAT("moves_within_lru", "%llu",
-                (unsigned long long)totals.moves_within_lru);
-    APPEND_STAT("direct_reclaims", "%llu",
-                (unsigned long long)totals.direct_reclaims);
+    if (settings.lru_maintainer_thread) {
+        APPEND_STAT("moves_to_cold", "%llu",
+                    (unsigned long long)totals.moves_to_cold);
+        APPEND_STAT("moves_to_warm", "%llu",
+                    (unsigned long long)totals.moves_to_warm);
+        APPEND_STAT("moves_within_lru", "%llu",
+                    (unsigned long long)totals.moves_within_lru);
+        APPEND_STAT("direct_reclaims", "%llu",
+                    (unsigned long long)totals.direct_reclaims);
+    }
 }
 
 void item_stats(ADD_STAT add_stats, void *c) {
@@ -527,6 +545,7 @@ void item_stats(ADD_STAT add_stats, void *c) {
             totals.evicted_nonzero += itemstats[i].evicted_nonzero;
             totals.outofmemory += itemstats[i].outofmemory;
             totals.tailrepairs += itemstats[i].tailrepairs;
+            totals.reclaimed += itemstats[i].reclaimed;
             totals.expired_unfetched += itemstats[i].expired_unfetched;
             totals.evicted_unfetched += itemstats[i].evicted_unfetched;
             totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
@@ -544,9 +563,11 @@ void item_stats(ADD_STAT add_stats, void *c) {
         if (size == 0)
             continue;
         APPEND_NUM_FMT_STAT(fmt, n, "number", "%u", size);
-        APPEND_NUM_FMT_STAT(fmt, n, "number_hot", "%u", lru_size_map[0]);
-        APPEND_NUM_FMT_STAT(fmt, n, "number_warm", "%u", lru_size_map[1]);
-        APPEND_NUM_FMT_STAT(fmt, n, "number_cold", "%u", lru_size_map[2]);
+        if (settings.lru_maintainer_thread) {
+            APPEND_NUM_FMT_STAT(fmt, n, "number_hot", "%u", lru_size_map[0]);
+            APPEND_NUM_FMT_STAT(fmt, n, "number_warm", "%u", lru_size_map[1]);
+            APPEND_NUM_FMT_STAT(fmt, n, "number_cold", "%u", lru_size_map[2]);
+        }
         APPEND_NUM_FMT_STAT(fmt, n, "age", "%u", age);
         APPEND_NUM_FMT_STAT(fmt, n, "evicted",
                             "%llu", (unsigned long long)totals.evicted);
@@ -568,14 +589,16 @@ void item_stats(ADD_STAT add_stats, void *c) {
                             "%llu", (unsigned long long)totals.crawler_reclaimed);
         APPEND_NUM_FMT_STAT(fmt, n, "lrutail_reflocked",
                             "%llu", (unsigned long long)totals.lrutail_reflocked);
-        APPEND_NUM_FMT_STAT(fmt, n, "moves_to_cold",
-                            "%llu", (unsigned long long)totals.moves_to_cold);
-        APPEND_NUM_FMT_STAT(fmt, n, "moves_to_warm",
-                            "%llu", (unsigned long long)totals.moves_to_warm);
-        APPEND_NUM_FMT_STAT(fmt, n, "moves_within_lru",
-                            "%llu", (unsigned long long)totals.moves_within_lru);
-        APPEND_NUM_FMT_STAT(fmt, n, "direct_reclaims",
-                            "%llu", (unsigned long long)totals.direct_reclaims);
+        if (settings.lru_maintainer_thread) {
+            APPEND_NUM_FMT_STAT(fmt, n, "moves_to_cold",
+                                "%llu", (unsigned long long)totals.moves_to_cold);
+            APPEND_NUM_FMT_STAT(fmt, n, "moves_to_warm",
+                                "%llu", (unsigned long long)totals.moves_to_warm);
+            APPEND_NUM_FMT_STAT(fmt, n, "moves_within_lru",
+                                "%llu", (unsigned long long)totals.moves_within_lru);
+            APPEND_NUM_FMT_STAT(fmt, n, "direct_reclaims",
+                                "%llu", (unsigned long long)totals.direct_reclaims);
+        }
     }
 
     /* getting here means both ascii and binary terminators fit */
@@ -818,7 +841,8 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     }
                     do_item_unlink_nolock(search, hv);
                     removed++;
-                } else if ((search->it_flags & ITEM_ACTIVE) != 0) {
+                } else if ((search->it_flags & ITEM_ACTIVE) != 0
+                        && settings.lru_maintainer_thread) {
                     itemstats[id].moves_to_warm++;
                     search->it_flags &= ~ITEM_ACTIVE;
                     move_to_lru = WARM_LRU;

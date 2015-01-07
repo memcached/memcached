@@ -63,6 +63,7 @@ my $sock = $server->sock;
 ## STAT reclaimed 0
 ## STAT crawler_reclaimed 0
 ## STAT lrutail_reflocked 0
+## see doc/protocol.txt for others
 # note that auth stats are tested in auth specfic tests
 
 
