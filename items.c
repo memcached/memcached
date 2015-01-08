@@ -859,7 +859,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
 
     if (it != NULL) {
         if (move_to_lru) {
-            it->slabs_clsid &= ~(3>>6);
+            it->slabs_clsid &= ~(3<<6);
             it->slabs_clsid |= move_to_lru;
             item_link_q(it);
         }
@@ -1180,7 +1180,7 @@ static item *crawler_crawl_q(item *it) {
  * main thread's values too much. Should rethink again.
  */
 static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
-    int slab_id = i & ~(3>>6);
+    int slab_id = i & ~(3<<6);
     crawlerstats_t *s = &crawlerstats[slab_id];
     if ((search->exptime != 0 && search->exptime < current_time)
         || is_flushed(search)) {
@@ -1246,8 +1246,8 @@ static void *item_crawler_thread(void *arg) {
                 crawler_unlink_q((item *)&crawlers[i]);
                 pthread_mutex_unlock(&lru_locks[i]);
                 pthread_mutex_lock(&lru_crawler_stats_lock);
-                crawlerstats[i & ~(3>>6)].end_time = current_time;
-                crawlerstats[i & ~(3>>6)].run_complete = true;
+                crawlerstats[i & ~(3<<6)].end_time = current_time;
+                crawlerstats[i & ~(3<<6)].run_complete = true;
                 pthread_mutex_unlock(&lru_crawler_stats_lock);
                 continue;
             }
@@ -1384,8 +1384,8 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
             crawler_count++;
             starts++;
             pthread_mutex_lock(&lru_crawler_stats_lock);
-            memset(&crawlerstats[sid & ~(3>>6)], 0, sizeof(crawlerstats_t));
-            crawlerstats[sid & ~(3>>6)].start_time = current_time;
+            memset(&crawlerstats[sid & ~(3<<6)], 0, sizeof(crawlerstats_t));
+            crawlerstats[sid & ~(3<<6)].start_time = current_time;
             pthread_mutex_unlock(&lru_crawler_stats_lock);
         }
         pthread_mutex_unlock(&lru_locks[sid]);
