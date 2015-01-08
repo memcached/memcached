@@ -520,7 +520,7 @@ static int slab_rebalance_start(void) {
 }
 
 enum move_status {
-    MOVE_PASS=0, MOVE_DONE, MOVE_BUSY, MOVE_LOCKED
+    MOVE_PASS=0, MOVE_FROM_SLAB, MOVE_FROM_LRU, MOVE_BUSY, MOVE_LOCKED
 };
 
 /* refcount == 0 is safe since nobody can incr while item_lock is held.
@@ -545,6 +545,8 @@ static int slab_rebalance_move(void) {
     int x;
     int was_busy = 0;
     int refcount = 0;
+    uint32_t hv;
+    void *hold_lock;
     enum move_status status = MOVE_PASS;
 
     pthread_mutex_lock(&slabs_lock);
@@ -552,6 +554,8 @@ static int slab_rebalance_move(void) {
     s_cls = &slabclass[slab_rebal.s_clsid];
 
     for (x = 0; x < slab_bulk_check; x++) {
+        hv = 0;
+        hold_lock = NULL;
         item *it = slab_rebal.slab_pos;
         status = MOVE_PASS;
         if (it->slabs_clsid != 255) {
@@ -564,26 +568,23 @@ static int slab_rebalance_move(void) {
                 if (it->next) it->next->prev = it->prev;
                 if (it->prev) it->prev->next = it->next;
                 s_cls->sl_curr--;
-                status = MOVE_DONE;
+                status = MOVE_FROM_SLAB;
             } else if ((it->it_flags & ITEM_LINKED) != 0) {
                 /* If it doesn't have ITEM_SLABBED, the item could be in any
                  * state on its way to being freed or written to. If no
                  * ITEM_SLABBED, but it's had ITEM_LINKED, it must be active
                  * and have the key written to it already.
                  */
-                void *hold_lock = NULL;
-                uint32_t hv = hash(ITEM_key(it), it->nkey);
+                hv = hash(ITEM_key(it), it->nkey);
                 if ((hold_lock = item_trylock(hv)) == NULL) {
                     status = MOVE_LOCKED;
                 } else {
                     refcount = refcount_incr(&it->refcount);
                     if (refcount == 2) { /* item is linked but not busy */
                         /* Double check ITEM_LINKED flag here, since we're
-                         * past a memory barrier from the mutex.
-                         */
+                         * past a memory barrier from the mutex. */
                         if ((it->it_flags & ITEM_LINKED) != 0) {
-                            do_item_unlink_nolock(it, hv);
-                            status = MOVE_DONE;
+                            status = MOVE_FROM_LRU;
                         } else {
                             /* refcount == 1 + !ITEM_LINKED means the item is being
                              * uploaded to, or was just unlinked but hasn't been freed
@@ -598,15 +599,27 @@ static int slab_rebalance_move(void) {
                         status = MOVE_BUSY;
                     }
                     /* Item lock must be held while modifying refcount */
-                    if (status == MOVE_BUSY)
+                    if (status == MOVE_BUSY) {
                         refcount_decr(&it->refcount);
-                    item_trylock_unlock(hold_lock);
+                        item_trylock_unlock(hold_lock);
+                    }
                 }
             }
         }
 
         switch (status) {
-            case MOVE_DONE:
+            case MOVE_FROM_LRU:
+                /* Lock order is LRU locks -> slabs_lock. unlink uses LRU lock.
+                 * We only need to hold the slabs_lock while initially looking
+                 * at an item, and at this point we have an exclusive refcount
+                 * (2) + the item is locked. Drop slabs lock, drop item to
+                 * refcount 1 (just our own, then fall through and wipe it
+                 */
+                pthread_mutex_unlock(&slabs_lock);
+                do_item_unlink(it, hv);
+                item_trylock_unlock(hold_lock);
+                pthread_mutex_lock(&slabs_lock);
+            case MOVE_FROM_SLAB:
                 it->refcount = 0;
                 it->it_flags = 0;
                 it->slabs_clsid = 255;
