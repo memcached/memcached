@@ -875,20 +875,23 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
  * If too many items are in WARM_LRU, push to COLD_LRU
  * If too many items are in COLD_LRU, poke COLD_LRU tail
  * If too many items are in COLD_LRU and are below low watermark, start evicting
+ * 1000 loops with 1ms min sleep gives us under 1m items shifted/sec. The
+ * locks can't handle much more than that. Leaving a TODO for how to
+ * autoadjust in the future.
  */
 static int lru_maintainer_juggle(const int slabs_clsid) {
     int i;
     int did_moves = 0;
     bool mem_limit_reached = false;
     unsigned int total_chunks = 0;
-    /* FIXME: if free_chunks below high watermark, increase aggressiveness */
+    /* TODO: if free_chunks below high watermark, increase aggressiveness */
     slabs_available_chunks(slabs_clsid, &mem_limit_reached, &total_chunks);
     STATS_LOCK();
     stats.lru_maintainer_juggles++;
     STATS_UNLOCK();
 
     /* Juggle HOT/WARM up to N times */
-    for (i = 0; i < 500; i++) {
+    for (i = 0; i < 1000; i++) {
         int do_more = 0;
         if (lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false, 0) ||
             lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false, 0)) {
@@ -1002,8 +1005,9 @@ static void *lru_maintainer_thread(void *arg) {
             if (to_sleep < MAX_LRU_MAINTAINER_SLEEP)
                 to_sleep += 1000;
         } else {
-            /* FIXME: Slew rampdown? */
-            to_sleep = MIN_LRU_MAINTAINER_SLEEP;
+            to_sleep /= 2;
+            if (to_sleep < MIN_LRU_MAINTAINER_SLEEP)
+                to_sleep = MIN_LRU_MAINTAINER_SLEEP;
         }
         /* Once per second at most */
         if (settings.lru_crawler && last_crawler_check != current_time) {
