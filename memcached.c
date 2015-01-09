@@ -4833,7 +4833,7 @@ static void usage(void) {
            "                restart.\n"
            "              - tail_repair_time: Time in seconds that indicates how long to wait before\n"
            "                forcefully taking over the LRU tail item whose refcount has leaked.\n"
-           "                The default is 3 hours.\n"
+           "                Disabled by default; dangerous option.\n"
            "              - hash_algorithm: The hash table algorithm\n"
            "                default is jenkins hash. options: jenkins, murmur3\n"
            "              - lru_crawler: Enable LRU Crawler background thread\n"
@@ -4841,6 +4841,13 @@ static void usage(void) {
            "                default is 100.\n"
            "              - lru_crawler_tocrawl: Max items to crawl per slab per run\n"
            "                default is 0 (unlimited)\n"
+           "              - lru_maintainer: Enable new LRU system + background thread\n"
+           "              - hot_lru_pct: Pct of slab memory to reserve for hot lru.\n"
+           "                (requires lru_maintainer)\n"
+           "              - warm_lru_pct: Pct of slab memory to reserve for warm lru.\n"
+           "                (requires lru_maintainer)\n"
+           "              - expirezero_does_not_evict: Items set to not expire, will not evict.\n"
+           "                (requires lru_maintainer)\n"
            );
     return;
 }

@@ -1,6 +1,3 @@
-WARNING: This document is currently a stub. It is incomplete, but provided to
-give a vague overview of how threads are implemented.
-
 Multithreading in memcached *was* originally simple:
 
 - One listener thread
@@ -14,9 +11,6 @@ and modifications happen under central locks.
 
 THIS HAS CHANGED!
 
-I do need to flesh this out more, and it'll need a lot more tuning, but it has
-changed in the following ways:
-
 - A secondary small hash table of locks is used to lock an item by its hash
   value. This prevents multiple threads from acting on the same item at the
   same time.
@@ -25,16 +19,37 @@ changed in the following ways:
   thread may read or write against a particular hash table bucket.
 - atomic refcounts per item are used to manage garbage collection and
   mutability.
-- A central lock is still held around any "item modifications" - any change to
-  any item flags on any item, the LRU state, or refcount incrementing are
-  still centrally locked.
 
 - When pulling an item off of the LRU tail for eviction or re-allocation, the
   system must attempt to lock the item's bucket, which is done with a trylock
   to avoid deadlocks. If a bucket is in use (and not by that thread) it will
   walk up the LRU a little in an attempt to fetch a non-busy item.
 
-Since I'm sick of hearing it:
+- Each LRU (and sub-LRU's in newer modes) has an independent lock.
+
+- Raw accessses to the slab class are protected by a global slabs_lock. This
+  is a short lock which covers pushing and popping free memory.
+
+- item_lock must be held while modifying an item.
+- slabs_lock must be held while modifying the ITEM_SLABBED flag bit within an item.
+- ITEM_LINKED must not be set before an item has a key copied into it.
+- items without ITEM_SLABBED set cannot have their memory zeroed out.
+
+LOCK ORDERS:
+
+(incomplete as of writing, sorry):
+
+item_lock -> lru_lock -> slabs_lock
+
+lru_lock -> item_trylock
+
+Various stats_locks should never have other locks as dependencies.
+
+Various locks exist for background threads. They can be used to pause the
+thread execution or update settings while the threads are idle. They may call
+item or lru locks.
+
+A low priority isssue:
 
 - If you remove the per-thread stats lock, CPU usage goes down by less than a
   point of a percent, and it does not improve scalability.
@@ -42,5 +57,4 @@ Since I'm sick of hearing it:
 
 Yes, more stats can be moved to threads, and those locks can actually be
 removed entirely on x86-64 systems. However my tests haven't shown that as
-beneficial so far, so I've prioritized other work. Apologies for the rant but
-it's a common question.
+beneficial so far, so I've prioritized other work.

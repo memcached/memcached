@@ -583,7 +583,14 @@ integers separated by a colon (treat this as a floating point number).
 | slabs_moved           | 64u     | Total slab pages moved                    |
 | crawler_reclaimed     | 64u     | Total items freed by LRU Crawler          |
 | lrutail_reflocked     | 64u     | Times LRU tail was found with active ref. |
-|                       |         | Items moved to head to avoid OOM errors.  |
+|                       |         | Items can be evicted to avoid OOM errors. |
+| moves_to_cold         | 64u     | Items moved from HOT/WARM to COLD LRU's   |
+| moves_to_warm         | 64u     | Items moved from COLD to WARM LRU         |
+| moves_within_lru      | 64u     | Items reshuffled within HOT or WARM LRU's |
+| direct_reclaims       | 64u     | Times worker threads had to directly      |
+|                       |         | reclaim or evict items.                   |
+| lru_maintainer_juggles                                                      |
+|                       | 64u     | Number of times the LRU bg thread woke up |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics
@@ -629,7 +636,14 @@ other stats command.
 | hash_algorithm    | char     | Hash table algorithm in use                  |
 | lru_crawler       | bool     | Whether the LRU crawler is enabled           |
 | lru_crawler_sleep | 32       | Microseconds to sleep between LRU crawls     |
-| lru_crawler_tocrawl| 32u     | Max items to crawl per slab per run          |
+| lru_crawler_tocrawl                                                         |
+|                   | 32u     | Max items to crawl per slab per run           |
+| lru_maintainer_thread                                                       |
+|                   | bool    | Split LRU mode and background threads         |
+| hot_lru_pct       | 32      | Pct of slab memory reserved for HOT LRU       |
+| warm_lru_pct      | 32      | Pct of slab memory reserved for WARM LRU      |
+| expirezero_does_not_evict                                                   |
+|                   | bool    | If yes, items with 0 exptime cannot evict     |
 |-------------------+----------+----------------------------------------------|
 
 
@@ -657,6 +671,10 @@ Name                   Meaning
 ------------------------------
 number                 Number of items presently stored in this class. Expired
                        items are not automatically excluded.
+number_hot             Number of items presently stored in the HOT LRU.
+number_warm            Number of items presently stored in the WARM LRU.
+number_cold            Number of items presently stored in the COLD LRU.
+number_noexp           Number of items presently stored in the NOEXP class.
 age                    Age of the oldest item in the LRU.
 evicted                Number of times an item had to be evicted from the LRU
                        before it expired.
@@ -679,6 +697,14 @@ expired_unfetched      Number of expired items reclaimed from the LRU which
 evicted_unfetched      Number of valid items evicted from the LRU which were
                        never touched after being set.
 crawler_reclaimed      Number of items freed by the LRU Crawler.
+lrutail_reflocked      Number of items found to be refcount locked in the
+                       LRU tail.
+moves_to_cold          Number of items moved from HOT or WARM into COLD.
+moves_to_warm          Number of items moved from COLD to WARM.
+moves_within_lru       Number of times active items were bumped within
+                       HOT or WARM.
+direct_reclaims        Number of times worker threads had to directly pull LRU
+                       tails to find memory for a new item.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.

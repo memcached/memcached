@@ -1,0 +1,39 @@
+In versions new enough to have the `-o lru_maintainer` option, a new LRU
+mechanic is available.
+
+Previously: Each slab class has an independent doubly-linked list comprising
+its LRU. Items are pulled from the bottom and either reclaimed or evicted as
+needed.
+
+Now, enabling `-o lru_maintainer` changes all of the behavior below:
+
+ * LRU's are now split between HOT, WARM, and COLD LRU's. New items enter the
+   HOT LRU.
+ * LRU updates only happen as items reach the bottom of an LRU. If active in
+   HOT, stay in HOT, if active in WARM, stay in WARM. If active in COLD, move
+   to WARM.
+ * HOT/WARM each capped at 32% of memory available for that slab class. COLD
+   is uncapped (by default, as of this writing).
+ * Items flow from HOT/WARM into COLD.
+ * A background thread exists which shuffles items between/within the LRU's as
+   limits are reached.
+ * The background thread can also control the lru_crawler, if enabled.
+
+The primary goal is to better protect active items from "scanning". Items
+which are never hit again will flow from HOT, through COLD, and out the
+bottom. Items occasionally active (reaching COLD, but being hit before
+eviction), move to WARM. There they can stay relatively protected.
+
+A secondary goal is to improve latency. The LRU locks are no longer used on
+item reads, only during sets and from the background thread. Also the
+background thread is likely to find expired items and release them back to the
+slab class asynchronously, which speeds up new allocations.
+
+It is recommended to use this feature with the lru crawler as well:
+`memcached -o lru_maintainer,lru_crawler` - Then it will automatically scan
+slab classes for items with expired TTL's. If your items are always set to
+never expire, you can omit this option safely.
+
+An extra option: `-o expirezero_does_not_evict` (when used with
+lru_maintainer) will make items with an expiration time of 0 unevictable. Take
+caution as this will crowd out memory available for other items.
