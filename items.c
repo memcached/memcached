@@ -24,6 +24,8 @@ static void item_unlink_q(item *it);
 #define NOEXP_LRU 192
 static unsigned int lru_type_map[4] = {HOT_LRU, WARM_LRU, COLD_LRU, NOEXP_LRU};
 
+#define CLEAR_LRU(id) (id & ~(3<<6))
+
 #define LARGEST_ID POWER_LARGEST
 typedef struct {
     uint64_t evicted;
@@ -107,6 +109,15 @@ static int is_flushed(item *it) {
     return 0;
 }
 
+static unsigned int noexp_lru_size(int slabs_clsid) {
+    int id = CLEAR_LRU(slabs_clsid);
+    unsigned int ret;
+    pthread_mutex_lock(&lru_locks[id]);
+    ret = sizes[id];
+    pthread_mutex_unlock(&lru_locks[id]);
+    return ret;
+}
+
 /* Enable this for reference-count debugging. */
 #if 0
 # define DEBUG_REFCNT(it,op) \
@@ -166,6 +177,8 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
             lru_pull_tail(id, COLD_LRU, 0, false, cur_hv);
         }
         it = slabs_alloc(ntotal, id, &total_chunks);
+        if (settings.expirezero_does_not_evict)
+            total_chunks -= noexp_lru_size(id);
         if (it == NULL) {
             if (settings.lru_maintainer_thread) {
                 lru_pull_tail(id, HOT_LRU, total_chunks, false, cur_hv);
@@ -201,7 +214,11 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
      * least a note here. Compiler (hopefully?) optimizes this out.
      */
     if (settings.lru_maintainer_thread) {
-        id |= HOT_LRU;
+        if (exptime == 0 && settings.expirezero_does_not_evict) {
+            id |= NOEXP_LRU;
+        } else {
+            id |= HOT_LRU;
+        }
     } else {
         /* There is only COLD in compat-mode */
         id |= COLD_LRU;
@@ -567,6 +584,8 @@ void item_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_FMT_STAT(fmt, n, "number_hot", "%u", lru_size_map[0]);
             APPEND_NUM_FMT_STAT(fmt, n, "number_warm", "%u", lru_size_map[1]);
             APPEND_NUM_FMT_STAT(fmt, n, "number_cold", "%u", lru_size_map[2]);
+            if (settings.expirezero_does_not_evict)
+                APPEND_NUM_FMT_STAT(fmt, n, "number_noexp", "%u", lru_size_map[3]);
         }
         APPEND_NUM_FMT_STAT(fmt, n, "age", "%u", age);
         APPEND_NUM_FMT_STAT(fmt, n, "evicted",
@@ -859,7 +878,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
 
     if (it != NULL) {
         if (move_to_lru) {
-            it->slabs_clsid &= ~(3<<6);
+            it->slabs_clsid = ITEM_clsid(it);
             it->slabs_clsid |= move_to_lru;
             item_link_q(it);
         }
@@ -886,9 +905,8 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     unsigned int total_chunks = 0;
     /* TODO: if free_chunks below high watermark, increase aggressiveness */
     slabs_available_chunks(slabs_clsid, &mem_limit_reached, &total_chunks);
-    STATS_LOCK();
-    stats.lru_maintainer_juggles++;
-    STATS_UNLOCK();
+    if (settings.expirezero_does_not_evict)
+        total_chunks -= noexp_lru_size(slabs_clsid);
 
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 1000; i++) {
@@ -989,6 +1007,9 @@ static void *lru_maintainer_thread(void *arg) {
         usleep(to_sleep);
         pthread_mutex_lock(&lru_maintainer_lock);
 
+        STATS_LOCK();
+        stats.lru_maintainer_juggles++;
+        STATS_UNLOCK();
         if (settings.verbose > 2)
             fprintf(stderr, "LRU maintainer thread running\n");
         /* We were asked to immediately wake up and poke a particular slab
@@ -1180,7 +1201,7 @@ static item *crawler_crawl_q(item *it) {
  * main thread's values too much. Should rethink again.
  */
 static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
-    int slab_id = i & ~(3<<6);
+    int slab_id = CLEAR_LRU(i);
     crawlerstats_t *s = &crawlerstats[slab_id];
     if ((search->exptime != 0 && search->exptime < current_time)
         || is_flushed(search)) {
@@ -1246,8 +1267,8 @@ static void *item_crawler_thread(void *arg) {
                 crawler_unlink_q((item *)&crawlers[i]);
                 pthread_mutex_unlock(&lru_locks[i]);
                 pthread_mutex_lock(&lru_crawler_stats_lock);
-                crawlerstats[i & ~(3<<6)].end_time = current_time;
-                crawlerstats[i & ~(3<<6)].run_complete = true;
+                crawlerstats[CLEAR_LRU(i)].end_time = current_time;
+                crawlerstats[CLEAR_LRU(i)].run_complete = true;
                 pthread_mutex_unlock(&lru_crawler_stats_lock);
                 continue;
             }
@@ -1384,8 +1405,8 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
             crawler_count++;
             starts++;
             pthread_mutex_lock(&lru_crawler_stats_lock);
-            memset(&crawlerstats[sid & ~(3<<6)], 0, sizeof(crawlerstats_t));
-            crawlerstats[sid & ~(3<<6)].start_time = current_time;
+            memset(&crawlerstats[CLEAR_LRU(sid)], 0, sizeof(crawlerstats_t));
+            crawlerstats[CLEAR_LRU(sid)].start_time = current_time;
             pthread_mutex_unlock(&lru_crawler_stats_lock);
         }
         pthread_mutex_unlock(&lru_locks[sid]);

@@ -334,6 +334,7 @@ struct settings {
     uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
     int hot_lru_pct; /* percentage of slab space for HOT_LRU */
     int warm_lru_pct; /* percentage of slab space for WARM_LRU */
+    bool expirezero_does_not_evict; /* exptime == 0 goes into NOEXP_LRU */
 };
 
 extern struct stats stats;

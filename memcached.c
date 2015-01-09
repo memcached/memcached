@@ -238,6 +238,7 @@ static void settings_init(void) {
     settings.lru_maintainer_thread = false;
     settings.hot_lru_pct = 32;
     settings.warm_lru_pct = 32;
+    settings.expirezero_does_not_evict = false;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -2680,6 +2681,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
     APPEND_STAT("warm_lru_pct", "%d", settings.hot_lru_pct);
+    APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -5084,7 +5086,8 @@ int main (int argc, char **argv) {
         LRU_CRAWLER_TOCRAWL,
         LRU_MAINTAINER,
         HOT_LRU_PCT,
-        WARM_LRU_PCT
+        WARM_LRU_PCT,
+        NOEXP_NOEVICT
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5099,6 +5102,7 @@ int main (int argc, char **argv) {
         [LRU_MAINTAINER] = "lru_maintainer",
         [HOT_LRU_PCT] = "hot_lru_pct",
         [WARM_LRU_PCT] = "warm_lru_pct",
+        [NOEXP_NOEVICT] = "expirezero_does_not_evict",
         NULL
     };
 
@@ -5454,6 +5458,9 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "warm_lru_pct must be > 1 and < 80\n");
                     return 1;
                 }
+                break;
+            case NOEXP_NOEVICT:
+                settings.expirezero_does_not_evict = true;
                 break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);

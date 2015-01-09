@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 117;
+use Test::More tests => 224;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -46,4 +46,38 @@ for (my $key = 0; $key < 100; $key++) {
 }
 
 # Key should've been saved to the WARM_LRU, and still exists.
+mem_get_is($sock, "canary", $value);
+
+# Test NOEXP_LRU
+$server = new_memcached('-m 2 -o lru_maintainer,lru_crawler,expirezero_does_not_evict');
+$sock = $server->sock;
+
+{
+    my $stats = mem_stats($sock, "settings");
+    is($stats->{expirezero_does_not_evict}, "yes");
+}
+
+print $sock "set canary 0 0 66560\r\n$value\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored noexpire canary key");
+
+{
+    my $stats = mem_stats($sock, "items");
+    is($stats->{"items:31:number_noexp"}, 1, "one item in noexpire LRU");
+    is($stats->{"items:31:number_hot"}, 0, "item did not go into hot LRU");
+}
+
+# *Not* fetching the key, and flushing the slab class with junk.
+# Using keys with actual TTL's here.
+for (my $key = 0; $key < 100; $key++) {
+    print $sock "set key$key 0 3600 66560\r\n$value\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored key$key");
+}
+
+{
+    my $stats = mem_stats($sock, "items");
+    isnt($stats->{evictions}, 0, "some evictions happened");
+    isnt($stats->{number_hot}, 0, "nonzero exptime items went into hot LRU");
+}
+# Canary should still exist, even unfetched, because it's protected by
+# noexpire.
 mem_get_is($sock, "canary", $value);
