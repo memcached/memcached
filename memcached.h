@@ -332,6 +332,8 @@ struct settings {
     char *hash_algorithm;     /* Hash algorithm in use */
     int lru_crawler_sleep;  /* Microsecond sleep between items */
     uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
+    int hot_lru_pct; /* percentage of slab space for HOT_LRU */
+    int warm_lru_pct; /* percentage of slab space for WARM_LRU */
 };
 
 extern struct stats stats;

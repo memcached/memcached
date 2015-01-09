@@ -236,6 +236,8 @@ static void settings_init(void) {
     settings.lru_crawler_sleep = 100;
     settings.lru_crawler_tocrawl = 0;
     settings.lru_maintainer_thread = false;
+    settings.hot_lru_pct = 32;
+    settings.warm_lru_pct = 32;
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -2675,6 +2677,9 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
     APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
     APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
+    APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
+    APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
+    APPEND_STAT("warm_lru_pct", "%d", settings.hot_lru_pct);
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -5077,7 +5082,9 @@ int main (int argc, char **argv) {
         LRU_CRAWLER,
         LRU_CRAWLER_SLEEP,
         LRU_CRAWLER_TOCRAWL,
-        LRU_MAINTAINER
+        LRU_MAINTAINER,
+        HOT_LRU_PCT,
+        WARM_LRU_PCT
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5090,6 +5097,8 @@ int main (int argc, char **argv) {
         [LRU_CRAWLER_SLEEP] = "lru_crawler_sleep",
         [LRU_CRAWLER_TOCRAWL] = "lru_crawler_tocrawl",
         [LRU_MAINTAINER] = "lru_maintainer",
+        [HOT_LRU_PCT] = "hot_lru_pct",
+        [WARM_LRU_PCT] = "warm_lru_pct",
         NULL
     };
 
@@ -5424,6 +5433,28 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
+            case HOT_LRU_PCT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing hot_lru_pct argument\n");
+                    return 1;
+                };
+                settings.hot_lru_pct = atoi(subopts_value);
+                if (settings.hot_lru_pct < 1 || settings.hot_lru_pct >= 80) {
+                    fprintf(stderr, "hot_lru_pct must be > 1 and < 80\n");
+                    return 1;
+                }
+                break;
+            case WARM_LRU_PCT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing warm_lru_pct argument\n");
+                    return 1;
+                };
+                settings.warm_lru_pct = atoi(subopts_value);
+                if (settings.warm_lru_pct < 1 || settings.warm_lru_pct >= 80) {
+                    fprintf(stderr, "warm_lru_pct must be > 1 and < 80\n");
+                    return 1;
+                }
+                break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
                 return 1;
@@ -5435,6 +5466,11 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
         }
+    }
+
+    if (settings.lru_maintainer_thread && settings.hot_lru_pct + settings.warm_lru_pct > 80) {
+        fprintf(stderr, "hot_lru_pct + warm_lru_pct cannot be more than 80%% combined\n");
+        exit(EX_USAGE);
     }
 
     if (hash_init(hash_type) != 0) {

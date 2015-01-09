@@ -803,9 +803,9 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
         /* FIXME: Hardcoded percentage */
         switch (cur_lru) {
             case HOT_LRU:
-                limit = total_chunks * 32 / 100;
+                limit = total_chunks * settings.hot_lru_pct / 100;
             case WARM_LRU:
-                limit = total_chunks * 32 / 100;
+                limit = total_chunks * settings.warm_lru_pct / 100;
                 if (sizes[id] > limit) {
                     itemstats[id].moves_to_cold++;
                     move_to_lru = COLD_LRU;
