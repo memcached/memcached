@@ -4586,15 +4586,40 @@ static int server_sockets(int port, enum network_transport transport,
              p != NULL;
              p = strtok_r(NULL, ";,", &b)) {
             int the_port = port;
-            char *s = strchr(p, ':');
-            if (s != NULL) {
-                *s = '\0';
-                ++s;
-                if (!safe_strtol(s, &the_port)) {
-                    fprintf(stderr, "Invalid port number: \"%s\"", s);
+
+            char *h = NULL;
+            if (*p == '[') {
+                // expecting it to be an IPv6 address enclosed in []
+                // i.e. RFC3986 style recommended by RFC5952
+                char *e = strchr(p, ']');
+                if (e == NULL) {
+                    fprintf(stderr, "Invalid IPV6 address: \"%s\"", p);
                     return 1;
                 }
+                h = ++p; // skip the opening '['
+                *e = '\0';
+                p = ++e; // skip the closing ']'
             }
+
+            char *s = strchr(p, ':');
+            if (s != NULL) {
+                // If no more semicolons - attempt to treat as port number.
+                // Otherwise the only valid option is an unenclosed IPv6 without port, until
+                // of course there was an RFC3986 IPv6 address previously specified -
+                // in such a case there is no good option, will just send it to fail as port number.
+                if (strchr(s + 1, ':') == NULL || h != NULL) {
+                    *s = '\0';
+                    ++s;
+                    if (!safe_strtol(s, &the_port)) {
+                        fprintf(stderr, "Invalid port number: \"%s\"", s);
+                        return 1;
+                    }
+                }
+            }
+
+            if (h != NULL)
+                p = h;
+
             if (strcmp(p, "*") == 0) {
                 p = NULL;
             }
