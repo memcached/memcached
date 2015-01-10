@@ -245,6 +245,7 @@ static void settings_init(void) {
     settings.shutdown_command = false;
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
+    settings.crawls_persleep = 1000;
 }
 
 /*

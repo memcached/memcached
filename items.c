@@ -85,6 +85,7 @@ void item_stats_reset(void) {
 
 static int lru_pull_tail(const int orig_id, const int cur_lru,
         const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv);
+static int lru_crawler_start(uint32_t id, uint32_t remaining);
 
 /* Get the next CAS id for a new item. */
 /* TODO: refactor some atomics for this. */
@@ -934,15 +935,13 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
  */
 static void lru_maintainer_crawler_check(void) {
     int i;
-    char buf[10];
     static rel_time_t last_crawls[MAX_NUMBER_OF_SLAB_CLASSES];
     static rel_time_t next_crawl_wait[MAX_NUMBER_OF_SLAB_CLASSES];
     for (i = POWER_SMALLEST; i < MAX_NUMBER_OF_SLAB_CLASSES; i++) {
         crawlerstats_t *s = &crawlerstats[i];
         /* We've not successfully kicked off a crawl yet. */
         if (last_crawls[i] == 0) {
-            snprintf(buf, 10, "%d", i);
-            if (lru_crawler_crawl(buf) == CRAWLER_OK) {
+            if (lru_crawler_start(i, 0) > 0) {
                 last_crawls[i] = current_time;
             }
         }
@@ -1236,6 +1235,7 @@ static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
 
 static void *item_crawler_thread(void *arg) {
     int i;
+    int crawls_persleep = settings.crawls_persleep;
 
     pthread_mutex_lock(&lru_crawler_lock);
     if (settings.verbose > 2)
@@ -1295,8 +1295,10 @@ static void *item_crawler_thread(void *arg) {
                 item_trylock_unlock(hold_lock);
             pthread_mutex_unlock(&lru_locks[i]);
 
-            if (settings.lru_crawler_sleep)
+            if (crawls_persleep <= 0 && settings.lru_crawler_sleep) {
                 usleep(settings.lru_crawler_sleep);
+                crawls_persleep = settings.crawls_persleep;
+            }
         }
     }
     if (settings.verbose > 2)
@@ -1348,6 +1350,57 @@ int start_item_crawler_thread(void) {
     return 0;
 }
 
+/* 'remaining' is passed in so the LRU maintainer thread can scrub the whole
+ * LRU every time.
+ */
+static int do_lru_crawler_start(uint32_t id, uint32_t remaining) {
+    int i;
+    uint32_t sid;
+    uint32_t tocrawl[3];
+    int starts = 0;
+    tocrawl[0] = id | HOT_LRU;
+    tocrawl[1] = id | WARM_LRU;
+    tocrawl[2] = id | COLD_LRU;
+
+    for (i = 0; i < 3; i++) {
+        sid = tocrawl[i];
+        pthread_mutex_lock(&lru_locks[sid]);
+        if (tails[sid] != NULL) {
+            if (settings.verbose > 2)
+                fprintf(stderr, "Kicking LRU crawler off for LRU %d\n", sid);
+            crawlers[sid].nbytes = 0;
+            crawlers[sid].nkey = 0;
+            crawlers[sid].it_flags = 1; /* For a crawler, this means enabled. */
+            crawlers[sid].next = 0;
+            crawlers[sid].prev = 0;
+            crawlers[sid].time = 0;
+            crawlers[sid].remaining = remaining;
+            crawlers[sid].slabs_clsid = sid;
+            crawler_link_q((item *)&crawlers[sid]);
+            crawler_count++;
+            starts++;
+        }
+        pthread_mutex_unlock(&lru_locks[sid]);
+    }
+    if (starts) {
+        pthread_mutex_lock(&lru_crawler_stats_lock);
+        memset(&crawlerstats[id], 0, sizeof(crawlerstats_t));
+        crawlerstats[id].start_time = current_time;
+        pthread_mutex_unlock(&lru_crawler_stats_lock);
+    }
+    return starts;
+}
+
+static int lru_crawler_start(uint32_t id, uint32_t remaining) {
+    int starts;
+    if (pthread_mutex_trylock(&lru_crawler_lock) != 0) {
+        return 0;
+    }
+    starts = do_lru_crawler_start(id, remaining);
+    pthread_mutex_unlock(&lru_crawler_lock);
+    return starts;
+}
+
 /* FIXME: Split this into two functions: one to kick a crawler for a sid, and one to
  * parse the string. LRU maintainer code is generating a string to set up a
  * sid.
@@ -1357,14 +1410,15 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
     char *b = NULL;
     uint32_t sid = 0;
     int starts = 0;
-    uint8_t tocrawl[LARGEST_ID];
+    uint8_t tocrawl[MAX_NUMBER_OF_SLAB_CLASSES];
     if (pthread_mutex_trylock(&lru_crawler_lock) != 0) {
         return CRAWLER_RUNNING;
     }
 
-    memset(tocrawl, 0, sizeof(uint8_t) * LARGEST_ID);
+    /* FIXME: I added this while debugging. Don't think it's needed? */
+    memset(tocrawl, 0, sizeof(uint8_t) * MAX_NUMBER_OF_SLAB_CLASSES);
     if (strcmp(slabs, "all") == 0) {
-        for (sid = 0; sid < LARGEST_ID; sid++) {
+        for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
             tocrawl[sid] = 1;
         }
     } else {
@@ -1377,34 +1431,13 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
                 pthread_mutex_unlock(&lru_crawler_lock);
                 return CRAWLER_BADCLASS;
             }
-            tocrawl[sid | HOT_LRU] = 1;
-            tocrawl[sid | WARM_LRU] = 1;
-            tocrawl[sid | COLD_LRU] = 1;
+            tocrawl[sid] = 1;
         }
     }
 
-    for (sid = POWER_SMALLEST; sid < LARGEST_ID; sid++) {
-        pthread_mutex_lock(&lru_locks[sid]);
-        if (tocrawl[sid] != 0 && tails[sid] != NULL) {
-            if (settings.verbose > 2)
-                fprintf(stderr, "Kicking LRU crawler off for LRU %d\n", sid);
-            crawlers[sid].nbytes = 0;
-            crawlers[sid].nkey = 0;
-            crawlers[sid].it_flags = 1; /* For a crawler, this means enabled. */
-            crawlers[sid].next = 0;
-            crawlers[sid].prev = 0;
-            crawlers[sid].time = 0;
-            crawlers[sid].remaining = settings.lru_crawler_tocrawl;
-            crawlers[sid].slabs_clsid = sid;
-            crawler_link_q((item *)&crawlers[sid]);
-            crawler_count++;
-            starts++;
-            pthread_mutex_lock(&lru_crawler_stats_lock);
-            memset(&crawlerstats[CLEAR_LRU(sid)], 0, sizeof(crawlerstats_t));
-            crawlerstats[CLEAR_LRU(sid)].start_time = current_time;
-            pthread_mutex_unlock(&lru_crawler_stats_lock);
-        }
-        pthread_mutex_unlock(&lru_locks[sid]);
+    for (sid = POWER_SMALLEST; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
+        if (tocrawl[sid])
+            starts += do_lru_crawler_start(sid, settings.lru_crawler_tocrawl);
     }
     if (starts) {
         pthread_cond_signal(&lru_crawler_cond);
