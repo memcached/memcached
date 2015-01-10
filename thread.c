@@ -36,9 +36,7 @@ struct conn_queue {
     pthread_mutex_t lock;
 };
 
-/* Lock for cache LRU operations
- * Was old global lock for all item_*, assoc_*, etc operations */
-pthread_mutex_t cache_lock;
+/* Locks for cache LRU operations */
 pthread_mutex_t lru_locks[POWER_LARGEST];
 
 /* Connection lock around accepting new connections */
@@ -727,7 +725,6 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
     int         i;
     int         power;
 
-    pthread_mutex_init(&cache_lock, NULL);
     for (i = 0; i < POWER_LARGEST; i++) {
         pthread_mutex_init(&lru_locks[i], NULL);
     }
