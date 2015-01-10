@@ -166,10 +166,10 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
         return 0;
 
     /* If no memory is available, attempt a direct LRU juggle/eviction */
-    /* This is a race sin order to simplify lru_pull_tail; in cases where
+    /* This is a race in order to simplify lru_pull_tail; in cases where
      * locked items are on the tail, you want them to fall out and cause
      * occasional OOM's, rather than internally work around them.
-     * This also gives one fewer code path for a slab alloc/free
+     * This also gives one fewer code path for slab alloc/free
      */
     for (i = 0; i < 5; i++) {
         /* Try to reclaim memory first */
@@ -381,7 +381,7 @@ void do_item_remove(item *it) {
 }
 
 /* Copy/paste to avoid adding two extra branches for all common calls, since
- * _nolock is only used in an uncommon case. */
+ * _nolock is only used in an uncommon case where we want to relink. */
 void do_item_update_nolock(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
@@ -395,9 +395,7 @@ void do_item_update_nolock(item *it) {
     }
 }
 
-/* Currently only bumps the accessed time. When compat mode is implemented it
- * can also bump the LRU
- */
+/* Bump the last accessed time, or relink if we're in compat mode */
 void do_item_update(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
     if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
@@ -428,7 +426,7 @@ int do_item_replace(item *it, item *new_it, const uint32_t hv) {
  * The data could possibly be overwritten, but this is only accessing the
  * headers.
  * It may not be the best idea to leave it like this, but for now it's safe.
- * FIXME: only dumps the hot LRU now
+ * FIXME: only dumps the hot LRU with the new LRU's.
  */
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
@@ -745,7 +743,8 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 
 /*** LRU MAINTENANCE THREAD ***/
 
-/* Returns number of items remove, expired, or evicted */
+/* Returns number of items remove, expired, or evicted.
+ * Callable from worker threads or the LRU maintainer thread */
 static int lru_pull_tail(const int orig_id, const int cur_lru,
         const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv) {
     item *it = NULL;
@@ -764,8 +763,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
     id |= cur_lru;
     pthread_mutex_lock(&lru_locks[id]);
     search = tails[id];
-    /* We walk up *only* for locked items, and if bottom is expired.
-     * never search for expired entries, wastes CPU if there are none. */
+    /* We walk up *only* for locked items, and if bottom is expired. */
     for (; tries > 0 && search != NULL; tries--, search=next_it) {
         /* we might relink search mid-loop, so search->prev isn't reliable */
         next_it = search->prev;
@@ -776,8 +774,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
         }
         uint32_t hv = hash(ITEM_key(search), search->nkey);
         /* Attempt to hash item lock the "search" item. If locked, no
-         * other callers can incr the refcount. Also skip ourselves.
-         */
+         * other callers can incr the refcount. Also skip ourselves. */
         if (hv == cur_hv || (hold_lock = item_trylock(hv)) == NULL)
             continue;
         /* Now see if the item is refcount locked */
@@ -819,7 +816,6 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
         /* If we're HOT_LRU or WARM_LRU and over size limit, send to COLD_LRU.
          * If we're COLD_LRU, send to WARM_LRU unless we need to evict
          */
-        /* FIXME: Hardcoded percentage */
         switch (cur_lru) {
             case HOT_LRU:
                 limit = total_chunks * settings.hot_lru_pct / 100;
@@ -893,7 +889,6 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
  * If too many items are in HOT_LRU, push to COLD_LRU
  * If too many items are in WARM_LRU, push to COLD_LRU
  * If too many items are in COLD_LRU, poke COLD_LRU tail
- * If too many items are in COLD_LRU and are below low watermark, start evicting
  * 1000 loops with 1ms min sleep gives us under 1m items shifted/sec. The
  * locks can't handle much more than that. Leaving a TODO for how to
  * autoadjust in the future.
