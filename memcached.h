@@ -540,12 +540,7 @@ enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 extern int daemonize(int nochdir, int noclose);
 
-static inline int mutex_lock(pthread_mutex_t *mutex)
-{
-    while (pthread_mutex_trylock(mutex));
-    return 0;
-}
-
+#define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)
 
 #include "stats.h"
