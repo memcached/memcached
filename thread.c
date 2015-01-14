@@ -300,13 +300,12 @@ static void cqi_free(CQ_ITEM *item) {
  * Creates a worker thread.
  */
 static void create_worker(void *(*func)(void *), void *arg) {
-    pthread_t       thread;
     pthread_attr_t  attr;
     int             ret;
 
     pthread_attr_init(&attr);
 
-    if ((ret = pthread_create(&thread, &attr, func, arg)) != 0) {
+    if ((ret = pthread_create(&((LIBEVENT_THREAD*)arg)->thread_id, &attr, func, arg)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n",
                 strerror(ret));
         exit(1);
