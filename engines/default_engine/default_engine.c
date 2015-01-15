@@ -886,6 +886,7 @@ static void default_handle_disconnect(const void *cookie,
     for (ii = 0; ii < engine->tap_connections.size; ++ii) {
         if (engine->tap_connections.clients[ii] == cookie) {
             free(engine->server.cookie->get_engine_specific(cookie));
+            engine->tap_connections.clients[ii] = NULL;
             break;
         }
     }
