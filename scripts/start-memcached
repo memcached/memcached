@@ -111,19 +111,15 @@ if($pid == 0)
     reopen_logfile($fd_reopened);
     # must fork again now that tty is closed
     $pid = fork();
-    if ($pid) {
-      exit(0);
-    }
-    exec "$memcached $params";
-    exit(0);
-
-}else{
-    if(open PIDHANDLE,">$pidfile")
-    {
-        print PIDHANDLE $pid;
-        close PIDHANDLE;
+    if ($pid == 0) {
+        exec "$memcached $params";
     }else{
-
-        print STDERR "Can't write pidfile to $pidfile.\n";
+        if(open PIDHANDLE,">$pidfile")
+        {
+            print PIDHANDLE $pid;
+            close PIDHANDLE;
+        }else{
+            print STDERR "Can't write pidfile to $pidfile.\n";
+        }
     }
 }
