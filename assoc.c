@@ -27,6 +27,7 @@
 
 static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t maintenance_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t hash_items_counter_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
@@ -167,10 +168,12 @@ int assoc_insert(item *it, const uint32_t hv) {
         primary_hashtable[hv & hashmask(hashpower)] = it;
     }
 
+    pthread_mutex_lock(&hash_items_counter_lock);
     hash_items++;
     if (! expanding && hash_items > (hashsize(hashpower) * 3) / 2) {
         assoc_start_expand();
     }
+    pthread_mutex_unlock(&hash_items_counter_lock);
 
     MEMCACHED_ASSOC_INSERT(ITEM_key(it), it->nkey, hash_items);
     return 1;
@@ -181,7 +184,9 @@ void assoc_delete(const char *key, const size_t nkey, const uint32_t hv) {
 
     if (*before) {
         item *nxt;
+        pthread_mutex_lock(&hash_items_counter_lock);
         hash_items--;
+        pthread_mutex_unlock(&hash_items_counter_lock);
         /* The DTrace probe cannot be triggered as the last instruction
          * due to possible tail-optimization by the compiler
          */
