@@ -5077,6 +5077,8 @@ int main (int argc, char **argv) {
     bool protocol_specified = false;
     bool tcp_specified = false;
     bool udp_specified = false;
+    bool start_lru_maintainer = false;
+    bool start_lru_crawler = false;
     enum hashfunc_type hash_type = JENKINS_HASH;
     uint32_t tocrawl;
 
@@ -5420,10 +5422,7 @@ int main (int argc, char **argv) {
                 }
                 break;
             case LRU_CRAWLER:
-                if (start_item_crawler_thread() != 0) {
-                    fprintf(stderr, "Failed to enable LRU crawler thread\n");
-                    return 1;
-                }
+                start_lru_crawler = true;
                 break;
             case LRU_CRAWLER_SLEEP:
                 settings.lru_crawler_sleep = atoi(subopts_value);
@@ -5440,10 +5439,7 @@ int main (int argc, char **argv) {
                 settings.lru_crawler_tocrawl = tocrawl;
                 break;
             case LRU_MAINTAINER:
-                if (start_lru_maintainer_thread() != 0) {
-                    fprintf(stderr, "Failed to enable LRU maintainer thread\n");
-                    return 1;
-                }
+                start_lru_maintainer = true;
                 break;
             case HOT_LRU_PCT:
                 if (subopts_value == NULL) {
@@ -5631,6 +5627,16 @@ int main (int argc, char **argv) {
 
     if (start_assoc_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
+    }
+
+    if (start_lru_crawler && start_item_crawler_thread() != 0) {
+        fprintf(stderr, "Failed to enable LRU crawler thread\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (start_lru_maintainer && start_lru_maintainer_thread() != 0) {
+        fprintf(stderr, "Failed to enable LRU maintainer thread\n");
+        return 1;
     }
 
     if (settings.slab_reassign &&
