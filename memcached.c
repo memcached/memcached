@@ -184,6 +184,7 @@ static void stats_init(void) {
     stats.accepting_conns = true; /* assuming we start in this state. */
     stats.slab_reassign_running = false;
     stats.lru_crawler_running = false;
+    stats.lru_crawler_starts = 0;
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -2633,6 +2634,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     }
     if (settings.lru_crawler) {
         APPEND_STAT("lru_crawler_running", "%u", stats.lru_crawler_running);
+        APPEND_STAT("lru_crawler_starts", "%u", stats.lru_crawler_starts);
     }
     if (settings.lru_maintainer_thread) {
         APPEND_STAT("lru_maintainer_juggles", "%llu", (unsigned long long)stats.lru_maintainer_juggles);

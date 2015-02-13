@@ -36,6 +36,7 @@ typedef struct {
     uint64_t expired_unfetched;
     uint64_t evicted_unfetched;
     uint64_t crawler_reclaimed;
+    uint64_t crawler_items_checked;
     uint64_t lrutail_reflocked;
     uint64_t moves_to_cold;
     uint64_t moves_to_warm;
@@ -508,6 +509,7 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
             totals.evicted += itemstats[i].evicted;
             totals.reclaimed += itemstats[i].reclaimed;
             totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
+            totals.crawler_items_checked += itemstats[i].crawler_items_checked;
             totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
             totals.moves_to_cold += itemstats[i].moves_to_cold;
             totals.moves_to_warm += itemstats[i].moves_to_warm;
@@ -526,6 +528,8 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.reclaimed);
     APPEND_STAT("crawler_reclaimed", "%llu",
                 (unsigned long long)totals.crawler_reclaimed);
+    APPEND_STAT("crawler_items_checked", "%llu",
+                (unsigned long long)totals.crawler_items_checked);
     APPEND_STAT("lrutail_reflocked", "%llu",
                 (unsigned long long)totals.lrutail_reflocked);
     if (settings.lru_maintainer_thread) {
@@ -565,6 +569,7 @@ void item_stats(ADD_STAT add_stats, void *c) {
             totals.expired_unfetched += itemstats[i].expired_unfetched;
             totals.evicted_unfetched += itemstats[i].evicted_unfetched;
             totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
+            totals.crawler_items_checked += itemstats[i].crawler_items_checked;
             totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
             totals.moves_to_cold += itemstats[i].moves_to_cold;
             totals.moves_to_warm += itemstats[i].moves_to_warm;
@@ -605,6 +610,8 @@ void item_stats(ADD_STAT add_stats, void *c) {
                             "%llu", (unsigned long long)totals.evicted_unfetched);
         APPEND_NUM_FMT_STAT(fmt, n, "crawler_reclaimed",
                             "%llu", (unsigned long long)totals.crawler_reclaimed);
+        APPEND_NUM_FMT_STAT(fmt, n, "crawler_items_checked",
+                            "%llu", (unsigned long long)totals.crawler_items_checked);
         APPEND_NUM_FMT_STAT(fmt, n, "lrutail_reflocked",
                             "%llu", (unsigned long long)totals.lrutail_reflocked);
         if (settings.lru_maintainer_thread) {
@@ -1004,8 +1011,6 @@ static void *lru_maintainer_thread(void *arg) {
         STATS_LOCK();
         stats.lru_maintainer_juggles++;
         STATS_UNLOCK();
-        if (settings.verbose > 2)
-            fprintf(stderr, "LRU maintainer thread running\n");
         /* We were asked to immediately wake up and poke a particular slab
          * class due to a low watermark being hit */
         if (lru_maintainer_check_clsid != 0) {
@@ -1029,9 +1034,6 @@ static void *lru_maintainer_thread(void *arg) {
             lru_maintainer_crawler_check();
             last_crawler_check = current_time;
         }
-
-        if (settings.verbose > 2)
-            fprintf(stderr, "LRU maintainer thread sleeping\n");
     }
     pthread_mutex_unlock(&lru_maintainer_lock);
     if (settings.verbose > 2)
@@ -1197,6 +1199,7 @@ static item *crawler_crawl_q(item *it) {
 static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
     int slab_id = CLEAR_LRU(i);
     crawlerstats_t *s = &crawlerstats[slab_id];
+    itemstats[i].crawler_items_checked++;
     if ((search->exptime != 0 && search->exptime < current_time)
         || is_flushed(search)) {
         itemstats[i].crawler_reclaimed++;
@@ -1383,6 +1386,10 @@ static int do_lru_crawler_start(uint32_t id, uint32_t remaining) {
         pthread_mutex_unlock(&lru_locks[sid]);
     }
     if (starts) {
+        STATS_LOCK();
+        stats.lru_crawler_running = true;
+        stats.lru_crawler_starts++;
+        STATS_UNLOCK();
         pthread_mutex_lock(&lru_crawler_stats_lock);
         memset(&crawlerstats[id], 0, sizeof(crawlerstats_t));
         crawlerstats[id].start_time = current_time;
@@ -1397,6 +1404,9 @@ static int lru_crawler_start(uint32_t id, uint32_t remaining) {
         return 0;
     }
     starts = do_lru_crawler_start(id, remaining);
+    if (starts) {
+        pthread_cond_signal(&lru_crawler_cond);
+    }
     pthread_mutex_unlock(&lru_crawler_lock);
     return starts;
 }
@@ -1441,9 +1451,6 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
     }
     if (starts) {
         pthread_cond_signal(&lru_crawler_cond);
-        STATS_LOCK();
-        stats.lru_crawler_running = true;
-        STATS_UNLOCK();
         pthread_mutex_unlock(&lru_crawler_lock);
         return CRAWLER_OK;
     } else {
