@@ -5047,7 +5047,7 @@ int main (int argc, char **argv) {
     enum hashfunc_type hash_type = JENKINS_HASH;
     uint32_t tocrawl;
 
-    char *subopts;
+    char *subopts, *subopts_orig;
     char *subopts_value;
     enum {
         MAXCONNS_FAST = 0,
@@ -5313,7 +5313,7 @@ int main (int argc, char **argv) {
             settings.flush_enabled = false;
             break;
         case 'o': /* It's sub-opts time! */
-            subopts = optarg;
+            subopts_orig = subopts = strdup(optarg); /* getsubopt() changes the original args */
 
             while (*subopts != '\0') {
 
@@ -5403,6 +5403,7 @@ int main (int argc, char **argv) {
             }
 
             }
+            free(subopts_orig);
             break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
