@@ -5384,6 +5384,10 @@ int main (int argc, char **argv) {
                 }
                 break;
             case LRU_CRAWLER_SLEEP:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing lru_crawler_sleep value\n");
+                    return 1;
+                }
                 settings.lru_crawler_sleep = atoi(subopts_value);
                 if (settings.lru_crawler_sleep > 1000000 || settings.lru_crawler_sleep < 0) {
                     fprintf(stderr, "LRU crawler sleep must be between 0 and 1 second\n");
@@ -5391,6 +5395,10 @@ int main (int argc, char **argv) {
                 }
                 break;
             case LRU_CRAWLER_TOCRAWL:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing lru_crawler_tocrawl value\n");
+                    return 1;
+                }
                 if (!safe_strtoul(subopts_value, &tocrawl)) {
                     fprintf(stderr, "lru_crawler_tocrawl takes a numeric 32bit value\n");
                     return 1;
