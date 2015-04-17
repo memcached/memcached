@@ -129,7 +129,7 @@ $empty->('y');
 
     my $rv =()= eval { $mc->add('i', "ex2", 10, 5) };
     is($rv, 0, "Add didn't return anything");
-    ok($@->exists, "Expected exists error received");
+    ok($@->not_stored, "Expected not_stored error received");
     $check->('i', 5, "ex");
 }
 
@@ -151,7 +151,7 @@ $empty->('y');
 
     my $rv =()= eval { $mc->replace('j', "ex", 19, 5) };
     is($rv, 0, "Replace didn't return anything");
-    ok($@->not_found, "Expected not_found error received");
+    ok($@->not_stored, "Expected not_stored error received");
     $empty->('j');
     $mc->add('j', "ex2", 14, 5);
     $check->('j', 14, "ex2");
@@ -893,6 +893,11 @@ sub delta_badval {
 sub einval {
     my $self = shift;
     return $self->[0] == ERR_EINVAL;
+}
+
+sub not_stored {
+    my $self = shift;
+    return $self->[0] == ERR_NOT_STORED;
 }
 
 # vim: filetype=perl
