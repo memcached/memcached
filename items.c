@@ -488,7 +488,7 @@ void item_stats_evictions(uint64_t *evicted) {
         for (x = 0; x < 4; x++) {
             i = n | lru_type_map[x];
             pthread_mutex_lock(&lru_locks[i]);
-            evicted[i] = itemstats[i].evicted;
+            evicted[n] += itemstats[i].evicted;
             pthread_mutex_unlock(&lru_locks[i]);
         }
     }
