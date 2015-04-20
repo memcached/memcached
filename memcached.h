@@ -80,7 +80,7 @@
 #define POWER_LARGEST  255
 #define CHUNK_ALIGN_BYTES 8
 /* slab class max is a 6-bit number, -1. */
-#define MAX_NUMBER_OF_SLAB_CLASSES 63
+#define MAX_NUMBER_OF_SLAB_CLASSES (63 + 1)
 
 /** How long an object can reasonably be assumed to be locked before
     harvesting it on a low memory condition. Default: disabled. */

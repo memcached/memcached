@@ -1437,7 +1437,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs) {
              p = strtok_r(NULL, ",", &b)) {
 
             if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
-                    || sid >= MAX_NUMBER_OF_SLAB_CLASSES) {
+                    || sid >= MAX_NUMBER_OF_SLAB_CLASSES-1) {
                 pthread_mutex_unlock(&lru_crawler_lock);
                 return CRAWLER_BADCLASS;
             }

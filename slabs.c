@@ -115,7 +115,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
 
     memset(slabclass, 0, sizeof(slabclass));
 
-    while (++i < MAX_NUMBER_OF_SLAB_CLASSES && size <= settings.item_size_max / factor) {
+    while (++i < MAX_NUMBER_OF_SLAB_CLASSES-1 && size <= settings.item_size_max / factor) {
         /* Make sure items are always n-byte aligned */
         if (size % CHUNK_ALIGN_BYTES)
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
@@ -161,7 +161,7 @@ static void slabs_preallocate (const unsigned int maxslabs) {
        list.  if you really don't want this, you can rebuild without
        these three lines.  */
 
-    for (i = POWER_SMALLEST; i <= MAX_NUMBER_OF_SLAB_CLASSES; i++) {
+    for (i = POWER_SMALLEST; i < MAX_NUMBER_OF_SLAB_CLASSES; i++) {
         if (++prealloc > maxslabs)
             return;
         if (do_slabs_newslab(i) == 0) {
@@ -234,7 +234,6 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *to
         MEMCACHED_SLABS_ALLOCATE_FAILED(size, 0);
         return NULL;
     }
-
     p = &slabclass[id];
     assert(p->sl_curr == 0 || ((item *)p->slots)->slabs_clsid == 0);
 
