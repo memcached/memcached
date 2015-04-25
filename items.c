@@ -271,7 +271,6 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
 
 static void do_item_link_q(item *it) { /* item is the new head */
     item **head, **tail;
-    assert(it->slabs_clsid < LARGEST_ID);
     assert((it->it_flags & ITEM_SLABBED) == 0);
 
     head = &heads[it->slabs_clsid];
@@ -295,7 +294,6 @@ static void item_link_q(item *it) {
 
 static void do_item_unlink_q(item *it) {
     item **head, **tail;
-    assert(it->slabs_clsid < LARGEST_ID);
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
 
@@ -1094,7 +1092,6 @@ int init_lru_maintainer(void) {
 
 static void crawler_link_q(item *it) { /* item is the new tail */
     item **head, **tail;
-    assert(it->slabs_clsid < LARGEST_ID);
     assert(it->it_flags == 1);
     assert(it->nbytes == 0);
 
@@ -1116,7 +1113,6 @@ static void crawler_link_q(item *it) { /* item is the new tail */
 
 static void crawler_unlink_q(item *it) {
     item **head, **tail;
-    assert(it->slabs_clsid < LARGEST_ID);
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
 
