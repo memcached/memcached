@@ -29,7 +29,14 @@ is(scalar <$sock>, "STORED\r\n", "stored canary key");
 # Now flush the slab class with junk.
 for (my $key = 0; $key < 100; $key++) {
     if ($key == 30) {
-        my $stats = mem_stats($sock, "items");
+        my $stats;
+        for (0..2) {
+            # Give the juggler some time to move. some platforms suffer at
+            # this more than others (solaris amd64?)
+            $stats = mem_stats($sock, "items");
+            if ($stats->{"items:31:moves_to_cold"} == 0) { sleep 1; next; }
+            last;
+        }
         isnt($stats->{"items:31:moves_to_cold"}, 0, "moved some items to cold");
         # Fetch the canary once, so it's now marked as active.
         mem_get_is($sock, "canary", $value);
