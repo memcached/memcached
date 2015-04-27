@@ -1198,7 +1198,6 @@ static void complete_incr_bin(conn *c) {
 }
 
 static void complete_update_bin(conn *c) {
-    protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
     enum store_item_type ret = NOT_STORED;
     assert(c != NULL);
 
@@ -1253,14 +1252,7 @@ static void complete_update_bin(conn *c) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         break;
     case NOT_STORED:
-        if (c->cmd == NREAD_ADD) {
-            eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-        } else if(c->cmd == NREAD_REPLACE) {
-            eno = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-        } else {
-            eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
-        }
-        write_bin_error(c, eno, NULL, 0);
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED, NULL, 0);
     }
 
     item_remove(c->item);       /* release the c->item reference */

@@ -1148,7 +1148,7 @@ static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
         } else {
             safe_recv_packet(receive.bytes, sizeof(receive.bytes));
             validate_response_header(&receive.response, cmd,
-                                     PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS);
+                                     PROTOCOL_BINARY_RESPONSE_NOT_STORED);
         }
     }
 
@@ -1176,7 +1176,7 @@ static enum test_return test_binary_replace_impl(const char* key, uint8_t cmd) {
     safe_send(send.bytes, len, false);
     safe_recv_packet(receive.bytes, sizeof(receive.bytes));
     validate_response_header(&receive.response, cmd,
-                             PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+                             PROTOCOL_BINARY_RESPONSE_NOT_STORED);
     len = storage_command(send.bytes, sizeof(send.bytes),
                           PROTOCOL_BINARY_CMD_ADD,
                           key, strlen(key), &value, sizeof(value), 0, 0);
