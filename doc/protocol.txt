@@ -323,7 +323,7 @@ without fetching it.
 
 touch <key> <exptime> [noreply]\r\n
 
-- <key> is the key of the item the client wishes the server to delete
+- <key> is the key of the item the client wishes the server to touch
 
 - <exptime> is expiration time. Works the same as with the update commands
   (set/add/etc). This replaces the existing expiration time. If an existing
