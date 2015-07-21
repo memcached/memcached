@@ -2683,7 +2683,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
     APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
-    APPEND_STAT("warm_lru_pct", "%d", settings.hot_lru_pct);
+    APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
     APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
 }
 
