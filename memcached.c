@@ -5331,6 +5331,7 @@ int main (int argc, char **argv) {
             } else {
                 settings.item_size_max = atoi(buf);
             }
+            free(buf);
             if (settings.item_size_max < 1024) {
                 fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
                 return 1;
@@ -5346,7 +5347,6 @@ int main (int argc, char **argv) {
                     " and will decrease your memory efficiency.\n"
                 );
             }
-            free(buf);
             break;
         case 'S': /* set Sasl authentication to true. Default is false */
 #ifndef ENABLE_SASL
