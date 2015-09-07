@@ -862,6 +862,9 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     }
                     do_item_unlink_nolock(search, hv);
                     removed++;
+                    if (settings.slab_automove == 2) {
+                        slabs_reassign(-1, orig_id);
+                    }
                 } else if ((search->it_flags & ITEM_ACTIVE) != 0
                         && settings.lru_maintainer_thread) {
                     itemstats[id].moves_to_warm++;
