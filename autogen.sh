@@ -39,7 +39,7 @@ $AUTOHEADER || exit 1
 
 echo "automake..."
 if test x$AUTOMAKE = x; then
-  AUTOMAKE=`locate_binary automake-1.14 automake-1.13 automake-1.12 automake-1.11 automake-1.10 automake-1.9 automake-1.7`
+  AUTOMAKE=`locate_binary automake-1.15 automake-1.14 automake-1.13 automake-1.12 automake-1.11 automake-1.10 automake-1.9 automake-1.7`
   if test x$AUTOMAKE = x; then
     die "Did not find a supported automake"
   fi
