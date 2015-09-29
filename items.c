@@ -98,7 +98,7 @@ uint64_t get_cas_id(void) {
     return next_id;
 }
 
-static int is_flushed(item *it) {
+int item_is_flushed(item *it) {
     rel_time_t oldest_live = settings.oldest_live;
     uint64_t cas = ITEM_get_cas(it);
     uint64_t oldest_cas = settings.oldest_cas;
@@ -712,7 +712,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     }
 
     if (it != NULL) {
-        if (is_flushed(it)) {
+        if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
             do_item_remove(it);
             it = NULL;
@@ -803,7 +803,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
 
         /* Expired or flushed */
         if ((search->exptime != 0 && search->exptime < current_time)
-            || is_flushed(search)) {
+            || item_is_flushed(search)) {
             itemstats[id].reclaimed++;
             if ((search->it_flags & ITEM_FETCHED) == 0) {
                 itemstats[id].expired_unfetched++;
@@ -1199,7 +1199,7 @@ static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
     crawlerstats_t *s = &crawlerstats[slab_id];
     itemstats[i].crawler_items_checked++;
     if ((search->exptime != 0 && search->exptime < current_time)
-        || is_flushed(search)) {
+        || item_is_flushed(search)) {
         itemstats[i].crawler_reclaimed++;
         s->reclaimed++;
 

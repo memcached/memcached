@@ -14,6 +14,8 @@ void do_item_update(item *it);   /** update LRU time to current and reposition *
 void do_item_update_nolock(item *it);
 int  do_item_replace(item *it, item *new_it, const uint32_t hv);
 
+int item_is_flushed(item *it);
+
 /*@null@*/
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
 void item_stats(ADD_STAT add_stats, void *c);

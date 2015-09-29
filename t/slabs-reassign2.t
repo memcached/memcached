@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3;
+use Test::More tests => 5;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -42,7 +42,7 @@ for (1 .. $keycount) {
     } else {
         $body .= scalar(<$sock>) . scalar(<$sock>);
         if ($body ne $expected) {
-            print STDERR "Something terrible has happened: $body\n";
+            print STDERR "Something terrible has happened: $expected\nBODY:\n$body\nDONETEST\n";
         } else {
             $hits++;
         }
@@ -52,10 +52,13 @@ for (1 .. $keycount) {
 
 {
     my $stats = mem_stats($sock);
-    cmp_ok($stats->{evictions}, '<', 1000, 'evictions were less than 1000');
+    cmp_ok($stats->{evictions}, '<', 2000, 'evictions were less than 2000');
 #    for ('evictions', 'reclaimed', 'curr_items', 'cmd_set', 'bytes') {
 #        print STDERR "$_: ", $stats->{$_}, "\n";
 #    }
 }
 
 cmp_ok($hits, '>', 4000, 'were able to fetch back 2/3rds of 8k keys');
+my $stats_done = mem_stats($sock);
+cmp_ok($stats_done->{slab_reassign_rescues}, '>', 0, 'some reassign rescues happened');
+cmp_ok($stats_done->{slab_reassign_evictions}, '>', 0, 'some reassing evictions happened');
