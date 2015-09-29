@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 5;
+use Test::More tests => 9;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -62,3 +62,27 @@ cmp_ok($hits, '>', 4000, 'were able to fetch back 2/3rds of 8k keys');
 my $stats_done = mem_stats($sock);
 cmp_ok($stats_done->{slab_reassign_rescues}, '>', 0, 'some reassign rescues happened');
 cmp_ok($stats_done->{slab_reassign_evictions}, '>', 0, 'some reassing evictions happened');
+
+print $sock "flush_all\r\n";
+is(scalar <$sock>, "OK\r\n", "did flush_all");
+my $tries;
+for ($tries = 20; $tries > 0; $tries--) {
+    sleep 1;
+    my $stats = mem_stats($sock);
+    if ($stats->{slab_global_page_pool} == 61) {
+        last;
+    }
+}
+cmp_ok($tries, '>', 0, 'reclaimed 61 pages before timeout');
+
+# Set into an entirely new class. Overload a bit to try to cause problems.
+$value = "B"x4096;
+for (1 .. $keycount * 4) {
+    print $sock "set jfoo$_ 0 0 4096 noreply\r\n$value\r\n";
+}
+
+{
+    my $stats = mem_stats($sock);
+    is($stats->{curr_items}, 14490, "stored 14490 4k items");
+    is($stats->{slab_global_page_pool}, 0, "drained the global page pool");
+}

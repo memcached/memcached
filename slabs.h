@@ -34,7 +34,7 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 void slabs_stats(ADD_STAT add_stats, void *c);
 
 /* Hints as to freespace in slab class */
-unsigned int slabs_available_chunks(unsigned int id, bool *mem_flag, unsigned int *total_chunks);
+unsigned int slabs_available_chunks(unsigned int id, bool *mem_flag, unsigned int *total_chunks, unsigned int *chunks_perslab);
 
 int start_slab_maintenance_thread(void);
 void stop_slab_maintenance_thread(void);
