@@ -237,7 +237,9 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *to
     p = &slabclass[id];
     assert(p->sl_curr == 0 || ((item *)p->slots)->slabs_clsid == 0);
 
-    *total_chunks = p->slabs * p->perslab;
+    if (total_chunks != NULL) {
+        *total_chunks = p->slabs * p->perslab;
+    }
     /* fail unless we have space at the end of a recently allocated page,
        we have something on our freelist, or we could allocate a new page */
     if (! (p->sl_curr != 0 || do_slabs_newslab(id) != 0)) {
@@ -606,6 +608,9 @@ static int slab_rebalance_move(void) {
             }
         }
 
+        int save_item = 0;
+        item *new_it = NULL;
+        size_t ntotal = 0;
         switch (status) {
             case MOVE_FROM_LRU:
                 /* Lock order is LRU locks -> slabs_lock. unlink uses LRU lock.
@@ -614,10 +619,62 @@ static int slab_rebalance_move(void) {
                  * (2) + the item is locked. Drop slabs lock, drop item to
                  * refcount 1 (just our own, then fall through and wipe it
                  */
+                /* Check if expired or flushed */
+                ntotal = ITEM_ntotal(it);
+                /* REQUIRES slabs_lock: CHECK FOR cls->sl_curr > 0 */
+                if ((it->exptime != 0 && it->exptime < current_time)
+                    || item_is_flushed(it)) {
+                    /* TODO: maybe we only want to save if item is in HOT or
+                     * WARM LRU?
+                     */
+                    save_item = 0;
+                } else if (s_cls->sl_curr < 1) {
+                    save_item = 0;
+                    STATS_LOCK();
+                    stats.slab_reassign_evictions++;
+                    STATS_UNLOCK();
+                } else {
+                    save_item = 1;
+                    /* BIT OF A HACK: if sl_curr is > 0 alloc won't try to
+                     * pull from global pool to satisfy the request.
+                     * FIXME: pile on more flags?
+                     */
+                    new_it = do_slabs_alloc(ntotal, slab_rebal.s_clsid, NULL);
+                    /* check that memory isn't within the range to clear */
+                    if ((void *)new_it >= slab_rebal.slab_start
+                        && (void *)new_it < slab_rebal.slab_end) {
+                        /* Pulled something we intend to free. Put it back
+                         * and use the main loop to kill it.
+                         */
+                        do_slabs_free(new_it, ntotal, slab_rebal.s_clsid);
+                        save_item = 0;
+                        STATS_LOCK();
+                        stats.slab_reassign_evictions++;
+                        STATS_UNLOCK();
+                    }
+                }
                 pthread_mutex_unlock(&slabs_lock);
-                do_item_unlink(it, hv);
+                if (save_item) {
+                    /* if free memory, memcpy. clear prev/next/h_bucket */
+                    memcpy(new_it, it, ntotal);
+                    new_it->prev = 0;
+                    new_it->next = 0;
+                    new_it->h_next = 0;
+                    /* These are definitely required. else fails assert */
+                    new_it->it_flags &= ~ITEM_LINKED;
+                    new_it->refcount = 0;
+                    do_item_replace(it, new_it, hv);
+                    STATS_LOCK();
+                    stats.slab_reassign_rescues++;
+                    STATS_UNLOCK();
+                } else {
+                    do_item_unlink(it, hv);
+                }
                 item_trylock_unlock(hold_lock);
                 pthread_mutex_lock(&slabs_lock);
+                if (save_item == 0) {
+                    s_cls->requested -= ntotal;
+                }
             case MOVE_FROM_SLAB:
                 it->refcount = 0;
                 it->it_flags = 0;
@@ -625,6 +682,9 @@ static int slab_rebalance_move(void) {
                 break;
             case MOVE_BUSY:
             case MOVE_LOCKED:
+                STATS_LOCK();
+                stats.slab_reassign_busy_items++;
+                STATS_UNLOCK();
                 slab_rebal.busy_items++;
                 was_busy++;
                 break;
