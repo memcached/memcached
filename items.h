@@ -27,7 +27,6 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv);
 item *do_item_touch(const char *key, const size_t nkey, uint32_t exptime, const uint32_t hv);
 void item_stats_reset(void);
 extern pthread_mutex_t lru_locks[POWER_LARGEST];
-void item_stats_evictions(uint64_t *evicted);
 
 enum crawler_result_type {
     CRAWLER_OK=0, CRAWLER_RUNNING, CRAWLER_BADCLASS, CRAWLER_NOTSTARTED
