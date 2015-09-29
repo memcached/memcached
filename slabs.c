@@ -35,7 +35,6 @@ typedef struct {
     void **slab_list;       /* array of slab pointers */
     unsigned int list_size; /* size of prev array */
 
-    unsigned int killing;  /* index+1 of dying slab, or zero if none */
     size_t requested; /* The number of requested bytes */
 } slabclass_t;
 
@@ -496,9 +495,10 @@ static int slab_rebalance_start(void) {
         return no_go; /* Should use a wrapper function... */
     }
 
-    s_cls->killing = 1;
-
-    slab_rebal.slab_start = s_cls->slab_list[s_cls->killing - 1];
+    /* Always kill the first available slab page as it is most likely to
+     * contain the oldest items
+     */
+    slab_rebal.slab_start = s_cls->slab_list[0];
     slab_rebal.slab_end   = (char *)slab_rebal.slab_start +
         (s_cls->size * s_cls->perslab);
     slab_rebal.slab_pos   = slab_rebal.slab_start;
@@ -715,17 +715,21 @@ static int slab_rebalance_move(void) {
 static void slab_rebalance_finish(void) {
     slabclass_t *s_cls;
     slabclass_t *d_cls;
+    int x;
 
     pthread_mutex_lock(&slabs_lock);
 
     s_cls = &slabclass[slab_rebal.s_clsid];
     d_cls   = &slabclass[slab_rebal.d_clsid];
 
-    /* At this point the stolen slab is completely clear */
-    s_cls->slab_list[s_cls->killing - 1] =
-        s_cls->slab_list[s_cls->slabs - 1];
+    /* At this point the stolen slab is completely clear.
+     * We always kill the "first"/"oldest" slab page in the slab_list, so
+     * shuffle the page list backwards and decrement.
+     */
+    for (x = 0; x < s_cls->slabs; x++) {
+        s_cls->slab_list[x] = s_cls->slab_list[x+1];
+    }
     s_cls->slabs--;
-    s_cls->killing = 0;
 
     memset(slab_rebal.slab_start, 0, (size_t)settings.item_size_max);
 
