@@ -395,7 +395,9 @@ The response should always be "OK\r\n"
 
 - <0> means to set the thread on standby
 
-- <1> means to run the builtin slow algorithm to choose pages to move
+- <1> means to return pages to a global pool when there are more than 2 pages
+  worth of free chunks in a slab class. Pages are then re-assigned back into
+  other classes as-needed.
 
 - <2> is a highly aggressive mode which causes pages to be moved every time
   there is an eviction. It is not recommended to run for very long in this
@@ -599,6 +601,14 @@ integers separated by a colon (treat this as a floating point number).
 | lru_crawler_starts    | 64u     | Times an LRU crawler was started          |
 | lru_maintainer_juggles                                                      |
 |                       | 64u     | Number of times the LRU bg thread woke up |
+| slab_global_page_pool | 32u     | Slab pages returned to global pool for    |
+|                       |         | reassignment to other slab classes.       |
+| slab_reassign_rescues | 64u     | Items rescued from eviction in page move  |
+| slab_reassign_evictions                                                     |
+|                       | 64u     | Valid items evicted druing a page move    |
+| slab_reassign_busy_items                                                    |
+|                       | 64u     | Items busy during page move, requiring a  |
+|                       |         | retry before page can be moved.           |
 |-----------------------+---------+-------------------------------------------|
 
 Settings statistics
