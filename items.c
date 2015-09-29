@@ -113,6 +113,7 @@ int item_is_flushed(item *it) {
 
 static unsigned int noexp_lru_size(int slabs_clsid) {
     int id = CLEAR_LRU(slabs_clsid);
+    id |= NOEXP_LRU;
     unsigned int ret;
     pthread_mutex_lock(&lru_locks[id]);
     ret = sizes[id];
@@ -907,10 +908,22 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     int did_moves = 0;
     bool mem_limit_reached = false;
     unsigned int total_chunks = 0;
+    unsigned int chunks_perslab = 0;
+    unsigned int chunks_free = 0;
     /* TODO: if free_chunks below high watermark, increase aggressiveness */
-    slabs_available_chunks(slabs_clsid, &mem_limit_reached, &total_chunks);
+    chunks_free = slabs_available_chunks(slabs_clsid, &mem_limit_reached,
+            &total_chunks, &chunks_perslab);
     if (settings.expirezero_does_not_evict)
         total_chunks -= noexp_lru_size(slabs_clsid);
+
+    /* If slab automove is enabled on any level, and we have more than 2 pages
+     * worth of chunks free in this class, ask (gently) to reassign a page
+     * from this class back into the global pool (0)
+     */
+    if (settings.slab_automove > 0 && chunks_free > (chunks_perslab * 2)) {
+        /* FIXME: use a #define for the global pool class id? */
+        slabs_reassign(slabs_clsid, 0);
+    }
 
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 1000; i++) {
