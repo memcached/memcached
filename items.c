@@ -98,7 +98,7 @@ uint64_t get_cas_id(void) {
     return next_id;
 }
 
-static int is_flushed(item *it) {
+int item_is_flushed(item *it) {
     rel_time_t oldest_live = settings.oldest_live;
     uint64_t cas = ITEM_get_cas(it);
     uint64_t oldest_cas = settings.oldest_cas;
@@ -113,6 +113,7 @@ static int is_flushed(item *it) {
 
 static unsigned int noexp_lru_size(int slabs_clsid) {
     int id = CLEAR_LRU(slabs_clsid);
+    id |= NOEXP_LRU;
     unsigned int ret;
     pthread_mutex_lock(&lru_locks[id]);
     ret = sizes[id];
@@ -712,7 +713,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
     }
 
     if (it != NULL) {
-        if (is_flushed(it)) {
+        if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
             do_item_remove(it);
             it = NULL;
@@ -803,7 +804,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
 
         /* Expired or flushed */
         if ((search->exptime != 0 && search->exptime < current_time)
-            || is_flushed(search)) {
+            || item_is_flushed(search)) {
             itemstats[id].reclaimed++;
             if ((search->it_flags & ITEM_FETCHED) == 0) {
                 itemstats[id].expired_unfetched++;
@@ -862,6 +863,9 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     }
                     do_item_unlink_nolock(search, hv);
                     removed++;
+                    if (settings.slab_automove == 2) {
+                        slabs_reassign(-1, orig_id);
+                    }
                 } else if ((search->it_flags & ITEM_ACTIVE) != 0
                         && settings.lru_maintainer_thread) {
                     itemstats[id].moves_to_warm++;
@@ -904,10 +908,22 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     int did_moves = 0;
     bool mem_limit_reached = false;
     unsigned int total_chunks = 0;
+    unsigned int chunks_perslab = 0;
+    unsigned int chunks_free = 0;
     /* TODO: if free_chunks below high watermark, increase aggressiveness */
-    slabs_available_chunks(slabs_clsid, &mem_limit_reached, &total_chunks);
+    chunks_free = slabs_available_chunks(slabs_clsid, &mem_limit_reached,
+            &total_chunks, &chunks_perslab);
     if (settings.expirezero_does_not_evict)
         total_chunks -= noexp_lru_size(slabs_clsid);
+
+    /* If slab automove is enabled on any level, and we have more than 2 pages
+     * worth of chunks free in this class, ask (gently) to reassign a page
+     * from this class back into the global pool (0)
+     */
+    if (settings.slab_automove > 0 && chunks_free > (chunks_perslab * 2)) {
+        /* FIXME: use a #define for the global pool class id? */
+        slabs_reassign(slabs_clsid, 0);
+    }
 
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 1000; i++) {
@@ -1138,7 +1154,6 @@ static item *crawler_crawl_q(item *it) {
     item **head, **tail;
     assert(it->it_flags == 1);
     assert(it->nbytes == 0);
-    assert(it->slabs_clsid < LARGEST_ID);
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
 
@@ -1197,7 +1212,7 @@ static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
     crawlerstats_t *s = &crawlerstats[slab_id];
     itemstats[i].crawler_items_checked++;
     if ((search->exptime != 0 && search->exptime < current_time)
-        || is_flushed(search)) {
+        || item_is_flushed(search)) {
         itemstats[i].crawler_reclaimed++;
         s->reclaimed++;
 
