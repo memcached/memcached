@@ -747,10 +747,10 @@ static void slab_rebalance_finish(void) {
      * We always kill the "first"/"oldest" slab page in the slab_list, so
      * shuffle the page list backwards and decrement.
      */
+    s_cls->slabs--;
     for (x = 0; x < s_cls->slabs; x++) {
         s_cls->slab_list[x] = s_cls->slab_list[x+1];
     }
-    s_cls->slabs--;
 
     memset(slab_rebal.slab_start, 0, (size_t)settings.item_size_max);
 
