@@ -21,6 +21,7 @@
 #include <assert.h>
 #include <pthread.h>
 
+//#define DEBUG_SLAB_MOVER
 /* powers-of-N allocation structures */
 
 typedef struct {
@@ -626,6 +627,10 @@ static int slab_rebalance_move(void) {
                         item_trylock_unlock(hold_lock);
                     }
                 }
+            } else {
+                /* See above comment. No ITEM_SLABBED or ITEM_LINKED. Mark
+                 * busy and wait for item to complete its upload. */
+                status = MOVE_BUSY;
             }
         }
 
@@ -700,6 +705,9 @@ static int slab_rebalance_move(void) {
                 it->refcount = 0;
                 it->it_flags = 0;
                 it->slabs_clsid = 255;
+#ifdef DEBUG_SLAB_MOVER
+                memcpy(ITEM_key(it), "deadbeef", 8);
+#endif
                 break;
             case MOVE_BUSY:
             case MOVE_LOCKED:
@@ -743,6 +751,20 @@ static void slab_rebalance_finish(void) {
     s_cls = &slabclass[slab_rebal.s_clsid];
     d_cls = &slabclass[slab_rebal.d_clsid];
 
+#ifdef DEBUG_SLAB_MOVER
+    /* If the algorithm is broken, live items can sneak in. */
+    slab_rebal.slab_pos = slab_rebal.slab_start;
+    while (1) {
+        item *it = slab_rebal.slab_pos;
+        assert(it->slabs_clsid == 255);
+        assert(memcmp(ITEM_key(it), "deadbeef", 8) == 0);
+        it->slabs_clsid = 255;
+        slab_rebal.slab_pos = (char *)slab_rebal.slab_pos + s_cls->size;
+        if (slab_rebal.slab_pos >= slab_rebal.slab_end)
+            break;
+    }
+#endif
+
     /* At this point the stolen slab is completely clear.
      * We always kill the "first"/"oldest" slab page in the slab_list, so
      * shuffle the page list backwards and decrement.
@@ -752,11 +774,10 @@ static void slab_rebalance_finish(void) {
         s_cls->slab_list[x] = s_cls->slab_list[x+1];
     }
 
-    memset(slab_rebal.slab_start, 0, (size_t)settings.item_size_max);
-
     d_cls->slab_list[d_cls->slabs++] = slab_rebal.slab_start;
     /* Don't need to split the page into chunks if we're just storing it */
     if (slab_rebal.d_clsid > SLAB_GLOBAL_PAGE_POOL) {
+        memset(slab_rebal.slab_start, 0, (size_t)settings.item_size_max);
         split_slab_page_into_freelist(slab_rebal.slab_start,
             slab_rebal.d_clsid);
     }
