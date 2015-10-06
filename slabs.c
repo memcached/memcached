@@ -698,9 +698,10 @@ static int slab_rebalance_move(void) {
                 }
                 item_trylock_unlock(hold_lock);
                 pthread_mutex_lock(&slabs_lock);
-                if (save_item == 0) {
-                    s_cls->requested -= ntotal;
-                }
+                /* Always remove the ntotal, as we added it in during
+                 * do_slabs_alloc() when copying the item.
+                 */
+                s_cls->requested -= ntotal;
             case MOVE_FROM_SLAB:
                 it->refcount = 0;
                 it->it_flags = 0;
