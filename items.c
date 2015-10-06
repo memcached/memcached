@@ -906,7 +906,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
      * worth of chunks free in this class, ask (gently) to reassign a page
      * from this class back into the global pool (0)
      */
-    if (settings.slab_automove > 0 && chunks_free > (chunks_perslab * 2)) {
+    if (settings.slab_automove > 0 && chunks_free > (chunks_perslab * 2.5)) {
         slabs_reassign(slabs_clsid, SLAB_GLOBAL_PAGE_POOL);
     }
 
