@@ -529,7 +529,9 @@ struct slab_rebalance {
     void *slab_pos;
     int s_clsid;
     int d_clsid;
-    int busy_items;
+    uint32_t busy_items;
+    uint32_t rescues;
+    uint32_t evictions;
     uint8_t done;
 };
 

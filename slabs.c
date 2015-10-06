@@ -656,9 +656,7 @@ static int slab_rebalance_move(void) {
                     save_item = 0;
                 } else if (s_cls->sl_curr < 1) {
                     save_item = 0;
-                    STATS_LOCK();
-                    stats.slab_reassign_evictions++;
-                    STATS_UNLOCK();
+                    slab_rebal.evictions++;
                 } else {
                     save_item = 1;
                     /* BIT OF A HACK: if sl_curr is > 0 alloc won't try to
@@ -674,9 +672,7 @@ static int slab_rebalance_move(void) {
                          */
                         do_slabs_free(new_it, ntotal, slab_rebal.s_clsid);
                         save_item = 0;
-                        STATS_LOCK();
-                        stats.slab_reassign_evictions++;
-                        STATS_UNLOCK();
+                        slab_rebal.evictions++;
                     }
                 }
                 pthread_mutex_unlock(&slabs_lock);
@@ -690,9 +686,7 @@ static int slab_rebalance_move(void) {
                     new_it->it_flags &= ~ITEM_LINKED;
                     new_it->refcount = 0;
                     do_item_replace(it, new_it, hv);
-                    STATS_LOCK();
-                    stats.slab_reassign_rescues++;
-                    STATS_UNLOCK();
+                    slab_rebal.rescues++;
                 } else {
                     do_item_unlink(it, hv);
                 }
@@ -712,9 +706,6 @@ static int slab_rebalance_move(void) {
                 break;
             case MOVE_BUSY:
             case MOVE_LOCKED:
-                STATS_LOCK();
-                stats.slab_reassign_busy_items++;
-                STATS_UNLOCK();
                 slab_rebal.busy_items++;
                 was_busy++;
                 break;
@@ -731,6 +722,9 @@ static int slab_rebalance_move(void) {
         /* Some items were busy, start again from the top */
         if (slab_rebal.busy_items) {
             slab_rebal.slab_pos = slab_rebal.slab_start;
+            STATS_LOCK();
+            stats.slab_reassign_busy_items += slab_rebal.busy_items;
+            STATS_UNLOCK();
             slab_rebal.busy_items = 0;
         } else {
             slab_rebal.done++;
@@ -746,6 +740,8 @@ static void slab_rebalance_finish(void) {
     slabclass_t *s_cls;
     slabclass_t *d_cls;
     int x;
+    uint32_t rescues;
+    uint32_t evictions;
 
     pthread_mutex_lock(&slabs_lock);
 
@@ -789,6 +785,10 @@ static void slab_rebalance_finish(void) {
     slab_rebal.slab_start = NULL;
     slab_rebal.slab_end   = NULL;
     slab_rebal.slab_pos   = NULL;
+    evictions = slab_rebal.evictions;
+    rescues   = slab_rebal.rescues;
+    slab_rebal.evictions  = 0;
+    slab_rebal.rescues  = 0;
 
     slab_rebalance_signal = 0;
 
@@ -797,6 +797,8 @@ static void slab_rebalance_finish(void) {
     STATS_LOCK();
     stats.slab_reassign_running = false;
     stats.slabs_moved++;
+    stats.slab_reassign_rescues += rescues;
+    stats.slab_reassign_evictions += evictions;
     STATS_UNLOCK();
 
     if (settings.verbose > 1) {
