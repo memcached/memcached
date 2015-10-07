@@ -294,7 +294,7 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     p = &slabclass[id];
 
     it = (item *)ptr;
-    it->it_flags |= ITEM_SLABBED;
+    it->it_flags = ITEM_SLABBED;
     it->slabs_clsid = 0;
     it->prev = 0;
     it->next = p->slots;
@@ -581,7 +581,10 @@ static int slab_rebalance_move(void) {
         hold_lock = NULL;
         item *it = slab_rebal.slab_pos;
         status = MOVE_PASS;
-        if (it->slabs_clsid != 255) {
+        /* ITEM_FETCHED when ITEM_SLABBED is overloaded to mean we've cleared
+         * the chunk for move. Only these two flags should exist.
+         */
+        if (it->it_flags != (ITEM_SLABBED|ITEM_FETCHED)) {
             /* ITEM_SLABBED can only be added/removed under the slabs_lock */
             if (it->it_flags & ITEM_SLABBED) {
                 /* remove from slab freelist */
@@ -698,8 +701,7 @@ static int slab_rebalance_move(void) {
                 s_cls->requested -= ntotal;
             case MOVE_FROM_SLAB:
                 it->refcount = 0;
-                it->it_flags = 0;
-                it->slabs_clsid = 255;
+                it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
 #ifdef DEBUG_SLAB_MOVER
                 memcpy(ITEM_key(it), "deadbeef", 8);
 #endif
@@ -753,9 +755,9 @@ static void slab_rebalance_finish(void) {
     slab_rebal.slab_pos = slab_rebal.slab_start;
     while (1) {
         item *it = slab_rebal.slab_pos;
-        assert(it->slabs_clsid == 255);
+        assert(it->it_flags == (ITEM_SLABBED|ITEM_FETCHED));
         assert(memcmp(ITEM_key(it), "deadbeef", 8) == 0);
-        it->slabs_clsid = 255;
+        it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
         slab_rebal.slab_pos = (char *)slab_rebal.slab_pos + s_cls->size;
         if (slab_rebal.slab_pos >= slab_rebal.slab_end)
             break;
