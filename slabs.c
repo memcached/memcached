@@ -659,7 +659,7 @@ static int slab_rebalance_move(void) {
                     save_item = 0;
                 } else if (s_cls->sl_curr < 1) {
                     save_item = 0;
-                    slab_rebal.evictions++;
+                    slab_rebal.evictions_nomem++;
                 } else {
                     save_item = 1;
                     /* BIT OF A HACK: if sl_curr is > 0 alloc won't try to
@@ -675,7 +675,7 @@ static int slab_rebalance_move(void) {
                          */
                         do_slabs_free(new_it, ntotal, slab_rebal.s_clsid);
                         save_item = 0;
-                        slab_rebal.evictions++;
+                        slab_rebal.evictions_samepage++;
                     }
                 }
                 pthread_mutex_unlock(&slabs_lock);
@@ -743,7 +743,8 @@ static void slab_rebalance_finish(void) {
     slabclass_t *d_cls;
     int x;
     uint32_t rescues;
-    uint32_t evictions;
+    uint32_t evictions_nomem;
+    uint32_t evictions_samepage;
 
     pthread_mutex_lock(&slabs_lock);
 
@@ -787,9 +788,11 @@ static void slab_rebalance_finish(void) {
     slab_rebal.slab_start = NULL;
     slab_rebal.slab_end   = NULL;
     slab_rebal.slab_pos   = NULL;
-    evictions = slab_rebal.evictions;
+    evictions_nomem    = slab_rebal.evictions_nomem;
+    evictions_samepage = slab_rebal.evictions_samepage;
     rescues   = slab_rebal.rescues;
-    slab_rebal.evictions  = 0;
+    slab_rebal.evictions_nomem    = 0;
+    slab_rebal.evictions_samepage = 0;
     slab_rebal.rescues  = 0;
 
     slab_rebalance_signal = 0;
@@ -800,7 +803,8 @@ static void slab_rebalance_finish(void) {
     stats.slab_reassign_running = false;
     stats.slabs_moved++;
     stats.slab_reassign_rescues += rescues;
-    stats.slab_reassign_evictions += evictions;
+    stats.slab_reassign_evictions_nomem += evictions_nomem;
+    stats.slab_reassign_evictions_samepage += evictions_samepage;
     STATS_UNLOCK();
 
     if (settings.verbose > 1) {
