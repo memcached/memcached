@@ -287,7 +287,8 @@ struct stats {
     bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
     uint64_t      slab_reassign_rescues; /* items rescued during slab move */
-    uint64_t      slab_reassign_evictions; /* valid items lost during slab move */
+    uint64_t      slab_reassign_evictions_nomem; /* valid items lost during slab move */
+    uint64_t      slab_reassign_evictions_samepage; /* valid items lost during slab move */
     uint64_t      slab_reassign_busy_items; /* valid temporarily unmovable */
     uint64_t      lru_crawler_starts; /* Number of item crawlers kicked off */
     bool          lru_crawler_running; /* crawl in progress */
@@ -531,7 +532,8 @@ struct slab_rebalance {
     int d_clsid;
     uint32_t busy_items;
     uint32_t rescues;
-    uint32_t evictions;
+    uint32_t evictions_nomem;
+    uint32_t evictions_samepage;
     uint8_t done;
 };
 
