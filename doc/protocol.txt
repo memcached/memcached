@@ -601,10 +601,10 @@ integers separated by a colon (treat this as a floating point number).
 | slab_reassign_evictions_nomem                                               |
 |                       | 64u     | Valid items evicted during a page move    |
 |                       |         | (due to no free memory in slab)           |
-| slab_reassign_evictions_samepage                                            |
-|                       | 64u     | Valid items evicted during a page move    |
-|                       |         | (due to free memory being in the same     |
-|                       |         |  page as the source item)                 |
+| slab_reassign_inline_reclaim                                                |
+|                       | 64u     | Internal stat counter for when the page   |
+|                       |         | mover clears memory from the chunk        |
+|                       |         | freelist when it wasn't expecting to.     |
 | slab_reassign_busy_items                                                    |
 |                       | 64u     | Items busy during page move, requiring a  |
 |                       |         | retry before page can be moved.           |
