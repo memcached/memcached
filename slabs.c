@@ -239,7 +239,8 @@ static int do_slabs_newslab(const unsigned int id) {
 }
 
 /*@null@*/
-static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *total_chunks) {
+static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *total_chunks,
+        unsigned int flags) {
     slabclass_t *p;
     void *ret = NULL;
     item *it = NULL;
@@ -256,10 +257,11 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *to
     }
     /* fail unless we have space at the end of a recently allocated page,
        we have something on our freelist, or we could allocate a new page */
-    if (! (p->sl_curr != 0 || do_slabs_newslab(id) != 0)) {
-        /* We don't have more memory available */
-        ret = NULL;
-    } else if (p->sl_curr != 0) {
+    if (p->sl_curr == 0 && flags != SLABS_ALLOC_NO_NEWPAGE) {
+        do_slabs_newslab(id);
+    }
+
+    if (p->sl_curr != 0) {
         /* return off our freelist */
         it = (item *)p->slots;
         p->slots = it->next;
@@ -270,6 +272,8 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *to
         it->refcount = 1;
         p->sl_curr--;
         ret = (void *)it;
+    } else {
+        ret = NULL;
     }
 
     if (ret) {
@@ -430,11 +434,12 @@ static void *memory_allocate(size_t size) {
     return ret;
 }
 
-void *slabs_alloc(size_t size, unsigned int id, unsigned int *total_chunks) {
+void *slabs_alloc(size_t size, unsigned int id, unsigned int *total_chunks,
+        unsigned int flags) {
     void *ret;
 
     pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_alloc(size, id, total_chunks);
+    ret = do_slabs_alloc(size, id, total_chunks, flags);
     pthread_mutex_unlock(&slabs_lock);
     return ret;
 }
@@ -540,6 +545,36 @@ static int slab_rebalance_start(void) {
     STATS_UNLOCK();
 
     return 0;
+}
+
+/* CALLED WITH slabs_lock HELD */
+static void *slab_rebalance_alloc(const size_t size, unsigned int id) {
+    slabclass_t *s_cls;
+    s_cls = &slabclass[slab_rebal.s_clsid];
+    int x;
+    item *new_it = NULL;
+
+    for (x = 0; x < s_cls->perslab; x++) {
+        new_it = do_slabs_alloc(size, id, NULL, SLABS_ALLOC_NO_NEWPAGE);
+        /* check that memory isn't within the range to clear */
+        if (new_it == NULL) {
+            break;
+        }
+        if ((void *)new_it >= slab_rebal.slab_start
+            && (void *)new_it < slab_rebal.slab_end) {
+            /* Pulled something we intend to free. Mark it as freed since
+             * we've already done the work of unlinking it from the freelist.
+             */
+            s_cls->requested -= size;
+            new_it->refcount = 0;
+            new_it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
+            new_it = NULL;
+            slab_rebal.inline_reclaim++;
+        } else {
+            break;
+        }
+    }
+    return new_it;
 }
 
 enum move_status {
@@ -657,26 +692,11 @@ static int slab_rebalance_move(void) {
                      * WARM LRU?
                      */
                     save_item = 0;
-                } else if (s_cls->sl_curr < 1) {
+                } else if ((new_it = slab_rebalance_alloc(ntotal, slab_rebal.s_clsid)) == NULL) {
                     save_item = 0;
                     slab_rebal.evictions_nomem++;
                 } else {
                     save_item = 1;
-                    /* BIT OF A HACK: if sl_curr is > 0 alloc won't try to
-                     * pull from global pool to satisfy the request.
-                     * FIXME: pile on more flags?
-                     */
-                    new_it = do_slabs_alloc(ntotal, slab_rebal.s_clsid, NULL);
-                    /* check that memory isn't within the range to clear */
-                    if ((void *)new_it >= slab_rebal.slab_start
-                        && (void *)new_it < slab_rebal.slab_end) {
-                        /* Pulled something we intend to free. Put it back
-                         * and use the main loop to kill it.
-                         */
-                        do_slabs_free(new_it, ntotal, slab_rebal.s_clsid);
-                        save_item = 0;
-                        slab_rebal.evictions_samepage++;
-                    }
                 }
                 pthread_mutex_unlock(&slabs_lock);
                 if (save_item) {
@@ -744,7 +764,7 @@ static void slab_rebalance_finish(void) {
     int x;
     uint32_t rescues;
     uint32_t evictions_nomem;
-    uint32_t evictions_samepage;
+    uint32_t inline_reclaim;
 
     pthread_mutex_lock(&slabs_lock);
 
@@ -789,10 +809,10 @@ static void slab_rebalance_finish(void) {
     slab_rebal.slab_end   = NULL;
     slab_rebal.slab_pos   = NULL;
     evictions_nomem    = slab_rebal.evictions_nomem;
-    evictions_samepage = slab_rebal.evictions_samepage;
+    inline_reclaim = slab_rebal.inline_reclaim;
     rescues   = slab_rebal.rescues;
     slab_rebal.evictions_nomem    = 0;
-    slab_rebal.evictions_samepage = 0;
+    slab_rebal.inline_reclaim = 0;
     slab_rebal.rescues  = 0;
 
     slab_rebalance_signal = 0;
@@ -804,7 +824,7 @@ static void slab_rebalance_finish(void) {
     stats.slabs_moved++;
     stats.slab_reassign_rescues += rescues;
     stats.slab_reassign_evictions_nomem += evictions_nomem;
-    stats.slab_reassign_evictions_samepage += evictions_samepage;
+    stats.slab_reassign_inline_reclaim += inline_reclaim;
     STATS_UNLOCK();
 
     if (settings.verbose > 1) {
