@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 9;
+use Test::More tests => 11;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -75,6 +75,11 @@ for ($tries = 20; $tries > 0; $tries--) {
 }
 cmp_ok($tries, '>', 0, 'reclaimed 61 pages before timeout');
 
+{
+    my $stats = mem_stats($sock, "slabs");
+    is($stats->{total_malloced}, 68157440, "total_malloced is what we expect");
+}
+
 # Set into an entirely new class. Overload a bit to try to cause problems.
 $value = "B"x4096;
 for (1 .. $keycount * 4) {
@@ -85,4 +90,9 @@ for (1 .. $keycount * 4) {
     my $stats = mem_stats($sock);
     is($stats->{curr_items}, 14490, "stored 14490 4k items");
     is($stats->{slab_global_page_pool}, 0, "drained the global page pool");
+}
+
+{
+    my $stats = mem_stats($sock, "slabs");
+    is($stats->{total_malloced}, 68157440, "total_malloced is same after re-assignment");
 }

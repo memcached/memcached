@@ -232,7 +232,6 @@ static int do_slabs_newslab(const unsigned int id) {
     split_slab_page_into_freelist(ptr, id);
 
     p->slab_list[p->slabs++] = ptr;
-    mem_malloced += len;
     MEMCACHED_SLABS_SLABCLASS_ALLOCATE(id);
 
     return 1;
@@ -430,6 +429,7 @@ static void *memory_allocate(size_t size) {
             mem_avail = 0;
         }
     }
+    mem_malloced += size;
 
     return ret;
 }
