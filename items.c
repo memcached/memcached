@@ -46,7 +46,7 @@ typedef struct {
 } itemstats_t;
 
 typedef struct {
-    uint64_t histo[60];
+    uint64_t histo[61];
     uint64_t ttl_hourplus;
     uint64_t noexp;
     uint64_t reclaimed;
