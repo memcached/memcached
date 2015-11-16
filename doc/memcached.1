@@ -132,8 +132,9 @@ specify the protocol clients must speak.  Possible options are "auto"
 (the default, autonegotiation behavior), "ascii" and "binary".
 .TP
 .B \-I <size>
-Override the default size of each slab page. Default is 1mb. Default is 1m,
-minimum is 1k, max is 128m. Adjusting this value changes the item size limit.
+Override the default size of each slab page. The default size is 1mb. Default
+value for this parameter is 1m, minimum is 1k, max is 128m.
+Adjusting this value changes the item size limit.
 Beware that this also increases the number of slabs (use -v to view), and the
 overal memory usage of memcached.
 .TP
