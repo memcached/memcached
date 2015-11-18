@@ -481,6 +481,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
 void item_stats_evictions(uint64_t *evicted) {
     int n;
     for (n = 0; n < MAX_NUMBER_OF_SLAB_CLASSES; n++) {
+        evicted[n] = 0;
         int i;
         int x;
         for (x = 0; x < 4; x++) {
