@@ -841,10 +841,12 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
             case COLD_LRU:
                 it = search; /* No matter what, we're stopping */
                 if (do_evict) {
+                    logger *l;
                     if (settings.evict_to_free == 0) {
                         /* Don't think we need a counter for this. It'll OOM.  */
                         break;
                     }
+                    l = GET_LOGGER();
                     itemstats[id].evicted++;
                     itemstats[id].evicted_time = current_time - search->time;
                     if (search->exptime != 0)
@@ -852,6 +854,8 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     if ((search->it_flags & ITEM_FETCHED) == 0) {
                         itemstats[id].evicted_unfetched++;
                     }
+                    if (l->log_evictions)
+                        logger_log(l, LOGGER_EVICTION, search);
                     do_item_unlink_nolock(search, hv);
                     removed++;
                     if (settings.slab_automove == 2) {

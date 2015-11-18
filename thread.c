@@ -371,6 +371,10 @@ static void *worker_libevent(void *arg) {
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
      * all threads have finished initializing.
      */
+    me->l = logger_create();
+    if (me->l == NULL) {
+        abort();
+    }
 
     register_thread_initialized();
 
@@ -461,6 +465,48 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     if (write(thread->notify_send_fd, buf, 1) != 1) {
         perror("Writing to thread notify pipe");
     }
+}
+
+/*
+ * Re-dispatches a connection back to the original thread. Can be called from
+ * any side thread borrowing a connection.
+ * TODO: Look into this. too complicated?
+ */
+#ifdef BOGUS_DEFINE
+void redispatch_conn(conn *c) {
+    CQ_ITEM *item = cqi_new();
+    char buf[1];
+    if (item == NULL) {
+        /* Can't cleanly redispatch connection. close it forcefully. */
+        /* FIXME: is conn_cleanup() necessary?
+         * if conn was handed off to a side thread it should be clean.
+         * could also put it into a "clean_me" state?
+         */
+        c->state = conn_closed;
+        close(c->sfd);
+        return;
+    }
+    LIBEVENT_THREAD *thread = c->thread;
+    item->sfd = sfd;
+    /* pass in the state somehow? 
+    item->init_state = conn_closing; */
+    item->event_flags = c->event_flags;
+    item->conn = c;
+}
+#endif
+
+/* This misses the allow_new_conns flag :( */
+void sidethread_conn_close(conn *c) {
+    c->state = conn_closed;
+    if (settings.verbose > 1)
+        fprintf(stderr, "<%d connection closed from side thread.\n", c->sfd);
+    close(c->sfd);
+
+    STATS_LOCK();
+    stats.curr_conns--;
+    STATS_UNLOCK();
+
+    return;
 }
 
 /*

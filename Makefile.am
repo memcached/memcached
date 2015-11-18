@@ -18,7 +18,9 @@ memcached_SOURCES = memcached.c memcached.h \
                     thread.c daemon.c \
                     stats.c stats.h \
                     util.c util.h \
-                    trace.h cache.h sasl_defs.h
+                    trace.h cache.h sasl_defs.h \
+                    bipbuffer.c bipbuffer.h \
+                    logger.c logger.h
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c
@@ -71,7 +73,7 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 
 SUBDIRS = doc
 DIST_DIRS = scripts
-EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md
+EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md LICENSE.bipbuffer
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
