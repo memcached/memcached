@@ -4,7 +4,7 @@ m4_include([m4/c99-backport.m4])
 AC_INIT(memcached, VERSION_NUMBER, memcached@googlegroups.com)
 AC_CANONICAL_SYSTEM
 AC_CONFIG_SRCDIR(memcached.c)
-AM_INIT_AUTOMAKE(AC_PACKAGE_NAME, AC_PACKAGE_VERSION)
+AM_INIT_AUTOMAKE
 AM_CONFIG_HEADER(config.h)
 
 AC_PROG_CC
