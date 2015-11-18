@@ -670,7 +670,8 @@ static const char *state_text(enum conn_states state) {
                                        "conn_swallow",
                                        "conn_closing",
                                        "conn_mwrite",
-                                       "conn_closed" };
+                                       "conn_closed",
+                                       "conn_watch" };
     return statenames[state];
 }
 
@@ -3444,8 +3445,8 @@ static void process_command(conn *c, char *command) {
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
 
-    if (settings.verbose > 1)
-        fprintf(stderr, "<%d %s\n", c->sfd, command);
+    if (c->thread->l->log_fetchers)
+        logger_log(c->thread->l, LOGGER_ASCII_CMD, NULL, c->sfd, command);
 
     /*
      * for commands set/add/replace, we build an item and read the data
@@ -3674,6 +3675,20 @@ static void process_command(conn *c, char *command) {
             return;
         } else {
             out_string(c, "ERROR");
+        }
+    } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "watch") == 0) {
+        /* TODO: pass to function for full argument processing. */
+        switch(logger_add_watcher(c, c->sfd)) {
+            case LOGGER_ADD_WATCHER_TOO_MANY:
+                out_string(c, "WATCHER_TOO_MANY log watcher limit reached");
+                break;
+            case LOGGER_ADD_WATCHER_FAILED:
+                out_string(c, "WATCHER_FAILED failed to add log watcher");
+                break;
+            case LOGGER_ADD_WATCHER_OK:
+                conn_set_state(c, conn_watch);
+                event_del(&c->event);
+                break;
         }
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
@@ -4380,6 +4395,10 @@ static void drive_machine(conn *c) {
             abort();
             break;
 
+        case conn_watch:
+            /* We handed off our connection to the logger thread. */
+            stop = true;
+            break;
         case conn_max_state:
             assert(false);
             break;
@@ -5674,6 +5693,7 @@ int main (int argc, char **argv) {
     main_base = event_init();
 
     /* initialize other stuff */
+    logger_init();
     stats_init();
     assoc_init(settings.hashpower_init);
     conn_init();
