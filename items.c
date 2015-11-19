@@ -1237,6 +1237,8 @@ static void *item_crawler_thread(void *arg) {
     int crawls_persleep = settings.crawls_persleep;
 
     pthread_mutex_lock(&lru_crawler_lock);
+    pthread_cond_signal(&lru_crawler_cond);
+    settings.lru_crawler = true;
     if (settings.verbose > 2)
         fprintf(stderr, "Starting LRU crawler background thread\n");
     while (do_run_lru_crawler_thread) {
@@ -1329,6 +1331,17 @@ int stop_item_crawler_thread(void) {
     return 0;
 }
 
+/* Lock dance to "block" until thread is waiting on its condition:
+ * caller locks mtx. caller spawns thread.
+ * thread blocks on mutex.
+ * caller waits on condition, releases lock.
+ * thread gets lock, sends signal.
+ * caller can't wait, as thread has lock.
+ * thread waits on condition, releases lock
+ * caller wakes on condition, gets lock.
+ * caller immediately releases lock.
+ * thread is now safely waiting on condition before the caller returns.
+ */
 int start_item_crawler_thread(void) {
     int ret;
 
@@ -1336,7 +1349,6 @@ int start_item_crawler_thread(void) {
         return -1;
     pthread_mutex_lock(&lru_crawler_lock);
     do_run_lru_crawler_thread = 1;
-    settings.lru_crawler = true;
     if ((ret = pthread_create(&item_crawler_tid, NULL,
         item_crawler_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create LRU crawler thread: %s\n",
@@ -1344,6 +1356,8 @@ int start_item_crawler_thread(void) {
         pthread_mutex_unlock(&lru_crawler_lock);
         return -1;
     }
+    /* Avoid returning until the crawler has actually started */
+    pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
     pthread_mutex_unlock(&lru_crawler_lock);
 
     return 0;
