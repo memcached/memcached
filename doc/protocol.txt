@@ -527,6 +527,7 @@ integers separated by a colon (treat this as a floating point number).
 | curr_connections      | 32u     | Number of open connections                |
 | total_connections     | 32u     | Total number of connections opened since  |
 |                       |         | the server started running                |
+| rejected_connections  | 64u     | Conns rejected in maxconns_fast mode      |
 | connection_structures | 32u     | Number of connection structures allocated |
 |                       |         | by the server                             |
 | reserved_fds          | 32u     | Number of misc fds used internally        |
@@ -566,6 +567,11 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | to network                                |
 | limit_maxbytes        | 32u     | Number of bytes this server is allowed to |
 |                       |         | use for storage.                          |
+| accepting_conns       | bool    | Whether or not server is accepting conns  |
+| listen_disabled_num   | 64u     | Number of times server has stopped        |
+|                       |         | accepting new connections (maxconns).     |
+| time_in_listen_disabled_us                                                  |
+|                       | 64u     | Number of microseconds in maxconns.       |
 | threads               | 32u     | Number of worker threads requested.       |
 |                       |         | (see doc/threads.txt)                     |
 | conn_yields           | 64u     | Number of times any connection yielded to |

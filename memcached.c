@@ -3954,10 +3954,10 @@ void do_accept_new_conns(const bool do_accept) {
     }
 
     if (do_accept) {
-        STATS_LOCK();
         struct timeval maxconns_exited;
         uint64_t elapsed_us;
         gettimeofday(&maxconns_exited,NULL);
+        STATS_LOCK();
         elapsed_us =
             (maxconns_exited.tv_sec - stats.maxconns_entered.tv_sec) * 1000000
             + (maxconns_exited.tv_usec - stats.maxconns_entered.tv_usec);
