@@ -725,7 +725,7 @@ you could prevent memcached from serving requests for several seconds.
 
 The data is returned in the following format:
 
-<size> <count>\r\n
+STAT <size> <count>\r\n
 
 The server terminates this list with the line
 
