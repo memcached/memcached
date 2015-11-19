@@ -1,11 +1,11 @@
 AC_PREREQ(2.52)
 m4_include([version.m4])
 m4_include([m4/c99-backport.m4])
-AC_INIT(memcached, VERSION_NUMBER, memcached@googlegroups.com)
-AC_CANONICAL_SYSTEM
-AC_CONFIG_SRCDIR(memcached.c)
-AM_INIT_AUTOMAKE
-AM_CONFIG_HEADER(config.h)
+AC_INIT([memcached], [VERSION_NUMBER], [memcached@googlegroups.com])
+AC_CANONICAL_HOST
+AC_CONFIG_SRCDIR([memcached.c])
+AM_INIT_AUTOMAKE([foreign])
+AM_CONFIG_HEADER([config.h])
 
 AC_PROG_CC
 
