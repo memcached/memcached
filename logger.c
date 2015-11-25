@@ -204,6 +204,41 @@ static void logger_chunk_release(logger_chunk *lc) {
 }
 
 /* Called with logger stack locked.
+ * Iterates over every watcher collecting enabled flags.
+ */
+static void logger_set_flags(void) {
+    logger *l = NULL;
+    int x = 0;
+    struct logger_eflags f;
+    memset(&f, 0, sizeof(struct logger_eflags));
+
+    /* Would love to | the fields together, but bitfields have intederminate
+     * sizing. Could use a union and some startup asserts to sniff out
+     * platforms where 8 bitfields take more than a uint64_t.. Some research
+     * is required though. For now an if/else tree will have to do.
+     */
+    for (x = 0; x < WATCHER_LIMIT; x++) {
+        logger_watcher *w = watchers[x];
+        if (w == NULL)
+            continue;
+
+        if (w->f.log_evictions)
+            f.log_evictions = 1;
+
+        if (w->f.log_fetchers)
+            f.log_fetchers = 1;
+
+        if (w->f.log_time)
+            f.log_time = 1;
+    }
+    for (l = logger_stack_head; l != NULL; l=l->next) {
+        /* lock logger, call function to manipulate it */
+        memcpy(&l->f, &f, sizeof(struct logger_eflags));
+    }
+    return;
+}
+
+/* Called with logger stack locked.
  * Releases every chunk associated with a watcher and closes the connection.
  * We can't presently send a connection back to the worker for further
  * processing.
@@ -220,6 +255,7 @@ static void logger_close_watcher(logger_watcher *w) {
     sidethread_conn_close(w->c);
     watcher_count--;
     free(w);
+    logger_set_flags();
 }
 
 /* Pick any number of "oldest" behind-watchers and kill them. */
@@ -502,11 +538,7 @@ logger *logger_create(void) {
         return NULL;
     }
 
-    /* FIXME: hardcoded defaults for testing stage */
     l->entry_map = default_entries;
-    //l->log_fetchers = 1;
-    l->log_evictions = 1;
-    l->log_time = 1;
 
     pthread_mutex_init(&l->mutex, NULL);
     pthread_setspecific(logger_key, l);
@@ -518,8 +550,11 @@ logger *logger_create(void) {
 
 #define SET_LOGGER_TIME() \
     do { \
-        if (l->log_time) { \
+        if (l->f.log_time) { \
             gettimeofday(&e->tv, NULL); \
+        } else { \
+            e->tv.tv_sec = 0; \
+            e->tv.tv_usec = 0; \
         } \
     } while (0)
 
@@ -597,7 +632,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
  * logger thread. Caller *must* event_del() the client before handing it over.
  * Presently there's no way to hand the client back to the worker thread.
  */
-enum logger_add_watcher_ret logger_add_watcher(void *c, int sfd) {
+enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, const struct logger_eflags f) {
     int x;
     logger_watcher *w = NULL;
     pthread_mutex_lock(&logger_stack_lock);
@@ -621,6 +656,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, int sfd) {
         w->t = LOGGER_WATCHER_CLIENT;
     }
     w->id = x;
+    memcpy(&w->f, &f, sizeof(struct logger_eflags));
     /* Attach to an existing log chunk if there is one */
     if (logger_thread_last_lc && !logger_thread_last_lc->filled) {
         logger_chunk *lc = logger_thread_last_lc;
@@ -631,6 +667,8 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, int sfd) {
     }
     watchers[x] = w;
     watcher_count++;
+    /* Update what flags the global logs will watch */
+    logger_set_flags();
 
     pthread_mutex_unlock(&logger_stack_lock);
     return LOGGER_ADD_WATCHER_OK;

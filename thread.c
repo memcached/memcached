@@ -488,7 +488,7 @@ void redispatch_conn(conn *c) {
     }
     LIBEVENT_THREAD *thread = c->thread;
     item->sfd = sfd;
-    /* pass in the state somehow? 
+    /* pass in the state somehow?
     item->init_state = conn_closing; */
     item->event_flags = c->event_flags;
     item->conn = c;

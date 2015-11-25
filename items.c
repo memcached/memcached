@@ -854,7 +854,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     if ((search->it_flags & ITEM_FETCHED) == 0) {
                         itemstats[id].evicted_unfetched++;
                     }
-                    if (l->log_evictions)
+                    if (l->f.log_evictions)
                         logger_log(l, LOGGER_EVICTION, search);
                     do_item_unlink_nolock(search, hv);
                     removed++;
