@@ -27,9 +27,14 @@ while (<$stats_sock>) {
 }
 
 like($stats, qr/STAT \d+:addr /);
-$stats =~ m/STAT (\d+):addr unix:(\/[^\r\n]*)/g;
+$stats =~ m/STAT (\d+):addr unix:(.*[^\r\n])/g;
 my $listen_fd = $1;
-is($2, $filename, "unix domain socket path reported correctly");
+my $socket_path = $2;
+# getsockname(2) doesn't return socket path on GNU/Hurd (and maybe others)
+SKIP: {
+	skip "socket path checking on GNU kernel", 1 if ($^O eq 'gnu');
+	is($socket_path, $filename, "unix domain socket path reported correctly");
+};
 $stats =~ m/STAT (\d+):state conn_listening\r\n/g;
 is($1, $listen_fd, "listen socket fd reported correctly");
 
