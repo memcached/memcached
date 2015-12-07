@@ -50,8 +50,13 @@
 
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
-#if defined(__FreeBSD__) || defined(__APPLE__)
+#if defined(__FreeBSD__) || defined(__APPLE__) || defined(__GNU__)
 # define IOV_MAX 1024
+/* GNU/Hurd don't set MAXPATHLEN
+ * http://www.gnu.org/software/hurd/hurd/porting/guidelines.html#PATH_MAX_tt_MAX_PATH_tt_MAXPATHL */
+#ifndef MAXPATHLEN
+#define MAXPATHLEN 4096
+#endif
 #endif
 #endif
 
@@ -4114,7 +4119,7 @@ static void drive_machine(conn *c) {
                 STATS_UNLOCK();
             } else {
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, tcp_transport);
+                                     DATA_BUFFER_SIZE, c->transport);
             }
 
             stop = true;
@@ -5712,12 +5717,15 @@ int main (int argc, char **argv) {
     /* create the listening socket, bind it, and init */
     if (settings.socketpath == NULL) {
         const char *portnumber_filename = getenv("MEMCACHED_PORT_FILENAME");
-        char temp_portnumber_filename[PATH_MAX];
+        char *temp_portnumber_filename = NULL;
+        size_t len;
         FILE *portnumber_file = NULL;
 
         if (portnumber_filename != NULL) {
+            len = strlen(portnumber_filename)+4+1;
+            temp_portnumber_filename = malloc(len);
             snprintf(temp_portnumber_filename,
-                     sizeof(temp_portnumber_filename),
+                     len,
                      "%s.lck", portnumber_filename);
 
             portnumber_file = fopen(temp_portnumber_filename, "a");
@@ -5752,6 +5760,7 @@ int main (int argc, char **argv) {
         if (portnumber_file) {
             fclose(portnumber_file);
             rename(temp_portnumber_filename, portnumber_filename);
+            free(temp_portnumber_filename);
         }
     }
 
