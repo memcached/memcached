@@ -4119,7 +4119,7 @@ static void drive_machine(conn *c) {
                 STATS_UNLOCK();
             } else {
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, tcp_transport);
+                                     DATA_BUFFER_SIZE, c->transport);
             }
 
             stop = true;
