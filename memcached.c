@@ -52,6 +52,11 @@
 #ifndef IOV_MAX
 #if defined(__FreeBSD__) || defined(__APPLE__) || defined(__GNU__)
 # define IOV_MAX 1024
+/* GNU/Hurd don't set MAXPATHLEN
+ * http://www.gnu.org/software/hurd/hurd/porting/guidelines.html#PATH_MAX_tt_MAX_PATH_tt_MAXPATHL */
+#ifndef MAXPATHLEN
+#define MAXPATHLEN 4096
+#endif
 #endif
 #endif
 
