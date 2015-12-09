@@ -206,9 +206,8 @@ is(0, $stats->{'reclaimed'});
 is(0, $stats->{'lrutail_reflocked'});
 
 # item expired
-print $sock "set should_expire 0 1 6\r\nfooval\r\n";
+print $sock "set should_expire 0 2678400 6\r\nfooval\r\n"; #2678400 = 31 days in seconds
 is(scalar <$sock>, "STORED\r\n", "set item to expire");
-sleep(2);
 print $sock "get should_expire\r\n";
 is(scalar <$sock>, "END\r\n", "item not returned");
 my $stats = mem_stats($sock);
