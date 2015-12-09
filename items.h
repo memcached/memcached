@@ -23,8 +23,8 @@ void item_stats_totals(ADD_STAT add_stats, void *c);
 /*@null@*/
 void item_stats_sizes(ADD_STAT add_stats, void *c);
 
-item *do_item_get(const char *key, const size_t nkey, const uint32_t hv);
-item *do_item_touch(const char *key, const size_t nkey, uint32_t exptime, const uint32_t hv);
+item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c);
+item *do_item_touch(const char *key, const size_t nkey, uint32_t exptime, const uint32_t hv, conn *c);
 void item_stats_reset(void);
 extern pthread_mutex_t lru_locks[POWER_LARGEST];
 
