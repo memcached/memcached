@@ -238,6 +238,7 @@ struct thread_stats {
     pthread_mutex_t   mutex;
     uint64_t          get_cmds;
     uint64_t          get_misses;
+    uint64_t          get_expired;
     uint64_t          touch_cmds;
     uint64_t          touch_misses;
     uint64_t          delete_misses;
@@ -272,6 +273,7 @@ struct stats {
     uint64_t      touch_cmds;
     uint64_t      get_hits;
     uint64_t      get_misses;
+    uint64_t      get_expired;
     uint64_t      touch_hits;
     uint64_t      touch_misses;
     uint64_t      evictions;
@@ -583,8 +585,8 @@ conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 int   is_listen_thread(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
-item *item_get(const char *key, const size_t nkey);
-item *item_touch(const char *key, const size_t nkey, uint32_t exptime);
+item *item_get(const char *key, const size_t nkey, conn *c);
+item *item_touch(const char *key, const size_t nkey, uint32_t exptime, conn *c);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it, const uint32_t hv);

@@ -486,22 +486,22 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
  * Returns an item if it hasn't been marked as expired,
  * lazy-expiring as needed.
  */
-item *item_get(const char *key, const size_t nkey) {
+item *item_get(const char *key, const size_t nkey, conn *c) {
     item *it;
     uint32_t hv;
     hv = hash(key, nkey);
     item_lock(hv);
-    it = do_item_get(key, nkey, hv);
+    it = do_item_get(key, nkey, hv, c);
     item_unlock(hv);
     return it;
 }
 
-item *item_touch(const char *key, size_t nkey, uint32_t exptime) {
+item *item_touch(const char *key, size_t nkey, uint32_t exptime, conn *c) {
     item *it;
     uint32_t hv;
     hv = hash(key, nkey);
     item_lock(hv);
-    it = do_item_touch(key, nkey, exptime, hv);
+    it = do_item_touch(key, nkey, exptime, hv, c);
     item_unlock(hv);
     return it;
 }
@@ -613,6 +613,7 @@ void threadlocal_stats_reset(void) {
 
         threads[ii].stats.get_cmds = 0;
         threads[ii].stats.get_misses = 0;
+        threads[ii].stats.get_expired = 0;
         threads[ii].stats.touch_cmds = 0;
         threads[ii].stats.touch_misses = 0;
         threads[ii].stats.delete_misses = 0;
@@ -653,6 +654,7 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
 
         stats->get_cmds += threads[ii].stats.get_cmds;
         stats->get_misses += threads[ii].stats.get_misses;
+        stats->get_expired += threads[ii].stats.get_expired;
         stats->touch_cmds += threads[ii].stats.touch_cmds;
         stats->touch_misses += threads[ii].stats.touch_misses;
         stats->delete_misses += threads[ii].stats.delete_misses;

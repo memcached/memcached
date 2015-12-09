@@ -542,6 +542,8 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | and found present                         |
 | get_misses            | 64u     | Number of items that have been requested  |
 |                       |         | and not found                             |
+| get_expired           | 64u     | Number of items that have been requested  |
+|                       |         | but had already expired.                  |
 | delete_misses         | 64u     | Number of deletions reqs for missing keys |
 | delete_hits           | 64u     | Number of deletion reqs resulting in      |
 |                       |         | an item being removed.                    |

@@ -659,7 +659,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */
-item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
+item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c) {
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(&it->refcount);
@@ -711,6 +711,9 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
             do_item_unlink(it, hv);
             do_item_remove(it);
             it = NULL;
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.get_expired++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
             if (was_found) {
                 fprintf(stderr, " -nuked by expire");
             }
@@ -727,8 +730,8 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv) {
 }
 
 item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
-                    const uint32_t hv) {
-    item *it = do_item_get(key, nkey, hv);
+                    const uint32_t hv, conn *c) {
+    item *it = do_item_get(key, nkey, hv, c);
     if (it != NULL) {
         it->exptime = exptime;
     }
