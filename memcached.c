@@ -5237,6 +5237,10 @@ int main (int argc, char **argv) {
             break;
         case 'c':
             settings.maxconns = atoi(optarg);
+            if (settings.maxconns <= 0) {
+                fprintf(stderr, "Maximum connections must be greater than 0\n");
+                return 1;
+            }
             break;
         case 'h':
             usage();
