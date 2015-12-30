@@ -1289,7 +1289,7 @@ static void process_bin_get_or_touch(conn *c) {
 
     if (settings.verbose > 1) {
         fprintf(stderr, "<%d %s ", c->sfd, should_touch ? "TOUCH" : "GET");
-        fwrite(key, 1, nkey, stderr);
+        if (fwrite(key, 1, nkey, stderr)) {}
         fputc('\n', stderr);
     }
 
