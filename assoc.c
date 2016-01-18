@@ -14,8 +14,8 @@
 #include "memcached.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
-#include <sys/signal.h>
 #include <sys/resource.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <errno.h>
