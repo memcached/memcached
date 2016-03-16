@@ -152,7 +152,7 @@ is(scalar <$sock>, "1\r\n", "incr worked");
 print $sock "gets bug15\r\n";
 ok(scalar <$sock> =~ /VALUE bug15 0 1 (\d+)\r\n/, "gets bug15 regexp success");
 my $next_bug15_cas = $1;
-is(scalar <$sock>, "1\r\n", "gets bug15 data is 0");
+is(scalar <$sock>, "1\r\n", "gets bug15 data is 1");
 is(scalar <$sock>, "END\r\n","gets bug15 END");
 
 ok($bug15_cas != $next_bug15_cas, "CAS changed");
