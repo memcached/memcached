@@ -85,7 +85,7 @@ void item_stats_reset(void) {
 }
 
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv);
+        const unsigned int total_chunks, const bool do_evict);
 static int lru_crawler_start(uint32_t id, uint32_t remaining);
 
 /* Get the next CAS id for a new item. */
@@ -152,8 +152,7 @@ static size_t item_make_header(const uint8_t nkey, const int flags, const int nb
 }
 
 item *do_item_alloc(char *key, const size_t nkey, const int flags,
-                    const rel_time_t exptime, const int nbytes,
-                    const uint32_t cur_hv) {
+                    const rel_time_t exptime, const int nbytes) {
     int i;
     uint8_t nsuffix;
     item *it = NULL;
@@ -177,18 +176,18 @@ item *do_item_alloc(char *key, const size_t nkey, const int flags,
     for (i = 0; i < 5; i++) {
         /* Try to reclaim memory first */
         if (!settings.lru_maintainer_thread) {
-            lru_pull_tail(id, COLD_LRU, 0, false, cur_hv);
+            lru_pull_tail(id, COLD_LRU, 0, false);
         }
         it = slabs_alloc(ntotal, id, &total_chunks, 0);
         if (settings.expirezero_does_not_evict)
             total_chunks -= noexp_lru_size(id);
         if (it == NULL) {
             if (settings.lru_maintainer_thread) {
-                lru_pull_tail(id, HOT_LRU, total_chunks, false, cur_hv);
-                lru_pull_tail(id, WARM_LRU, total_chunks, false, cur_hv);
-                lru_pull_tail(id, COLD_LRU, total_chunks, true, cur_hv);
+                lru_pull_tail(id, HOT_LRU, total_chunks, false);
+                lru_pull_tail(id, WARM_LRU, total_chunks, false);
+                lru_pull_tail(id, COLD_LRU, total_chunks, true);
             } else {
-                lru_pull_tail(id, COLD_LRU, 0, true, cur_hv);
+                lru_pull_tail(id, COLD_LRU, 0, true);
             }
         } else {
             break;
@@ -748,7 +747,7 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 /* Returns number of items remove, expired, or evicted.
  * Callable from worker threads or the LRU maintainer thread */
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv) {
+        const unsigned int total_chunks, const bool do_evict) {
     item *it = NULL;
     int id = orig_id;
     int removed = 0;
@@ -777,7 +776,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
         uint32_t hv = hash(ITEM_key(search), search->nkey);
         /* Attempt to hash item lock the "search" item. If locked, no
          * other callers can incr the refcount. Also skip ourselves. */
-        if (hv == cur_hv || (hold_lock = item_trylock(hv)) == NULL)
+        if ((hold_lock = item_trylock(hv)) == NULL)
             continue;
         /* Now see if the item is refcount locked */
         if (refcount_incr(&search->refcount) != 2) {
@@ -923,11 +922,11 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 1000; i++) {
         int do_more = 0;
-        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false, 0) ||
-            lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false, 0)) {
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false) ||
+            lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false)) {
             do_more++;
         }
-        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_chunks, false, 0);
+        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_chunks, false);
         if (do_more == 0)
             break;
         did_moves++;
