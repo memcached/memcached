@@ -537,7 +537,7 @@ int is_listen_thread() {
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes) {
     item *it;
     /* do_item_alloc handles its own locks */
-    it = do_item_alloc(key, nkey, flags, exptime, nbytes, 0);
+    it = do_item_alloc(key, nkey, flags, exptime, nbytes);
     return it;
 }
 
