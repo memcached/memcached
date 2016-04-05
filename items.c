@@ -573,8 +573,9 @@ void item_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_FMT_STAT(fmt, n, "number_hot", "%u", lru_size_map[0]);
             APPEND_NUM_FMT_STAT(fmt, n, "number_warm", "%u", lru_size_map[1]);
             APPEND_NUM_FMT_STAT(fmt, n, "number_cold", "%u", lru_size_map[2]);
-            if (settings.expirezero_does_not_evict)
+            if (settings.expirezero_does_not_evict) {
                 APPEND_NUM_FMT_STAT(fmt, n, "number_noexp", "%u", lru_size_map[3]);
+            }
         }
         APPEND_NUM_FMT_STAT(fmt, n, "age", "%u", age);
         APPEND_NUM_FMT_STAT(fmt, n, "evicted",
