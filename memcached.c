@@ -233,6 +233,7 @@ static void settings_init(void) {
     settings.backlog = 1024;
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
+    settings.sasl = false;
     settings.maxconns_fast = false;
     settings.lru_crawler = false;
     settings.lru_crawler_sleep = 100;
