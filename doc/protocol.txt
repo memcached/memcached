@@ -165,7 +165,8 @@ cas <key> <flags> <exptime> <bytes> <cas unique> [noreply]\r\n
   items). If it's non-zero (either Unix time or offset in seconds from
   current time), it is guaranteed that clients will not be able to
   retrieve this item after the expiration time arrives (measured by
-  server time).
+  server time). If a negative value is given the item is immediately
+  expired.
 
 - <bytes> is the number of bytes in the data block to follow, *not*
   including the delimiting \r\n. <bytes> may be zero (in which case
