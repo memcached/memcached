@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3651;
+use Test::More tests => 3663;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
