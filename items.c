@@ -462,6 +462,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
         key_temp[it->nkey] = 0x00; /* terminate */
         len = snprintf(temp, sizeof(temp), "ITEM %s [%d b; %lu s]\r\n",
                        key_temp, it->nbytes - 2,
+                       it->exptime == 0 ? 0 :
                        (unsigned long)it->exptime + process_started);
         if (bufcurr + len + 6 > memlimit)  /* 6 is END\r\n\0 */
             break;
