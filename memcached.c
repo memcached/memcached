@@ -5405,123 +5405,123 @@ int main (int argc, char **argv) {
 
             while (*subopts != '\0') {
 
-            switch (getsubopt(&subopts, subopts_tokens, &subopts_value)) {
-            case MAXCONNS_FAST:
-                settings.maxconns_fast = true;
-                break;
-            case HASHPOWER_INIT:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing numeric argument for hashpower\n");
-                    return 1;
-                }
-                settings.hashpower_init = atoi(subopts_value);
-                if (settings.hashpower_init < 12) {
-                    fprintf(stderr, "Initial hashtable multiplier of %d is too low\n",
-                        settings.hashpower_init);
-                    return 1;
-                } else if (settings.hashpower_init > 64) {
-                    fprintf(stderr, "Initial hashtable multiplier of %d is too high\n"
-                        "Choose a value based on \"STAT hash_power_level\" from a running instance\n",
-                        settings.hashpower_init);
-                    return 1;
-                }
-                break;
-            case SLAB_REASSIGN:
-                settings.slab_reassign = true;
-                break;
-            case SLAB_AUTOMOVE:
-                if (subopts_value == NULL) {
-                    settings.slab_automove = 1;
+                switch (getsubopt(&subopts, subopts_tokens, &subopts_value)) {
+                case MAXCONNS_FAST:
+                    settings.maxconns_fast = true;
                     break;
-                }
-                settings.slab_automove = atoi(subopts_value);
-                if (settings.slab_automove < 0 || settings.slab_automove > 2) {
-                    fprintf(stderr, "slab_automove must be between 0 and 2\n");
+                case HASHPOWER_INIT:
+                    if (subopts_value == NULL) {
+                        fprintf(stderr, "Missing numeric argument for hashpower\n");
+                        return 1;
+                    }
+                    settings.hashpower_init = atoi(subopts_value);
+                    if (settings.hashpower_init < 12) {
+                        fprintf(stderr, "Initial hashtable multiplier of %d is too low\n",
+                                settings.hashpower_init);
+                        return 1;
+                    } else if (settings.hashpower_init > 64) {
+                        fprintf(stderr, "Initial hashtable multiplier of %d is too high\n"
+                                "Choose a value based on \"STAT hash_power_level\" from a running instance\n",
+                                settings.hashpower_init);
+                        return 1;
+                    }
+                    break;
+                case SLAB_REASSIGN:
+                    settings.slab_reassign = true;
+                    break;
+                case SLAB_AUTOMOVE:
+                    if (subopts_value == NULL) {
+                        settings.slab_automove = 1;
+                        break;
+                    }
+                    settings.slab_automove = atoi(subopts_value);
+                    if (settings.slab_automove < 0 || settings.slab_automove > 2) {
+                        fprintf(stderr, "slab_automove must be between 0 and 2\n");
+                        return 1;
+                    }
+                    break;
+                case TAIL_REPAIR_TIME:
+                    if (subopts_value == NULL) {
+                        fprintf(stderr, "Missing numeric argument for tail_repair_time\n");
+                        return 1;
+                    }
+                    settings.tail_repair_time = atoi(subopts_value);
+                    if (settings.tail_repair_time < 10) {
+                        fprintf(stderr, "Cannot set tail_repair_time to less than 10 seconds\n");
+                        return 1;
+                    }
+                    break;
+                case HASH_ALGORITHM:
+                    if (subopts_value == NULL) {
+                        fprintf(stderr, "Missing hash_algorithm argument\n");
+                        return 1;
+                    };
+                    if (strcmp(subopts_value, "jenkins") == 0) {
+                        hash_type = JENKINS_HASH;
+                    } else if (strcmp(subopts_value, "murmur3") == 0) {
+                        hash_type = MURMUR3_HASH;
+                    } else {
+                        fprintf(stderr, "Unknown hash_algorithm option (jenkins, murmur3)\n");
+                        return 1;
+                    }
+                    break;
+                case LRU_CRAWLER:
+                    start_lru_crawler = true;
+                    break;
+                case LRU_CRAWLER_SLEEP:
+                    if (subopts_value == NULL) {
+                        fprintf(stderr, "Missing lru_crawler_sleep value\n");
+                        return 1;
+                    }
+                    settings.lru_crawler_sleep = atoi(subopts_value);
+                    if (settings.lru_crawler_sleep > 1000000 || settings.lru_crawler_sleep < 0) {
+                        fprintf(stderr, "LRU crawler sleep must be between 0 and 1 second\n");
+                        return 1;
+                    }
+                    break;
+                case LRU_CRAWLER_TOCRAWL:
+                    if (subopts_value == NULL) {
+                        fprintf(stderr, "Missing lru_crawler_tocrawl value\n");
+                        return 1;
+                    }
+                    if (!safe_strtoul(subopts_value, &tocrawl)) {
+                        fprintf(stderr, "lru_crawler_tocrawl takes a numeric 32bit value\n");
+                        return 1;
+                    }
+                    settings.lru_crawler_tocrawl = tocrawl;
+                    break;
+                case LRU_MAINTAINER:
+                    start_lru_maintainer = true;
+                    break;
+                case HOT_LRU_PCT:
+                    if (subopts_value == NULL) {
+                        fprintf(stderr, "Missing hot_lru_pct argument\n");
+                        return 1;
+                    };
+                    settings.hot_lru_pct = atoi(subopts_value);
+                    if (settings.hot_lru_pct < 1 || settings.hot_lru_pct >= 80) {
+                        fprintf(stderr, "hot_lru_pct must be > 1 and < 80\n");
+                        return 1;
+                    }
+                    break;
+                case WARM_LRU_PCT:
+                    if (subopts_value == NULL) {
+                        fprintf(stderr, "Missing warm_lru_pct argument\n");
+                        return 1;
+                    };
+                    settings.warm_lru_pct = atoi(subopts_value);
+                    if (settings.warm_lru_pct < 1 || settings.warm_lru_pct >= 80) {
+                        fprintf(stderr, "warm_lru_pct must be > 1 and < 80\n");
+                        return 1;
+                    }
+                    break;
+                case NOEXP_NOEVICT:
+                    settings.expirezero_does_not_evict = true;
+                    break;
+                default:
+                    printf("Illegal suboption \"%s\"\n", subopts_value);
                     return 1;
                 }
-                break;
-            case TAIL_REPAIR_TIME:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing numeric argument for tail_repair_time\n");
-                    return 1;
-                }
-                settings.tail_repair_time = atoi(subopts_value);
-                if (settings.tail_repair_time < 10) {
-                    fprintf(stderr, "Cannot set tail_repair_time to less than 10 seconds\n");
-                    return 1;
-                }
-                break;
-            case HASH_ALGORITHM:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing hash_algorithm argument\n");
-                    return 1;
-                };
-                if (strcmp(subopts_value, "jenkins") == 0) {
-                    hash_type = JENKINS_HASH;
-                } else if (strcmp(subopts_value, "murmur3") == 0) {
-                    hash_type = MURMUR3_HASH;
-                } else {
-                    fprintf(stderr, "Unknown hash_algorithm option (jenkins, murmur3)\n");
-                    return 1;
-                }
-                break;
-            case LRU_CRAWLER:
-                start_lru_crawler = true;
-                break;
-            case LRU_CRAWLER_SLEEP:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing lru_crawler_sleep value\n");
-                    return 1;
-                }
-                settings.lru_crawler_sleep = atoi(subopts_value);
-                if (settings.lru_crawler_sleep > 1000000 || settings.lru_crawler_sleep < 0) {
-                    fprintf(stderr, "LRU crawler sleep must be between 0 and 1 second\n");
-                    return 1;
-                }
-                break;
-            case LRU_CRAWLER_TOCRAWL:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing lru_crawler_tocrawl value\n");
-                    return 1;
-                }
-                if (!safe_strtoul(subopts_value, &tocrawl)) {
-                    fprintf(stderr, "lru_crawler_tocrawl takes a numeric 32bit value\n");
-                    return 1;
-                }
-                settings.lru_crawler_tocrawl = tocrawl;
-                break;
-            case LRU_MAINTAINER:
-                start_lru_maintainer = true;
-                break;
-            case HOT_LRU_PCT:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing hot_lru_pct argument\n");
-                    return 1;
-                };
-                settings.hot_lru_pct = atoi(subopts_value);
-                if (settings.hot_lru_pct < 1 || settings.hot_lru_pct >= 80) {
-                    fprintf(stderr, "hot_lru_pct must be > 1 and < 80\n");
-                    return 1;
-                }
-                break;
-            case WARM_LRU_PCT:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing warm_lru_pct argument\n");
-                    return 1;
-                };
-                settings.warm_lru_pct = atoi(subopts_value);
-                if (settings.warm_lru_pct < 1 || settings.warm_lru_pct >= 80) {
-                    fprintf(stderr, "warm_lru_pct must be > 1 and < 80\n");
-                    return 1;
-                }
-                break;
-            case NOEXP_NOEVICT:
-                settings.expirezero_does_not_evict = true;
-                break;
-            default:
-                printf("Illegal suboption \"%s\"\n", subopts_value);
-                return 1;
-            }
 
             }
             free(subopts_orig);
