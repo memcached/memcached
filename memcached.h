@@ -259,11 +259,11 @@ struct thread_stats {
  */
 struct stats {
     pthread_mutex_t mutex;
-    unsigned int  curr_items;
-    unsigned int  total_items;
+    uint64_t      curr_items;
+    uint64_t      total_items;
     uint64_t      curr_bytes;
-    unsigned int  curr_conns;
-    unsigned int  total_conns;
+    uint64_t      curr_conns;
+    uint64_t      total_conns;
     uint64_t      rejected_conns;
     uint64_t      malloc_fails;
     unsigned int  reserved_fds;

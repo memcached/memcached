@@ -2600,8 +2600,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
                 (long)usage.ru_stime.tv_usec);
 #endif /* !WIN32 */
 
-    APPEND_STAT("curr_connections", "%u", stats.curr_conns - 1);
-    APPEND_STAT("total_connections", "%u", stats.total_conns);
+    APPEND_STAT("curr_connections", "%llu", (unsigned long long)stats.curr_conns - 1);
+    APPEND_STAT("total_connections", "%llu", (unsigned long long)stats.total_conns);
     if (settings.maxconns_fast) {
         APPEND_STAT("rejected_connections", "%llu", (unsigned long long)stats.rejected_conns);
     }

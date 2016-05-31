@@ -322,8 +322,8 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
             /* prepare general statistics for the engine */
             STATS_LOCK();
             APPEND_STAT("bytes", "%llu", (unsigned long long)stats.curr_bytes);
-            APPEND_STAT("curr_items", "%u", stats.curr_items);
-            APPEND_STAT("total_items", "%u", stats.total_items);
+            APPEND_STAT("curr_items", "%llu", (unsigned long long)stats.curr_items);
+            APPEND_STAT("total_items", "%llu", (unsigned long long)stats.total_items);
             STATS_UNLOCK();
             if (settings.slab_automove > 0) {
                 pthread_mutex_lock(&slabs_lock);

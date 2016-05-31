@@ -522,8 +522,8 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | (seconds:microseconds)                    |
 | rusage_system         | 32u.32u | Accumulated system time for this process  |
 |                       |         | (seconds:microseconds)                    |
-| curr_items            | 32u     | Current number of items stored            |
-| total_items           | 32u     | Total number of items stored since        |
+| curr_items            | 64u     | Current number of items stored            |
+| total_items           | 64u     | Total number of items stored since        |
 |                       |         | the server started                        |
 | bytes                 | 64u     | Current number of bytes used              |
 |                       |         | to store items                            |
