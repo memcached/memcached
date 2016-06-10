@@ -3445,7 +3445,7 @@ static void process_command(conn *c, char *command) {
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
 
-    if (c->thread->l->f.log_fetchers)
+    if (c->thread->l->eflags & LOG_FETCHERS)
         logger_log(c->thread->l, LOGGER_ASCII_CMD, NULL, c->sfd, command);
 
     /*
@@ -3677,22 +3677,21 @@ static void process_command(conn *c, char *command) {
             out_string(c, "ERROR");
         }
     } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "watch") == 0) {
-        struct logger_eflags f;
-        memset(&f, 0, sizeof(struct logger_eflags));
+        uint16_t f = 0;
         /* TODO: pass to function for full argument processing. */
         /* This is very temporary... need to decide on a real flag parser. */
         if (ntokens == 3) {
             if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "fetchers") == 0)) {
-                f.log_fetchers = 1;
+                f |= LOG_FETCHERS;
             } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "evictions") == 0)) {
-                f.log_evictions = 1;
+                f |= LOG_EVICTIONS;
             } else {
                 out_string(c, "ERROR");
             }
         } else {
-            f.log_fetchers = 1;
+            f |= LOG_FETCHERS;
         }
-        f.log_time = 1; /* not optional yet */
+        f |= LOG_TIME; /* not optional yet */
         switch(logger_add_watcher(c, c->sfd, f)) {
             case LOGGER_ADD_WATCHER_TOO_MANY:
                 out_string(c, "WATCHER_TOO_MANY log watcher limit reached");

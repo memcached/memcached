@@ -209,31 +209,18 @@ static void logger_chunk_release(logger_chunk *lc) {
 static void logger_set_flags(void) {
     logger *l = NULL;
     int x = 0;
-    struct logger_eflags f;
-    memset(&f, 0, sizeof(struct logger_eflags));
+    uint16_t f = 0; /* logger eflags */
 
-    /* Would love to | the fields together, but bitfields have intederminate
-     * sizing. Could use a union and some startup asserts to sniff out
-     * platforms where 8 bitfields take more than a uint64_t.. Some research
-     * is required though. For now an if/else tree will have to do.
-     */
     for (x = 0; x < WATCHER_LIMIT; x++) {
         logger_watcher *w = watchers[x];
         if (w == NULL)
             continue;
 
-        if (w->f.log_evictions)
-            f.log_evictions = 1;
-
-        if (w->f.log_fetchers)
-            f.log_fetchers = 1;
-
-        if (w->f.log_time)
-            f.log_time = 1;
+        f |= w->eflags;
     }
     for (l = logger_stack_head; l != NULL; l=l->next) {
-        /* lock logger, call function to manipulate it */
-        memcpy(&l->f, &f, sizeof(struct logger_eflags));
+        /* TODO: lock logger, call function to manipulate it */
+        l->eflags = f;
     }
     return;
 }
@@ -550,7 +537,7 @@ logger *logger_create(void) {
 
 #define SET_LOGGER_TIME() \
     do { \
-        if (l->f.log_time) { \
+        if (l->eflags & LOG_TIME) { \
             gettimeofday(&e->tv, NULL); \
         } else { \
             e->tv.tv_sec = 0; \
@@ -632,7 +619,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
  * logger thread. Caller *must* event_del() the client before handing it over.
  * Presently there's no way to hand the client back to the worker thread.
  */
-enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, const struct logger_eflags f) {
+enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t f) {
     int x;
     logger_watcher *w = NULL;
     pthread_mutex_lock(&logger_stack_lock);
@@ -656,7 +643,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, const str
         w->t = LOGGER_WATCHER_CLIENT;
     }
     w->id = x;
-    memcpy(&w->f, &f, sizeof(struct logger_eflags));
+    w->eflags = f;
     /* Attach to an existing log chunk if there is one */
     if (logger_thread_last_lc && !logger_thread_last_lc->filled) {
         logger_chunk *lc = logger_thread_last_lc;

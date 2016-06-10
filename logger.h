@@ -48,17 +48,14 @@ typedef struct _logentry {
     } data[];
 } logentry;
 
-struct logger_eflags {
-    unsigned int log_sysevents :1; /* threads start/stop/working */
-    unsigned int log_fetchers :1; /* get/gets/etc */
-    unsigned int log_mutations :1; /* set/append/incr/etc */
-    unsigned int log_syserrors :1; /* malloc/etc errors */
-    unsigned int log_connevents :1; /* new client, closed, etc */
-    unsigned int log_vconnevents :1; /* client state changes */
-    unsigned int log_evictions :1; /* log details of evicted items */
-    unsigned int log_strict :1; /* block instead of drop */
-    unsigned int log_time :1; /* log the time the entry is created */
-};
+#define LOG_SYSEVENTS  (1<<1) /* threads start/stop/working */
+#define LOG_FETCHERS   (1<<2) /* get/gets/etc */
+#define LOG_MUTATIONS  (1<<3) /* set/append/incr/etc */
+#define LOG_SYSERRORS  (1<<4) /* malloc/etc errors */
+#define LOG_CONNEVENTS (1<<5) /* new client, closed, etc */
+#define LOG_EVICTIONS  (1<<6) /* defailts of evicted items */
+#define LOG_STRICT     (1<<7) /* block worker instead of drop */
+#define LOG_TIME       (1<<8) /* log the entry time */
 
 typedef struct _logger {
     struct _logger *prev;
@@ -69,7 +66,7 @@ typedef struct _logger {
     uint64_t blocked; /* times blocked instead of dropped */
     uint16_t fetcher_ratio; /* log one out of every N fetches */
     uint16_t mutation_ratio; /* log one out of every N mutations */
-    struct logger_eflags f; /* flags this logger should log */
+    uint16_t eflags; /* flags this logger should log */
     bipbuf_t *buf;
     const entry_details *entry_map;
 } logger;
@@ -96,7 +93,7 @@ typedef struct  {
     int flushed; /* backlog data flushed so far from active chunk */
     int id; /* id number for watcher list */
     enum logger_watcher_type t; /* stderr, client, syslog, etc */
-    struct logger_eflags f; /* flags we are interested in */
+    uint16_t eflags; /* flags we are interested in */
 } logger_watcher;
 
 extern pthread_key_t logger_key;
@@ -114,6 +111,6 @@ enum logger_add_watcher_ret {
     LOGGER_ADD_WATCHER_FAILED
 };
 
-enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, const struct logger_eflags);
+enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t f);
 
 #endif
