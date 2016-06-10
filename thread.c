@@ -398,31 +398,32 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 
     switch (buf[0]) {
     case 'c':
-    item = cq_pop(me->new_conn_queue);
+        item = cq_pop(me->new_conn_queue);
 
-    if (NULL != item) {
-        conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
-                           item->read_buffer_size, item->transport, me->base);
-        if (c == NULL) {
-            if (IS_UDP(item->transport)) {
-                fprintf(stderr, "Can't listen for events on UDP socket\n");
-                exit(1);
-            } else {
-                if (settings.verbose > 0) {
-                    fprintf(stderr, "Can't listen for events on fd %d\n",
-                        item->sfd);
+        if (NULL != item) {
+            conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
+                               item->read_buffer_size, item->transport,
+                               me->base);
+            if (c == NULL) {
+                if (IS_UDP(item->transport)) {
+                    fprintf(stderr, "Can't listen for events on UDP socket\n");
+                    exit(1);
+                } else {
+                    if (settings.verbose > 0) {
+                        fprintf(stderr, "Can't listen for events on fd %d\n",
+                            item->sfd);
+                    }
+                    close(item->sfd);
                 }
-                close(item->sfd);
+            } else {
+                c->thread = me;
             }
-        } else {
-            c->thread = me;
+            cqi_free(item);
         }
-        cqi_free(item);
-    }
         break;
     /* we were told to pause and report in */
     case 'p':
-    register_thread_initialized();
+        register_thread_initialized();
         break;
     }
 }
