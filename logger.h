@@ -6,7 +6,7 @@
 
 /* TODO: starttime tunable */
 #define LOGGER_BUF_SIZE 1024 * 64
-#define LOGGER_THREAD_BUF_SIZE 1024 * 256
+#define LOGGER_WATCHER_BUF_SIZE 1024 * 256
 #define LOGGER_ENTRY_MAX_SIZE 2048
 #define GET_LOGGER() ((logger *) pthread_getspecific(logger_key));
 
@@ -35,13 +35,13 @@ enum logger_parse_entry_ret {
 typedef const struct {
     enum log_entry_subtype subtype;
     int reqlen;
-    uint16_t watcher_flag;
+    uint16_t eflags;
     char *format;
 } entry_details;
 
 typedef struct _logentry {
     enum log_entry_subtype event;
-    uint16_t watcher_flag;
+    uint16_t eflags;
     uint64_t gid;
     struct timeval tv; /* not monotonic! */
     int size;
@@ -84,11 +84,11 @@ typedef struct  {
     void *c; /* original connection structure. still with source thread attached */
     int chunks; /* count of chunks stored up */
     int sfd; /* client fd */
-    int flushed; /* backlog data flushed so far from active chunk */
-    int min_flushed; /* it's safe to flush the central buffer up to here */
+    uint64_t skipped; /* lines skipped since last successful print */
     int id; /* id number for watcher list */
     enum logger_watcher_type t; /* stderr, client, syslog, etc */
     uint16_t eflags; /* flags we are interested in */
+    bipbuf_t *buf; /* per-watcher output buffer */
 } logger_watcher;
 
 extern pthread_key_t logger_key;
