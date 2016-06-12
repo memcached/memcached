@@ -3445,7 +3445,7 @@ static void process_command(conn *c, char *command) {
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
 
-    if (c->thread->l->eflags & LOG_FETCHERS)
+    if (c->thread->l->eflags & LOG_RAWCMDS)
         logger_log(c->thread->l, LOGGER_ASCII_CMD, NULL, c->sfd, command);
 
     /*
@@ -3681,15 +3681,15 @@ static void process_command(conn *c, char *command) {
         /* TODO: pass to function for full argument processing. */
         /* This is very temporary... need to decide on a real flag parser. */
         if (ntokens == 3) {
-            if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "fetchers") == 0)) {
-                f |= LOG_FETCHERS;
+            if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "rawcmds") == 0)) {
+                f |= LOG_RAWCMDS;
             } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "evictions") == 0)) {
                 f |= LOG_EVICTIONS;
             } else {
                 out_string(c, "ERROR");
             }
         } else {
-            f |= LOG_FETCHERS;
+            f |= LOG_RAWCMDS;
         }
         f |= LOG_TIME; /* not optional yet */
         switch(logger_add_watcher(c, c->sfd, f)) {
