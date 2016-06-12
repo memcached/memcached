@@ -1,28 +1,14 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
-/* need this to get IOV_MAX on some platforms. */
-#ifndef __need_IOV_MAX
-#define __need_IOV_MAX
-#endif
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <poll.h>
-#include <limits.h>
 
 #include "memcached.h"
 #include "bipbuffer.h"
 
-/* FreeBSD 4.x doesn't have IOV_MAX exposed. */
-#ifndef IOV_MAX
-#if defined(__FreeBSD__) || defined(__APPLE__) || defined(__GNU__)
-# define IOV_MAX 1024
-#endif
-#endif
-
-#define LOGGER_DEBUG 1
-
-#if LOGGER_DEBUG
+#ifdef LOGGER_DEBUG
 #define L_DEBUG(...) \
     do { \
         fprintf(stderr, __VA_ARGS__); \
@@ -41,8 +27,6 @@ static pthread_t logger_tid;
 pthread_mutex_t logger_stack_lock = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_key_t logger_key;
-
-bipbuf_t *logger_thread_buf = NULL;
 
 #if !defined(HAVE_GCC_ATOMICS) && !defined(__sun)
 pthread_mutex_t logger_atomics_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -116,41 +100,62 @@ static void logger_link_q(logger *l) {
     return;
 }*/
 
-/* return FULLBUF to tell caller buffer is full.
- * caller will then flush and retry log parse
+/* FIXME: If a watcher has had "skipped" entries since the last successful
+ * print, we should dump in a [skipped: $cnt] line before the next real line.
+ * use bipbuf_request() to ensure enough space for both lines, then generate
+ * and offer both.
+ * (credit to PHK for the idea there)
  */
-static enum logger_parse_entry_ret logger_parse_entry(bipbuf_t *buf, logentry *e) {
+#define LOGGER_PARSE_SCRATCH 4096
+static enum logger_parse_entry_ret logger_parse_entry(logentry *e) {
     int total = 0;
-    /* "64" needs better definition, since we're extending the length of the
-     * logline a bit.
-     */
-    int esize = sizeof(logentry) + e->size + 64;
-    logentry *newe = (logentry *) bipbuf_request(buf, esize);
-    if (newe == NULL) {
-        return LOGGER_PARSE_ENTRY_FULLBUF;
-    }
-    /* Not bothering copying the whole struct header. will probably come up
-     * with a different shorter struct for this.
-     */
-    newe->watcher_flag = e->watcher_flag;
+    int line_size = 0;
+    int skipped = 0;
+    int x;
+    char scratch[LOGGER_PARSE_SCRATCH];
 
     switch (e->event) {
         case LOGGER_TEXT_ENTRY:
         case LOGGER_EVICTION_ENTRY:
-            total = snprintf((char *) newe->data, esize, "[%d.%d] [%llu] %s\n",
+            total = snprintf(scratch, LOGGER_PARSE_SCRATCH, "[%d.%d] [%llu] %s\n",
                         (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid, (char *) e->data);
-            if (total >= esize || total <= 0) {
+            if (total >= LOGGER_PARSE_SCRATCH || total <= 0) {
                 /* FIXME: This is now a much more fatal error. need to make it
                  * not crash though. */
                 L_DEBUG("LOGGER: Failed to flatten log entry!\n");
                 return LOGGER_PARSE_ENTRY_FAILED;
             } else {
-                newe->size = total + 1;
-                bipbuf_push(buf, sizeof(logentry) + newe->size);
+                line_size = total + 1;
             }
             break;
     }
 
+    /* Write the line into available watcher with the right flags */
+    for (x = 0; x < WATCHER_LIMIT; x++) {
+        logger_watcher *w = watchers[x];
+        if (w == NULL)
+            continue;
+
+        if ((e->eflags & w->eflags) == 0) {
+            L_DEBUG("LOGGER: Skipping event for watcher [%d] (w->eflags: %d) (e->eflags: %d)\n",
+                    w->sfd, w->eflags, e->eflags);
+            continue;
+        } else {
+            int written = bipbuf_offer(w->buf, (unsigned char *) scratch, line_size);
+            if (written == 0) {
+                L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
+                w->skipped++;
+                skipped++;
+            }
+        }
+    }
+
+    /* FIXME: Maybe find a way to flush and retry before losing entry?
+     * otherwise a burst of logs will always skip data, even if there's room
+     * to flush to the network.
+     */
+    if (skipped)
+        return LOGGER_PARSE_ENTRY_FULLBUF;
     return LOGGER_PARSE_ENTRY_OK;
 }
 
@@ -186,72 +191,18 @@ static void logger_close_watcher(logger_watcher *w) {
     watchers[w->id] = NULL;
     sidethread_conn_close(w->c);
     watcher_count--;
+    bipbuf_free(w->buf);
     free(w);
     logger_set_flags();
 }
 
-static void logger_push_central_buf(void) {
-    int x;
-    logger_watcher *w;
-    int min_flushed = INT_MAX;
-    /* If something is set into min_flushed, we're able to advance the central
-     * buffer forward by min_flushed bytes.
-     */
-    for (x = 0; x < WATCHER_LIMIT; x++) {
-        if (watchers[x] == NULL)
-            continue;
-        w = watchers[x];
-        if (w->min_flushed < min_flushed)
-            min_flushed = w->min_flushed;
-    }
-    if (min_flushed != 0) {
-        //L_DEBUG("LOGGER: min_flushed [%d], advancing central buffer\n", min_flushed);
-        for (x = 0; x < WATCHER_LIMIT; x++) {
-            if (watchers[x] == NULL)
-                continue;
-            assert(watchers[x]->flushed - min_flushed >= 0);
-            watchers[x]->flushed -= min_flushed;
-            watchers[x]->min_flushed -= min_flushed;
-        }
-        bipbuf_poll(logger_thread_buf, min_flushed);
-    }
-}
-
-/* Pick any number of "oldest" behind-watchers and kill them. */
-static void logger_kill_watchers(void) {
-    int x;
-    logger_watcher *w;
-    int min_flushed = INT_MAX;
-    int min_flushed_watcher = -1;
-
-    for (x = 0; x < WATCHER_LIMIT; x++) {
-        w = watchers[x];
-        if (w == NULL)
-            continue;
-
-        if (w->min_flushed < min_flushed) {
-            min_flushed = w->min_flushed;
-            min_flushed_watcher = x;
-        }
-    }
-    if (min_flushed_watcher > -1) {
-        fprintf(stderr, "LOGGER: Killing watcher [%d] because of low flush bytes (%d)\n",
-                watchers[min_flushed_watcher]->sfd, min_flushed);
-        logger_close_watcher(watchers[min_flushed_watcher]);
-        logger_push_central_buf();
-    }
-}
-
 /* Reads a particular worker thread's available bipbuf bytes. Parses each log
- * entry into the central logging output buffer.
- * If we run out of buffer space, we simply kill off the most-behind watcher.
- * Might be better to have options for dropping logs vs disconnecting?
+ * entry into the watcher buffers.
  */
 static int logger_thread_read(logger *l) {
     unsigned int size;
     unsigned int pos = 0;
     unsigned char *data;
-    unsigned int was_full = 0;
     logentry *e;
     pthread_mutex_lock(&l->mutex);
     data = bipbuf_peek_all(l->buf, &size);
@@ -260,28 +211,20 @@ static int logger_thread_read(logger *l) {
     if (data == NULL) {
         return 0;
     }
-    //L_DEBUG("LOGGER: Got %d bytes from bipbuffer\n", size);
+    L_DEBUG("LOGGER: Got %d bytes from bipbuffer\n", size);
 
     /* parse buffer */
     while (pos < size && watcher_count > 0) {
         enum logger_parse_entry_ret ret;
         e = (logentry *) (data + pos);
-        ret = logger_parse_entry(logger_thread_buf, e);
+        ret = logger_parse_entry(e);
         if (ret == LOGGER_PARSE_ENTRY_FULLBUF) {
-            /* Buffer was full. Push the last up, force an early flush. */
-            if (was_full) {
-                /* out of buffer space. show must go on, so kill something. */
-                logger_kill_watchers();
-            } else {
-                logger_poll_watchers(0);
-                was_full = 1;
-            }
-            continue;
+            logger_poll_watchers(0);
+            //continue;
         } else if (ret != LOGGER_PARSE_ENTRY_OK) {
             fprintf(stderr, "LOGGER: Failed to parse log entry\n");
             abort();
         }
-        was_full = 0;
         pos += sizeof(logentry) + e->size;
     }
     assert(pos <= size);
@@ -321,21 +264,16 @@ static int logger_iterate(void) {
 static void logger_poll_watchers(int force_poll) {
     int x;
     int nfd = 0;
-    logger_watcher *w;
     unsigned char *data;
     unsigned int data_size = 0;
-    struct iovec iov[IOV_MAX];
-    int iovcnt = 0;
-    data = bipbuf_peek_all(logger_thread_buf, &data_size);
-    if (data == NULL && force_poll == 0)
-        return;
 
     for (x = 0; x < WATCHER_LIMIT; x++) {
-        w = watchers[x];
+        logger_watcher *w = watchers[x];
         if (w == NULL)
             continue;
 
-        if (data_size > w->flushed) {
+        data = bipbuf_peek_all(w->buf, &data_size);
+        if (data != NULL) {
             watchers_pollfds[nfd].fd = w->sfd;
             watchers_pollfds[nfd].events = POLLOUT;
             nfd++;
@@ -346,14 +284,10 @@ static void logger_poll_watchers(int force_poll) {
         }
     }
 
-    /* FIXME: Verify if this is necessary. */
-    if (data != NULL && force_poll == 0)
-        assert(nfd != 0);
-
     if (nfd == 0)
         return;
 
-    L_DEBUG("LOGGER: calling poll() [data_size: %d]\n", data_size);
+    //L_DEBUG("LOGGER: calling poll() [data_size: %d]\n", data_size);
     int ret = poll(watchers_pollfds, nfd, 0);
 
     if (ret < 0) {
@@ -363,9 +297,11 @@ static void logger_poll_watchers(int force_poll) {
 
     nfd = 0;
     for (x = 0; x < WATCHER_LIMIT; x++) {
-        w = watchers[x];
+        logger_watcher *w = watchers[x];
         if (w == NULL)
             continue;
+
+        data_size = 0;
         /* Early detection of a disconnect. Otherwise we have to wait until
          * the next write
          */
@@ -378,65 +314,25 @@ static void logger_poll_watchers(int force_poll) {
                 continue;
             }
         }
-        if (data_size > w->flushed) {
+        if ((data = bipbuf_peek_all(w->buf, &data_size)) != NULL) {
             if (watchers_pollfds[nfd].revents & (POLLHUP|POLLERR)) {
                 L_DEBUG("LOGGER: watcher closed during poll() call\n");
                 logger_close_watcher(w);
             } else if (watchers_pollfds[nfd].revents & POLLOUT) {
                 int total = 0;
-                /* To account for a partial write into the iovec, pos should
-                 * loop and skip logentry's until the next one would be
-                 * larger, then set the iov_base as an offset into the
-                 * remainder.
-                 */
-                unsigned int pos = w->flushed;
-                iovcnt = 0;
-                while (pos < data_size) {
-                    logentry *e = (logentry *) (data + pos);
-                    int esize = sizeof(logentry) + e->size;
-                    int flushed = 0;
-                    if (pos + esize < w->flushed) {
-                        pos += esize;
-                        continue;
-                    } else if (pos < w->flushed) {
-                        /* We have a remainder. */
-                        flushed = w->flushed - (pos + sizeof(logentry));
-                        assert(pos + flushed <= w->flushed);
-                    } else if ((e->watcher_flag & w->eflags) == 0) {
-                        /* If we're ahead of flushed but we aren't listening,
-                         * we advance flushed and skip this event
-                         */
-                        //L_DEBUG("LOGGER: Skipped an event for [%d] (eflags: %d) (watcher_flag: %d)\n",
-                        //        w->sfd, w->eflags, e->watcher_flag);
-                        pos += esize;
-                        w->flushed += esize;
-                        w->min_flushed += esize;
-                        continue;
-                    }
-                    iov[iovcnt].iov_base = (e->data + flushed);
-                    iov[iovcnt].iov_len = e->size - flushed;
-                    //L_DEBUG("LOGGER: incrementing pos [%d] by %d [esize: %d]\n", pos, esize, e->size);
-                    pos += esize;
-                    iovcnt++;
-                }
-
-                if (iovcnt == 0) {
-                    /* Turns out we skipped all of the events! */
-                    continue;
-                }
 
                 /* We can write a bit. */
                 switch (w->t) {
                     case LOGGER_WATCHER_STDERR:
-                        total = writev(STDERR_FILENO, iov, iovcnt);
+                        total = fwrite(data, 1, data_size, stderr);
                         break;
                     case LOGGER_WATCHER_CLIENT:
-                        total = writev(w->sfd, iov, iovcnt);
+                        total = write(w->sfd, data, data_size);
                         break;
                 }
 
-                L_DEBUG("LOGGER: poll() wrote %d to %d (data_size: %d) (flushed: %d)\n", total, w->sfd,
-                        data_size, w->flushed);
+                L_DEBUG("LOGGER: poll() wrote %d to %d (data_size: %d) (bipbuf_used: %d)\n", total, w->sfd,
+                        data_size, bipbuf_used(w->buf));
                 if (total == -1) {
                     if (errno != EAGAIN && errno != EWOULDBLOCK) {
                         logger_close_watcher(w);
@@ -445,29 +341,12 @@ static void logger_poll_watchers(int force_poll) {
                 } else if (total == 0) {
                     logger_close_watcher(w);
                 } else {
-                    int rem = total;
-                    int x;
-                    for (x = 0; x < iovcnt; x++) {
-                        rem -= iov[x].iov_len;
-                        if (rem >= 0) {
-                            w->flushed += iov[x].iov_len + sizeof(logentry);
-                        } else {
-                            L_DEBUG("LOGGER: remainder %d\n", rem);
-                            /* We have a remainder. do count logentry
-                             * struct at this time. */
-                            rem = abs(rem) + sizeof(logentry);
-                            w->flushed += rem;
-                            break;
-                        }
-                    }
-                    w->min_flushed = w->flushed - rem;
+                    bipbuf_poll(w->buf, total);
                 }
             }
-            nfd++;
         }
+        nfd++;
     }
-
-    logger_push_central_buf();
 }
 
 #define MAX_LOGGER_SLEEP 100000
@@ -531,11 +410,6 @@ void logger_init(void) {
     logger_stack_tail = 0;
     pthread_key_create(&logger_key, NULL);
 
-    logger_thread_buf = bipbuf_new(LOGGER_THREAD_BUF_SIZE);
-    if (logger_thread_buf == NULL) {
-        abort();
-    }
-
     if (start_logger_thread() != 0) {
         abort();
     }
@@ -570,16 +444,6 @@ logger *logger_create(void) {
     return l;
 }
 
-#define SET_LOGGER_TIME() \
-    do { \
-        if (l->eflags & LOG_TIME) { \
-            gettimeofday(&e->tv, NULL); \
-        } else { \
-            e->tv.tv_sec = 0; \
-            e->tv.tv_usec = 0; \
-        } \
-    } while (0)
-
 /* Public function for logging an entry.
  * Tries to encapsulate as much of the formatting as possible to simplify the
  * caller's code.
@@ -606,8 +470,11 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
     }
     e->gid = gid;
     e->event = d->subtype;
-    e->watcher_flag = d->watcher_flag;
-    SET_LOGGER_TIME();
+    e->eflags = d->eflags;
+    /* Noting time isn't optional. A feature may be added to avoid rendering
+     * time and/or gid to a logger.
+     */
+    gettimeofday(&e->tv, NULL);
 
     switch (d->subtype) {
         case LOGGER_TEXT_ENTRY:
@@ -658,7 +525,6 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
 enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t f) {
     int x;
     logger_watcher *w = NULL;
-    unsigned int size = 0;
     pthread_mutex_lock(&logger_stack_lock);
     if (watcher_count >= WATCHER_LIMIT) {
         return LOGGER_ADD_WATCHER_TOO_MANY;
@@ -670,8 +536,10 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
     }
 
     w = calloc(1, sizeof(logger_watcher));
-    if (w == NULL)
+    if (w == NULL) {
+        pthread_mutex_unlock(&logger_stack_lock);
         return LOGGER_ADD_WATCHER_FAILED;
+    }
     w->c = c;
     w->sfd = sfd;
     if (sfd == 0 && c == NULL) {
@@ -681,11 +549,13 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
     }
     w->id = x;
     w->eflags = f;
-    /* Skip any currently queued data, so we only print new lines. */
-    if (bipbuf_peek_all(logger_thread_buf, &size) != NULL) {
-        w->flushed = size;
-        w->min_flushed = size;
+    w->buf = bipbuf_new(LOGGER_WATCHER_BUF_SIZE);
+    if (w->buf == NULL) {
+        free(w);
+        pthread_mutex_unlock(&logger_stack_lock);
+        return LOGGER_ADD_WATCHER_FAILED;
     }
+
     watchers[x] = w;
     watcher_count++;
     /* Update what flags the global logs will watch */
