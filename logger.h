@@ -28,17 +28,20 @@ enum logger_ret_type {
 
 enum logger_parse_entry_ret {
     LOGGER_PARSE_ENTRY_OK = 0,
-    LOGGER_PARSE_ENTRY_FULLBUF
+    LOGGER_PARSE_ENTRY_FULLBUF,
+    LOGGER_PARSE_ENTRY_FAILED
 };
 
 typedef const struct {
     enum log_entry_subtype subtype;
     int reqlen;
+    uint16_t watcher_flag;
     char *format;
 } entry_details;
 
 typedef struct _logentry {
     enum log_entry_subtype event;
+    uint16_t watcher_flag;
     uint64_t gid;
     struct timeval tv; /* not monotonic! */
     int size;
@@ -56,6 +59,7 @@ typedef struct _logentry {
 #define LOG_EVICTIONS  (1<<6) /* defailts of evicted items */
 #define LOG_STRICT     (1<<7) /* block worker instead of drop */
 #define LOG_TIME       (1<<8) /* log the entry time */
+#define LOG_RAWCMDS    (1<<9) /* raw ascii commands */
 
 typedef struct _logger {
     struct _logger *prev;
@@ -71,15 +75,6 @@ typedef struct _logger {
     const entry_details *entry_map;
 } logger;
 
-typedef struct _logger_chunk {
-    struct _logger_chunk *next;
-    int size; /* max potential size */
-    int written; /* amount written into the buffer (actual size) */
-    int refcount; /* number of attached watchers */
-    unsigned int filled :1; /* reached storage max */
-    char data[];
-} logger_chunk;
-
 enum logger_watcher_type {
     LOGGER_WATCHER_STDERR = 0,
     LOGGER_WATCHER_CLIENT = 1
@@ -87,10 +82,10 @@ enum logger_watcher_type {
 
 typedef struct  {
     void *c; /* original connection structure. still with source thread attached */
-    logger_chunk *lc;
     int chunks; /* count of chunks stored up */
     int sfd; /* client fd */
     int flushed; /* backlog data flushed so far from active chunk */
+    int min_flushed; /* it's safe to flush the central buffer up to here */
     int id; /* id number for watcher list */
     enum logger_watcher_type t; /* stderr, client, syslog, etc */
     uint16_t eflags; /* flags we are interested in */
