@@ -578,6 +578,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
         pthread_mutex_unlock(&logger_stack_lock);
         return LOGGER_ADD_WATCHER_FAILED;
     }
+    bipbuf_offer(w->buf, (unsigned char *) "OK\r\n", 4);
 
     watchers[x] = w;
     watcher_count++;

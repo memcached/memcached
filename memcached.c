@@ -3435,6 +3435,42 @@ static void process_slabs_automove_command(conn *c, token_t *tokens, const size_
     return;
 }
 
+/* TODO: decide on syntax for sampling? */
+static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens) {
+    uint16_t f = 0;
+    int x;
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+    if (ntokens > 2) {
+        for (x = COMMAND_TOKEN + 1; x < ntokens - 1; x++) {
+            if ((strcmp(tokens[x].value, "rawcmds") == 0)) {
+                f |= LOG_RAWCMDS;
+            } else if ((strcmp(tokens[x].value, "evictions") == 0)) {
+                f |= LOG_EVICTIONS;
+            } else {
+                out_string(c, "ERROR");
+                return;
+            }
+        }
+    } else {
+        f |= LOG_RAWCMDS;
+    }
+
+    switch(logger_add_watcher(c, c->sfd, f)) {
+        case LOGGER_ADD_WATCHER_TOO_MANY:
+            out_string(c, "WATCHER_TOO_MANY log watcher limit reached");
+            break;
+        case LOGGER_ADD_WATCHER_FAILED:
+            out_string(c, "WATCHER_FAILED failed to add log watcher");
+            break;
+        case LOGGER_ADD_WATCHER_OK:
+            conn_set_state(c, conn_watch);
+            event_del(&c->event);
+            break;
+    }
+}
+
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -3677,33 +3713,7 @@ static void process_command(conn *c, char *command) {
             out_string(c, "ERROR");
         }
     } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "watch") == 0) {
-        uint16_t f = 0;
-        /* TODO: pass to function for full argument processing. */
-        /* This is very temporary... need to decide on a real flag parser. */
-        if (ntokens == 3) {
-            if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "rawcmds") == 0)) {
-                f |= LOG_RAWCMDS;
-            } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "evictions") == 0)) {
-                f |= LOG_EVICTIONS;
-            } else {
-                out_string(c, "ERROR");
-            }
-        } else {
-            f |= LOG_RAWCMDS;
-        }
-        f |= LOG_TIME; /* not optional yet */
-        switch(logger_add_watcher(c, c->sfd, f)) {
-            case LOGGER_ADD_WATCHER_TOO_MANY:
-                out_string(c, "WATCHER_TOO_MANY log watcher limit reached");
-                break;
-            case LOGGER_ADD_WATCHER_FAILED:
-                out_string(c, "WATCHER_FAILED failed to add log watcher");
-                break;
-            case LOGGER_ADD_WATCHER_OK:
-                conn_set_state(c, conn_watch);
-                event_del(&c->event);
-                break;
-        }
+        process_watch_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {

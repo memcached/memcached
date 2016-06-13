@@ -58,7 +58,6 @@ typedef struct _logentry {
 #define LOG_CONNEVENTS (1<<5) /* new client, closed, etc */
 #define LOG_EVICTIONS  (1<<6) /* defailts of evicted items */
 #define LOG_STRICT     (1<<7) /* block worker instead of drop */
-#define LOG_TIME       (1<<8) /* log the entry time */
 #define LOG_RAWCMDS    (1<<9) /* raw ascii commands */
 
 typedef struct _logger {
