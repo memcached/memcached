@@ -64,7 +64,7 @@ typedef struct _logger {
     struct _logger *prev;
     struct _logger *next;
     pthread_mutex_t mutex; /* guard for this + *buf */
-    uint64_t logged; /* entries written to the buffer */
+    uint64_t written; /* entries written to the buffer */
     uint64_t dropped; /* entries dropped */
     uint64_t blocked; /* times blocked instead of dropped */
     uint16_t fetcher_ratio; /* log one out of every N fetches */
@@ -89,6 +89,14 @@ typedef struct  {
     uint16_t eflags; /* flags we are interested in */
     bipbuf_t *buf; /* per-watcher output buffer */
 } logger_watcher;
+
+
+struct logger_stats {
+    uint64_t worker_dropped;
+    uint64_t worker_written;
+    uint64_t watcher_skipped;
+    uint64_t watcher_sent;
+};
 
 extern pthread_key_t logger_key;
 
