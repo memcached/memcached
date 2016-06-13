@@ -43,7 +43,8 @@ static const entry_details default_entries[] = {
     [LOGGER_EVICTION] = {LOGGER_EVICTION_ENTRY, 512, LOG_EVICTIONS, "eviction: [key %s] [fetched: %s] [ttl: %d] [la: %d]"}
 };
 
-static void logger_poll_watchers(int force_poll);
+#define WATCHER_ALL -1
+static int logger_poll_watchers(int force_poll, int watcher);
 
 /* Logger GID's can be used by watchers to put logs back into strict order
  */
@@ -100,17 +101,11 @@ static void logger_link_q(logger *l) {
     return;
 }*/
 
-/* FIXME: If a watcher has had "skipped" entries since the last successful
- * print, we should dump in a [skipped: $cnt] line before the next real line.
- * use bipbuf_request() to ensure enough space for both lines, then generate
- * and offer both.
- * (credit to PHK for the idea there)
- */
+/* Completes rendering of log line, copies to subscribed watchers */
 #define LOGGER_PARSE_SCRATCH 4096
 static enum logger_parse_entry_ret logger_parse_entry(logentry *e) {
     int total = 0;
     int line_size = 0;
-    int skipped = 0;
     int x;
     char scratch[LOGGER_PARSE_SCRATCH];
 
@@ -140,22 +135,44 @@ static enum logger_parse_entry_ret logger_parse_entry(logentry *e) {
             L_DEBUG("LOGGER: Skipping event for watcher [%d] (w->eflags: %d) (e->eflags: %d)\n",
                     w->sfd, w->eflags, e->eflags);
             continue;
-        } else {
-            int written = bipbuf_offer(w->buf, (unsigned char *) scratch, line_size);
-            if (written == 0) {
-                L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
+        }
+
+        if (w->failed_flush) {
+            L_DEBUG("LOGGER: Fast skipped for watcher [%d] due to failed_flush\n", w->sfd);
+            w->skipped++;
+        } else if (w->skipped > 0) {
+            char *skip_scr = NULL;
+            if ((skip_scr = (char *) bipbuf_request(w->buf, line_size + 128)) != NULL) {
+                total = snprintf(skip_scr, 128, "[skipped: %llu]\n", (unsigned long long) w->skipped);
+                if (total >= 128 || total <= 0) {
+                    L_DEBUG("LOGGER: Failed to flatten skipped message into watcher [%d]\n", w->sfd);
+                    w->skipped++;
+                } else {
+                    /* These can't fail because bipbuf_request succeeded. */
+                    bipbuf_push(w->buf, total + 1);
+                    bipbuf_offer(w->buf, (unsigned char *) scratch, line_size);
+                    w->skipped = 0;
+                }
+            } else {
+                L_DEBUG("LOGGER: Continuing to fast skip for watcher [%d]\n", w->sfd);
                 w->skipped++;
-                skipped++;
+                w->failed_flush = true;
+            }
+        } else {
+             /* Avoid poll()'ing constantly when buffer is full by resetting a
+             * flag periodically.
+             */
+            while (bipbuf_offer(w->buf, (unsigned char *) scratch, line_size) == 0) {
+                if (logger_poll_watchers(0, x) <= 0) {
+                    L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
+                    w->failed_flush = true;
+                    w->skipped++;
+                    break;
+                }
             }
         }
     }
 
-    /* FIXME: Maybe find a way to flush and retry before losing entry?
-     * otherwise a burst of logs will always skip data, even if there's room
-     * to flush to the network.
-     */
-    if (skipped)
-        return LOGGER_PARSE_ENTRY_FULLBUF;
     return LOGGER_PARSE_ENTRY_OK;
 }
 
@@ -218,10 +235,7 @@ static int logger_thread_read(logger *l) {
         enum logger_parse_entry_ret ret;
         e = (logentry *) (data + pos);
         ret = logger_parse_entry(e);
-        if (ret == LOGGER_PARSE_ENTRY_FULLBUF) {
-            logger_poll_watchers(0);
-            //continue;
-        } else if (ret != LOGGER_PARSE_ENTRY_OK) {
+        if (ret != LOGGER_PARSE_ENTRY_OK) {
             fprintf(stderr, "LOGGER: Failed to parse log entry\n");
             abort();
         }
@@ -257,19 +271,22 @@ static int logger_iterate(void) {
  * This calls poll() unnecessarily during write flushes, should be possible to
  * micro-optimize later.
  *
- * This flushes buffers attached to watchers, iterating through the chunks set
+ * This flushes buffers attached to watchers, iterating through the bytes set
  * to each worker. Also checks for readability in case client connection was
  * closed.
+ *
+ * Allows a specific watcher to be flushed (if buf full)
  */
-static void logger_poll_watchers(int force_poll) {
+static int logger_poll_watchers(int force_poll, int watcher) {
     int x;
     int nfd = 0;
     unsigned char *data;
     unsigned int data_size = 0;
+    int flushed = 0;
 
     for (x = 0; x < WATCHER_LIMIT; x++) {
         logger_watcher *w = watchers[x];
-        if (w == NULL)
+        if (w == NULL || (watcher != WATCHER_ALL && x != watcher))
             continue;
 
         data = bipbuf_peek_all(w->buf, &data_size);
@@ -282,17 +299,21 @@ static void logger_poll_watchers(int force_poll) {
             watchers_pollfds[nfd].events = POLLIN;
             nfd++;
         }
+        /* This gets set after a call to poll, and should be used to gate on
+         * calling poll again.
+         */
+        w->failed_flush = false;
     }
 
     if (nfd == 0)
-        return;
+        return 0;
 
     //L_DEBUG("LOGGER: calling poll() [data_size: %d]\n", data_size);
     int ret = poll(watchers_pollfds, nfd, 0);
 
     if (ret < 0) {
         perror("something failed with logger thread watcher fd polling");
-        return;
+        return -1;
     }
 
     nfd = 0;
@@ -342,11 +363,13 @@ static void logger_poll_watchers(int force_poll) {
                     logger_close_watcher(w);
                 } else {
                     bipbuf_poll(w->buf, total);
+                    flushed += total;
                 }
             }
         }
         nfd++;
     }
+    return flushed;
 }
 
 #define MAX_LOGGER_SLEEP 100000
@@ -365,7 +388,7 @@ static void *logger_thread(void *arg) {
         pthread_mutex_lock(&logger_stack_lock);
         /* check poll() for current slow watchers */
         found_logs = logger_iterate();
-        logger_poll_watchers(1);
+        logger_poll_watchers(1, WATCHER_ALL);
         pthread_mutex_unlock(&logger_stack_lock);
 
         /* TODO: abstract into a function and share with lru_crawler */

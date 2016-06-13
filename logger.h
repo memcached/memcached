@@ -82,10 +82,10 @@ enum logger_watcher_type {
 
 typedef struct  {
     void *c; /* original connection structure. still with source thread attached */
-    int chunks; /* count of chunks stored up */
     int sfd; /* client fd */
-    uint64_t skipped; /* lines skipped since last successful print */
     int id; /* id number for watcher list */
+    uint64_t skipped; /* lines skipped since last successful print */
+    bool failed_flush; /* recently failed to write out (EAGAIN), wait before retry */
     enum logger_watcher_type t; /* stderr, client, syslog, etc */
     uint16_t eflags; /* flags we are interested in */
     bipbuf_t *buf; /* per-watcher output buffer */
