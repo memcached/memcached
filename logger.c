@@ -44,7 +44,11 @@ static const entry_details default_entries[] = {
 };
 
 #define WATCHER_ALL -1
-static int logger_poll_watchers(int force_poll, int watcher);
+static int logger_thread_poll_watchers(int force_poll, int watcher);
+
+/*************************
+ * Util functions shared between bg thread and workers
+ *************************/
 
 /* Logger GID's can be used by watchers to put logs back into strict order
  */
@@ -101,9 +105,37 @@ static void logger_link_q(logger *l) {
     return;
 }*/
 
+/* Called with logger stack locked.
+ * Iterates over every watcher collecting enabled flags.
+ */
+static void logger_set_flags(void) {
+    logger *l = NULL;
+    int x = 0;
+    uint16_t f = 0; /* logger eflags */
+
+    for (x = 0; x < WATCHER_LIMIT; x++) {
+        logger_watcher *w = watchers[x];
+        if (w == NULL)
+            continue;
+
+        f |= w->eflags;
+    }
+    for (l = logger_stack_head; l != NULL; l=l->next) {
+        pthread_mutex_lock(&l->mutex);
+        l->eflags = f;
+        pthread_mutex_unlock(&l->mutex);
+    }
+    return;
+}
+
+/*************************
+ * Logger background thread functions. Aggregates per-worker buffers and
+ * writes to any watchers.
+ *************************/
+
 /* Completes rendering of log line, copies to subscribed watchers */
 #define LOGGER_PARSE_SCRATCH 4096
-static enum logger_parse_entry_ret logger_parse_entry(logentry *e, struct logger_stats *ls) {
+static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct logger_stats *ls) {
     int total = 0;
     int line_size = 0;
     int x;
@@ -167,7 +199,7 @@ static enum logger_parse_entry_ret logger_parse_entry(logentry *e, struct logger
              * flag periodically.
              */
             while (bipbuf_offer(w->buf, (unsigned char *) scratch, line_size) == 0) {
-                if (logger_poll_watchers(0, x) <= 0) {
+                if (logger_thread_poll_watchers(0, x) <= 0) {
                     L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
                     w->failed_flush = true;
                     w->skipped++;
@@ -184,33 +216,11 @@ static enum logger_parse_entry_ret logger_parse_entry(logentry *e, struct logger
 }
 
 /* Called with logger stack locked.
- * Iterates over every watcher collecting enabled flags.
- */
-static void logger_set_flags(void) {
-    logger *l = NULL;
-    int x = 0;
-    uint16_t f = 0; /* logger eflags */
-
-    for (x = 0; x < WATCHER_LIMIT; x++) {
-        logger_watcher *w = watchers[x];
-        if (w == NULL)
-            continue;
-
-        f |= w->eflags;
-    }
-    for (l = logger_stack_head; l != NULL; l=l->next) {
-        /* TODO: lock logger, call function to manipulate it */
-        l->eflags = f;
-    }
-    return;
-}
-
-/* Called with logger stack locked.
  * Releases every chunk associated with a watcher and closes the connection.
  * We can't presently send a connection back to the worker for further
  * processing.
  */
-static void logger_close_watcher(logger_watcher *w) {
+static void logger_thread_close_watcher(logger_watcher *w) {
     L_DEBUG("LOGGER: Closing dead watcher\n");
     watchers[w->id] = NULL;
     sidethread_conn_close(w->c);
@@ -241,10 +251,10 @@ static int logger_thread_read(logger *l, struct logger_stats *ls) {
     while (pos < size && watcher_count > 0) {
         enum logger_parse_entry_ret ret;
         e = (logentry *) (data + pos);
-        ret = logger_parse_entry(e, ls);
+        ret = logger_thread_parse_entry(e, ls);
         if (ret != LOGGER_PARSE_ENTRY_OK) {
+            /* TODO: stats counter */
             fprintf(stderr, "LOGGER: Failed to parse log entry\n");
-            abort();
         }
         pos += sizeof(logentry) + e->size;
     }
@@ -276,7 +286,7 @@ static int logger_thread_read(logger *l, struct logger_stats *ls) {
  *
  * Allows a specific watcher to be flushed (if buf full)
  */
-static int logger_poll_watchers(int force_poll, int watcher) {
+static int logger_thread_poll_watchers(int force_poll, int watcher) {
     int x;
     int nfd = 0;
     unsigned char *data;
@@ -329,7 +339,7 @@ static int logger_poll_watchers(int force_poll, int watcher) {
             char buf[1];
             int res = read(w->sfd, buf, 1);
             if (res == 0 || (res == -1 && (errno != EAGAIN && errno != EWOULDBLOCK))) {
-                logger_close_watcher(w);
+                logger_thread_close_watcher(w);
                 nfd++;
                 continue;
             }
@@ -337,7 +347,7 @@ static int logger_poll_watchers(int force_poll, int watcher) {
         if ((data = bipbuf_peek_all(w->buf, &data_size)) != NULL) {
             if (watchers_pollfds[nfd].revents & (POLLHUP|POLLERR)) {
                 L_DEBUG("LOGGER: watcher closed during poll() call\n");
-                logger_close_watcher(w);
+                logger_thread_close_watcher(w);
             } else if (watchers_pollfds[nfd].revents & POLLOUT) {
                 int total = 0;
 
@@ -355,11 +365,11 @@ static int logger_poll_watchers(int force_poll, int watcher) {
                         data_size, bipbuf_used(w->buf));
                 if (total == -1) {
                     if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        logger_close_watcher(w);
+                        logger_thread_close_watcher(w);
                     }
                     L_DEBUG("LOGGER: watcher hit EAGAIN\n");
                 } else if (total == 0) {
-                    logger_close_watcher(w);
+                    logger_thread_close_watcher(w);
                 } else {
                     bipbuf_poll(w->buf, total);
                     flushed += total;
@@ -402,7 +412,7 @@ static void *logger_thread(void *arg) {
             found_logs += logger_thread_read(l, &ls);
         }
 
-        logger_poll_watchers(1, WATCHER_ALL);
+        logger_thread_poll_watchers(1, WATCHER_ALL);
         pthread_mutex_unlock(&logger_stack_lock);
 
         /* TODO: abstract into a function and share with lru_crawler */
@@ -437,6 +447,10 @@ static int start_logger_thread(void) {
     pthread_join(logger_tid, NULL);
     return 0;
 }*/
+
+/*************************
+ * Public functions for submitting logs and starting loggers from workers.
+ *************************/
 
 /* Global logger thread start/init */
 void logger_init(void) {
