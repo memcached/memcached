@@ -299,6 +299,10 @@ struct stats {
     bool          lru_crawler_running; /* crawl in progress */
     uint64_t      lru_maintainer_juggles; /* number of LRU bg pokes */
     uint64_t      time_in_listen_disabled_us;  /* elapsed time in microseconds while server unable to process new connections */
+    uint64_t      log_worker_dropped; /* logs dropped by worker threads */
+    uint64_t      log_worker_written; /* logs written by worker threads */
+    uint64_t      log_watcher_skipped; /* logs watchers missed */
+    uint64_t      log_watcher_sent; /* logs sent to watcher buffers */
     struct timeval maxconns_entered;  /* last time maxconns entered */
 };
 

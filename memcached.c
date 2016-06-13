@@ -2656,6 +2656,10 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     }
     APPEND_STAT("malloc_fails", "%llu",
                 (unsigned long long)stats.malloc_fails);
+    APPEND_STAT("log_worker_dropped", "%llu", (unsigned long long)stats.log_worker_dropped);
+    APPEND_STAT("log_worker_written", "%llu", (unsigned long long)stats.log_worker_written);
+    APPEND_STAT("log_watcher_skipped", "%llu", (unsigned long long)stats.log_watcher_skipped);
+    APPEND_STAT("log_watcher_sent", "%llu", (unsigned long long)stats.log_watcher_sent);
     STATS_UNLOCK();
 }
 

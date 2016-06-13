@@ -103,7 +103,7 @@ static void logger_link_q(logger *l) {
 
 /* Completes rendering of log line, copies to subscribed watchers */
 #define LOGGER_PARSE_SCRATCH 4096
-static enum logger_parse_entry_ret logger_parse_entry(logentry *e) {
+static enum logger_parse_entry_ret logger_parse_entry(logentry *e, struct logger_stats *ls) {
     int total = 0;
     int line_size = 0;
     int x;
@@ -140,6 +140,7 @@ static enum logger_parse_entry_ret logger_parse_entry(logentry *e) {
         if (w->failed_flush) {
             L_DEBUG("LOGGER: Fast skipped for watcher [%d] due to failed_flush\n", w->sfd);
             w->skipped++;
+            ls->watcher_skipped++;
         } else if (w->skipped > 0) {
             char *skip_scr = NULL;
             if ((skip_scr = (char *) bipbuf_request(w->buf, line_size + 128)) != NULL) {
@@ -147,15 +148,18 @@ static enum logger_parse_entry_ret logger_parse_entry(logentry *e) {
                 if (total >= 128 || total <= 0) {
                     L_DEBUG("LOGGER: Failed to flatten skipped message into watcher [%d]\n", w->sfd);
                     w->skipped++;
+                    ls->watcher_skipped++;
                 } else {
                     /* These can't fail because bipbuf_request succeeded. */
                     bipbuf_push(w->buf, total + 1);
                     bipbuf_offer(w->buf, (unsigned char *) scratch, line_size);
                     w->skipped = 0;
+                    ls->watcher_sent++;
                 }
             } else {
                 L_DEBUG("LOGGER: Continuing to fast skip for watcher [%d]\n", w->sfd);
                 w->skipped++;
+                ls->watcher_skipped++;
                 w->failed_flush = true;
             }
         } else {
@@ -167,9 +171,12 @@ static enum logger_parse_entry_ret logger_parse_entry(logentry *e) {
                     L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
                     w->failed_flush = true;
                     w->skipped++;
+                    ls->watcher_skipped++;
                     break;
                 }
             }
+            if (!w->failed_flush)
+                ls->watcher_sent++;
         }
     }
 
@@ -216,7 +223,7 @@ static void logger_close_watcher(logger_watcher *w) {
 /* Reads a particular worker thread's available bipbuf bytes. Parses each log
  * entry into the watcher buffers.
  */
-static int logger_thread_read(logger *l) {
+static int logger_thread_read(logger *l, struct logger_stats *ls) {
     unsigned int size;
     unsigned int pos = 0;
     unsigned char *data;
@@ -234,7 +241,7 @@ static int logger_thread_read(logger *l) {
     while (pos < size && watcher_count > 0) {
         enum logger_parse_entry_ret ret;
         e = (logentry *) (data + pos);
-        ret = logger_parse_entry(e);
+        ret = logger_parse_entry(e, ls);
         if (ret != LOGGER_PARSE_ENTRY_OK) {
             fprintf(stderr, "LOGGER: Failed to parse log entry\n");
             abort();
@@ -245,6 +252,10 @@ static int logger_thread_read(logger *l) {
 
     pthread_mutex_lock(&l->mutex);
     data = bipbuf_poll(l->buf, size);
+    ls->worker_written += l->written;
+    ls->worker_dropped += l->dropped;
+    l->written = 0;
+    l->dropped = 0;
     pthread_mutex_unlock(&l->mutex);
     if (data == NULL) {
         fprintf(stderr, "LOGGER: unexpectedly couldn't advance buf pointer\n");
@@ -252,18 +263,6 @@ static int logger_thread_read(logger *l) {
         return -1;
     }
     return size; /* maybe the count of objects iterated? */
-}
-
-/* helper function or #define: iterate over loggers */
-/* called with logger_stack_lock held */
-static int logger_iterate(void) {
-    logger *l = NULL;
-    int count = 0;
-    for (l = logger_stack_head; l != NULL; l=l->next) {
-        /* lock logger, call function to manipulate it */
-        count += logger_thread_read(l);
-    }
-    return count;
 }
 
 /* Since the event loop code isn't reusable without a refactor, and we have a
@@ -372,6 +371,15 @@ static int logger_poll_watchers(int force_poll, int watcher) {
     return flushed;
 }
 
+static void logger_thread_sum_stats(struct logger_stats *ls) {
+    STATS_LOCK();
+    stats.log_worker_dropped  += ls->worker_dropped;
+    stats.log_worker_written  += ls->worker_written;
+    stats.log_watcher_skipped += ls->watcher_skipped;
+    stats.log_watcher_sent    += ls->watcher_sent;
+    STATS_UNLOCK();
+}
+
 #define MAX_LOGGER_SLEEP 100000
 #define MIN_LOGGER_SLEEP 0
 
@@ -381,13 +389,19 @@ static void *logger_thread(void *arg) {
     L_DEBUG("LOGGER: Starting logger thread\n");
     while (do_run_logger_thread) {
         int found_logs = 0;
+        logger *l;
+        struct logger_stats ls;
+        memset(&ls, 0, sizeof(struct logger_stats));
         if (to_sleep)
             usleep(to_sleep);
 
         /* Call function to iterate each logger. */
         pthread_mutex_lock(&logger_stack_lock);
-        /* check poll() for current slow watchers */
-        found_logs = logger_iterate();
+        for (l = logger_stack_head; l != NULL; l=l->next) {
+            /* lock logger, call function to manipulate it */
+            found_logs += logger_thread_read(l, &ls);
+        }
+
         logger_poll_watchers(1, WATCHER_ALL);
         pthread_mutex_unlock(&logger_stack_lock);
 
@@ -400,6 +414,7 @@ static void *logger_thread(void *arg) {
             if (to_sleep < 50)
                 to_sleep = MIN_LOGGER_SLEEP;
         }
+        logger_thread_sum_stats(&ls);
     }
 
     return NULL;
@@ -436,6 +451,14 @@ void logger_init(void) {
     if (start_logger_thread() != 0) {
         abort();
     }
+
+    /* This can be removed once the global stats initializer is improved */
+    STATS_LOCK();
+    stats.log_worker_dropped = 0;
+    stats.log_worker_written = 0;
+    stats.log_watcher_skipped = 0;
+    stats.log_watcher_sent = 0;
+    STATS_UNLOCK();
     /* FIXME: temp hack to always add STDERR watcher */
     //logger_add_watcher(NULL, 0);
     return;
@@ -489,6 +512,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
     e = (logentry *) bipbuf_request(buf, (sizeof(logentry) + reqlen));
     if (e == NULL) {
         pthread_mutex_unlock(&l->mutex);
+        l->dropped++;
         return LOGGER_RET_NOSPACE;
     }
     e->gid = gid;
@@ -530,6 +554,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
         pthread_mutex_unlock(&l->mutex);
         return LOGGER_RET_ERR;
     }
+    l->written++;
     L_DEBUG("LOGGER: Requested %d bytes, wrote %d bytes\n", reqlen, total + 1);
 
     pthread_mutex_unlock(&l->mutex);
