@@ -44,7 +44,9 @@ static char logger_uriencode_str[768];
 /* Should this go somewhere else? */
 static const entry_details default_entries[] = {
     [LOGGER_ASCII_CMD] = {LOGGER_TEXT_ENTRY, 512, LOG_RAWCMDS, "<%d %s"},
-    [LOGGER_EVICTION] = {LOGGER_EVICTION_ENTRY, 512, LOG_EVICTIONS, NULL}
+    [LOGGER_EVICTION] = {LOGGER_EVICTION_ENTRY, 512, LOG_EVICTIONS, NULL},
+    [LOGGER_ITEM_GET] = {LOGGER_ITEM_GET_ENTRY, 512, LOG_FETCHERS, NULL},
+    [LOGGER_ITEM_STORE] = {LOGGER_ITEM_STORE_ENTRY, 512, LOG_MUTATIONS, NULL}
 };
 
 #define WATCHER_ALL -1
@@ -170,6 +172,9 @@ static void logger_set_flags(void) {
  *************************/
 
 /* Completes rendering of log line, copies to subscribed watchers */
+/* FIXME: This can be shortened considerably with a refactor for both the
+ * "skipped" writing and string conversion.
+ */
 #define LOGGER_PARSE_SCRATCH 4096
 static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct logger_stats *ls) {
     int total = 0;
@@ -177,6 +182,7 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
     int x;
     char scratch[LOGGER_PARSE_SCRATCH];
     char scratch2[LOGGER_PARSE_SCRATCH];
+    char *status = "unknown";
 
     switch (e->event) {
         case LOGGER_TEXT_ENTRY:
@@ -193,6 +199,75 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
                     scratch2, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
                     (long long int)le->exptime, le->latime);
             break;
+        case LOGGER_ITEM_GET_ENTRY: ;
+            struct logentry_item_get *lig = (struct logentry_item_get *) e->data;
+            switch (lig->was_found) {
+                case 0:
+                    status = "not_found";
+                    break;
+                case 1:
+                    status = "found";
+                    break;
+                case 2:
+                    status = "flushed";
+                    break;
+                case 3:
+                    status = "expired";
+                    break;
+            }
+            logger_uriencode(lig->key, scratch2, lig->nkey, LOGGER_PARSE_SCRATCH);
+            total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+                    "ts=%d.%d gid=%llu type=item_get key=%s status=%s\n",
+                    (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+                    scratch2, status);
+            break;
+        case LOGGER_ITEM_STORE_ENTRY: ;
+            struct logentry_item_store *lis = (struct logentry_item_store *) e->data;
+            char *cmd = "na";
+            switch (lis->status) {
+                case STORED:
+                    status = "stored";
+                    break;
+                case EXISTS:
+                    status = "exists";
+                    break;
+                case NOT_FOUND:
+                    status = "not_found";
+                    break;
+                case TOO_LARGE:
+                    status = "too_large";
+                    break;
+                case NO_MEMORY:
+                    status = "no_memory";
+                    break;
+            }
+            switch (lis->cmd) {
+                case NREAD_ADD:
+                    cmd = "add";
+                    break;
+                case NREAD_SET:
+                    cmd = "set";
+                    break;
+                case NREAD_REPLACE:
+                    cmd = "replace";
+                    break;
+                case NREAD_APPEND:
+                    cmd = "append";
+                    break;
+                case NREAD_PREPEND:
+                    cmd = "prepend";
+                    break;
+                case NREAD_CAS:
+                    cmd = "cas";
+                    break;
+            }
+            logger_uriencode(lis->key, scratch2, lis->nkey, LOGGER_PARSE_SCRATCH);
+            total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+                    "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s\n",
+                    (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+                    scratch2, status, cmd);
+            break;
+
     }
 
     if (total >= LOGGER_PARSE_SCRATCH || total <= 0) {
@@ -564,6 +639,29 @@ static void _logger_log_evictions(logentry *e, item *it) {
     e->size = sizeof(struct logentry_eviction) + le->nkey;
 }
 
+/* 0 == nf, 1 == found. 2 == flushed. 3 == expired.
+ * might be useful to store/print the flags an item has?
+ * could also collapse this and above code into an "item status" struct. wait
+ * for more endpoints to be written before making it generic, though.
+ */
+static void _logger_log_item_get(logentry *e, const int was_found, const char *key, const int nkey) {
+    struct logentry_item_get *le = (struct logentry_item_get *) e->data;
+    le->was_found = was_found;
+    le->nkey = nkey;
+    memcpy(le->key, key, nkey);
+    e->size = sizeof(struct logentry_item_get) + nkey;
+}
+
+static void _logger_log_item_store(logentry *e, const enum store_item_type status,
+        const int comm, char *key, const int nkey) {
+    struct logentry_item_store *le = (struct logentry_item_store *) e->data;
+    le->status = status;
+    le->cmd = comm;
+    le->nkey = nkey;
+    memcpy(le->key, key, nkey);
+    e->size = sizeof(struct logentry_item_store) + nkey;
+}
+
 /* Public function for logging an entry.
  * Tries to encapsulate as much of the formatting as possible to simplify the
  * caller's code.
@@ -588,6 +686,9 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
     }
     e->gid = logger_get_gid();
     e->event = d->subtype;
+    /* TODO: Could pass this down as an argument now that we're using
+     * LOGGER_LOG() macro.
+     */
     e->eflags = d->eflags;
     /* Noting time isn't optional. A feature may be added to avoid rendering
      * time and/or gid to a logger.
@@ -608,6 +709,22 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             break;
         case LOGGER_EVICTION_ENTRY:
             _logger_log_evictions(e, (item *)entry);
+            break;
+        case LOGGER_ITEM_GET_ENTRY:
+            va_start(ap, entry);
+            int was_found = va_arg(ap, int);
+            char *key = va_arg(ap, char *);
+            size_t nkey = va_arg(ap, size_t);
+            _logger_log_item_get(e, was_found, key, nkey);
+            va_end(ap);
+            break;
+        case LOGGER_ITEM_STORE_ENTRY:
+            va_start(ap, entry);
+            enum store_item_type status = va_arg(ap, enum store_item_type);
+            int comm = va_arg(ap, int);
+            char *skey = va_arg(ap, char *);
+            size_t snkey = va_arg(ap, size_t);
+            _logger_log_item_store(e, status, comm, skey, snkey);
             break;
     }
 

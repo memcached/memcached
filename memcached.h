@@ -212,7 +212,7 @@ enum pause_thread_types {
 #define NREAD_CAS 6
 
 enum store_item_type {
-    NOT_STORED=0, STORED, EXISTS, NOT_FOUND
+    NOT_STORED=0, STORED, EXISTS, NOT_FOUND, TOO_LARGE, NO_MEMORY
 };
 
 enum delta_result_type {

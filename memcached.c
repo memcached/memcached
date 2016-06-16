@@ -1262,6 +1262,8 @@ static void complete_update_bin(conn *c) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         break;
     case NOT_STORED:
+    case TOO_LARGE:
+    case NO_MEMORY:
         if (c->cmd == NREAD_ADD) {
             eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
         } else if(c->cmd == NREAD_REPLACE) {
@@ -2051,11 +2053,17 @@ static void process_bin_update(conn *c) {
             realtime(req->message.body.expiration), vlen+2);
 
     if (it == 0) {
+        enum store_item_type status;
         if (! item_size_ok(nkey, req->message.body.flags, vlen + 2)) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, NULL, vlen);
+            status = TOO_LARGE;
         } else {
             out_of_memory(c, "SERVER_ERROR Out of memory allocating item");
+            status = NO_MEMORY;
         }
+        /* FIXME: losing c->cmd since it's translated below. refactor? */
+        LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
+                NULL, status, 0, key, nkey);
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
@@ -2356,6 +2364,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             stored = EXISTS;
         }
     } else {
+        int failed_alloc = 0;
         /*
          * Append - combine new and old record into single one. Here it's
          * atomic and thread-safe.
@@ -2380,29 +2389,26 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */, hv);
 
                 if (new_it == NULL) {
-                    /* SERVER_ERROR out of memory */
-                    if (old_it != NULL)
-                        do_item_remove(old_it);
-
-                    return NOT_STORED;
-                }
-
-                /* copy data from it and old_it to new_it */
-
-                if (comm == NREAD_APPEND) {
-                    memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
-                    memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(it), it->nbytes);
+                    failed_alloc = 1;
+                    stored = NOT_STORED;
                 } else {
-                    /* NREAD_PREPEND */
-                    memcpy(ITEM_data(new_it), ITEM_data(it), it->nbytes);
-                    memcpy(ITEM_data(new_it) + it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
-                }
+                    /* copy data from it and old_it to new_it */
 
-                it = new_it;
+                    if (comm == NREAD_APPEND) {
+                        memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
+                        memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(it), it->nbytes);
+                    } else {
+                        /* NREAD_PREPEND */
+                        memcpy(ITEM_data(new_it), ITEM_data(it), it->nbytes);
+                        memcpy(ITEM_data(new_it) + it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
+                    }
+
+                    it = new_it;
+                }
             }
         }
 
-        if (stored == NOT_STORED) {
+        if (stored == NOT_STORED && failed_alloc == 0) {
             if (old_it != NULL)
                 item_replace(old_it, it, hv);
             else
@@ -2422,6 +2428,8 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     if (stored == STORED) {
         c->cas = ITEM_get_cas(it);
     }
+    LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
+            stored, comm, ITEM_key(it), it->nkey);
 
     return stored;
 }
@@ -3126,10 +3134,16 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen);
 
     if (it == 0) {
-        if (! item_size_ok(nkey, flags, vlen))
+        enum store_item_type status;
+        if (! item_size_ok(nkey, flags, vlen)) {
             out_string(c, "SERVER_ERROR object too large for cache");
-        else
+            status = TOO_LARGE;
+        } else {
             out_of_memory(c, "SERVER_ERROR out of memory storing object");
+            status = NO_MEMORY;
+        }
+        LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
+                NULL, status, comm, key, nkey);
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         c->sbytes = vlen;
@@ -3452,13 +3466,17 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
                 f |= LOG_RAWCMDS;
             } else if ((strcmp(tokens[x].value, "evictions") == 0)) {
                 f |= LOG_EVICTIONS;
+            } else if ((strcmp(tokens[x].value, "fetchers") == 0)) {
+                f |= LOG_FETCHERS;
+            } else if ((strcmp(tokens[x].value, "mutations") == 0)) {
+                f |= LOG_MUTATIONS;
             } else {
                 out_string(c, "ERROR");
                 return;
             }
         }
     } else {
-        f |= LOG_RAWCMDS;
+        f |= LOG_FETCHERS;
     }
 
     switch(logger_add_watcher(c, c->sfd, f)) {
@@ -3485,7 +3503,8 @@ static void process_command(conn *c, char *command) {
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
 
-    LOGGER_LOG(c->thread->l, LOG_RAWCMDS, LOGGER_ASCII_CMD, NULL, c->sfd, command);
+    if (settings.verbose > 1)
+        fprintf(stderr, "<%d %s\n", c->sfd, command);
 
     /*
      * for commands set/add/replace, we build an item and read the data

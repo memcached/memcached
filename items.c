@@ -693,7 +693,6 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             fprintf(stderr, "> NOT FOUND ");
         } else {
             fprintf(stderr, "> FOUND KEY ");
-            was_found++;
         }
         for (ii = 0; ii < nkey; ++ii) {
             fprintf(stderr, "%c", key[ii]);
@@ -701,13 +700,15 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
     }
 
     if (it != NULL) {
+        was_found = 1;
         if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
             do_item_remove(it);
             it = NULL;
-            if (was_found) {
+            if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by flush");
             }
+            was_found = 2;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
             do_item_unlink(it, hv);
             do_item_remove(it);
@@ -715,9 +716,10 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.get_expired++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
-            if (was_found) {
+            if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by expire");
             }
+            was_found = 3;
         } else {
             it->it_flags |= ITEM_FETCHED|ITEM_ACTIVE;
             DEBUG_REFCNT(it, '+');
@@ -726,6 +728,8 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
 
     if (settings.verbose > 2)
         fprintf(stderr, "\n");
+    /* For now this is in addition to the above verbose logging. */
+    LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key, nkey);
 
     return it;
 }
