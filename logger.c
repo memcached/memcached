@@ -4,6 +4,7 @@
 #include <string.h>
 #include <errno.h>
 #include <poll.h>
+#include <ctype.h>
 
 #include "memcached.h"
 #include "bipbuffer.h"
@@ -37,6 +38,9 @@ logger_watcher *watchers[20];
 struct pollfd watchers_pollfds[20];
 int watcher_count = 0;
 
+static char *logger_uriencode_map[256];
+static char logger_uriencode_str[768];
+
 /* Should this go somewhere else? */
 static const entry_details default_entries[] = {
     [LOGGER_ASCII_CMD] = {LOGGER_TEXT_ENTRY, 512, LOG_RAWCMDS, "<%d %s"},
@@ -49,6 +53,38 @@ static int logger_thread_poll_watchers(int force_poll, int watcher);
 /*************************
  * Util functions shared between bg thread and workers
  *************************/
+
+static void logger_uriencode_init(void) {
+    int x;
+    char *str = logger_uriencode_str;
+    for (x = 0; x < 256; x++) {
+        if (isalnum(x) || x == '-' || x == '.' || x == '_' || x == '~') {
+            logger_uriencode_map[x] = NULL;
+        } else {
+            snprintf(str, 4, "%%%02X", x);
+            logger_uriencode_map[x] = str;
+            str += 3; /* lobbing off the \0 is fine */
+        }
+    }
+}
+
+static bool logger_uriencode(const char *src, char *dst, const size_t srclen, const size_t dstlen) {
+    int x;
+    size_t d = 0;
+    for (x = 0; x < srclen; x++) {
+        if (d + 4 >= dstlen)
+            return false;
+        if (logger_uriencode_map[(unsigned char) src[x]] != NULL) {
+            memcpy(&dst[d], logger_uriencode_map[(unsigned char) src[x]], 3);
+            d += 3;
+        } else {
+            dst[d] = src[x];
+            d++;
+        }
+    }
+    dst[d] = '\0';
+    return true;
+}
 
 /* Logger GID's can be used by watchers to put logs back into strict order
  */
@@ -461,6 +497,7 @@ void logger_init(void) {
     logger_stack_head = 0;
     logger_stack_tail = 0;
     pthread_key_create(&logger_key, NULL);
+    logger_uriencode_init();
 
     if (start_logger_thread() != 0) {
         abort();
@@ -551,8 +588,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             break;
         case LOGGER_EVICTION_ENTRY:
             it = (item *)entry;
-            memcpy(scratch, ITEM_key(it), it->nkey);
-            scratch[it->nkey] = '\0';
+            logger_uriencode(ITEM_key(it), scratch, it->nkey, 512);
             total = snprintf((char *) e->data, reqlen, d->format, scratch,
                   (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
                   (it->exptime > 0) ? (it->exptime - current_time) : -1,

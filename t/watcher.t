@@ -4,7 +4,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 7;
+use Test::More tests => 8;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -50,7 +50,7 @@ like($res, qr/\[\d+\.\d+\] \[\d+\].*get foo/, "saw a real log line after a skip"
     my $keycount = 8000;
 
     for (1 .. $keycount) {
-        print $client "set nfoo$_ 0 0 11000 noreply\r\n$value\r\n";
+        print $client "set n,foo$_ 0 0 11000 noreply\r\n$value\r\n";
     }
 
     $watcher = $server->new_sock;
