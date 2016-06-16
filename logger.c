@@ -296,7 +296,7 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
         } else if (w->skipped > 0) {
             char *skip_scr = NULL;
             if ((skip_scr = (char *) bipbuf_request(w->buf, line_size + 128)) != NULL) {
-                total = snprintf(skip_scr, 128, "[skipped: %llu]\n", (unsigned long long) w->skipped);
+                total = snprintf(skip_scr, 128, "skipped=%llu\n", (unsigned long long) w->skipped);
                 if (total >= 128 || total <= 0) {
                     L_DEBUG("LOGGER: Failed to flatten skipped message into watcher [%d]\n", w->sfd);
                     w->skipped++;

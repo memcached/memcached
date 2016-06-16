@@ -33,7 +33,7 @@ for (1 .. 50000) {
 #print STDERR "RESULT: $res\n";
 while (my $log = <$watcher>) {
     next unless $log =~ m/skipped/;
-    like($log, qr/\[skipped: /, "skipped some lines");
+    like($log, qr/skipped=/, "skipped some lines");
     # This should unjam more of the text.
     print $client "get foob\n";
     $res = <$client>;
