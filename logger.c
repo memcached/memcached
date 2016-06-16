@@ -271,8 +271,6 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
     }
 
     if (total >= LOGGER_PARSE_SCRATCH || total <= 0) {
-        /* FIXME: This is now a much more fatal error. need to make it
-         * not crash though. */
         L_DEBUG("LOGGER: Failed to flatten log entry!\n");
         return LOGGER_PARSE_ENTRY_FAILED;
     } else {
@@ -391,8 +389,7 @@ static int logger_thread_read(logger *l, struct logger_stats *ls) {
     pthread_mutex_unlock(&l->mutex);
     if (data == NULL) {
         fprintf(stderr, "LOGGER: unexpectedly couldn't advance buf pointer\n");
-        abort();
-        return -1;
+        assert(0);
     }
     return size; /* maybe the count of objects iterated? */
 }
@@ -596,7 +593,8 @@ void logger_init(void) {
     stats.log_watcher_skipped = 0;
     stats.log_watcher_sent = 0;
     STATS_UNLOCK();
-    /* FIXME: temp hack to always add STDERR watcher */
+    /* This is what adding a STDERR watcher looks like. should replace old
+     * "verbose" settings. */
     //logger_add_watcher(NULL, 0);
     return;
 }
