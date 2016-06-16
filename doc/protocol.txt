@@ -468,6 +468,48 @@ The response line could be one of:
 
 - "BADCLASS [message]" to indicate an invalid class was specified.
 
+Watchers
+--------
+
+Watchers are a way to connect to memcached and inspect what's going on
+internally. This is an evolving feature so new endpoints should show up over
+time.
+
+watch <fetchers|mutations|evictions>
+
+- Turn connection into a watcher. Options can be stacked and are
+  space-separated. Logs will be sent to the watcher until it disconnects.
+
+The response line could be one of:
+
+- "OK" to indicate the watcher is ready to send logs.
+
+- "ERROR [message]" something went wrong while enabling.
+
+The response format is in "key=value key2=value2" format, for easy parsing.
+Lines are prepending with "ts=" for a timestamp and "gid=" for a global ID
+number of the log line. Given how logs are collected internally they may be
+printed out of order. If this is important the GID may be used to put log
+lines back in order.
+
+The value of keys (and potentially other things) are "URI encoded". Since most
+keys used conform to standard ASCII, this should have no effect. For keys with
+less standard or binary characters, "%NN"'s are inserted to represent the
+byte, ie: "n%2Cfoo" for "n,foo".
+
+The arguments are:
+
+- "fetchers": Currently emits logs every time an item is fetched internally.
+  This means a "set" command would also emit an item_get log, as it checks for
+  an item before replacing it. Multigets should also emit multiple lines.
+
+- "mutations": Currently emits logs when an item is stored in most cases.
+  Shows errors for most cases when items cannot be stored.
+
+- "evictions": Shows some information about items as they are evicted from the
+  cache. Useful in seeing if items being evicted were actually used, and which
+  keys are getting removed.
+
 Statistics
 ----------
 
