@@ -44,7 +44,7 @@ static char logger_uriencode_str[768];
 /* Should this go somewhere else? */
 static const entry_details default_entries[] = {
     [LOGGER_ASCII_CMD] = {LOGGER_TEXT_ENTRY, 512, LOG_RAWCMDS, "<%d %s"},
-    [LOGGER_EVICTION] = {LOGGER_EVICTION_ENTRY, 512, LOG_EVICTIONS, "eviction: [key %s] [fetched: %s] [ttl: %d] [la: %d]"}
+    [LOGGER_EVICTION] = {LOGGER_EVICTION_ENTRY, 512, LOG_EVICTIONS, NULL}
 };
 
 #define WATCHER_ALL -1
@@ -176,21 +176,32 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
     int line_size = 0;
     int x;
     char scratch[LOGGER_PARSE_SCRATCH];
+    char scratch2[LOGGER_PARSE_SCRATCH];
 
     switch (e->event) {
         case LOGGER_TEXT_ENTRY:
-        case LOGGER_EVICTION_ENTRY:
-            total = snprintf(scratch, LOGGER_PARSE_SCRATCH, "[%d.%d] [%llu] %s\n",
-                        (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid, (char *) e->data);
-            if (total >= LOGGER_PARSE_SCRATCH || total <= 0) {
-                /* FIXME: This is now a much more fatal error. need to make it
-                 * not crash though. */
-                L_DEBUG("LOGGER: Failed to flatten log entry!\n");
-                return LOGGER_PARSE_ENTRY_FAILED;
-            } else {
-                line_size = total + 1;
-            }
+            total = snprintf(scratch, LOGGER_PARSE_SCRATCH, "ts=%d.%d gid=%llu %s\n",
+                        (int)e->tv.tv_sec, (int)e->tv.tv_usec,
+                        (unsigned long long) e->gid, (char *) e->data);
             break;
+        case LOGGER_EVICTION_ENTRY: ;
+            struct logentry_eviction *le = (struct logentry_eviction *) e->data;
+            logger_uriencode(le->key, scratch2, le->nkey, LOGGER_PARSE_SCRATCH);
+            total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+                    "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d\n",
+                    (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+                    scratch2, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
+                    (long long int)le->exptime, le->latime);
+            break;
+    }
+
+    if (total >= LOGGER_PARSE_SCRATCH || total <= 0) {
+        /* FIXME: This is now a much more fatal error. need to make it
+         * not crash though. */
+        L_DEBUG("LOGGER: Failed to flatten log entry!\n");
+        return LOGGER_PARSE_ENTRY_FAILED;
+    } else {
+        line_size = total + 1;
     }
 
     /* Write the line into available watcher with the right flags */
@@ -541,6 +552,18 @@ logger *logger_create(void) {
     return l;
 }
 
+/* helpers for logger_log */
+
+static void _logger_log_evictions(logentry *e, item *it) {
+    struct logentry_eviction *le = (struct logentry_eviction *) e->data;
+    le->exptime = (it->exptime > 0) ? (long long int)(it->exptime - current_time) : (long long int) -1;
+    le->latime = current_time - it->time;
+    le->it_flags = it->it_flags;
+    le->nkey = it->nkey;
+    memcpy(le->key, ITEM_key(it), it->nkey);
+    e->size = sizeof(struct logentry_eviction) + le->nkey;
+}
+
 /* Public function for logging an entry.
  * Tries to encapsulate as much of the formatting as possible to simplify the
  * caller's code.
@@ -551,12 +574,9 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
     va_list ap;
     int total = 0;
     logentry *e;
-    char scratch[512]; /* some local scratch space */
-    item *it;
 
     const entry_details *d = &l->entry_map[event];
     int reqlen = d->reqlen;
-    uint64_t gid = logger_get_gid();
 
     pthread_mutex_lock(&l->mutex);
     /* Request a maximum length of data to write to */
@@ -566,7 +586,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
         l->dropped++;
         return LOGGER_RET_NOSPACE;
     }
-    e->gid = gid;
+    e->gid = logger_get_gid();
     e->event = d->subtype;
     e->eflags = d->eflags;
     /* Noting time isn't optional. A feature may be added to avoid rendering
@@ -587,14 +607,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
 
             break;
         case LOGGER_EVICTION_ENTRY:
-            it = (item *)entry;
-            logger_uriencode(ITEM_key(it), scratch, it->nkey, 512);
-            total = snprintf((char *) e->data, reqlen, d->format, scratch,
-                  (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
-                  (it->exptime > 0) ? (it->exptime - current_time) : -1,
-                  (current_time - it->time));
-            e->size = total + 1;
-
+            _logger_log_evictions(e, (item *)entry);
             break;
     }
 

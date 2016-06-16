@@ -40,7 +40,7 @@ while (my $log = <$watcher>) {
     last;
 }
 $res = <$watcher>;
-like($res, qr/\[\d+\.\d+\] \[\d+\].*get foo/, "saw a real log line after a skip");
+like($res, qr/ts=\d+\.\d+\ gid=\d+.*get foo/, "saw a real log line after a skip");
 
 # test combined logs
 # fill to evictions, then enable watcher, set again, and look for both lines

@@ -39,6 +39,14 @@ typedef const struct {
     char *format;
 } entry_details;
 
+struct logentry_eviction {
+    long long int exptime;
+    uint32_t latime;
+    uint16_t it_flags;
+    uint8_t nkey;
+    char key[];
+};
+
 typedef struct _logentry {
     enum log_entry_subtype event;
     uint16_t eflags;
@@ -104,6 +112,15 @@ extern pthread_key_t logger_key;
 
 void logger_init(void);
 logger *logger_create(void);
+
+#define LOGGER_LOG(l, flag, type, ...) \
+    do { \
+        logger *myl = l; \
+        if (l == NULL) \
+            myl = GET_LOGGER(); \
+        if (myl->eflags & flag) \
+            logger_log(myl, type, __VA_ARGS__); \
+    } while (0)
 
 enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, const void *entry, ...);
 
