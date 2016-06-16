@@ -641,6 +641,7 @@ static void _logger_log_evictions(logentry *e, item *it) {
  * might be useful to store/print the flags an item has?
  * could also collapse this and above code into an "item status" struct. wait
  * for more endpoints to be written before making it generic, though.
+ * TODO: This and below should track and reprint the client fd.
  */
 static void _logger_log_item_get(logentry *e, const int was_found, const char *key, const int nkey) {
     struct logentry_item_get *le = (struct logentry_item_get *) e->data;
