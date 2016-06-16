@@ -12,12 +12,16 @@
 
 enum log_entry_type {
     LOGGER_ASCII_CMD = 0,
-    LOGGER_EVICTION
+    LOGGER_EVICTION,
+    LOGGER_ITEM_GET,
+    LOGGER_ITEM_STORE
 };
 
 enum log_entry_subtype {
     LOGGER_TEXT_ENTRY = 0,
-    LOGGER_EVICTION_ENTRY
+    LOGGER_EVICTION_ENTRY,
+    LOGGER_ITEM_GET_ENTRY,
+    LOGGER_ITEM_STORE_ENTRY
 };
 
 enum logger_ret_type {
@@ -39,6 +43,7 @@ typedef const struct {
     char *format;
 } entry_details;
 
+/* log entry intermediary structures */
 struct logentry_eviction {
     long long int exptime;
     uint32_t latime;
@@ -46,6 +51,21 @@ struct logentry_eviction {
     uint8_t nkey;
     char key[];
 };
+
+struct logentry_item_get {
+    uint8_t was_found;
+    uint8_t nkey;
+    char key[];
+};
+
+struct logentry_item_store {
+    int status;
+    int cmd;
+    uint8_t nkey;
+    char key[];
+};
+
+/* end intermediary structures */
 
 typedef struct _logentry {
     enum log_entry_subtype event;

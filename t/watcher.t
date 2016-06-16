@@ -40,7 +40,7 @@ while (my $log = <$watcher>) {
     last;
 }
 $res = <$watcher>;
-like($res, qr/ts=\d+\.\d+\ gid=\d+.*get foo/, "saw a real log line after a skip");
+like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_get/, "saw a real log line after a skip");
 
 # test combined logs
 # fill to evictions, then enable watcher, set again, and look for both lines
@@ -54,7 +54,7 @@ like($res, qr/ts=\d+\.\d+\ gid=\d+.*get foo/, "saw a real log line after a skip"
     }
 
     $watcher = $server->new_sock;
-    print $watcher "watch rawcmds evictions\n";
+    print $watcher "watch mutations evictions\n";
     $res = <$watcher>;
     is($res, "OK\r\n", "new watcher enabled");
     my $watcher2 = $server->new_sock;
@@ -66,8 +66,8 @@ like($res, qr/ts=\d+\.\d+\ gid=\d+.*get foo/, "saw a real log line after a skip"
     my $found_log = 0;
     my $found_ev  = 0;
     while (my $log = <$watcher>) {
-        $found_log = 1 if ($log =~ m/set bfoo/);
-        $found_ev = 1 if ($log =~ m/eviction/);
+        $found_log = 1 if ($log =~ m/type=item_store/);
+        $found_ev = 1 if ($log =~ m/type=eviction/);
         last if ($found_log && $found_ev);
     }
     is($found_log, 1, "found rawcmd log entry");
