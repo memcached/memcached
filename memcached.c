@@ -3485,8 +3485,7 @@ static void process_command(conn *c, char *command) {
 
     MEMCACHED_PROCESS_COMMAND_START(c->sfd, c->rcurr, c->rbytes);
 
-    if (c->thread->l->eflags & LOG_RAWCMDS)
-        logger_log(c->thread->l, LOGGER_ASCII_CMD, NULL, c->sfd, command);
+    LOGGER_LOG(c->thread->l, LOG_RAWCMDS, LOGGER_ASCII_CMD, NULL, c->sfd, command);
 
     /*
      * for commands set/add/replace, we build an item and read the data
