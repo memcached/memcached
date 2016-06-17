@@ -4898,6 +4898,7 @@ static void usage(void) {
            "                (requires lru_maintainer)\n"
            "              - expirezero_does_not_evict: Items set to not expire, will not evict.\n"
            "                (requires lru_maintainer)\n"
+           "              - modern: Enables 'modern' defaults. See release notes (higly recommended!).\n"
            );
     return;
 }
@@ -5146,7 +5147,8 @@ int main (int argc, char **argv) {
         LRU_MAINTAINER,
         HOT_LRU_PCT,
         WARM_LRU_PCT,
-        NOEXP_NOEVICT
+        NOEXP_NOEVICT,
+        MODERN
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5162,6 +5164,7 @@ int main (int argc, char **argv) {
         [HOT_LRU_PCT] = "hot_lru_pct",
         [WARM_LRU_PCT] = "warm_lru_pct",
         [NOEXP_NOEVICT] = "expirezero_does_not_evict",
+        [MODERN] = "modern",
         NULL
     };
 
@@ -5529,6 +5532,16 @@ int main (int argc, char **argv) {
                 break;
             case NOEXP_NOEVICT:
                 settings.expirezero_does_not_evict = true;
+                break;
+            case MODERN:
+                /* Modernized defaults. Need to add equivalent no_* flags
+                 * before making truly default. */
+                settings.slab_reassign = true;
+                settings.slab_automove = 1;
+                settings.maxconns_fast = true;
+                hash_type = MURMUR3_HASH;
+                start_lru_crawler = true;
+                start_lru_maintainer = true;
                 break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
