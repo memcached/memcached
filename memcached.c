@@ -78,6 +78,7 @@ static enum try_read_result try_read_network(conn *c);
 static enum try_read_result try_read_udp(conn *c);
 
 static void conn_set_state(conn *c, enum conn_states state);
+static int start_conn_timeout_thread();
 
 /* stats */
 static void stats_init(void);
@@ -248,6 +249,7 @@ static void settings_init(void) {
     settings.hot_lru_pct = 32;
     settings.warm_lru_pct = 32;
     settings.expirezero_does_not_evict = false;
+    settings.idle_timeout = 0; /* disabled */
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
@@ -306,6 +308,87 @@ static int add_msghdr(conn *c)
 
 extern pthread_mutex_t conn_lock;
 
+/* Connection timeout thread bits */
+static pthread_t conn_timeout_tid;
+
+#define CONNS_PER_SLICE 100
+#define TIMEOUT_MSG_SIZE (1 + sizeof(int))
+static void *conn_timeout_thread(void *arg) {
+    int i;
+    conn *c;
+    char buf[TIMEOUT_MSG_SIZE];
+    rel_time_t oldest_last_cmd;
+    int sleep_time;
+    useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
+
+    while(1) {
+        if (settings.verbose > 2)
+            fprintf(stderr, "idle timeout thread at top of connection list\n");
+
+        oldest_last_cmd = current_time;
+
+        for (i = 0; i < max_fds; i++) {
+            if ((i % CONNS_PER_SLICE) == 0) {
+                if (settings.verbose > 2)
+                    fprintf(stderr, "idle timeout thread sleeping for %dus\n",
+                        timeslice);
+                usleep(timeslice);
+            }
+
+            if (!conns[i])
+                continue;
+
+            c = conns[i];
+
+            if (!IS_TCP(c->transport))
+                continue;
+
+            if (c->state != conn_new_cmd && c->state != conn_read)
+                continue;
+
+            if ((current_time - c->last_cmd_time) > settings.idle_timeout) {
+                buf[0] = 't';
+                memcpy(&buf[1], &i, sizeof(int));
+                if (write(c->thread->notify_send_fd, buf, TIMEOUT_MSG_SIZE)
+                    != TIMEOUT_MSG_SIZE)
+                    perror("Failed to write timeout to notify pipe");
+            } else {
+                if (c->last_cmd_time < oldest_last_cmd)
+                    oldest_last_cmd = c->last_cmd_time;
+            }
+        }
+
+        /* This is the soonest we could have another connection time out */
+        sleep_time = settings.idle_timeout - (current_time - oldest_last_cmd) + 1;
+        if (sleep_time <= 0)
+            sleep_time = 1;
+
+        if (settings.verbose > 2)
+            fprintf(stderr,
+                    "idle timeout thread finished pass, sleeping for %ds\n",
+                    sleep_time);
+        usleep((useconds_t) sleep_time * 1000000);
+    }
+
+    return NULL;
+}
+
+static int start_conn_timeout_thread() {
+    int ret;
+
+    if (settings.idle_timeout == 0)
+        return -1;
+
+    if ((ret = pthread_create(&conn_timeout_tid, NULL,
+        conn_timeout_thread, NULL)) != 0) {
+        fprintf(stderr, "Can't create idle connection timeout thread: %s\n",
+            strerror(ret));
+        return -1;
+    }
+
+    return 0;
+}
+
 /*
  * Initializes the connections array. We don't actually allocate connection
  * structures until they're needed, so as to avoid wasting memory when the
@@ -355,6 +438,26 @@ static const char *prot_text(enum protocol prot) {
             break;
     }
     return rv;
+}
+
+void conn_close_idle(conn *c) {
+    if (settings.idle_timeout > 0 &&
+        (current_time - c->last_cmd_time) > settings.idle_timeout) {
+        if (c->state != conn_new_cmd && c->state != conn_read) {
+            if (settings.verbose > 1)
+                fprintf(stderr,
+                    "fd %d wants to timeout, but isn't in read state", c->sfd);
+            return;
+        }
+
+        if (settings.verbose > 1)
+            fprintf(stderr, "Closing idle fd %d\n", c->sfd);
+
+        c->thread->stats.idle_kicks++;
+
+        conn_set_state(c, conn_closing);
+        drive_machine(c);
+    }
 }
 
 conn *conn_new(const int sfd, enum conn_states init_state,
@@ -471,6 +574,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->msgcurr = 0;
     c->msgused = 0;
     c->authenticated = false;
+    c->last_cmd_time = current_time; /* initialize for idle kicker */
 
     c->write_and_go = init_state;
     c->write_and_free = 0;
@@ -2636,6 +2740,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("touch_misses", "%llu", (unsigned long long)thread_stats.touch_misses);
     APPEND_STAT("auth_cmds", "%llu", (unsigned long long)thread_stats.auth_cmds);
     APPEND_STAT("auth_errors", "%llu", (unsigned long long)thread_stats.auth_errors);
+    if (settings.idle_timeout) {
+        APPEND_STAT("idle_kicks", "%llu", (unsigned long long)thread_stats.idle_kicks);
+    }
     APPEND_STAT("bytes_read", "%llu", (unsigned long long)thread_stats.bytes_read);
     APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
     APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
@@ -2712,6 +2819,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
     APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
+    APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -4963,6 +5071,7 @@ static void usage(void) {
            "                (requires lru_maintainer)\n"
            "              - expirezero_does_not_evict: Items set to not expire, will not evict.\n"
            "                (requires lru_maintainer)\n"
+           "              - idle_timeout: Timeout for idle connections\n"
            "              - modern: Enables 'modern' defaults. See release notes (higly recommended!).\n"
            );
     return;
@@ -5213,6 +5322,7 @@ int main (int argc, char **argv) {
         HOT_LRU_PCT,
         WARM_LRU_PCT,
         NOEXP_NOEVICT,
+        IDLE_TIMEOUT,
         MODERN
     };
     char *const subopts_tokens[] = {
@@ -5229,6 +5339,7 @@ int main (int argc, char **argv) {
         [HOT_LRU_PCT] = "hot_lru_pct",
         [WARM_LRU_PCT] = "warm_lru_pct",
         [NOEXP_NOEVICT] = "expirezero_does_not_evict",
+        [IDLE_TIMEOUT] = "idle_timeout",
         [MODERN] = "modern",
         NULL
     };
@@ -5598,6 +5709,9 @@ int main (int argc, char **argv) {
             case NOEXP_NOEVICT:
                 settings.expirezero_does_not_evict = true;
                 break;
+            case IDLE_TIMEOUT:
+                settings.idle_timeout = atoi(subopts_value);
+                break;
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags
                  * before making truly default. */
@@ -5785,6 +5899,10 @@ int main (int argc, char **argv) {
 
     if (settings.slab_reassign &&
         start_slab_maintenance_thread() == -1) {
+        exit(EXIT_FAILURE);
+    }
+
+    if (settings.idle_timeout && start_conn_timeout_thread() == -1) {
         exit(EXIT_FAILURE);
     }
 

@@ -604,6 +604,8 @@ integers separated by a colon (treat this as a floating point number).
 | auth_cmds             | 64u     | Number of authentication commands         |
 |                       |         | handled, success or failure.              |
 | auth_errors           | 64u     | Number of failed authentications.         |
+| idle_kicks            | 64u     | Number of connections closed due to       |
+|                       |         | reaching their idle timeout.              |
 | evictions             | 64u     | Number of valid items removed from cache  |
 |                       |         | to free memory for new items              |
 | reclaimed             | 64u     | Number of times an entry was stored using |
@@ -709,13 +711,15 @@ other stats command.
 | lru_crawler       | bool     | Whether the LRU crawler is enabled           |
 | lru_crawler_sleep | 32       | Microseconds to sleep between LRU crawls     |
 | lru_crawler_tocrawl                                                         |
-|                   | 32u     | Max items to crawl per slab per run           |
+|                   | 32u      | Max items to crawl per slab per run          |
 | lru_maintainer_thread                                                       |
-|                   | bool    | Split LRU mode and background threads         |
-| hot_lru_pct       | 32      | Pct of slab memory reserved for HOT LRU       |
-| warm_lru_pct      | 32      | Pct of slab memory reserved for WARM LRU      |
+|                   | bool     | Split LRU mode and background threads        |
+| hot_lru_pct       | 32       | Pct of slab memory reserved for HOT LRU      |
+| warm_lru_pct      | 32       | Pct of slab memory reserved for WARM LRU     |
 | expirezero_does_not_evict                                                   |
-|                   | bool    | If yes, items with 0 exptime cannot evict     |
+|                   | bool     | If yes, items with 0 exptime cannot evict    |
+| idle_time         | 0        | Drop connections that are idle this many     |
+|                   |          | seconds (0 disables)                         |
 |-------------------+----------+----------------------------------------------|
 
 
