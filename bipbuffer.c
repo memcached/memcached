@@ -86,8 +86,6 @@ unsigned char *bipbuf_request(bipbuf_t* me, const int size)
     {
         return (unsigned char *)me->data + me->a_end;
     }
-
-    return NULL;
 }
 
 int bipbuf_push(bipbuf_t* me, const int size)
