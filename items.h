@@ -22,6 +22,8 @@ void item_stats(ADD_STAT add_stats, void *c);
 void item_stats_totals(ADD_STAT add_stats, void *c);
 /*@null@*/
 void item_stats_sizes(ADD_STAT add_stats, void *c);
+void item_stats_sizes_enable(ADD_STAT add_stats, void *c);
+void item_stats_sizes_disable(ADD_STAT add_stats, void *c);
 
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c);
 item *do_item_touch(const char *key, const size_t nkey, uint32_t exptime, const uint32_t hv, conn *c);
