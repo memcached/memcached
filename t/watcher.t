@@ -26,7 +26,7 @@ my $spacer = "X"x100;
 # This is a flaky test... depends on buffer sizes. Could either have memc
 # shrink the watcher buffer, or loop this and keep doubling until we get some
 # skipped values.
-for (1 .. 50000) {
+for (1 .. 80000) {
     print $client "get foo$_$spacer\n";
     $res = <$client>;
 }
