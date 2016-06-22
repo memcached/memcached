@@ -5279,6 +5279,44 @@ static bool sanitycheck(void) {
     return true;
 }
 
+static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
+    char *b = NULL;
+    uint32_t size = 0;
+    int i = 0;
+    uint32_t last_size = 0;
+
+    if (strlen(s) < 1)
+        return false;
+
+    for (char *p = strtok_r(s, "-", &b);
+         p != NULL;
+         p = strtok_r(NULL, "-", &b)) {
+        if (!safe_strtoul(p, &size) || size < settings.chunk_size
+             || size > settings.item_size_max) {
+            fprintf(stderr, "slab size %u is out of valid range\n", size);
+            return false;
+        }
+        if (last_size >= size) {
+            fprintf(stderr, "slab size %u cannot be lower than or equal to a previous class size\n", size);
+            return false;
+        }
+        if (size <= last_size + CHUNK_ALIGN_BYTES) {
+            fprintf(stderr, "slab size %u must be at least %d bytes larger than previous class\n",
+                    size, CHUNK_ALIGN_BYTES);
+            return false;
+        }
+        slab_sizes[i++] = size;
+        last_size = size;
+        if (i >= MAX_NUMBER_OF_SLAB_CLASSES-1) {
+            fprintf(stderr, "too many slab classes specified\n");
+            return false;
+        }
+    }
+
+    slab_sizes[i] = 0;
+    return true;
+}
+
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
@@ -5305,6 +5343,8 @@ int main (int argc, char **argv) {
     bool start_lru_crawler = false;
     enum hashfunc_type hash_type = JENKINS_HASH;
     uint32_t tocrawl;
+    uint32_t slab_sizes[MAX_NUMBER_OF_SLAB_CLASSES];
+    bool use_slab_sizes = false;
 
     char *subopts, *subopts_orig;
     char *subopts_value;
@@ -5323,6 +5363,7 @@ int main (int argc, char **argv) {
         WARM_LRU_PCT,
         NOEXP_NOEVICT,
         IDLE_TIMEOUT,
+        SLAB_SIZES,
         MODERN
     };
     char *const subopts_tokens[] = {
@@ -5340,6 +5381,7 @@ int main (int argc, char **argv) {
         [WARM_LRU_PCT] = "warm_lru_pct",
         [NOEXP_NOEVICT] = "expirezero_does_not_evict",
         [IDLE_TIMEOUT] = "idle_timeout",
+        [SLAB_SIZES] = "slab_sizes",
         [MODERN] = "modern",
         NULL
     };
@@ -5712,6 +5754,13 @@ int main (int argc, char **argv) {
             case IDLE_TIMEOUT:
                 settings.idle_timeout = atoi(subopts_value);
                 break;
+            case SLAB_SIZES:
+                if (_parse_slab_sizes(subopts_value, slab_sizes)) {
+                    use_slab_sizes = true;
+                } else {
+                    return 1;
+                }
+                break;
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags
                  * before making truly default. */
@@ -5870,7 +5919,8 @@ int main (int argc, char **argv) {
     stats_init();
     assoc_init(settings.hashpower_init);
     conn_init();
-    slabs_init(settings.maxbytes, settings.factor, preallocate);
+    slabs_init(settings.maxbytes, settings.factor, preallocate,
+            use_slab_sizes ? slab_sizes : NULL);
 
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
