@@ -720,6 +720,8 @@ other stats command.
 |                   | bool     | If yes, items with 0 exptime cannot evict    |
 | idle_time         | 0        | Drop connections that are idle this many     |
 |                   |          | seconds (0 disables)                         |
+| track_sizes       | bool     | If yes, a "stats sizes" histogram is being   |
+|                   |          | dymamically tracked.                         |
 |-------------------+----------+----------------------------------------------|
 
 
@@ -793,9 +795,8 @@ future.
 
 The "stats" command with the argument of "sizes" returns information about the
 general size and count of all items stored in the cache.
-WARNING: This command WILL lock up your cache! It iterates over *every item*
-and examines the size. While the operation is fast, if you have many items
-you could prevent memcached from serving requests for several seconds.
+WARNING: In versions prior to 1.4.27 this command causes the cache server to
+lock while it iterates the items. 1.4.27 and greater are safe.
 
 The data is returned in the following format:
 
@@ -814,6 +815,36 @@ factor would save memory overhead. For example: generating more classes in the
 lower range could allow items to fit more snugly into their slab classes, if
 most of your items are less than 200 bytes in size.
 
+In 1.4.27 and after, this feature must be manually enabled.
+
+A "stats" command with the argument of "sizes_enable" will enable the
+histogram at runtime. This has a small overhead to every store or delete
+operation. If you don't want to incur this, leave it off.
+
+A "stats" command with the argument of "sizes_disable" will disable the
+histogram.
+
+It can also be enabled at starttime with "-o track_sizes"
+
+If disabled, "stats sizes" will return:
+
+STAT sizes_status disabled\r\n
+
+"stats sizes_enable" will return:
+
+STAT sizes_status enabled\r\n
+
+"stats sizes_disable" will return:
+
+STAT sizes_status disabled\r\n
+
+If an error happens, it will return:
+
+STAT sizes_status error\r\n
+STAT sizes_error [error_message]\r\n
+
+CAVEAT: If CAS support is disabled, you cannot enable/disable this feature at
+runtime.
 
 Slab statistics
 ---------------
