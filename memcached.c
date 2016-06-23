@@ -3611,6 +3611,31 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
     }
 }
 
+static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntokens) {
+    uint32_t memlimit;
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    if (!safe_strtoul(tokens[1].value, &memlimit)) {
+        out_string(c, "ERROR");
+    } else {
+        if (memlimit < 8) {
+            out_string(c, "MEMLIMIT_TOO_SMALL cannot set maxbytes to less than 8m");
+        } else {
+            if (slabs_adjust_mem_limit(memlimit * 1024 * 1024)) {
+                if (settings.verbose > 0) {
+                    fprintf(stderr, "maxbytes adjusted to %llum\n", (unsigned long long)memlimit);
+                }
+
+                out_string(c, "OK");
+            } else {
+                out_string(c, "MEMLIMIT_ADJUST_FAILED out of bounds or unable to adjust");
+            }
+        }
+    }
+}
+
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -3854,6 +3879,8 @@ static void process_command(conn *c, char *command) {
         }
     } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "watch") == 0) {
         process_watch_command(c, tokens, ntokens);
+    } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0)) {
+        process_memlimit_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {

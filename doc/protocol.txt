@@ -614,7 +614,7 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | from network                              |
 | bytes_written         | 64u     | Total number of bytes sent by this server |
 |                       |         | to network                                |
-| limit_maxbytes        | 32u     | Number of bytes this server is allowed to |
+| limit_maxbytes        | size_t  | Number of bytes this server is allowed to |
 |                       |         | use for storage.                          |
 | accepting_conns       | bool    | Whether or not server is accepting conns  |
 | listen_disabled_num   | 64u     | Number of times server has stopped        |
@@ -984,6 +984,12 @@ The delay option allows you to have them reset in e.g. 10 second
 intervals (by passing 0 to the first, 10 to the second, 20 to the
 third, etc. etc.).
 
+"cache_memlimit" is a command with a numeric argument. This allows runtime
+adjustments of the cache memory limit. It returns "OK\r\n" or an error (unless
+"noreply" is given as the last parameter). If the new memory limit is higher
+than the old one, the server may start requesting more memory from the OS. If
+the limit is lower, and slabs_reassign+automove are enabled, free memory may
+be released back to the OS asynchronously.
 
 "version" is a command with no arguments:
 

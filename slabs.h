@@ -28,6 +28,9 @@ void slabs_free(void *ptr, size_t size, unsigned int id);
 /** Adjust the stats for memory requested */
 void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal);
 
+/** Adjust global memory limit up or down */
+bool slabs_adjust_mem_limit(size_t new_mem_limit);
+
 /** Return a datum for stats in binary protocol */
 bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 
