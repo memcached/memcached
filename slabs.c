@@ -434,6 +434,22 @@ static void *memory_allocate(size_t size) {
     return ret;
 }
 
+/* Must only be used if all pages are item_size_max */
+static void memory_release() {
+    void *p = NULL;
+    if (mem_base != NULL)
+        return;
+
+    if (!settings.slab_reassign)
+        return;
+
+    while (mem_malloced > mem_limit &&
+            (p = get_page_from_global_pool()) != NULL) {
+        free(p);
+        mem_malloced -= settings.item_size_max;
+    }
+}
+
 void *slabs_alloc(size_t size, unsigned int id, unsigned int *total_chunks,
         unsigned int flags) {
     void *ret;
@@ -454,6 +470,25 @@ void slabs_stats(ADD_STAT add_stats, void *c) {
     pthread_mutex_lock(&slabs_lock);
     do_slabs_stats(add_stats, c);
     pthread_mutex_unlock(&slabs_lock);
+}
+
+static bool do_slabs_adjust_mem_limit(size_t new_mem_limit) {
+    /* Cannot adjust memory limit at runtime if prealloc'ed */
+    if (mem_base != NULL)
+        return false;
+    settings.maxbytes = new_mem_limit;
+    mem_limit = new_mem_limit;
+    mem_limit_reached = false; /* Will reset on next alloc */
+    memory_release(); /* free what might already be in the global pool */
+    return true;
+}
+
+bool slabs_adjust_mem_limit(size_t new_mem_limit) {
+    bool ret;
+    pthread_mutex_lock(&slabs_lock);
+    ret = do_slabs_adjust_mem_limit(new_mem_limit);
+    pthread_mutex_unlock(&slabs_lock);
+    return ret;
 }
 
 void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal)
@@ -800,6 +835,9 @@ static void slab_rebalance_finish(void) {
         memset(slab_rebal.slab_start, 0, (size_t)settings.item_size_max);
         split_slab_page_into_freelist(slab_rebal.slab_start,
             slab_rebal.d_clsid);
+    } else if (slab_rebal.d_clsid == SLAB_GLOBAL_PAGE_POOL) {
+        /* mem_malloc'ed might be higher than mem_limit. */
+        memory_release();
     }
 
     slab_rebal.done       = 0;
