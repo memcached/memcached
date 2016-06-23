@@ -2824,6 +2824,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
+    APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -3443,8 +3444,12 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     if (res + 2 <= it->nbytes && it->refcount == 2) { /* replace in-place */
         /* When changing the value without replacing the item, we
            need to update the CAS on the existing item. */
+        /* We also need to fiddle it in the sizes tracker in case the tracking
+         * was enabled at runtime, since it relies on the CAS value to know
+         * whether to remove an item or not. */
+        item_stats_sizes_remove(it);
         ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
-
+        item_stats_sizes_add(it);
         memcpy(ITEM_data(it), buf, res);
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
         do_item_update(it);
@@ -5081,6 +5086,7 @@ static void usage(void) {
            "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
            "                read by background thread. Which is then written to watchers.\n"
            "              - modern: Enables 'modern' defaults. See release notes (higly recommended!).\n"
+           "              - track_sizes: Enable dynamic reports for 'stats sizes' command.\n"
            );
     return;
 }
@@ -5374,6 +5380,7 @@ int main (int argc, char **argv) {
         WATCHER_LOGBUF_SIZE,
         WORKER_LOGBUF_SIZE,
         SLAB_SIZES,
+        TRACK_SIZES,
         MODERN
     };
     char *const subopts_tokens[] = {
@@ -5394,6 +5401,7 @@ int main (int argc, char **argv) {
         [WATCHER_LOGBUF_SIZE] = "watcher_logbuf_size",
         [WORKER_LOGBUF_SIZE] = "worker_logbuf_size",
         [SLAB_SIZES] = "slab_sizes",
+        [TRACK_SIZES] = "track_sizes",
         [MODERN] = "modern",
         NULL
     };
@@ -5793,6 +5801,9 @@ int main (int argc, char **argv) {
                 } else {
                     return 1;
                 }
+                break;
+            case TRACK_SIZES:
+                item_stats_sizes_init();
                 break;
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags

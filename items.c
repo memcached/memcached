@@ -62,7 +62,7 @@ static crawler crawlers[LARGEST_ID];
 static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
 static unsigned int *stats_sizes_hist = NULL;
-static rel_time_t stats_sizes_time = 0;
+static uint64_t stats_sizes_cas_min = 0;
 static int stats_sizes_buckets = 0;
 static crawlerstats_t crawlerstats[MAX_NUMBER_OF_SLAB_CLASSES];
 
@@ -91,9 +91,6 @@ void item_stats_reset(void) {
 static int lru_pull_tail(const int orig_id, const int cur_lru,
         const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv);
 static int lru_crawler_start(uint32_t id, uint32_t remaining);
-
-static void item_stats_sizes_add(item *it);
-static void item_stats_sizes_remove(item *it);
 
 /* Get the next CAS id for a new item. */
 /* TODO: refactor some atomics for this. */
@@ -627,19 +624,38 @@ void item_stats(ADD_STAT add_stats, void *c) {
     add_stats(NULL, 0, NULL, 0, c);
 }
 
+bool item_stats_sizes_status(void) {
+    bool ret = false;
+    mutex_lock(&stats_sizes_lock);
+    if (stats_sizes_hist != NULL)
+        ret = true;
+    mutex_unlock(&stats_sizes_lock);
+    return ret;
+}
+
+void item_stats_sizes_init(void) {
+    if (stats_sizes_hist != NULL)
+        return;
+    stats_sizes_buckets = settings.item_size_max / 32 + 1;
+    stats_sizes_hist = calloc(stats_sizes_buckets, sizeof(int));
+    stats_sizes_cas_min = (settings.use_cas) ? get_cas_id() : 0;
+}
+
 void item_stats_sizes_enable(ADD_STAT add_stats, void *c) {
     mutex_lock(&stats_sizes_lock);
-    if (stats_sizes_hist == NULL) {
-        stats_sizes_buckets = settings.item_size_max / 32 + 1;
-        stats_sizes_hist = calloc(stats_sizes_buckets, sizeof(int));
-        stats_sizes_time = current_time + 1; /* would be more accurate with CAS */
+    if (!settings.use_cas) {
+        APPEND_STAT("sizes_status", "error", "");
+        APPEND_STAT("sizes_error", "cas_support_disabled", "");
+    } else if (stats_sizes_hist == NULL) {
+        item_stats_sizes_init();
         if (stats_sizes_hist != NULL) {
-            APPEND_STAT("sizes_enabled", "ok", "");
+            APPEND_STAT("sizes_status", "enabled", "");
         } else {
+            APPEND_STAT("sizes_status", "error", "");
             APPEND_STAT("sizes_error", "no_memory", "");
         }
     } else {
-        APPEND_STAT("sizes_enabled", "ok", "");
+        APPEND_STAT("sizes_status", "enabled", "");
     }
     mutex_unlock(&stats_sizes_lock);
 }
@@ -650,12 +666,12 @@ void item_stats_sizes_disable(ADD_STAT add_stats, void *c) {
         free(stats_sizes_hist);
         stats_sizes_hist = NULL;
     }
-    APPEND_STAT("sizes_disabled", "ok", "");
+    APPEND_STAT("sizes_status", "disabled", "");
     mutex_unlock(&stats_sizes_lock);
 }
 
-static void item_stats_sizes_add(item *it) {
-    if (stats_sizes_hist == NULL || stats_sizes_time > it->time)
+void item_stats_sizes_add(item *it) {
+    if (stats_sizes_hist == NULL || stats_sizes_cas_min > ITEM_get_cas(it))
         return;
     int ntotal = ITEM_ntotal(it);
     int bucket = ntotal / 32;
@@ -666,8 +682,8 @@ static void item_stats_sizes_add(item *it) {
 /* I think there's no way for this to be accurate without using the CAS value.
  * Since items getting their time value bumped will pass this validation.
  */
-static void item_stats_sizes_remove(item *it) {
-    if (stats_sizes_hist == NULL || stats_sizes_time > it->time)
+void item_stats_sizes_remove(item *it) {
+    if (stats_sizes_hist == NULL || stats_sizes_cas_min > ITEM_get_cas(it))
         return;
     int ntotal = ITEM_ntotal(it);
     int bucket = ntotal / 32;
