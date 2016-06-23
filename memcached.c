@@ -2820,6 +2820,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
     APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
+    APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -3439,8 +3440,12 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     if (res + 2 <= it->nbytes && it->refcount == 2) { /* replace in-place */
         /* When changing the value without replacing the item, we
            need to update the CAS on the existing item. */
+        /* We also need to fiddle it in the sizes tracker in case the tracking
+         * was enabled at runtime, since it relies on the CAS value to know
+         * whether to remove an item or not. */
+        item_stats_sizes_remove(it);
         ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
-
+        item_stats_sizes_add(it);
         memcpy(ITEM_data(it), buf, res);
         memset(ITEM_data(it) + res, ' ', it->nbytes - res - 2);
         do_item_update(it);
@@ -5073,6 +5078,7 @@ static void usage(void) {
            "                (requires lru_maintainer)\n"
            "              - idle_timeout: Timeout for idle connections\n"
            "              - modern: Enables 'modern' defaults. See release notes (higly recommended!).\n"
+           "              - track_sizes: Enable dynamic reports for 'stats sizes' command.\n"
            );
     return;
 }
@@ -5279,6 +5285,44 @@ static bool sanitycheck(void) {
     return true;
 }
 
+static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
+    char *b = NULL;
+    uint32_t size = 0;
+    int i = 0;
+    uint32_t last_size = 0;
+
+    if (strlen(s) < 1)
+        return false;
+
+    for (char *p = strtok_r(s, "-", &b);
+         p != NULL;
+         p = strtok_r(NULL, "-", &b)) {
+        if (!safe_strtoul(p, &size) || size < settings.chunk_size
+             || size > settings.item_size_max) {
+            fprintf(stderr, "slab size %u is out of valid range\n", size);
+            return false;
+        }
+        if (last_size >= size) {
+            fprintf(stderr, "slab size %u cannot be lower than or equal to a previous class size\n", size);
+            return false;
+        }
+        if (size <= last_size + CHUNK_ALIGN_BYTES) {
+            fprintf(stderr, "slab size %u must be at least %d bytes larger than previous class\n",
+                    size, CHUNK_ALIGN_BYTES);
+            return false;
+        }
+        slab_sizes[i++] = size;
+        last_size = size;
+        if (i >= MAX_NUMBER_OF_SLAB_CLASSES-1) {
+            fprintf(stderr, "too many slab classes specified\n");
+            return false;
+        }
+    }
+
+    slab_sizes[i] = 0;
+    return true;
+}
+
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
@@ -5305,6 +5349,8 @@ int main (int argc, char **argv) {
     bool start_lru_crawler = false;
     enum hashfunc_type hash_type = JENKINS_HASH;
     uint32_t tocrawl;
+    uint32_t slab_sizes[MAX_NUMBER_OF_SLAB_CLASSES];
+    bool use_slab_sizes = false;
 
     char *subopts, *subopts_orig;
     char *subopts_value;
@@ -5323,6 +5369,8 @@ int main (int argc, char **argv) {
         WARM_LRU_PCT,
         NOEXP_NOEVICT,
         IDLE_TIMEOUT,
+        SLAB_SIZES,
+        TRACK_SIZES,
         MODERN
     };
     char *const subopts_tokens[] = {
@@ -5340,6 +5388,8 @@ int main (int argc, char **argv) {
         [WARM_LRU_PCT] = "warm_lru_pct",
         [NOEXP_NOEVICT] = "expirezero_does_not_evict",
         [IDLE_TIMEOUT] = "idle_timeout",
+        [SLAB_SIZES] = "slab_sizes",
+        [TRACK_SIZES] = "track_sizes",
         [MODERN] = "modern",
         NULL
     };
@@ -5712,6 +5762,16 @@ int main (int argc, char **argv) {
             case IDLE_TIMEOUT:
                 settings.idle_timeout = atoi(subopts_value);
                 break;
+            case SLAB_SIZES:
+                if (_parse_slab_sizes(subopts_value, slab_sizes)) {
+                    use_slab_sizes = true;
+                } else {
+                    return 1;
+                }
+                break;
+            case TRACK_SIZES:
+                item_stats_sizes_init();
+                break;
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags
                  * before making truly default. */
@@ -5870,7 +5930,8 @@ int main (int argc, char **argv) {
     stats_init();
     assoc_init(settings.hashpower_init);
     conn_init();
-    slabs_init(settings.maxbytes, settings.factor, preallocate);
+    slabs_init(settings.maxbytes, settings.factor, preallocate,
+            use_slab_sizes ? slab_sizes : NULL);
 
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we

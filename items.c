@@ -61,6 +61,9 @@ static item *tails[LARGEST_ID];
 static crawler crawlers[LARGEST_ID];
 static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
+static unsigned int *stats_sizes_hist = NULL;
+static uint64_t stats_sizes_cas_min = 0;
+static int stats_sizes_buckets = 0;
 static crawlerstats_t crawlerstats[MAX_NUMBER_OF_SLAB_CLASSES];
 
 static int crawler_count = 0;
@@ -74,6 +77,7 @@ static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t lru_crawler_stats_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t stats_sizes_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void item_stats_reset(void) {
     int i;
@@ -338,6 +342,7 @@ int do_item_link(item *it, const uint32_t hv) {
     assoc_insert(it, hv);
     item_link_q(it);
     refcount_incr(&it->refcount);
+    item_stats_sizes_add(it);
 
     return 1;
 }
@@ -350,6 +355,7 @@ void do_item_unlink(item *it, const uint32_t hv) {
         stats.curr_bytes -= ITEM_ntotal(it);
         stats.curr_items -= 1;
         STATS_UNLOCK();
+        item_stats_sizes_remove(it);
         assoc_delete(ITEM_key(it), it->nkey, hv);
         item_unlink_q(it);
         do_item_remove(it);
@@ -365,6 +371,7 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
         stats.curr_bytes -= ITEM_ntotal(it);
         stats.curr_items -= 1;
         STATS_UNLOCK();
+        item_stats_sizes_remove(it);
         assoc_delete(ITEM_key(it), it->nkey, hv);
         do_item_unlink_q(it);
         do_item_remove(it);
@@ -617,6 +624,73 @@ void item_stats(ADD_STAT add_stats, void *c) {
     add_stats(NULL, 0, NULL, 0, c);
 }
 
+bool item_stats_sizes_status(void) {
+    bool ret = false;
+    mutex_lock(&stats_sizes_lock);
+    if (stats_sizes_hist != NULL)
+        ret = true;
+    mutex_unlock(&stats_sizes_lock);
+    return ret;
+}
+
+void item_stats_sizes_init(void) {
+    if (stats_sizes_hist != NULL)
+        return;
+    stats_sizes_buckets = settings.item_size_max / 32 + 1;
+    stats_sizes_hist = calloc(stats_sizes_buckets, sizeof(int));
+    stats_sizes_cas_min = (settings.use_cas) ? get_cas_id() : 0;
+}
+
+void item_stats_sizes_enable(ADD_STAT add_stats, void *c) {
+    mutex_lock(&stats_sizes_lock);
+    if (!settings.use_cas) {
+        APPEND_STAT("sizes_status", "error", "");
+        APPEND_STAT("sizes_error", "cas_support_disabled", "");
+    } else if (stats_sizes_hist == NULL) {
+        item_stats_sizes_init();
+        if (stats_sizes_hist != NULL) {
+            APPEND_STAT("sizes_status", "enabled", "");
+        } else {
+            APPEND_STAT("sizes_status", "error", "");
+            APPEND_STAT("sizes_error", "no_memory", "");
+        }
+    } else {
+        APPEND_STAT("sizes_status", "enabled", "");
+    }
+    mutex_unlock(&stats_sizes_lock);
+}
+
+void item_stats_sizes_disable(ADD_STAT add_stats, void *c) {
+    mutex_lock(&stats_sizes_lock);
+    if (stats_sizes_hist != NULL) {
+        free(stats_sizes_hist);
+        stats_sizes_hist = NULL;
+    }
+    APPEND_STAT("sizes_status", "disabled", "");
+    mutex_unlock(&stats_sizes_lock);
+}
+
+void item_stats_sizes_add(item *it) {
+    if (stats_sizes_hist == NULL || stats_sizes_cas_min > ITEM_get_cas(it))
+        return;
+    int ntotal = ITEM_ntotal(it);
+    int bucket = ntotal / 32;
+    if ((ntotal % 32) != 0) bucket++;
+    if (bucket < stats_sizes_buckets) stats_sizes_hist[bucket]++;
+}
+
+/* I think there's no way for this to be accurate without using the CAS value.
+ * Since items getting their time value bumped will pass this validation.
+ */
+void item_stats_sizes_remove(item *it) {
+    if (stats_sizes_hist == NULL || stats_sizes_cas_min > ITEM_get_cas(it))
+        return;
+    int ntotal = ITEM_ntotal(it);
+    int bucket = ntotal / 32;
+    if ((ntotal % 32) != 0) bucket++;
+    if (bucket < stats_sizes_buckets) stats_sizes_hist[bucket]--;
+}
+
 /** dumps out a list of objects of each size, with granularity of 32 bytes */
 /*@null@*/
 /* Locks are correct based on a technicality. Holds LRU lock while doing the
@@ -624,39 +698,23 @@ void item_stats(ADD_STAT add_stats, void *c) {
  * which don't change.
  */
 void item_stats_sizes(ADD_STAT add_stats, void *c) {
+    mutex_lock(&stats_sizes_lock);
 
-    /* max 1MB object, divided into 32 bytes size buckets */
-    const int num_buckets = 32768;
-    unsigned int *histogram = calloc(num_buckets, sizeof(int));
-
-    if (histogram != NULL) {
+    if (stats_sizes_hist != NULL) {
         int i;
-
-        /* build the histogram */
-        for (i = 0; i < LARGEST_ID; i++) {
-            pthread_mutex_lock(&lru_locks[i]);
-            item *iter = heads[i];
-            while (iter) {
-                int ntotal = ITEM_ntotal(iter);
-                int bucket = ntotal / 32;
-                if ((ntotal % 32) != 0) bucket++;
-                if (bucket < num_buckets) histogram[bucket]++;
-                iter = iter->next;
-            }
-            pthread_mutex_unlock(&lru_locks[i]);
-        }
-
-        /* write the buffer */
-        for (i = 0; i < num_buckets; i++) {
-            if (histogram[i] != 0) {
+        for (i = 0; i < stats_sizes_buckets; i++) {
+            if (stats_sizes_hist[i] != 0) {
                 char key[8];
                 snprintf(key, sizeof(key), "%d", i * 32);
-                APPEND_STAT(key, "%u", histogram[i]);
+                APPEND_STAT(key, "%u", stats_sizes_hist[i]);
             }
         }
-        free(histogram);
+    } else {
+        APPEND_STAT("sizes_status", "disabled", "");
     }
+
     add_stats(NULL, 0, NULL, 0, c);
+    mutex_unlock(&stats_sizes_lock);
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */

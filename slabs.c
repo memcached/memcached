@@ -95,7 +95,7 @@ unsigned int slabs_clsid(const size_t size) {
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-void slabs_init(const size_t limit, const double factor, const bool prealloc) {
+void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes) {
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
 
@@ -115,14 +115,22 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc) {
 
     memset(slabclass, 0, sizeof(slabclass));
 
-    while (++i < MAX_NUMBER_OF_SLAB_CLASSES-1 && size <= settings.item_size_max / factor) {
+    while (++i < MAX_NUMBER_OF_SLAB_CLASSES-1) {
+        if (slab_sizes != NULL) {
+            if (slab_sizes[i-1] == 0)
+                break;
+            size = slab_sizes[i-1];
+        } else if (size >= settings.item_size_max / factor) {
+            break;
+        }
         /* Make sure items are always n-byte aligned */
         if (size % CHUNK_ALIGN_BYTES)
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
 
         slabclass[i].size = size;
         slabclass[i].perslab = settings.item_size_max / slabclass[i].size;
-        size *= factor;
+        if (slab_sizes == NULL)
+            size *= factor;
         if (settings.verbose > 1) {
             fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
                     i, slabclass[i].size, slabclass[i].perslab);
@@ -337,6 +345,10 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
             slabs_stats(add_stats, c);
         } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
             item_stats_sizes(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes_enable") == 0) {
+            item_stats_sizes_enable(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes_disable") == 0) {
+            item_stats_sizes_disable(add_stats, c);
         } else {
             ret = false;
         }
