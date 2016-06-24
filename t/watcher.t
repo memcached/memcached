@@ -3,13 +3,14 @@
 
 use strict;
 use warnings;
+use Socket qw/SO_RCVBUF/;
 
 use Test::More tests => 8;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached('-m 60');
+my $server = new_memcached('-m 60 -o watcher_logbuf_size=8');
 my $client = $server->sock;
 my $watcher = $server->new_sock;
 
@@ -21,7 +22,7 @@ is($res, "OK\r\n", "watcher enabled");
 print $client "get foo\n";
 $res = <$client>;
 is($res, "END\r\n", "basic get works");
-my $spacer = "X"x100;
+my $spacer = "X"x180;
 
 # This is a flaky test... depends on buffer sizes. Could either have memc
 # shrink the watcher buffer, or loop this and keep doubling until we get some
@@ -30,6 +31,9 @@ for (1 .. 80000) {
     print $client "get foo$_$spacer\n";
     $res = <$client>;
 }
+
+# Let the logger thread catch up before we start reading.
+sleep 1;
 #print STDERR "RESULT: $res\n";
 while (my $log = <$watcher>) {
     next unless $log =~ m/skipped/;

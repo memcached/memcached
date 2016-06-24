@@ -257,6 +257,8 @@ static void settings_init(void) {
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
     settings.crawls_persleep = 1000;
+    settings.logger_watcher_buf_size = LOGGER_WATCHER_BUF_SIZE;
+    settings.logger_buf_size = LOGGER_BUF_SIZE;
 }
 
 /*
@@ -2820,6 +2822,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
     APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
+    APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
+    APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -5073,6 +5077,9 @@ static void usage(void) {
            "              - expirezero_does_not_evict: Items set to not expire, will not evict.\n"
            "                (requires lru_maintainer)\n"
            "              - idle_timeout: Timeout for idle connections\n"
+           "              - watcher_logbuf_size: Size in kilobytes of per-watcher write buffer.\n"
+           "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
+           "                read by background thread. Which is then written to watchers.\n"
            "              - modern: Enables 'modern' defaults. See release notes (higly recommended!).\n"
            );
     return;
@@ -5324,6 +5331,8 @@ int main (int argc, char **argv) {
         WARM_LRU_PCT,
         NOEXP_NOEVICT,
         IDLE_TIMEOUT,
+        WATCHER_LOGBUF_SIZE,
+        WORKER_LOGBUF_SIZE,
         MODERN
     };
     char *const subopts_tokens[] = {
@@ -5341,6 +5350,8 @@ int main (int argc, char **argv) {
         [WARM_LRU_PCT] = "warm_lru_pct",
         [NOEXP_NOEVICT] = "expirezero_does_not_evict",
         [IDLE_TIMEOUT] = "idle_timeout",
+        [WATCHER_LOGBUF_SIZE] = "watcher_logbuf_size",
+        [WORKER_LOGBUF_SIZE] = "worker_logbuf_size",
         [MODERN] = "modern",
         NULL
     };
@@ -5712,6 +5723,28 @@ int main (int argc, char **argv) {
                 break;
             case IDLE_TIMEOUT:
                 settings.idle_timeout = atoi(subopts_value);
+                break;
+            case WATCHER_LOGBUF_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing watcher_logbuf_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.logger_watcher_buf_size)) {
+                    fprintf(stderr, "could not parse argument to watcher_logbuf_size\n");
+                    return 1;
+                }
+                settings.logger_watcher_buf_size *= 1024; /* kilobytes */
+                break;
+            case WORKER_LOGBUF_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing worker_logbuf_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.logger_buf_size)) {
+                    fprintf(stderr, "could not parse argument to worker_logbuf_size\n");
+                    return 1;
+                }
+                settings.logger_buf_size *= 1024; /* kilobytes */
                 break;
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags

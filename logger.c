@@ -610,7 +610,7 @@ logger *logger_create(void) {
         return NULL;
     }
 
-    l->buf = bipbuf_new(LOGGER_BUF_SIZE);
+    l->buf = bipbuf_new(settings.logger_buf_size);
     if (l->buf == NULL) {
         free(l);
         return NULL;
@@ -777,7 +777,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
     }
     w->id = x;
     w->eflags = f;
-    w->buf = bipbuf_new(LOGGER_WATCHER_BUF_SIZE);
+    w->buf = bipbuf_new(settings.logger_watcher_buf_size);
     if (w->buf == NULL) {
         free(w);
         pthread_mutex_unlock(&logger_stack_lock);

@@ -720,6 +720,11 @@ other stats command.
 |                   | bool     | If yes, items with 0 exptime cannot evict    |
 | idle_time         | 0        | Drop connections that are idle this many     |
 |                   |          | seconds (0 disables)                         |
+| watcher_logbuf_size                                                         |
+|                   | 32u      | Size of internal (not socket) write buffer   |
+|                   |          | per active watcher connected.                |
+| worker_logbuf_size| 32u      | Size of internal per-worker-thread buffer    |
+|                   |          | which the background thread reads from.      |
 |-------------------+----------+----------------------------------------------|
 
 
