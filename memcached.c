@@ -2386,7 +2386,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
 
                 flags = (int) strtol(ITEM_suffix(old_it), (char **) NULL, 10);
 
-                new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */, hv);
+                new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
                 if (new_it == NULL) {
                     failed_alloc = 1;
@@ -3338,7 +3338,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         do_item_update(it);
     } else if (it->refcount > 1) {
         item *new_it;
-        new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2, hv);
+        new_it = do_item_alloc(ITEM_key(it), it->nkey, atoi(ITEM_suffix(it) + 1), it->exptime, res + 2);
         if (new_it == 0) {
             do_item_remove(it);
             return EOM;
