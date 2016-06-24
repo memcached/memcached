@@ -3234,11 +3234,11 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         }
     }
 
-    vlen += 2;
-    if (vlen < 0 || vlen - 2 < 0) {
+    if (vlen < 0 || vlen > (INT_MAX - 2)) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
+    vlen += 2;
 
     if (settings.detail_enabled) {
         stats_prefix_record_set(key, nkey);
