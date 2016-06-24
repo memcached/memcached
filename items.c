@@ -1448,7 +1448,7 @@ static int do_lru_crawler_start(uint32_t id, uint32_t remaining) {
         pthread_mutex_lock(&lru_locks[sid]);
         if (tails[sid] != NULL) {
             if (settings.verbose > 2)
-                fprintf(stderr, "Kicking LRU crawler off for LRU %d\n", sid);
+                fprintf(stderr, "Kicking LRU crawler off for LRU %u\n", sid);
             crawlers[sid].nbytes = 0;
             crawlers[sid].nkey = 0;
             crawlers[sid].it_flags = 1; /* For a crawler, this means enabled. */
