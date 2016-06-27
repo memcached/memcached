@@ -180,7 +180,6 @@ static rel_time_t realtime(const time_t exptime) {
 static void stats_init(void) {
     stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = stats.reclaimed = 0;
-    stats.get_expired = 0;
     stats.touch_cmds = stats.touch_misses = stats.touch_hits = stats.rejected_conns = 0;
     stats.malloc_fails = 0;
     stats.curr_bytes = stats.listen_disabled_num = 0;
@@ -2729,6 +2728,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
+    APPEND_STAT("get_flushed", "%llu", (unsigned long long)thread_stats.get_flushed);
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
     APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
     APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);

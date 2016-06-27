@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 103;
+use Test::More tests => 108;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -72,11 +72,11 @@ my $sock = $server->sock;
 my $stats = mem_stats($sock);
 
 # Test number of keys
-is(scalar(keys(%$stats)), 58, "58 stats values");
+is(scalar(keys(%$stats)), 59, "59 stats values");
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses get_expired
-                 bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits
+                 bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits get_flushed
                  decr_misses listen_disabled_num lrutail_reflocked time_in_listen_disabled_us)) {
     is($stats->{$key}, 0, "initial $key is zero");
 }
@@ -192,6 +192,7 @@ is(0, $stats->{'cmd_set'});
 is(0, $stats->{'get_hits'});
 is(0, $stats->{'get_misses'});
 is(0, $stats->{'get_expired'});
+is(0, $stats->{'get_flushed'});
 is(0, $stats->{'delete_misses'});
 is(0, $stats->{'delete_hits'});
 is(0, $stats->{'incr_misses'});
@@ -213,8 +214,13 @@ is(scalar <$sock>, "END\r\n", "item not returned");
 my $stats = mem_stats($sock);
 is(1, $stats->{'get_expired'}, "get_expired counter is 1");
 
+print $sock "set should_be_flushed 0 0 6\r\nbooval\r\n";
+is(scalar <$sock>, "STORED\r\n", "set item to flush");
 print $sock "flush_all\r\n";
 is(scalar <$sock>, "OK\r\n", "flushed");
+print $sock "get should_be_flushed\r\n";
+is(scalar <$sock>, "END\r\n", "flushed item not returned");
 
 my $stats = mem_stats($sock);
 is($stats->{cmd_flush}, 1, "after one flush cmd_flush is 1");
+is($stats->{get_flushed}, 1, "after flush and a get, get_flushed is 1");

@@ -243,6 +243,7 @@ struct thread_stats {
     uint64_t          get_cmds;
     uint64_t          get_misses;
     uint64_t          get_expired;
+    uint64_t          get_flushed;
     uint64_t          touch_cmds;
     uint64_t          touch_misses;
     uint64_t          delete_misses;
@@ -278,7 +279,6 @@ struct stats {
     uint64_t      touch_cmds;
     uint64_t      get_hits;
     uint64_t      get_misses;
-    uint64_t      get_expired;
     uint64_t      touch_hits;
     uint64_t      touch_misses;
     uint64_t      evictions;

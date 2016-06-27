@@ -763,6 +763,9 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             do_item_unlink(it, hv);
             do_item_remove(it);
             it = NULL;
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.get_flushed++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
             if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by flush");
             }
@@ -1264,8 +1267,9 @@ static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
     int slab_id = CLEAR_LRU(i);
     crawlerstats_t *s = &crawlerstats[slab_id];
     itemstats[i].crawler_items_checked++;
+    int is_flushed = item_is_flushed(search);
     if ((search->exptime != 0 && search->exptime < current_time)
-        || item_is_flushed(search)) {
+        || is_flushed) {
         itemstats[i].crawler_reclaimed++;
         s->reclaimed++;
 
@@ -1279,7 +1283,7 @@ static void item_crawler_evaluate(item *search, uint32_t hv, int i) {
             }
             fprintf(stderr, "\n");
         }
-        if ((search->it_flags & ITEM_FETCHED) == 0) {
+        if ((search->it_flags & ITEM_FETCHED) == 0 && !is_flushed) {
             itemstats[i].expired_unfetched++;
         }
         do_item_unlink_nolock(search, hv);
