@@ -329,8 +329,8 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
         if (!stat_type) {
             /* prepare general statistics for the engine */
             STATS_LOCK();
-            APPEND_STAT("bytes", "%llu", (unsigned long long)stats.curr_bytes);
-            APPEND_STAT("curr_items", "%llu", (unsigned long long)stats.curr_items);
+            APPEND_STAT("bytes", "%llu", (unsigned long long)stats_state.curr_bytes);
+            APPEND_STAT("curr_items", "%llu", (unsigned long long)stats_state.curr_items);
             APPEND_STAT("total_items", "%llu", (unsigned long long)stats.total_items);
             STATS_UNLOCK();
             if (settings.slab_automove > 0) {
@@ -588,7 +588,7 @@ static int slab_rebalance_start(void) {
     pthread_mutex_unlock(&slabs_lock);
 
     STATS_LOCK();
-    stats.slab_reassign_running = true;
+    stats_state.slab_reassign_running = true;
     STATS_UNLOCK();
 
     return 0;
@@ -870,11 +870,11 @@ static void slab_rebalance_finish(void) {
     pthread_mutex_unlock(&slabs_lock);
 
     STATS_LOCK();
-    stats.slab_reassign_running = false;
     stats.slabs_moved++;
     stats.slab_reassign_rescues += rescues;
     stats.slab_reassign_evictions_nomem += evictions_nomem;
     stats.slab_reassign_inline_reclaim += inline_reclaim;
+    stats_state.slab_reassign_running = false;
     STATS_UNLOCK();
 
     if (settings.verbose > 1) {

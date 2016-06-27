@@ -70,8 +70,8 @@ void assoc_init(const int hashtable_init) {
         exit(EXIT_FAILURE);
     }
     STATS_LOCK();
-    stats.hash_power_level = hashpower;
-    stats.hash_bytes = hashsize(hashpower) * sizeof(void *);
+    stats_state.hash_power_level = hashpower;
+    stats_state.hash_bytes = hashsize(hashpower) * sizeof(void *);
     STATS_UNLOCK();
 }
 
@@ -134,9 +134,9 @@ static void assoc_expand(void) {
         expanding = true;
         expand_bucket = 0;
         STATS_LOCK();
-        stats.hash_power_level = hashpower;
-        stats.hash_bytes += hashsize(hashpower) * sizeof(void *);
-        stats.hash_is_expanding = 1;
+        stats_state.hash_power_level = hashpower;
+        stats_state.hash_bytes += hashsize(hashpower) * sizeof(void *);
+        stats_state.hash_is_expanding = true;
         STATS_UNLOCK();
     } else {
         primary_hashtable = old_hashtable;
@@ -238,8 +238,8 @@ static void *assoc_maintenance_thread(void *arg) {
                         expanding = false;
                         free(old_hashtable);
                         STATS_LOCK();
-                        stats.hash_bytes -= hashsize(hashpower - 1) * sizeof(void *);
-                        stats.hash_is_expanding = 0;
+                        stats_state.hash_bytes -= hashsize(hashpower - 1) * sizeof(void *);
+                        stats_state.hash_is_expanding = false;
                         STATS_UNLOCK();
                         if (settings.verbose > 1)
                             fprintf(stderr, "Hash table expansion done\n");

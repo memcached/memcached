@@ -261,44 +261,20 @@ struct thread_stats {
 };
 
 /**
- * Global stats.
+ * Global stats. Only resettable stats should go into this structure.
  */
 struct stats {
-    pthread_mutex_t mutex;
-    uint64_t      curr_items;
     uint64_t      total_items;
-    uint64_t      curr_bytes;
-    uint64_t      curr_conns;
     uint64_t      total_conns;
     uint64_t      rejected_conns;
     uint64_t      malloc_fails;
-    unsigned int  reserved_fds;
-    unsigned int  conn_structs;
-    uint64_t      get_cmds;
-    uint64_t      set_cmds;
-    uint64_t      touch_cmds;
-    uint64_t      get_hits;
-    uint64_t      get_misses;
-    uint64_t      touch_hits;
-    uint64_t      touch_misses;
-    uint64_t      evictions;
-    uint64_t      reclaimed;
-    time_t        started;          /* when the process was started */
-    bool          accepting_conns;  /* whether we are currently accepting */
     uint64_t      listen_disabled_num;
-    unsigned int  hash_power_level; /* Better hope it's not over 9000 */
-    uint64_t      hash_bytes;       /* size used for hash tables */
-    bool          hash_is_expanding; /* If the hash table is being expanded */
-    uint64_t      expired_unfetched; /* items reclaimed but never touched */
-    uint64_t      evicted_unfetched; /* items evicted but never touched */
-    bool          slab_reassign_running; /* slab reassign in progress */
     uint64_t      slabs_moved;       /* times slabs were moved around */
     uint64_t      slab_reassign_rescues; /* items rescued during slab move */
     uint64_t      slab_reassign_evictions_nomem; /* valid items lost during slab move */
     uint64_t      slab_reassign_inline_reclaim; /* valid items lost during slab move */
     uint64_t      slab_reassign_busy_items; /* valid temporarily unmovable */
     uint64_t      lru_crawler_starts; /* Number of item crawlers kicked off */
-    bool          lru_crawler_running; /* crawl in progress */
     uint64_t      lru_maintainer_juggles; /* number of LRU bg pokes */
     uint64_t      time_in_listen_disabled_us;  /* elapsed time in microseconds while server unable to process new connections */
     uint64_t      log_worker_dropped; /* logs dropped by worker threads */
@@ -306,6 +282,24 @@ struct stats {
     uint64_t      log_watcher_skipped; /* logs watchers missed */
     uint64_t      log_watcher_sent; /* logs sent to watcher buffers */
     struct timeval maxconns_entered;  /* last time maxconns entered */
+};
+
+/**
+ * Global "state" stats. Reflects state that shouldn't be wiped ever.
+ * Ordered for some cache line locality for commonly updated counters.
+ */
+struct stats_state {
+    uint64_t      curr_items;
+    uint64_t      curr_bytes;
+    uint64_t      curr_conns;
+    uint64_t      hash_bytes;       /* size used for hash tables */
+    unsigned int  conn_structs;
+    unsigned int  reserved_fds;
+    unsigned int  hash_power_level; /* Better hope it's not over 9000 */
+    bool          hash_is_expanding; /* If the hash table is being expanded */
+    bool          accepting_conns;  /* whether we are currently accepting */
+    bool          slab_reassign_running; /* slab reassign in progress */
+    bool          lru_crawler_running; /* crawl in progress */
 };
 
 #define MAX_VERBOSITY_LEVEL 2
@@ -361,6 +355,7 @@ struct settings {
 };
 
 extern struct stats stats;
+extern struct stats_state stats_state;
 extern time_t process_started;
 extern struct settings settings;
 

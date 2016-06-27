@@ -516,7 +516,7 @@ void sidethread_conn_close(conn *c) {
     close(c->sfd);
 
     STATS_LOCK();
-    stats.curr_conns--;
+    stats_state.curr_conns--;
     STATS_UNLOCK();
 
     return;
@@ -851,7 +851,7 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
 
         setup_thread(&threads[i]);
         /* Reserve three fds for the libevent base, and two for the pipe */
-        stats.reserved_fds += 5;
+        stats_state.reserved_fds += 5;
     }
 
     /* Create threads after we've done all the libevent setup. */

@@ -108,6 +108,7 @@ static void conn_free(conn *c);
 
 /** exported globals **/
 struct stats stats;
+struct stats_state stats_state;
 struct settings settings;
 time_t process_started;     /* when the process was started */
 conn **conns;
@@ -178,20 +179,9 @@ static rel_time_t realtime(const time_t exptime) {
 }
 
 static void stats_init(void) {
-    stats.curr_items = stats.total_items = stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
-    stats.get_cmds = stats.set_cmds = stats.get_hits = stats.get_misses = stats.evictions = stats.reclaimed = 0;
-    stats.touch_cmds = stats.touch_misses = stats.touch_hits = stats.rejected_conns = 0;
-    stats.malloc_fails = 0;
-    stats.curr_bytes = stats.listen_disabled_num = 0;
-    stats.hash_power_level = stats.hash_bytes = stats.hash_is_expanding = 0;
-    stats.expired_unfetched = stats.evicted_unfetched = 0;
-    stats.slabs_moved = 0;
-    stats.lru_maintainer_juggles = 0;
-    stats.accepting_conns = true; /* assuming we start in this state. */
-    stats.slab_reassign_running = false;
-    stats.lru_crawler_running = false;
-    stats.lru_crawler_starts = 0;
-    stats.time_in_listen_disabled_us = 0;
+    memset(&stats, 0, sizeof(struct stats));
+    memset(&stats_state, 0, sizeof(struct stats_state));
+    stats_state.accepting_conns = true; /* assuming we start in this state. */
 
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -203,12 +193,7 @@ static void stats_init(void) {
 
 static void stats_reset(void) {
     STATS_LOCK();
-    stats.total_items = stats.total_conns = 0;
-    stats.rejected_conns = 0;
-    stats.malloc_fails = 0;
-    stats.evictions = 0;
-    stats.reclaimed = 0;
-    stats.listen_disabled_num = 0;
+    memset(&stats, 0, sizeof(struct stats));
     stats_prefix_clear();
     STATS_UNLOCK();
     threadlocal_stats_reset();
@@ -513,7 +498,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         }
 
         STATS_LOCK();
-        stats.conn_structs++;
+        stats_state.conn_structs++;
         STATS_UNLOCK();
 
         c->sfd = sfd;
@@ -593,7 +578,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     }
 
     STATS_LOCK();
-    stats.curr_conns++;
+    stats_state.curr_conns++;
     stats.total_conns++;
     STATS_UNLOCK();
 
@@ -697,7 +682,7 @@ static void conn_close(conn *c) {
     pthread_mutex_unlock(&conn_lock);
 
     STATS_LOCK();
-    stats.curr_conns--;
+    stats_state.curr_conns--;
     STATS_UNLOCK();
 
     return;
@@ -2714,13 +2699,13 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
                 (long)usage.ru_stime.tv_usec);
 #endif /* !WIN32 */
 
-    APPEND_STAT("curr_connections", "%llu", (unsigned long long)stats.curr_conns - 1);
+    APPEND_STAT("curr_connections", "%llu", (unsigned long long)stats_state.curr_conns - 1);
     APPEND_STAT("total_connections", "%llu", (unsigned long long)stats.total_conns);
     if (settings.maxconns_fast) {
         APPEND_STAT("rejected_connections", "%llu", (unsigned long long)stats.rejected_conns);
     }
-    APPEND_STAT("connection_structures", "%u", stats.conn_structs);
-    APPEND_STAT("reserved_fds", "%u", stats.reserved_fds);
+    APPEND_STAT("connection_structures", "%u", stats_state.conn_structs);
+    APPEND_STAT("reserved_fds", "%u", stats_state.reserved_fds);
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
     APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
@@ -2748,24 +2733,24 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("bytes_read", "%llu", (unsigned long long)thread_stats.bytes_read);
     APPEND_STAT("bytes_written", "%llu", (unsigned long long)thread_stats.bytes_written);
     APPEND_STAT("limit_maxbytes", "%llu", (unsigned long long)settings.maxbytes);
-    APPEND_STAT("accepting_conns", "%u", stats.accepting_conns);
+    APPEND_STAT("accepting_conns", "%u", stats_state.accepting_conns);
     APPEND_STAT("listen_disabled_num", "%llu", (unsigned long long)stats.listen_disabled_num);
     APPEND_STAT("time_in_listen_disabled_us", "%llu", stats.time_in_listen_disabled_us);
     APPEND_STAT("threads", "%d", settings.num_threads);
     APPEND_STAT("conn_yields", "%llu", (unsigned long long)thread_stats.conn_yields);
-    APPEND_STAT("hash_power_level", "%u", stats.hash_power_level);
-    APPEND_STAT("hash_bytes", "%llu", (unsigned long long)stats.hash_bytes);
-    APPEND_STAT("hash_is_expanding", "%u", stats.hash_is_expanding);
+    APPEND_STAT("hash_power_level", "%u", stats_state.hash_power_level);
+    APPEND_STAT("hash_bytes", "%llu", (unsigned long long)stats_state.hash_bytes);
+    APPEND_STAT("hash_is_expanding", "%u", stats_state.hash_is_expanding);
     if (settings.slab_reassign) {
         APPEND_STAT("slab_reassign_rescues", "%llu", stats.slab_reassign_rescues);
         APPEND_STAT("slab_reassign_evictions_nomem", "%llu", stats.slab_reassign_evictions_nomem);
         APPEND_STAT("slab_reassign_inline_reclaim", "%llu", stats.slab_reassign_inline_reclaim);
         APPEND_STAT("slab_reassign_busy_items", "%llu", stats.slab_reassign_busy_items);
-        APPEND_STAT("slab_reassign_running", "%u", stats.slab_reassign_running);
+        APPEND_STAT("slab_reassign_running", "%u", stats_state.slab_reassign_running);
         APPEND_STAT("slabs_moved", "%llu", stats.slabs_moved);
     }
     if (settings.lru_crawler) {
-        APPEND_STAT("lru_crawler_running", "%u", stats.lru_crawler_running);
+        APPEND_STAT("lru_crawler_running", "%u", stats_state.lru_crawler_running);
         APPEND_STAT("lru_crawler_starts", "%u", stats.lru_crawler_starts);
     }
     if (settings.lru_maintainer_thread) {
@@ -4180,11 +4165,11 @@ void do_accept_new_conns(const bool do_accept) {
             (maxconns_exited.tv_sec - stats.maxconns_entered.tv_sec) * 1000000
             + (maxconns_exited.tv_usec - stats.maxconns_entered.tv_usec);
         stats.time_in_listen_disabled_us += elapsed_us;
-        stats.accepting_conns = true;
+        stats_state.accepting_conns = true;
         STATS_UNLOCK();
     } else {
         STATS_LOCK();
-        stats.accepting_conns = false;
+        stats_state.accepting_conns = false;
         gettimeofday(&stats.maxconns_entered,NULL);
         stats.listen_disabled_num++;
         STATS_UNLOCK();
@@ -4319,7 +4304,7 @@ static void drive_machine(conn *c) {
             }
 
             if (settings.maxconns_fast &&
-                stats.curr_conns + stats.reserved_fds >= settings.maxconns - 1) {
+                stats_state.curr_conns + stats_state.reserved_fds >= settings.maxconns - 1) {
                 str = "ERROR Too many open connections\r\n";
                 res = write(sfd, str, strlen(str));
                 close(sfd);
@@ -6093,7 +6078,7 @@ int main (int argc, char **argv) {
      * is only an advisory.
      */
     usleep(1000);
-    if (stats.curr_conns + stats.reserved_fds >= settings.maxconns - 1) {
+    if (stats_state.curr_conns + stats_state.reserved_fds >= settings.maxconns - 1) {
         fprintf(stderr, "Maxconns setting is too low, use -c to increase.\n");
         exit(EXIT_FAILURE);
     }

@@ -33,8 +33,8 @@ typedef struct {
     uint64_t reclaimed;
     uint64_t outofmemory;
     uint64_t tailrepairs;
-    uint64_t expired_unfetched;
-    uint64_t evicted_unfetched;
+    uint64_t expired_unfetched; /* items reclaimed but never touched */
+    uint64_t evicted_unfetched; /* items evicted but never touched */
     uint64_t crawler_reclaimed;
     uint64_t crawler_items_checked;
     uint64_t lrutail_reflocked;
@@ -332,8 +332,8 @@ int do_item_link(item *it, const uint32_t hv) {
     it->time = current_time;
 
     STATS_LOCK();
-    stats.curr_bytes += ITEM_ntotal(it);
-    stats.curr_items += 1;
+    stats_state.curr_bytes += ITEM_ntotal(it);
+    stats_state.curr_items += 1;
     stats.total_items += 1;
     STATS_UNLOCK();
 
@@ -352,8 +352,8 @@ void do_item_unlink(item *it, const uint32_t hv) {
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
         STATS_LOCK();
-        stats.curr_bytes -= ITEM_ntotal(it);
-        stats.curr_items -= 1;
+        stats_state.curr_bytes -= ITEM_ntotal(it);
+        stats_state.curr_items -= 1;
         STATS_UNLOCK();
         item_stats_sizes_remove(it);
         assoc_delete(ITEM_key(it), it->nkey, hv);
@@ -368,8 +368,8 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
         STATS_LOCK();
-        stats.curr_bytes -= ITEM_ntotal(it);
-        stats.curr_items -= 1;
+        stats_state.curr_bytes -= ITEM_ntotal(it);
+        stats_state.curr_items -= 1;
         STATS_UNLOCK();
         item_stats_sizes_remove(it);
         assoc_delete(ITEM_key(it), it->nkey, hv);
@@ -1377,7 +1377,7 @@ static void *item_crawler_thread(void *arg) {
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread sleeping\n");
     STATS_LOCK();
-    stats.lru_crawler_running = false;
+    stats_state.lru_crawler_running = false;
     STATS_UNLOCK();
     }
     pthread_mutex_unlock(&lru_crawler_lock);
@@ -1469,7 +1469,7 @@ static int do_lru_crawler_start(uint32_t id, uint32_t remaining) {
     }
     if (starts) {
         STATS_LOCK();
-        stats.lru_crawler_running = true;
+        stats_state.lru_crawler_running = true;
         stats.lru_crawler_starts++;
         STATS_UNLOCK();
         pthread_mutex_lock(&lru_crawler_stats_lock);
