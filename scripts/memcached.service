@@ -6,5 +6,13 @@ After=network.target
 EnvironmentFile=/etc/sysconfig/memcached
 ExecStart=/usr/bin/memcached -p ${PORT} -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} $OPTIONS
 
+PrivateTmp=true
+ProtectSystem=full
+NoNewPrivileges=true
+PrivateDevices=true
+
+# Required for dropping privileges and running as a different user
+CapabilityBoundingSet=CAP_SETGID CAP_SETUID
+
 [Install]
 WantedBy=multi-user.target
