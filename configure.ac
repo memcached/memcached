@@ -535,6 +535,19 @@ AC_TRY_LINK([],[
   AC_DEFINE(HAVE_GCC_ATOMICS, 1, [GCC Atomics available])])
 AC_MSG_RESULT($have_gcc_atomics)
 
+dnl Check for usage of 64bit atomics
+dnl 32bit systems shouldn't have these.
+have_gcc_64atomics=no
+AC_MSG_CHECKING(for GCC 64bit atomics)
+AC_TRY_LINK([],[
+  uint64_t a;
+  uint64_t b;
+  b = __sync_add_and_fetch(&a, 1);
+  b = __sync_sub_and_fetch(&a, 2);
+  ],[have_gcc_64atomics=yes
+  AC_DEFINE(HAVE_GCC_64ATOMICS, 1, [GCC 64bit Atomics available])])
+AC_MSG_RESULT($have_gcc_64atomics)
+
 dnl Check for the requirements for running memcached with less privileges
 dnl than the default privilege set. On Solaris we need setppriv and priv.h
 dnl If you want to add support for other platforms you should check for

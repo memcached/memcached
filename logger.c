@@ -30,7 +30,7 @@ pthread_mutex_t logger_stack_lock = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_key_t logger_key;
 
-#if !defined(HAVE_GCC_ATOMICS) && !defined(__sun)
+#if !defined(HAVE_GCC_64ATOMICS) && !defined(__sun)
 pthread_mutex_t logger_atomics_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
@@ -93,7 +93,7 @@ static bool logger_uriencode(const char *src, char *dst, const size_t srclen, co
  */
 static uint64_t logger_get_gid(void) {
     static uint64_t logger_gid = 0;
-#ifdef HAVE_GCC_ATOMICS
+#ifdef HAVE_GCC_64ATOMICS
     return __sync_add_and_fetch(&logger_gid, 1);
 #elif defined(__sun)
     return atomic_inc_64_nv(&logger_gid);
