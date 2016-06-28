@@ -172,17 +172,62 @@ static void logger_set_flags(void) {
  * writes to any watchers.
  *************************/
 
-/* Completes rendering of log line, copies to subscribed watchers */
-/* FIXME: This can be shortened considerably with a refactor for both the
- * "skipped" writing and string conversion.
- */
 #define LOGGER_PARSE_SCRATCH 4096
-static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct logger_stats *ls) {
+
+static int _logger_thread_parse_ise(logentry *e, char *scratch) {
+    int total;
+    const char *cmd = "na";
+    char keybuf[KEY_MAX_LENGTH * 3 + 1];
+    struct logentry_item_store *le = (struct logentry_item_store *) e->data;
+    const char * const status_map[] = {
+        "stored", "exists", "not_found", "too_large", "no_memory" };
+    const char * const cmd_map[] = {
+        "add", "set", "replace", "append", "prepend", "cas" };
+
+    if (le->cmd <= 5)
+        cmd = cmd_map[le->cmd];
+
+    logger_uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s\n",
+            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            keybuf, status_map[le->status], cmd);
+    return total;
+}
+
+static int _logger_thread_parse_ige(logentry *e, char *scratch) {
+    int total;
+    struct logentry_item_get *le = (struct logentry_item_get *) e->data;
+    char keybuf[KEY_MAX_LENGTH * 3 + 1];
+    const char * const was_found_map[] = {
+        "not_found", "found", "flushed", "expired" };
+
+    logger_uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%d.%d gid=%llu type=item_get key=%s status=%s\n",
+            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            keybuf, was_found_map[le->was_found]);
+    return total;
+}
+
+static int _logger_thread_parse_ee(logentry *e, char *scratch) {
+    int total;
+    char keybuf[KEY_MAX_LENGTH * 3 + 1];
+    struct logentry_eviction *le = (struct logentry_eviction *) e->data;
+    logger_uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d\n",
+            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            keybuf, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
+            (long long int)le->exptime, le->latime);
+
+    return total;
+}
+
+/* Completes rendering of log line. */
+static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct logger_stats *ls,
+        char *scratch, int *scratch_len) {
     int total = 0;
-    int line_size = 0;
-    int x;
-    char scratch[LOGGER_PARSE_SCRATCH];
-    char scratch2[LOGGER_PARSE_SCRATCH];
 
     switch (e->event) {
         case LOGGER_TEXT_ENTRY:
@@ -190,49 +235,14 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
                         (int)e->tv.tv_sec, (int)e->tv.tv_usec,
                         (unsigned long long) e->gid, (char *) e->data);
             break;
-        case LOGGER_EVICTION_ENTRY: ;
-            struct logentry_eviction *le = (struct logentry_eviction *) e->data;
-            logger_uriencode(le->key, scratch2, le->nkey, LOGGER_PARSE_SCRATCH);
-            total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-                    "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d\n",
-                    (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-                    scratch2, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
-                    (long long int)le->exptime, le->latime);
+        case LOGGER_EVICTION_ENTRY:
+            total = _logger_thread_parse_ee(e, scratch);
             break;
-        case LOGGER_ITEM_GET_ENTRY: ;
-            struct logentry_item_get *lig = (struct logentry_item_get *) e->data;
-            const char * const was_found_map[] = { "not_found",
-                                                   "found",
-                                                   "flushed",
-                                                   "expired" };
-
-            logger_uriencode(lig->key, scratch2, lig->nkey, LOGGER_PARSE_SCRATCH);
-            total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-                    "ts=%d.%d gid=%llu type=item_get key=%s status=%s\n",
-                    (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-                    scratch2, was_found_map[lig->was_found]);
+        case LOGGER_ITEM_GET_ENTRY:
+            total = _logger_thread_parse_ige(e, scratch);
             break;
-        case LOGGER_ITEM_STORE_ENTRY: ;
-            struct logentry_item_store *lis = (struct logentry_item_store *) e->data;
-            const char *cmd = "na";
-            const char * const status_map[] = { "stored",
-                                                "exists",
-                                                "not_found",
-                                                "too_large",
-                                                "no_memory" };
-            const char * const cmd_map[] = { "add",
-                                             "set",
-                                             "replace",
-                                             "append",
-                                             "prepend",
-                                             "cas" };
-            if (lis->cmd <= 5)
-                cmd = cmd_map[lis->cmd];
-            logger_uriencode(lis->key, scratch2, lis->nkey, LOGGER_PARSE_SCRATCH);
-            total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-                    "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s\n",
-                    (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-                    scratch2, status_map[lis->status], cmd);
+        case LOGGER_ITEM_STORE_ENTRY:
+            total = _logger_thread_parse_ise(e, scratch);
             break;
 
     }
@@ -241,9 +251,16 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
         L_DEBUG("LOGGER: Failed to flatten log entry!\n");
         return LOGGER_PARSE_ENTRY_FAILED;
     } else {
-        line_size = total + 1;
+        *scratch_len = total + 1;
     }
 
+    return LOGGER_PARSE_ENTRY_OK;
+}
+
+/* Writes flattened entry to available watchers */
+static void logger_thread_write_entry(logentry *e, struct logger_stats *ls,
+        char *scratch, int scratch_len) {
+    int x, total;
     /* Write the line into available watchers with matching flags */
     for (x = 0; x < WATCHER_LIMIT; x++) {
         logger_watcher *w = watchers[x];
@@ -254,8 +271,8 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
          /* Avoid poll()'ing constantly when buffer is full by resetting a
          * flag periodically.
          */
-        while(!w->failed_flush &&
-                (skip_scr = (char *) bipbuf_request(w->buf, line_size + 128)) == NULL) {
+        while (!w->failed_flush &&
+                (skip_scr = (char *) bipbuf_request(w->buf, scratch_len + 128)) == NULL) {
             if (logger_thread_poll_watchers(0, x) <= 0) {
                 L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
                 w->failed_flush = true;
@@ -281,11 +298,9 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
             w->skipped = 0;
         }
         /* Can't fail because bipbuf_request succeeded. */
-        bipbuf_offer(w->buf, (unsigned char *) scratch, line_size);
+        bipbuf_offer(w->buf, (unsigned char *) scratch, scratch_len);
         ls->watcher_sent++;
     }
-
-    return LOGGER_PARSE_ENTRY_OK;
 }
 
 /* Called with logger stack locked.
@@ -310,6 +325,7 @@ static int logger_thread_read(logger *l, struct logger_stats *ls) {
     unsigned int size;
     unsigned int pos = 0;
     unsigned char *data;
+    char scratch[LOGGER_PARSE_SCRATCH];
     logentry *e;
     pthread_mutex_lock(&l->mutex);
     data = bipbuf_peek_all(l->buf, &size);
@@ -323,11 +339,14 @@ static int logger_thread_read(logger *l, struct logger_stats *ls) {
     /* parse buffer */
     while (pos < size && watcher_count > 0) {
         enum logger_parse_entry_ret ret;
+        int scratch_len = 0;
         e = (logentry *) (data + pos);
-        ret = logger_thread_parse_entry(e, ls);
+        ret = logger_thread_parse_entry(e, ls, scratch, &scratch_len);
         if (ret != LOGGER_PARSE_ENTRY_OK) {
             /* TODO: stats counter */
             fprintf(stderr, "LOGGER: Failed to parse log entry\n");
+        } else {
+            logger_thread_write_entry(e, ls, scratch, scratch_len);
         }
         pos += sizeof(logentry) + e->size;
     }
