@@ -183,7 +183,6 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
     int x;
     char scratch[LOGGER_PARSE_SCRATCH];
     char scratch2[LOGGER_PARSE_SCRATCH];
-    char *status = "unknown";
 
     switch (e->event) {
         case LOGGER_TEXT_ENTRY:
@@ -202,71 +201,38 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
             break;
         case LOGGER_ITEM_GET_ENTRY: ;
             struct logentry_item_get *lig = (struct logentry_item_get *) e->data;
-            switch (lig->was_found) {
-                case 0:
-                    status = "not_found";
-                    break;
-                case 1:
-                    status = "found";
-                    break;
-                case 2:
-                    status = "flushed";
-                    break;
-                case 3:
-                    status = "expired";
-                    break;
-            }
+            const char * const was_found_map[] = { "not_found",
+                                                   "found",
+                                                   "flushed",
+                                                   "expired" };
+
             logger_uriencode(lig->key, scratch2, lig->nkey, LOGGER_PARSE_SCRATCH);
             total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
                     "ts=%d.%d gid=%llu type=item_get key=%s status=%s\n",
                     (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-                    scratch2, status);
+                    scratch2, was_found_map[lig->was_found]);
             break;
         case LOGGER_ITEM_STORE_ENTRY: ;
             struct logentry_item_store *lis = (struct logentry_item_store *) e->data;
-            char *cmd = "na";
-            switch (lis->status) {
-                case STORED:
-                    status = "stored";
-                    break;
-                case EXISTS:
-                    status = "exists";
-                    break;
-                case NOT_FOUND:
-                    status = "not_found";
-                    break;
-                case TOO_LARGE:
-                    status = "too_large";
-                    break;
-                case NO_MEMORY:
-                    status = "no_memory";
-                    break;
-            }
-            switch (lis->cmd) {
-                case NREAD_ADD:
-                    cmd = "add";
-                    break;
-                case NREAD_SET:
-                    cmd = "set";
-                    break;
-                case NREAD_REPLACE:
-                    cmd = "replace";
-                    break;
-                case NREAD_APPEND:
-                    cmd = "append";
-                    break;
-                case NREAD_PREPEND:
-                    cmd = "prepend";
-                    break;
-                case NREAD_CAS:
-                    cmd = "cas";
-                    break;
-            }
+            const char *cmd = "na";
+            const char * const status_map[] = { "stored",
+                                                "exists",
+                                                "not_found",
+                                                "too_large",
+                                                "no_memory" };
+            const char * const cmd_map[] = { "add",
+                                             "set",
+                                             "replace",
+                                             "append",
+                                             "prepend",
+                                             "cas" };
+            if (lis->cmd <= 5)
+                cmd = cmd_map[lis->cmd];
             logger_uriencode(lis->key, scratch2, lis->nkey, LOGGER_PARSE_SCRATCH);
             total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
                     "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s\n",
                     (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-                    scratch2, status, cmd);
+                    scratch2, status_map[lis->status], cmd);
             break;
 
     }
@@ -278,59 +244,45 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
         line_size = total + 1;
     }
 
-    /* Write the line into available watcher with the right flags */
+    /* Write the line into available watchers with matching flags */
     for (x = 0; x < WATCHER_LIMIT; x++) {
         logger_watcher *w = watchers[x];
-        if (w == NULL)
+        char *skip_scr = NULL;
+        if (w == NULL || (e->eflags & w->eflags) == 0)
             continue;
 
-        if ((e->eflags & w->eflags) == 0) {
-            L_DEBUG("LOGGER: Skipping event for watcher [%d] (w->eflags: %d) (e->eflags: %d)\n",
-                    w->sfd, w->eflags, e->eflags);
-            continue;
+         /* Avoid poll()'ing constantly when buffer is full by resetting a
+         * flag periodically.
+         */
+        while(!w->failed_flush &&
+                (skip_scr = (char *) bipbuf_request(w->buf, line_size + 128)) == NULL) {
+            if (logger_thread_poll_watchers(0, x) <= 0) {
+                L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
+                w->failed_flush = true;
+            }
         }
 
         if (w->failed_flush) {
             L_DEBUG("LOGGER: Fast skipped for watcher [%d] due to failed_flush\n", w->sfd);
             w->skipped++;
             ls->watcher_skipped++;
-        } else if (w->skipped > 0) {
-            char *skip_scr = NULL;
-            if ((skip_scr = (char *) bipbuf_request(w->buf, line_size + 128)) != NULL) {
-                total = snprintf(skip_scr, 128, "skipped=%llu\n", (unsigned long long) w->skipped);
-                if (total >= 128 || total <= 0) {
-                    L_DEBUG("LOGGER: Failed to flatten skipped message into watcher [%d]\n", w->sfd);
-                    w->skipped++;
-                    ls->watcher_skipped++;
-                } else {
-                    /* These can't fail because bipbuf_request succeeded. */
-                    bipbuf_push(w->buf, total + 1);
-                    bipbuf_offer(w->buf, (unsigned char *) scratch, line_size);
-                    w->skipped = 0;
-                    ls->watcher_sent++;
-                }
-            } else {
-                L_DEBUG("LOGGER: Continuing to fast skip for watcher [%d]\n", w->sfd);
+            continue;
+        }
+
+        if (w->skipped > 0) {
+            total = snprintf(skip_scr, 128, "skipped=%llu\n", (unsigned long long) w->skipped);
+            if (total >= 128 || total <= 0) {
+                L_DEBUG("LOGGER: Failed to flatten skipped message into watcher [%d]\n", w->sfd);
                 w->skipped++;
                 ls->watcher_skipped++;
-                w->failed_flush = true;
+                continue;
             }
-        } else {
-             /* Avoid poll()'ing constantly when buffer is full by resetting a
-             * flag periodically.
-             */
-            while (bipbuf_offer(w->buf, (unsigned char *) scratch, line_size) == 0) {
-                if (logger_thread_poll_watchers(0, x) <= 0) {
-                    L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
-                    w->failed_flush = true;
-                    w->skipped++;
-                    ls->watcher_skipped++;
-                    break;
-                }
-            }
-            if (!w->failed_flush)
-                ls->watcher_sent++;
+            bipbuf_push(w->buf, total + 1);
+            w->skipped = 0;
         }
+        /* Can't fail because bipbuf_request succeeded. */
+        bipbuf_offer(w->buf, (unsigned char *) scratch, line_size);
+        ls->watcher_sent++;
     }
 
     return LOGGER_PARSE_ENTRY_OK;
