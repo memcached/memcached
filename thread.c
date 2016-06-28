@@ -666,38 +666,15 @@ void STATS_UNLOCK() {
 }
 
 void threadlocal_stats_reset(void) {
-    int ii, sid;
+    int ii;
     for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
+#define X(name) threads[ii].stats.name = 0;
+        THREAD_STATS_FIELDS
+#undef X
 
-        threads[ii].stats.get_cmds = 0;
-        threads[ii].stats.get_misses = 0;
-        threads[ii].stats.get_expired = 0;
-        threads[ii].stats.get_flushed = 0;
-        threads[ii].stats.touch_cmds = 0;
-        threads[ii].stats.touch_misses = 0;
-        threads[ii].stats.delete_misses = 0;
-        threads[ii].stats.incr_misses = 0;
-        threads[ii].stats.decr_misses = 0;
-        threads[ii].stats.cas_misses = 0;
-        threads[ii].stats.bytes_read = 0;
-        threads[ii].stats.bytes_written = 0;
-        threads[ii].stats.flush_cmds = 0;
-        threads[ii].stats.conn_yields = 0;
-        threads[ii].stats.auth_cmds = 0;
-        threads[ii].stats.auth_errors = 0;
-        threads[ii].stats.idle_kicks = 0;
-
-        for(sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
-            threads[ii].stats.slab_stats[sid].set_cmds = 0;
-            threads[ii].stats.slab_stats[sid].get_hits = 0;
-            threads[ii].stats.slab_stats[sid].touch_hits = 0;
-            threads[ii].stats.slab_stats[sid].delete_hits = 0;
-            threads[ii].stats.slab_stats[sid].incr_hits = 0;
-            threads[ii].stats.slab_stats[sid].decr_hits = 0;
-            threads[ii].stats.slab_stats[sid].cas_hits = 0;
-            threads[ii].stats.slab_stats[sid].cas_badval = 0;
-        }
+        memset(&threads[ii].stats.slab_stats, 0,
+                sizeof(threads[ii].stats.slab_stats));
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
     }
@@ -712,42 +689,15 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
 
     for (ii = 0; ii < settings.num_threads; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
-
-        stats->get_cmds += threads[ii].stats.get_cmds;
-        stats->get_misses += threads[ii].stats.get_misses;
-        stats->get_expired += threads[ii].stats.get_expired;
-        stats->get_flushed += threads[ii].stats.get_flushed;
-        stats->touch_cmds += threads[ii].stats.touch_cmds;
-        stats->touch_misses += threads[ii].stats.touch_misses;
-        stats->delete_misses += threads[ii].stats.delete_misses;
-        stats->decr_misses += threads[ii].stats.decr_misses;
-        stats->incr_misses += threads[ii].stats.incr_misses;
-        stats->cas_misses += threads[ii].stats.cas_misses;
-        stats->bytes_read += threads[ii].stats.bytes_read;
-        stats->bytes_written += threads[ii].stats.bytes_written;
-        stats->flush_cmds += threads[ii].stats.flush_cmds;
-        stats->conn_yields += threads[ii].stats.conn_yields;
-        stats->auth_cmds += threads[ii].stats.auth_cmds;
-        stats->auth_errors += threads[ii].stats.auth_errors;
-        stats->idle_kicks += threads[ii].stats.idle_kicks;
+#define X(name) stats->name += threads[ii].stats.name;
+        THREAD_STATS_FIELDS
+#undef X
 
         for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
-            stats->slab_stats[sid].set_cmds +=
-                threads[ii].stats.slab_stats[sid].set_cmds;
-            stats->slab_stats[sid].get_hits +=
-                threads[ii].stats.slab_stats[sid].get_hits;
-            stats->slab_stats[sid].touch_hits +=
-                threads[ii].stats.slab_stats[sid].touch_hits;
-            stats->slab_stats[sid].delete_hits +=
-                threads[ii].stats.slab_stats[sid].delete_hits;
-            stats->slab_stats[sid].decr_hits +=
-                threads[ii].stats.slab_stats[sid].decr_hits;
-            stats->slab_stats[sid].incr_hits +=
-                threads[ii].stats.slab_stats[sid].incr_hits;
-            stats->slab_stats[sid].cas_hits +=
-                threads[ii].stats.slab_stats[sid].cas_hits;
-            stats->slab_stats[sid].cas_badval +=
-                threads[ii].stats.slab_stats[sid].cas_badval;
+#define X(name) stats->slab_stats[sid].name += \
+            threads[ii].stats.slab_stats[sid].name;
+            SLAB_STATS_FIELDS
+#undef X
         }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
@@ -757,24 +707,12 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     int sid;
 
-    out->set_cmds = 0;
-    out->get_hits = 0;
-    out->touch_hits = 0;
-    out->delete_hits = 0;
-    out->incr_hits = 0;
-    out->decr_hits = 0;
-    out->cas_hits = 0;
-    out->cas_badval = 0;
+    memset(out, 0, sizeof(*out));
 
     for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
-        out->set_cmds += stats->slab_stats[sid].set_cmds;
-        out->get_hits += stats->slab_stats[sid].get_hits;
-        out->touch_hits += stats->slab_stats[sid].touch_hits;
-        out->delete_hits += stats->slab_stats[sid].delete_hits;
-        out->decr_hits += stats->slab_stats[sid].decr_hits;
-        out->incr_hits += stats->slab_stats[sid].incr_hits;
-        out->cas_hits += stats->slab_stats[sid].cas_hits;
-        out->cas_badval += stats->slab_stats[sid].cas_badval;
+#define X(name) out->name += stats->slab_stats[sid].name;
+        SLAB_STATS_FIELDS
+#undef X
     }
 }
 

@@ -223,40 +223,54 @@ enum delta_result_type {
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
 typedef unsigned int rel_time_t;
 
+/** Use X macros to avoid iterating over the stats fields during reset and
+ * aggregation. No longer have to add new stats in 3+ places.
+ */
+
+#define SLAB_STATS_FIELDS \
+    X(set_cmds) \
+    X(get_hits) \
+    X(touch_hits) \
+    X(delete_hits) \
+    X(cas_hits) \
+    X(cas_badval) \
+    X(incr_hits) \
+    X(decr_hits)
+
 /** Stats stored per slab (and per thread). */
 struct slab_stats {
-    uint64_t  set_cmds;
-    uint64_t  get_hits;
-    uint64_t  touch_hits;
-    uint64_t  delete_hits;
-    uint64_t  cas_hits;
-    uint64_t  cas_badval;
-    uint64_t  incr_hits;
-    uint64_t  decr_hits;
+#define X(name) uint64_t    name;
+    SLAB_STATS_FIELDS
+#undef X
 };
+
+#define THREAD_STATS_FIELDS \
+    X(get_cmds) \
+    X(get_misses) \
+    X(get_expired) \
+    X(get_flushed) \
+    X(touch_cmds) \
+    X(touch_misses) \
+    X(delete_misses) \
+    X(incr_misses) \
+    X(decr_misses) \
+    X(cas_misses) \
+    X(bytes_read) \
+    X(bytes_written) \
+    X(flush_cmds) \
+    X(conn_yields) /* # of yields for connections (-R option)*/ \
+    X(auth_cmds) \
+    X(auth_errors) \
+    X(idle_kicks) /* idle connections killed */
 
 /**
  * Stats stored per-thread.
  */
 struct thread_stats {
     pthread_mutex_t   mutex;
-    uint64_t          get_cmds;
-    uint64_t          get_misses;
-    uint64_t          get_expired;
-    uint64_t          get_flushed;
-    uint64_t          touch_cmds;
-    uint64_t          touch_misses;
-    uint64_t          delete_misses;
-    uint64_t          incr_misses;
-    uint64_t          decr_misses;
-    uint64_t          cas_misses;
-    uint64_t          bytes_read;
-    uint64_t          bytes_written;
-    uint64_t          flush_cmds;
-    uint64_t          conn_yields; /* # of yields for connections (-R option)*/
-    uint64_t          auth_cmds;
-    uint64_t          auth_errors;
-    uint64_t          idle_kicks;  /* idle connections killed */
+#define X(name) uint64_t    name;
+    THREAD_STATS_FIELDS
+#undef X
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
 };
 
