@@ -34,8 +34,15 @@ for (1 .. 80000) {
 
 # Let the logger thread catch up before we start reading.
 sleep 1;
+my $do_fetch = 0;
 #print STDERR "RESULT: $res\n";
 while (my $log = <$watcher>) {
+    # The "skipped" line won't actually print until some space frees up in the
+    # buffer, so we need to occasionally cause new lines to generate.
+    if (($do_fetch++ % 100) == 0) {
+         print $client "get foo\n";
+         $res = <$client>;
+    }
     next unless $log =~ m/skipped/;
     like($log, qr/skipped=/, "skipped some lines");
     # This should unjam more of the text.
