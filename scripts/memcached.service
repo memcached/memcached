@@ -1,3 +1,12 @@
+# It's not recommended to modify this file in-place, because it will be
+# overwritten during upgrades.  If you want to customize, the best
+# way is to create a file "/etc/systemd/system/httpd.service",
+# containing
+#   .include /lib/systemd/system/memcached.service
+#   ...make your changes here...
+# See https://www.freedesktop.org/software/systemd/man/systemd.service.html
+# for detailed information about available options.
+
 [Unit]
 Description=memcached daemon
 After=network.target
@@ -6,9 +15,20 @@ After=network.target
 EnvironmentFile=/etc/sysconfig/memcached
 ExecStart=/usr/bin/memcached -p ${PORT} -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} $OPTIONS
 
+# Set up a new file system namespace and mounts private /tmp and /var/tmp directories
+# so this service cannot access the global directories and other processes cannot
+# access this service's directories.
 PrivateTmp=true
+
+# Mounts the /usr, /boot, and /etc directories read-only for processes invoked by this unit.
 ProtectSystem=full
+
+# Ensures that the service process and all its children can never gain new privileges
 NoNewPrivileges=true
+
+# Sets up a new /dev namespace for the executed processes and only adds API pseudo devices
+# such as /dev/null, /dev/zero or /dev/random (as well as the pseudo TTY subsystem) to it,
+# but no physical devices such as /dev/sda.
 PrivateDevices=true
 
 # Required for dropping privileges and running as a different user
