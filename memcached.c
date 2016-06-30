@@ -224,6 +224,9 @@ static void settings_init(void) {
     settings.backlog = 1024;
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
+    //settings.slab_chunk_size_max = settings.item_size_max;
+    settings.slab_chunk_size_max = 8192;
+    settings.slab_page_size = 1024 * 1024; /* chunks are split from 1MB pages. */
     settings.sasl = false;
     settings.maxconns_fast = false;
     settings.lru_crawler = false;
@@ -992,12 +995,44 @@ static void complete_nread_ascii(conn *c) {
     item *it = c->item;
     int comm = c->cmd;
     enum store_item_type ret;
+    bool is_valid = false;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
-    if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
+    if ((it->it_flags & ITEM_CHUNKED) == 0) {
+        if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
+            is_valid = true;
+        }
+    } else {
+        char buf[2];
+        /* should point to the final item chunk */
+        item_chunk *ch = (item_chunk *) c->ritem;
+        assert(ch->used != 0);
+        /* :( We need to look at the last two bytes. This could span two
+         * chunks.
+         */
+        fprintf(stderr, "CHECKING CHUNK TAIL FOR VALID DATA USED: [%d]\n", ch->used);
+        if (ch->used > 1) {
+            buf[0] = ch->data[ch->used - 2];
+            buf[1] = ch->data[ch->used - 1];
+        } else {
+            fprintf(stderr, "CHECKING CROSS BOUNDARY CHUNK TAIL\n");
+            assert(ch->prev);
+            assert(ch->used == 1);
+            buf[0] = ch->prev->data[ch->prev->used - 1];
+            buf[1] = ch->data[ch->used - 1];
+        }
+        if (strncmp(buf, "\r\n", 2) == 0) {
+            is_valid = true;
+        } else {
+            assert(1 == 0);
+        }
+    }
+
+
+    if (!is_valid) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
       ret = store_item(it, comm, c);
@@ -3389,7 +3424,8 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     }
 
     /* Can't delta zero byte values. 2-byte are the "\r\n" */
-    if (it->nbytes <= 2) {
+    /* Also can't delta for chunked items. Too large to be a number */
+    if (it->nbytes <= 2 || (it->it_flags & ITEM_CHUNKED) != 0) {
         return NON_NUMERIC;
     }
 
@@ -4249,6 +4285,67 @@ static enum transmit_result transmit(conn *c) {
     }
 }
 
+/* Does a looped read to fill data chunks */
+static int read_into_chunked_item(conn *c) {
+    int total = 0;
+    int res;
+    assert(c->rcurr != c->ritem);
+
+    while (c->rlbytes > 0) {
+        item_chunk *ch = (item_chunk *)c->ritem;
+        int unused = ch->size - ch->used;
+        /* first check if we have leftovers in the conn_read buffer */
+        if (c->rbytes > 0) {
+            total = 0;
+            int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
+            tocopy = tocopy > unused ? unused : tocopy;
+            fprintf(stderr, "READING [%d] FROM c->rbytes TOCOPY: [%d] UNUSED: [%d]\n", c->rbytes, tocopy, unused);
+            if (c->ritem != c->rcurr) {
+                memmove(ch->data + ch->used, c->rcurr, tocopy);
+            }
+            total += tocopy;
+            c->rlbytes -= tocopy;
+            c->rcurr += tocopy;
+            c->rbytes -= tocopy;
+            ch->used += tocopy;
+            if (c->rlbytes == 0) {
+                break;
+            }
+        } else {
+            /*  now try reading from the socket */
+            res = read(c->sfd, ch->data + ch->used,
+                    (unused > c->rlbytes ? c->rlbytes : unused));
+            fprintf(stderr, "READ [%d] DATA INTO A CHUNK\n", res);
+            if (res > 0) {
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.bytes_read += res;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
+                ch->used += res;
+                total += res;
+                c->rlbytes -= res;
+                break;
+            } else {
+                /* Reset total to the latest result so caller can handle it */
+                total = res;
+                break;
+            }
+        }
+
+        assert(ch->used <= ch->size);
+        if (ch->size == ch->used) {
+            fprintf(stderr, "ADVANCING TO NEXT CHUNK\n");
+            if (ch->next) {
+                c->ritem = (char *) ch->next;
+            } else {
+                /* No space left. */
+                assert(c->rlbytes == 0);
+                break;
+            }
+        }
+    }
+    return total;
+}
+
 static void drive_machine(conn *c) {
     bool stop = false;
     int sfd;
@@ -4405,39 +4502,48 @@ static void drive_machine(conn *c) {
                 conn_set_state(c, conn_closing);
                 break;
             }
-
-            /* first check if we have leftovers in the conn_read buffer */
-            if (c->rbytes > 0) {
-                int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
-                if (c->ritem != c->rcurr) {
-                    memmove(c->ritem, c->rcurr, tocopy);
+            /* FIXME: think the binprot gets here without an item set. */
+            assert(c->item);
+            if (( ((item *)c->item)->it_flags & ITEM_CHUNKED) == 0) {
+                /* first check if we have leftovers in the conn_read buffer */
+                if (c->rbytes > 0) {
+                    int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
+                    if (c->ritem != c->rcurr) {
+                        memmove(c->ritem, c->rcurr, tocopy);
+                    }
+                    c->ritem += tocopy;
+                    c->rlbytes -= tocopy;
+                    c->rcurr += tocopy;
+                    c->rbytes -= tocopy;
+                    if (c->rlbytes == 0) {
+                        break;
+                    }
                 }
-                c->ritem += tocopy;
-                c->rlbytes -= tocopy;
-                c->rcurr += tocopy;
-                c->rbytes -= tocopy;
-                if (c->rlbytes == 0) {
+
+                /*  now try reading from the socket */
+                res = read(c->sfd, c->ritem, c->rlbytes);
+                if (res > 0) {
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.bytes_read += res;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    if (c->rcurr == c->ritem) {
+                        c->rcurr += res;
+                    }
+                    c->ritem += res;
+                    c->rlbytes -= res;
                     break;
                 }
+            } else {
+                res = read_into_chunked_item(c);
+                if (res > 0)
+                    break;
             }
 
-            /*  now try reading from the socket */
-            res = read(c->sfd, c->ritem, c->rlbytes);
-            if (res > 0) {
-                pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.bytes_read += res;
-                pthread_mutex_unlock(&c->thread->stats.mutex);
-                if (c->rcurr == c->ritem) {
-                    c->rcurr += res;
-                }
-                c->ritem += res;
-                c->rlbytes -= res;
-                break;
-            }
             if (res == 0) { /* end of stream */
                 conn_set_state(c, conn_closing);
                 break;
             }
+
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
                     if (settings.verbose > 0)

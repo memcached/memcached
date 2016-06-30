@@ -216,7 +216,8 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     //assert(it != heads[id]);
 
     /* Refcount is seeded to 1 by slabs_alloc() */
-    it->next = it->prev = it->h_next = 0;
+    it->next = it->prev = 0;
+
     /* Items are initially loaded into the HOT_LRU. This is '0' but I want at
      * least a note here. Compiler (hopefully?) optimizes this out.
      */
@@ -233,13 +234,32 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     it->slabs_clsid = id;
 
     DEBUG_REFCNT(it, '*');
-    it->it_flags = settings.use_cas ? ITEM_CAS : 0;
+    it->it_flags |= settings.use_cas ? ITEM_CAS : 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
     memcpy(ITEM_key(it), key, nkey);
     it->exptime = exptime;
     memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
     it->nsuffix = nsuffix;
+
+    /* Need to shuffle the pointer stored in h_next into it->data. */
+    if (it->it_flags & ITEM_CHUNKED) {
+        fprintf(stderr, "Found an ITEM_CHUNKED item, filling header\n");
+        item_chunk *chunk = (item_chunk *) ITEM_data(it);
+
+        chunk->next = (item_chunk *) it->h_next;
+        chunk->prev = 0;
+        chunk->head = it;
+        /* Need to chain back into the head's chunk */
+        chunk->next->prev = chunk;
+        chunk->size = chunk->next->size - ((char *)chunk - (char *)it);
+        chunk->used = 0;
+        assert(chunk->size > 0);
+
+        fprintf(stderr, "CHUNK HEAD SIZE: [%d] NEXT SIZE: [%d]\n", chunk->size, chunk->next->size);
+    }
+    it->h_next = 0;
+
     return it;
 }
 

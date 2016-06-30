@@ -83,11 +83,11 @@ static void slabs_preallocate (const unsigned int maxslabs);
 unsigned int slabs_clsid(const size_t size) {
     int res = POWER_SMALLEST;
 
-    if (size == 0)
+    if (size == 0 || size > settings.item_size_max)
         return 0;
     while (size > slabclass[res].size)
         if (res++ == power_largest)     /* won't fit in the biggest slab */
-            return 0;
+            return power_largest;
     return res;
 }
 
@@ -120,7 +120,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
             if (slab_sizes[i-1] == 0)
                 break;
             size = slab_sizes[i-1];
-        } else if (size >= settings.item_size_max / factor) {
+        } else if (size >= settings.slab_chunk_size_max / factor) {
             break;
         }
         /* Make sure items are always n-byte aligned */
@@ -128,7 +128,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
             size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
 
         slabclass[i].size = size;
-        slabclass[i].perslab = settings.item_size_max / slabclass[i].size;
+        slabclass[i].perslab = settings.slab_page_size / slabclass[i].size;
         if (slab_sizes == NULL)
             size *= factor;
         if (settings.verbose > 1) {
@@ -138,8 +138,8 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
     }
 
     power_largest = i;
-    slabclass[power_largest].size = settings.item_size_max;
-    slabclass[power_largest].perslab = 1;
+    slabclass[power_largest].size = settings.slab_chunk_size_max;
+    slabclass[power_largest].perslab = settings.slab_page_size / settings.slab_chunk_size_max;
     if (settings.verbose > 1) {
         fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
                 i, slabclass[i].size, slabclass[i].perslab);
@@ -245,6 +245,65 @@ static int do_slabs_newslab(const unsigned int id) {
     return 1;
 }
 
+/* This calculation ends up adding sizeof(void *) to the item size. */
+static void *do_slabs_alloc_chunked(const size_t size, slabclass_t *p, unsigned int id) {
+    void *ret = NULL;
+    item *it = NULL;
+    int x;
+    int csize = p->size - sizeof(item_chunk);
+    unsigned int chunks_req = size / csize;
+    if (size % csize != 0)
+        chunks_req++;
+    fprintf(stderr, "LARGE ITEM [%lu] CHUNKS REQUESTED [%d]\n", size, chunks_req);
+    while (p->sl_curr < chunks_req) {
+        if (do_slabs_newslab(id) == 0)
+            break;
+    }
+
+    if (p->sl_curr >= chunks_req) {
+        item_chunk *chunk = NULL;
+
+        /* Configure the head item in the chain. */
+        it = (item *)p->slots;
+        p->slots = it->next;
+        if (it->next) it->next->prev = 0;
+
+        /* Squirrel away the "top chunk" into h_next for now */
+        it->h_next = (item *)p->slots;
+        assert(it->h_next != 0);
+        chunk = (item_chunk *) it->h_next;
+
+        /* roll down the chunks, marking them as such. */
+        for (x = 0; x < chunks_req-1; x++) {
+            chunk->it_flags &= ~ITEM_SLABBED;
+            chunk->it_flags &= ITEM_CHUNK;
+            /* Chunks always have a direct reference to the head item */
+            chunk->head = it;
+            chunk->size = p->size - sizeof(item_chunk);
+            chunk->used = 0;
+            chunk = chunk->next;
+        }
+
+        /* The final "next" is now the top of the slab freelist */
+        p->slots = chunk;
+        if (chunk && chunk->prev) {
+            /* Disconnect the final chunk from the chain */
+            chunk->prev->next = 0;
+            chunk->prev = 0;
+        }
+
+        it->it_flags &= ~ITEM_SLABBED;
+        it->it_flags |= ITEM_CHUNKED;
+        it->refcount = 1;
+        p->sl_curr -= chunks_req;
+        ret = (void *)it;
+    } else {
+        ret = NULL;
+    }
+
+    return ret;
+}
+
 /*@null@*/
 static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *total_chunks,
         unsigned int flags) {
@@ -258,29 +317,34 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *to
     }
     p = &slabclass[id];
     assert(p->sl_curr == 0 || ((item *)p->slots)->slabs_clsid == 0);
-
     if (total_chunks != NULL) {
         *total_chunks = p->slabs * p->perslab;
     }
-    /* fail unless we have space at the end of a recently allocated page,
-       we have something on our freelist, or we could allocate a new page */
-    if (p->sl_curr == 0 && flags != SLABS_ALLOC_NO_NEWPAGE) {
-        do_slabs_newslab(id);
-    }
 
-    if (p->sl_curr != 0) {
-        /* return off our freelist */
-        it = (item *)p->slots;
-        p->slots = it->next;
-        if (it->next) it->next->prev = 0;
-        /* Kill flag and initialize refcount here for lock safety in slab
-         * mover's freeness detection. */
-        it->it_flags &= ~ITEM_SLABBED;
-        it->refcount = 1;
-        p->sl_curr--;
-        ret = (void *)it;
+    if (size <= p->size) {
+        /* fail unless we have space at the end of a recently allocated page,
+           we have something on our freelist, or we could allocate a new page */
+        if (p->sl_curr == 0 && flags != SLABS_ALLOC_NO_NEWPAGE) {
+            do_slabs_newslab(id);
+        }
+
+        if (p->sl_curr != 0) {
+            /* return off our freelist */
+            it = (item *)p->slots;
+            p->slots = it->next;
+            if (it->next) it->next->prev = 0;
+            /* Kill flag and initialize refcount here for lock safety in slab
+             * mover's freeness detection. */
+            it->it_flags &= ~ITEM_SLABBED;
+            it->refcount = 1;
+            p->sl_curr--;
+            ret = (void *)it;
+        } else {
+            ret = NULL;
+        }
     } else {
-        ret = NULL;
+        /* Dealing with a chunked item. */
+        ret = do_slabs_alloc_chunked(size, p, id);
     }
 
     if (ret) {
@@ -292,6 +356,46 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, unsigned int *to
 
     return ret;
 }
+
+static void do_slabs_free_chunked(item *it, const size_t size, unsigned int id,
+                                  slabclass_t *p) {
+    item_chunk *chunk = (item_chunk *) ITEM_data(it);
+    int x;
+    size_t realsize = size;
+    while (chunk) {
+        realsize += sizeof(item_chunk);
+        chunk = chunk->next;
+    }
+    chunk = (item_chunk *) ITEM_data(it);
+    fprintf(stderr, "FREEING CHUNKED ITEM INTO SLABS: SIZE: [%lu] REALSIZE: [%lu]\n", size, realsize);
+    unsigned int chunks_req = realsize / p->size;
+    if (realsize % p->size != 0)
+        chunks_req++;
+
+    it->it_flags = ITEM_SLABBED;
+    it->slabs_clsid = 0;
+    it->prev = 0;
+    it->next = (item *) chunk->next;
+    assert(it->next);
+    /* top chunk should already point back to head */
+    assert(it->next && (void*)it->next->prev == (void*)chunk);
+    chunk = chunk->next;
+    chunk->prev = (item_chunk *)it;
+
+    for (x = 0; x < chunks_req-1; x++) {
+        chunk->it_flags = ITEM_SLABBED;
+        chunk = chunk->next;
+    }
+    /* must have had nothing hanging off of the final chunk */
+    assert(chunk == 0);
+
+    p->slots = it;
+    p->sl_curr += chunks_req;
+    p->requested -= size;
+
+    return;
+}
+
 
 static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
@@ -305,15 +409,19 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     p = &slabclass[id];
 
     it = (item *)ptr;
-    it->it_flags = ITEM_SLABBED;
-    it->slabs_clsid = 0;
-    it->prev = 0;
-    it->next = p->slots;
-    if (it->next) it->next->prev = it;
-    p->slots = it;
+    if ((it->it_flags & ITEM_CHUNKED) == 0) {
+        it->it_flags = ITEM_SLABBED;
+        it->slabs_clsid = 0;
+        it->prev = 0;
+        it->next = p->slots;
+        if (it->next) it->next->prev = it;
+        p->slots = it;
 
-    p->sl_curr++;
-    p->requested -= size;
+        p->sl_curr++;
+        p->requested -= size;
+    } else {
+        do_slabs_free_chunked(it, size, id, p);
+    }
     return;
 }
 

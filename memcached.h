@@ -345,7 +345,9 @@ struct settings {
     bool use_cas;
     enum protocol binding_protocol;
     int backlog;
-    int item_size_max;        /* Maximum item size, and upper end for slabs */
+    int item_size_max;        /* Maximum item size */
+    int slab_chunk_size_max;  /* Upper end for chunks within slab pages. */
+    int slab_page_size;     /* Slab's page units. */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
     bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
@@ -383,6 +385,9 @@ extern struct settings settings;
 #define ITEM_FETCHED 8
 /* Appended on fetch, removed on LRU shuffling */
 #define ITEM_ACTIVE 16
+/* If an item's storage are chained chunks. */
+#define ITEM_CHUNKED 32
+#define ITEM_CHUNK 64
 
 /**
  * Structure for storing items within memcached.
@@ -427,6 +432,20 @@ typedef struct {
     uint8_t         nkey;       /* key length, w/terminating null and padding */
     uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
 } crawler;
+
+/* Header when an item is actually a chunk of another item. */
+typedef struct _strchunk {
+    struct _strchunk *next;     /* points within its own chain. */
+    struct _strchunk *prev;     /* can potentially point to the head. */
+    struct _stritem  *head;     /* always points to the owner chunk */
+    int              size;      /* available chunk space in bytes */
+    int              used;      /* chunk space used */
+    int              nbytes;    /* used. */
+    unsigned short   refcount;  /* used? */
+    uint8_t          nsuffix;   /* unused */
+    uint8_t          it_flags;  /* ITEM_* above. */
+    char data[];
+} item_chunk;
 
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
