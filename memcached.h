@@ -444,6 +444,7 @@ typedef struct _strchunk {
     unsigned short   refcount;  /* used? */
     uint8_t          nsuffix;   /* unused */
     uint8_t          it_flags;  /* ITEM_* above. */
+    uint8_t          slabs_clsid; /* Same as above. */
     char data[];
 } item_chunk;
 

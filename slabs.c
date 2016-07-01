@@ -367,10 +367,10 @@ static void do_slabs_free_chunked(item *it, const size_t size, unsigned int id,
         chunk = chunk->next;
     }
     chunk = (item_chunk *) ITEM_data(it);
-    fprintf(stderr, "FREEING CHUNKED ITEM INTO SLABS: SIZE: [%lu] REALSIZE: [%lu]\n", size, realsize);
     unsigned int chunks_req = realsize / p->size;
     if (realsize % p->size != 0)
         chunks_req++;
+    fprintf(stderr, "FREEING CHUNKED ITEM INTO SLABS: SIZE: [%lu] REALSIZE: [%lu] CHUNKS_REQ: [%d]\n", size, realsize, chunks_req);
 
     it->it_flags = ITEM_SLABBED;
     it->slabs_clsid = 0;
@@ -384,10 +384,15 @@ static void do_slabs_free_chunked(item *it, const size_t size, unsigned int id,
 
     for (x = 0; x < chunks_req-1; x++) {
         chunk->it_flags = ITEM_SLABBED;
-        chunk = chunk->next;
+        chunk->slabs_clsid = 0;
+        if (chunk->next)
+            chunk = chunk->next;
     }
     /* must have had nothing hanging off of the final chunk */
-    assert(chunk == 0);
+    assert(chunk && chunk->next == 0);
+    /* Tail chunk, link the freelist here. */
+    chunk->next = p->slots;
+    if (chunk->next) chunk->next->prev = chunk;
 
     p->slots = it;
     p->sl_curr += chunks_req;
