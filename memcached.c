@@ -2960,7 +2960,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
             return;
         }
 
-        if (id >= MAX_NUMBER_OF_SLAB_CLASSES-1) {
+        if (id >= MAX_NUMBER_OF_SLAB_CLASSES) {
             out_string(c, "CLIENT_ERROR Illegal slab id");
             return;
         }
