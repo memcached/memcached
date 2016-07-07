@@ -9,19 +9,18 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached('-m 48');
+my $server = new_memcached('-m 48 -o slab_chunk_max=16384');
 my $sock = $server->sock;
 
 # We're testing to ensure item chaining doesn't corrupt or poorly overlap
 # data, so create a non-repeating pattern.
 my @parts = ();
-for (1 .. 4000) {
+for (1 .. 8000) {
     push(@parts, $_);
 }
 my $pattern = join(':', @parts);
 
 my $plen = length($pattern);
-print STDERR "PATTERN LENGTH: $plen\n";
 
 print $sock "set pattern 0 0 $plen\r\n$pattern\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored pattern successfully");
@@ -48,6 +47,17 @@ for (1..5) {
         print $sock "set toast$_ 0 0 $biglen\r\n$big\r\n";
         is(scalar <$sock>, "STORED\r\n", "stored big");
         mem_get_is($sock, "toast$_", $big);
+    }
+}
+
+# Test a wide range of sets.
+{
+    my $len = 1024 * 200;
+    while ($len < 1024 * 1024) {
+        my $val = "B" x $len;
+        print $sock "set foo_$len 0 0 $len\r\n$val\r\n";
+        is(scalar <$sock>, "STORED\r\n", "stored size $len");
+        $len += 2048;
     }
 }
 

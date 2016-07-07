@@ -254,7 +254,7 @@ static void *do_slabs_alloc_chunked(const size_t size, slabclass_t *p, unsigned 
     unsigned int chunks_req = size / csize;
     if (size % csize != 0)
         chunks_req++;
-    fprintf(stderr, "LARGE ITEM [%lu] CHUNKS REQUESTED [%d]\n", size, chunks_req);
+    //fprintf(stderr, "LARGE ITEM [%lu] CHUNKS REQUESTED [%d]\n", size, chunks_req);
     while (p->sl_curr < chunks_req) {
         if (do_slabs_newslab(id) == 0)
             break;
@@ -370,7 +370,7 @@ static void do_slabs_free_chunked(item *it, const size_t size, unsigned int id,
     unsigned int chunks_req = realsize / p->size;
     if (realsize % p->size != 0)
         chunks_req++;
-    fprintf(stderr, "FREEING CHUNKED ITEM INTO SLABS: SIZE: [%lu] REALSIZE: [%lu] CHUNKS_REQ: [%d]\n", size, realsize, chunks_req);
+    //fprintf(stderr, "FREEING CHUNKED ITEM INTO SLABS: SIZE: [%lu] REALSIZE: [%lu] CHUNKS_REQ: [%d]\n", size, realsize, chunks_req);
 
     it->it_flags = ITEM_SLABBED;
     it->slabs_clsid = 0;

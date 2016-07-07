@@ -225,8 +225,7 @@ static void settings_init(void) {
     settings.backlog = 1024;
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
-    //settings.slab_chunk_size_max = settings.item_size_max;
-    settings.slab_chunk_size_max = 8192;
+    settings.slab_chunk_size_max = settings.item_size_max;
     settings.slab_page_size = 1024 * 1024; /* chunks are split from 1MB pages. */
     settings.sasl = false;
     settings.maxconns_fast = false;
@@ -1028,12 +1027,12 @@ static void complete_nread_ascii(conn *c) {
         /* :( We need to look at the last two bytes. This could span two
          * chunks.
          */
-        fprintf(stderr, "CHECKING CHUNK TAIL FOR VALID DATA USED: [%d]\n", ch->used);
+        //fprintf(stderr, "CHECKING CHUNK TAIL FOR VALID DATA USED: [%d]\n", ch->used);
         if (ch->used > 1) {
             buf[0] = ch->data[ch->used - 2];
             buf[1] = ch->data[ch->used - 1];
         } else {
-            fprintf(stderr, "CHECKING CROSS BOUNDARY CHUNK TAIL\n");
+            //fprintf(stderr, "CHECKING CROSS BOUNDARY CHUNK TAIL\n");
             assert(ch->prev);
             assert(ch->used == 1);
             buf[0] = ch->prev->data[ch->prev->used - 1];
@@ -1365,7 +1364,7 @@ static void complete_update_bin(conn *c) {
     } else {
         assert(c->ritem);
         item_chunk *ch = (item_chunk *) c->ritem;
-        fprintf(stderr, "BINPROT: WRITING DELIMITER INTO CHUNK TAIL\n");
+        //fprintf(stderr, "BINPROT: WRITING DELIMITER INTO CHUNK TAIL\n");
         if (ch->used > 1) {
             ch->data[ch->used - 2] = '\r';
             ch->data[ch->used - 1] = '\n';
@@ -5254,6 +5253,7 @@ static void usage(void) {
            "              - expirezero_does_not_evict: Items set to not expire, will not evict.\n"
            "                (requires lru_maintainer)\n"
            "              - idle_timeout: Timeout for idle connections\n"
+           "              - slab_chunk_max: Maximum slab size. Do not change without extreme care.\n"
            "              - watcher_logbuf_size: Size in kilobytes of per-watcher write buffer.\n"
            "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
            "                read by background thread. Which is then written to watchers.\n"
@@ -5478,7 +5478,7 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
          p != NULL;
          p = strtok_r(NULL, "-", &b)) {
         if (!safe_strtoul(p, &size) || size < settings.chunk_size
-             || size > settings.item_size_max) {
+             || size > settings.slab_chunk_size_max) {
             fprintf(stderr, "slab size %u is out of valid range\n", size);
             return false;
         }
@@ -5531,6 +5531,8 @@ int main (int argc, char **argv) {
     uint32_t tocrawl;
     uint32_t slab_sizes[MAX_NUMBER_OF_SLAB_CLASSES];
     bool use_slab_sizes = false;
+    char *slab_sizes_unparsed = NULL;
+    bool slab_chunk_size_changed = false;
 
     char *subopts, *subopts_orig;
     char *subopts_value;
@@ -5552,6 +5554,7 @@ int main (int argc, char **argv) {
         WATCHER_LOGBUF_SIZE,
         WORKER_LOGBUF_SIZE,
         SLAB_SIZES,
+        SLAB_CHUNK_MAX,
         TRACK_SIZES,
         MODERN
     };
@@ -5573,6 +5576,7 @@ int main (int argc, char **argv) {
         [WATCHER_LOGBUF_SIZE] = "watcher_logbuf_size",
         [WORKER_LOGBUF_SIZE] = "worker_logbuf_size",
         [SLAB_SIZES] = "slab_sizes",
+        [SLAB_CHUNK_MAX] = "slab_chunk_max",
         [TRACK_SIZES] = "track_sizes",
         [MODERN] = "modern",
         NULL
@@ -5803,16 +5807,14 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
                 return 1;
             }
-            if (settings.item_size_max > 1024 * 1024 * 128) {
-                fprintf(stderr, "Cannot set item size limit higher than 128 mb.\n");
+            if (settings.item_size_max > (settings.maxbytes / 4)) {
+                fprintf(stderr, "Cannot set item size limit higher than 1/4 of memory max.\n");
                 return 1;
             }
             if (settings.item_size_max > 1024 * 1024) {
-                fprintf(stderr, "WARNING: Setting item max size above 1MB is not"
-                    " recommended!\n"
-                    " Raising this limit increases the minimum memory requirements\n"
-                    " and will decrease your memory efficiency.\n"
-                );
+                if (!slab_chunk_size_changed) {
+                    settings.slab_chunk_size_max = 16384;
+                }
             }
             break;
         case 'S': /* set Sasl authentication to true. Default is false */
@@ -5968,11 +5970,16 @@ int main (int argc, char **argv) {
                 }
                 settings.logger_buf_size *= 1024; /* kilobytes */
             case SLAB_SIZES:
-                if (_parse_slab_sizes(subopts_value, slab_sizes)) {
-                    use_slab_sizes = true;
-                } else {
-                    return 1;
+                slab_sizes_unparsed = subopts_value;
+                break;
+            case SLAB_CHUNK_MAX:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing slab_chunk_max argument\n");
                 }
+                if (!safe_strtol(subopts_value, &settings.slab_chunk_size_max)) {
+                    fprintf(stderr, "could not parse argument to slab_chunk_max\n");
+                }
+                slab_chunk_size_changed = true;
                 break;
             case TRACK_SIZES:
                 item_stats_sizes_init();
@@ -5980,6 +5987,8 @@ int main (int argc, char **argv) {
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags
                  * before making truly default. */
+                settings.slab_chunk_size_max = 16384;
+                settings.factor = 1.08;
                 settings.slab_reassign = true;
                 settings.slab_automove = 1;
                 settings.maxconns_fast = true;
@@ -5998,6 +6007,32 @@ int main (int argc, char **argv) {
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
+        }
+    }
+
+    if (settings.slab_chunk_size_max > settings.item_size_max) {
+        fprintf(stderr, "slab_chunk_max (bytes: %d) cannot be larger than -I (item_size_max %d)\n",
+                settings.slab_chunk_size_max, settings.item_size_max);
+        exit(EX_USAGE);
+    }
+
+    if (settings.item_size_max % settings.slab_chunk_size_max != 0) {
+        fprintf(stderr, "-I (item_size_max: %d) must be evenly divisible by slab_chunk_max (bytes: %d)\n",
+                settings.item_size_max, settings.slab_chunk_size_max);
+        exit(EX_USAGE);
+    }
+
+    if (settings.slab_page_size % settings.slab_chunk_size_max != 0) {
+        fprintf(stderr, "slab_chunk_max (bytes: %d) must divide evenly into %d (slab_page_size)\n",
+                settings.slab_chunk_size_max, settings.slab_page_size);
+        exit(EX_USAGE);
+    }
+
+    if (slab_sizes_unparsed != NULL) {
+        if (_parse_slab_sizes(subopts_value, slab_sizes)) {
+            use_slab_sizes = true;
+        } else {
+            exit(EX_USAGE);
         }
     }
 

@@ -178,7 +178,15 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
      * occasional OOM's, rather than internally work around them.
      * This also gives one fewer code path for slab alloc/free
      */
-    for (i = 0; i < 5; i++) {
+    /* FIXME: if power_largest, try a lot more times? or a number of times
+     * based on how many chunks the new object should take up?
+     * or based on the size of an object lru_pull_tail() says it evicted?
+     * This is a classical GC problem if "large items" are of too varying of
+     * sizes. This is actually okay here since the larger the data, the more
+     * bandwidth it takes, the more time we can loop in comparison to serving
+     * and replacing small items.
+     */
+    for (i = 0; i < 10; i++) {
         /* Try to reclaim memory first */
         if (!settings.lru_maintainer_thread) {
             lru_pull_tail(id, COLD_LRU, 0, false, cur_hv);
@@ -190,9 +198,11 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
             if (settings.lru_maintainer_thread) {
                 lru_pull_tail(id, HOT_LRU, total_chunks, false, cur_hv);
                 lru_pull_tail(id, WARM_LRU, total_chunks, false, cur_hv);
-                lru_pull_tail(id, COLD_LRU, total_chunks, true, cur_hv);
+                if (lru_pull_tail(id, COLD_LRU, total_chunks, true, cur_hv) <= 0)
+                    break;
             } else {
-                lru_pull_tail(id, COLD_LRU, 0, true, cur_hv);
+                if (lru_pull_tail(id, COLD_LRU, 0, true, cur_hv) <= 0)
+                    break;
             }
         } else {
             break;
@@ -244,7 +254,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
 
     /* Need to shuffle the pointer stored in h_next into it->data. */
     if (it->it_flags & ITEM_CHUNKED) {
-        fprintf(stderr, "Found an ITEM_CHUNKED item, filling header\n");
+        //fprintf(stderr, "FOUND ITEM_CHUNKED item, filling header\n");
         item_chunk *chunk = (item_chunk *) ITEM_data(it);
 
         chunk->next = (item_chunk *) it->h_next;
@@ -256,7 +266,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         chunk->used = 0;
         assert(chunk->size > 0);
 
-        fprintf(stderr, "CHUNK HEAD SIZE: [%d] NEXT SIZE: [%d]\n", chunk->size, chunk->next->size);
+        //fprintf(stderr, "CHUNK HEAD SIZE: [%d] NEXT SIZE: [%d]\n", chunk->size, chunk->next->size);
     }
     it->h_next = 0;
 
