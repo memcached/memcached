@@ -1364,14 +1364,19 @@ static void complete_update_bin(conn *c) {
     } else {
         assert(c->ritem);
         item_chunk *ch = (item_chunk *) c->ritem;
+        if (ch->size == ch->used)
+            ch = ch->next;
         //fprintf(stderr, "BINPROT: WRITING DELIMITER INTO CHUNK TAIL\n");
-        if (ch->used > 1) {
-            ch->data[ch->used - 2] = '\r';
-            ch->data[ch->used - 1] = '\n';
+        if (ch->size - ch->used > 1) {
+            ch->data[ch->used + 1] = '\r';
+            ch->data[ch->used + 2] = '\n';
+            ch->used += 2;
         } else {
-            assert(ch->used == 1);
-            ch->prev->data[ch->prev->used - 1] = '\r';
-            ch->data[ch->used - 1] = '\n';
+            ch->data[ch->used + 1] = '\r';
+            ch->next->data[0] = '\n';
+            ch->used++;
+            ch->next->used++;
+            assert(ch->size == ch->used);
         }
     }
 
