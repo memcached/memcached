@@ -2473,6 +2473,79 @@ static void complete_nread(conn *c) {
     }
 }
 
+/* Destination must always be chunked */
+/* This should be part of item.c */
+static void _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
+    item_chunk *dch = (item_chunk *) ITEM_data(d_it);
+    /* Advance dch until we find free space */
+    while (dch->size == dch->used) {
+        dch = dch->next;
+    }
+
+    if (s_it->it_flags & ITEM_CHUNKED) {
+        int remain = len;
+        item_chunk *sch = (item_chunk *) ITEM_data(s_it);
+        int copied = 0;
+        while (sch && dch && remain) {
+            assert(dch->used <= dch->size);
+            int todo = (dch->size - dch->used < sch->used - copied)
+                ? dch->size - dch->used : sch->used - copied;
+            if (remain < todo)
+                todo = remain;
+            memcpy(dch->data + dch->used, sch->data + copied, todo);
+            dch->used += todo;
+            copied += todo;
+            remain -= todo;
+            assert(dch->used <= dch->size);
+            if (dch->size == dch->used) {
+                dch = dch->next;
+            }
+            assert(copied <= sch->used);
+            if (copied == sch->used) {
+                copied = 0;
+                sch = sch->next;
+            }
+        }
+        /* assert that the destination had enough space for the source */
+        assert(remain == 0);
+    } else {
+        int done = 0;
+        while (len > done && dch) {
+            int todo = (dch->size - dch->used < len - done)
+                ? dch->size - dch->used : len - done;
+            assert(dch->size - dch->used != 0);
+            memcpy(dch->data + dch->used, ITEM_data(s_it) + done, todo);
+            done += todo;
+            dch->used += todo;
+            assert(dch->used <= dch->size);
+            if (dch->size == dch->used)
+                dch = dch->next;
+        }
+        assert(len == done);
+    }
+}
+
+static void _store_item_copy_data(int comm, item *old_it, item *new_it, item *add_it) {
+    if (comm == NREAD_APPEND) {
+        if (new_it->it_flags & ITEM_CHUNKED) {
+            _store_item_copy_chunks(new_it, old_it, old_it->nbytes - 2);
+            _store_item_copy_chunks(new_it, add_it, add_it->nbytes);
+        } else {
+            memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
+            memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(add_it), add_it->nbytes);
+        }
+    } else {
+        /* NREAD_PREPEND */
+        if (new_it->it_flags & ITEM_CHUNKED) {
+            _store_item_copy_chunks(new_it, add_it, add_it->nbytes - 2);
+            _store_item_copy_chunks(new_it, old_it, old_it->nbytes);
+        } else {
+            memcpy(ITEM_data(new_it), ITEM_data(add_it), add_it->nbytes);
+            memcpy(ITEM_data(new_it) + add_it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
+        }
+    }
+}
+
 /*
  * Stores an item in the cache according to the semantics of one of the set
  * commands. In threaded mode, this is protected by the cache lock.
@@ -2555,15 +2628,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                     stored = NOT_STORED;
                 } else {
                     /* copy data from it and old_it to new_it */
-
-                    if (comm == NREAD_APPEND) {
-                        memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
-                        memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(it), it->nbytes);
-                    } else {
-                        /* NREAD_PREPEND */
-                        memcpy(ITEM_data(new_it), ITEM_data(it), it->nbytes);
-                        memcpy(ITEM_data(new_it) + it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
-                    }
+                    _store_item_copy_data(comm, old_it, new_it, it);
 
                     it = new_it;
                 }

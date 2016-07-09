@@ -61,4 +61,51 @@ for (1..5) {
     }
 }
 
+# Test long appends and prepends.
+{
+    my $str = 'seedstring';
+    my $len = length($str);
+    print $sock "set appender 0 0 $len\r\n$str\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored seed string for append");
+    for my $part (@parts) {
+        # reduce required loops but still have a pattern.
+        $part .= "x" x 10;
+        $str .= $part;
+        my $len = length($part);
+        print $sock "append appender 0 0 $len\r\n$part\r\n";
+        is(scalar <$sock>, "STORED\r\n", "appened $part size $len");
+        mem_get_is($sock, "appender", $str);
+    }
+    # Now test appending a chunked item to a chunked item.
+    $len = length($str);
+    print $sock "append appender 0 0 $len\r\n$str\r\n";
+    is(scalar <$sock>, "STORED\r\n", "append large string size $len");
+    mem_get_is($sock, "appender", $str . $str);
+    print $sock "delete appender\r\n";
+    is(scalar <$sock>, "DELETED\r\n", "removed appender key");
+}
+
+{
+    my $str = 'seedstring';
+    my $len = length($str);
+    print $sock "set prepender 0 0 $len\r\n$str\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored seed string for append");
+    for my $part (@parts) {
+        # reduce required loops but still have a pattern.
+        $part .= "x" x 10;
+        $str = $part . $str;
+        my $len = length($part);
+        print $sock "prepend prepender 0 0 $len\r\n$part\r\n";
+        is(scalar <$sock>, "STORED\r\n", "prepend $part size $len");
+        mem_get_is($sock, "prepender", $str);
+    }
+    # Now test appending a chunked item to a chunked item.
+    $len = length($str);
+    print $sock "prepend prepender 0 0 $len\r\n$str\r\n";
+    is(scalar <$sock>, "STORED\r\n", "prepend large string size $len");
+    mem_get_is($sock, "prepender", $str . $str);
+    print $sock "delete prepender\r\n";
+    is(scalar <$sock>, "DELETED\r\n", "removed prepender key");
+}
+
 done_testing();
