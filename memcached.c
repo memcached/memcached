@@ -1868,7 +1868,8 @@ static void process_bin_sasl_auth(conn *c) {
 
     item *it = item_alloc(key, nkey, 0, 0, vlen);
 
-    if (it == 0) {
+    /* Can't use a chunked item for SASL authentication. */
+    if (it == 0 || (it->it_flags & ITEM_CHUNKED)) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, NULL, vlen);
         c->write_and_go = conn_swallow;
         return;
