@@ -2149,6 +2149,8 @@ static void process_bin_update(conn *c) {
             status = TOO_LARGE;
         } else {
             out_of_memory(c, "SERVER_ERROR Out of memory allocating item");
+            /* This error generating method eats the swallow value. Add here. */
+            c->sbytes = vlen;
             status = NO_MEMORY;
         }
         /* FIXME: losing c->cmd since it's translated below. refactor? */
@@ -2224,6 +2226,8 @@ static void process_bin_append_prepend(conn *c) {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_E2BIG, NULL, vlen);
         } else {
             out_of_memory(c, "SERVER_ERROR Out of memory allocating item");
+            /* OOM calls eat the swallow value. Add here. */
+            c->sbytes = vlen;
         }
         /* swallow the data line */
         c->write_and_go = conn_swallow;
