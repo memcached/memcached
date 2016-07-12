@@ -885,7 +885,6 @@ static int add_chunked_item_iovs(conn *c, item *it, int len) {
     item_chunk *ch = (item_chunk *) ITEM_data(it);
     while (ch) {
         int todo = (len > ch->used) ? ch->used : len;
-        //fprintf(stderr, "ADDING AN IOV CHUNK FOR RESPONSE\n");
         if (add_iov(c, ch->data, todo) != 0) {
             return -1;
         }
@@ -1027,12 +1026,10 @@ static void complete_nread_ascii(conn *c) {
         /* :( We need to look at the last two bytes. This could span two
          * chunks.
          */
-        //fprintf(stderr, "CHECKING CHUNK TAIL FOR VALID DATA USED: [%d]\n", ch->used);
         if (ch->used > 1) {
             buf[0] = ch->data[ch->used - 2];
             buf[1] = ch->data[ch->used - 1];
         } else {
-            //fprintf(stderr, "CHECKING CROSS BOUNDARY CHUNK TAIL\n");
             assert(ch->prev);
             assert(ch->used == 1);
             buf[0] = ch->prev->data[ch->prev->used - 1];
@@ -1044,7 +1041,6 @@ static void complete_nread_ascii(conn *c) {
             assert(1 == 0);
         }
     }
-
 
     if (!is_valid) {
         out_string(c, "CLIENT_ERROR bad data chunk");
@@ -1366,7 +1362,6 @@ static void complete_update_bin(conn *c) {
         item_chunk *ch = (item_chunk *) c->ritem;
         if (ch->size == ch->used)
             ch = ch->next;
-        //fprintf(stderr, "BINPROT: WRITING DELIMITER INTO CHUNK TAIL\n");
         if (ch->size - ch->used > 1) {
             ch->data[ch->used + 1] = '\r';
             ch->data[ch->used + 2] = '\n';
@@ -2491,6 +2486,9 @@ static void _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
         int remain = len;
         item_chunk *sch = (item_chunk *) ITEM_data(s_it);
         int copied = 0;
+        /* Fills dch's to capacity, not straight copy sch in case data is
+         * being added or removed (ie append/prepend)
+         */
         while (sch && dch && remain) {
             assert(dch->used <= dch->size);
             int todo = (dch->size - dch->used < sch->used - copied)
@@ -2515,6 +2513,7 @@ static void _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
         assert(remain == 0);
     } else {
         int done = 0;
+        /* Fill dch's via a non-chunked item. */
         while (len > done && dch) {
             int todo = (dch->size - dch->used < len - done)
                 ? dch->size - dch->used : len - done;
@@ -2885,6 +2884,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("hash_is_expanding", "%u", stats_state.hash_is_expanding);
     if (settings.slab_reassign) {
         APPEND_STAT("slab_reassign_rescues", "%llu", stats.slab_reassign_rescues);
+        APPEND_STAT("slab_reassign_chunk_rescues", "%llu", stats.slab_reassign_chunk_rescues);
         APPEND_STAT("slab_reassign_evictions_nomem", "%llu", stats.slab_reassign_evictions_nomem);
         APPEND_STAT("slab_reassign_inline_reclaim", "%llu", stats.slab_reassign_inline_reclaim);
         APPEND_STAT("slab_reassign_busy_items", "%llu", stats.slab_reassign_busy_items);
@@ -4405,7 +4405,9 @@ static enum transmit_result transmit(conn *c) {
 }
 
 /* Does a looped read to fill data chunks */
-/* FIXME: restrict number of times this can loop? */
+/* TODO: restrict number of times this can loop.
+ * Also, benchmark using readv's.
+ */
 static int read_into_chunked_item(conn *c) {
     int total = 0;
     int res;
@@ -4419,7 +4421,6 @@ static int read_into_chunked_item(conn *c) {
             total = 0;
             int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
             tocopy = tocopy > unused ? unused : tocopy;
-            //fprintf(stderr, "COPYING [%d] FROM c->rbytes TOCOPY: [%d] UNUSED: [%d]\n", c->rbytes, tocopy, unused);
             if (c->ritem != c->rcurr) {
                 memmove(ch->data + ch->used, c->rcurr, tocopy);
             }
@@ -4435,7 +4436,6 @@ static int read_into_chunked_item(conn *c) {
             /*  now try reading from the socket */
             res = read(c->sfd, ch->data + ch->used,
                     (unused > c->rlbytes ? c->rlbytes : unused));
-            //fprintf(stderr, "READ [%d] DATA INTO A CHUNK\n", res);
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -4443,7 +4443,6 @@ static int read_into_chunked_item(conn *c) {
                 ch->used += res;
                 total += res;
                 c->rlbytes -= res;
-                //break;
             } else {
                 /* Reset total to the latest result so caller can handle it */
                 total = res;
@@ -4453,7 +4452,6 @@ static int read_into_chunked_item(conn *c) {
 
         assert(ch->used <= ch->size);
         if (ch->size == ch->used) {
-            //fprintf(stderr, "ADVANCING TO NEXT CHUNK\n");
             if (ch->next) {
                 c->ritem = (char *) ch->next;
             } else {
@@ -4654,7 +4652,6 @@ static void drive_machine(conn *c) {
                 }
             } else {
                 res = read_into_chunked_item(c);
-                //fprintf(stderr, "GOT %d RES FROM READ_INTO_CHUNKED_ITEM\n", res);
                 if (res > 0)
                     break;
             }

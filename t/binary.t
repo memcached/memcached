@@ -121,7 +121,7 @@ $empty->('x');
 $empty->('y');
 
 {
-    # diag "Same chunked item tests";
+    # diag "Some chunked item tests";
     my $s2 = new_memcached('-o slab_chunk_max=4096');
     ok($s2, "started the server");
     my $m2 = MC::Client->new($s2);

@@ -61,6 +61,7 @@ static item *tails[LARGEST_ID];
 static crawler crawlers[LARGEST_ID];
 static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
+static uint64_t sizes_bytes[LARGEST_ID];
 static unsigned int *stats_sizes_hist = NULL;
 static uint64_t stats_sizes_cas_min = 0;
 static int stats_sizes_buckets = 0;
@@ -89,7 +90,7 @@ void item_stats_reset(void) {
 }
 
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv);
+        const uint64_t total_bytes, const bool do_evict, const uint32_t cur_hv);
 static int lru_crawler_start(uint32_t id, uint32_t remaining);
 
 /* Get the next CAS id for a new item. */
@@ -120,7 +121,7 @@ static unsigned int noexp_lru_size(int slabs_clsid) {
     id |= NOEXP_LRU;
     unsigned int ret;
     pthread_mutex_lock(&lru_locks[id]);
-    ret = sizes[id];
+    ret = sizes_bytes[id];
     pthread_mutex_unlock(&lru_locks[id]);
     return ret;
 }
@@ -162,7 +163,6 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     uint8_t nsuffix;
     item *it = NULL;
     char suffix[40];
-    unsigned int total_chunks;
     size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
     if (settings.use_cas) {
         ntotal += sizeof(uint64_t);
@@ -178,7 +178,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
      * occasional OOM's, rather than internally work around them.
      * This also gives one fewer code path for slab alloc/free
      */
-    /* FIXME: if power_largest, try a lot more times? or a number of times
+    /* TODO: if power_largest, try a lot more times? or a number of times
      * based on how many chunks the new object should take up?
      * or based on the size of an object lru_pull_tail() says it evicted?
      * This is a classical GC problem if "large items" are of too varying of
@@ -187,18 +187,21 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
      * and replacing small items.
      */
     for (i = 0; i < 10; i++) {
+        uint64_t total_bytes;
         /* Try to reclaim memory first */
         if (!settings.lru_maintainer_thread) {
             lru_pull_tail(id, COLD_LRU, 0, false, cur_hv);
         }
-        it = slabs_alloc(ntotal, id, &total_chunks, 0);
+        it = slabs_alloc(ntotal, id, &total_bytes, 0);
+
         if (settings.expirezero_does_not_evict)
-            total_chunks -= noexp_lru_size(id);
+            total_bytes -= noexp_lru_size(id);
+
         if (it == NULL) {
             if (settings.lru_maintainer_thread) {
-                lru_pull_tail(id, HOT_LRU, total_chunks, false, cur_hv);
-                lru_pull_tail(id, WARM_LRU, total_chunks, false, cur_hv);
-                if (lru_pull_tail(id, COLD_LRU, total_chunks, true, cur_hv) <= 0)
+                lru_pull_tail(id, HOT_LRU, total_bytes, false, cur_hv);
+                lru_pull_tail(id, WARM_LRU, total_bytes, false, cur_hv);
+                if (lru_pull_tail(id, COLD_LRU, total_bytes, true, cur_hv) <= 0)
                     break;
             } else {
                 if (lru_pull_tail(id, COLD_LRU, 0, true, cur_hv) <= 0)
@@ -254,7 +257,6 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
 
     /* Need to shuffle the pointer stored in h_next into it->data. */
     if (it->it_flags & ITEM_CHUNKED) {
-        //fprintf(stderr, "FOUND ITEM_CHUNKED item, filling header\n");
         item_chunk *chunk = (item_chunk *) ITEM_data(it);
 
         chunk->next = (item_chunk *) it->h_next;
@@ -265,8 +267,6 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         chunk->size = chunk->next->size - ((char *)chunk - (char *)it);
         chunk->used = 0;
         assert(chunk->size > 0);
-
-        //fprintf(stderr, "CHUNK HEAD SIZE: [%d] NEXT SIZE: [%d]\n", chunk->size, chunk->next->size);
     }
     it->h_next = 0;
 
@@ -318,6 +318,7 @@ static void do_item_link_q(item *it) { /* item is the new head */
     *head = it;
     if (*tail == 0) *tail = it;
     sizes[it->slabs_clsid]++;
+    sizes_bytes[it->slabs_clsid] += it->nbytes;
     return;
 }
 
@@ -346,6 +347,7 @@ static void do_item_unlink_q(item *it) {
     if (it->next) it->next->prev = it->prev;
     if (it->prev) it->prev->next = it->next;
     sizes[it->slabs_clsid]--;
+    sizes_bytes[it->slabs_clsid] -= it->nbytes;
     return;
 }
 
@@ -839,7 +841,7 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 /* Returns number of items remove, expired, or evicted.
  * Callable from worker threads or the LRU maintainer thread */
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const unsigned int total_chunks, const bool do_evict, const uint32_t cur_hv) {
+        const uint64_t total_bytes, const bool do_evict, const uint32_t cur_hv) {
     item *it = NULL;
     int id = orig_id;
     int removed = 0;
@@ -851,7 +853,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
     item *next_it;
     void *hold_lock = NULL;
     unsigned int move_to_lru = 0;
-    uint64_t limit;
+    uint64_t limit = 0;
 
     id |= cur_lru;
     pthread_mutex_lock(&lru_locks[id]);
@@ -911,10 +913,11 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
          */
         switch (cur_lru) {
             case HOT_LRU:
-                limit = total_chunks * settings.hot_lru_pct / 100;
+                limit = total_bytes * settings.hot_lru_pct / 100;
             case WARM_LRU:
-                limit = total_chunks * settings.warm_lru_pct / 100;
-                if (sizes[id] > limit) {
+                if (limit == 0)
+                    limit = total_bytes * settings.warm_lru_pct / 100;
+                if (sizes_bytes[id] > limit) {
                     itemstats[id].moves_to_cold++;
                     move_to_lru = COLD_LRU;
                     do_item_unlink_q(search);
@@ -994,14 +997,14 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     int i;
     int did_moves = 0;
     bool mem_limit_reached = false;
-    unsigned int total_chunks = 0;
+    uint64_t total_bytes = 0;
     unsigned int chunks_perslab = 0;
     unsigned int chunks_free = 0;
     /* TODO: if free_chunks below high watermark, increase aggressiveness */
     chunks_free = slabs_available_chunks(slabs_clsid, &mem_limit_reached,
-            &total_chunks, &chunks_perslab);
+            &total_bytes, &chunks_perslab);
     if (settings.expirezero_does_not_evict)
-        total_chunks -= noexp_lru_size(slabs_clsid);
+        total_bytes -= noexp_lru_size(slabs_clsid);
 
     /* If slab automove is enabled on any level, and we have more than 2 pages
      * worth of chunks free in this class, ask (gently) to reassign a page
@@ -1014,11 +1017,11 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 1000; i++) {
         int do_more = 0;
-        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_chunks, false, 0) ||
-            lru_pull_tail(slabs_clsid, WARM_LRU, total_chunks, false, 0)) {
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, false, 0) ||
+            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, false, 0)) {
             do_more++;
         }
-        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_chunks, false, 0);
+        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, false, 0);
         if (do_more == 0)
             break;
         did_moves++;

@@ -287,6 +287,7 @@ struct stats {
     uint64_t      slab_reassign_rescues; /* items rescued during slab move */
     uint64_t      slab_reassign_evictions_nomem; /* valid items lost during slab move */
     uint64_t      slab_reassign_inline_reclaim; /* valid items lost during slab move */
+    uint64_t      slab_reassign_chunk_rescues; /* chunked-item chunks recovered */
     uint64_t      slab_reassign_busy_items; /* valid temporarily unmovable */
     uint64_t      lru_crawler_starts; /* Number of item crawlers kicked off */
     uint64_t      lru_maintainer_juggles; /* number of LRU bg pokes */
@@ -578,6 +579,7 @@ struct slab_rebalance {
     uint32_t rescues;
     uint32_t evictions_nomem;
     uint32_t inline_reclaim;
+    uint32_t chunk_rescues;
     uint8_t done;
 };
 
