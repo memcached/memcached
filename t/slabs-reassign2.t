@@ -82,7 +82,7 @@ for (1 .. $keycount) {
 # Force reassign evictions by moving too much memory manually.
 {
     my $tries;
-    for ($tries = 10; $tries > 0; $tries--) {
+    for ($tries = 20; $tries > 0; $tries--) {
         print $sock "slabs reassign 22 20\r\n";
         my $res = <$sock>;
         sleep 1;
