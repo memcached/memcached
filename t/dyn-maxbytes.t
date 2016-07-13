@@ -18,8 +18,8 @@ for ($key = 0; $key < 40; $key++) {
     is(scalar <$sock>, "STORED\r\n", "stored key$key");
 }
 
-my $stats  = mem_stats($sock, "items");
-my $evicted = $stats->{"items:31:evicted"};
+my $stats  = mem_stats($sock);
+my $evicted = $stats->{evictions};
 isnt($evicted, "0", "check evicted");
 
 # We're past the memory limit. Try adjusting maxbytes upward.
@@ -41,8 +41,8 @@ is(scalar <$sock>, "STORED\r\n", "stored toast");
 $stats = mem_stats($sock, "slabs");
 cmp_ok($stats->{"total_malloced"}, '>', $t_malloc, "stats slabs total_malloced increased");
 
-$stats = mem_stats($sock, "items");
-my $new_evicted = $stats->{"items:31:evicted"};
+$stats = mem_stats($sock);
+my $new_evicted = $stats->{evictions};
 cmp_ok($new_evicted, '==', $evicted, "no new evictions");
 
 # Bump up to 16, fill a bit more, then delete everything.
