@@ -62,20 +62,27 @@ for (1..5) {
 }
 
 # Test long appends and prepends.
+# Note: memory bloats like crazy if we use one test per request.
 {
     my $str = 'seedstring';
     my $len = length($str);
     print $sock "set appender 0 0 $len\r\n$str\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored seed string for append");
+    my $unexpected = 0;
     for my $part (@parts) {
         # reduce required loops but still have a pattern.
-        $part .= "x" x 10;
-        $str .= $part;
-        my $len = length($part);
-        print $sock "append appender 0 0 $len\r\n$part\r\n";
-        is(scalar <$sock>, "STORED\r\n", "appened $part size $len");
-        mem_get_is($sock, "appender", $str);
+        my $todo = $part . "x" x 10;
+        $str .= $todo;
+        my $len = length($todo);
+        print $sock "append appender 0 0 $len\r\n$todo\r\n";
+        is(scalar <$sock>, "STORED\r\n", "appened $todo size $len");
+        print $sock "get appender\r\n";
+        my $header = scalar <$sock>;
+        my $body = scalar <$sock>;
+        my $end = scalar <$sock>;
+        $unexpected++ unless $body eq "$str\r\n";
     }
+    is($unexpected, 0, "No unexpected results during appends\n");
     # Now test appending a chunked item to a chunked item.
     $len = length($str);
     print $sock "append appender 0 0 $len\r\n$str\r\n";
@@ -90,6 +97,7 @@ for (1..5) {
     my $len = length($str);
     print $sock "set prepender 0 0 $len\r\n$str\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored seed string for append");
+    my $unexpected = 0;
     for my $part (@parts) {
         # reduce required loops but still have a pattern.
         $part .= "x" x 10;
@@ -97,9 +105,14 @@ for (1..5) {
         my $len = length($part);
         print $sock "prepend prepender 0 0 $len\r\n$part\r\n";
         is(scalar <$sock>, "STORED\r\n", "prepend $part size $len");
-        mem_get_is($sock, "prepender", $str);
+        print $sock "get prepender\r\n";
+        my $header = scalar <$sock>;
+        my $body = scalar <$sock>;
+        my $end = scalar <$sock>;
+        $unexpected++ unless $body eq "$str\r\n";
     }
-    # Now test appending a chunked item to a chunked item.
+    is($unexpected, 0, "No unexpected results during prepends\n");
+    # Now test prepending a chunked item to a chunked item.
     $len = length($str);
     print $sock "prepend prepender 0 0 $len\r\n$str\r\n";
     is(scalar <$sock>, "STORED\r\n", "prepend large string size $len");

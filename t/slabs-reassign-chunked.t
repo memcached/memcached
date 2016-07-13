@@ -49,12 +49,21 @@ my $todelete = 0;
 #    }
 }
 
-for (my $x = 0; $x < 3; $x++) {
-    print $sock "slabs reassign 17 0\r\n";
-    my $res = scalar <$sock>;
-    chomp $res;
-#    print STDERR "SLABS REASSIGN RESULT: $res\n";
-    sleep 1;
+{
+    my $s = mem_stats($sock, 'slabs');
+    my $sid;
+    # Find the highest ID to source from.
+    for my $k (keys %$s) {
+        next unless $k =~ m/^(\d+):/;
+        $sid = $s->{$k} if $s->{$k} > $1;
+    }
+    for (my $x = 0; $x < 3; $x++) {
+        print $sock "slabs reassign 17 0\r\n";
+        my $res = scalar <$sock>;
+        chomp $res;
+    #    print STDERR "SLABS REASSIGN RESULT: $res\n";
+        sleep 1;
+    }
 }
 
 # Make room in old class so rescues can happen when we switch slab classes.
