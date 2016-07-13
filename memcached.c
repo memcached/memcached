@@ -5297,7 +5297,7 @@ static void usage(void) {
 #endif
     printf("-F            Disable flush_all command\n");
     printf("-o            Comma separated list of extended or experimental options\n"
-           "              - (EXPERIMENTAL) maxconns_fast: immediately close new\n"
+           "              - maxconns_fast: immediately close new\n"
            "                connections if over maxconns limit\n"
            "              - hashpower: An integer multiplier for how large the hash\n"
            "                table should be. Can be grown at runtime if not big enough.\n"
@@ -5321,7 +5321,7 @@ static void usage(void) {
            "              - expirezero_does_not_evict: Items set to not expire, will not evict.\n"
            "                (requires lru_maintainer)\n"
            "              - idle_timeout: Timeout for idle connections\n"
-           "              - slab_chunk_max: Maximum slab size. Do not change without extreme care.\n"
+           "              - (EXPERIMENTAL) slab_chunk_max: Maximum slab size. Do not change without extreme care.\n"
            "              - watcher_logbuf_size: Size in kilobytes of per-watcher write buffer.\n"
            "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
            "                read by background thread. Which is then written to watchers.\n"
