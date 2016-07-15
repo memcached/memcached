@@ -60,6 +60,8 @@
 #endif
 #endif
 
+#include <onload/extensions.h>
+
 /*
  * forward declarations
  */
@@ -458,6 +460,16 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     assert(sfd >= 0 && sfd < max_fds);
     c = conns[sfd];
 
+    if ( transport == tcp_transport ) {
+        int rc = onload_move_fd( sfd );
+        if (rc)
+          fprintf(stderr, "Movefd failed fd %d, rc %d\n", sfd, rc);
+        else {
+          /* onload move_fd created Onload stack for us
+           * let us make sure spinning is enabled */
+          onload_thread_set_spin(ONLOAD_SPIN_EPOLL_WAIT, 1);
+        }
+    }
     if (NULL == c) {
         if (!(c = (conn *)calloc(1, sizeof(conn)))) {
             STATS_LOCK();
@@ -6314,6 +6326,9 @@ int main (int argc, char **argv) {
             vperror("failed to listen on TCP port %d", settings.port);
             exit(EX_OSERR);
         }
+
+        /* no spinning on listen thread */
+        onload_thread_set_spin(ONLOAD_SPIN_EPOLL_WAIT, 0);
 
         /*
          * initialization order: first create the listening sockets
