@@ -2938,6 +2938,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
+    APPEND_STAT("slab_chunk_max", "%d", settings.slab_chunk_size_max);
     APPEND_STAT("lru_crawler", "%s", settings.lru_crawler ? "yes" : "no");
     APPEND_STAT("lru_crawler_sleep", "%d", settings.lru_crawler_sleep);
     APPEND_STAT("lru_crawler_tocrawl", "%lu", (unsigned long)settings.lru_crawler_tocrawl);

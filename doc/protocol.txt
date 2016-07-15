@@ -712,6 +712,7 @@ other stats command.
 | hashpower_init    | 32       | Starting size multiplier for hash table      |
 | slab_reassign     | bool     | Whether slab page reassignment is allowed    |
 | slab_automove     | bool     | Whether slab page automover is enabled       |
+| slab_chunk_max    | 32       | Max slab class size (avoid unless necessary) |
 | hash_algorithm    | char     | Hash table algorithm in use                  |
 | lru_crawler       | bool     | Whether the LRU crawler is enabled           |
 | lru_crawler_sleep | 32       | Microseconds to sleep between LRU crawls     |
