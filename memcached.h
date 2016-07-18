@@ -461,11 +461,6 @@ typedef struct {
     logger *l;                  /* logger buffer */
 } LIBEVENT_THREAD;
 
-typedef struct {
-    pthread_t thread_id;        /* unique ID of this thread */
-    struct event_base *base;    /* libevent handle this thread uses */
-} LIBEVENT_DISPATCHER_THREAD;
-
 /**
  * The structure representing a connection into memcached.
  */
@@ -615,7 +610,7 @@ extern int daemonize(int nochdir, int noclose);
  * also #define-d to directly call the underlying code in singlethreaded mode.
  */
 
-void memcached_thread_init(int nthreads, struct event_base *main_base);
+void memcached_thread_init(int nthreads);
 int  dispatch_event_add(int thread, conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 void sidethread_conn_close(conn *c);
@@ -629,7 +624,6 @@ void accept_new_conns(const bool do_accept);
 conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 void  conn_close_idle(conn *c);
-int   is_listen_thread(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 item *item_get(const char *key, const size_t nkey, conn *c);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime, conn *c);

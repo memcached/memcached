@@ -62,8 +62,6 @@ unsigned int item_lock_hashpower;
 #define hashsize(n) ((unsigned long int)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 
-static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
-
 /*
  * Each libevent instance has a wakeup pipe, which other threads
  * can use to signal that they've put a new connection on its queue.
@@ -522,13 +520,6 @@ void sidethread_conn_close(conn *c) {
     return;
 }
 
-/*
- * Returns true if this is the thread that listens for new TCP connections.
- */
-int is_listen_thread() {
-    return pthread_self() == dispatcher_thread.thread_id;
-}
-
 /********************************* ITEM ACCESS *******************************/
 
 /*
@@ -720,9 +711,8 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  * Initializes the thread subsystem, creating various worker threads.
  *
  * nthreads  Number of worker event handler threads to spawn
- * main_base Event base for main thread
  */
-void memcached_thread_init(int nthreads, struct event_base *main_base) {
+void memcached_thread_init(int nthreads) {
     int         i;
     int         power;
 
@@ -773,9 +763,6 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
         perror("Can't allocate thread descriptors");
         exit(1);
     }
-
-    dispatcher_thread.base = main_base;
-    dispatcher_thread.thread_id = pthread_self();
 
     for (i = 0; i < nthreads; i++) {
         int fds[2];
