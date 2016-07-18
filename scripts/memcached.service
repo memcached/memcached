@@ -1,11 +1,13 @@
 # It's not recommended to modify this file in-place, because it will be
 # overwritten during upgrades.  If you want to customize, the best
-# way is to create a file "/etc/systemd/system/httpd.service",
-# containing
-#   .include /lib/systemd/system/memcached.service
-#   ...make your changes here...
-# See https://www.freedesktop.org/software/systemd/man/systemd.service.html
-# for detailed information about available options.
+# way is to use the "systemctl edit" command to create an override unit.
+
+# For example, to pass additional options, create an override unit
+# (as is done by systemctl edit) and enter the following:
+
+#     [Service]
+#     Environment=OPTIONS="-l 127.0.0.1,::1"
+
 
 [Unit]
 Description=memcached daemon
