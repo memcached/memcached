@@ -114,7 +114,7 @@ unsigned short refcount_decr(unsigned short *refcount) {
  * associated hash bucket, or the structure itself.
  * LRU modifications must hold the item lock, and the LRU lock.
  * LRU's accessing items must item_trylock() before modifying an item.
- * Items accessable from an LRU must not be freed or modified
+ * Items accessible from an LRU must not be freed or modified
  * without first locking and removing from the LRU.
  */
 
