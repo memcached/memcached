@@ -67,7 +67,7 @@ typedef struct {
  *
  * The object cache will let you allocate objects of the same size. It is fully
  * MT safe, so you may allocate objects from multiple threads without having to
- * do any syncrhonization in the application code.
+ * do any synchronization in the application code.
  *
  * @param name the name of the object cache. This name may be used for debug purposes
  *             and may help you track down what kind of object you have problems with
