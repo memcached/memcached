@@ -3964,7 +3964,7 @@ static void process_command(conn *c, char *command) {
                 return;
             }
 
-            rv = lru_crawler_crawl(tokens[2].value);
+            rv = lru_crawler_crawl(tokens[2].value, CRAWLER_EXPIRED);
             switch(rv) {
             case CRAWLER_OK:
                 out_string(c, "OK");
@@ -3978,6 +3978,33 @@ static void process_command(conn *c, char *command) {
             case CRAWLER_NOTSTARTED:
                 out_string(c, "NOTSTARTED no items to crawl");
                 break;
+            }
+            return;
+        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "metadump") == 0) {
+            if (settings.lru_crawler == false) {
+                out_string(c, "CLIENT_ERROR lru crawler disabled");
+                return;
+            }
+
+            // FIXME: check response code.
+            lru_crawler_set_client(c, c->sfd);
+            int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_METADUMP);
+            switch(rv) {
+                case CRAWLER_OK:
+                    out_string(c, "OK");
+                    // TODO: Don't reuse conn_watch here.
+                    conn_set_state(c, conn_watch);
+                    event_del(&c->event);
+                    break;
+                case CRAWLER_RUNNING:
+                    out_string(c, "BUSY currently processing crawler request");
+                    break;
+                case CRAWLER_BADCLASS:
+                    out_string(c, "BADCLASS invalid class id");
+                    break;
+                case CRAWLER_NOTSTARTED:
+                    out_string(c, "NOTSTARTED no items to crawl");
+                    break;
             }
             return;
         } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "tocrawl") == 0) {
@@ -4015,6 +4042,7 @@ static void process_command(conn *c, char *command) {
                 } else {
                     out_string(c, "ERROR failed to stop lru crawler thread");
                 }
+            } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "metadump") == 0)) {
             } else {
                 out_string(c, "ERROR");
             }
@@ -6353,6 +6381,9 @@ int main (int argc, char **argv) {
 
     /* Drop privileges no longer needed */
     drop_privileges();
+
+    /* Initialize the uriencode lookup table. */
+    uriencode_init();
 
     /* enter the event loop */
     if (event_base_loop(main_base, 0) != 0) {

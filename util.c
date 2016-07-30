@@ -8,6 +8,41 @@
 
 #include "memcached.h"
 
+static char *uriencode_map[256];
+static char uriencode_str[768];
+
+void uriencode_init(void) {
+    int x;
+    char *str = uriencode_str;
+    for (x = 0; x < 256; x++) {
+        if (isalnum(x) || x == '-' || x == '.' || x == '_' || x == '~') {
+            uriencode_map[x] = NULL;
+        } else {
+            snprintf(str, 4, "%%%02X", x);
+            uriencode_map[x] = str;
+            str += 3; /* lobbing off the \0 is fine */
+        }
+    }
+}
+
+bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dstlen) {
+    int x;
+    size_t d = 0;
+    for (x = 0; x < srclen; x++) {
+        if (d + 4 >= dstlen)
+            return false;
+        if (uriencode_map[(unsigned char) src[x]] != NULL) {
+            memcpy(&dst[d], uriencode_map[(unsigned char) src[x]], 3);
+            d += 3;
+        } else {
+            dst[d] = src[x];
+            d++;
+        }
+    }
+    dst[d] = '\0';
+    return true;
+}
+
 /* Avoid warnings on solaris, where isspace() is an index into an array, and gcc uses signed chars */
 #define xisspace(c) isspace((unsigned char)c)
 
