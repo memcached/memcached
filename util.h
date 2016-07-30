@@ -1,3 +1,7 @@
+/* fast-enough functions for uriencoding strings. */
+void uriencode_init(void);
+bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dstlen);
+
 /*
  * Wrappers around strtoull/strtoll that are safer and easier to
  * use.  For tests and assumptions, see internal_tests.c.

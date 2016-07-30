@@ -419,6 +419,13 @@ typedef struct _stritem {
     /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
 
+typedef void (*crawler_eval_func)(item *it, uint32_t hv, int slab_cls);
+
+// TODO: If we eventually want user loaded modules, we can't use an enum :(
+enum crawler_run_type {
+    CRAWLER_EXPIRED=0, CRAWLER_METADUMP
+};
+
 typedef struct {
     struct _stritem *next;
     struct _stritem *prev;
@@ -432,6 +439,8 @@ typedef struct {
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
     uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
+    enum crawler_run_type type; /* which module to use during run */
+    crawler_eval_func eval;     /* The function to run with the locked item */
 } crawler;
 
 /* Header when an item is actually a chunk of another item. */

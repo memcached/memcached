@@ -47,6 +47,7 @@ void lru_maintainer_resume(void);
 int start_item_crawler_thread(void);
 int stop_item_crawler_thread(void);
 int init_lru_crawler(void);
-enum crawler_result_type lru_crawler_crawl(char *slabs);
+enum crawler_result_type lru_crawler_crawl(char *slabs, enum crawler_run_type);
+int lru_crawler_set_client(void *c, const int sfd); /* FIXME: Temporary. */
 void lru_crawler_pause(void);
 void lru_crawler_resume(void);
