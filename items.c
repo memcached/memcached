@@ -1374,7 +1374,7 @@ static void item_crawler_metadump(item *it, uint32_t hv, int i) {
 }
 
 static void item_crawler_close_client(crawler_client_t *c) {
-    fprintf(stderr, "CRAWLER: Closing client\n");
+    //fprintf(stderr, "CRAWLER: Closing client\n");
     sidethread_conn_close(c->c);
     c->c = NULL;
     c->cbuf = NULL;
