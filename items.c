@@ -1400,7 +1400,7 @@ static void *item_crawler_thread(void *arg) {
                 item_trylock_unlock(hold_lock);
             pthread_mutex_unlock(&lru_locks[i]);
 
-            if (crawls_persleep <= 0 && settings.lru_crawler_sleep) {
+            if (crawls_persleep-- <= 0 && settings.lru_crawler_sleep) {
                 usleep(settings.lru_crawler_sleep);
                 crawls_persleep = settings.crawls_persleep;
             }
