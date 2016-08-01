@@ -62,7 +62,7 @@ if(open $etchandle, $etcfile)
     foreach my $line (<$etchandle>)
     {
         $line ||= "";
-        $line =~ s/\#.*//g;
+        $line =~ s/(?<!\\)\#[^\#]*//g;
         $line =~ s/\s+$//g;
         $line =~ s/^\s+//g;
         next unless $line;
