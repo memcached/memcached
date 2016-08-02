@@ -98,8 +98,11 @@ void item_stats_reset(void) {
     }
 }
 
+#define LRU_PULL_EVICT 1
+#define LRU_PULL_CRAWL_BLOCKS 2
+
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, const bool do_evict);
+        const uint64_t total_bytes, uint8_t flags);
 static int lru_crawler_start(uint32_t id, uint32_t remaining, const enum crawler_run_type type);
 
 /* Get the next CAS id for a new item. */
@@ -198,7 +201,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         uint64_t total_bytes;
         /* Try to reclaim memory first */
         if (!settings.lru_maintainer_thread) {
-            lru_pull_tail(id, COLD_LRU, 0, false);
+            lru_pull_tail(id, COLD_LRU, 0, 0);
         }
         it = slabs_alloc(ntotal, id, &total_bytes, 0);
 
@@ -207,12 +210,12 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
 
         if (it == NULL) {
             if (settings.lru_maintainer_thread) {
-                lru_pull_tail(id, HOT_LRU, total_bytes, false);
-                lru_pull_tail(id, WARM_LRU, total_bytes, false);
-                if (lru_pull_tail(id, COLD_LRU, total_bytes, true) <= 0)
+                lru_pull_tail(id, HOT_LRU, total_bytes, 0);
+                lru_pull_tail(id, WARM_LRU, total_bytes, 0);
+                if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT) <= 0)
                     break;
             } else {
-                if (lru_pull_tail(id, COLD_LRU, 0, true) <= 0)
+                if (lru_pull_tail(id, COLD_LRU, 0, LRU_PULL_EVICT) <= 0)
                     break;
             }
         } else {
@@ -849,7 +852,7 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 /* Returns number of items remove, expired, or evicted.
  * Callable from worker threads or the LRU maintainer thread */
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, const bool do_evict) {
+        const uint64_t total_bytes, uint8_t flags) {
     item *it = NULL;
     int id = orig_id;
     int removed = 0;
@@ -872,6 +875,10 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
         next_it = search->prev;
         if (search->nbytes == 0 && search->nkey == 0 && search->it_flags == 1) {
             /* We are a crawler, ignore it. */
+            if (flags & LRU_PULL_CRAWL_BLOCKS) {
+                pthread_mutex_unlock(&lru_locks[id]);
+                return 0;
+            }
             tries++;
             continue;
         }
@@ -946,7 +953,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                 break;
             case COLD_LRU:
                 it = search; /* No matter what, we're stopping */
-                if (do_evict) {
+                if (flags & LRU_PULL_EVICT) {
                     if (settings.evict_to_free == 0) {
                         /* Don't think we need a counter for this. It'll OOM.  */
                         break;
@@ -1025,11 +1032,11 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 1000; i++) {
         int do_more = 0;
-        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, false) ||
-            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, false)) {
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS) ||
+            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS)) {
             do_more++;
         }
-        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, false);
+        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS);
         if (do_more == 0)
             break;
         did_moves++;
