@@ -24,6 +24,7 @@ struct conn_queue_item {
     int               event_flags;
     int               read_buffer_size;
     enum network_transport     transport;
+    conn *c;
     CQ_ITEM          *next;
 };
 
@@ -422,6 +423,14 @@ static void thread_libevent_process(int fd, short which, void *arg) {
             cqi_free(item);
         }
         break;
+    case 'r':
+        item = cq_pop(me->new_conn_queue);
+
+        if (NULL != item) {
+            conn_worker_readd(item->c);
+            cqi_free(item);
+        }
+        break;
     /* we were told to pause and report in */
     case 'p':
         register_thread_initialized();
@@ -481,30 +490,28 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 /*
  * Re-dispatches a connection back to the original thread. Can be called from
  * any side thread borrowing a connection.
- * TODO: Look into this. too complicated?
  */
-#ifdef BOGUS_DEFINE
 void redispatch_conn(conn *c) {
     CQ_ITEM *item = cqi_new();
     char buf[1];
     if (item == NULL) {
         /* Can't cleanly redispatch connection. close it forcefully. */
-        /* FIXME: is conn_cleanup() necessary?
-         * if conn was handed off to a side thread it should be clean.
-         * could also put it into a "clean_me" state?
-         */
         c->state = conn_closed;
         close(c->sfd);
         return;
     }
     LIBEVENT_THREAD *thread = c->thread;
-    item->sfd = sfd;
-    /* pass in the state somehow?
-    item->init_state = conn_closing; */
-    item->event_flags = c->event_flags;
-    item->conn = c;
+    item->sfd = c->sfd;
+    item->init_state = conn_new_cmd;
+    item->c = c;
+
+    cq_push(thread->new_conn_queue, item);
+
+    buf[0] = 'r';
+    if (write(thread->notify_send_fd, buf, 1) != 1) {
+        perror("Writing to thread notify pipe");
+    }
 }
-#endif
 
 /* This misses the allow_new_conns flag :( */
 void sidethread_conn_close(conn *c) {
