@@ -1358,10 +1358,10 @@ static void item_crawler_metadump(item *it, uint32_t hv, int i) {
     // TODO: uriencode directly into the buffer.
     uriencode(ITEM_key(it), keybuf, it->nkey, KEY_MAX_LENGTH * 3 + 1);
     int total = snprintf(crawler_client.cbuf, 4096,
-            "key=%s exp=%ld la=%u cas=%llu fetch=%s\n",
+            "key=%s exp=%ld la=%llu cas=%llu fetch=%s\n",
             keybuf,
             (it->exptime == 0) ? -1 : (long)it->exptime + process_started,
-            it->time,
+            (unsigned long long)it->time + process_started,
             (unsigned long long)ITEM_get_cas(it),
             (it->it_flags & ITEM_FETCHED) ? "yes" : "no");
     refcount_decr(&it->refcount);
