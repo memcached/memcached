@@ -1389,6 +1389,15 @@ static void item_crawler_close_client(crawler_client_t *c) {
     c->buf = NULL;
 }
 
+static void item_crawler_release_client(crawler_client_t *c) {
+    //fprintf(stderr, "CRAWLER: Closing client\n");
+    redispatch_conn(c->c);
+    c->c = NULL;
+    c->cbuf = NULL;
+    bipbuf_free(c->buf);
+    c->buf = NULL;
+}
+
 static int item_crawler_metadump_poll(crawler_client_t *c) {
     unsigned char *data;
     unsigned int data_size = 0;
@@ -1465,7 +1474,6 @@ static void item_crawler_class_done(int i) {
 
     if (crawlers[i].type == CRAWLER_METADUMP && crawler_client.c != NULL) {
         item_crawler_metadump_poll(&crawler_client);
-        item_crawler_close_client(&crawler_client);
     }
 }
 
@@ -1546,6 +1554,14 @@ static void *item_crawler_thread(void *arg) {
             }
         }
     }
+
+    // FIXME: Need to global-ize the type of the crawl, or we're calling
+    // finalize on an opaque here.
+    if (crawler_client.c != NULL) {
+        item_crawler_metadump_poll(&crawler_client);
+        item_crawler_release_client(&crawler_client);
+    }
+
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread sleeping\n");
     STATS_LOCK();
