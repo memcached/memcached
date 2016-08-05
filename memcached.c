@@ -3976,7 +3976,7 @@ static void process_command(conn *c, char *command) {
                 return;
             }
 
-            rv = lru_crawler_crawl(tokens[2].value, CRAWLER_EXPIRED);
+            rv = lru_crawler_crawl(tokens[2].value, CRAWLER_EXPIRED, NULL, 0);
             switch(rv) {
             case CRAWLER_OK:
                 out_string(c, "OK");
@@ -3990,6 +3990,9 @@ static void process_command(conn *c, char *command) {
             case CRAWLER_NOTSTARTED:
                 out_string(c, "NOTSTARTED no items to crawl");
                 break;
+            case CRAWLER_ERROR:
+                out_string(c, "ERROR an unknown error happened");
+                break;
             }
             return;
         } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "metadump") == 0) {
@@ -3998,9 +4001,8 @@ static void process_command(conn *c, char *command) {
                 return;
             }
 
-            // FIXME: check response code.
-            lru_crawler_set_client(c, c->sfd);
-            int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_METADUMP);
+            int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_METADUMP,
+                    c, c->sfd);
             switch(rv) {
                 case CRAWLER_OK:
                     out_string(c, "OK");
@@ -4016,6 +4018,9 @@ static void process_command(conn *c, char *command) {
                     break;
                 case CRAWLER_NOTSTARTED:
                     out_string(c, "NOTSTARTED no items to crawl");
+                    break;
+                case CRAWLER_ERROR:
+                    out_string(c, "ERROR an unknown error happened");
                     break;
             }
             return;
