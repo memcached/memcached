@@ -35,7 +35,7 @@ void item_stats_reset(void);
 extern pthread_mutex_t lru_locks[POWER_LARGEST];
 
 enum crawler_result_type {
-    CRAWLER_OK=0, CRAWLER_RUNNING, CRAWLER_BADCLASS, CRAWLER_NOTSTARTED
+    CRAWLER_OK=0, CRAWLER_RUNNING, CRAWLER_BADCLASS, CRAWLER_NOTSTARTED, CRAWLER_ERROR
 };
 
 int start_lru_maintainer_thread(void);
@@ -47,7 +47,6 @@ void lru_maintainer_resume(void);
 int start_item_crawler_thread(void);
 int stop_item_crawler_thread(void);
 int init_lru_crawler(void);
-enum crawler_result_type lru_crawler_crawl(char *slabs, enum crawler_run_type);
-int lru_crawler_set_client(void *c, const int sfd); /* FIXME: Temporary. */
+enum crawler_result_type lru_crawler_crawl(char *slabs, enum crawler_run_type, void *c, const int sfd);
 void lru_crawler_pause(void);
 void lru_crawler_resume(void);
