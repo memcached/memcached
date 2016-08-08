@@ -36,5 +36,9 @@ PrivateDevices=true
 # Required for dropping privileges and running as a different user
 CapabilityBoundingSet=CAP_SETGID CAP_SETUID
 
+# Attempts to create memory mappings that are writable and executable at the same time,
+# or to change existing memory mappings to become executable are prohibited.
+MemoryDenyWriteExecute=true
+
 [Install]
 WantedBy=multi-user.target
