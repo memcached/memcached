@@ -39,9 +39,6 @@ logger_watcher *watchers[20];
 struct pollfd watchers_pollfds[20];
 int watcher_count = 0;
 
-static char *logger_uriencode_map[256];
-static char logger_uriencode_str[768];
-
 /* Should this go somewhere else? */
 static const entry_details default_entries[] = {
     [LOGGER_ASCII_CMD] = {LOGGER_TEXT_ENTRY, 512, LOG_RAWCMDS, "<%d %s"},
@@ -56,38 +53,6 @@ static int logger_thread_poll_watchers(int force_poll, int watcher);
 /*************************
  * Util functions shared between bg thread and workers
  *************************/
-
-static void logger_uriencode_init(void) {
-    int x;
-    char *str = logger_uriencode_str;
-    for (x = 0; x < 256; x++) {
-        if (isalnum(x) || x == '-' || x == '.' || x == '_' || x == '~') {
-            logger_uriencode_map[x] = NULL;
-        } else {
-            snprintf(str, 4, "%%%02X", x);
-            logger_uriencode_map[x] = str;
-            str += 3; /* lobbing off the \0 is fine */
-        }
-    }
-}
-
-static bool logger_uriencode(const char *src, char *dst, const size_t srclen, const size_t dstlen) {
-    int x;
-    size_t d = 0;
-    for (x = 0; x < srclen; x++) {
-        if (d + 4 >= dstlen)
-            return false;
-        if (logger_uriencode_map[(unsigned char) src[x]] != NULL) {
-            memcpy(&dst[d], logger_uriencode_map[(unsigned char) src[x]], 3);
-            d += 3;
-        } else {
-            dst[d] = src[x];
-            d++;
-        }
-    }
-    dst[d] = '\0';
-    return true;
-}
 
 /* Logger GID's can be used by watchers to put logs back into strict order
  */
@@ -187,7 +152,7 @@ static int _logger_thread_parse_ise(logentry *e, char *scratch) {
     if (le->cmd <= 5)
         cmd = cmd_map[le->cmd];
 
-    logger_uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
             "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
@@ -202,7 +167,7 @@ static int _logger_thread_parse_ige(logentry *e, char *scratch) {
     const char * const was_found_map[] = {
         "not_found", "found", "flushed", "expired" };
 
-    logger_uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
             "ts=%d.%d gid=%llu type=item_get key=%s status=%s\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
@@ -214,7 +179,7 @@ static int _logger_thread_parse_ee(logentry *e, char *scratch) {
     int total;
     char keybuf[KEY_MAX_LENGTH * 3 + 1];
     struct logentry_eviction *le = (struct logentry_eviction *) e->data;
-    logger_uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
             "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
@@ -552,7 +517,6 @@ void logger_init(void) {
     logger_stack_head = 0;
     logger_stack_tail = 0;
     pthread_key_create(&logger_key, NULL);
-    logger_uriencode_init();
 
     if (start_logger_thread() != 0) {
         abort();
