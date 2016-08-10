@@ -437,6 +437,9 @@ typedef struct {
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
     uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
+    uint64_t        reclaimed;  /* items reclaimed during this crawl. */
+    uint64_t        unfetched;  /* items reclaiemd unfetched during this crawl. */
+    uint64_t        checked;    /* items examined during this crawl. */
 } crawler;
 
 /* Header when an item is actually a chunk of another item. */
@@ -605,6 +608,7 @@ extern int daemonize(int nochdir, int noclose);
 #include "slabs.h"
 #include "assoc.h"
 #include "items.h"
+#include "crawler.h"
 #include "trace.h"
 #include "hash.h"
 #include "util.h"

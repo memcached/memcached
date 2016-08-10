@@ -4059,7 +4059,6 @@ static void process_command(conn *c, char *command) {
                 } else {
                     out_string(c, "ERROR failed to stop lru crawler thread");
                 }
-            } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "metadump") == 0)) {
             } else {
                 out_string(c, "ERROR");
             }
