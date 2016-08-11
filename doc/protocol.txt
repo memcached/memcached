@@ -468,6 +468,29 @@ The response line could be one of:
 
 - "BADCLASS [message]" to indicate an invalid class was specified.
 
+lru_crawler metadump <classid,classid,classid|all>
+
+- Similar in function to the above "lru_crawler crawl" command, this function
+  outputs one line for every valid item found in the matching slab classes.
+  Similar to "cachedump", but does not lock the cache and can return all
+  items, not just 1MB worth.
+
+  Lines are in "key=value key2=value2" format, with value being URI encoded
+  (ie: %20 for a space).
+
+  The exact keys available are subject to change, but will include at least:
+
+  "key", "exp" (expiration time), "la", (last access time), "cas",
+  "fetch" (if item has been fetched before).
+
+The response line could be one of:
+
+- "OK" to indicate successful launch.
+
+- "BUSY [message]" to indicate the crawler is already processing a request.
+
+- "BADCLASS [message]" to indicate an invalid class was specified.
+
 Watchers
 --------
 
