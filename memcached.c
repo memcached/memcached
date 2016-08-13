@@ -5880,6 +5880,10 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "Cannot set item size limit higher than 1/4 of memory max.\n");
                 return 1;
             }
+            if (settings.item_size_max > (1024 * 1024 * 1024)) {
+                fprintf(stderr, "Cannot set item size limit higher than a gigabyte.\n");
+                return 1;
+            }
             if (settings.item_size_max > 1024 * 1024) {
                 if (!slab_chunk_size_changed) {
                     settings.slab_chunk_size_max = 16384;
