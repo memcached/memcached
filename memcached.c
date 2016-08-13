@@ -5886,7 +5886,8 @@ int main (int argc, char **argv) {
             }
             if (settings.item_size_max > 1024 * 1024) {
                 if (!slab_chunk_size_changed) {
-                    settings.slab_chunk_size_max = 16384;
+                    // Ideal new default is 16k, but needs stitching.
+                    settings.slab_chunk_size_max = 524288;
                 }
             }
             break;
@@ -6103,9 +6104,9 @@ int main (int argc, char **argv) {
 
     // Reserve this for the new default. If factor size hasn't changed, use
     // new default.
-    if (settings.slab_chunk_size_max == 16384 && settings.factor == 1.25) {
+    /*if (settings.slab_chunk_size_max == 16384 && settings.factor == 1.25) {
         settings.factor = 1.08;
-    }
+    }*/
 
     if (slab_sizes_unparsed != NULL) {
         if (_parse_slab_sizes(subopts_value, slab_sizes)) {
