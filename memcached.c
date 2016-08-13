@@ -225,8 +225,8 @@ static void settings_init(void) {
     settings.backlog = 1024;
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
-    settings.slab_chunk_size_max = settings.item_size_max;
     settings.slab_page_size = 1024 * 1024; /* chunks are split from 1MB pages. */
+    settings.slab_chunk_size_max = settings.slab_page_size;
     settings.sasl = false;
     settings.maxconns_fast = false;
     settings.lru_crawler = false;
@@ -6060,8 +6060,8 @@ int main (int argc, char **argv) {
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags
                  * before making truly default. */
-                settings.slab_chunk_size_max = 16384;
-                settings.factor = 1.08;
+                // chunk default should come after stitching is fixed.
+                //settings.slab_chunk_size_max = 16384;
                 settings.slab_reassign = true;
                 settings.slab_automove = 1;
                 settings.maxconns_fast = true;
@@ -6099,6 +6099,12 @@ int main (int argc, char **argv) {
         fprintf(stderr, "slab_chunk_max (bytes: %d) must divide evenly into %d (slab_page_size)\n",
                 settings.slab_chunk_size_max, settings.slab_page_size);
         exit(EX_USAGE);
+    }
+
+    // Reserve this for the new default. If factor size hasn't changed, use
+    // new default.
+    if (settings.slab_chunk_size_max == 16384 && settings.factor == 1.25) {
+        settings.factor = 1.08;
     }
 
     if (slab_sizes_unparsed != NULL) {
