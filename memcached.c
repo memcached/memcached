@@ -6063,6 +6063,13 @@ int main (int argc, char **argv) {
                  * before making truly default. */
                 // chunk default should come after stitching is fixed.
                 //settings.slab_chunk_size_max = 16384;
+
+                // With slab_ressign, pages are always 1MB, so anything larger
+                // than .5m ends up using 1m anyway. With this we at least
+                // avoid having several slab classes that use 1m.
+                if (!slab_chunk_size_changed) {
+                    settings.slab_chunk_size_max = 524288;
+                }
                 settings.slab_reassign = true;
                 settings.slab_automove = 1;
                 settings.maxconns_fast = true;
