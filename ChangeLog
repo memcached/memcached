@@ -1,3 +1,7 @@
+2016-08-23
+    * ChangeLog moved from Google Code to Github Wiki, it's now available at:
+      https://github.com/memcached/memcached/wiki/ReleaseNotes
+
 2010-10-11
 	* ChangeLog is no longer being updated.
 	See http://code.google.com/p/memcached/wiki/ReleaseNotes
