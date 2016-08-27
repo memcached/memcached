@@ -1199,6 +1199,8 @@ Total body   (8-11) : 0x00000000
 Opaque       (12-15): 0x00000000
 CAS          (16-23): 0x0000000000000000
 Extras              : None
+Key                 : None
+Value               : None
             </artwork>
           </figure>
           <figure>
@@ -1402,7 +1404,7 @@ Status       (6,7)  : 0x0000
 Total body   (8-11) : 0x00000007
 Opaque       (12-15): 0x00000000
 CAS          (16-23): 0x0000000000000000
-Exstras             : None
+Extras              : None
 Key                 : The textual string "pid"
 Value               : The textual string "3078"
             </artwork>
