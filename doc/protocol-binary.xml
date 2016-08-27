@@ -1083,7 +1083,7 @@ Total body   (8-11) : 0x00000004
 Opaque       (12-15): 0x00000000
 CAS          (16-23): 0x0000000000000000
 Extras              :
-   Expiry    (24-27): 0x000e10
+   Expiry    (24-27): 0x00000e10
 Key                 : None
 Value               : None
           </artwork>
