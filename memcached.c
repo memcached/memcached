@@ -6414,7 +6414,7 @@ int main (int argc, char **argv) {
     }
 
     /* Drop privileges no longer needed */
-    drop_privileges();
+    drop_privileges(pid_file);
 
     /* Initialize the uriencode lookup table. */
     uriencode_init();

@@ -9,7 +9,7 @@
  * effect of this is that after running this code, the process will not able
  * to fork(), exec(), etc.  See privileges(5) for more information.
  */
-void drop_privileges(void) {
+void drop_privileges(const char *pid_file) {
    priv_set_t *privs = priv_str_to_set("basic", ",", NULL);
 
    if (privs == NULL) {
