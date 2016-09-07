@@ -303,7 +303,7 @@ static void do_item_link_q(item *it) { /* item is the new head */
     *head = it;
     if (*tail == 0) *tail = it;
     sizes[it->slabs_clsid]++;
-    sizes_bytes[it->slabs_clsid] += it->nbytes;
+    sizes_bytes[it->slabs_clsid] += ITEM_ntotal(it);
     return;
 }
 
@@ -332,7 +332,7 @@ static void do_item_unlink_q(item *it) {
     if (it->next) it->next->prev = it->prev;
     if (it->prev) it->prev->next = it->next;
     sizes[it->slabs_clsid]--;
-    sizes_bytes[it->slabs_clsid] -= it->nbytes;
+    sizes_bytes[it->slabs_clsid] -= ITEM_ntotal(it);
     return;
 }
 
