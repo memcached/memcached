@@ -5370,7 +5370,7 @@ static void usage(void) {
            "              - watcher_logbuf_size: Size in kilobytes of per-watcher write buffer.\n"
            "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
            "                read by background thread. Which is then written to watchers.\n"
-           "              - modern: Enables 'modern' defaults. See release notes (higly recommended!).\n"
+           "              - modern: Enables 'modern' defaults. See release notes (highly recommended!).\n"
            "              - track_sizes: Enable dynamic reports for 'stats sizes' command.\n"
            );
     return;
