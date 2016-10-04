@@ -589,6 +589,8 @@ void item_stats(ADD_STAT add_stats, void *c) {
             lru_size_map[x] = sizes[i];
             if (lru_type_map[x] == COLD_LRU && tails[i] != NULL)
                 age = current_time - tails[i]->time;
+            if (lru_type_map[x] == COLD_LRU)
+                totals.evicted_time = itemstats[i].evicted_time;
             pthread_mutex_unlock(&lru_locks[i]);
         }
         if (size == 0)
