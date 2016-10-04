@@ -2608,8 +2608,7 @@ static void setup_binary_lookup_cmd(EXTENSION_BINARY_PROTOCOL_DESCRIPTOR *descri
 }
 
 static void process_bin_unknown_packet(conn *c) {
-    void *packet = c->rcurr - (c->binary_header.request.bodylen +
-                               sizeof(c->binary_header));
+    void *packet = binary_get_request(c);
 
     ENGINE_ERROR_CODE ret = c->aiostat;
     c->aiostat = ENGINE_SUCCESS;
