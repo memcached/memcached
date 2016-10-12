@@ -148,6 +148,9 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     uint8_t nsuffix;
     item *it = NULL;
     char suffix[40];
+    if (nbytes < 2 || nkey < 0)
+        return 0;
+
     size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
     if (settings.use_cas) {
         ntotal += sizeof(uint64_t);
