@@ -1,13 +1,28 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 224;
+use warnings;
+use Test::More tests => 225;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached('-m 6 -o lru_maintainer,lru_crawler');
+# Regression test for underestimating the size of items after the large memory
+# change.
+my $server = new_memcached('-m 3 -o lru_maintainer,lru_crawler');
 my $sock = $server->sock;
+my $keystub = "X"x200;
+for (1 .. 15000) {
+    print $sock "set $keystub$_ 0 0 2 noreply\r\nok\r\n";
+}
+# There's probably already an error on the wire, so we'll see that.
+$keystub .= "20001";
+print $sock "set $keystub 0 0 2\r\nok\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored key without OOM");
+
+# Basic tests
+$server = new_memcached('-m 6 -o lru_maintainer,lru_crawler');
+$sock = $server->sock;
 
 for (1 .. 10) {
     print $sock "set ifoo$_ 0 1 2\r\nok\r\n";
