@@ -6160,7 +6160,7 @@ int main (int argc, char **argv) {
     }*/
 
     if (slab_sizes_unparsed != NULL) {
-        if (_parse_slab_sizes(subopts_value, slab_sizes)) {
+        if (_parse_slab_sizes(slab_sizes_unparsed, slab_sizes)) {
             use_slab_sizes = true;
         } else {
             exit(EX_USAGE);
