@@ -369,6 +369,8 @@ struct settings {
     int idle_timeout;       /* Number of seconds to let connections idle */
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
+    bool local_write_only;
+    bool anonymous_reads;
 };
 
 extern struct stats stats;
@@ -488,6 +490,7 @@ struct conn {
     char   *rcurr;  /** but if we parsed some already, this is where we stopped */
     int    rsize;   /** total allocated size of rbuf */
     int    rbytes;  /** how much data, starting from rcur, do we have unparsed */
+    bool local; /** connection via local loopback **/
 
     char   *wbuf;
     char   *wcurr;
@@ -597,7 +600,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv);
 enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
-conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
+conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base, bool local);
 void conn_worker_readd(conn *c);
 extern int daemonize(int nochdir, int noclose);
 
@@ -622,7 +625,7 @@ extern int daemonize(int nochdir, int noclose);
 
 void memcached_thread_init(int nthreads);
 void redispatch_conn(conn *c);
-void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
+void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport, bool local);
 void sidethread_conn_close(conn *c);
 
 /* Lock wrappers for cache functions that are called from main loop. */

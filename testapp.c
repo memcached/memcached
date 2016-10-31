@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
 
 #include "config.h"
 #include "cache.h"
@@ -292,7 +293,7 @@ static enum test_return test_safe_strtol(void) {
  *               as a daemon process
  * @return the pid of the memcached server
  */
-static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
+static pid_t start_server(in_port_t *port_out, bool daemon, int timeout, bool localWriteOnly, char * extra_args )  {
     char environment[80];
     snprintf(environment, sizeof(environment),
              "MEMCACHED_PORT_FILENAME=/tmp/ports.%lu", (long)getpid());
@@ -350,8 +351,16 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = pid_file;
         }
 #ifdef MESSAGE_DEBUG
-         argv[arg++] = "-vvv";
+        argv[arg++] = "-vvv";
 #endif
+        if( localWriteOnly ){
+            argv[arg++] = "-o";
+            argv[arg++] = "local_write_only";
+        }
+        if ( extra_args != NULL ){
+            argv[arg++] = extra_args;
+        }
+
         argv[arg++] = NULL;
         assert(execv(argv[0], argv) != -1);
     }
@@ -412,7 +421,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
 
 static enum test_return test_issue_44(void) {
     in_port_t port;
-    pid_t pid = start_server(&port, true, 15);
+    pid_t pid = start_server(&port, true, 15, false, NULL);
     assert(kill(pid, SIGHUP) == 0);
     sleep(1);
     assert(kill(pid, SIGTERM) == 0);
@@ -561,6 +570,19 @@ static void read_ascii_response(char *buffer, size_t size) {
     } while (need_more);
 }
 
+static int read_multiline_ascii_response(char **buffers, size_t max_num_lines, size_t size){
+    size_t i = 0;
+    while ( i < max_num_lines){
+        read_ascii_response(buffers[i], size);
+        if ((strncmp(buffers[i++], "END", strlen("END")) == 0 ))
+        {
+            return i;
+        }
+    }
+    return -1 * i;
+}
+
+
 static enum test_return test_issue_92(void) {
     char buffer[1024];
 
@@ -630,7 +652,7 @@ static enum test_return test_issue_102(void) {
 }
 
 static enum test_return start_memcached_server(void) {
-    server_pid = start_server(&port, false, 600);
+    server_pid = start_server(&port, false, 600,false,NULL);
     sock = connect_server("127.0.0.1", port, false);
     return TEST_PASS;
 }
@@ -1043,7 +1065,7 @@ static enum test_return test_binary_noop(void) {
     return TEST_PASS;
 }
 
-static enum test_return test_binary_quit_impl(uint8_t cmd) {
+static enum test_return test_binary_quit_impl_no_reconnect(uint8_t cmd) {
     union {
         protocol_binary_request_no_extras request;
         protocol_binary_response_no_extras response;
@@ -1062,6 +1084,11 @@ static enum test_return test_binary_quit_impl(uint8_t cmd) {
     /* Socket should be closed now, read should return 0 */
     assert(read(sock, buffer.bytes, sizeof(buffer.bytes)) == 0);
     close(sock);
+    return TEST_PASS;
+}
+
+static enum test_return test_binary_quit_impl(uint8_t cmd) {
+    assert(test_binary_quit_impl_no_reconnect(cmd) == TEST_PASS);
     sock = connect_server("127.0.0.1", port, false);
 
     return TEST_PASS;
@@ -1154,6 +1181,44 @@ static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
 
     return TEST_PASS;
 }
+
+static enum test_return test_binary_addauthfailure_impl(const char *key, uint8_t cmd) {
+    uint64_t value = 0xdeadbeefdeadcafe;
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = storage_command(send.bytes, sizeof(send.bytes), cmd, key,
+                                 strlen(key), &value, sizeof(value),
+                                 0, 0);
+
+    /* Add should never work*/
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, cmd,
+                                 PROTOCOL_BINARY_RESPONSE_AUTH_ERROR);
+
+    return TEST_PASS;
+}
+
+static enum test_return test_read_single_bin_value( char *key, uint8_t cmd )
+{
+    union {
+        protocol_binary_request_no_extras request;
+        protocol_binary_response_no_extras response;
+        char bytes[1024];
+    } send, receive;
+    size_t len = ext_command(send.bytes, sizeof(send.bytes), PROTOCOL_BINARY_CMD_GET,
+                             NULL, 0, key, strlen(key), NULL, 0);
+
+    safe_send(send.bytes, len, false);
+    safe_recv_packet(receive.bytes, sizeof(receive.bytes));
+    validate_response_header(&receive.response, cmd,
+                             PROTOCOL_BINARY_RESPONSE_SUCCESS);
+    return TEST_PASS;
+}
+
 
 static enum test_return test_binary_add(void) {
     return test_binary_add_impl("test_binary_add", PROTOCOL_BINARY_CMD_ADD);
@@ -1874,7 +1939,7 @@ static enum test_return test_issue_101(void) {
     const char *command = "stats\r\nstats\r\nstats\r\nstats\r\nstats\r\n";
     size_t cmdlen = strlen(command);
 
-    server_pid = start_server(&port, false, 1000);
+    server_pid = start_server(&port, false, 1000, false, NULL);
 
     for (ii = 0; ii < max; ++ii) {
         fds[ii] = connect_server("127.0.0.1", port, true);
@@ -1927,6 +1992,147 @@ static enum test_return test_issue_101(void) {
     assert(kill(server_pid, SIGTERM) == 0);
 
     return ret;
+}
+
+static char *get_first_nonlocal_addr(){
+    struct ifaddrs *addrs;
+    getifaddrs(&addrs);
+    struct ifaddrs *tmp = addrs;
+
+    char * result = (char *) malloc(17);
+    result[0] = '\0';
+    while(tmp){
+        if(tmp->ifa_addr && tmp->ifa_addr->sa_family == AF_INET){
+            struct sockaddr_in *pAddr = (struct sockaddr_in *)tmp->ifa_addr;
+            char *ipAddr = inet_ntoa(pAddr->sin_addr);
+            if ( strlen(ipAddr) > 6
+                   && strncmp(ipAddr, "169", 3) != 0
+                   && strncmp(ipAddr, "127", 3) != 0){
+                sprintf(result, "%s", ipAddr);
+                break;
+            }
+        }
+        tmp = tmp->ifa_next;
+    }
+    freeifaddrs(addrs);
+    return result;
+}
+
+static enum test_return test_send_ascii_command(const char * command,
+        const char * expectedResponse )
+{
+    send_ascii_command(command);
+    char response_buffer[80];
+    read_ascii_response(response_buffer, sizeof(response_buffer));
+    assert(strncmp(response_buffer, expectedResponse, strlen(expectedResponse)) == 0);
+    return TEST_PASS;
+}
+
+static enum test_return test_ascii_quit()
+{
+    send_ascii_command("quit\n");
+    char response_buffer[1];
+    ssize_t nr = read(sock, response_buffer, 1);
+    assert(nr == 0);
+    return TEST_PASS;
+
+}
+
+static enum test_return test_ascii_get(const char *command, const char **expectedResults, size_t num_lines, size_t line_len )
+{
+    char *buffer = (char*) malloc(num_lines * line_len);
+    char *multiline_response[num_lines];
+    for ( size_t i = 0; i < num_lines; ++i )
+    {
+        multiline_response[i] = buffer + i * line_len;
+    }
+
+    send_ascii_command(command);
+    int read_lines =
+        read_multiline_ascii_response(multiline_response, num_lines, line_len);
+    assert( read_lines == num_lines );
+    for ( size_t i = 0; i < num_lines; ++i )
+    {
+        assert( strncmp(multiline_response[i], expectedResults[i],
+                    strlen(expectedResults[i])) == 0 );
+    }
+    free(buffer); 
+    return TEST_PASS;
+}
+
+static enum test_return test_ascii_read_write(){
+    sock = connect_server("127.0.0.1", port, false);
+    test_send_ascii_command("add ascii_key 0 60 5\r\n12345\r\n", "STORED");
+
+    const char *expectedResult[3];
+    expectedResult[0] = "VALUE ascii_key 0 5";
+    expectedResult[1] = "12345";
+    expectedResult[2] = "END";
+
+    assert(test_ascii_get("get ascii_key\r\n", expectedResult, 3, 40) == TEST_PASS);
+    close(sock);
+    return TEST_PASS;
+}
+
+static enum test_return test_local_write_only(void){
+    char *addr = get_first_nonlocal_addr();
+    assert(strlen(addr) > 6);
+    char * extra_args = (char *) malloc(50);
+    snprintf(extra_args, 50, "-l127.0.0.1:11213,%s:11214", addr);
+    pid_t server_pid = start_server(&port, false, 60, true, extra_args);
+    free(extra_args);
+
+    /* locally, should be able to read and write */
+    sock = connect_server("127.0.0.1", 11213, false);
+    assert(test_binary_add_impl("test_binary_add", PROTOCOL_BINARY_CMD_ADD) == TEST_PASS);
+    assert(test_read_single_bin_value("test_binary_add", PROTOCOL_BINARY_CMD_GET) == TEST_PASS);
+    assert(test_binary_quit_impl_no_reconnect(PROTOCOL_BINARY_CMD_QUITQ) == TEST_PASS);
+
+    /* remote socket - read only */
+    sock = connect_server(addr, 11214, false);
+    assert(test_binary_addauthfailure_impl("test_binary_add", PROTOCOL_BINARY_CMD_ADD) == TEST_PASS);
+    close(sock);
+
+    sock = connect_server(addr, 11214, false);
+    assert(test_read_single_bin_value("test_binary_add", PROTOCOL_BINARY_CMD_GET) == TEST_PASS);
+    assert(test_binary_quit_impl_no_reconnect(PROTOCOL_BINARY_CMD_QUITQ) == TEST_PASS);
+
+
+    free(addr);
+    assert(kill(server_pid, SIGTERM) == 0);
+    return TEST_PASS;
+}
+
+static enum test_return test_local_write_only_ascii(void){
+    char *addr = get_first_nonlocal_addr();
+    assert(strlen(addr) > 6);
+    char * extra_args = (char *) malloc(50);
+    snprintf(extra_args, 50, "-l127.0.0.1:11215,%s:11216", addr);
+    pid_t server_pid = start_server(&port, false, 60, true, extra_args);
+    free(extra_args);
+
+    /* ascii */
+    sock = connect_server("127.0.0.1", 11215, false);
+    test_send_ascii_command("add ascii_key 0 60 5\r\n12345\r\n", "STORED");
+
+    const char *expectedResult[3];
+    expectedResult[0] = "VALUE ascii_key 0 5";
+    expectedResult[1] = "12345";
+    expectedResult[2] = "END";
+
+    assert(test_ascii_get("get ascii_key\r\n", expectedResult, 3, 40) == TEST_PASS);
+    test_ascii_quit();
+
+    /* ascii */
+    sock = connect_server(addr, 11216, false);
+    assert( test_send_ascii_command("ADD ascii_key2 0 60 5\n", "AUTH_ERROR Remote write not allowed"));
+
+    assert(test_ascii_get("get ascii_key\r\n", expectedResult, 3, 40) == TEST_PASS);
+    test_ascii_quit();
+
+    free(addr);
+    assert(kill(server_pid, SIGTERM) == 0);
+    return TEST_PASS;
 }
 
 typedef enum test_return (*TEST_FUNC)(void);
@@ -1987,8 +2193,12 @@ struct testcase testcases[] = {
     { "binary_stat", test_binary_stat },
     { "binary_illegal", test_binary_illegal },
     { "binary_pipeline_hickup", test_binary_pipeline_hickup },
+    { "ascii_read_write", test_ascii_read_write },
     { "shutdown", shutdown_memcached_server },
     { "stop_server", stop_memcached_server },
+    /* This test needs to start its own server with different options */
+    { "local_write_only", test_local_write_only },
+    { "local_write_only_ascii", test_local_write_only_ascii },
     { NULL, NULL }
 };
 
