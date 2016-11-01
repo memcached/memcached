@@ -321,8 +321,8 @@ static void *conn_timeout_thread(void *arg) {
         for (i = 0; i < max_fds; i++) {
             if ((i % CONNS_PER_SLICE) == 0) {
                 if (settings.verbose > 2)
-                    fprintf(stderr, "idle timeout thread sleeping for %dus\n",
-                        timeslice);
+                    fprintf(stderr, "idle timeout thread sleeping for %luus\n",
+                        (unsigned long)timeslice);
                 usleep(timeslice);
             }
 
