@@ -7,6 +7,10 @@
 #include <poll.h>
 #include <ctype.h>
 
+#if defined(__sun)
+#include <atomic.h>
+#endif
+
 #include "memcached.h"
 #include "bipbuffer.h"
 
