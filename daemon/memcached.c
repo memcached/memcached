@@ -3186,13 +3186,13 @@ static void process_bin_update(conn *c) {
     case ENGINE_DISCONNECT:
         c->state = conn_closing;
         break;
+    case ENGINE_E2BIG:
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
+        c->write_and_go = conn_swallow;
+        break;
     default:
-        if (ret == ENGINE_E2BIG) {
-            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_E2BIG, vlen);
-        } else {
-            write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
-        }
-
+        write_bin_packet(c, PROTOCOL_BINARY_RESPONSE_ENOMEM, vlen);
+        
         /*
          * Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET (but only if cas matches).
