@@ -38,6 +38,10 @@ sub validate_port {
 sub run_server {
     my ($args) = @_;
 
+    if ($< == 0) {
+        $args .= " -u root";
+    }
+
     $args .= " -E $builddir/.libs/default_engine.so";
 
     my $exe = "$builddir/memcached";
