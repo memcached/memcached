@@ -344,6 +344,9 @@ static void *item_crawler_thread(void *arg) {
                     lru_crawler_class_done(i);
                     continue;
                 }
+            } else if (active_crawler_mod.mod->needs_client) {
+                lru_crawler_class_done(i);
+                continue;
             }
             pthread_mutex_lock(&lru_locks[i]);
             search = do_item_crawl_q((item *)&crawlers[i]);
