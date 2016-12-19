@@ -1879,7 +1879,7 @@ static void process_bin_sasl_auth(conn *c) {
     char *key = binary_get_key(c);
     assert(key);
 
-    item *it = item_alloc(key, nkey, 0, 0, vlen);
+    item *it = item_alloc(key, nkey, 0, 0, vlen+2);
 
     /* Can't use a chunked item for SASL authentication. */
     if (it == 0 || (it->it_flags & ITEM_CHUNKED)) {
@@ -1906,6 +1906,13 @@ static void process_bin_complete_sasl_auth(conn *c) {
     int nkey = c->binary_header.request.keylen;
     int vlen = c->binary_header.request.bodylen - nkey;
 
+    if (nkey > ((item*) c->item)->nkey) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, NULL, vlen);
+        c->write_and_go = conn_swallow;
+        item_unlink(c->item);
+        return;
+    }
+
     char mech[nkey+1];
     memcpy(mech, ITEM_key((item*)c->item), nkey);
     mech[nkey] = 0x00;
@@ -1914,6 +1921,13 @@ static void process_bin_complete_sasl_auth(conn *c) {
         fprintf(stderr, "mech:  ``%s'' with %d bytes of data\n", mech, vlen);
 
     const char *challenge = vlen == 0 ? NULL : ITEM_data((item*) c->item);
+
+    if (vlen > ((item*) c->item)->nbytes) {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, NULL, vlen);
+        c->write_and_go = conn_swallow;
+        item_unlink(c->item);
+        return;
+    }
 
     int result=-1;
 
