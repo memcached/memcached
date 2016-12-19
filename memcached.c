@@ -243,6 +243,7 @@ static void settings_init(void) {
     settings.shutdown_command = false;
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
+    settings.dump_enabled = true;
     settings.crawls_persleep = 1000;
     settings.logger_watcher_buf_size = LOGGER_WATCHER_BUF_SIZE;
     settings.logger_buf_size = LOGGER_BUF_SIZE;
@@ -2962,6 +2963,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("lru_crawler_tocrawl", "%lu", (unsigned long)settings.lru_crawler_tocrawl);
     APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
     APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
+    APPEND_STAT("dump_enabled", "%s", settings.dump_enabled ? "yes" : "no");
     APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
     APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
@@ -3109,6 +3111,11 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     } else if (strcmp(subcommand, "cachedump") == 0) {
         char *buf;
         unsigned int bytes, id, limit = 0;
+
+        if (!settings.dump_enabled) {
+            out_string(c, "CLIENT_ERROR stats cachedump not allowed");
+            return;
+        }
 
         if (ntokens < 5) {
             out_string(c, "CLIENT_ERROR bad command line");
@@ -4004,6 +4011,10 @@ static void process_command(conn *c, char *command) {
         } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "metadump") == 0) {
             if (settings.lru_crawler == false) {
                 out_string(c, "CLIENT_ERROR lru crawler disabled");
+                return;
+            }
+            if (!settings.dump_enabled) {
+                out_string(c, "ERROR metadump not allowed");
                 return;
             }
 
@@ -5347,6 +5358,7 @@ static void usage(void) {
     printf("-S            Turn on Sasl authentication\n");
 #endif
     printf("-F            Disable flush_all command\n");
+    printf("-X            Disable stats cachedump and lru_crawler metadump commands\n");
     printf("-o            Comma separated list of extended or experimental options\n"
            "              - maxconns_fast: immediately close new\n"
            "                connections if over maxconns limit\n"
@@ -5749,6 +5761,7 @@ int main (int argc, char **argv) {
           "I:"  /* Max item size */
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
+          "X"   /* Disable dump commands */
           "o:"  /* Extended generic options */
         ))) {
         switch (c) {
@@ -5950,6 +5963,9 @@ int main (int argc, char **argv) {
             break;
        case 'F' :
             settings.flush_enabled = false;
+            break;
+       case 'X' :
+            settings.dump_enabled = false;
             break;
         case 'o': /* It's sub-opts time! */
             subopts_orig = subopts = strdup(optarg); /* getsubopt() changes the original args */
