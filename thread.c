@@ -741,9 +741,13 @@ void memcached_thread_init(int nthreads) {
         power = 11;
     } else if (nthreads < 5) {
         power = 12;
-    } else {
-        /* 8192 buckets, and central locks don't scale much past 5 threads */
+    } else if (nthreads <= 10) {
         power = 13;
+    } else if (nthreads <= 20) {
+        power = 14;
+    } else {
+        /* 32k buckets. just under the hashpower default. */
+        power = 15;
     }
 
     if (power >= hashpower) {
