@@ -711,7 +711,8 @@ other stats command.
 |-------------------+----------+----------------------------------------------|
 | Name              | Type     | Meaning                                      |
 |-------------------+----------+----------------------------------------------|
-| maxbytes          | size_t   | Maximum number of bytes allowed in this cache |
+| maxbytes          | size_t   | Maximum number of bytes allowed in this      |
+|                   |          | cache                                        |
 | maxconns          | 32       | Maximum number of clients allowed.           |
 | tcpport           | 32       | TCP listen port.                             |
 | udpport           | 32       | UDP listen port.                             |
