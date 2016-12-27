@@ -220,7 +220,7 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
         L_DEBUG("LOGGER: Failed to flatten log entry!\n");
         return LOGGER_PARSE_ENTRY_FAILED;
     } else {
-        *scratch_len = total + 1;
+        *scratch_len = total;
     }
 
     return LOGGER_PARSE_ENTRY_OK;
@@ -243,7 +243,7 @@ static void logger_thread_write_entry(logentry *e, struct logger_stats *ls,
         while (!w->failed_flush &&
                 (skip_scr = (char *) bipbuf_request(w->buf, scratch_len + 128)) == NULL) {
             if (logger_thread_poll_watchers(0, x) <= 0) {
-                L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", line_size);
+                L_DEBUG("LOGGER: Watcher had no free space for line of size (%d)\n", scratch_len + 128);
                 w->failed_flush = true;
             }
         }
@@ -263,7 +263,7 @@ static void logger_thread_write_entry(logentry *e, struct logger_stats *ls,
                 ls->watcher_skipped++;
                 continue;
             }
-            bipbuf_push(w->buf, total + 1);
+            bipbuf_push(w->buf, total);
             w->skipped = 0;
         }
         /* Can't fail because bipbuf_request succeeded. */
@@ -399,6 +399,7 @@ static int logger_thread_poll_watchers(int force_poll, int watcher) {
             char buf[1];
             int res = read(w->sfd, buf, 1);
             if (res == 0 || (res == -1 && (errno != EAGAIN && errno != EWOULDBLOCK))) {
+                L_DEBUG("LOGGER: watcher closed remotely\n");
                 logger_thread_close_watcher(w);
                 nfd++;
                 continue;
@@ -674,7 +675,8 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
         return LOGGER_RET_ERR;
     }
     l->written++;
-    L_DEBUG("LOGGER: Requested %d bytes, wrote %d bytes\n", reqlen, total + 1);
+    L_DEBUG("LOGGER: Requested %d bytes, wrote %lu bytes\n", reqlen,
+            (sizeof(logentry) + e->size));
 
     pthread_mutex_unlock(&l->mutex);
 
