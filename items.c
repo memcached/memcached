@@ -1052,7 +1052,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
  * The latter is to avoid newly started daemons from waiting too long before
  * retrying a crawl.
  */
-static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata) {
+static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, logger *l) {
     int i;
     static rel_time_t next_crawls[MAX_NUMBER_OF_SLAB_CLASSES];
     static rel_time_t next_crawl_wait[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -1078,10 +1078,6 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata) {
             uint64_t low_watermark = (s->seen / 100) + 1;
             rel_time_t since_run = current_time - s->end_time;
             /* Don't bother if the payoff is too low. */
-            if (settings.verbose > 1)
-                fprintf(stderr, "maint crawler[%d]: low_watermark: %llu, possible_reclaims: %llu, since_run: %u\n",
-                        i, (unsigned long long)low_watermark, (unsigned long long)possible_reclaims,
-                        (unsigned int)since_run);
             for (x = 0; x < 60; x++) {
                 available_reclaims += s->histo[x];
                 if (available_reclaims > low_watermark) {
@@ -1103,9 +1099,14 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata) {
             }
 
             next_crawls[i] = current_time + next_crawl_wait[i] + 5;
-            if (settings.verbose > 1)
-                fprintf(stderr, "maint crawler[%d]: next_crawl: %u, [%d] now: [%d]\n",
-                        i, next_crawl_wait[i], next_crawls[i], current_time);
+            LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_CRAWLER_STATUS, NULL, i, (unsigned long long)low_watermark,
+                    (unsigned long long)possible_reclaims,
+                    (unsigned int)since_run,
+                    next_crawls[i],
+                    current_time,
+                    s->end_time - s->start_time,
+                    s->seen,
+                    s->reclaimed);
             // Got our calculation, avoid running until next actual run.
             s->run_complete = false;
             pthread_mutex_unlock(&cdata->lock);
@@ -1134,6 +1135,11 @@ static void *lru_maintainer_thread(void *arg) {
     memset(&cdata, 0, sizeof(struct crawler_expired_data));
     pthread_mutex_init(&cdata.lock, NULL);
     cdata.crawl_complete = true; // kick off the crawler.
+    logger *l = logger_create();
+    if (l == NULL) {
+        fprintf(stderr, "Failed to allocate logger for LRU maintainer thread\n");
+        abort();
+    }
 
     pthread_mutex_lock(&lru_maintainer_lock);
     if (settings.verbose > 2)
@@ -1167,7 +1173,7 @@ static void *lru_maintainer_thread(void *arg) {
         }
         /* Once per second at most */
         if (settings.lru_crawler && last_crawler_check != current_time) {
-            lru_maintainer_crawler_check(&cdata);
+            lru_maintainer_crawler_check(&cdata, l);
             last_crawler_check = current_time;
         }
     }
@@ -1177,6 +1183,7 @@ static void *lru_maintainer_thread(void *arg) {
 
     return NULL;
 }
+
 int stop_lru_maintainer_thread(void) {
     int ret;
     pthread_mutex_lock(&lru_maintainer_lock);

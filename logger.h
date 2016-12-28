@@ -14,7 +14,8 @@ enum log_entry_type {
     LOGGER_ASCII_CMD = 0,
     LOGGER_EVICTION,
     LOGGER_ITEM_GET,
-    LOGGER_ITEM_STORE
+    LOGGER_ITEM_STORE,
+    LOGGER_CRAWLER_STATUS,
 };
 
 enum log_entry_subtype {

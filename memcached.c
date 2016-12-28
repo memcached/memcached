@@ -3772,6 +3772,8 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
                 f |= LOG_FETCHERS;
             } else if ((strcmp(tokens[x].value, "mutations") == 0)) {
                 f |= LOG_MUTATIONS;
+            } else if ((strcmp(tokens[x].value, "sysevents") == 0)) {
+                f |= LOG_SYSEVENTS;
             } else {
                 out_string(c, "ERROR");
                 return;
