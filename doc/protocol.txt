@@ -208,7 +208,7 @@ with a "cas" command did not exist.
 Retrieval command:
 ------------------
 
-The retrieval commands "get" and "gets" operates like this:
+The retrieval commands "get" and "gets" operate like this:
 
 get <key>*\r\n
 gets <key>*\r\n
