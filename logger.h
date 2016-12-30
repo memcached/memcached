@@ -10,6 +10,9 @@
 #define LOGGER_ENTRY_MAX_SIZE 2048
 #define GET_LOGGER() ((logger *) pthread_getspecific(logger_key));
 
+/* Inlined from memcached.h - should go into sub header */
+typedef unsigned int rel_time_t;
+
 enum log_entry_type {
     LOGGER_ASCII_CMD = 0,
     LOGGER_EVICTION,
@@ -62,6 +65,7 @@ struct logentry_item_get {
 struct logentry_item_store {
     int status;
     int cmd;
+    rel_time_t ttl;
     uint8_t nkey;
     char key[];
 };

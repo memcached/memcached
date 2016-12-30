@@ -221,7 +221,8 @@ enum delta_result_type {
 };
 
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
-typedef unsigned int rel_time_t;
+// TODO: Move to sub-header. needed in logger.h
+//typedef unsigned int rel_time_t;
 
 /** Use X macros to avoid iterating over the stats fields during reset and
  * aggregation. No longer have to add new stats in 3+ places.

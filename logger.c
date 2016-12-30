@@ -152,18 +152,18 @@ static int _logger_thread_parse_ise(logentry *e, char *scratch) {
     char keybuf[KEY_MAX_LENGTH * 3 + 1];
     struct logentry_item_store *le = (struct logentry_item_store *) e->data;
     const char * const status_map[] = {
-        "stored", "exists", "not_found", "too_large", "no_memory" };
+        "not_stored", "stored", "exists", "not_found", "too_large", "no_memory" };
     const char * const cmd_map[] = {
-        "add", "set", "replace", "append", "prepend", "cas" };
+        "null", "add", "set", "replace", "append", "prepend", "cas" };
 
     if (le->cmd <= 5)
         cmd = cmd_map[le->cmd];
 
     uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s\n",
+            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-            keybuf, status_map[le->status], cmd);
+            keybuf, status_map[le->status], cmd, le->ttl);
     return total;
 }
 
@@ -596,11 +596,16 @@ static void _logger_log_item_get(logentry *e, const int was_found, const char *k
 }
 
 static void _logger_log_item_store(logentry *e, const enum store_item_type status,
-        const int comm, char *key, const int nkey) {
+        const int comm, char *key, const int nkey, rel_time_t ttl) {
     struct logentry_item_store *le = (struct logentry_item_store *) e->data;
     le->status = status;
     le->cmd = comm;
     le->nkey = nkey;
+    if (ttl != 0) {
+        le->ttl = ttl - current_time;
+    } else {
+        le->ttl = 0;
+    }
     memcpy(le->key, key, nkey);
     e->size = sizeof(struct logentry_item_store) + nkey;
 }
@@ -667,7 +672,8 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             int comm = va_arg(ap, int);
             char *skey = va_arg(ap, char *);
             size_t snkey = va_arg(ap, size_t);
-            _logger_log_item_store(e, status, comm, skey, snkey);
+            rel_time_t sttl = va_arg(ap, rel_time_t);
+            _logger_log_item_store(e, status, comm, skey, snkey, sttl);
             break;
     }
 
