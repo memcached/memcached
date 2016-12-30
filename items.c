@@ -1075,7 +1075,7 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
             /* Need to think we can free at least 1% of the items before
              * crawling. */
             /* FIXME: Configurable? */
-            uint64_t low_watermark = (s->seen / 100) + 1;
+            uint64_t low_watermark = (possible_reclaims / 100) + 1;
             rel_time_t since_run = current_time - s->end_time;
             /* Don't bother if the payoff is too low. */
             for (x = 0; x < 60; x++) {
@@ -1100,10 +1100,9 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
 
             next_crawls[i] = current_time + next_crawl_wait[i] + 5;
             LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_CRAWLER_STATUS, NULL, i, (unsigned long long)low_watermark,
-                    (unsigned long long)possible_reclaims,
+                    (unsigned long long)available_reclaims,
                     (unsigned int)since_run,
-                    next_crawls[i],
-                    current_time,
+                    next_crawls[i] - current_time,
                     s->end_time - s->start_time,
                     s->seen,
                     s->reclaimed);

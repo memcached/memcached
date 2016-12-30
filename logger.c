@@ -50,7 +50,7 @@ static const entry_details default_entries[] = {
     [LOGGER_ITEM_GET] = {LOGGER_ITEM_GET_ENTRY, 512, LOG_FETCHERS, NULL},
     [LOGGER_ITEM_STORE] = {LOGGER_ITEM_STORE_ENTRY, 512, LOG_MUTATIONS, NULL},
     [LOGGER_CRAWLER_STATUS] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "lru_crawler=%d low_mark=%llu possible_reclaims=%llu since_run=%u next_run=%d now=%d time_elapsed=%u examined=%llu reclaimed=%llu"
+        "lru_crawler=%d low_mark=%llu next_reclaims=%llu since_run=%u next_run=%d elapsed=%u examined=%llu reclaimed=%llu"
     }
 };
 
