@@ -659,6 +659,8 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | expiring                                  |
 | evicted_unfetched     | 64u     | Items evicted from LRU that were never    |
 |                       |         | touched by get/incr/append/etc.           |
+| evicted_active        | 64u     | Items evicted from LRU that had been hit  |
+|                       |         | recently but did not jump to top of LRU   |
 | slab_reassign_running | bool    | If a slab page is being moved             |
 | slabs_moved           | 64u     | Total slab pages moved                    |
 | crawler_reclaimed     | 64u     | Total items freed by LRU Crawler          |
@@ -808,6 +810,9 @@ expired_unfetched      Number of expired items reclaimed from the LRU which
                        were never touched after being set.
 evicted_unfetched      Number of valid items evicted from the LRU which were
                        never touched after being set.
+evicted_active         Number of valid items evicted from the LRU which were
+                       recently touched but were evicted before being moved to
+                       the top of the LRU again.
 crawler_reclaimed      Number of items freed by the LRU Crawler.
 lrutail_reflocked      Number of items found to be refcount locked in the
                        LRU tail.

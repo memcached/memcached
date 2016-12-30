@@ -30,6 +30,7 @@ typedef struct {
     uint64_t tailrepairs;
     uint64_t expired_unfetched; /* items reclaimed but never touched */
     uint64_t evicted_unfetched; /* items evicted but never touched */
+    uint64_t evicted_active; /* items evicted that should have been shuffled */
     uint64_t crawler_reclaimed;
     uint64_t crawler_items_checked;
     uint64_t lrutail_reflocked;
@@ -520,6 +521,7 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
             pthread_mutex_lock(&lru_locks[i]);
             totals.expired_unfetched += itemstats[i].expired_unfetched;
             totals.evicted_unfetched += itemstats[i].evicted_unfetched;
+            totals.evicted_active += itemstats[i].evicted_active;
             totals.evicted += itemstats[i].evicted;
             totals.reclaimed += itemstats[i].reclaimed;
             totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
@@ -536,6 +538,10 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
                 (unsigned long long)totals.expired_unfetched);
     APPEND_STAT("evicted_unfetched", "%llu",
                 (unsigned long long)totals.evicted_unfetched);
+    if (settings.lru_maintainer_thread) {
+        APPEND_STAT("evicted_active", "%llu",
+                    (unsigned long long)totals.evicted_active);
+    }
     APPEND_STAT("evictions", "%llu",
                 (unsigned long long)totals.evicted);
     APPEND_STAT("reclaimed", "%llu",
@@ -582,6 +588,7 @@ void item_stats(ADD_STAT add_stats, void *c) {
             totals.reclaimed += itemstats[i].reclaimed;
             totals.expired_unfetched += itemstats[i].expired_unfetched;
             totals.evicted_unfetched += itemstats[i].evicted_unfetched;
+            totals.evicted_active += itemstats[i].evicted_active;
             totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
             totals.crawler_items_checked += itemstats[i].crawler_items_checked;
             totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
@@ -625,6 +632,10 @@ void item_stats(ADD_STAT add_stats, void *c) {
                             "%llu", (unsigned long long)totals.expired_unfetched);
         APPEND_NUM_FMT_STAT(fmt, n, "evicted_unfetched",
                             "%llu", (unsigned long long)totals.evicted_unfetched);
+        if (settings.lru_maintainer_thread) {
+            APPEND_NUM_FMT_STAT(fmt, n, "evicted_active",
+                                "%llu", (unsigned long long)totals.evicted_active);
+        }
         APPEND_NUM_FMT_STAT(fmt, n, "crawler_reclaimed",
                             "%llu", (unsigned long long)totals.crawler_reclaimed);
         APPEND_NUM_FMT_STAT(fmt, n, "crawler_items_checked",
@@ -944,6 +955,9 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                         itemstats[id].evicted_nonzero++;
                     if ((search->it_flags & ITEM_FETCHED) == 0) {
                         itemstats[id].evicted_unfetched++;
+                    }
+                    if ((search->it_flags & ITEM_ACTIVE) == 0) {
+                        itemstats[id].evicted_active++;
                     }
                     LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EVICTION, search);
                     do_item_unlink_nolock(search, hv);
