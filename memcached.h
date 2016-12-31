@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <assert.h>
 
+#include "itoa_ljust.h"
 #include "protocol_binary.h"
 #include "cache.h"
 #include "logger.h"
