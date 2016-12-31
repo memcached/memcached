@@ -37,9 +37,8 @@
 #define UDP_MAX_PAYLOAD_SIZE 1400
 #define UDP_HEADER_SIZE 8
 #define MAX_SENDBUF_SIZE (256 * 1024 * 1024)
-/* I'm told the max length of a 64-bit num converted to string is 20 bytes.
- * Plus a few for spaces, \r\n, \0 */
-#define SUFFIX_SIZE 24
+/* Up to 3 numbers (2 32bit, 1 64bit), spaces, newlines, null 0 */
+#define SUFFIX_SIZE 50
 
 /** Initial size of list of items being returned by "get". */
 #define ITEM_LIST_INITIAL 200
@@ -369,6 +368,7 @@ struct settings {
     int warm_lru_pct; /* percentage of slab space for WARM_LRU */
     int crawls_persleep; /* Number of LRU crawls to run before sleeping */
     bool expirezero_does_not_evict; /* exptime == 0 goes into NOEXP_LRU */
+    bool inline_ascii_response; /* pre-format the VALUE line for ASCII responses */
     int idle_timeout;       /* Number of seconds to let connections idle */
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */

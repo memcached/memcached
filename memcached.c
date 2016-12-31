@@ -236,6 +236,7 @@ static void settings_init(void) {
     settings.hot_lru_pct = 32;
     settings.warm_lru_pct = 32;
     settings.expirezero_does_not_evict = false;
+    settings.inline_ascii_response = false;
     settings.idle_timeout = 0; /* disabled */
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
@@ -1507,7 +1508,11 @@ static void process_bin_get_or_touch(conn *c) {
         rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
 
         // add the flags
-        rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        if (settings.inline_ascii_response) {
+            rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        } else {
+            rsp->message.body.flags = htonl(*((uint32_t *)ITEM_suffix(it)));
+        }
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
         if (should_return_key) {
@@ -2656,7 +2661,11 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                 /* we have it and old_it here - alloc memory to hold both */
                 /* flags was already lost - so recover them from ITEM_suffix(it) */
 
-                flags = (uint32_t) strtoul(ITEM_suffix(old_it), (char **) NULL, 10);
+                if (settings.inline_ascii_response) {
+                    flags = (uint32_t) strtoul(ITEM_suffix(old_it), (char **) NULL, 10);
+                } else {
+                    flags = *((uint32_t *)ITEM_suffix(old_it));
+                }
 
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
@@ -3179,6 +3188,22 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
+static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas) {
+    char *p;
+    *suffix = ' ';
+    p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), suffix+1);
+    *p = ' ';
+    p = itoa_u32(it->nbytes-2, p+1);
+    if (return_cas) {
+        *p = ' ';
+        p = itoa_u64(ITEM_get_cas(it), p+1);
+    }
+    *p = '\r';
+    *(p+1) = '\n';
+    *(p+2) = '\0';
+    return (p - suffix) + 2;
+}
+
 /* ntokens is overwritten here... shrug.. */
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
     char *key;
@@ -3230,7 +3255,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                  *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
                  */
 
-                if (return_cas)
+                if (return_cas || !settings.inline_ascii_response)
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
@@ -3263,12 +3288,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       return;
                   }
                   *(c->suffixlist + i) = suffix;
-                  int suffix_len = snprintf(suffix, SUFFIX_SIZE,
+                  /*int suffix_len = snprintf(suffix, SUFFIX_SIZE,
                                             " %llu\r\n",
-                                            (unsigned long long)ITEM_get_cas(it));
+                                            (unsigned long long)ITEM_get_cas(it));*/
+                  int suffix_len = make_ascii_get_suffix(suffix, it, return_cas);
+                      //add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
                       add_iov(c, suffix, suffix_len) != 0)
                       {
                           item_remove(it);
@@ -3348,7 +3374,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     c->icurr = c->ilist;
     c->ileft = i;
-    if (return_cas) {
+    if (return_cas || !settings.inline_ascii_response) {
         c->suffixcurr = c->suffixlist;
         c->suffixleft = i;
     }
@@ -3639,7 +3665,12 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         do_item_update(it);
     } else if (it->refcount > 1) {
         item *new_it;
-        uint32_t flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
+        uint32_t flags;
+        if (settings.inline_ascii_response) {
+            flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
+        } else {
+            flags = *((uint32_t *)ITEM_suffix(it));
+        }
         new_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, res + 2);
         if (new_it == 0) {
             do_item_remove(it);

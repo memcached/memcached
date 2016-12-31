@@ -107,7 +107,7 @@ static inline char* itoa(uint32_t u, char* p, int d, int n) {
 }
 
 char* itoa_u32(uint32_t u, char* p) {
-    int d,n;
+    int d = 0,n;
          if (u >=100000000) n = digits(u, 100000000, &d, &p, 10);
     else if (u <       100) n = digits(u,         1, &d, &p,  2);
     else if (u <     10000) n = digits(u,       100, &d, &p,  4);
