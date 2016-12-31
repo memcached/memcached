@@ -1145,7 +1145,7 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
         }
     }
     if (do_run) {
-        lru_crawler_start(todo, 0, CRAWLER_EXPIRED, cdata, NULL, 0);
+        lru_crawler_start(todo, settings.lru_crawler_tocrawl, CRAWLER_EXPIRED, cdata, NULL, 0);
     }
 }
 
