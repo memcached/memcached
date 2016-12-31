@@ -236,7 +236,7 @@ static void settings_init(void) {
     settings.hot_lru_pct = 32;
     settings.warm_lru_pct = 32;
     settings.expirezero_does_not_evict = false;
-    settings.inline_ascii_response = false;
+    settings.inline_ascii_response = true;
     settings.idle_timeout = 0; /* disabled */
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
@@ -2996,6 +2996,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
+    APPEND_STAT("inline_ascii_response", "%s", settings.inline_ascii_response ? "yes" : "no");
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -5436,6 +5437,8 @@ static void usage(void) {
            "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
            "                read by background thread. Which is then written to watchers.\n"
            "              - track_sizes: Enable dynamic reports for 'stats sizes' command.\n"
+           "              - no_inline_ascii_resp: Save up to 24 bytes per item. Small perf hit in ASCII,\n"
+           "                no perf difference in binary protocol. Speeds up sets.\n"
            "              - modern: Enables 'modern' defaults. Options that will be default in future.\n"
            "                enables: slab_chunk_max:512k,slab_reassign,slab_automove=1,maxconns_fast,\n"
            "                         hash_algorithm=murmur3,lru_crawler,lru_maintainer\n"
@@ -5736,6 +5739,7 @@ int main (int argc, char **argv) {
         SLAB_SIZES,
         SLAB_CHUNK_MAX,
         TRACK_SIZES,
+        NO_INLINE_ASCII_RESP,
         MODERN
     };
     char *const subopts_tokens[] = {
@@ -5758,6 +5762,7 @@ int main (int argc, char **argv) {
         [SLAB_SIZES] = "slab_sizes",
         [SLAB_CHUNK_MAX] = "slab_chunk_max",
         [TRACK_SIZES] = "track_sizes",
+        [NO_INLINE_ASCII_RESP] = "no_inline_ascii_resp",
         [MODERN] = "modern",
         NULL
     };
@@ -6173,6 +6178,9 @@ int main (int argc, char **argv) {
             case TRACK_SIZES:
                 item_stats_sizes_init();
                 break;
+            case NO_INLINE_ASCII_RESP:
+                settings.inline_ascii_response = false;
+                break;
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags
                  * before making truly default. */
@@ -6188,6 +6196,7 @@ int main (int argc, char **argv) {
                 settings.slab_reassign = true;
                 settings.slab_automove = 1;
                 settings.maxconns_fast = true;
+                settings.inline_ascii_response = false;
                 hash_type = MURMUR3_HASH;
                 start_lru_crawler = true;
                 start_lru_maintainer = true;
