@@ -193,8 +193,8 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
 
         if (it == NULL) {
             if (settings.lru_maintainer_thread) {
-                lru_pull_tail(id, HOT_LRU, total_bytes, 0);
-                lru_pull_tail(id, WARM_LRU, total_bytes, 0);
+                //lru_pull_tail(id, HOT_LRU, total_bytes, 0);
+                //lru_pull_tail(id, WARM_LRU, total_bytes, 0);
                 if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT) <= 0)
                     break;
             } else {
@@ -326,6 +326,13 @@ static void item_link_q(item *it) {
     pthread_mutex_unlock(&lru_locks[it->slabs_clsid]);
 }
 
+static void item_link_q_warm(item *it) {
+    pthread_mutex_lock(&lru_locks[it->slabs_clsid]);
+    do_item_link_q(it);
+    itemstats[it->slabs_clsid].moves_to_warm++;
+    pthread_mutex_unlock(&lru_locks[it->slabs_clsid]);
+}
+
 static void do_item_unlink_q(item *it) {
     item **head, **tail;
     head = &heads[it->slabs_clsid];
@@ -441,7 +448,16 @@ void do_item_update(item *it) {
 
         if ((it->it_flags & ITEM_LINKED) != 0) {
             it->time = current_time;
-            if (!settings.lru_maintainer_thread) {
+            // FIXME: do better LRU check.
+            if (settings.lru_maintainer_thread) {
+                if (it->slabs_clsid >= COLD_LRU && it->slabs_clsid < NOEXP_LRU) {
+                    item_unlink_q(it);
+                    it->slabs_clsid = ITEM_clsid(it);
+                    it->slabs_clsid |= WARM_LRU;
+                    it->it_flags &= ~ITEM_ACTIVE;
+                    item_link_q_warm(it);
+                }
+            } else {
                 item_unlink_q(it);
                 item_link_q(it);
             }
@@ -1158,7 +1174,8 @@ static void *lru_maintainer_thread(void *arg) {
     while (do_run_lru_maintainer_thread) {
         int did_moves = 0;
         pthread_mutex_unlock(&lru_maintainer_lock);
-        usleep(to_sleep);
+        if (to_sleep)
+            usleep(to_sleep);
         pthread_mutex_lock(&lru_maintainer_lock);
 
         STATS_LOCK();
@@ -1177,10 +1194,10 @@ static void *lru_maintainer_thread(void *arg) {
         if (did_moves == 0) {
             if (to_sleep < MAX_LRU_MAINTAINER_SLEEP)
                 to_sleep += 1000;
-        } else {
+        } else if (to_sleep > 0) {
             to_sleep /= 2;
             if (to_sleep < MIN_LRU_MAINTAINER_SLEEP)
-                to_sleep = MIN_LRU_MAINTAINER_SLEEP;
+                to_sleep = 0;
         }
         /* Once per second at most */
         if (settings.lru_crawler && last_crawler_check != current_time) {
