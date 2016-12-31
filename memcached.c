@@ -622,7 +622,7 @@ static void conn_release_items(conn *c) {
 
     if (c->suffixleft != 0) {
         for (; c->suffixleft > 0; c->suffixleft--, c->suffixcurr++) {
-            cache_free(c->thread->suffix_cache, *(c->suffixcurr));
+            do_cache_free(c->thread->suffix_cache, *(c->suffixcurr));
         }
     }
 
@@ -3275,7 +3275,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     }
                   }
 
-                  suffix = cache_alloc(c->thread->suffix_cache);
+                  suffix = do_cache_alloc(c->thread->suffix_cache);
                   if (suffix == NULL) {
                       STATS_LOCK();
                       stats.malloc_fails++;
