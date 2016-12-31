@@ -956,7 +956,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     if ((search->it_flags & ITEM_FETCHED) == 0) {
                         itemstats[id].evicted_unfetched++;
                     }
-                    if ((search->it_flags & ITEM_ACTIVE) == 0) {
+                    if ((search->it_flags & ITEM_ACTIVE)) {
                         itemstats[id].evicted_active++;
                     }
                     LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EVICTION, search);
