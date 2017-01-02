@@ -229,7 +229,8 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
      * least a note here. Compiler (hopefully?) optimizes this out.
      */
     if (settings.lru_maintainer_thread) {
-        if (exptime == 0 && settings.expirezero_does_not_evict) {
+        if (settings.expirezero_does_not_evict &&
+                exptime - current_time <= settings.transient_ttl) {
             id |= NOEXP_LRU;
         } else {
             id |= HOT_LRU;
@@ -1008,6 +1009,9 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     removed++;
                 }
                 break;
+            case NOEXP_LRU:
+                it = search; /* Kill the loop. Parent only interested in reclaims */
+                break;
         }
         if (it != NULL)
             break;
@@ -1046,8 +1050,17 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     /* TODO: if free_chunks below high watermark, increase aggressiveness */
     chunks_free = slabs_available_chunks(slabs_clsid, &mem_limit_reached,
             &total_bytes, &chunks_perslab);
-    if (settings.expirezero_does_not_evict)
+    if (settings.expirezero_does_not_evict) {
+        /* Only looking for reclaims. Run before we size the LRU. */
+        for (i = 0; i < 500; i++) {
+            if (lru_pull_tail(slabs_clsid, NOEXP_LRU, 0, 0) <= 0) {
+                break;
+            } else {
+                did_moves++;
+            }
+        }
         total_bytes -= noexp_lru_size(slabs_clsid);
+    }
 
     /* If slab automove is enabled on any level, and we have more than 2 pages
      * worth of chunks free in this class, ask (gently) to reassign a page
@@ -1058,7 +1071,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     }
 
     /* Juggle HOT/WARM up to N times */
-    for (i = 0; i < 1000; i++) {
+    for (i = 0; i < 500; i++) {
         int do_more = 0;
         if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS) ||
             lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS)) {

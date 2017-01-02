@@ -237,6 +237,7 @@ static void settings_init(void) {
     settings.warm_lru_pct = 32;
     settings.expirezero_does_not_evict = false;
     settings.inline_ascii_response = true;
+    settings.transient_ttl = 61;
     settings.idle_timeout = 0; /* disabled */
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
@@ -3009,6 +3010,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
     APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
+    APPEND_STAT("transient_ttl", "%u", settings.transient_ttl);
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
@@ -3870,6 +3872,20 @@ static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntok
     }
 }
 
+static void process_transient_ttl_command(conn *c, token_t *tokens, const size_t ntokens) {
+    uint32_t ttl;
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    if (!safe_strtoul(tokens[1].value, &ttl)) {
+        out_string(c, "ERROR");
+    } else {
+        settings.transient_ttl = ttl;
+        out_string(c, "OK");
+    }
+}
+
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -4151,6 +4167,8 @@ static void process_command(conn *c, char *command) {
         process_watch_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0)) {
         process_memlimit_command(c, tokens, ntokens);
+    } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "transient_ttl") == 0)) {
+        process_transient_ttl_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {
@@ -5749,6 +5767,7 @@ int main (int argc, char **argv) {
         HOT_LRU_PCT,
         WARM_LRU_PCT,
         NOEXP_NOEVICT,
+        TRANSIENT_TTL,
         IDLE_TIMEOUT,
         WATCHER_LOGBUF_SIZE,
         WORKER_LOGBUF_SIZE,
@@ -5771,6 +5790,7 @@ int main (int argc, char **argv) {
         [LRU_MAINTAINER] = "lru_maintainer",
         [HOT_LRU_PCT] = "hot_lru_pct",
         [WARM_LRU_PCT] = "warm_lru_pct",
+        [TRANSIENT_TTL] = "transient_ttl",
         [NOEXP_NOEVICT] = "expirezero_does_not_evict",
         [IDLE_TIMEOUT] = "idle_timeout",
         [WATCHER_LOGBUF_SIZE] = "watcher_logbuf_size",
@@ -6154,6 +6174,13 @@ int main (int argc, char **argv) {
                 break;
             case NOEXP_NOEVICT:
                 settings.expirezero_does_not_evict = true;
+                break;
+            case TRANSIENT_TTL:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing transient_ttl argument\n");
+                    return 1;
+                };
+                settings.transient_ttl = atoi(subopts_value);
                 break;
             case IDLE_TIMEOUT:
                 settings.idle_timeout = atoi(subopts_value);

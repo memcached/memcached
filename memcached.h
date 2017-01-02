@@ -369,6 +369,7 @@ struct settings {
     int crawls_persleep; /* Number of LRU crawls to run before sleeping */
     bool expirezero_does_not_evict; /* exptime == 0 goes into NOEXP_LRU */
     bool inline_ascii_response; /* pre-format the VALUE line for ASCII responses */
+    uint32_t transient_ttl; /* transient LRU threshold */
     int idle_timeout;       /* Number of seconds to let connections idle */
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
