@@ -2256,7 +2256,7 @@ static void process_bin_update(conn *c) {
         }
         /* FIXME: losing c->cmd since it's translated below. refactor? */
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
-                NULL, status, 0, key, nkey, it->exptime);
+                NULL, status, 0, key, nkey, it->exptime, ITEM_clsid(it));
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
@@ -2693,7 +2693,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         c->cas = ITEM_get_cas(it);
     }
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
-            stored, comm, ITEM_key(it), it->nkey, it->exptime);
+            stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
 
     return stored;
 }
@@ -3439,7 +3439,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
             status = NO_MEMORY;
         }
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
-                NULL, status, comm, key, nkey, 0);
+                NULL, status, comm, key, nkey, 0, 0);
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         c->sbytes = vlen;

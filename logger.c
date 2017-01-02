@@ -50,7 +50,7 @@ static const entry_details default_entries[] = {
     [LOGGER_ITEM_GET] = {LOGGER_ITEM_GET_ENTRY, 512, LOG_FETCHERS, NULL},
     [LOGGER_ITEM_STORE] = {LOGGER_ITEM_STORE_ENTRY, 512, LOG_MUTATIONS, NULL},
     [LOGGER_CRAWLER_STATUS] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "lru_crawler=%d low_mark=%llu next_reclaims=%llu since_run=%u next_run=%d elapsed=%u examined=%llu reclaimed=%llu"
+        "type=lru_crawler crawler=%d low_mark=%llu next_reclaims=%llu since_run=%u next_run=%d elapsed=%u examined=%llu reclaimed=%llu"
     }
 };
 
@@ -161,9 +161,9 @@ static int _logger_thread_parse_ise(logentry *e, char *scratch) {
 
     uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u\n",
+            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u clsid=%u\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-            keybuf, status_map[le->status], cmd, le->ttl);
+            keybuf, status_map[le->status], cmd, le->ttl, le->clsid);
     return total;
 }
 
@@ -176,9 +176,9 @@ static int _logger_thread_parse_ige(logentry *e, char *scratch) {
 
     uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_get key=%s status=%s\n",
+            "ts=%d.%d gid=%llu type=item_get key=%s status=%s clsid=%u\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-            keybuf, was_found_map[le->was_found]);
+            keybuf, was_found_map[le->was_found], le->clsid);
     return total;
 }
 
@@ -188,10 +188,10 @@ static int _logger_thread_parse_ee(logentry *e, char *scratch) {
     struct logentry_eviction *le = (struct logentry_eviction *) e->data;
     uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d\n",
+            "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d clsid=%u\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
-            (long long int)le->exptime, le->latime);
+            (long long int)le->exptime, le->latime, le->clsid);
 
     return total;
 }
@@ -577,6 +577,7 @@ static void _logger_log_evictions(logentry *e, item *it) {
     le->latime = current_time - it->time;
     le->it_flags = it->it_flags;
     le->nkey = it->nkey;
+    le->clsid = ITEM_clsid(it);
     memcpy(le->key, ITEM_key(it), it->nkey);
     e->size = sizeof(struct logentry_eviction) + le->nkey;
 }
@@ -587,20 +588,23 @@ static void _logger_log_evictions(logentry *e, item *it) {
  * for more endpoints to be written before making it generic, though.
  * TODO: This and below should track and reprint the client fd.
  */
-static void _logger_log_item_get(logentry *e, const int was_found, const char *key, const int nkey) {
+static void _logger_log_item_get(logentry *e, const int was_found, const char *key,
+        const int nkey, const uint8_t clsid) {
     struct logentry_item_get *le = (struct logentry_item_get *) e->data;
     le->was_found = was_found;
     le->nkey = nkey;
+    le->clsid = clsid;
     memcpy(le->key, key, nkey);
     e->size = sizeof(struct logentry_item_get) + nkey;
 }
 
 static void _logger_log_item_store(logentry *e, const enum store_item_type status,
-        const int comm, char *key, const int nkey, rel_time_t ttl) {
+        const int comm, char *key, const int nkey, rel_time_t ttl, const uint8_t clsid) {
     struct logentry_item_store *le = (struct logentry_item_store *) e->data;
     le->status = status;
     le->cmd = comm;
     le->nkey = nkey;
+    le->clsid = clsid;
     if (ttl != 0) {
         le->ttl = ttl - current_time;
     } else {
@@ -663,7 +667,8 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             int was_found = va_arg(ap, int);
             char *key = va_arg(ap, char *);
             size_t nkey = va_arg(ap, size_t);
-            _logger_log_item_get(e, was_found, key, nkey);
+            uint8_t gclsid = va_arg(ap, int);
+            _logger_log_item_get(e, was_found, key, nkey, gclsid);
             va_end(ap);
             break;
         case LOGGER_ITEM_STORE_ENTRY:
@@ -673,7 +678,8 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             char *skey = va_arg(ap, char *);
             size_t snkey = va_arg(ap, size_t);
             rel_time_t sttl = va_arg(ap, rel_time_t);
-            _logger_log_item_store(e, status, comm, skey, snkey, sttl);
+            uint8_t sclsid = va_arg(ap, int);
+            _logger_log_item_store(e, status, comm, skey, snkey, sttl, sclsid);
             break;
     }
 
