@@ -958,20 +958,20 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
             case WARM_LRU:
                 if (limit == 0)
                     limit = total_bytes * settings.warm_lru_pct / 100;
-                if (sizes_bytes[id] > limit) {
+                /* Rescue ACTIVE items aggressively */
+                if ((search->it_flags & ITEM_ACTIVE) != 0) {
+                    itemstats[id].moves_within_lru++;
+                    search->it_flags &= ~ITEM_ACTIVE;
+                    do_item_update_nolock(search);
+                    do_item_remove(search);
+                    item_trylock_unlock(hold_lock);
+                } else if (sizes_bytes[id] > limit) {
                     itemstats[id].moves_to_cold++;
                     move_to_lru = COLD_LRU;
                     do_item_unlink_q(search);
                     it = search;
                     removed++;
                     break;
-                } else if ((search->it_flags & ITEM_ACTIVE) != 0) {
-                    /* Only allow ACTIVE relinking if we're not too large. */
-                    itemstats[id].moves_within_lru++;
-                    search->it_flags &= ~ITEM_ACTIVE;
-                    do_item_update_nolock(search);
-                    do_item_remove(search);
-                    item_trylock_unlock(hold_lock);
                 } else {
                     /* Don't want to move to COLD, not active, bail out */
                     it = search;
