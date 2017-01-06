@@ -400,12 +400,12 @@ static void *item_crawler_thread(void *arg) {
     if (active_crawler_mod.mod != NULL) {
         if (active_crawler_mod.mod->finalize != NULL)
             active_crawler_mod.mod->finalize(&active_crawler_mod);
-        if (active_crawler_mod.c.c != NULL) {
+        while (active_crawler_mod.c.c != NULL && bipbuf_used(active_crawler_mod.c.buf)) {
             lru_crawler_poll(&active_crawler_mod.c);
-            // Double checking in case the client closed during the poll
-            if (active_crawler_mod.c.c != NULL) {
-                lru_crawler_release_client(&active_crawler_mod.c);
-            }
+        }
+        // Double checking in case the client closed during the poll
+        if (active_crawler_mod.c.c != NULL) {
+            lru_crawler_release_client(&active_crawler_mod.c);
         }
         active_crawler_mod.mod = NULL;
     }
