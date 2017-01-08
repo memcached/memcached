@@ -3809,7 +3809,7 @@ static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntok
         if (memlimit < 8) {
             out_string(c, "MEMLIMIT_TOO_SMALL cannot set maxbytes to less than 8m");
         } else {
-            if (slabs_adjust_mem_limit(memlimit * 1024 * 1024)) {
+            if (slabs_adjust_mem_limit((size_t) memlimit * 1024 * 1024)) {
                 if (settings.verbose > 0) {
                     fprintf(stderr, "maxbytes adjusted to %llum\n", (unsigned long long)memlimit);
                 }
