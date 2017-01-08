@@ -235,9 +235,9 @@ static void settings_init(void) {
     settings.lru_maintainer_thread = false;
     settings.hot_lru_pct = 32;
     settings.warm_lru_pct = 32;
-    settings.expirezero_does_not_evict = false;
     settings.inline_ascii_response = true;
-    settings.transient_ttl = 61;
+    settings.temp_lru = false;
+    settings.temporary_ttl = 61;
     settings.idle_timeout = 0; /* disabled */
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
@@ -3009,8 +3009,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
-    APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
-    APPEND_STAT("transient_ttl", "%u", settings.transient_ttl);
+    APPEND_STAT("temp_lru", "%s", settings.temp_lru ? "yes" : "no");
+    APPEND_STAT("temporary_ttl", "%u", settings.temporary_ttl);
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
@@ -3872,7 +3872,7 @@ static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntok
     }
 }
 
-static void process_transient_ttl_command(conn *c, token_t *tokens, const size_t ntokens) {
+static void process_temporary_ttl_command(conn *c, token_t *tokens, const size_t ntokens) {
     uint32_t ttl;
     assert(c != NULL);
 
@@ -3881,7 +3881,7 @@ static void process_transient_ttl_command(conn *c, token_t *tokens, const size_t
     if (!safe_strtoul(tokens[1].value, &ttl)) {
         out_string(c, "ERROR");
     } else {
-        settings.transient_ttl = ttl;
+        settings.temporary_ttl = ttl;
         out_string(c, "OK");
     }
 }
@@ -4167,8 +4167,8 @@ static void process_command(conn *c, char *command) {
         process_watch_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0)) {
         process_memlimit_command(c, tokens, ntokens);
-    } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "transient_ttl") == 0)) {
-        process_transient_ttl_command(c, tokens, ntokens);
+    } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "temporary_ttl") == 0)) {
+        process_temporary_ttl_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else {
@@ -5463,7 +5463,7 @@ static void usage(void) {
            "                (requires lru_maintainer)\n"
            "              - warm_lru_pct: Pct of slab memory to reserve for warm lru.\n"
            "                (requires lru_maintainer)\n"
-           "              - expirezero_does_not_evict: Items set to not expire, will not evict.\n"
+           "              - temporary_ttl: TTL's below this use separate LRU, cannot be evicted.\n"
            "                (requires lru_maintainer)\n"
            "              - idle_timeout: Timeout for idle connections\n"
            "              - (EXPERIMENTAL) slab_chunk_max: Maximum slab size. Do not change without extreme care.\n"
@@ -5766,8 +5766,7 @@ int main (int argc, char **argv) {
         LRU_MAINTAINER,
         HOT_LRU_PCT,
         WARM_LRU_PCT,
-        NOEXP_NOEVICT,
-        TRANSIENT_TTL,
+        TEMPORARY_TTL,
         IDLE_TIMEOUT,
         WATCHER_LOGBUF_SIZE,
         WORKER_LOGBUF_SIZE,
@@ -5790,8 +5789,7 @@ int main (int argc, char **argv) {
         [LRU_MAINTAINER] = "lru_maintainer",
         [HOT_LRU_PCT] = "hot_lru_pct",
         [WARM_LRU_PCT] = "warm_lru_pct",
-        [TRANSIENT_TTL] = "transient_ttl",
-        [NOEXP_NOEVICT] = "expirezero_does_not_evict",
+        [TEMPORARY_TTL] = "temporary_ttl",
         [IDLE_TIMEOUT] = "idle_timeout",
         [WATCHER_LOGBUF_SIZE] = "watcher_logbuf_size",
         [WORKER_LOGBUF_SIZE] = "worker_logbuf_size",
@@ -6172,15 +6170,13 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
-            case NOEXP_NOEVICT:
-                settings.expirezero_does_not_evict = true;
-                break;
-            case TRANSIENT_TTL:
+            case TEMPORARY_TTL:
                 if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing transient_ttl argument\n");
+                    fprintf(stderr, "Missing temporary_ttl argument\n");
                     return 1;
                 };
-                settings.transient_ttl = atoi(subopts_value);
+                settings.temp_lru = true;
+                settings.temporary_ttl = atoi(subopts_value);
                 break;
             case IDLE_TIMEOUT:
                 settings.idle_timeout = atoi(subopts_value);

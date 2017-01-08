@@ -747,8 +747,8 @@ other stats command.
 |                   | bool     | Split LRU mode and background threads        |
 | hot_lru_pct       | 32       | Pct of slab memory reserved for HOT LRU      |
 | warm_lru_pct      | 32       | Pct of slab memory reserved for WARM LRU     |
-| expirezero_does_not_evict                                                   |
-|                   | bool     | If yes, items with 0 exptime cannot evict    |
+| temp_lru          | bool     | If yes, items < temporary_ttl use TEMP_LRU   |
+| temporary_ttl     | 32u      | Items with TTL < this are marked  temporary  |
 | idle_time         | 0        | Drop connections that are idle this many     |
 |                   |          | seconds (0 disables)                         |
 | watcher_logbuf_size                                                         |
@@ -792,7 +792,7 @@ number                 Number of items presently stored in this class. Expired
 number_hot             Number of items presently stored in the HOT LRU.
 number_warm            Number of items presently stored in the WARM LRU.
 number_cold            Number of items presently stored in the COLD LRU.
-number_noexp           Number of items presently stored in the NOEXP class.
+number_temp            Number of items presently stored in the TEMPORARY LRU.
 age                    Age of the oldest item in the LRU.
 evicted                Number of times an item had to be evicted from the LRU
                        before it expired.

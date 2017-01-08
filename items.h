@@ -1,7 +1,7 @@
 #define HOT_LRU 0
 #define WARM_LRU 64
 #define COLD_LRU 128
-#define NOEXP_LRU 192
+#define TEMP_LRU 192
 
 #define CLEAR_LRU(id) (id & ~(3<<6))
 

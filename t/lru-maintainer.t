@@ -70,26 +70,25 @@ for (my $key = 0; $key < 100; $key++) {
 # Key should've been saved to the WARM_LRU, and still exists.
 mem_get_is($sock, "canary", $value);
 
-# Test NOEXP_LRU
-$server = new_memcached('-m 2 -o lru_maintainer,lru_crawler,expirezero_does_not_evict');
+# Test TEMP_LRU
+$server = new_memcached('-m 2 -o lru_maintainer,lru_crawler,temporary_ttl=61');
 $sock = $server->sock;
 
 {
     my $stats = mem_stats($sock, "settings");
-    is($stats->{expirezero_does_not_evict}, "yes");
+    is($stats->{temp_lru}, "yes");
 }
 
-print $sock "set canary 0 0 66560\r\n$value\r\n";
-is(scalar <$sock>, "STORED\r\n", "stored noexpire canary key");
+print $sock "set canary 0 30 66560\r\n$value\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored temporary canary key");
 
 {
     my $stats = mem_stats($sock, "items");
-    is($stats->{"items:31:number_noexp"}, 1, "one item in noexpire LRU");
     is($stats->{"items:31:number_hot"}, 0, "item did not go into hot LRU");
 }
 
 # *Not* fetching the key, and flushing the slab class with junk.
-# Using keys with actual TTL's here.
+# Using keys with higher TTL's here.
 for (my $key = 0; $key < 100; $key++) {
     print $sock "set key$key 0 3600 66560\r\n$value\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key$key");
@@ -97,9 +96,10 @@ for (my $key = 0; $key < 100; $key++) {
 
 {
     my $stats = mem_stats($sock, "items");
-    isnt($stats->{evictions}, 0, "some evictions happened");
-    isnt($stats->{number_hot}, 0, "nonzero exptime items went into hot LRU");
+    isnt($stats->{"items:31:evictions"}, 0, "some evictions happened");
+    isnt($stats->{"items:31:number_hot"}, 0, "high exptime items went into hot LRU");
+    is($stats->{"items:31:number_temp"}, 1, "still one item in temporary LRU");
 }
 # Canary should still exist, even unfetched, because it's protected by
-# noexpire.
+# temp LRU
 mem_get_is($sock, "canary", $value);
