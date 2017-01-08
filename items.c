@@ -193,10 +193,9 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
 
         if (it == NULL) {
             if (settings.lru_maintainer_thread) {
-                //lru_pull_tail(id, HOT_LRU, total_bytes, 0);
-                //lru_pull_tail(id, WARM_LRU, total_bytes, 0);
-                if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT) <= 0)
-                    break;
+                if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT) <= 0) {
+                    lru_pull_tail(id, HOT_LRU, total_bytes, 0);
+                }
             } else {
                 if (lru_pull_tail(id, COLD_LRU, 0, LRU_PULL_EVICT) <= 0)
                     break;
@@ -1170,7 +1169,7 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
 
 static pthread_t lru_maintainer_tid;
 
-#define MAX_LRU_MAINTAINER_SLEEP 1000000
+#define MAX_LRU_MAINTAINER_SLEEP 500000
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
 static void *lru_maintainer_thread(void *arg) {
