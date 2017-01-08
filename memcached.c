@@ -5404,8 +5404,10 @@ static void usage(void) {
            "              - watcher_logbuf_size: Size in kilobytes of per-watcher write buffer.\n"
            "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
            "                read by background thread. Which is then written to watchers.\n"
-           "              - modern: Enables 'modern' defaults. See release notes (highly recommended!).\n"
            "              - track_sizes: Enable dynamic reports for 'stats sizes' command.\n"
+           "              - modern: Enables 'modern' defaults. Options that will be default in future.\n"
+           "                enables: slab_chunk_max:512k,slab_reassign,slab_automove=1,maxconns_fast,\n"
+           "                         hash_algorithm=murmur3,lru_crawler,lru_maintainer\n"
            );
     return;
 }
