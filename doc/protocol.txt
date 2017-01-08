@@ -208,7 +208,7 @@ with a "cas" command did not exist.
 Retrieval command:
 ------------------
 
-The retrieval commands "get" and "gets" operates like this:
+The retrieval commands "get" and "gets" operate like this:
 
 get <key>*\r\n
 gets <key>*\r\n
@@ -713,7 +713,7 @@ other stats command.
 |-------------------+----------+----------------------------------------------|
 | Name              | Type     | Meaning                                      |
 |-------------------+----------+----------------------------------------------|
-| maxbytes          | size_t   | Maximum number of bytes allows in this cache |
+| maxbytes          | size_t   | Maximum number of bytes allowed in the cache |
 | maxconns          | 32       | Maximum number of clients allowed.           |
 | tcpport           | 32       | TCP listen port.                             |
 | udpport           | 32       | UDP listen port.                             |
