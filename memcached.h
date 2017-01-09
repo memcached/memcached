@@ -638,13 +638,14 @@ conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 void  conn_close_idle(conn *c);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
-item *item_get(const char *key, const size_t nkey, conn *c);
+#define DO_UPDATE true
+#define DONT_UPDATE false
+item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime, conn *c);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it, const uint32_t hv);
 void  item_unlink(item *it);
-void  item_update(item *it);
 
 void item_lock(uint32_t hv);
 void *item_trylock(uint32_t hv);

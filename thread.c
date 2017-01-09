@@ -543,12 +543,12 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
  * Returns an item if it hasn't been marked as expired,
  * lazy-expiring as needed.
  */
-item *item_get(const char *key, const size_t nkey, conn *c) {
+item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update) {
     item *it;
     uint32_t hv;
     hv = hash(key, nkey);
     item_lock(hv);
-    it = do_item_get(key, nkey, hv, c);
+    it = do_item_get(key, nkey, hv, c, do_update);
     item_unlock(hv);
     return it;
 }
@@ -607,18 +607,6 @@ void item_unlink(item *item) {
     hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
     do_item_unlink(item, hv);
-    item_unlock(hv);
-}
-
-/*
- * Moves an item to the back of the LRU queue.
- */
-void item_update(item *item) {
-    uint32_t hv;
-    hv = hash(ITEM_key(item), item->nkey);
-
-    item_lock(hv);
-    do_item_update(item);
     item_unlock(hv);
 }
 

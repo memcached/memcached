@@ -760,7 +760,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */
-item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c) {
+item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(&it->refcount);
@@ -825,6 +825,9 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             was_found = 3;
         } else {
             it->it_flags |= ITEM_FETCHED|ITEM_ACTIVE;
+            if (do_update) {
+                do_item_update(it);
+            }
             DEBUG_REFCNT(it, '+');
         }
     }
@@ -840,7 +843,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
 
 item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
                     const uint32_t hv, conn *c) {
-    item *it = do_item_get(key, nkey, hv, c);
+    item *it = do_item_get(key, nkey, hv, c, DO_UPDATE);
     if (it != NULL) {
         it->exptime = exptime;
     }

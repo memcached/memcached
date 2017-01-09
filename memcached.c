@@ -1488,7 +1488,7 @@ static void process_bin_get_or_touch(conn *c) {
 
         it = item_touch(key, nkey, realtime(exptime), c);
     } else {
-        it = item_get(key, nkey, c);
+        it = item_get(key, nkey, c, DO_UPDATE);
     }
 
     if (it) {
@@ -1496,7 +1496,6 @@ static void process_bin_get_or_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
-        item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -2284,7 +2283,7 @@ static void process_bin_update(conn *c) {
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (c->cmd == PROTOCOL_BINARY_CMD_SET) {
-            it = item_get(key, nkey, c);
+            it = item_get(key, nkey, c, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
                 item_remove(it);
@@ -2436,7 +2435,7 @@ static void process_bin_delete(conn *c) {
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get(key, nkey, c);
+    it = item_get(key, nkey, c, DONT_UPDATE);
     if (it) {
         uint64_t cas = ntohll(req->message.header.request.cas);
         if (cas == 0 || cas == ITEM_get_cas(it)) {
@@ -2614,7 +2613,7 @@ static void _store_item_copy_data(int comm, item *old_it, item *new_it, item *ad
  */
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
     char *key = ITEM_key(it);
-    item *old_it = do_item_get(key, it->nkey, hv, c);
+    item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
 
     item *new_it = NULL;
@@ -3251,7 +3250,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 return;
             }
 
-            it = item_get(key, nkey, c);
+            it = item_get(key, nkey, c, DO_UPDATE);
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
@@ -3366,7 +3365,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
                 c->thread->stats.get_cmds++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
-                item_update(it);
                 *(c->ilist + i) = it;
                 i++;
 
@@ -3493,7 +3491,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (comm == NREAD_SET) {
-            it = item_get(key, nkey, c);
+            it = item_get(key, nkey, c, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
                 item_remove(it);
@@ -3536,7 +3534,6 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
 
     it = item_touch(key, nkey, realtime(exptime_int), c);
     if (it) {
-        item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.touch_cmds++;
         c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
@@ -3623,7 +3620,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     int res;
     item *it;
 
-    it = do_item_get(key, nkey, hv, c);
+    it = do_item_get(key, nkey, hv, c, DONT_UPDATE);
     if (!it) {
         return DELTA_ITEM_NOT_FOUND;
     }
@@ -3753,7 +3750,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get(key, nkey, c);
+    it = item_get(key, nkey, c, DONT_UPDATE);
     if (it) {
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
