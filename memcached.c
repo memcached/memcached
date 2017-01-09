@@ -3191,10 +3191,14 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
 static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas) {
     char *p;
-    *suffix = ' ';
-    p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), suffix+1);
-    *p = ' ';
-    p = itoa_u32(it->nbytes-2, p+1);
+    if (!settings.inline_ascii_response) {
+        *suffix = ' ';
+        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), suffix+1);
+        *p = ' ';
+        p = itoa_u32(it->nbytes-2, p+1);
+    } else {
+        p = suffix;
+    }
     if (return_cas) {
         *p = ' ';
         p = itoa_u64(ITEM_get_cas(it), p+1);
@@ -3289,13 +3293,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       return;
                   }
                   *(c->suffixlist + i) = suffix;
-                  /*int suffix_len = snprintf(suffix, SUFFIX_SIZE,
-                                            " %llu\r\n",
-                                            (unsigned long long)ITEM_get_cas(it));*/
                   int suffix_len = make_ascii_get_suffix(suffix, it, return_cas);
-                      //add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
+                      (settings.inline_ascii_response && add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0) ||
                       add_iov(c, suffix, suffix_len) != 0)
                       {
                           item_remove(it);
