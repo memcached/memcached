@@ -44,7 +44,7 @@
 #define ITEM_LIST_INITIAL 200
 
 /** Initial size of list of CAS suffixes appended to "gets" lines. */
-#define SUFFIX_LIST_INITIAL 20
+#define SUFFIX_LIST_INITIAL 100
 
 /** Initial size of the sendmsg() scatter/gather array. */
 #define IOV_LIST_INITIAL 400
