@@ -652,8 +652,8 @@ void *item_trylock(uint32_t hv);
 void item_trylock_unlock(void *arg);
 void item_unlock(uint32_t hv);
 void pause_threads(enum pause_thread_types type);
-unsigned short refcount_incr(unsigned short *refcount);
-unsigned short refcount_decr(unsigned short *refcount);
+#define refcount_incr(it) ++(it->refcount)
+#define refcount_decr(it) --(it->refcount)
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);

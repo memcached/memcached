@@ -79,36 +79,6 @@ static pthread_cond_t init_cond;
 
 static void thread_libevent_process(int fd, short which, void *arg);
 
-unsigned short refcount_incr(unsigned short *refcount) {
-#ifdef HAVE_GCC_ATOMICS
-    return __sync_add_and_fetch(refcount, 1);
-#elif defined(__sun)
-    return atomic_inc_ushort_nv(refcount);
-#else
-    unsigned short res;
-    mutex_lock(&atomics_mutex);
-    (*refcount)++;
-    res = *refcount;
-    mutex_unlock(&atomics_mutex);
-    return res;
-#endif
-}
-
-unsigned short refcount_decr(unsigned short *refcount) {
-#ifdef HAVE_GCC_ATOMICS
-    return __sync_sub_and_fetch(refcount, 1);
-#elif defined(__sun)
-    return atomic_dec_ushort_nv(refcount);
-#else
-    unsigned short res;
-    mutex_lock(&atomics_mutex);
-    (*refcount)--;
-    res = *refcount;
-    mutex_unlock(&atomics_mutex);
-    return res;
-#endif
-}
-
 /* item_lock() must be held for an item before any modifications to either its
  * associated hash bucket, or the structure itself.
  * LRU modifications must hold the item lock, and the LRU lock.

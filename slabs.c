@@ -823,7 +823,7 @@ static int slab_rebalance_move(void) {
                 if ((hold_lock = item_trylock(hv)) == NULL) {
                     status = MOVE_LOCKED;
                 } else {
-                    refcount = refcount_incr(&it->refcount);
+                    refcount = refcount_incr(it);
                     if (refcount == 2) { /* item is linked but not busy */
                         /* Double check ITEM_LINKED flag here, since we're
                          * past a memory barrier from the mutex. */
@@ -844,7 +844,7 @@ static int slab_rebalance_move(void) {
                     }
                     /* Item lock must be held while modifying refcount */
                     if (status == MOVE_BUSY) {
-                        refcount_decr(&it->refcount);
+                        refcount_decr(it);
                         item_trylock_unlock(hold_lock);
                     }
                 }
@@ -935,7 +935,7 @@ static int slab_rebalance_move(void) {
 #ifdef DEBUG_SLAB_MOVER
                         memcpy(ITEM_key((item *)ch), "deadbeef", 8);
 #endif
-                        refcount_decr(&it->refcount);
+                        refcount_decr(it);
                         requested_adjust = s_cls->size;
                     }
                 } else {

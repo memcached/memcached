@@ -371,7 +371,7 @@ int do_item_link(item *it, const uint32_t hv) {
     ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
     assoc_insert(it, hv);
     item_link_q(it);
-    refcount_incr(&it->refcount);
+    refcount_incr(it);
     item_stats_sizes_add(it);
 
     return 1;
@@ -413,7 +413,7 @@ void do_item_remove(item *it) {
     assert((it->it_flags & ITEM_SLABBED) == 0);
     assert(it->refcount > 0);
 
-    if (refcount_decr(&it->refcount) == 0) {
+    if (refcount_decr(it) == 0) {
         item_free(it);
     }
 }
@@ -763,7 +763,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
-        refcount_incr(&it->refcount);
+        refcount_incr(it);
         /* Optimization for slab reassignment. prevents popular items from
          * jamming in busy wait. Can only do this here to satisfy lock order
          * of item_lock, slabs_lock. */
@@ -891,7 +891,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
         if ((hold_lock = item_trylock(hv)) == NULL)
             continue;
         /* Now see if the item is refcount locked */
-        if (refcount_incr(&search->refcount) != 2) {
+        if (refcount_incr(search) != 2) {
             /* Note pathological case with ref'ed items in tail.
              * Can still unlink the item, but it won't be reusable yet */
             itemstats[id].lrutail_reflocked++;
