@@ -843,27 +843,58 @@ static int ensure_iov_space(conn *c) {
  * connection.
  *
  * Returns 0 on success, -1 on out-of-memory.
+ * Note: This is a hot path for at least ASCII protocol. While there is
+ * redundant code in splitting TCP/UDP handling, any reduction in steps has a
+ * large impact for TCP connections.
  */
 
 static int add_iov(conn *c, const void *buf, int len) {
     struct msghdr *m;
     int leftover;
-    bool limit_to_mtu;
 
     assert(c != NULL);
 
-    do {
+    if (IS_UDP(c->transport)) {
+        do {
+            m = &c->msglist[c->msgused - 1];
+
+            /*
+             * Limit UDP packets to UDP_MAX_PAYLOAD_SIZE bytes.
+             */
+
+            /* We may need to start a new msghdr if this one is full. */
+            if (m->msg_iovlen == IOV_MAX ||
+                (c->msgbytes >= UDP_MAX_PAYLOAD_SIZE)) {
+                add_msghdr(c);
+                m = &c->msglist[c->msgused - 1];
+            }
+
+            if (ensure_iov_space(c) != 0)
+                return -1;
+
+            /* If the fragment is too big to fit in the datagram, split it up */
+            if (len + c->msgbytes > UDP_MAX_PAYLOAD_SIZE) {
+                leftover = len + c->msgbytes - UDP_MAX_PAYLOAD_SIZE;
+                len -= leftover;
+            } else {
+                leftover = 0;
+            }
+
+            m = &c->msglist[c->msgused - 1];
+            m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
+            m->msg_iov[m->msg_iovlen].iov_len = len;
+
+            c->msgbytes += len;
+            c->iovused++;
+            m->msg_iovlen++;
+
+            buf = ((char *)buf) + len;
+            len = leftover;
+        } while (leftover > 0);
+    } else {
+        /* Optimized path for TCP connections */
         m = &c->msglist[c->msgused - 1];
-
-        /*
-         * Limit UDP packets, and the first payloads of TCP replies, to
-         * UDP_MAX_PAYLOAD_SIZE bytes.
-         */
-        limit_to_mtu = IS_UDP(c->transport) || (1 == c->msgused);
-
-        /* We may need to start a new msghdr if this one is full. */
-        if (m->msg_iovlen == IOV_MAX ||
-            (limit_to_mtu && c->msgbytes >= UDP_MAX_PAYLOAD_SIZE)) {
+        if (m->msg_iovlen == IOV_MAX) {
             add_msghdr(c);
             m = &c->msglist[c->msgused - 1];
         }
@@ -871,25 +902,12 @@ static int add_iov(conn *c, const void *buf, int len) {
         if (ensure_iov_space(c) != 0)
             return -1;
 
-        /* If the fragment is too big to fit in the datagram, split it up */
-        if (limit_to_mtu && len + c->msgbytes > UDP_MAX_PAYLOAD_SIZE) {
-            leftover = len + c->msgbytes - UDP_MAX_PAYLOAD_SIZE;
-            len -= leftover;
-        } else {
-            leftover = 0;
-        }
-
-        m = &c->msglist[c->msgused - 1];
         m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
         m->msg_iov[m->msg_iovlen].iov_len = len;
-
         c->msgbytes += len;
         c->iovused++;
         m->msg_iovlen++;
-
-        buf = ((char *)buf) + len;
-        len = leftover;
-    } while (leftover > 0);
+    }
 
     return 0;
 }
