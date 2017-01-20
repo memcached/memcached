@@ -3594,6 +3594,9 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     }
 
     ptr = ITEM_data(it);
+    if(ptr == 0) {
+      return NON_NUMERIC;
+    }
 
     if (!safe_strtoull(ptr, &value)) {
         do_item_remove(it);
