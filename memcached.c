@@ -395,6 +395,7 @@ static void conn_init(void) {
     int headroom = 10;      /* account for extra unexpected open FDs */
     struct rlimit rl;
 
+    printf("conn_init\n");
     max_fds = settings.maxconns + headroom + next_fd;
 
     /* But if possible, get the actual highest FD we can possibly ever see. */
@@ -452,6 +453,7 @@ void conn_close_idle(conn *c) {
 
 /* bring conn back from a sidethread. could have had its event base moved. */
 void conn_worker_readd(conn *c) {
+    printf("conn_worker_read\n");
     c->ev_flags = EV_READ | EV_PERSIST;
     event_set(&c->event, c->sfd, c->ev_flags, event_handler, (void *)c);
     event_base_set(c->thread->base, &c->event);
@@ -467,7 +469,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
                 const int read_buffer_size, enum network_transport transport,
                 struct event_base *base) {
     conn *c;
-
+    printf("conn_new\n");
     assert(sfd >= 0 && sfd < max_fds);
     c = conns[sfd];
 
@@ -679,7 +681,7 @@ void conn_free(conn *c) {
 }
 
 static void conn_close(conn *c) {
-    assert(c != NULL);
+    assert(c    != NULL);
 
     /* delete the event, the socket and the conn */
     event_del(&c->event);
@@ -695,7 +697,7 @@ static void conn_close(conn *c) {
 
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
-    pthread_mutex_unlock(&conn_lock);
+    pthread_mutex_unlock(&lconn_lock);
 
     STATS_LOCK();
     stats_state.curr_conns--;
@@ -4118,6 +4120,7 @@ static int try_read_command(conn *c) {
     assert(c != NULL);
     assert(c->rcurr <= (c->rbuf + c->rsize));
     assert(c->rbytes > 0);
+    assert(c->rbytes > 0);
 
     if (c->protocol == negotiating_prot || c->transport == udp_transport)  {
         if ((unsigned char)c->rbuf[0] == (unsigned char)PROTOCOL_BINARY_REQ) {
@@ -4358,8 +4361,11 @@ static enum try_read_result try_read_network(conn *c) {
     return gotdata;
 }
 
+//static int update_count;
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
+
+    //printf("update_event for con thread id %d, count %d\n", c->thread->easy_id, ++update_count);
 
     struct event_base *base = c->event.ev_base;
     if (c->ev_flags == new_flags)
@@ -4557,6 +4563,8 @@ static void drive_machine(conn *c) {
 #endif
 
     assert(c != NULL);
+
+    printf("con fds: %d\n", c->sfd);
 
     while (!stop) {
 
@@ -4905,6 +4913,7 @@ void event_handler(const int fd, const short which, void *arg) {
         return;
     }
 
+    //printf("event_handler\n");
     drive_machine(c);
 
     /* wait for next event */
@@ -5738,6 +5747,8 @@ int main (int argc, char **argv) {
     /* handle SIGINT and SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    printf("MAIN MAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAINMAIN\n");
 
     /* init settings */
     settings_init();

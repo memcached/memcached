@@ -459,8 +459,11 @@ typedef struct _strchunk {
     char data[];
 } item_chunk;
 
+typedef struct conn conn;
+
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
+    int easy_id;
     struct event_base *base;    /* libevent handle this thread uses */
     struct event notify_event;  /* listen event for notify pipe */
     int notify_receive_fd;      /* receiving end of notify pipe */
@@ -469,12 +472,12 @@ typedef struct {
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *suffix_cache;      /* suffix cache */
     logger *l;                  /* logger buffer */
+    conn* connections;
 } LIBEVENT_THREAD;
 
 /**
  * The structure representing a connection into memcached.
  */
-typedef struct conn conn;
 struct conn {
     int    sfd;
     sasl_conn_t *sasl_conn;
