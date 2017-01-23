@@ -447,7 +447,7 @@ void do_item_update(item *it) {
     if (settings.lru_maintainer_thread) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
         if ((it->it_flags & ITEM_LINKED) != 0) {
-            if (ITEM_lruid(it) == COLD_LRU) {
+            if (ITEM_lruid(it) == COLD_LRU && (it->it_flags & ITEM_ACTIVE)) {
                 it->time = current_time;
                 item_unlink_q(it);
                 it->slabs_clsid = ITEM_clsid(it);
@@ -844,8 +844,20 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             }
             was_found = 3;
         } else {
-            it->it_flags |= ITEM_FETCHED|ITEM_ACTIVE;
             if (do_update) {
+                /* We update the hit markers only during fetches.
+                 * An item needs to be hit twice overall to be considered
+                 * ACTIVE, but only needs a single hit to maintain activity
+                 * afterward.
+                 * FETCHED tells if an item has ever been active.
+                 */
+                if ((it->it_flags & ITEM_ACTIVE) == 0) {
+                    if ((it->it_flags & ITEM_FETCHED) == 0) {
+                        it->it_flags |= ITEM_FETCHED;
+                    } else {
+                        it->it_flags |= ITEM_ACTIVE;
+                    }
+                }
                 do_item_update(it);
             }
             DEBUG_REFCNT(it, '+');

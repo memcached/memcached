@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 225;
+use Test::More tests => 226;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -53,7 +53,8 @@ for (my $key = 0; $key < 100; $key++) {
             last;
         }
         isnt($stats->{"items:31:moves_to_cold"}, 0, "moved some items to cold");
-        # Fetch the canary once, so it's now marked as active.
+        # Items need two fetches to become active
+        mem_get_is($sock, "canary", $value);
         mem_get_is($sock, "canary", $value);
     }
     print $sock "set key$key 0 0 66560\r\n$value\r\n";
@@ -64,7 +65,8 @@ for (my $key = 0; $key < 100; $key++) {
     my $stats = mem_stats($sock);
     isnt($stats->{evictions}, 0, "some evictions happened");
     my $istats = mem_stats($sock, "items");
-    isnt($stats->{"items:31:number_warm"}, 0, "our canary moved to warm");
+    isnt($istats->{"items:31:number_warm"}, 0, "our canary moved to warm");
+    use Data::Dumper qw/Dumper/;
 }
 
 # Key should've been saved to the WARM_LRU, and still exists.
