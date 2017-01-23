@@ -68,6 +68,7 @@ unsigned int item_lock_hashpower;
  * can use to signal that they've put a new connection on its queue.
  */
 static LIBEVENT_THREAD *threads;
+static int threads_count;
 
 /*
  * Number of worker threads that have finished setting themselves up.
@@ -359,12 +360,16 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         fprintf(stderr, "Failed to create suffix cache\n");
         exit(EXIT_FAILURE);
     }
+
+    printf("thread: %d, receive_fd: %d, send_fd: %d\n",
+           me->easy_id, me->notify_receive_fd, me->notify_send_fd);
 }
 
 /*
  * Worker thread: main event loop
  */
 static void *worker_libevent(void *arg) {
+    printf("WORKER LIBECENT\n");
     LIBEVENT_THREAD *me = arg;
 
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
@@ -378,6 +383,9 @@ static void *worker_libevent(void *arg) {
     register_thread_initialized();
 
     event_base_loop(me->base, 0);
+
+    printf("wyszedlem z event basu!\n");
+
     return NULL;
 }
 
@@ -397,6 +405,8 @@ static void thread_libevent_process(int fd, short which, void *arg) {
             fprintf(stderr, "Can't read from libevent pipe\n");
         return;
     }
+
+//    printf("%d: Processing new connection!\n", me->easy_id);
 
     switch (buf[0]) {
     case 'c':
@@ -423,6 +433,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
             cqi_free(item);
         }
         break;
+    // REDISPATCH Connection?
     case 'r':
         item = cq_pop(me->new_conn_queue);
 
@@ -454,6 +465,8 @@ static int last_thread = -1;
  * Dispatches a new connection to another thread. This is only ever called
  * from the main thread, either during initialization (for UDP) or because
  * of an incoming connection.
+ *
+ * WORKS WELL.
  */
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport) {
@@ -466,7 +479,10 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
         return ;
     }
 
-    int tid = (last_thread + 1) % settings.num_threads;
+//    int tid = (last_thread + 1) % settings.num_threads;
+    int tid = (last_thread + 1) % threads_count;
+//    This works well.
+    printf("dispatching connection to TID %d\n", tid);
 
     LIBEVENT_THREAD *thread = threads + tid;
 
@@ -481,6 +497,8 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     cq_push(thread->new_conn_queue, item);
 
     MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
+//    This works well.
+//    printf("dispatch connection to tid %d\n", thread->easy_id);
     buf[0] = 'c';
     if (write(thread->notify_send_fd, buf, 1) != 1) {
         perror("Writing to thread notify pipe");
@@ -492,6 +510,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
  * any side thread borrowing a connection.
  */
 void redispatch_conn(conn *c) {
+    printf("redispatch function\n");
     CQ_ITEM *item = cqi_new();
     char buf[1];
     if (item == NULL) {
@@ -500,6 +519,7 @@ void redispatch_conn(conn *c) {
         close(c->sfd);
         return;
     }
+
     LIBEVENT_THREAD *thread = c->thread;
     item->sfd = c->sfd;
     item->init_state = conn_new_cmd;
@@ -714,6 +734,11 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     }
 }
 
+// Memcached scaling patch.
+void *memcached_scaling_entrypoint(void *arg);
+pthread_t sched_affinity_thread;
+
+
 /*
  * Initializes the thread subsystem, creating various worker threads.
  *
@@ -785,6 +810,8 @@ void memcached_thread_init(int nthreads) {
         threads[i].notify_receive_fd = fds[0];
         threads[i].notify_send_fd = fds[1];
 
+        threads[i].easy_id = i;
+
         setup_thread(&threads[i]);
         /* Reserve three fds for the libevent base, and two for the pipe */
         stats_state.reserved_fds += 5;
@@ -799,5 +826,96 @@ void memcached_thread_init(int nthreads) {
     pthread_mutex_lock(&init_lock);
     wait_for_thread_registration(nthreads);
     pthread_mutex_unlock(&init_lock);
+
+    threads_count = init_count;
+
+    int result = pthread_create(&sched_affinity_thread, NULL, memcached_scaling_entrypoint, NULL);
+    if (result) {
+        printf("no slabo, nie wyszlo jednak\n");
+    }
+
+//    pthread_join(sched_affinity_thread, NULL);
+
+    printf("dzowmp walk1111111111:\n");
+
+    printf("newprit\n");
 }
+
+
+
+
+void *memcached_scaling_entrypoint(void *arg) {
+//    pthread_t self_id;
+//    self_id = pthread_self();
+
+//    printf("Launch mutilate here ...\n");
+//    sleep(15);
+//    printf("Mutilate should be already launcher.\n");
+//
+//    printf("Threads count: %d\n", threads_count);
+//    threads_count -= 1;
+//    int code = event_base_loopexit(threads[threads_count].base, NULL);
+//    printf("tid %d zaraz wyjdie basa %d.\n",threads[threads_count].easy_id, code);
+//    sleep(3);
+//    int got_exit = event_base_got_exit(threads[threads_count].base);
+//    printf("got exit: %d\n", got_exit);
+//
+//    printf("Threads count: %d\n", threads_count);
+//
+//
+//
+//    do_accept_new_conns(false);
+//
+//
+//
+//    threads_count -= 1;
+//    code = event_base_loopexit(threads[threads_count].base, NULL);
+//    printf("zarz wyjdie basa %d.\n", code);
+//    sleep(3);
+//    got_exit = event_base_got_exit(threads[threads_count].base);
+//    printf("got exit: %d\n", got_exit);
+
+
+
+//    while(1) {
+//        for (int idx = 0; idx < 2; idx++) {
+//            printf("%lu: worker threads: %d\n", self_id, init_count);
+//
+//            sleep(1);
+//        }
+//        for (int idx = 0; idx < 2; idx++) {
+//            printf("%lu: worker threads: %d\n", self_id, init_count);
+//            sleep(1);
+//        }
+//    }
+//    sleep(10);
+//    printf("wywlamay exitem wszystkie pule\n");
+//    for (int pool = 0; pool < threads_count; pool++){
+
+//        int code = event_base_loopexit(threads[pool].base, NULL);
+//        printf("wywaloned with code: %d\n", code);
+//
+//        int got_exit = event_base_got_exit(threads[pool].base);
+//        printf("got exit: %d\n", got_exit);
+//    }
+//
+//    printf("xD\n");
+//    sleep(1);
+//
+//
+//    for (int pool = 0; pool < threads_count; pool++){
+//        int got_exit = event_base_got_exit(threads[pool].base);
+//        printf("got exit: %d\n", got_exit);
+//    }
+//
+    return 0;
+}
+
+void initialize_thread(int thread_id);
+void initialize_thread(int thread_id) {
+
+
+    return;
+}
+
 
