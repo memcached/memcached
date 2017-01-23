@@ -114,6 +114,7 @@
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_clsid(item) ((item)->slabs_clsid & ~(3<<6))
+#define ITEM_lruid(item) ((item)->slabs_clsid & (3<<6))
 
 #define STAT_KEY_LEN 128
 #define STAT_VAL_LEN 128

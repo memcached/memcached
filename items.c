@@ -447,8 +447,7 @@ void do_item_update(item *it) {
     if (settings.lru_maintainer_thread) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
         if ((it->it_flags & ITEM_LINKED) != 0) {
-            // FIXME: do better LRU check.
-            if (it->slabs_clsid >= COLD_LRU && it->slabs_clsid < TEMP_LRU) {
+            if (ITEM_lruid(it) == COLD_LRU) {
                 it->time = current_time;
                 item_unlink_q(it);
                 it->slabs_clsid = ITEM_clsid(it);
