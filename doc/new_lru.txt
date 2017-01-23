@@ -9,10 +9,11 @@ Now, enabling `-o lru_maintainer` changes all of the behavior below:
 
  * LRU's are now split between HOT, WARM, and COLD LRU's. New items enter the
    HOT LRU.
+ * Items hit at least twice are considered active.
  * LRU updates only happen as items reach the bottom of an LRU. If active in
-   HOT, stay in HOT, if active in WARM, stay in WARM. If active in COLD, move
+   HOT, move to WARM, if active in WARM, stay in WARM. If active in COLD, move
    to WARM.
-   The exception is that items hit in COLD are immediately moved to WARM.
+   The exception is that items active in COLD are immediately moved to WARM.
  * HOT/WARM each capped at 32% of memory available for that slab class. COLD
    is uncapped (by default, as of this writing).
  * Items flow from HOT/WARM into COLD.

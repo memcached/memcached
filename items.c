@@ -969,11 +969,19 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     limit = total_bytes * settings.warm_lru_pct / 100;
                 /* Rescue ACTIVE items aggressively */
                 if ((search->it_flags & ITEM_ACTIVE) != 0) {
-                    itemstats[id].moves_within_lru++;
                     search->it_flags &= ~ITEM_ACTIVE;
-                    do_item_update_nolock(search);
-                    do_item_remove(search);
-                    item_trylock_unlock(hold_lock);
+                    if (cur_lru == WARM_LRU) {
+                        itemstats[id].moves_within_lru++;
+                        do_item_update_nolock(search);
+                        do_item_remove(search);
+                        item_trylock_unlock(hold_lock);
+                    } else {
+                        /* Active HOT_LRU items flow to WARM */
+                        itemstats[id].moves_to_warm++;
+                        move_to_lru = WARM_LRU;
+                        do_item_unlink_q(search);
+                        removed++;
+                    }
                 } else if (sizes_bytes[id] > limit) {
                     itemstats[id].moves_to_cold++;
                     move_to_lru = COLD_LRU;
