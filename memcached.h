@@ -367,6 +367,8 @@ struct settings {
     uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
     int hot_lru_pct; /* percentage of slab space for HOT_LRU */
     int warm_lru_pct; /* percentage of slab space for WARM_LRU */
+    uint32_t hot_max_age; /* max idle time before move from HOT_LRU */
+    double warm_max_factor; /* WARM tail age relative to COLD tail */
     int crawls_persleep; /* Number of LRU crawls to run before sleeping */
     bool inline_ascii_response; /* pre-format the VALUE line for ASCII responses */
     bool temp_lru; /* TTL < temporary_ttl uses TEMP_LRU */

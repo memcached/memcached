@@ -235,6 +235,8 @@ static void settings_init(void) {
     settings.lru_maintainer_thread = false;
     settings.hot_lru_pct = 32;
     settings.warm_lru_pct = 32;
+    settings.hot_max_age = 3600;
+    settings.warm_max_factor = 2.0;
     settings.inline_ascii_response = true;
     settings.temp_lru = false;
     settings.temporary_ttl = 61;
@@ -3009,6 +3011,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
+    APPEND_STAT("hot_max_age", "%u", settings.hot_max_age);
+    APPEND_STAT("warm_max_factor", "%.2f", settings.warm_max_factor);
     APPEND_STAT("temp_lru", "%s", settings.temp_lru ? "yes" : "no");
     APPEND_STAT("temporary_ttl", "%u", settings.temporary_ttl);
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
@@ -5463,6 +5467,8 @@ static void usage(void) {
            "                (requires lru_maintainer)\n"
            "              - warm_lru_pct: Pct of slab memory to reserve for warm lru.\n"
            "                (requires lru_maintainer)\n"
+           "              - hot_max_age: Items idle longer than this drop from hot lru.\n"
+           "              - cold_max_factor: Items idle longer than cold lru age * this drop from warm.\n"
            "              - temporary_ttl: TTL's below this use separate LRU, cannot be evicted.\n"
            "                (requires lru_maintainer)\n"
            "              - idle_timeout: Timeout for idle connections\n"
@@ -5766,6 +5772,8 @@ int main (int argc, char **argv) {
         LRU_MAINTAINER,
         HOT_LRU_PCT,
         WARM_LRU_PCT,
+        HOT_MAX_AGE,
+        WARM_MAX_FACTOR,
         TEMPORARY_TTL,
         IDLE_TIMEOUT,
         WATCHER_LOGBUF_SIZE,
@@ -5789,6 +5797,8 @@ int main (int argc, char **argv) {
         [LRU_MAINTAINER] = "lru_maintainer",
         [HOT_LRU_PCT] = "hot_lru_pct",
         [WARM_LRU_PCT] = "warm_lru_pct",
+        [HOT_MAX_AGE] = "hot_max_age",
+        [WARM_MAX_FACTOR] = "warm_max_factor",
         [TEMPORARY_TTL] = "temporary_ttl",
         [IDLE_TIMEOUT] = "idle_timeout",
         [WATCHER_LOGBUF_SIZE] = "watcher_logbuf_size",
@@ -6152,7 +6162,7 @@ int main (int argc, char **argv) {
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing hot_lru_pct argument\n");
                     return 1;
-                };
+                }
                 settings.hot_lru_pct = atoi(subopts_value);
                 if (settings.hot_lru_pct < 1 || settings.hot_lru_pct >= 80) {
                     fprintf(stderr, "hot_lru_pct must be > 1 and < 80\n");
@@ -6163,10 +6173,31 @@ int main (int argc, char **argv) {
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing warm_lru_pct argument\n");
                     return 1;
-                };
+                }
                 settings.warm_lru_pct = atoi(subopts_value);
                 if (settings.warm_lru_pct < 1 || settings.warm_lru_pct >= 80) {
                     fprintf(stderr, "warm_lru_pct must be > 1 and < 80\n");
+                    return 1;
+                }
+                break;
+            case HOT_MAX_AGE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing hot_max_age argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.hot_max_age)) {
+                    fprintf(stderr, "invalid argument to hot_max_age\n");
+                    return 1;
+                }
+                break;
+            case WARM_MAX_FACTOR:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing warm_max_factor argument\n");
+                    return 1;
+                }
+                settings.warm_max_factor = atof(subopts_value);
+                if (settings.warm_max_factor <= 0) {
+                    fprintf(stderr, "warm_max_factor must be > 0\n");
                     return 1;
                 }
                 break;
@@ -6174,7 +6205,7 @@ int main (int argc, char **argv) {
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing temporary_ttl argument\n");
                     return 1;
-                };
+                }
                 settings.temp_lru = true;
                 settings.temporary_ttl = atoi(subopts_value);
                 break;

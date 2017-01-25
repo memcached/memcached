@@ -747,6 +747,8 @@ other stats command.
 |                   | bool     | Split LRU mode and background threads        |
 | hot_lru_pct       | 32       | Pct of slab memory reserved for HOT LRU      |
 | warm_lru_pct      | 32       | Pct of slab memory reserved for WARM LRU     |
+| hot_max_age       | 32u      | Max idle age of items in HOT LRU             |
+| warm_max_factor   | float    | Set idle age of WARM LRU to COLD age * this  |
 | temp_lru          | bool     | If yes, items < temporary_ttl use TEMP_LRU   |
 | temporary_ttl     | 32u      | Items with TTL < this are marked  temporary  |
 | idle_time         | 0        | Drop connections that are idle this many     |

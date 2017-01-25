@@ -77,7 +77,7 @@ void do_item_stats_add_crawl(const int i, const uint64_t reclaimed,
 #define LRU_PULL_CRAWL_BLOCKS 2
 
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, uint8_t flags);
+        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age);
 
 /* Get the next CAS id for a new item. */
 /* TODO: refactor some atomics for this. */
@@ -183,7 +183,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         uint64_t total_bytes;
         /* Try to reclaim memory first */
         if (!settings.lru_maintainer_thread) {
-            lru_pull_tail(id, COLD_LRU, 0, 0);
+            lru_pull_tail(id, COLD_LRU, 0, 0, 0);
         }
         it = slabs_alloc(ntotal, id, &total_bytes, 0);
 
@@ -192,11 +192,11 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
 
         if (it == NULL) {
             if (settings.lru_maintainer_thread) {
-                if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT) <= 0) {
-                    lru_pull_tail(id, HOT_LRU, total_bytes, 0);
+                if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0) <= 0) {
+                    lru_pull_tail(id, HOT_LRU, total_bytes, 0, 0);
                 }
             } else {
-                if (lru_pull_tail(id, COLD_LRU, 0, LRU_PULL_EVICT) <= 0)
+                if (lru_pull_tail(id, COLD_LRU, 0, LRU_PULL_EVICT, 0) <= 0)
                     break;
             }
         } else {
@@ -887,7 +887,7 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 /* Returns number of items remove, expired, or evicted.
  * Callable from worker threads or the LRU maintainer thread */
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, uint8_t flags) {
+        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age) {
     item *it = NULL;
     int id = orig_id;
     int removed = 0;
@@ -982,7 +982,8 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                         do_item_unlink_q(search);
                         removed++;
                     }
-                } else if (sizes_bytes[id] > limit) {
+                } else if (sizes_bytes[id] > limit ||
+                           current_time - search->time > max_age) {
                     itemstats[id].moves_to_cold++;
                     move_to_lru = COLD_LRU;
                     do_item_unlink_q(search);
@@ -1070,7 +1071,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     if (settings.temp_lru) {
         /* Only looking for reclaims. Run before we size the LRU. */
         for (i = 0; i < 500; i++) {
-            if (lru_pull_tail(slabs_clsid, TEMP_LRU, 0, 0) <= 0) {
+            if (lru_pull_tail(slabs_clsid, TEMP_LRU, 0, 0, 0) <= 0) {
                 break;
             } else {
                 did_moves++;
@@ -1087,14 +1088,21 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
         slabs_reassign(slabs_clsid, SLAB_GLOBAL_PAGE_POOL);
     }
 
+    rel_time_t cold_age = 0;
+    pthread_mutex_lock(&lru_locks[slabs_clsid|COLD_LRU]);
+    if (tails[slabs_clsid|COLD_LRU]) {
+        cold_age = current_time - tails[slabs_clsid|COLD_LRU]->time;
+    }
+    pthread_mutex_unlock(&lru_locks[slabs_clsid|COLD_LRU]);
+
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 500; i++) {
         int do_more = 0;
-        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS) ||
-            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS)) {
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, settings.hot_max_age) ||
+            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, cold_age * settings.warm_max_factor)) {
             do_more++;
         }
-        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS);
+        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, 0);
         if (do_more == 0)
             break;
         did_moves++;
