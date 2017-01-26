@@ -601,6 +601,8 @@ void item_stats(ADD_STAT add_stats, void *c) {
         int i;
         unsigned int size = 0;
         unsigned int age  = 0;
+        unsigned int age_hot = 0;
+        unsigned int age_warm = 0;
         unsigned int lru_size_map[4];
         const char *fmt = "items:%d:%s";
         char key_str[STAT_KEY_LEN];
@@ -626,8 +628,13 @@ void item_stats(ADD_STAT add_stats, void *c) {
             totals.direct_reclaims += itemstats[i].direct_reclaims;
             size += sizes[i];
             lru_size_map[x] = sizes[i];
-            if (lru_type_map[x] == COLD_LRU && tails[i] != NULL)
+            if (lru_type_map[x] == COLD_LRU && tails[i] != NULL) {
                 age = current_time - tails[i]->time;
+            } else if (lru_type_map[x] == HOT_LRU && tails[i] != NULL) {
+                age_hot = current_time - tails[i]->time;
+            } else if (lru_type_map[x] == WARM_LRU && tails[i] != NULL) {
+                age_warm = current_time - tails[i]->time;
+            }
             if (lru_type_map[x] == COLD_LRU)
                 totals.evicted_time = itemstats[i].evicted_time;
             pthread_mutex_unlock(&lru_locks[i]);
@@ -642,6 +649,8 @@ void item_stats(ADD_STAT add_stats, void *c) {
             if (settings.temp_lru) {
                 APPEND_NUM_FMT_STAT(fmt, n, "number_temp", "%u", lru_size_map[3]);
             }
+            APPEND_NUM_FMT_STAT(fmt, n, "age_hot", "%u", age_hot);
+            APPEND_NUM_FMT_STAT(fmt, n, "age_warm", "%u", age_warm);
         }
         APPEND_NUM_FMT_STAT(fmt, n, "age", "%u", age);
         APPEND_NUM_FMT_STAT(fmt, n, "evicted",

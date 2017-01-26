@@ -795,6 +795,8 @@ number_hot             Number of items presently stored in the HOT LRU.
 number_warm            Number of items presently stored in the WARM LRU.
 number_cold            Number of items presently stored in the COLD LRU.
 number_temp            Number of items presently stored in the TEMPORARY LRU.
+age_hot                Age of the oldest item in HOT LRU.
+age_warm               Age of the oldest item in WARM LRU.
 age                    Age of the oldest item in the LRU.
 evicted                Number of times an item had to be evicted from the LRU
                        before it expired.
