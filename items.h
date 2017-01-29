@@ -27,6 +27,8 @@ void do_item_linktail_q(item *it);
 void do_item_unlinktail_q(item *it);
 item *do_item_crawl_q(item *it);
 
+void *item_lru_bump_buf_create(void);
+
 /*@null@*/
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
 void item_stats(ADD_STAT add_stats, void *c);
@@ -52,3 +54,5 @@ int stop_lru_maintainer_thread(void);
 int init_lru_maintainer(void);
 void lru_maintainer_pause(void);
 void lru_maintainer_resume(void);
+
+void *lru_bump_buf_create(void);

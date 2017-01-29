@@ -474,6 +474,7 @@ typedef struct {
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *suffix_cache;      /* suffix cache */
     logger *l;                  /* logger buffer */
+    void *lru_bump_buf;         /* async LRU bump buffer */
 } LIBEVENT_THREAD;
 
 /**
