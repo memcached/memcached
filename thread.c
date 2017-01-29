@@ -341,7 +341,8 @@ static void *worker_libevent(void *arg) {
      * all threads have finished initializing.
      */
     me->l = logger_create();
-    if (me->l == NULL) {
+    me->lru_bump_buf = item_lru_bump_buf_create();
+    if (me->l == NULL || me->lru_bump_buf == NULL) {
         abort();
     }
 

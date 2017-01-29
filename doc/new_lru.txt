@@ -18,7 +18,7 @@ Now, enabling `-o lru_maintainer` changes all of the behavior below:
    is uncapped (by default, as of this writing).
  * Items flow from HOT/WARM into COLD.
  * A background thread exists which shuffles items between/within the LRU's as
-   limits are reached.
+   limits are reached. This includes moves from COLD to WARM.
  * The background thread can also control the lru_crawler, if enabled.
 
 The primary goal is to better protect active items from "scanning". Items
