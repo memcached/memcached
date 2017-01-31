@@ -205,7 +205,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     for (i = 0; i < 10; i++) {
         uint64_t total_bytes;
         /* Try to reclaim memory first */
-        if (!settings.lru_maintainer_thread) {
+        if (!settings.lru_segmented) {
             lru_pull_tail(id, COLD_LRU, 0, 0, 0);
         }
         it = slabs_alloc(ntotal, id, &total_bytes, 0);
@@ -214,7 +214,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
             total_bytes -= temp_lru_size(id);
 
         if (it == NULL) {
-            if (settings.lru_maintainer_thread) {
+            if (settings.lru_segmented) {
                 if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0) <= 0) {
                     lru_pull_tail(id, HOT_LRU, total_bytes, 0, 0);
                 }
@@ -249,7 +249,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     /* Items are initially loaded into the HOT_LRU. This is '0' but I want at
      * least a note here. Compiler (hopefully?) optimizes this out.
      */
-    if (settings.lru_maintainer_thread) {
+    if (settings.lru_segmented) {
         if (settings.temp_lru &&
                 exptime - current_time <= settings.temporary_ttl) {
             id |= TEMP_LRU;
@@ -467,7 +467,7 @@ void do_item_update(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
 
     /* Hits to COLD_LRU immediately move to WARM. */
-    if (settings.lru_maintainer_thread) {
+    if (settings.lru_segmented) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
         if ((it->it_flags & ITEM_LINKED) != 0) {
             if (ITEM_lruid(it) == COLD_LRU && (it->it_flags & ITEM_ACTIVE)) {
@@ -519,7 +519,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
     unsigned int id = slabs_clsid;
-    if (!settings.lru_maintainer_thread)
+    if (!settings.lru_segmented)
         id |= COLD_LRU;
 
     pthread_mutex_lock(&lru_locks[id]);
@@ -885,7 +885,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
                  * afterward.
                  * FETCHED tells if an item has ever been active.
                  */
-                if (settings.lru_maintainer_thread) {
+                if (settings.lru_segmented) {
                     if ((it->it_flags & ITEM_ACTIVE) == 0) {
                         if ((it->it_flags & ITEM_FETCHED) == 0) {
                             it->it_flags |= ITEM_FETCHED;
@@ -1064,7 +1064,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                         slabs_reassign(-1, orig_id);
                     }
                 } else if ((search->it_flags & ITEM_ACTIVE) != 0
-                        && settings.lru_maintainer_thread) {
+                        && settings.lru_segmented) {
                     itemstats[id].moves_to_warm++;
                     search->it_flags &= ~ITEM_ACTIVE;
                     move_to_lru = WARM_LRU;
@@ -1241,20 +1241,27 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     }
 
     rel_time_t cold_age = 0;
-    pthread_mutex_lock(&lru_locks[slabs_clsid|COLD_LRU]);
-    if (tails[slabs_clsid|COLD_LRU]) {
-        cold_age = current_time - tails[slabs_clsid|COLD_LRU]->time;
+    rel_time_t hot_age = 0;
+    /* If LRU is in flat mode, force items to drain into COLD via max age */
+    if (settings.lru_segmented) {
+        hot_age = settings.hot_max_age;
+        pthread_mutex_lock(&lru_locks[slabs_clsid|COLD_LRU]);
+        if (tails[slabs_clsid|COLD_LRU]) {
+            cold_age = current_time - tails[slabs_clsid|COLD_LRU]->time;
+        }
+        pthread_mutex_unlock(&lru_locks[slabs_clsid|COLD_LRU]);
     }
-    pthread_mutex_unlock(&lru_locks[slabs_clsid|COLD_LRU]);
 
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 500; i++) {
         int do_more = 0;
-        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, settings.hot_max_age) ||
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, hot_age) ||
             lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, cold_age * settings.warm_max_factor)) {
             do_more++;
         }
-        do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, 0);
+        if (settings.lru_segmented) {
+            do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, 0);
+        }
         if (do_more == 0)
             break;
         did_moves++;
@@ -1409,7 +1416,7 @@ static void *lru_maintainer_thread(void *arg) {
         }
 
         /* Minimize the sleep if we had async LRU bumps to process */
-        if (lru_maintainer_bumps() && to_sleep > 1000) {
+        if (settings.lru_segmented && lru_maintainer_bumps() && to_sleep > 1000) {
             to_sleep = 1000;
         }
 

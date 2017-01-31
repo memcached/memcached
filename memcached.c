@@ -233,6 +233,7 @@ static void settings_init(void) {
     settings.lru_crawler_sleep = 100;
     settings.lru_crawler_tocrawl = 0;
     settings.lru_maintainer_thread = false;
+    settings.lru_segmented = false;
     settings.hot_lru_pct = 32;
     settings.warm_lru_pct = 32;
     settings.hot_max_age = 3600;
@@ -3009,6 +3010,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("dump_enabled", "%s", settings.dump_enabled ? "yes" : "no");
     APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
     APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
+    APPEND_STAT("lru_segmented", "%s", settings.lru_segmented ? "yes" : "no");
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
     APPEND_STAT("hot_max_age", "%u", settings.hot_max_age);
@@ -3916,6 +3918,17 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
                 settings.warm_max_factor = factor;
                 out_string(c, "OK");
             }
+        }
+    } else if (strcmp(tokens[1].value, "mode") == 0 && ntokens >= 3 &&
+               settings.lru_maintainer_thread) {
+        if (strcmp(tokens[2].value, "flat") == 0) {
+            settings.lru_segmented = false;
+            out_string(c, "OK");
+        } else if (strcmp(tokens[2].value, "segmented") == 0) {
+            settings.lru_segmented = true;
+            out_string(c, "OK");
+        } else {
+            out_string(c, "ERROR");
         }
     } else {
         out_string(c, "ERROR");
@@ -6191,6 +6204,7 @@ int main (int argc, char **argv) {
                 break;
             case LRU_MAINTAINER:
                 start_lru_maintainer = true;
+                settings.lru_segmented = true;
                 break;
             case HOT_LRU_PCT:
                 if (subopts_value == NULL) {
@@ -6301,6 +6315,7 @@ int main (int argc, char **argv) {
                 settings.slab_automove = 1;
                 settings.maxconns_fast = true;
                 settings.inline_ascii_response = false;
+                settings.lru_segmented = true;
                 hash_type = MURMUR3_HASH;
                 start_lru_crawler = true;
                 start_lru_maintainer = true;
@@ -6351,7 +6366,7 @@ int main (int argc, char **argv) {
         }
     }
 
-    if (settings.lru_maintainer_thread && settings.hot_lru_pct + settings.warm_lru_pct > 80) {
+    if (settings.hot_lru_pct + settings.warm_lru_pct > 80) {
         fprintf(stderr, "hot_lru_pct + warm_lru_pct cannot be more than 80%% combined\n");
         exit(EX_USAGE);
     }
