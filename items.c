@@ -989,6 +989,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                         itemstats[id].moves_to_warm++;
                         move_to_lru = WARM_LRU;
                         do_item_unlink_q(search);
+                        it = search;
                         removed++;
                     }
                 } else if (sizes_bytes[id] > limit ||
