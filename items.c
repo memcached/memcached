@@ -249,13 +249,11 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     /* Items are initially loaded into the HOT_LRU. This is '0' but I want at
      * least a note here. Compiler (hopefully?) optimizes this out.
      */
-    if (settings.lru_segmented) {
-        if (settings.temp_lru &&
-                exptime - current_time <= settings.temporary_ttl) {
-            id |= TEMP_LRU;
-        } else {
-            id |= HOT_LRU;
-        }
+    if (settings.temp_lru &&
+            exptime - current_time <= settings.temporary_ttl) {
+        id |= TEMP_LRU;
+    } else if (settings.lru_segmented) {
+        id |= HOT_LRU;
     } else {
         /* There is only COLD in compat-mode */
         id |= COLD_LRU;

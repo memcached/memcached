@@ -6371,6 +6371,11 @@ int main (int argc, char **argv) {
         exit(EX_USAGE);
     }
 
+    if (settings.temp_lru && !start_lru_maintainer) {
+        fprintf(stderr, "temporary_ttl requires lru_maintainer to be enabled\n");
+        exit(EX_USAGE);
+    }
+
     if (hash_init(hash_type) != 0) {
         fprintf(stderr, "Failed to initialize hash_algorithm!\n");
         exit(EX_USAGE);
