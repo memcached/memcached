@@ -404,6 +404,41 @@ The response should always be "OK\r\n"
   there is an eviction. It is not recommended to run for very long in this
   mode unless your access patterns are very well understood.
 
+LRU Tuning
+----------
+
+Memcached supports multiple LRU algorithms, with a few tunables. Effort is
+made to have sane defaults however you are able to tune while the daemon is
+running.
+
+The traditional model is "flat" mode, which is a single LRU chain per slab
+class. The newer (with `-o modern` or `-o lru_maintainer`) is segmented into
+HOT, WARM, COLD. There is also a TEMP LRU. See doc/new_lru.txt for details.
+
+lru <tune|mode|temp_ttl> <option list>
+
+- "tune" takes numeric arguments "percent hot", "percent warm",
+  "max hot age", "max warm age factor". IE: "lru tune 10 25 3600 2.0".
+  This would cap HOT_LRU at 10% of the cache, or tail is idle longer than
+  3600s. WARM_LRU is up to 25% of cache, or tail is idle longer than 2x
+  COLD_LRU.
+
+- "mode" <flat|segmented>: "flat" is traditional mode. "segmented" uses
+  HOT|WARM|COLD split. "segmented" mode requires `-o lru_maintainer` at start
+  time. If switching from segmented to flat mode, the background thread will
+  pull items from HOT|WARM into COLD queue.
+
+- "temp_ttl" <ttl>: If TTL is less than zero, disable usage of TEMP_LRU. If
+  zero or above, items set with a TTL lower than this will go into TEMP_LRU
+  and be unevictable until they naturally expire or are otherwise deleted or
+  replaced.
+
+The response line could be one of:
+
+- "OK" to indicate a successful update of the settings.
+
+- "ERROR [message]" to indicate a failure or improper arguments.
+
 LRU_Crawler
 -----------
 

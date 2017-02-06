@@ -3878,24 +3878,11 @@ static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntok
     }
 }
 
-static void process_temporary_ttl_command(conn *c, token_t *tokens, const size_t ntokens) {
-    uint32_t ttl;
-    assert(c != NULL);
-
-    set_noreply_maybe(c, tokens, ntokens);
-
-    if (!safe_strtoul(tokens[1].value, &ttl)) {
-        out_string(c, "ERROR");
-    } else {
-        settings.temporary_ttl = ttl;
-        out_string(c, "OK");
-    }
-}
-
 static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) {
     uint32_t pct_hot;
     uint32_t pct_warm;
     uint32_t hot_age;
+    int32_t ttl;
     double factor;
 
     set_noreply_maybe(c, tokens, ntokens);
@@ -3929,6 +3916,19 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
             out_string(c, "OK");
         } else {
             out_string(c, "ERROR");
+        }
+    } else if (strcmp(tokens[1].value, "temp_ttl") == 0 && ntokens >= 3 &&
+               settings.lru_maintainer_thread) {
+        if (!safe_strtol(tokens[2].value, &ttl)) {
+            out_string(c, "ERROR");
+        } else {
+            if (ttl < 0) {
+                settings.temp_lru = false;
+            } else {
+                settings.temp_lru = true;
+                settings.temporary_ttl = ttl;
+            }
+            out_string(c, "OK");
         }
     } else {
         out_string(c, "ERROR");
@@ -4216,8 +4216,6 @@ static void process_command(conn *c, char *command) {
         process_watch_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0)) {
         process_memlimit_command(c, tokens, ntokens);
-    } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "temporary_ttl") == 0)) {
-        process_temporary_ttl_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
     } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "lru") == 0) {
