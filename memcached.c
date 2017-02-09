@@ -2705,6 +2705,7 @@ typedef struct token_s {
 
 #define COMMAND_TOKEN 0
 #define SUBCOMMAND_TOKEN 1
+#define STAT_TOKEN 2
 #define KEY_TOKEN 1
 
 #define MAX_TOKENS 8
@@ -3177,6 +3178,228 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         write_and_free(c, c->stats.buffer, c->stats.offset);
         c->stats.buffer = NULL;
     }
+}
+
+static bool process_settings_get_single(ADD_STAT add_stats, conn *c, const char *name) {
+    assert(add_stats);
+    assert(name);
+
+    if (strcmp(name, "maxbytes") == 0) {
+        APPEND_STAT("maxbytes", "%llu", (unsigned long long)settings.maxbytes);
+
+    } else if (strcmp(name, "maxconns") == 0) {
+        APPEND_STAT("maxconns", "%d", settings.maxconns);
+
+    } else if (strcmp(name, "tcpport") == 0) {
+        APPEND_STAT("tcpport", "%d", settings.port);
+
+    } else if (strcmp(name, "udpport") == 0) {
+        APPEND_STAT("udpport", "%d", settings.udpport);
+
+    } else if (strcmp(name, "inter") == 0) {
+        APPEND_STAT("inter", "%s", settings.inter ? settings.inter : "NULL");
+
+    } else if (strcmp(name, "verbosity") == 0) {
+        APPEND_STAT("verbosity", "%d", settings.verbose);
+
+    } else if (strcmp(name, "oldest") == 0) {
+        APPEND_STAT("oldest", "%lu", (unsigned long)settings.oldest_live);
+
+    } else if (strcmp(name, "evictions") == 0) {
+        APPEND_STAT("evictions", "%s", settings.evict_to_free ? "on" : "off");
+
+    } else if (strcmp(name, "domain_socket") == 0) {
+        APPEND_STAT("domain_socket", "%s", settings.socketpath ? settings.socketpath : "NULL");
+
+    } else if (strcmp(name, "umask") == 0) {
+        APPEND_STAT("umask", "%o", settings.access);
+
+    } else if (strcmp(name, "growth_factor") == 0) {
+        APPEND_STAT("growth_factor", "%.2f", settings.factor);
+
+    } else if (strcmp(name, "chunk_size") == 0) {
+        APPEND_STAT("chunk_size", "%d", settings.chunk_size);
+
+    } else if (strcmp(name, "num_threads") == 0) {
+        APPEND_STAT("num_threads", "%d", settings.num_threads);
+
+    } else if (strcmp(name, "num_threads_per_udp") == 0) {
+        APPEND_STAT("num_threads_per_udp", "%d", settings.num_threads_per_udp);
+
+    } else if (strcmp(name, "stat_key_prefix") == 0) {
+        APPEND_STAT("stat_key_prefix", "%c", settings.prefix_delimiter);
+
+    } else if (strcmp(name, "detail_enabled") == 0) {
+        APPEND_STAT("detail_enabled", "%s", settings.detail_enabled ? "yes" : "no");
+
+    } else if (strcmp(name, "reqs_per_event") == 0) {
+        APPEND_STAT("reqs_per_event", "%d", settings.reqs_per_event);
+
+    } else if (strcmp(name, "cas_enabled") == 0) {
+        APPEND_STAT("cas_enabled", "%s", settings.use_cas ? "yes" : "no");
+
+    } else if (strcmp(name, "tcp_backlog") == 0) {
+        APPEND_STAT("tcp_backlog", "%d", settings.backlog);
+
+    } else if (strcmp(name, "binding_protocol") == 0) {
+        APPEND_STAT("binding_protocol", "%s", prot_text(settings.binding_protocol));
+
+    } else if (strcmp(name, "auth_enabled_sasl") == 0) {
+        APPEND_STAT("auth_enabled_sasl", "%s", settings.sasl ? "yes" : "no");
+
+    } else if (strcmp(name, "item_size_max") == 0) {
+        APPEND_STAT("item_size_max", "%d", settings.item_size_max);
+
+    } else if (strcmp(name, "maxconns_fast") == 0) {
+        APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
+
+    } else if (strcmp(name, "hashpower_init") == 0) {
+        APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
+
+    } else if (strcmp(name, "slab_reassign") == 0) {
+        APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
+
+    } else if (strcmp(name, "slab_automove") == 0) {
+        APPEND_STAT("slab_automove", "%d", settings.slab_automove);
+
+    } else if (strcmp(name, "slab_chunk_max") == 0) {
+        APPEND_STAT("slab_chunk_max", "%d", settings.slab_chunk_size_max);
+
+    } else if (strcmp(name, "lru_crawler") == 0) {
+        APPEND_STAT("lru_crawler", "%s", settings.lru_crawler ? "yes" : "no");
+
+    } else if (strcmp(name, "lru_crawler_sleep") == 0) {
+        APPEND_STAT("lru_crawler_sleep", "%d", settings.lru_crawler_sleep);
+
+    } else if (strcmp(name, "lru_crawler_tocrawl") == 0) {
+        APPEND_STAT("lru_crawler_tocrawl", "%lu", (unsigned long)settings.lru_crawler_tocrawl);
+
+    } else if (strcmp(name, "tail_repair_time") == 0) {
+        APPEND_STAT("tail_repair_time", "%d", settings.tail_repair_time);
+
+    } else if (strcmp(name, "flush_enabled") == 0) {
+        APPEND_STAT("flush_enabled", "%s", settings.flush_enabled ? "yes" : "no");
+
+    } else if (strcmp(name, "dump_enabled") == 0) {
+        APPEND_STAT("dump_enabled", "%s", settings.dump_enabled ? "yes" : "no");
+
+    } else if (strcmp(name, "hash_algorithm") == 0) {
+        APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
+
+    } else if (strcmp(name, "lru_maintainer_thread") == 0) {
+        APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
+
+    } else if (strcmp(name, "hot_lru_pct") == 0) {
+        APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
+
+    } else if (strcmp(name, "warm_lru_pct") == 0) {
+        APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
+
+    } else if (strcmp(name, "expirezero_does_not_evict") == 0) {
+        APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
+
+    } else if (strcmp(name, "idle_timeout") == 0) {
+        APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
+
+    } else if (strcmp(name, "watcher_logbuf_size") == 0) {
+        APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
+
+    } else if (strcmp(name, "worker_logbuf_size") == 0) {
+        APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
+
+    } else if (strcmp(name, "track_sizes") == 0) {
+        APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
+
+    } else {
+        out_string(c, "ERROR invalid setting");
+        return false;
+    }
+
+    return true;
+}
+
+static void process_settings_get(conn *c, token_t *tokens, const size_t ntokens) {
+    bool finish_and_write_out_stats = true;
+
+    if (ntokens == 3) {
+        // get all stats, a.k.a. the "stats settings" command
+        process_stat_settings(&append_stats, c);
+    } else {
+        finish_and_write_out_stats = process_settings_get_single(&append_stats, c, tokens[STAT_TOKEN].value);
+    }
+
+    if (finish_and_write_out_stats) {
+        /* append terminator and start the transfer */
+        append_stats(NULL, 0, NULL, 0, c);
+
+        if (c->stats.buffer == NULL) {
+            out_of_memory(c, "SERVER_ERROR out of memory writing stats");
+        } else {
+            write_and_free(c, c->stats.buffer, c->stats.offset);
+            c->stats.buffer = NULL;
+        }
+    }
+}
+
+// The settings command includes 3 possible variations
+//
+// settings get
+//  - gets all settings, acts as a synonym for 'stats settings''
+//
+// settings get <setting>
+//  - gets a single setting value
+//  - if it's an invalid setting, you get an error
+//
+// e.g.
+// good command:
+//   settings get reqs_per_event
+//
+// reply:
+//   STAT reqs_per_event 20
+//   END
+//
+// bad command:
+//   settings get non_existent_setting
+//
+// reply:
+//   ERROR invalid setting
+//
+// And the last variation allows you to set any settable setting to a different value.
+// Things that are settable don't include things like the growtch factor but do include
+// the reqs_per_event, for example.
+//
+// settings set <setting> <new value>
+//
+// e.g.
+// good command:
+//   settings set reqs_per_event 40
+//
+// reply:
+//   OK
+//
+// bad command:
+//   settings set growth_factor 1.8
+//
+// reply:
+//   ERROR cannot change setting
+static void process_settings(conn *c, token_t *tokens, const size_t ntokens) {
+    assert(c != NULL);
+
+    // Tokens length includes a NULL token at the end, so we have 3 or 4 tokens,
+    // meaning 2 or 3 "real" tokens
+    if (ntokens < 3 || ntokens > 4) {
+        out_string(c, "CLIENT_ERROR bad command line");
+        return;
+    }
+
+    const char *subcommand = tokens[SUBCOMMAND_TOKEN].value;
+
+    if (strcmp(subcommand, "get") == 0) {
+        process_settings_get(c, tokens, ntokens);
+        return;
+    }
+
+    out_string(c, "ERROR bad command line format");
 }
 
 /* ntokens is overwritten here... shrug.. */
@@ -3891,6 +4114,10 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0)) {
 
         process_stat(c, tokens, ntokens);
+
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "settings") == 0)) {
+
+        process_settings(c, tokens, ntokens);
 
     } else if (ntokens >= 2 && ntokens <= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0)) {
         time_t exptime = 0;
