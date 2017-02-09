@@ -2705,7 +2705,8 @@ typedef struct token_s {
 
 #define COMMAND_TOKEN 0
 #define SUBCOMMAND_TOKEN 1
-#define STAT_TOKEN 2
+#define SETTING_NAME_TOKEN 2
+#define SETTING_VALUE_TOKEN 3
 #define KEY_TOKEN 1
 
 #define MAX_TOKENS 8
@@ -3325,7 +3326,10 @@ static void process_settings_get(conn *c, token_t *tokens, const size_t ntokens)
         // get all stats, a.k.a. the "stats settings" command
         process_stat_settings(&append_stats, c);
     } else {
-        finish_and_write_out_stats = process_settings_get_single(&append_stats, c, tokens[STAT_TOKEN].value);
+        const char *name = tokens[SETTING_NAME_TOKEN].value;
+        assert(name);
+
+        finish_and_write_out_stats = process_settings_get_single(&append_stats, c, name);
     }
 
     if (finish_and_write_out_stats) {
@@ -3339,6 +3343,76 @@ static void process_settings_get(conn *c, token_t *tokens, const size_t ntokens)
             c->stats.buffer = NULL;
         }
     }
+}
+
+static void process_settings_set(conn *c, token_t *tokens, const size_t ntokens) {
+    if (ntokens != 5) {
+        out_string(c, "CLIENT_ERROR bad command line");
+        return;
+    }
+
+    const char *name = tokens[SETTING_NAME_TOKEN].value;
+    const char *value = tokens[SETTING_VALUE_TOKEN].value;
+
+    assert(name);
+    assert(value);
+
+    if (strcmp(name, "verbosity") == 0) {
+        int temp = atoi(value);
+
+        if ((temp <= 0 && value[0] != '0') || temp > 3) {
+            out_string(c, "CLIENT_ERROR invalid value");
+            return;
+        }
+
+        settings.verbose = temp;
+
+    } else if (strcmp(name, "evictions") == 0) {
+        if (strncmp(value, "on", 2) == 0) {
+            settings.evict_to_free = 1;
+        } else if (strncmp(value, "off", 3) == 0) {
+            settings.evict_to_free = 0;
+        } else {
+            out_string(c, "CLIENT_ERROR invalid value");
+            return;
+        }
+
+    } else if (strcmp(name, "reqs_per_event") == 0) {
+        int temp = atoi(value);
+
+        if (temp <= 0) {
+            out_string(c, "CLIENT_ERROR invalid value");
+            return;
+        }
+
+        settings.reqs_per_event = temp;
+
+    } else if (strcmp(name, "expirezero_does_not_evict") == 0) {
+        if (strncmp(value, "yes", 3) == 0) {
+            settings.expirezero_does_not_evict = 1;
+        } else if (strncmp(value, "no", 2) == 0) {
+            settings.expirezero_does_not_evict = 0;
+        } else {
+            out_string(c, "CLIENT_ERROR invalid value");
+            return;
+        }
+
+    } else if (strcmp(name, "idle_timeout") == 0) {
+        int temp = atoi(value);
+
+        if (temp <= 0) {
+            out_string(c, "CLIENT_ERROR invalid value");
+            return;
+        }
+
+        settings.idle_timeout = temp;
+
+    } else {
+        out_string(c, "CLIENT_ERROR invalid setting");
+        return;
+    }
+
+    out_string(c, "OK");
 }
 
 // The settings command includes 3 possible variations
@@ -3387,15 +3461,18 @@ static void process_settings(conn *c, token_t *tokens, const size_t ntokens) {
 
     // Tokens length includes a NULL token at the end, so we have 3 or 4 tokens,
     // meaning 2 or 3 "real" tokens
-    if (ntokens < 3 || ntokens > 4) {
+    if (ntokens < 3 || ntokens > 5) {
         out_string(c, "CLIENT_ERROR bad command line");
         return;
     }
 
     const char *subcommand = tokens[SUBCOMMAND_TOKEN].value;
 
-    if (strcmp(subcommand, "get") == 0) {
+    if (strncmp(subcommand, "get", 3) == 0) {
         process_settings_get(c, tokens, ntokens);
+        return;
+    } else if (strncmp(subcommand, "set", 3) == 0) {
+        process_settings_set(c, tokens, ntokens);
         return;
     }
 
