@@ -18,7 +18,7 @@ void uriencode_init(void) {
         if (isalnum(x) || x == '-' || x == '.' || x == '_' || x == '~') {
             uriencode_map[x] = NULL;
         } else {
-            snprintf(str, 4, "%%%02X", x);
+            snprintf(str, 4, "%%%02hhX", (unsigned char)x);
             uriencode_map[x] = str;
             str += 3; /* lobbing off the \0 is fine */
         }
