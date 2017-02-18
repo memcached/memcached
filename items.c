@@ -1165,7 +1165,9 @@ static void *lru_maintainer_thread(void *arg) {
         }
         if (did_moves == 0) {
             if (to_sleep < MAX_LRU_MAINTAINER_SLEEP)
-                to_sleep += 1000;
+                to_sleep += to_sleep / 8;
+            if (to_sleep > MAX_LRU_MAINTAINER_SLEEP)
+		to_sleep = MAX_LRU_MAINTAINER_SLEEP;
         } else {
             to_sleep /= 2;
             if (to_sleep < MIN_LRU_MAINTAINER_SLEEP)
