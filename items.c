@@ -1453,11 +1453,13 @@ static void *lru_maintainer_thread(void *arg) {
             int did_moves = lru_maintainer_juggle(i);
             if (did_moves == 0) {
                 if (backoff_juggles[i] < MAX_LRU_MAINTAINER_SLEEP)
-                    backoff_juggles[i] += 1000;
+                    backoff_juggles[i] += backoff_juggles[i] / 8;
+                if (backoff_juggles[i] > MAX_LRU_MAINTAINER_SLEEP)
+                    backoff_juggles[i] = MAX_LRU_MAINTAINER_SLEEP;
             } else if (backoff_juggles[i] > 0) {
                 backoff_juggles[i] /= 2;
                 if (backoff_juggles[i] < MIN_LRU_MAINTAINER_SLEEP) {
-                    backoff_juggles[i] = 0;
+                    backoff_juggles[i] = MIN_LRU_MAINTAINER_SLEEP;
                 }
             }
             next_juggles[i] = backoff_juggles[i];
