@@ -454,8 +454,8 @@ static void logger_thread_sum_stats(struct logger_stats *ls) {
     STATS_UNLOCK();
 }
 
-#define MAX_LOGGER_SLEEP 100000
-#define MIN_LOGGER_SLEEP 0
+#define MAX_LOGGER_SLEEP 1000000
+#define MIN_LOGGER_SLEEP 1000
 
 /* Primary logger thread routine */
 static void *logger_thread(void *arg) {
@@ -466,7 +466,9 @@ static void *logger_thread(void *arg) {
         logger *l;
         struct logger_stats ls;
         memset(&ls, 0, sizeof(struct logger_stats));
-        if (to_sleep)
+
+	/* only sleep if we're *above* the minimum */
+        if (to_sleep > MIN_LOGGER_SLEEP)
             usleep(to_sleep);
 
         /* Call function to iterate each logger. */
@@ -482,10 +484,12 @@ static void *logger_thread(void *arg) {
         /* TODO: abstract into a function and share with lru_crawler */
         if (!found_logs) {
             if (to_sleep < MAX_LOGGER_SLEEP)
-                to_sleep += 50;
+                to_sleep += to_sleep / 8;
+            if (to_sleep > MAX_LOGGER_SLEEP)
+		to_sleep = MAX_LOGGER_SLEEP;
         } else {
             to_sleep /= 2;
-            if (to_sleep < 50)
+            if (to_sleep < MIN_LOGGER_SLEEP)
                 to_sleep = MIN_LOGGER_SLEEP;
         }
         logger_thread_sum_stats(&ls);
