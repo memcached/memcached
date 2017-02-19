@@ -21,7 +21,8 @@ memcached_SOURCES = memcached.c memcached.h \
                     trace.h cache.h sasl_defs.h \
                     bipbuffer.c bipbuffer.h \
                     logger.c logger.h \
-                    crawler.c crawler.h
+                    crawler.c crawler.h \
+                    itoa_ljust.c itoa_ljust.h
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c

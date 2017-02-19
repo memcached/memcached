@@ -233,9 +233,14 @@ static void settings_init(void) {
     settings.lru_crawler_sleep = 100;
     settings.lru_crawler_tocrawl = 0;
     settings.lru_maintainer_thread = false;
+    settings.lru_segmented = false;
     settings.hot_lru_pct = 32;
     settings.warm_lru_pct = 32;
-    settings.expirezero_does_not_evict = false;
+    settings.hot_max_age = 3600;
+    settings.warm_max_factor = 2.0;
+    settings.inline_ascii_response = true;
+    settings.temp_lru = false;
+    settings.temporary_ttl = 61;
     settings.idle_timeout = 0; /* disabled */
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
@@ -621,7 +626,7 @@ static void conn_release_items(conn *c) {
 
     if (c->suffixleft != 0) {
         for (; c->suffixleft > 0; c->suffixleft--, c->suffixcurr++) {
-            cache_free(c->thread->suffix_cache, *(c->suffixcurr));
+            do_cache_free(c->thread->suffix_cache, *(c->suffixcurr));
         }
     }
 
@@ -842,27 +847,58 @@ static int ensure_iov_space(conn *c) {
  * connection.
  *
  * Returns 0 on success, -1 on out-of-memory.
+ * Note: This is a hot path for at least ASCII protocol. While there is
+ * redundant code in splitting TCP/UDP handling, any reduction in steps has a
+ * large impact for TCP connections.
  */
 
 static int add_iov(conn *c, const void *buf, int len) {
     struct msghdr *m;
     int leftover;
-    bool limit_to_mtu;
 
     assert(c != NULL);
 
-    do {
+    if (IS_UDP(c->transport)) {
+        do {
+            m = &c->msglist[c->msgused - 1];
+
+            /*
+             * Limit UDP packets to UDP_MAX_PAYLOAD_SIZE bytes.
+             */
+
+            /* We may need to start a new msghdr if this one is full. */
+            if (m->msg_iovlen == IOV_MAX ||
+                (c->msgbytes >= UDP_MAX_PAYLOAD_SIZE)) {
+                add_msghdr(c);
+                m = &c->msglist[c->msgused - 1];
+            }
+
+            if (ensure_iov_space(c) != 0)
+                return -1;
+
+            /* If the fragment is too big to fit in the datagram, split it up */
+            if (len + c->msgbytes > UDP_MAX_PAYLOAD_SIZE) {
+                leftover = len + c->msgbytes - UDP_MAX_PAYLOAD_SIZE;
+                len -= leftover;
+            } else {
+                leftover = 0;
+            }
+
+            m = &c->msglist[c->msgused - 1];
+            m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
+            m->msg_iov[m->msg_iovlen].iov_len = len;
+
+            c->msgbytes += len;
+            c->iovused++;
+            m->msg_iovlen++;
+
+            buf = ((char *)buf) + len;
+            len = leftover;
+        } while (leftover > 0);
+    } else {
+        /* Optimized path for TCP connections */
         m = &c->msglist[c->msgused - 1];
-
-        /*
-         * Limit UDP packets, and the first payloads of TCP replies, to
-         * UDP_MAX_PAYLOAD_SIZE bytes.
-         */
-        limit_to_mtu = IS_UDP(c->transport) || (1 == c->msgused);
-
-        /* We may need to start a new msghdr if this one is full. */
-        if (m->msg_iovlen == IOV_MAX ||
-            (limit_to_mtu && c->msgbytes >= UDP_MAX_PAYLOAD_SIZE)) {
+        if (m->msg_iovlen == IOV_MAX) {
             add_msghdr(c);
             m = &c->msglist[c->msgused - 1];
         }
@@ -870,25 +906,12 @@ static int add_iov(conn *c, const void *buf, int len) {
         if (ensure_iov_space(c) != 0)
             return -1;
 
-        /* If the fragment is too big to fit in the datagram, split it up */
-        if (limit_to_mtu && len + c->msgbytes > UDP_MAX_PAYLOAD_SIZE) {
-            leftover = len + c->msgbytes - UDP_MAX_PAYLOAD_SIZE;
-            len -= leftover;
-        } else {
-            leftover = 0;
-        }
-
-        m = &c->msglist[c->msgused - 1];
         m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
         m->msg_iov[m->msg_iovlen].iov_len = len;
-
         c->msgbytes += len;
         c->iovused++;
         m->msg_iovlen++;
-
-        buf = ((char *)buf) + len;
-        len = leftover;
-    } while (leftover > 0);
+    }
 
     return 0;
 }
@@ -1469,7 +1492,7 @@ static void process_bin_get_or_touch(conn *c) {
 
         it = item_touch(key, nkey, realtime(exptime), c);
     } else {
-        it = item_get(key, nkey, c);
+        it = item_get(key, nkey, c, DO_UPDATE);
     }
 
     if (it) {
@@ -1477,7 +1500,6 @@ static void process_bin_get_or_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
-        item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -1507,7 +1529,11 @@ static void process_bin_get_or_touch(conn *c) {
         rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
 
         // add the flags
-        rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        if (settings.inline_ascii_response) {
+            rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
+        } else {
+            rsp->message.body.flags = htonl(*((uint32_t *)ITEM_suffix(it)));
+        }
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
         if (should_return_key) {
@@ -2261,7 +2287,7 @@ static void process_bin_update(conn *c) {
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (c->cmd == PROTOCOL_BINARY_CMD_SET) {
-            it = item_get(key, nkey, c);
+            it = item_get(key, nkey, c, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
                 item_remove(it);
@@ -2413,7 +2439,7 @@ static void process_bin_delete(conn *c) {
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get(key, nkey, c);
+    it = item_get(key, nkey, c, DONT_UPDATE);
     if (it) {
         uint64_t cas = ntohll(req->message.header.request.cas);
         if (cas == 0 || cas == ITEM_get_cas(it)) {
@@ -2591,7 +2617,7 @@ static void _store_item_copy_data(int comm, item *old_it, item *new_it, item *ad
  */
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
     char *key = ITEM_key(it);
-    item *old_it = do_item_get(key, it->nkey, hv, c);
+    item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
 
     item *new_it = NULL;
@@ -2656,7 +2682,11 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                 /* we have it and old_it here - alloc memory to hold both */
                 /* flags was already lost - so recover them from ITEM_suffix(it) */
 
-                flags = (uint32_t) strtoul(ITEM_suffix(old_it), (char **) NULL, 10);
+                if (settings.inline_ascii_response) {
+                    flags = (uint32_t) strtoul(ITEM_suffix(old_it), (char **) NULL, 10);
+                } else {
+                    flags = *((uint32_t *)ITEM_suffix(old_it));
+                }
 
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
@@ -2980,13 +3010,18 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("dump_enabled", "%s", settings.dump_enabled ? "yes" : "no");
     APPEND_STAT("hash_algorithm", "%s", settings.hash_algorithm);
     APPEND_STAT("lru_maintainer_thread", "%s", settings.lru_maintainer_thread ? "yes" : "no");
+    APPEND_STAT("lru_segmented", "%s", settings.lru_segmented ? "yes" : "no");
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
-    APPEND_STAT("expirezero_does_not_evict", "%s", settings.expirezero_does_not_evict ? "yes" : "no");
+    APPEND_STAT("hot_max_age", "%u", settings.hot_max_age);
+    APPEND_STAT("warm_max_factor", "%.2f", settings.warm_max_factor);
+    APPEND_STAT("temp_lru", "%s", settings.temp_lru ? "yes" : "no");
+    APPEND_STAT("temporary_ttl", "%u", settings.temporary_ttl);
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
+    APPEND_STAT("inline_ascii_response", "%s", settings.inline_ascii_response ? "yes" : "no");
 }
 
 static void conn_to_str(const conn *c, char *buf) {
@@ -3179,6 +3214,26 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
+static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas) {
+    char *p;
+    if (!settings.inline_ascii_response) {
+        *suffix = ' ';
+        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), suffix+1);
+        *p = ' ';
+        p = itoa_u32(it->nbytes-2, p+1);
+    } else {
+        p = suffix;
+    }
+    if (return_cas) {
+        *p = ' ';
+        p = itoa_u64(ITEM_get_cas(it), p+1);
+    }
+    *p = '\r';
+    *(p+1) = '\n';
+    *(p+2) = '\0';
+    return (p - suffix) + 2;
+}
+
 /* ntokens is overwritten here... shrug.. */
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
     char *key;
@@ -3203,7 +3258,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 return;
             }
 
-            it = item_get(key, nkey, c);
+            it = item_get(key, nkey, c, DO_UPDATE);
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
@@ -3230,7 +3285,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                  *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
                  */
 
-                if (return_cas)
+                if (return_cas || !settings.inline_ascii_response)
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
@@ -3250,7 +3305,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     }
                   }
 
-                  suffix = cache_alloc(c->thread->suffix_cache);
+                  suffix = do_cache_alloc(c->thread->suffix_cache);
                   if (suffix == NULL) {
                       STATS_LOCK();
                       stats.malloc_fails++;
@@ -3263,12 +3318,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       return;
                   }
                   *(c->suffixlist + i) = suffix;
-                  int suffix_len = snprintf(suffix, SUFFIX_SIZE,
-                                            " %llu\r\n",
-                                            (unsigned long long)ITEM_get_cas(it));
+                  int suffix_len = make_ascii_get_suffix(suffix, it, return_cas);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0 ||
+                      (settings.inline_ascii_response && add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0) ||
                       add_iov(c, suffix, suffix_len) != 0)
                       {
                           item_remove(it);
@@ -3320,7 +3373,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
                 c->thread->stats.get_cmds++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
-                item_update(it);
                 *(c->ilist + i) = it;
                 i++;
 
@@ -3348,7 +3400,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     c->icurr = c->ilist;
     c->ileft = i;
-    if (return_cas) {
+    if (return_cas || !settings.inline_ascii_response) {
         c->suffixcurr = c->suffixlist;
         c->suffixleft = i;
     }
@@ -3447,7 +3499,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (comm == NREAD_SET) {
-            it = item_get(key, nkey, c);
+            it = item_get(key, nkey, c, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
                 item_remove(it);
@@ -3490,7 +3542,6 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
 
     it = item_touch(key, nkey, realtime(exptime_int), c);
     if (it) {
-        item_update(it);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.touch_cmds++;
         c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
@@ -3577,7 +3628,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     int res;
     item *it;
 
-    it = do_item_get(key, nkey, hv, c);
+    it = do_item_get(key, nkey, hv, c, DONT_UPDATE);
     if (!it) {
         return DELTA_ITEM_NOT_FOUND;
     }
@@ -3639,7 +3690,12 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         do_item_update(it);
     } else if (it->refcount > 1) {
         item *new_it;
-        uint32_t flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
+        uint32_t flags;
+        if (settings.inline_ascii_response) {
+            flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
+        } else {
+            flags = *((uint32_t *)ITEM_suffix(it));
+        }
         new_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, res + 2);
         if (new_it == 0) {
             do_item_remove(it);
@@ -3702,7 +3758,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get(key, nkey, c);
+    it = item_get(key, nkey, c, DONT_UPDATE);
     if (it) {
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
@@ -3819,6 +3875,63 @@ static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntok
                 out_string(c, "MEMLIMIT_ADJUST_FAILED out of bounds or unable to adjust");
             }
         }
+    }
+}
+
+static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) {
+    uint32_t pct_hot;
+    uint32_t pct_warm;
+    uint32_t hot_age;
+    int32_t ttl;
+    double factor;
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    if (strcmp(tokens[1].value, "tune") == 0 && ntokens >= 7) {
+        if (!safe_strtoul(tokens[2].value, &pct_hot) ||
+            !safe_strtoul(tokens[3].value, &pct_warm) ||
+            !safe_strtoul(tokens[4].value, &hot_age) ||
+            !safe_strtod(tokens[5].value, &factor)) {
+            out_string(c, "ERROR");
+        } else {
+            if (pct_hot + pct_warm > 80) {
+                out_string(c, "ERROR hot and warm pcts must not exceed 80");
+            } else if (factor <= 0) {
+                out_string(c, "ERROR cold age factor must be greater than 0");
+            } else {
+                settings.hot_lru_pct = pct_hot;
+                settings.warm_lru_pct = pct_warm;
+                settings.hot_max_age = hot_age;
+                settings.warm_max_factor = factor;
+                out_string(c, "OK");
+            }
+        }
+    } else if (strcmp(tokens[1].value, "mode") == 0 && ntokens >= 3 &&
+               settings.lru_maintainer_thread) {
+        if (strcmp(tokens[2].value, "flat") == 0) {
+            settings.lru_segmented = false;
+            out_string(c, "OK");
+        } else if (strcmp(tokens[2].value, "segmented") == 0) {
+            settings.lru_segmented = true;
+            out_string(c, "OK");
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (strcmp(tokens[1].value, "temp_ttl") == 0 && ntokens >= 3 &&
+               settings.lru_maintainer_thread) {
+        if (!safe_strtol(tokens[2].value, &ttl)) {
+            out_string(c, "ERROR");
+        } else {
+            if (ttl < 0) {
+                settings.temp_lru = false;
+            } else {
+                settings.temp_lru = true;
+                settings.temporary_ttl = ttl;
+            }
+            out_string(c, "OK");
+        }
+    } else {
+        out_string(c, "ERROR");
     }
 }
 
@@ -4105,6 +4218,8 @@ static void process_command(conn *c, char *command) {
         process_memlimit_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
         process_verbosity_command(c, tokens, ntokens);
+    } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "lru") == 0) {
+        process_lru_command(c, tokens, ntokens);
     } else {
         out_string(c, "ERROR");
     }
@@ -5397,7 +5512,9 @@ static void usage(void) {
            "                (requires lru_maintainer)\n"
            "              - warm_lru_pct: Pct of slab memory to reserve for warm lru.\n"
            "                (requires lru_maintainer)\n"
-           "              - expirezero_does_not_evict: Items set to not expire, will not evict.\n"
+           "              - hot_max_age: Items idle longer than this drop from hot lru.\n"
+           "              - cold_max_factor: Items idle longer than cold lru age * this drop from warm.\n"
+           "              - temporary_ttl: TTL's below this use separate LRU, cannot be evicted.\n"
            "                (requires lru_maintainer)\n"
            "              - idle_timeout: Timeout for idle connections\n"
            "              - (EXPERIMENTAL) slab_chunk_max: Maximum slab size. Do not change without extreme care.\n"
@@ -5405,6 +5522,8 @@ static void usage(void) {
            "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
            "                read by background thread. Which is then written to watchers.\n"
            "              - track_sizes: Enable dynamic reports for 'stats sizes' command.\n"
+           "              - no_inline_ascii_resp: Save up to 24 bytes per item. Small perf hit in ASCII,\n"
+           "                no perf difference in binary protocol. Speeds up sets.\n"
            "              - modern: Enables 'modern' defaults. Options that will be default in future.\n"
            "                enables: slab_chunk_max:512k,slab_reassign,slab_automove=1,maxconns_fast,\n"
            "                         hash_algorithm=murmur3,lru_crawler,lru_maintainer\n"
@@ -5698,13 +5817,16 @@ int main (int argc, char **argv) {
         LRU_MAINTAINER,
         HOT_LRU_PCT,
         WARM_LRU_PCT,
-        NOEXP_NOEVICT,
+        HOT_MAX_AGE,
+        WARM_MAX_FACTOR,
+        TEMPORARY_TTL,
         IDLE_TIMEOUT,
         WATCHER_LOGBUF_SIZE,
         WORKER_LOGBUF_SIZE,
         SLAB_SIZES,
         SLAB_CHUNK_MAX,
         TRACK_SIZES,
+        NO_INLINE_ASCII_RESP,
         MODERN
     };
     char *const subopts_tokens[] = {
@@ -5720,13 +5842,16 @@ int main (int argc, char **argv) {
         [LRU_MAINTAINER] = "lru_maintainer",
         [HOT_LRU_PCT] = "hot_lru_pct",
         [WARM_LRU_PCT] = "warm_lru_pct",
-        [NOEXP_NOEVICT] = "expirezero_does_not_evict",
+        [HOT_MAX_AGE] = "hot_max_age",
+        [WARM_MAX_FACTOR] = "warm_max_factor",
+        [TEMPORARY_TTL] = "temporary_ttl",
         [IDLE_TIMEOUT] = "idle_timeout",
         [WATCHER_LOGBUF_SIZE] = "watcher_logbuf_size",
         [WORKER_LOGBUF_SIZE] = "worker_logbuf_size",
         [SLAB_SIZES] = "slab_sizes",
         [SLAB_CHUNK_MAX] = "slab_chunk_max",
         [TRACK_SIZES] = "track_sizes",
+        [NO_INLINE_ASCII_RESP] = "no_inline_ascii_resp",
         [MODERN] = "modern",
         NULL
     };
@@ -6077,12 +6202,13 @@ int main (int argc, char **argv) {
                 break;
             case LRU_MAINTAINER:
                 start_lru_maintainer = true;
+                settings.lru_segmented = true;
                 break;
             case HOT_LRU_PCT:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing hot_lru_pct argument\n");
                     return 1;
-                };
+                }
                 settings.hot_lru_pct = atoi(subopts_value);
                 if (settings.hot_lru_pct < 1 || settings.hot_lru_pct >= 80) {
                     fprintf(stderr, "hot_lru_pct must be > 1 and < 80\n");
@@ -6093,15 +6219,41 @@ int main (int argc, char **argv) {
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing warm_lru_pct argument\n");
                     return 1;
-                };
+                }
                 settings.warm_lru_pct = atoi(subopts_value);
                 if (settings.warm_lru_pct < 1 || settings.warm_lru_pct >= 80) {
                     fprintf(stderr, "warm_lru_pct must be > 1 and < 80\n");
                     return 1;
                 }
                 break;
-            case NOEXP_NOEVICT:
-                settings.expirezero_does_not_evict = true;
+            case HOT_MAX_AGE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing hot_max_age argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.hot_max_age)) {
+                    fprintf(stderr, "invalid argument to hot_max_age\n");
+                    return 1;
+                }
+                break;
+            case WARM_MAX_FACTOR:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing warm_max_factor argument\n");
+                    return 1;
+                }
+                settings.warm_max_factor = atof(subopts_value);
+                if (settings.warm_max_factor <= 0) {
+                    fprintf(stderr, "warm_max_factor must be > 0\n");
+                    return 1;
+                }
+                break;
+            case TEMPORARY_TTL:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing temporary_ttl argument\n");
+                    return 1;
+                }
+                settings.temp_lru = true;
+                settings.temporary_ttl = atoi(subopts_value);
                 break;
             case IDLE_TIMEOUT:
                 settings.idle_timeout = atoi(subopts_value);
@@ -6142,6 +6294,9 @@ int main (int argc, char **argv) {
             case TRACK_SIZES:
                 item_stats_sizes_init();
                 break;
+            case NO_INLINE_ASCII_RESP:
+                settings.inline_ascii_response = false;
+                break;
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags
                  * before making truly default. */
@@ -6157,6 +6312,8 @@ int main (int argc, char **argv) {
                 settings.slab_reassign = true;
                 settings.slab_automove = 1;
                 settings.maxconns_fast = true;
+                settings.inline_ascii_response = false;
+                settings.lru_segmented = true;
                 hash_type = MURMUR3_HASH;
                 start_lru_crawler = true;
                 start_lru_maintainer = true;
@@ -6207,8 +6364,13 @@ int main (int argc, char **argv) {
         }
     }
 
-    if (settings.lru_maintainer_thread && settings.hot_lru_pct + settings.warm_lru_pct > 80) {
+    if (settings.hot_lru_pct + settings.warm_lru_pct > 80) {
         fprintf(stderr, "hot_lru_pct + warm_lru_pct cannot be more than 80%% combined\n");
+        exit(EX_USAGE);
+    }
+
+    if (settings.temp_lru && !start_lru_maintainer) {
+        fprintf(stderr, "temporary_ttl requires lru_maintainer to be enabled\n");
         exit(EX_USAGE);
     }
 

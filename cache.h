@@ -101,6 +101,7 @@ void cache_destroy(cache_t* handle);
  *         the allocation cannot be satisfied.
  */
 void* cache_alloc(cache_t* handle);
+void* do_cache_alloc(cache_t* handle);
 /**
  * Return an object back to the cache.
  *
@@ -111,6 +112,7 @@ void* cache_alloc(cache_t* handle);
  * @param ptr pointer to the object to return.
  */
 void cache_free(cache_t* handle, void* ptr);
+void do_cache_free(cache_t* handle, void* ptr);
 #endif
 
 #endif

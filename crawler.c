@@ -199,7 +199,7 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
         assert(search->slabs_clsid == 0);
     } else {
         s->seen++;
-        refcount_decr(&search->refcount);
+        refcount_decr(search);
         if (search->exptime == 0) {
             s->noexp++;
         } else if (search->exptime - current_time > 3599) {
@@ -220,7 +220,7 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
     /* Ignore expired content. */
     if ((it->exptime != 0 && it->exptime < current_time)
         || is_flushed) {
-        refcount_decr(&it->refcount);
+        refcount_decr(it);
         return;
     }
     // TODO: uriencode directly into the buffer.
@@ -232,7 +232,7 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
             (unsigned long long)it->time + process_started,
             (unsigned long long)ITEM_get_cas(it),
             (it->it_flags & ITEM_FETCHED) ? "yes" : "no");
-    refcount_decr(&it->refcount);
+    refcount_decr(it);
     // TODO: some way of tracking the errors. these are very unlikely though.
     if (total >= LRU_CRAWLER_WRITEBUF - 1 || total <= 0) {
         /* Failed to write, don't push it. */
@@ -366,8 +366,8 @@ static void *item_crawler_thread(void *arg) {
                 continue;
             }
             /* Now see if the item is refcount locked */
-            if (refcount_incr(&search->refcount) != 2) {
-                refcount_decr(&search->refcount);
+            if (refcount_incr(search) != 2) {
+                refcount_decr(search);
                 if (hold_lock)
                     item_trylock_unlock(hold_lock);
                 pthread_mutex_unlock(&lru_locks[i]);

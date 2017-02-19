@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <assert.h>
 
+#include "itoa_ljust.h"
 #include "protocol_binary.h"
 #include "cache.h"
 #include "logger.h"
@@ -36,15 +37,14 @@
 #define UDP_MAX_PAYLOAD_SIZE 1400
 #define UDP_HEADER_SIZE 8
 #define MAX_SENDBUF_SIZE (256 * 1024 * 1024)
-/* I'm told the max length of a 64-bit num converted to string is 20 bytes.
- * Plus a few for spaces, \r\n, \0 */
-#define SUFFIX_SIZE 24
+/* Up to 3 numbers (2 32bit, 1 64bit), spaces, newlines, null 0 */
+#define SUFFIX_SIZE 50
 
 /** Initial size of list of items being returned by "get". */
 #define ITEM_LIST_INITIAL 200
 
 /** Initial size of list of CAS suffixes appended to "gets" lines. */
-#define SUFFIX_LIST_INITIAL 20
+#define SUFFIX_LIST_INITIAL 100
 
 /** Initial size of the sendmsg() scatter/gather array. */
 #define IOV_LIST_INITIAL 400
@@ -114,6 +114,7 @@
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_clsid(item) ((item)->slabs_clsid & ~(3<<6))
+#define ITEM_lruid(item) ((item)->slabs_clsid & (3<<6))
 
 #define STAT_KEY_LEN 128
 #define STAT_VAL_LEN 128
@@ -354,6 +355,7 @@ struct settings {
     bool maxconns_fast;     /* Whether or not to early close connections */
     bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
     bool lru_maintainer_thread; /* LRU maintainer background thread */
+    bool lru_segmented;     /* Use split or flat LRU's */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
     int slab_automove;     /* Whether or not to automatically move slabs */
     int hashpower_init;     /* Starting hash power level */
@@ -366,8 +368,12 @@ struct settings {
     uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
     int hot_lru_pct; /* percentage of slab space for HOT_LRU */
     int warm_lru_pct; /* percentage of slab space for WARM_LRU */
+    uint32_t hot_max_age; /* max idle time before move from HOT_LRU */
+    double warm_max_factor; /* WARM tail age relative to COLD tail */
     int crawls_persleep; /* Number of LRU crawls to run before sleeping */
-    bool expirezero_does_not_evict; /* exptime == 0 goes into NOEXP_LRU */
+    bool inline_ascii_response; /* pre-format the VALUE line for ASCII responses */
+    bool temp_lru; /* TTL < temporary_ttl uses TEMP_LRU */
+    uint32_t temporary_ttl; /* temporary LRU threshold */
     int idle_timeout;       /* Number of seconds to let connections idle */
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
@@ -469,6 +475,7 @@ typedef struct {
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *suffix_cache;      /* suffix cache */
     logger *l;                  /* logger buffer */
+    void *lru_bump_buf;         /* async LRU bump buffer */
 } LIBEVENT_THREAD;
 
 /**
@@ -637,21 +644,22 @@ conn *conn_from_freelist(void);
 bool  conn_add_to_freelist(conn *c);
 void  conn_close_idle(conn *c);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
-item *item_get(const char *key, const size_t nkey, conn *c);
+#define DO_UPDATE true
+#define DONT_UPDATE false
+item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime, conn *c);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it, const uint32_t hv);
 void  item_unlink(item *it);
-void  item_update(item *it);
 
 void item_lock(uint32_t hv);
 void *item_trylock(uint32_t hv);
 void item_trylock_unlock(void *arg);
 void item_unlock(uint32_t hv);
 void pause_threads(enum pause_thread_types type);
-unsigned short refcount_incr(unsigned short *refcount);
-unsigned short refcount_decr(unsigned short *refcount);
+#define refcount_incr(it) ++(it->refcount)
+#define refcount_decr(it) --(it->refcount)
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);

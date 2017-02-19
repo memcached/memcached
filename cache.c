@@ -70,8 +70,15 @@ void cache_destroy(cache_t *cache) {
 
 void* cache_alloc(cache_t *cache) {
     void *ret;
-    void *object;
     pthread_mutex_lock(&cache->mutex);
+    ret = do_cache_alloc(cache);
+    pthread_mutex_unlock(&cache->mutex);
+    return ret;
+}
+
+void* do_cache_alloc(cache_t *cache) {
+    void *ret;
+    void *object;
     if (cache->freecurr > 0) {
         ret = cache->ptr[--cache->freecurr];
         object = get_object(ret);
@@ -87,7 +94,6 @@ void* cache_alloc(cache_t *cache) {
             }
         }
     }
-    pthread_mutex_unlock(&cache->mutex);
 
 #ifndef NDEBUG
     if (object != NULL) {
@@ -105,14 +111,17 @@ void* cache_alloc(cache_t *cache) {
 
 void cache_free(cache_t *cache, void *ptr) {
     pthread_mutex_lock(&cache->mutex);
+    do_cache_free(cache, ptr);
+    pthread_mutex_unlock(&cache->mutex);
+}
 
+void do_cache_free(cache_t *cache, void *ptr) {
 #ifndef NDEBUG
     /* validate redzone... */
     if (memcmp(((char*)ptr) + cache->bufsize - (2 * sizeof(redzone_pattern)),
                &redzone_pattern, sizeof(redzone_pattern)) != 0) {
         raise(SIGABRT);
         cache_error = 1;
-        pthread_mutex_unlock(&cache->mutex);
         return;
     }
     uint64_t *pre = ptr;
@@ -120,7 +129,6 @@ void cache_free(cache_t *cache, void *ptr) {
     if (*pre != redzone_pattern) {
         raise(SIGABRT);
         cache_error = -1;
-        pthread_mutex_unlock(&cache->mutex);
         return;
     }
     ptr = pre;
@@ -143,6 +151,5 @@ void cache_free(cache_t *cache, void *ptr) {
 
         }
     }
-    pthread_mutex_unlock(&cache->mutex);
 }
 

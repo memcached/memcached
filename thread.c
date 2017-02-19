@@ -79,36 +79,6 @@ static pthread_cond_t init_cond;
 
 static void thread_libevent_process(int fd, short which, void *arg);
 
-unsigned short refcount_incr(unsigned short *refcount) {
-#ifdef HAVE_GCC_ATOMICS
-    return __sync_add_and_fetch(refcount, 1);
-#elif defined(__sun)
-    return atomic_inc_ushort_nv(refcount);
-#else
-    unsigned short res;
-    mutex_lock(&atomics_mutex);
-    (*refcount)++;
-    res = *refcount;
-    mutex_unlock(&atomics_mutex);
-    return res;
-#endif
-}
-
-unsigned short refcount_decr(unsigned short *refcount) {
-#ifdef HAVE_GCC_ATOMICS
-    return __sync_sub_and_fetch(refcount, 1);
-#elif defined(__sun)
-    return atomic_dec_ushort_nv(refcount);
-#else
-    unsigned short res;
-    mutex_lock(&atomics_mutex);
-    (*refcount)--;
-    res = *refcount;
-    mutex_unlock(&atomics_mutex);
-    return res;
-#endif
-}
-
 /* item_lock() must be held for an item before any modifications to either its
  * associated hash bucket, or the structure itself.
  * LRU modifications must hold the item lock, and the LRU lock.
@@ -371,7 +341,8 @@ static void *worker_libevent(void *arg) {
      * all threads have finished initializing.
      */
     me->l = logger_create();
-    if (me->l == NULL) {
+    me->lru_bump_buf = item_lru_bump_buf_create();
+    if (me->l == NULL || me->lru_bump_buf == NULL) {
         abort();
     }
 
@@ -543,12 +514,12 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
  * Returns an item if it hasn't been marked as expired,
  * lazy-expiring as needed.
  */
-item *item_get(const char *key, const size_t nkey, conn *c) {
+item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update) {
     item *it;
     uint32_t hv;
     hv = hash(key, nkey);
     item_lock(hv);
-    it = do_item_get(key, nkey, hv, c);
+    it = do_item_get(key, nkey, hv, c, do_update);
     item_unlock(hv);
     return it;
 }
@@ -607,18 +578,6 @@ void item_unlink(item *item) {
     hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
     do_item_unlink(item, hv);
-    item_unlock(hv);
-}
-
-/*
- * Moves an item to the back of the LRU queue.
- */
-void item_update(item *item) {
-    uint32_t hv;
-    hv = hash(ITEM_key(item), item->nkey);
-
-    item_lock(hv);
-    do_item_update(item);
     item_unlock(hv);
 }
 
