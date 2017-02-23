@@ -133,6 +133,9 @@ for (1 .. $keycount) {
 
 cmp_ok($hits, '>', 4000, 'were able to fetch back 2/3rds of 8k keys');
 my $stats_done = mem_stats($sock);
-cmp_ok($stats_done->{slab_reassign_rescues}, '>', 0, 'some reassign rescues happened');
+cmp_ok($stats_done->{slab_reassign_chunk_rescues}, '>', 0, 'some reassign chunk rescues happened');
+# Reassign rescues won't happen here because the headers are of a different
+# size and we aren't moving pages out of that slab class
+#cmp_ok($stats_done->{slab_reassign_rescues}, '>', 0, 'some reassign rescues happened');
 cmp_ok($stats_done->{slab_reassign_evictions_nomem}, '>', 0, 'some reassign evictions happened');
 

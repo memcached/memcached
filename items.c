@@ -169,38 +169,14 @@ static size_t item_make_header(const uint8_t nkey, const unsigned int flags, con
     return sizeof(item) + nkey + *nsuffix + nbytes;
 }
 
-item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
-                    const rel_time_t exptime, const int nbytes) {
-    int i;
-    uint8_t nsuffix;
+static item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
     item *it = NULL;
-    char suffix[40];
-    // Avoid potential underflows.
-    if (nbytes < 2)
-        return 0;
-
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
-    if (settings.use_cas) {
-        ntotal += sizeof(uint64_t);
-    }
-
-    unsigned int id = slabs_clsid(ntotal);
-    if (id == 0)
-        return 0;
-
+    int i;
     /* If no memory is available, attempt a direct LRU juggle/eviction */
     /* This is a race in order to simplify lru_pull_tail; in cases where
      * locked items are on the tail, you want them to fall out and cause
      * occasional OOM's, rather than internally work around them.
      * This also gives one fewer code path for slab alloc/free
-     */
-    /* TODO: if power_largest, try a lot more times? or a number of times
-     * based on how many chunks the new object should take up?
-     * or based on the size of an object lru_pull_tail() says it evicted?
-     * This is a classical GC problem if "large items" are of too varying of
-     * sizes. This is actually okay here since the larger the data, the more
-     * bandwidth it takes, the more time we can loop in comparison to serving
-     * and replacing small items.
      */
     for (i = 0; i < 10; i++) {
         uint64_t total_bytes;
@@ -214,13 +190,12 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
             total_bytes -= temp_lru_size(id);
 
         if (it == NULL) {
-            if (settings.lru_segmented) {
-                if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0) <= 0) {
+            if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0) <= 0) {
+                if (settings.lru_segmented) {
                     lru_pull_tail(id, HOT_LRU, total_bytes, 0, 0);
-                }
-            } else {
-                if (lru_pull_tail(id, COLD_LRU, 0, LRU_PULL_EVICT, 0) <= 0)
+                } else {
                     break;
+                }
             }
         } else {
             break;
@@ -231,6 +206,80 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         pthread_mutex_lock(&lru_locks[id]);
         itemstats[id].direct_reclaims += i;
         pthread_mutex_unlock(&lru_locks[id]);
+    }
+
+    return it;
+}
+
+/* Chain another chunk onto this chunk. */
+/* slab mover: if it finds a chunk without ITEM_CHUNK flag, and no ITEM_LINKED
+ * flag, it counts as busy and skips.
+ * I think it might still not be safe to do linking outside of the slab lock
+ */
+item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain) {
+    // TODO: Should be a cleaner way of finding real size with slabber calls
+    size_t size = bytes_remain + sizeof(item_chunk);
+    if (size > settings.slab_chunk_size_max)
+        size = settings.slab_chunk_size_max;
+    unsigned int id = slabs_clsid(size);
+
+    item_chunk *nch = (item_chunk *) do_item_alloc_pull(size, id);
+    if (nch == NULL)
+        return NULL;
+
+    // link in.
+    // ITEM_CHUNK[ED] bits need to be protected by the slabs lock.
+    slabs_mlock();
+    nch->head = ch->head;
+    ch->next = nch;
+    nch->prev = ch;
+    nch->next = 0;
+    nch->used = 0;
+    nch->slabs_clsid = id;
+    nch->size = size - sizeof(item_chunk);
+    nch->it_flags |= ITEM_CHUNK;
+    slabs_munlock();
+    return nch;
+}
+
+item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
+                    const rel_time_t exptime, const int nbytes) {
+    uint8_t nsuffix;
+    item *it = NULL;
+    char suffix[40];
+    // Avoid potential underflows.
+    if (nbytes < 2)
+        return 0;
+
+    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
+    if (settings.use_cas) {
+        ntotal += sizeof(uint64_t);
+    }
+
+    unsigned int id = slabs_clsid(ntotal);
+    unsigned int hdr_id = 0;
+    if (id == 0)
+        return 0;
+
+    /* This is a large item. Allocate a header object now, lazily allocate
+     *  chunks while reading the upload.
+     */
+    if (ntotal > settings.slab_chunk_size_max) {
+        /* We still link this item into the LRU for the larger slab class, but
+         * we're pulling a header from an entirely different slab class. The
+         * free routines handle large items specifically.
+         */
+        int htotal = nkey + 1 + nsuffix + sizeof(item) + sizeof(item_chunk);
+        if (settings.use_cas) {
+            htotal += sizeof(uint64_t);
+        }
+        hdr_id = slabs_clsid(htotal);
+        it = do_item_alloc_pull(htotal, hdr_id);
+        /* setting ITEM_CHUNKED is fine here because we aren't LINKED yet. */
+        if (it != NULL)
+            it->it_flags |= ITEM_CHUNKED;
+    } else {
+        it = do_item_alloc_pull(ntotal, id);
     }
 
     if (it == NULL) {
@@ -273,18 +322,16 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     }
     it->nsuffix = nsuffix;
 
-    /* Need to shuffle the pointer stored in h_next into it->data. */
+    /* Initialize internal chunk. */
     if (it->it_flags & ITEM_CHUNKED) {
         item_chunk *chunk = (item_chunk *) ITEM_data(it);
 
-        chunk->next = (item_chunk *) it->h_next;
+        chunk->next = 0;
         chunk->prev = 0;
-        chunk->head = it;
-        /* Need to chain back into the head's chunk */
-        chunk->next->prev = chunk;
-        chunk->size = chunk->next->size - ((char *)chunk - (char *)it);
         chunk->used = 0;
-        assert(chunk->size > 0);
+        chunk->size = 0;
+        chunk->head = it;
+        chunk->orig_clsid = hdr_id;
     }
     it->h_next = 0;
 

@@ -1398,17 +1398,10 @@ static void complete_update_bin(conn *c) {
         item_chunk *ch = (item_chunk *) c->ritem;
         if (ch->size == ch->used)
             ch = ch->next;
-        if (ch->size - ch->used > 1) {
-            ch->data[ch->used + 1] = '\r';
-            ch->data[ch->used + 2] = '\n';
-            ch->used += 2;
-        } else {
-            ch->data[ch->used + 1] = '\r';
-            ch->next->data[0] = '\n';
-            ch->used++;
-            ch->next->used++;
-            assert(ch->size == ch->used);
-        }
+        assert(ch->size - ch->used >= 2);
+        ch->data[ch->used + 1] = '\r';
+        ch->data[ch->used + 2] = '\n';
+        ch->used += 2;
     }
 
     ret = store_item(it, c->cmd, c);
@@ -2534,11 +2527,15 @@ static void complete_nread(conn *c) {
 
 /* Destination must always be chunked */
 /* This should be part of item.c */
-static void _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
+static int _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
     item_chunk *dch = (item_chunk *) ITEM_data(d_it);
     /* Advance dch until we find free space */
     while (dch->size == dch->used) {
-        dch = dch->next;
+        if (dch->next) {
+            dch = dch->next;
+        } else {
+            break;
+        }
     }
 
     if (s_it->it_flags & ITEM_CHUNKED) {
@@ -2560,7 +2557,12 @@ static void _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
             remain -= todo;
             assert(dch->used <= dch->size);
             if (dch->size == dch->used) {
-                dch = dch->next;
+                item_chunk *tch = do_item_alloc_chunk(dch, remain);
+                if (tch) {
+                    dch = tch;
+                } else {
+                    return -1;
+                }
             }
             assert(copied <= sch->used);
             if (copied == sch->used) {
@@ -2576,23 +2578,32 @@ static void _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
         while (len > done && dch) {
             int todo = (dch->size - dch->used < len - done)
                 ? dch->size - dch->used : len - done;
-            assert(dch->size - dch->used != 0);
+            //assert(dch->size - dch->used != 0);
             memcpy(dch->data + dch->used, ITEM_data(s_it) + done, todo);
             done += todo;
             dch->used += todo;
             assert(dch->used <= dch->size);
-            if (dch->size == dch->used)
-                dch = dch->next;
+            if (dch->size == dch->used) {
+                item_chunk *tch = do_item_alloc_chunk(dch, len - done);
+                if (tch) {
+                    dch = tch;
+                } else {
+                    return -1;
+                }
+            }
         }
         assert(len == done);
     }
+    return 0;
 }
 
-static void _store_item_copy_data(int comm, item *old_it, item *new_it, item *add_it) {
+static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add_it) {
     if (comm == NREAD_APPEND) {
         if (new_it->it_flags & ITEM_CHUNKED) {
-            _store_item_copy_chunks(new_it, old_it, old_it->nbytes - 2);
-            _store_item_copy_chunks(new_it, add_it, add_it->nbytes);
+            if (_store_item_copy_chunks(new_it, old_it, old_it->nbytes - 2) == -1 ||
+                _store_item_copy_chunks(new_it, add_it, add_it->nbytes) == -1) {
+                return -1;
+            }
         } else {
             memcpy(ITEM_data(new_it), ITEM_data(old_it), old_it->nbytes);
             memcpy(ITEM_data(new_it) + old_it->nbytes - 2 /* CRLF */, ITEM_data(add_it), add_it->nbytes);
@@ -2600,13 +2611,16 @@ static void _store_item_copy_data(int comm, item *old_it, item *new_it, item *ad
     } else {
         /* NREAD_PREPEND */
         if (new_it->it_flags & ITEM_CHUNKED) {
-            _store_item_copy_chunks(new_it, add_it, add_it->nbytes - 2);
-            _store_item_copy_chunks(new_it, old_it, old_it->nbytes);
+            if (_store_item_copy_chunks(new_it, add_it, add_it->nbytes - 2) == -1 ||
+                _store_item_copy_chunks(new_it, old_it, old_it->nbytes) == -1) {
+                return -1;
+            }
         } else {
             memcpy(ITEM_data(new_it), ITEM_data(add_it), add_it->nbytes);
             memcpy(ITEM_data(new_it) + add_it->nbytes - 2 /* CRLF */, ITEM_data(old_it), old_it->nbytes);
         }
     }
+    return 0;
 }
 
 /*
@@ -2690,13 +2704,14 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
 
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
-                if (new_it == NULL) {
+                /* copy data from it and old_it to new_it */
+                if (new_it == NULL || _store_item_copy_data(comm, old_it, new_it, it) == -1) {
                     failed_alloc = 1;
                     stored = NOT_STORED;
+                    // failed data copy, free up.
+                    if (new_it != NULL)
+                        item_remove(new_it);
                 } else {
-                    /* copy data from it and old_it to new_it */
-                    _store_item_copy_data(comm, old_it, new_it, it);
-
                     it = new_it;
                 }
             }
@@ -4608,6 +4623,26 @@ static int read_into_chunked_item(conn *c) {
 
     while (c->rlbytes > 0) {
         item_chunk *ch = (item_chunk *)c->ritem;
+        assert(ch->used <= ch->size);
+        if (ch->size == ch->used) {
+            // FIXME: ch->next is currently always 0. remove this?
+            if (ch->next) {
+                c->ritem = (char *) ch->next;
+            } else {
+                /* Allocate next chunk. Binary protocol needs 2b for \r\n */
+                c->ritem = (char *) do_item_alloc_chunk(ch, c->rlbytes +
+                       ((c->protocol == binary_prot) ? 2 : 0));
+                if (!c->ritem) {
+                    // We failed an allocation. Let caller handle cleanup.
+                    total = -2;
+                    break;
+                }
+                // ritem has new chunk, restart the loop.
+                continue;
+                //assert(c->rlbytes == 0);
+            }
+        }
+
         int unused = ch->size - ch->used;
         /* first check if we have leftovers in the conn_read buffer */
         if (c->rbytes > 0) {
@@ -4642,15 +4677,19 @@ static int read_into_chunked_item(conn *c) {
                 break;
             }
         }
+    }
 
-        assert(ch->used <= ch->size);
-        if (ch->size == ch->used) {
-            if (ch->next) {
-                c->ritem = (char *) ch->next;
-            } else {
-                /* No space left. */
-                assert(c->rlbytes == 0);
-                break;
+    /* At some point I will be able to ditch the \r\n from item storage and
+       remove all of these kludges.
+       The above binprot check ensures inline space for \r\n, but if we do
+       exactly enough allocs there will be no additional chunk for \r\n.
+     */
+    if (c->rlbytes == 0 && c->protocol == binary_prot && total >= 0) {
+        item_chunk *ch = (item_chunk *)c->ritem;
+        if (ch->size - ch->used < 2) {
+            c->ritem = (char *) do_item_alloc_chunk(ch, 2);
+            if (!c->ritem) {
+                total = -2;
             }
         }
     }
@@ -4862,6 +4901,14 @@ static void drive_machine(conn *c) {
                     break;
                 }
                 stop = true;
+                break;
+            }
+
+            /* Memory allocation failure */
+            if (res == -2) {
+                out_of_memory(c, "SERVER_ERROR Out of memory during read");
+                c->sbytes = c->rlbytes;
+                c->write_and_go = conn_swallow;
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */

@@ -246,64 +246,6 @@ static int do_slabs_newslab(const unsigned int id) {
     return 1;
 }
 
-/* This calculation ends up adding sizeof(void *) to the item size. */
-static void *do_slabs_alloc_chunked(const size_t size, slabclass_t *p, unsigned int id) {
-    void *ret = NULL;
-    item *it = NULL;
-    int x;
-    int csize = p->size - sizeof(item_chunk);
-    unsigned int chunks_req = size / csize;
-    if (size % csize != 0)
-        chunks_req++;
-    while (p->sl_curr < chunks_req) {
-        if (do_slabs_newslab(id) == 0)
-            break;
-    }
-
-    if (p->sl_curr >= chunks_req) {
-        item_chunk *chunk = NULL;
-
-        /* Configure the head item in the chain. */
-        it = (item *)p->slots;
-        p->slots = it->next;
-        if (it->next) it->next->prev = 0;
-
-        /* Squirrel away the "top chunk" into h_next for now */
-        it->h_next = (item *)p->slots;
-        assert(it->h_next != 0);
-        chunk = (item_chunk *) it->h_next;
-
-        /* roll down the chunks, marking them as such. */
-        for (x = 0; x < chunks_req-1; x++) {
-            chunk->it_flags &= ~ITEM_SLABBED;
-            chunk->it_flags |= ITEM_CHUNK;
-            /* Chunks always have a direct reference to the head item */
-            chunk->head = it;
-            chunk->size = p->size - sizeof(item_chunk);
-            chunk->used = 0;
-            chunk = chunk->next;
-        }
-
-        /* The final "next" is now the top of the slab freelist */
-        p->slots = chunk;
-        if (chunk && chunk->prev) {
-            /* Disconnect the final chunk from the chain */
-            chunk->prev->next = 0;
-            chunk->prev = 0;
-        }
-
-        it->it_flags &= ~ITEM_SLABBED;
-        it->it_flags |= ITEM_CHUNKED;
-        it->refcount = 1;
-        p->sl_curr -= chunks_req;
-        ret = (void *)it;
-    } else {
-        ret = NULL;
-    }
-
-    return ret;
-}
-
 /*@null@*/
 static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_bytes,
         unsigned int flags) {
@@ -321,30 +263,26 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_
         *total_bytes = p->requested;
     }
 
-    if (size <= p->size) {
-        /* fail unless we have space at the end of a recently allocated page,
-           we have something on our freelist, or we could allocate a new page */
-        if (p->sl_curr == 0 && flags != SLABS_ALLOC_NO_NEWPAGE) {
-            do_slabs_newslab(id);
-        }
+    assert(size <= p->size);
+    /* fail unless we have space at the end of a recently allocated page,
+       we have something on our freelist, or we could allocate a new page */
+    if (p->sl_curr == 0 && flags != SLABS_ALLOC_NO_NEWPAGE) {
+        do_slabs_newslab(id);
+    }
 
-        if (p->sl_curr != 0) {
-            /* return off our freelist */
-            it = (item *)p->slots;
-            p->slots = it->next;
-            if (it->next) it->next->prev = 0;
-            /* Kill flag and initialize refcount here for lock safety in slab
-             * mover's freeness detection. */
-            it->it_flags &= ~ITEM_SLABBED;
-            it->refcount = 1;
-            p->sl_curr--;
-            ret = (void *)it;
-        } else {
-            ret = NULL;
-        }
+    if (p->sl_curr != 0) {
+        /* return off our freelist */
+        it = (item *)p->slots;
+        p->slots = it->next;
+        if (it->next) it->next->prev = 0;
+        /* Kill flag and initialize refcount here for lock safety in slab
+         * mover's freeness detection. */
+        it->it_flags &= ~ITEM_SLABBED;
+        it->refcount = 1;
+        p->sl_curr--;
+        ret = (void *)it;
     } else {
-        /* Dealing with a chunked item. */
-        ret = do_slabs_alloc_chunked(size, p, id);
+        ret = NULL;
     }
 
     if (ret) {
@@ -357,47 +295,53 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_
     return ret;
 }
 
-static void do_slabs_free_chunked(item *it, const size_t size, unsigned int id,
-                                  slabclass_t *p) {
+static void do_slabs_free_chunked(item *it, const size_t size) {
     item_chunk *chunk = (item_chunk *) ITEM_data(it);
-    size_t realsize = size;
-    while (chunk) {
-        realsize += sizeof(item_chunk);
-        chunk = chunk->next;
-    }
-    chunk = (item_chunk *) ITEM_data(it);
-    unsigned int chunks_found = 1;
+    slabclass_t *p;
 
     it->it_flags = ITEM_SLABBED;
     it->slabs_clsid = 0;
     it->prev = 0;
-    it->next = (item *) chunk->next;
-    assert(it->next);
-    /* top chunk should already point back to head */
-    assert(it->next && (void*)it->next->prev == (void*)chunk);
-    chunk = chunk->next;
-    chunk->prev = (item_chunk *)it;
+    // header object's original classid is stored in chunk.
+    p = &slabclass[chunk->orig_clsid];
+    if (chunk->next) {
+        chunk = chunk->next;
+        chunk->prev = 0;
+    } else {
+        // header with no attached chunk
+        chunk = NULL;
+    }
 
+    // return the header object.
+    // TODO: This is in three places, here and in do_slabs_free().
+    it->prev = 0;
+    it->next = p->slots;
+    if (it->next) it->next->prev = it;
+    p->slots = it;
+    p->sl_curr++;
+    // TODO: macro
+    p->requested -= it->nkey + 1 + it->nsuffix + sizeof(item) + sizeof(item_chunk);
+    if (settings.use_cas) {
+        p->requested -= sizeof(uint64_t);
+    }
+
+    item_chunk *next_chunk;
     while (chunk) {
         assert(chunk->it_flags == ITEM_CHUNK);
         chunk->it_flags = ITEM_SLABBED;
+        p = &slabclass[chunk->slabs_clsid];
         chunk->slabs_clsid = 0;
-        chunks_found++;
-        if (chunk->next) {
-            chunk = chunk->next;
-        } else {
-            break;
-        }
-    }
-    /* must have had nothing hanging off of the final chunk */
-    assert(chunk && chunk->next == 0);
-    /* Tail chunk, link the freelist here. */
-    chunk->next = p->slots;
-    if (chunk->next) chunk->next->prev = chunk;
+        next_chunk = chunk->next;
 
-    p->slots = it;
-    p->sl_curr += chunks_found;
-    p->requested -= size;
+        chunk->prev = 0;
+        chunk->next = p->slots;
+        if (chunk->next) chunk->next->prev = chunk;
+        p->slots = chunk;
+        p->sl_curr++;
+        p->requested -= chunk->size + sizeof(item_chunk);
+
+        chunk = next_chunk;
+    }
 
     return;
 }
@@ -426,7 +370,7 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
         p->sl_curr++;
         p->requested -= size;
     } else {
-        do_slabs_free_chunked(it, size, id, p);
+        do_slabs_free_chunked(it, size);
     }
     return;
 }
@@ -647,6 +591,20 @@ unsigned int slabs_available_chunks(const unsigned int id, bool *mem_flag,
         *chunks_perslab = p->perslab;
     pthread_mutex_unlock(&slabs_lock);
     return ret;
+}
+
+/* The slabber system could avoid needing to understand much, if anything,
+ * about items if callbacks were strategically used. Due to how the slab mover
+ * works, certain flag bits can only be adjusted while holding the slabs lock.
+ * Using these functions, isolate sections of code needing this and turn them
+ * into callbacks when an interface becomes more obvious.
+ */
+void slabs_mlock(void) {
+    pthread_mutex_lock(&slabs_lock);
+}
+
+void slabs_munlock(void) {
+    pthread_mutex_unlock(&slabs_lock);
 }
 
 static pthread_cond_t slab_rebalance_cond = PTHREAD_COND_INITIALIZER;
