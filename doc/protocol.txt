@@ -699,7 +699,7 @@ integers separated by a colon (treat this as a floating point number).
 | slab_reassign_running | bool    | If a slab page is being moved             |
 | slabs_moved           | 64u     | Total slab pages moved                    |
 | crawler_reclaimed     | 64u     | Total items freed by LRU Crawler          |
-| crawler_items-checked | 64u     | Total items examined by LRU Crawler       |
+| crawler_items_checked | 64u     | Total items examined by LRU Crawler       |
 | lrutail_reflocked     | 64u     | Times LRU tail was found with active ref. |
 |                       |         | Items can be evicted to avoid OOM errors. |
 | moves_to_cold         | 64u     | Items moved from HOT/WARM to COLD LRU's   |
