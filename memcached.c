@@ -5526,7 +5526,7 @@ static void usage(void) {
            "                no perf difference in binary protocol. Speeds up sets.\n"
            "              - modern: Enables 'modern' defaults. Options that will be default in future.\n"
            "                enables: slab_chunk_max:512k,slab_reassign,slab_automove=1,maxconns_fast,\n"
-           "                         hash_algorithm=murmur3,lru_crawler,lru_maintainer\n"
+           "                         hash_algorithm=murmur3,lru_crawler,lru_maintainer,no_inline_ascii_resp\n"
            );
     return;
 }
