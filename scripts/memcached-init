@@ -94,7 +94,7 @@ case "$1" in
             0) echo "$DESC: $NAME (pid $(cat $PIDFILE)) is running" && exit 0;;
             1) echo "$DESC: $NAME is not running thro' the pid file exists" && rm -f $PIDFILE && exit 1;;
             3) echo "$DESC: $NAME is not running" && exit 3;;
-            4) echo "$DESC: $NAME status is unclear, sorry" && exit 4;; 
+            4) echo "$DESC: $NAME status is unclear, sorry" && exit 4;;
         esac
         ;;
     restart|force-reload)
