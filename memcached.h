@@ -5,6 +5,8 @@
  * structures and function prototypes.
  */
 
+#define EXTSTORE 1
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -23,6 +25,10 @@
 #include "protocol_binary.h"
 #include "cache.h"
 #include "logger.h"
+
+#ifdef EXTSTORE
+#include "extstore.h"
+#endif
 
 #include "sasl_defs.h"
 
@@ -397,6 +403,8 @@ extern struct settings settings;
 /* If an item's storage are chained chunks. */
 #define ITEM_CHUNKED 32
 #define ITEM_CHUNK 64
+/* ITEM_data bulk is external to item */
+#define ITEM_HDR 128
 
 /**
  * Structure for storing items within memcached.
@@ -464,6 +472,13 @@ typedef struct _strchunk {
     uint8_t          slabs_clsid; /* Same as above. */
     char data[];
 } item_chunk;
+
+typedef struct {
+    uint64_t page_cas; /* from IO header */
+    unsigned int page_id; /* from IO header */
+    unsigned int offset; /* from IO header */
+    unsigned int nbytes; /* original nbytes */
+} item_hdr;
 
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */

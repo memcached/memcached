@@ -5848,7 +5848,9 @@ int main (int argc, char **argv) {
     bool use_slab_sizes = false;
     char *slab_sizes_unparsed = NULL;
     bool slab_chunk_size_changed = false;
-
+#ifdef EXTSTORE
+    void *storage = NULL;
+#endif
     char *subopts, *subopts_orig;
     char *subopts_value;
     enum {
@@ -6552,7 +6554,9 @@ int main (int argc, char **argv) {
     conn_init();
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL);
-
+#ifdef EXTSTORE
+    storage = extstore_init("/tmp/extstore", 1024 * 1024 * 64, 128, 1024 * 8192);
+#endif
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
@@ -6572,8 +6576,11 @@ int main (int argc, char **argv) {
         fprintf(stderr, "Failed to enable LRU crawler thread\n");
         exit(EXIT_FAILURE);
     }
-
-    if (start_lru_maintainer && start_lru_maintainer_thread() != 0) {
+#ifdef EXTSTORE
+    if (start_lru_maintainer && start_lru_maintainer_thread(storage) != 0) {
+#else
+    if (start_lru_maintainer && start_lru_maintainer_thread(NULL) != 0) {
+#endif
         fprintf(stderr, "Failed to enable LRU maintainer thread\n");
         return 1;
     }

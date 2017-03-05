@@ -76,9 +76,16 @@ void do_item_stats_add_crawl(const int i, const uint64_t reclaimed,
 
 #define LRU_PULL_EVICT 1
 #define LRU_PULL_CRAWL_BLOCKS 2
+#define LRU_PULL_RETURN_ITEM 4 /* fill info struct if available */
+
+struct lru_pull_tail_return {
+    item *it;
+    uint32_t hv;
+};
 
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age);
+        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age,
+        struct lru_pull_tail_return *ret_it);
 
 typedef struct _lru_bump_buf {
     struct _lru_bump_buf *prev;
@@ -182,7 +189,7 @@ static item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
         uint64_t total_bytes;
         /* Try to reclaim memory first */
         if (!settings.lru_segmented) {
-            lru_pull_tail(id, COLD_LRU, 0, 0, 0);
+            lru_pull_tail(id, COLD_LRU, 0, 0, 0, NULL);
         }
         it = slabs_alloc(ntotal, id, &total_bytes, 0);
 
@@ -190,9 +197,9 @@ static item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
             total_bytes -= temp_lru_size(id);
 
         if (it == NULL) {
-            if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0) <= 0) {
+            if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0, NULL) <= 0) {
                 if (settings.lru_segmented) {
-                    lru_pull_tail(id, HOT_LRU, total_bytes, 0, 0);
+                    lru_pull_tail(id, HOT_LRU, total_bytes, 0, 0, NULL);
                 } else {
                     break;
                 }
@@ -976,7 +983,8 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 /* Returns number of items remove, expired, or evicted.
  * Callable from worker threads or the LRU maintainer thread */
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age) {
+        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age,
+        struct lru_pull_tail_return *ret_it) {
     item *it = NULL;
     int id = orig_id;
     int removed = 0;
@@ -1108,6 +1116,10 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     if (settings.slab_automove == 2) {
                         slabs_reassign(-1, orig_id);
                     }
+                } else if (flags & LRU_PULL_RETURN_ITEM) {
+                    /* Keep a reference to this item and return it. */
+                    ret_it->it = it;
+                    ret_it->hv = hv;
                 } else if ((search->it_flags & ITEM_ACTIVE) != 0
                         && settings.lru_segmented) {
                     itemstats[id].moves_to_warm++;
@@ -1133,7 +1145,8 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
             it->slabs_clsid |= move_to_lru;
             item_link_q(it);
         }
-        do_item_remove(it);
+        if ((flags & LRU_PULL_RETURN_ITEM) == 0)
+            do_item_remove(it);
         item_trylock_unlock(hold_lock);
     }
 
@@ -1271,7 +1284,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     if (settings.temp_lru) {
         /* Only looking for reclaims. Run before we size the LRU. */
         for (i = 0; i < 500; i++) {
-            if (lru_pull_tail(slabs_clsid, TEMP_LRU, 0, 0, 0) <= 0) {
+            if (lru_pull_tail(slabs_clsid, TEMP_LRU, 0, 0, 0, NULL) <= 0) {
                 break;
             } else {
                 did_moves++;
@@ -1303,12 +1316,12 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 500; i++) {
         int do_more = 0;
-        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, hot_age) ||
-            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, cold_age * settings.warm_max_factor)) {
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, hot_age, NULL) ||
+            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, cold_age * settings.warm_max_factor, NULL)) {
             do_more++;
         }
         if (settings.lru_segmented) {
-            do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, 0);
+            do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, 0, NULL);
         }
         if (do_more == 0)
             break;
@@ -1316,7 +1329,85 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     }
     return did_moves;
 }
+#ifdef EXTSTORE
+// TODO: percentage of total memory/chunks free instead of hardcoded page
+// count.
+static int lru_maintainer_store(void *storage, const int clsid) {
+    //int i;
+    //int did_moves = 0;
+    bool mem_limit_reached = false;
+    unsigned int chunks_free;
+    unsigned int chunks_perslab;
+    struct lru_pull_tail_return it_info;
+    // FIXME: need to directly ask the slabber how big a class is
+    if (slabs_clsid(4096) > clsid)
+        return 0;
+    chunks_free = slabs_available_chunks(clsid, &mem_limit_reached,
+            NULL, &chunks_perslab);
+    if (!mem_limit_reached)
+        return 0;
+    if (chunks_free > (chunks_perslab * 2.5))
+        return 0;
 
+    it_info.it = NULL;
+    lru_pull_tail(clsid, COLD_LRU, 0, LRU_PULL_RETURN_ITEM, 0, &it_info);
+    /* Item isn't locked, but we have a reference to it. */
+    if (it_info.it != NULL) {
+        obj_io io;
+        item *it = it_info.it;
+        /* First, storage for the header object */
+        size_t orig_ntotal = ITEM_ntotal(it);
+        size_t ntotal = (orig_ntotal - (it->nbytes + it->nsuffix)) + sizeof(item_hdr);
+        unsigned int id = slabs_clsid(ntotal);
+        uint32_t flags;
+        // TODO: Doesn't presently work with chunked items. */
+        if ((it->it_flags & ITEM_CHUNKED) == 0) {
+            if (settings.inline_ascii_response) {
+                flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
+            } else {
+                flags = *((uint32_t *)ITEM_suffix(it));
+            }
+            item *hdr_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, ntotal);
+            /* Run the storage write understanding the header is dirty.
+             * We will fill it from the header on read either way.
+             */
+            if (hdr_it != NULL) {
+                io.buf = (void *) it;
+                io.len = orig_ntotal;
+                io.mode = OBJ_IO_WRITE;
+                io.ttl = it->exptime - current_time;
+                if (extstore_write(storage, &io) == 0) {
+                    item_hdr *hdr = (item_hdr *) ITEM_data(hdr_it);
+                    // TODO: hdr->page_cas = io->page_cas;
+                    hdr->page_id = io.page_id;
+                    hdr->offset  = io.offset;
+                    hdr->nbytes  = orig_ntotal;
+                    /* success! Now we need to fill relevant data into the new
+                     * header and replace. Most of this requires the item lock
+                     */
+                    item_lock(it_info.hv);
+                    /* CAS gets set while linking. Copy post-replace */
+                    item_replace(it, hdr_it, it_info.hv);
+                    ITEM_set_cas(hdr_it, ITEM_get_cas(it));
+                    //fprintf(stderr, "EXTSTORE: swapped an item: %s %lu %lu\n", ITEM_key(it), orig_ntotal, ntotal);
+                    do_item_remove(it);
+                    do_item_remove(hdr_it);
+                    item_unlock(it_info.hv);
+                } else {
+                    fprintf(stderr, "EXTSTORE: failed to write\n");
+                    /* Failed to write for some reason, can't continue. */
+                    slabs_free(hdr_it, ntotal, id);
+                    item_remove(it);
+                    it_info.it = NULL;
+                }
+            }
+        } else {
+            item_remove(it);
+        }
+    }
+    return (it_info.it != NULL) ? 1 : 0;
+}
+#endif
 /* Will crawl all slab classes a minimum of once per hour */
 #define MAX_MAINTCRAWL_WAIT 60 * 60
 
@@ -1406,6 +1497,9 @@ static pthread_t lru_maintainer_tid;
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
 static void *lru_maintainer_thread(void *arg) {
+#ifdef EXTSTORE
+    void *storage = arg;
+#endif
     int i;
     useconds_t to_sleep = MIN_LRU_MAINTAINER_SLEEP;
     useconds_t last_sleep = MIN_LRU_MAINTAINER_SLEEP;
@@ -1451,6 +1545,9 @@ static void *lru_maintainer_thread(void *arg) {
                 continue;
 
             int did_moves = lru_maintainer_juggle(i);
+#ifdef EXTSTORE
+            did_moves += lru_maintainer_store(storage, i);
+#endif
             if (did_moves == 0) {
                 if (backoff_juggles[i] < MAX_LRU_MAINTAINER_SLEEP)
                     backoff_juggles[i] += 1000;
@@ -1495,14 +1592,14 @@ int stop_lru_maintainer_thread(void) {
     return 0;
 }
 
-int start_lru_maintainer_thread(void) {
+int start_lru_maintainer_thread(void *arg) {
     int ret;
 
     pthread_mutex_lock(&lru_maintainer_lock);
     do_run_lru_maintainer_thread = 1;
     settings.lru_maintainer_thread = true;
     if ((ret = pthread_create(&lru_maintainer_tid, NULL,
-        lru_maintainer_thread, NULL)) != 0) {
+        lru_maintainer_thread, arg)) != 0) {
         fprintf(stderr, "Can't create LRU maintainer thread: %s\n",
             strerror(ret));
         pthread_mutex_unlock(&lru_maintainer_lock);
