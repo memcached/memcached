@@ -15,7 +15,7 @@ typedef struct _obj_io {
     void *data; /* user supplied data pointer */
     struct _obj_io *next;
     char *buf;  /* buffer of data to read or write to */
-    unsigned int len;
+    unsigned int len;     /* for both modes */
     unsigned int ttl;     /* for write mode */
     unsigned int page_id; /* for read mode */
     unsigned int offset;  /* for read mode */

@@ -329,6 +329,13 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         fprintf(stderr, "Failed to create suffix cache\n");
         exit(EXIT_FAILURE);
     }
+#ifdef EXTSTORE
+    me->io_cache = cache_create("io", sizeof(io_wrap), sizeof(char*), NULL, NULL);
+    if (me->io_cache == NULL) {
+        fprintf(stderr, "Failed to create IO object cache\n");
+        exit(EXIT_FAILURE);
+    }
+#endif
 }
 
 /*
@@ -678,7 +685,11 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  *
  * nthreads  Number of worker event handler threads to spawn
  */
+#ifdef EXTSTORE
+void memcached_thread_init(int nthreads, void *storage) {
+#else
 void memcached_thread_init(int nthreads) {
+#endif
     int         i;
     int         power;
 
@@ -743,7 +754,9 @@ void memcached_thread_init(int nthreads) {
 
         threads[i].notify_receive_fd = fds[0];
         threads[i].notify_send_fd = fds[1];
-
+#ifdef EXTSTORE
+        threads[i].storage = storage;
+#endif
         setup_thread(&threads[i]);
         /* Reserve three fds for the libevent base, and two for the pipe */
         stats_state.reserved_fds += 5;

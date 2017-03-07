@@ -372,7 +372,9 @@ static void *extstore_io_thread(void *arg) {
             }
             me->wbuf_queue = end->next;
             end->next = NULL;
-        } else if (me->queue != NULL) {
+        }
+
+        if (me->queue != NULL) {
             int i;
             obj_io *end = NULL;
             io_stack = me->queue;
@@ -419,12 +421,13 @@ static void *extstore_io_thread(void *arg) {
             store_page *p = &e->pages[cur_io->page_id];
             /* TODO: lock page. validate CAS, increment refcount. */
             /* TODO: if offset is beyond p->written, memcpy back */
+            // TODO: loop if not enough bytes were read/written.
             switch (cur_io->mode) {
                 case OBJ_IO_READ:
-                    ret = pread(p->fd, cur_io->buf, cur_io->len, cur_io->offset);
+                    ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                     break;
                 case OBJ_IO_WRITE:
-                    ret = pwrite(p->fd, cur_io->buf, cur_io->len, cur_io->offset);
+                    ret = pwrite(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                     break;
             }
             // FIXME: Remove.

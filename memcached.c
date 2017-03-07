@@ -462,8 +462,16 @@ void conn_worker_readd(conn *c) {
     event_base_set(c->thread->base, &c->event);
     c->state = conn_new_cmd;
 
+    // TODO: call conn_cleanup/fail/etc
     if (event_add(&c->event, 0) == -1) {
         perror("event_add");
+    }
+
+    // If we had IO objects, process
+    if (c->io_wraplist) {
+        assert(c->io_wrapleft == 0); // assert no more to process
+        conn_set_state(c, conn_mwrite);
+        drive_machine(c); // FIXME: Again, is it really this easy?
     }
 }
 
@@ -582,6 +590,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->msgused = 0;
     c->authenticated = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
+#ifdef EXTSTORE
+    c->io_wraplist = NULL;
+    c->io_wrapleft = 0;
+#endif
 
     c->write_and_go = init_state;
     c->write_and_free = 0;
@@ -628,6 +640,21 @@ static void conn_release_items(conn *c) {
         for (; c->suffixleft > 0; c->suffixleft--, c->suffixcurr++) {
             do_cache_free(c->thread->suffix_cache, *(c->suffixcurr));
         }
+    }
+
+    if (c->io_wraplist) {
+        io_wrap *tmp = c->io_wraplist;
+        while (tmp) {
+            io_wrap *next = tmp->next;
+            item *it = (item *)tmp->io.buf;
+            // FIXME: Temporarily, we free the "item" here instead of
+            // replacing it.
+            slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
+            tmp->io.buf = NULL; // sanity.
+            do_cache_free(c->thread->io_cache, tmp); // lockless
+            tmp = next;
+        }
+        c->io_wraplist = NULL;
     }
 
     c->icurr = c->ilist;
@@ -3229,13 +3256,13 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
-static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas) {
+static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas, int nbytes) {
     char *p;
     if (!settings.inline_ascii_response) {
         *suffix = ' ';
         p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), suffix+1);
         *p = ' ';
-        p = itoa_u32(it->nbytes-2, p+1);
+        p = itoa_u32(nbytes-2, p+1);
     } else {
         p = suffix;
     }
@@ -3249,6 +3276,129 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas)
     return (p - suffix) + 2;
 }
 
+static inline int _ascii_get_expand_ilist(conn *c, int i) {
+    if (i >= c->isize) {
+        item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
+        if (new_list) {
+            c->isize *= 2;
+            c->ilist = new_list;
+        } else {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static inline char *_ascii_get_suffix_buf(conn *c, int i) {
+    char *suffix;
+    /* Goofy mid-flight realloc. */
+    if (i >= c->suffixsize) {
+    char **new_suffix_list = realloc(c->suffixlist,
+                           sizeof(char *) * c->suffixsize * 2);
+    if (new_suffix_list) {
+        c->suffixsize *= 2;
+        c->suffixlist  = new_suffix_list;
+    } else {
+        STATS_LOCK();
+        stats.malloc_fails++;
+        STATS_UNLOCK();
+        return NULL;
+    }
+    }
+
+    suffix = do_cache_alloc(c->thread->suffix_cache);
+    if (suffix == NULL) {
+      STATS_LOCK();
+      stats.malloc_fails++;
+      STATS_UNLOCK();
+      out_of_memory(c, "SERVER_ERROR out of memory making CAS suffix");
+      return NULL;
+    }
+    *(c->suffixlist + i) = suffix;
+    return suffix;
+}
+#ifdef EXTSTORE
+// FIXME: This runs in the IO thread. to get better IO performance this should
+// simply mark the io wrapper with the return value and decrement wrapleft, if
+// zero redispatching. Still a bit of work being done in the side thread but
+// minimized at least.
+static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
+    // FIXME: assumes success
+    io_wrap *wrap = (io_wrap *)io->data;
+    conn *c = wrap->c;
+
+    if (ret < 1) {
+        fprintf(stderr, "EXTSTORE: Failed read! shouldn't be possible yet\n");
+    } else {
+        item *read_it = (item *)io->buf;
+        c->iov[wrap->iovec_data].iov_base = ITEM_data(read_it);
+        // iov_len is already set
+        // TODO: Should do that here instead and cuddle in the wrap object
+    }
+    c->io_wrapleft--;
+
+    // All IO's have returned, lets re-attach this connection to our original
+    // thread.
+    if (c->io_wrapleft == 0) {
+        // FIXME: Is it really this easy?
+        // I have worries this won't be performant enough under load though.
+        // Can cause the IO threads to block if the pipes are full, too.
+        redispatch_conn(c);
+    }
+}
+
+// FIXME: This completely breaks UDP support.
+static inline int _ascii_get_extstore(conn *c, item *it) {
+    item_hdr *hdr = (item_hdr *)ITEM_data(it);
+    unsigned int clsid = slabs_clsid(hdr->ntotal);
+    item *new_it = do_item_alloc_pull(hdr->ntotal, clsid);
+    if (new_it == NULL)
+        return -1;
+
+    io_wrap *io = do_cache_alloc(c->thread->io_cache);
+    // FIXME: error handling.
+    // The offsets we'll wipe on a miss.
+    io->iovec_start = c->iovused - 3;
+    io->iovec_count = 4;
+    // FIXME: error handling.
+    // This is probably super dangerous. keep it at 0 and fill into wrap
+    // object?
+    io->iovec_data = c->iovused;
+    add_iov(c, "", hdr->nbytes);
+    // The offset we'll fill in on a hit.
+    io->c = c;
+    // We need to stack the sub-struct IO's together as well.
+    if (c->io_wraplist) {
+        io->io.next = &c->io_wraplist->io;
+    } else {
+        io->io.next = NULL;
+    }
+    // IO queue for this connection.
+    io->next = c->io_wraplist;
+    c->io_wraplist = io;
+    c->io_wrapleft++;
+    // reference ourselves for the callback.
+    io->io.data = (void *)io;
+    io->io.buf = (void *)new_it;
+
+    // Now, fill in io->io based on what was in our header.
+    io->io.page_id = hdr->page_id;
+    io->io.offset = hdr->offset;
+    io->io.len = hdr->nbytes;
+    io->io.mode = OBJ_IO_READ;
+
+    // TODO: set the callback function
+    io->io.cb = _ascii_get_extstore_cb;
+    fprintf(stderr, "EXTSTORE: IO stacked\n");
+
+    return 0;
+}
+#endif
+// FIXME: the 'breaks' around memory malloc's should break all the way down,
+// fill ileft/suffixleft, then run conn_releaseitems()
 /* ntokens is overwritten here... shrug.. */
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
     char *key;
@@ -3278,18 +3428,9 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
             if (it) {
-                if (i >= c->isize) {
-                    item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
-                    if (new_list) {
-                        c->isize *= 2;
-                        c->ilist = new_list;
-                    } else {
-                        STATS_LOCK();
-                        stats.malloc_fails++;
-                        STATS_UNLOCK();
-                        item_remove(it);
-                        break;
-                    }
+                if (_ascii_get_expand_ilist(c, i) != 0) {
+                    item_remove(it);
+                    break; // FIXME: Should bail down to error.
                 }
 
                 /*
@@ -3304,36 +3445,24 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
-                  /* Goofy mid-flight realloc. */
-                  if (i >= c->suffixsize) {
-                    char **new_suffix_list = realloc(c->suffixlist,
-                                           sizeof(char *) * c->suffixsize * 2);
-                    if (new_suffix_list) {
-                        c->suffixsize *= 2;
-                        c->suffixlist  = new_suffix_list;
-                    } else {
-                        STATS_LOCK();
-                        stats.malloc_fails++;
-                        STATS_UNLOCK();
-                        item_remove(it);
-                        break;
-                    }
-                  }
-
-                  suffix = do_cache_alloc(c->thread->suffix_cache);
+                  int nbytes;
+                  suffix = _ascii_get_suffix_buf(c, i);
                   if (suffix == NULL) {
-                      STATS_LOCK();
-                      stats.malloc_fails++;
-                      STATS_UNLOCK();
-                      out_of_memory(c, "SERVER_ERROR out of memory making CAS suffix");
                       item_remove(it);
-                      while (i-- > 0) {
-                          item_remove(*(c->ilist + i));
-                      }
-                      return;
+                      break;
                   }
-                  *(c->suffixlist + i) = suffix;
-                  int suffix_len = make_ascii_get_suffix(suffix, it, return_cas);
+#ifdef EXTSTORE
+                  // FIXME: think I can move the extstore func call here as
+                  // well, instead of branching twice.
+                  if (it->it_flags & ITEM_HDR) {
+                      nbytes = ((item_hdr *)ITEM_data(it))->nbytes;
+                  } else {
+#endif
+                  nbytes = it->nbytes;
+#ifdef EXTSTORE
+                  }
+#endif
+                  int suffix_len = make_ascii_get_suffix(suffix, it, return_cas, nbytes);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       (settings.inline_ascii_response && add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0) ||
@@ -3342,7 +3471,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                           item_remove(it);
                           break;
                       }
+#ifdef EXTSTORE
+                  if (it->it_flags & ITEM_HDR) {
+                      _ascii_get_extstore(c, it);
+                  } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+#else
                   if ((it->it_flags & ITEM_CHUNKED) == 0) {
+#endif
                       add_iov(c, ITEM_data(it), it->nbytes);
                   } else if (add_chunked_item_iovs(c, it, it->nbytes) != 0) {
                       item_remove(it);
@@ -4986,6 +5121,19 @@ static void drive_machine(conn *c) {
             /* fall through... */
 
         case conn_mwrite:
+            /* have side IO's that must process before transmit() can run.
+             * remove the connection from the worker thread and dispatch the
+             * IO queue
+             */
+            if (c->io_wrapleft) {
+                assert(c->io_wraplist != NULL);
+                // TODO: create proper state for this condition
+                conn_set_state(c, conn_watch);
+                event_del(&c->event);
+                extstore_read(c->thread->storage, &c->io_wraplist->io);
+                stop = true;
+                break;
+            }
           if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
             if (settings.verbose > 0)
               fprintf(stderr, "Failed to build UDP headers\n");
@@ -6566,7 +6714,11 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     }
     /* start up worker threads if MT mode */
+#ifdef EXTSTORE
+    memcached_thread_init(settings.num_threads, storage);
+#else
     memcached_thread_init(settings.num_threads);
+#endif
 
     if (start_assoc_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);

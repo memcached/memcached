@@ -176,7 +176,7 @@ static size_t item_make_header(const uint8_t nkey, const unsigned int flags, con
     return sizeof(item) + nkey + *nsuffix + nbytes;
 }
 
-static item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
+item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
     item *it = NULL;
     int i;
     /* If no memory is available, attempt a direct LRU juggle/eviction */
@@ -1372,6 +1372,7 @@ static int lru_maintainer_store(void *storage, const int clsid) {
              * We will fill it from the header on read either way.
              */
             if (hdr_it != NULL) {
+                hdr_it->it_flags |= ITEM_HDR;
                 io.buf = (void *) it;
                 io.len = orig_ntotal;
                 io.mode = OBJ_IO_WRITE;
@@ -1381,7 +1382,9 @@ static int lru_maintainer_store(void *storage, const int clsid) {
                     // TODO: hdr->page_cas = io->page_cas;
                     hdr->page_id = io.page_id;
                     hdr->offset  = io.offset;
-                    hdr->nbytes  = orig_ntotal;
+                    hdr->ntotal = orig_ntotal;
+                    // we need to know nbytes early for response header.
+                    hdr->nbytes  = it->nbytes;
                     /* success! Now we need to fill relevant data into the new
                      * header and replace. Most of this requires the item lock
                      */
