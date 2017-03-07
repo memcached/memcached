@@ -1,0 +1,57 @@
+Storage system notes
+--------------------
+
+extstore.h defines the API.
+
+extstore_write() is a synchronous call which memcpy's the input buffer into a
+write buffer for an active page. A failure is not usually a hard failure, but
+indicates caller can try again another time. IE: it might be busy freeing
+pages or assigning new ones.
+
+as of this writing the write() implementation doesn't have an internal loop,
+so it can give spurious failures (good for testing integration)
+
+extstore_read() is an asynchronous call which takes a stack of IO objects and
+adds it to the end of a queue. It then signals the IO thread to run. Once an
+IO stack is submitted the caller must not touch the submitted objects anymore
+(they are relinked internally).
+
+The IO threads execute each object in turn (or in bulk of running in the
+future libaio mode).
+
+Callbacks are issued from the IO threads. It's thus important to keep
+processing to a minimum. Callbacks may be issued out of order, and it is the
+caller's responsibility to know when its stack has been fully processed so it
+may reclaim the memory.
+
+With DIRECT_IO support, buffers submitted for read/write will need to be
+aligned with posix_memalign() or similar.
+
+Memcached integration
+---------------------
+
+With the POC: items.c's lru_maintainer_thread calls writes to storage if all
+memory has been allocated out to slab classes, and there is less than an
+amount of memory free. Original objects are swapped with items marked with
+ITEM_HDR flag. an ITEM_HDR contains copies of the original key and most of the
+header data. The ITEM_data() section of an ITEM_HDR object contains (item_hdr
+*), which describes enough information to retrieve the original object from
+storage.
+
+To get best performance is important that reads can be deeply pipelined.
+As much processing as possible is done ahead of time, IO's are submitted, and
+once IO's are done processing a minimal amount of code is executed before
+transmit() is possible. This should amortize the amount of latency incurred by
+hopping threads and waiting on IO.
+
+Compaction etc
+--------------
+
+Storage pages contain CAS values which are not presently implemented. At some
+point during a fetch the CAS value from the ITEM_HDR object needs to be
+compared to the current existing page, and a read will fail if the page has
+been wiped since the header object was created.
+
+Pages will be reaped by an estimate of how few real objects it still contains.
+
+[TBD]
