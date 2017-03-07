@@ -354,7 +354,14 @@ static void *extstore_io_thread(void *arg) {
         obj_io *io_stack = NULL;
         _store_wbuf *wbuf_stack = NULL;
         // TODO: lock/check queue before going into wait
-        pthread_cond_wait(&me->cond, &me->mutex);
+        pthread_mutex_lock(&me->queue_mutex);
+        if (me->queue != NULL || me->wbuf_queue != NULL) {
+            pthread_mutex_unlock(&me->queue_mutex);
+        } else {
+            // FIXME: race condition.
+            pthread_mutex_unlock(&me->queue_mutex);
+            pthread_cond_wait(&me->cond, &me->mutex);
+        }
 
         pthread_mutex_lock(&me->queue_mutex);
         if (me->wbuf_queue != NULL) {

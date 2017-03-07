@@ -3331,7 +3331,7 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
     conn *c = wrap->c;
 
     if (ret < 1) {
-        fprintf(stderr, "EXTSTORE: Failed read! shouldn't be possible yet\n");
+        fprintf(stderr, "EXTSTORE: Failed read! shouldn't be possible yet %d\n", ret);
     } else {
         item *read_it = (item *)io->buf;
         c->iov[wrap->iovec_data].iov_base = ITEM_data(read_it);
@@ -3392,7 +3392,7 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
 
     // TODO: set the callback function
     io->io.cb = _ascii_get_extstore_cb;
-    fprintf(stderr, "EXTSTORE: IO stacked\n");
+    //fprintf(stderr, "EXTSTORE: IO stacked %u\n", io->iovec_data);
 
     return 0;
 }
