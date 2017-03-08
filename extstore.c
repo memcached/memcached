@@ -327,9 +327,8 @@ int extstore_read(void *ptr, obj_io *io) {
         obj_io *tmp = t->queue;
         while (tmp->next != NULL) {
             tmp = tmp->next;
-            assert(tmp != t->queue);
+            assert(tmp != t->queue); // FIXME: Temporary loop detection
         }
-
         tmp->next = io;
     }
     pthread_mutex_unlock(&t->queue_mutex);
@@ -395,7 +394,7 @@ static void *extstore_io_thread(void *arg) {
             obj_io *end = NULL;
             io_stack = me->queue;
             end = io_stack;
-            /* Pull and disconnect a batch from the queue */
+            // Pull and disconnect a batch from the queue
             for (i = 1; i < IO_DEPTH; i++) {
                 if (end->next) {
                     end = end->next;
@@ -441,6 +440,9 @@ static void *extstore_io_thread(void *arg) {
         }
         obj_io *cur_io = io_stack;
         while (cur_io) {
+            // We need to hold the next before the callback in case the stack
+            // gets reused.
+            obj_io *next = cur_io->next;
             int ret = 0;
             int do_op = 1;
             store_page *p = &e->pages[cur_io->page_id];
@@ -475,7 +477,7 @@ static void *extstore_io_thread(void *arg) {
                 perror("read/write op failed");
             }
             cur_io->cb(e, cur_io, ret);
-            cur_io = cur_io->next;
+            cur_io = next;
         }
 
         // At the end of the loop the extracted obj_io's should be forgotten.
