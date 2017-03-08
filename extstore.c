@@ -56,7 +56,6 @@ typedef struct store_engine store_engine;
 typedef struct {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
-    pthread_mutex_t queue_mutex;
     obj_io *queue;
     _store_wbuf *wbuf_queue;
     store_engine *e;
@@ -192,7 +191,6 @@ void *extstore_init(char *fn, size_t pgsize, size_t pgcount, size_t wbufsize) {
     e->io_threads = calloc(IO_THREADS, sizeof(store_io_thread));
     for (i = 0; i < IO_THREADS; i++) {
         pthread_mutex_init(&e->io_threads[i].mutex, NULL);
-        pthread_mutex_init(&e->io_threads[i].queue_mutex, NULL);
         pthread_cond_init(&e->io_threads[i].cond, NULL);
         e->io_threads[i].e = e;
         // FIXME: error handling
@@ -242,11 +240,11 @@ int extstore_write(void *ptr, obj_io *io) {
         /* Submit to IO thread */
         /* FIXME: enqueue_io command, use an obj_io? */
         store_io_thread *t = _get_io_thread(e);
-        pthread_mutex_lock(&t->queue_mutex);
+        pthread_mutex_lock(&t->mutex);
         /* FIXME: Track tail and do FIFO instead of LIFO */
         p->wbuf->next = t->wbuf_queue;
         t->wbuf_queue = p->wbuf;
-        pthread_mutex_unlock(&t->queue_mutex);
+        pthread_mutex_unlock(&t->mutex);
         pthread_cond_signal(&t->cond);
         p->wbuf = NULL;
         // Flushed buffer to now-full page, assign a new one.
@@ -317,7 +315,7 @@ int extstore_read(void *ptr, obj_io *io) {
     store_engine *e = (store_engine *)ptr;
     store_io_thread *t = _get_io_thread(e);
 
-    pthread_mutex_lock(&t->queue_mutex);
+    pthread_mutex_lock(&t->mutex);
     if (t->queue == NULL) {
         t->queue = io;
     } else {
@@ -331,7 +329,7 @@ int extstore_read(void *ptr, obj_io *io) {
         }
         tmp->next = io;
     }
-    pthread_mutex_unlock(&t->queue_mutex);
+    pthread_mutex_unlock(&t->mutex);
 
     //pthread_mutex_lock(&t->mutex);
     pthread_cond_signal(&t->cond);
@@ -357,21 +355,15 @@ static inline int _read_from_wbuf(store_page *p, obj_io *io) {
 static void *extstore_io_thread(void *arg) {
     store_io_thread *me = (store_io_thread *)arg;
     store_engine *e = me->e;
-    pthread_mutex_lock(&me->mutex);
     while (1) {
         obj_io *io_stack = NULL;
         _store_wbuf *wbuf_stack = NULL;
         // TODO: lock/check queue before going into wait
-        pthread_mutex_lock(&me->queue_mutex);
-        if (me->queue != NULL || me->wbuf_queue != NULL) {
-            pthread_mutex_unlock(&me->queue_mutex);
-        } else {
-            // FIXME: race condition.
-            pthread_mutex_unlock(&me->queue_mutex);
+        pthread_mutex_lock(&me->mutex);
+        if (me->queue == NULL && me->wbuf_queue == NULL) {
             pthread_cond_wait(&me->cond, &me->mutex);
         }
 
-        pthread_mutex_lock(&me->queue_mutex);
         if (me->wbuf_queue != NULL) {
             int i;
             _store_wbuf *end = NULL;
@@ -405,7 +397,7 @@ static void *extstore_io_thread(void *arg) {
             me->queue = end->next;
             end->next = NULL;
         }
-        pthread_mutex_unlock(&me->queue_mutex);
+        pthread_mutex_unlock(&me->mutex);
 
         /* TODO: Direct IO + libaio mode */
         _store_wbuf *cur_wbuf = wbuf_stack;
