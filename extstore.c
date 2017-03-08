@@ -20,7 +20,7 @@
 
 /* TODO: Most entries here should be configurable */
 #define WBUF_COUNT 4
-#define IO_THREADS 2
+#define IO_THREADS 1
 #define IO_DEPTH 1 /* only really matters for aio modes */
 
 /* TODO: Embed obj_io for internal wbuf's. change extstore_read to
@@ -325,8 +325,10 @@ int extstore_read(void *ptr, obj_io *io) {
          * Optimize by tracking tail.
          */
         obj_io *tmp = t->queue;
-        while (tmp->next != NULL)
+        while (tmp->next != NULL) {
             tmp = tmp->next;
+            assert(tmp != t->queue);
+        }
 
         tmp->next = io;
     }
@@ -341,6 +343,13 @@ int extstore_read(void *ptr, obj_io *io) {
 /* engine note delete function: takes engine, page id, size?
  * note that an item in this page is no longer valid
  */
+
+// call with page locked
+static inline int _read_from_wbuf(store_page *p, obj_io *io) {
+    // Subtract the wbuf offset from the obj_io offset and copy the buffer.
+    memcpy(io->buf, p->wbuf->buf + (io->offset - p->wbuf->offset), io->len);
+    return io->len;
+}
 
 /* engine IO thread; takes engine context
  * manage writes/reads :P
@@ -407,12 +416,20 @@ static void *extstore_io_thread(void *arg) {
             ret = pwrite(p->fd, cur_wbuf->buf, cur_wbuf->size - cur_wbuf->free,
                     p->offset + cur_wbuf->offset);
             // FIXME: Remove.
+            if (ret == 0) {
+                fprintf(stderr, "Write returned 0 bytes for some reason\n");
+            }
             if (ret < 0) {
                 perror("wbuf write failed");
             }
+            // FIXME: we might need to keep serialized writes in order to do
+            // the read-back-from-write-buffer trick reliably.
+            pthread_mutex_lock(&p->mutex);
+            p->written += cur_wbuf->size;
+            pthread_mutex_unlock(&p->mutex);
             cur_wbuf = cur_wbuf->next;
         }
-        /* TODO: Lock engine and return stack */
+
         if (wbuf_stack) {
             _store_wbuf *tmp = wbuf_stack;
             while (tmp->next)
@@ -425,21 +442,37 @@ static void *extstore_io_thread(void *arg) {
         obj_io *cur_io = io_stack;
         while (cur_io) {
             int ret = 0;
+            int do_op = 1;
             store_page *p = &e->pages[cur_io->page_id];
             /* TODO: lock page. validate CAS, increment refcount. */
             /* TODO: if offset is beyond p->written, memcpy back */
             // TODO: loop if not enough bytes were read/written.
             switch (cur_io->mode) {
                 case OBJ_IO_READ:
-                    ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
+                    // Page is currently open. deal if read is past the end.
+                    if (p->active) {
+                        pthread_mutex_lock(&p->mutex);
+                        if (cur_io->offset >= p->written) {
+                            ret = _read_from_wbuf(p, cur_io);
+                            do_op = 0;
+                        }
+                        pthread_mutex_unlock(&p->mutex);
+                    }
+                    if (do_op)
+                        ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                     break;
                 case OBJ_IO_WRITE:
                     ret = pwrite(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                     break;
             }
             // FIXME: Remove.
+            if (ret == 0) {
+                fprintf(stderr, "read returned nothingt\n");
+            }
+
+            // FIXME: Remove.
             if (ret < 0) {
-                perror("wbuf write failed");
+                perror("read/write op failed");
             }
             cur_io->cb(e, cur_io, ret);
             cur_io = cur_io->next;

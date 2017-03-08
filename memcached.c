@@ -469,7 +469,7 @@ void conn_worker_readd(conn *c) {
 
     // If we had IO objects, process
     if (c->io_wraplist) {
-        assert(c->io_wrapleft == 0); // assert no more to process
+        //assert(c->io_wrapleft == 0); // assert no more to process
         conn_set_state(c, conn_mwrite);
         drive_machine(c); // FIXME: Again, is it really this easy?
     }
@@ -651,6 +651,9 @@ static void conn_release_items(conn *c) {
             // replacing it.
             slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
             tmp->io.buf = NULL; // sanity.
+            tmp->io.next = NULL;
+            tmp->next = NULL;
+            tmp->active = false;
             do_cache_free(c->thread->io_cache, tmp); // lockless
             tmp = next;
         }
@@ -2960,6 +2963,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
     APPEND_STAT("get_flushed", "%llu", (unsigned long long)thread_stats.get_flushed);
+    APPEND_STAT("get_extstore", "%llu", (unsigned long long)thread_stats.get_extstore);
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
     APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
     APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);
@@ -3329,6 +3333,7 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
     // FIXME: assumes success
     io_wrap *wrap = (io_wrap *)io->data;
     conn *c = wrap->c;
+    assert(wrap->active == true);
 
     if (ret < 1) {
         fprintf(stderr, "EXTSTORE: Failed read! shouldn't be possible yet %d\n", ret);
@@ -3339,10 +3344,14 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
         // TODO: Should do that here instead and cuddle in the wrap object
     }
     c->io_wrapleft--;
+    wrap->active = false;
+    //assert(c->io_wrapleft >= 0);
 
     // All IO's have returned, lets re-attach this connection to our original
     // thread.
     if (c->io_wrapleft == 0) {
+        assert(c->io_queued == true);
+        c->io_queued = false;
         // FIXME: Is it really this easy?
         // I have worries this won't be performant enough under load though.
         // Can cause the IO threads to block if the pipes are full, too.
@@ -3357,8 +3366,11 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
     item *new_it = do_item_alloc_pull(hdr->ntotal, clsid);
     if (new_it == NULL)
         return -1;
+    assert(!c->io_queued); // FIXME: debugging.
 
     io_wrap *io = do_cache_alloc(c->thread->io_cache);
+    assert(!io->active);
+    io->active = true;
     // FIXME: error handling.
     // The offsets we'll wipe on a miss.
     io->iovec_start = c->iovused - 3;
@@ -3379,6 +3391,7 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
     // IO queue for this connection.
     io->next = c->io_wraplist;
     c->io_wraplist = io;
+    assert(c->io_wrapleft >= 0);
     c->io_wrapleft++;
     // reference ourselves for the callback.
     io->io.data = (void *)io;
@@ -3393,6 +3406,12 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
     // TODO: set the callback function
     io->io.cb = _ascii_get_extstore_cb;
     //fprintf(stderr, "EXTSTORE: IO stacked %u\n", io->iovec_data);
+    // FIXME: This stat needs to move to reflect # of flash hits vs misses
+    // for now it's a good gauge on how often we request out to flash at
+    // least.
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.get_extstore++;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
 
     return 0;
 }
@@ -5126,10 +5145,12 @@ static void drive_machine(conn *c) {
              * IO queue
              */
             if (c->io_wrapleft) {
+                assert(c->io_queued == false);
                 assert(c->io_wraplist != NULL);
                 // TODO: create proper state for this condition
                 conn_set_state(c, conn_watch);
                 event_del(&c->event);
+                c->io_queued = true;
                 extstore_read(c->thread->storage, &c->io_wraplist->io);
                 stop = true;
                 break;
@@ -6703,7 +6724,7 @@ int main (int argc, char **argv) {
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL);
 #ifdef EXTSTORE
-    storage = extstore_init("/tmp/extstore", 1024 * 1024 * 64, 128, 1024 * 8192);
+    storage = extstore_init("/dev/shm/extstore", 1024 * 1024 * 64, 32, 1024 * 8192);
 #endif
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we

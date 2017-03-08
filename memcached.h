@@ -269,7 +269,8 @@ struct slab_stats {
     X(conn_yields) /* # of yields for connections (-R option)*/ \
     X(auth_cmds) \
     X(auth_errors) \
-    X(idle_kicks) /* idle connections killed */
+    X(idle_kicks) /* idle connections killed */ \
+    X(get_extstore)
 
 /**
  * Stats stored per-thread.
@@ -506,6 +507,7 @@ typedef struct _io_wrap {
     unsigned int iovec_start; /* start of the iovecs for this IO */
     unsigned int iovec_count; /* total number of iovecs */
     unsigned int iovec_data;  /* specific index of data iovec */
+    bool active; // FIXME: canary for test. remove
 } io_wrap;
 #endif
 /**
@@ -574,6 +576,7 @@ struct conn {
 #ifdef EXTSTORE
     int io_wrapleft;
     io_wrap *io_wraplist; /* linked list of io_wraps */
+    bool io_queued; /* FIXME: debugging flag */
 #endif
     enum protocol protocol;   /* which protocol this connection speaks */
     enum network_transport transport; /* what transport is used by this connection */
