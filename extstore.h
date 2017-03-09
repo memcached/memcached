@@ -23,7 +23,7 @@ typedef void (*obj_io_cb)(void *e, obj_io *io, int ret);
 
 /* An object for both reads and writes to the storage engine.
  */
-typedef struct _obj_io {
+struct _obj_io {
     void *data; /* user supplied data pointer */
     struct _obj_io *next;
     char *buf;  /* buffer of data to read or write to */
@@ -34,7 +34,7 @@ typedef struct _obj_io {
     enum obj_io_mode mode;
     /* callback pointers? */
     obj_io_cb cb;
-} obj_io;
+};
 
 void *extstore_init(char *fn, struct extstore_conf *cf);
 int extstore_write(void *ptr, obj_io *io);
