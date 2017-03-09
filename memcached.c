@@ -6019,6 +6019,7 @@ int main (int argc, char **argv) {
     bool slab_chunk_size_changed = false;
 #ifdef EXTSTORE
     void *storage = NULL;
+    struct extstore_conf ext_cf;
 #endif
     char *subopts, *subopts_orig;
     char *subopts_value;
@@ -6724,7 +6725,17 @@ int main (int argc, char **argv) {
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL);
 #ifdef EXTSTORE
-    storage = extstore_init("/dev/shm/extstore", 1024 * 1024 * 64, 32, 1024 * 8192);
+    ext_cf.page_size = 1024 * 1024 * 64;
+    ext_cf.page_count = 64;
+    ext_cf.wbuf_size = 1024 * 1024 * 8;
+    ext_cf.wbuf_count = 4;
+    ext_cf.io_threadcount = 1;
+    ext_cf.io_depth = 1;
+    storage = extstore_init("/dev/shm/extstore", &ext_cf);
+    if (storage == NULL) {
+        fprintf(stderr, "Failed to initialize external storage\n");
+        exit(EXIT_FAILURE);
+    }
 #endif
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we

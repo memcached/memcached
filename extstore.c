@@ -18,11 +18,6 @@
 
 /* TODO: manage the page refcount */
 
-/* TODO: Most entries here should be configurable */
-#define WBUF_COUNT 4
-#define IO_THREADS 1
-#define IO_DEPTH 1 /* only really matters for aio modes */
-
 /* TODO: Embed obj_io for internal wbuf's. change extstore_read to
  * extstore_submit.
  */
@@ -78,11 +73,12 @@ struct store_engine {
     store_page *page_stack;
     size_t page_size;
     unsigned int last_io_thread; /* round robin the IO threads */
+    unsigned int io_threadcount; /* count of IO threads */
     unsigned int page_count;
     unsigned int page_free; /* unallocated pages */
     unsigned int low_ttl_page;
     unsigned int high_ttl_page;
-    unsigned int max_io_depth; /* for AIO engines */
+    unsigned int io_depth; /* FIXME: Might cache into thr struct */
 };
 
 static _store_wbuf *wbuf_new(size_t size) {
@@ -103,7 +99,7 @@ static _store_wbuf *wbuf_new(size_t size) {
 static store_io_thread *_get_io_thread(store_engine *e) {
     int tid;
     pthread_mutex_lock(&e->mutex);
-    tid = (e->last_io_thread + 1) % IO_THREADS;
+    tid = (e->last_io_thread + 1) % e->io_threadcount;
     e->last_io_thread = tid;
     pthread_mutex_unlock(&e->mutex);
 
@@ -128,48 +124,56 @@ static void *extstore_maint_thread(void *arg);
  */
 
 /* TODO: debug mode with prints? error code? */
-void *extstore_init(char *fn, size_t pgsize, size_t pgcount, size_t wbufsize) {
+// TODO: Somehow pass real error codes from config failures
+void *extstore_init(char *fn, struct extstore_conf *cf) {
     int i;
     int fd;
     uint64_t offset = 0;
     pthread_t thread;
+
+    if (cf->page_size % cf->wbuf_size != 0) {
+        return NULL;
+    }
+
+    // TODO: More intelligence around alignment of flash erasure block sizes
+    if (cf->page_size % (1024 * 1024 * 2) != 0 ||
+        cf->wbuf_size % (1024 * 1024 * 2) != 0) {
+        return NULL;
+    }
+
     store_engine *e = calloc(1, sizeof(store_engine));
     if (e == NULL) {
         return NULL;
     }
 
-    if (pgsize > UINT_MAX) {
-        return NULL;
-    }
-
-    e->page_size = pgsize;
+    e->page_size = cf->page_size;
     fd = open(fn, O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
         free(e);
         return NULL;
     }
 
-    e->pages = calloc(pgcount, sizeof(store_page));
+    e->pages = calloc(cf->page_count, sizeof(store_page));
     if (e->pages == NULL) {
         close(fd);
         free(e);
         return NULL;
     }
 
-    for (i = 0; i < pgcount; i++) {
+    for (i = 0; i < cf->page_count; i++) {
         e->pages[i].id = i;
         e->pages[i].fd = fd;
         e->pages[i].offset = offset;
-        offset += pgsize;
+        offset += e->page_size;
     }
 
-    for (i = pgcount; i > 1; i--) {
+    for (i = cf->page_count; i > 1; i--) {
         e->pages[i].next = e->page_stack;
         e->page_stack = &e->pages[i];
         e->page_free++;
     }
 
-    e->page_count = pgcount;
+    e->page_count = cf->page_count;
     /* TODO: Lazy allocate page categories */
     e->low_ttl_page = 0;
     e->pages[0].active = true;
@@ -177,8 +181,8 @@ void *extstore_init(char *fn, size_t pgsize, size_t pgcount, size_t wbufsize) {
     e->pages[1].active = true;
 
     /* allocate write buffers */
-    for (i = 0; i < WBUF_COUNT; i++) {
-        _store_wbuf *w = wbuf_new(wbufsize);
+    for (i = 0; i < cf->wbuf_count; i++) {
+        _store_wbuf *w = wbuf_new(cf->wbuf_size);
         /* TODO: on error, loop again and free stack. */
         w->next = e->wbuf_stack;
         e->wbuf_stack = w;
@@ -187,15 +191,18 @@ void *extstore_init(char *fn, size_t pgsize, size_t pgcount, size_t wbufsize) {
     pthread_mutex_init(&e->mutex, NULL);
     pthread_mutex_init(&e->io_mutex, NULL);
 
+    e->io_depth = cf->io_depth;
+
     /* spawn threads */
-    e->io_threads = calloc(IO_THREADS, sizeof(store_io_thread));
-    for (i = 0; i < IO_THREADS; i++) {
+    e->io_threads = calloc(cf->io_threadcount, sizeof(store_io_thread));
+    for (i = 0; i < cf->io_threadcount; i++) {
         pthread_mutex_init(&e->io_threads[i].mutex, NULL);
         pthread_cond_init(&e->io_threads[i].cond, NULL);
         e->io_threads[i].e = e;
         // FIXME: error handling
         pthread_create(&thread, NULL, extstore_io_thread, &e->io_threads[i]);
     }
+    e->io_threadcount = cf->io_threadcount;
 
     e->maint_thread = calloc(1, sizeof(store_maint_thread));
     e->maint_thread->e = e;
@@ -370,7 +377,7 @@ static void *extstore_io_thread(void *arg) {
             wbuf_stack = me->wbuf_queue;
             end = wbuf_stack;
             /* Pull and disconnect a batch from the queue */
-            for (i = 1; i < IO_DEPTH; i++) {
+            for (i = 1; i < e->io_depth; i++) {
                 if (end->next) {
                     end = end->next;
                 } else {
@@ -387,7 +394,7 @@ static void *extstore_io_thread(void *arg) {
             io_stack = me->queue;
             end = io_stack;
             // Pull and disconnect a batch from the queue
-            for (i = 1; i < IO_DEPTH; i++) {
+            for (i = 1; i < e->io_depth; i++) {
                 if (end->next) {
                     end = end->next;
                 } else {
