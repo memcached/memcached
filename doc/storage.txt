@@ -55,3 +55,72 @@ been wiped since the header object was created.
 Pages will be reaped by an estimate of how few real objects it still contains.
 
 [TBD]
+
+TODO
+----
+
+Sharing my broad TODO items into here. While doing the work they get split up
+more into local notes. Adding this so others can follow along:
+
+- extstore_delete() function to decrement object count for a page
+- figure out page refcounting
+  - determine if this is necessary. If each IO is checked late stage, pages
+    could be refcounted just before/after the IO rather than during IO's being
+    queued. Lots of locking, so atomics might actually be okay here.
+- page CAS/version validation during read.
+  - return a miss into the callback from IO thread? Probably, because anything
+    else would be a race condition so better to have one code path.
+- pages readying to be reaped mark as "deprecated".
+  - add function a crawler could use to tell if an item's page is going to be reaped
+    "soon" (thus chuck back into memory)
+  - *maybe* a callback that hands sections or the entirety of a page about to
+    be nuked.
+  - want to keep this simple; objects are not individually tracked, so a page
+    reclaim simple wipes the storage out from under headers.
+    - however, if very compact representation of objects -> offset/len/TTL
+      could be kept in memory (possibly just for "low TTL" pages), one could
+      callback for each tracked object that it thinks are still valid. Since
+      the written object should be a mirror (or close to) the original memory
+      object, a normal lookup could be done and the data swapped back into
+      cache or written back to a new page.
+    - at 4b per off/len/ttl against 1k objects in a 64 meg page, that's .8m of
+      memory per 64m of flash? not great. If DIRECT_IO is in use could cut to
+      2b for off/len easy (multiples of sectors)
+    - ^^^ being able to recover valid items from an aged out page is a
+      second-pass goal.
+- maintenance thread sorts page list and assigns pages to low or high TTL
+  active buckets.
+- sort write buffers properly (collapse IO code; enforce 2 buffers per active
+  page)
+- TTL histogram aging for maintenance thread
+- DIRECT_IO support
+- libaio support (requires DIRECT_IO)
+- TRIM support
+- some stats counters that can be polled
+  - page turnover, writes, reads, trims, etc.
+- JBOD support (also not first pass)
+  - 1-2 active pages per device. potentially dedicated IO threads per device.
+    with a RAID setup you risk any individual disk doing a GC pause stalling
+    all writes. with many disks these stalls can become constant.
+
+on memcached end:
+- shunt to flash if tail of COLD has age > N or if free memory is below X
+  - and remaining TTL is > Y
+- re-raise from flash into WARM if hit more than once in N seconds (60?), with
+  a percentage chance (ex: objects getting hit multiple times within 60
+  seconds get a 20% chance of pulling back into WARM, deleting from flash)
+  - better if the percentage or age could dynamically raise by the amount of
+    idle time the IO threads have.
+  - not a first pass task
+  - requires item CAS be enabled (compared CAS for ITEM_HDR object with what
+    was on flash)
+- complete code paths for miss
+- fix append/prepend/incr/decr/etc
+- proper counters/documentation (flash hit/miss rate)
+- proper startup options
+- --configure gating for extstore being compiled (for now, at least)
+- binprot support
+- crc32 checking (hardware/non hardware). embed in object header, or overwrite
+  some non-essential bytes of original object before sending to flash
+- DIRECT_IO support; mostly memalign pages, but also making chunks grow
+  aligned to sector sizes once they are >= a single sector.
