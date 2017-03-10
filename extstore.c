@@ -295,7 +295,7 @@ int extstore_write(void *ptr, obj_io *io) {
         }
     }
 
-    if (p->wbuf && p->wbuf->free > io->len) {
+    if (p->wbuf && p->wbuf->free >= io->len) {
         memcpy(p->wbuf->buf_pos, io->buf, io->len);
         io->page_id = p->id;
         io->offset = p->wbuf->offset + (p->wbuf->size - p->wbuf->free);
