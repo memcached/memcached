@@ -1502,6 +1502,7 @@ static pthread_t lru_maintainer_tid;
 static void *lru_maintainer_thread(void *arg) {
 #ifdef EXTSTORE
     void *storage = arg;
+    int x;
 #endif
     int i;
     useconds_t to_sleep = MIN_LRU_MAINTAINER_SLEEP;
@@ -1549,7 +1550,16 @@ static void *lru_maintainer_thread(void *arg) {
 
             int did_moves = lru_maintainer_juggle(i);
 #ifdef EXTSTORE
-            did_moves += lru_maintainer_store(storage, i);
+            // Deeper loop to speed up pushing to storage.
+            for (x = 0; x < 500; x++) {
+                int found;
+                found = lru_maintainer_store(storage, i);
+                if (found) {
+                    did_moves += found;
+                } else {
+                    break;
+                }
+            }
 #endif
             if (did_moves == 0) {
                 if (backoff_juggles[i] < MAX_LRU_MAINTAINER_SLEEP)
