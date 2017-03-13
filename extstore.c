@@ -400,7 +400,7 @@ static inline int _read_from_wbuf(store_page *p, obj_io *io) {
         }
     }
     assert(wbuf != NULL); // shouldn't have invalid offsets
-    memcpy(io->buf, p->wbuf->buf + (io->offset - p->wbuf->offset), io->len);
+    memcpy(io->buf, wbuf->buf + (io->offset - wbuf->offset), io->len);
     return io->len;
 }
 
