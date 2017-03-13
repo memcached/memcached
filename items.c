@@ -1340,7 +1340,7 @@ static int lru_maintainer_store(void *storage, const int clsid) {
     unsigned int chunks_perslab;
     struct lru_pull_tail_return it_info;
     // FIXME: need to directly ask the slabber how big a class is
-    if (slabs_clsid(4096) > clsid)
+    if (slabs_clsid(1024) > clsid)
         return 0;
     chunks_free = slabs_available_chunks(clsid, &mem_limit_reached,
             NULL, &chunks_perslab);
