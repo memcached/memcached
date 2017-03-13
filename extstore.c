@@ -320,9 +320,8 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
             fprintf(stderr, "EXTSTORE: allocating new page\n");
             pthread_mutex_unlock(&p->mutex);
             pthread_mutex_lock(&e->mutex);
-            p = _allocate_page(e, bucket);
+            _allocate_page(e, bucket);
             pthread_mutex_unlock(&e->mutex);
-            pthread_mutex_lock(&p->mutex);
         }
     }
 
