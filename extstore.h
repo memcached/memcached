@@ -40,5 +40,6 @@ struct _obj_io {
 void *extstore_init(char *fn, struct extstore_conf *cf);
 int extstore_write(void *ptr, unsigned int bucket, obj_io *io);
 int extstore_read(void *ptr, obj_io *io);
+int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version, unsigned int count);
 
 #endif

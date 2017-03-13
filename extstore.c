@@ -383,6 +383,25 @@ int extstore_read(void *ptr, obj_io *io) {
 /* engine note delete function: takes engine, page id, size?
  * note that an item in this page is no longer valid
  */
+int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version, unsigned int count) {
+    store_engine *e = (store_engine *)ptr;
+    // FIXME: validate page_id in bounds
+    store_page *p = &e->pages[page_id];
+    int ret = 0;
+
+    pthread_mutex_lock(&p->mutex);
+    if (p->version == page_version) {
+        if (p->obj_count >= count) {
+            p->obj_count -= count;
+        } else {
+            p->obj_count = 0; // caller has bad accounting?
+        }
+    } else {
+        ret = -1;
+    }
+    pthread_mutex_unlock(&p->mutex);
+    return ret;
+}
 
 // call with page locked
 // FIXME: protect from reading past wbuf
