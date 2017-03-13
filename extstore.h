@@ -27,6 +27,7 @@ struct _obj_io {
     void *data; /* user supplied data pointer */
     struct _obj_io *next;
     char *buf;  /* buffer of data to read or write to */
+    uint64_t page_version;     /* page version for read mode */
     unsigned int len;     /* for both modes */
     unsigned int ttl;     /* for write mode */
     unsigned int page_id; /* for read mode */

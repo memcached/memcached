@@ -3398,6 +3398,7 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
     io->io.buf = (void *)new_it;
 
     // Now, fill in io->io based on what was in our header.
+    io->io.page_version = hdr->page_version;
     io->io.page_id = hdr->page_id;
     io->io.offset = hdr->offset;
     io->io.len = hdr->nbytes;

@@ -36,7 +36,7 @@ typedef struct __store_wbuf {
 
 typedef struct _store_page {
     pthread_mutex_t mutex; /* Need to be held for most operations */
-    uint64_t cas;
+    uint64_t version;
     uint64_t obj_count;
     uint64_t offset; /* starting address of page within fd */
     unsigned int refcount;
@@ -76,6 +76,7 @@ struct store_engine {
     store_maint_thread *maint_thread;
     store_page *page_stack;
     size_t page_size;
+    uint64_t version; /* global version counter */
     unsigned int last_io_thread; /* round robin the IO threads */
     unsigned int io_threadcount; /* count of IO threads */
     unsigned int page_count;
@@ -108,6 +109,10 @@ static store_io_thread *_get_io_thread(store_engine *e) {
     pthread_mutex_unlock(&e->mutex);
 
     return &e->io_threads[tid];
+}
+
+static uint64_t _next_version(store_engine *e) {
+    return e->version++;
 }
 
 static void *extstore_io_thread(void *arg);
@@ -270,6 +275,7 @@ int extstore_write(void *ptr, obj_io *io) {
                 assert(e->page_stack != NULL);
                 e->low_ttl_page = e->page_stack->id;
                 e->page_stack->active = true;
+                e->page_stack->version = _next_version(e);
                 e->page_stack = e->page_stack->next;
                 e->page_free--;
             }
@@ -319,7 +325,7 @@ int extstore_write(void *ptr, obj_io *io) {
         memcpy(p->wbuf->buf_pos, io->buf, io->len);
         io->page_id = p->id;
         io->offset = p->wbuf->offset + (p->wbuf->size - p->wbuf->free);
-        // TODO: The page CAS goes here.
+        io->page_version = p->version;
         p->wbuf->buf_pos += io->len;
         p->wbuf->free -= io->len;
         p->obj_count++;
@@ -494,20 +500,23 @@ static void *extstore_io_thread(void *arg) {
             int ret = 0;
             int do_op = 1;
             store_page *p = &e->pages[cur_io->page_id];
-            /* TODO: lock page. validate CAS, increment refcount. */
-            /* TODO: if offset is beyond p->written, memcpy back */
             // TODO: loop if not enough bytes were read/written.
             switch (cur_io->mode) {
                 case OBJ_IO_READ:
                     // Page is currently open. deal if read is past the end.
-                    if (p->active) {
-                        pthread_mutex_lock(&p->mutex);
-                        if (cur_io->offset >= p->written) {
+                    pthread_mutex_lock(&p->mutex);
+                    if (p->version == cur_io->page_version) {
+                        if (p->active && cur_io->offset >= p->written) {
                             ret = _read_from_wbuf(p, cur_io);
                             do_op = 0;
+                        } else {
+                            p->refcount++;
                         }
-                        pthread_mutex_unlock(&p->mutex);
+                    } else {
+                        do_op = 0;
+                        ret = -2; // TODO: enum in IO for status?
                     }
+                    pthread_mutex_unlock(&p->mutex);
                     if (do_op)
                         ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                     break;
@@ -525,13 +534,11 @@ static void *extstore_io_thread(void *arg) {
                 perror("read/write op failed");
             }
             cur_io->cb(e, cur_io, ret);
+            pthread_mutex_lock(&p->mutex);
+            p->refcount--;
+            pthread_mutex_unlock(&p->mutex);
             cur_io = next;
         }
-
-        // At the end of the loop the extracted obj_io's should be forgotten.
-        // Whatever's in CB should handle memory management of the IO.
-        // FIXME: Can we be strict about "if the callback is called, the
-        // obj_io is no longer touched here" ?
     }
 
     return NULL;

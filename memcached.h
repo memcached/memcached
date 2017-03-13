@@ -475,7 +475,7 @@ typedef struct _strchunk {
 } item_chunk;
 #ifdef EXTSTORE
 typedef struct {
-    uint64_t page_cas; /* from IO header */
+    uint64_t page_version; /* from IO header */
     unsigned int page_id; /* from IO header */
     unsigned int offset; /* from IO header */
     unsigned int ntotal; /* original total bytes of object */

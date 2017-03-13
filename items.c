@@ -1379,7 +1379,7 @@ static int lru_maintainer_store(void *storage, const int clsid) {
                 io.ttl = it->exptime - current_time;
                 if (extstore_write(storage, &io) == 0) {
                     item_hdr *hdr = (item_hdr *) ITEM_data(hdr_it);
-                    // TODO: hdr->page_cas = io->page_cas;
+                    hdr->page_version = io.page_version;
                     hdr->page_id = io.page_id;
                     hdr->offset  = io.offset;
                     hdr->ntotal = orig_ntotal;
