@@ -544,9 +544,11 @@ static void *extstore_io_thread(void *arg) {
                 perror("read/write op failed");
             }
             cur_io->cb(e, cur_io, ret);
-            pthread_mutex_lock(&p->mutex);
-            p->refcount--;
-            pthread_mutex_unlock(&p->mutex);
+            if (do_op) {
+                pthread_mutex_lock(&p->mutex);
+                p->refcount--;
+                pthread_mutex_unlock(&p->mutex);
+            }
             cur_io = next;
         }
     }
