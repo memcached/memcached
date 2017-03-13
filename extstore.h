@@ -7,6 +7,7 @@
 struct extstore_conf {
     unsigned int page_size; // ideally 64-256M in size
     unsigned int page_count;
+    unsigned int page_buckets; /* number of different writeable pages */
     unsigned int wbuf_size; // must divide cleanly into page_size
     unsigned int wbuf_count; // this might get locked to "2 per active page"
     unsigned int io_threadcount;
@@ -29,7 +30,6 @@ struct _obj_io {
     char *buf;  /* buffer of data to read or write to */
     uint64_t page_version;     /* page version for read mode */
     unsigned int len;     /* for both modes */
-    unsigned int ttl;     /* for write mode */
     unsigned int page_id; /* for read mode */
     unsigned int offset;  /* for read mode */
     enum obj_io_mode mode;
@@ -38,7 +38,7 @@ struct _obj_io {
 };
 
 void *extstore_init(char *fn, struct extstore_conf *cf);
-int extstore_write(void *ptr, obj_io *io);
+int extstore_write(void *ptr, unsigned int bucket, obj_io *io);
 int extstore_read(void *ptr, obj_io *io);
 
 #endif

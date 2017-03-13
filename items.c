@@ -1376,8 +1376,7 @@ static int lru_maintainer_store(void *storage, const int clsid) {
                 io.buf = (void *) it;
                 io.len = orig_ntotal;
                 io.mode = OBJ_IO_WRITE;
-                io.ttl = it->exptime - current_time;
-                if (extstore_write(storage, &io) == 0) {
+                if (extstore_write(storage, 0, &io) == 0) {
                     item_hdr *hdr = (item_hdr *) ITEM_data(hdr_it);
                     hdr->page_version = io.page_version;
                     hdr->page_id = io.page_id;

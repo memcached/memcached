@@ -6732,6 +6732,7 @@ int main (int argc, char **argv) {
     ext_cf.wbuf_count = 4;
     ext_cf.io_threadcount = 1;
     ext_cf.io_depth = 1;
+    ext_cf.page_buckets = 1;
     storage = extstore_init("/dev/shm/extstore", &ext_cf);
     if (storage == NULL) {
         fprintf(stderr, "Failed to initialize external storage\n");

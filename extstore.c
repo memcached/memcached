@@ -48,7 +48,6 @@ typedef struct _store_page {
     _store_wbuf *wbuf; /* currently active wbuf from the stack */
     _store_wbuf *wbuf_stack; /* ordered stack of wbuf's being flushed to disk */
     struct _store_page *next;
-    uint64_t histo[61];
 } store_page;
 
 typedef struct store_engine store_engine;
@@ -75,14 +74,14 @@ struct store_engine {
     store_io_thread *io_threads;
     store_maint_thread *maint_thread;
     store_page *page_stack;
+    store_page **page_buckets;
     size_t page_size;
     uint64_t version; /* global version counter */
     unsigned int last_io_thread; /* round robin the IO threads */
     unsigned int io_threadcount; /* count of IO threads */
     unsigned int page_count;
     unsigned int page_free; /* unallocated pages */
-    unsigned int low_ttl_page;
-    unsigned int high_ttl_page;
+    unsigned int page_bucketcount; /* count of potential page buckets */
     unsigned int io_depth; /* FIXME: Might cache into thr struct */
 };
 
@@ -118,20 +117,6 @@ static uint64_t _next_version(store_engine *e) {
 static void *extstore_io_thread(void *arg);
 static void *extstore_maint_thread(void *arg);
 
-/* TODO: engine init function; takes file, page size, total size arguments */
-/* also directio/aio optional? thread pool size? options struct? ttl
- * threshold? */
-
-/* Open file.
- * fill **pages
- * error if page size > 4g
- * (fallocate?)
- * allocate write buffers
- * set initial low/high pages
- * spawn threads
- * return void pointer to engine context.
- */
-
 /* TODO: debug mode with prints? error code? */
 // TODO: Somehow pass real error codes from config failures
 void *extstore_init(char *fn, struct extstore_conf *cf) {
@@ -141,6 +126,13 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     pthread_t thread;
 
     if (cf->page_size % cf->wbuf_size != 0) {
+        return NULL;
+    }
+    // Should ensure at least one write buffer per potential page
+    if (cf->page_buckets > cf->wbuf_count) {
+        return NULL;
+    }
+    if (cf->page_buckets < 1) {
         return NULL;
     }
 
@@ -170,26 +162,26 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     }
 
     for (i = 0; i < cf->page_count; i++) {
+        pthread_mutex_init(&e->pages[i].mutex, NULL);
         e->pages[i].id = i;
         e->pages[i].fd = fd;
         e->pages[i].offset = offset;
         offset += e->page_size;
     }
 
-    for (i = cf->page_count; i > 1; i--) {
+    for (i = cf->page_count-1; i > 0; i--) {
         e->pages[i].next = e->page_stack;
         e->page_stack = &e->pages[i];
         e->page_free++;
     }
 
     e->page_count = cf->page_count;
-    /* TODO: Lazy allocate page categories */
-    e->low_ttl_page = 0;
-    e->pages[0].active = true;
-    e->high_ttl_page = 1;
-    e->pages[1].active = true;
 
-    /* allocate write buffers */
+    // page buckets lazily have pages assigned into them
+    e->page_buckets = calloc(cf->page_buckets, sizeof(store_page *));
+    e->page_bucketcount = cf->page_buckets;
+
+    // allocate write buffers
     for (i = 0; i < cf->wbuf_count; i++) {
         _store_wbuf *w = wbuf_new(cf->wbuf_size);
         /* TODO: on error, loop again and free stack. */
@@ -202,7 +194,7 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
 
     e->io_depth = cf->io_depth;
 
-    /* spawn threads */
+    // spawn threads
     e->io_threads = calloc(cf->io_threadcount, sizeof(store_io_thread));
     for (i = 0; i < cf->io_threadcount; i++) {
         pthread_mutex_init(&e->io_threads[i].mutex, NULL);
@@ -216,9 +208,60 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     e->maint_thread = calloc(1, sizeof(store_maint_thread));
     e->maint_thread->e = e;
     // FIXME: error handling
-    pthread_create(&thread, NULL, extstore_maint_thread, &e->maint_thread);
+    pthread_create(&thread, NULL, extstore_maint_thread, e->maint_thread);
 
     return (void *)e;
+}
+
+// call with *e locked
+static store_page *_allocate_page(store_engine *e, unsigned int bucket) {
+    assert(!e->page_buckets[bucket] || e->page_buckets[bucket]->allocated == e->page_size);
+    store_page *tmp = e->page_stack;
+    if (e->page_free > 0) {
+        assert(e->page_stack != NULL);
+        e->page_stack = tmp->next;
+        tmp->next = e->page_buckets[bucket];
+        e->page_buckets[bucket] = tmp;
+        tmp->active = true;
+        tmp->version = _next_version(e);
+        e->page_free--;
+    }
+    return tmp;
+}
+
+// call with *p locked. locks *e
+static void _allocate_wbuf(store_engine *e, store_page *p) {
+    _store_wbuf *wbuf = NULL;
+    /* TODO: give the engine specific mutexes around things?
+     * would have to ensure struct is padded to avoid false-sharing
+     */
+    pthread_mutex_lock(&e->mutex);
+    if (e->wbuf_stack) {
+        wbuf = e->wbuf_stack;
+        e->wbuf_stack = wbuf->next;
+        wbuf->next = 0;
+    }
+    pthread_mutex_unlock(&e->mutex);
+    if (wbuf) {
+        wbuf->page_id = p->id;
+
+        wbuf->offset = p->allocated;
+        p->allocated += wbuf->size;
+        wbuf->free = wbuf->size;
+        wbuf->buf_pos = wbuf->buf;
+        wbuf->page_next = NULL;
+        wbuf->full = false;
+        wbuf->flushed = false;
+
+        // maintain the tail.
+        if (p->wbuf) {
+            p->wbuf->page_next = wbuf;
+        }
+        p->wbuf = wbuf;
+        if (!p->wbuf_stack) {
+            p->wbuf_stack = wbuf;
+        }
+    }
 }
 
 /* engine write function; takes engine, item_io.
@@ -229,16 +272,21 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
  * return status code
  */
 
-int extstore_write(void *ptr, obj_io *io) {
+int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
     store_engine *e = (store_engine *)ptr;
     store_page *p;
     int ret = -1;
+    if (bucket >= e->page_bucketcount)
+        return ret;
 
     /* This is probably a loop; we continue if the output page had to be
      * replaced
      */
     pthread_mutex_lock(&e->mutex);
-    p = &e->pages[e->low_ttl_page];
+    p = e->page_buckets[bucket];
+    if (!p) {
+        p = _allocate_page(e, bucket);
+    }
     pthread_mutex_unlock(&e->mutex);
     /* FIXME: Is it safe to lock here? Need to double check the flag and loop
      * or lock from within e->mutex
@@ -267,58 +315,20 @@ int extstore_write(void *ptr, obj_io *io) {
         }
 
         // Flushed buffer to now-full page, assign a new one.
+        // FIXME: just flag it as full, add condition check to top of code?
         if (p->allocated >= e->page_size) {
             fprintf(stderr, "EXTSTORE: allocating new page\n");
-            // TODO: Pages assigned inline or from bg thread?
+            pthread_mutex_unlock(&p->mutex);
             pthread_mutex_lock(&e->mutex);
-            if (e->page_free > 0) {
-                assert(e->page_stack != NULL);
-                e->low_ttl_page = e->page_stack->id;
-                e->page_stack->active = true;
-                e->page_stack->version = _next_version(e);
-                e->page_stack = e->page_stack->next;
-                e->page_free--;
-            }
+            p = _allocate_page(e, bucket);
             pthread_mutex_unlock(&e->mutex);
-            // FIXME: This falls through and fails.
+            pthread_mutex_lock(&p->mutex);
         }
     }
 
     // TODO: e->page_size safe for dirty reads? "cache" into page object?
-    if (!p->wbuf || p->wbuf->full) {
-        if (p->allocated < e->page_size) {
-            _store_wbuf *wbuf = NULL;
-            /* TODO: give the engine specific mutexes around things?
-             * would have to ensure struct is padded to avoid false-sharing
-             */
-            pthread_mutex_lock(&e->mutex);
-            if (e->wbuf_stack) {
-                wbuf = e->wbuf_stack;
-                e->wbuf_stack = wbuf->next;
-                wbuf->next = 0;
-            }
-            pthread_mutex_unlock(&e->mutex);
-            if (wbuf) {
-                wbuf->page_id = p->id;
-
-                wbuf->offset = p->allocated;
-                p->allocated += wbuf->size;
-                wbuf->free = wbuf->size;
-                wbuf->buf_pos = wbuf->buf;
-                wbuf->page_next = NULL;
-                wbuf->full = false;
-                wbuf->flushed = false;
-
-                // maintain the tail.
-                if (p->wbuf) {
-                    p->wbuf->page_next = wbuf;
-                }
-                p->wbuf = wbuf;
-                if (!p->wbuf_stack) {
-                    p->wbuf_stack = wbuf;
-                }
-            }
-        }
+    if ((!p->wbuf || p->wbuf->full) && p->allocated < e->page_size) {
+        _allocate_wbuf(e, p);
     }
 
     if (p->wbuf && !p->wbuf->full && p->wbuf->free >= io->len) {
