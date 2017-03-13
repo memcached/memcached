@@ -3369,7 +3369,6 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
     assert(!c->io_queued); // FIXME: debugging.
 
     io_wrap *io = do_cache_alloc(c->thread->io_cache);
-    assert(!io->active);
     io->active = true;
     // FIXME: error handling.
     // The offsets we'll wipe on a miss.
