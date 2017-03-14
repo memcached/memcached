@@ -16,6 +16,11 @@ adds it to the end of a queue. It then signals the IO thread to run. Once an
 IO stack is submitted the caller must not touch the submitted objects anymore
 (they are relinked internally).
 
+extstore_delete() is a synchronous call which informs the storage engine an
+item has been removed from that page. It's important to call this as items are
+actively deleted or passively reaped due to TTL expiration. This allows the
+engine to intelligently reclaim pages.
+
 The IO threads execute each object in turn (or in bulk of running in the
 future libaio mode).
 
@@ -26,6 +31,34 @@ may reclaim the memory.
 
 With DIRECT_IO support, buffers submitted for read/write will need to be
 aligned with posix_memalign() or similar.
+
+Buckets
+-------
+
+I had described this as "TTL aware", however it makes more sense for the
+caller to decide how to sort data into active pages. During extstore_init(), a
+number of active buckets is specified. Pages are handled overall as a global
+pool, but writes can be redirected to specific active pages.
+
+This allows a lot of flexibility, ie:
+
+1) The original idea of "high TTL" and "low TTL" being two buckets. TTL <
+86400 goes into bucket 0, rest into bucket 1. Co-locating low TTL items means
+those pages can reach zero objects and free up more easily.
+
+2) Extend this: "low TTL" is one bucket, and then one bucket per slab class.
+If TTL's are low, mixed sized objects can go together as they are likely to
+expire before cycling out of flash (depending on workload, of course).
+For higher TTL items, pages are stored on chunk barriers. This means less
+space is wasted as items should fit nearly exactly into write buffers and
+pages. It also means you can blindly read items back if the system wants to
+free a page and we can indicate to the caller somehow which pages are up for
+probation. ie; issue a read against page 3 version 1 for byte range 0->1MB,
+then chunk and look up objects. Then read next 1MB chunk/etc. If there's
+anything we want to keep, pull it back into RAM before pages is freed.
+
+Pages are assigned into buckets on demand, so if you make 30 but use 1 there
+will only be a single active page with write buffers.
 
 Memcached integration
 ---------------------
@@ -47,8 +80,8 @@ hopping threads and waiting on IO.
 Compaction etc
 --------------
 
-Storage pages contain CAS values which are not presently implemented. At some
-point during a fetch the CAS value from the ITEM_HDR object needs to be
+Storage pages contain version values. During a fetch the version value from the 
+ITEM_HDR object needs to be
 compared to the current existing page, and a read will fail if the page has
 been wiped since the header object was created.
 
@@ -62,15 +95,12 @@ TODO
 Sharing my broad TODO items into here. While doing the work they get split up
 more into local notes. Adding this so others can follow along:
 
-- extstore_delete() function to decrement object count for a page
-- figure out page refcounting
-  - determine if this is necessary. If each IO is checked late stage, pages
-    could be refcounted just before/after the IO rather than during IO's being
-    queued. Lots of locking, so atomics might actually be okay here.
-- page CAS/version validation during read.
-  - return a miss into the callback from IO thread? Probably, because anything
+x extstore_delete() function to decrement object count for a page
+x figure out page refcounting
+x page version validation during read.
+  x return a miss into the callback from IO thread? Probably, because anything
     else would be a race condition so better to have one code path.
-- pages readying to be reaped mark as "deprecated".
+- pages readying to be reaped mark as "deprecated" (closed == true).
   - add function a crawler could use to tell if an item's page is going to be reaped
     "soon" (thus chuck back into memory)
   - *maybe* a callback that hands sections or the entirety of a page about to
@@ -88,16 +118,22 @@ more into local notes. Adding this so others can follow along:
       2b for off/len easy (multiples of sectors)
     - ^^^ being able to recover valid items from an aged out page is a
       second-pass goal.
-- maintenance thread sorts page list and assigns pages to low or high TTL
-  active buckets.
-- sort write buffers properly (collapse IO code; enforce 2 buffers per active
+x sort write buffers properly (collapse IO code; enforce 2 buffers per active
   page)
-- TTL histogram aging for maintenance thread
+  - did this without enforcing a buffer limit. didn't collapse IO code yet.
+o TTL histogram aging for maintenance thread
+  - replaced with arbitrary buckets
 - DIRECT_IO support
 - libaio support (requires DIRECT_IO)
 - TRIM support
 - some stats counters that can be polled
   - page turnover, writes, reads, trims, etc.
+- code cleanup (funtion over form until I have bugs out)
+  - flatten write() properly.
+  - flatten read thread properly.
+  - pull all of the inlined linked list code
+  - naming consistency
+  - clear FIXME/TODO's related to error handling
 - JBOD support (also not first pass)
   - 1-2 active pages per device. potentially dedicated IO threads per device.
     with a RAID setup you risk any individual disk doing a GC pause stalling
