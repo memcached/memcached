@@ -43,8 +43,11 @@ typedef struct _store_page {
     unsigned int id;
     unsigned int allocated;
     unsigned int written; /* item offsets can be past written if wbuf not flushed */
+    unsigned int bucket; /* which bucket the page is linked into */
     int fd;
-    bool active;
+    bool active; /* actively being written to */
+    bool closed; /* closed and draining before free */
+    bool free; /* on freelist */
     _store_wbuf *wbuf; /* currently active wbuf from the stack */
     _store_wbuf *wbuf_stack; /* ordered stack of wbuf's being flushed to disk */
     struct _store_page *next;
@@ -63,6 +66,7 @@ typedef struct {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     store_engine *e;
+    store_page *probation[3]; /* closed pages at risk of reclaim */
 } store_maint_thread;
 
 /* TODO: Array of FDs for JBOD support */
@@ -166,6 +170,7 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
         e->pages[i].id = i;
         e->pages[i].fd = fd;
         e->pages[i].offset = offset;
+        e->pages[i].free = true;
         offset += e->page_size;
     }
 
@@ -174,6 +179,9 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
         e->page_stack = &e->pages[i];
         e->page_free++;
     }
+
+    // 0 is magic "page is freed" version
+    e->version = 1;
 
     e->page_count = cf->page_count;
 
@@ -213,19 +221,31 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     return (void *)e;
 }
 
+static void _run_maint(store_engine *e) {
+    pthread_cond_signal(&e->maint_thread->cond);
+}
+
 // call with *e locked
 static store_page *_allocate_page(store_engine *e, unsigned int bucket) {
     assert(!e->page_buckets[bucket] || e->page_buckets[bucket]->allocated == e->page_size);
     store_page *tmp = e->page_stack;
+    fprintf(stderr, "EXTSTORE: allocating new page\n");
     if (e->page_free > 0) {
         assert(e->page_stack != NULL);
         e->page_stack = tmp->next;
         tmp->next = e->page_buckets[bucket];
         e->page_buckets[bucket] = tmp;
         tmp->active = true;
+        tmp->free = false;
+        tmp->closed = false;
         tmp->version = _next_version(e);
+        tmp->bucket = bucket;
         e->page_free--;
+    } else {
+        _run_maint(e);
     }
+    if (tmp)
+        fprintf(stderr, "EXTSTORE: got page %u\n", tmp->id);
     return tmp;
 }
 
@@ -293,10 +313,13 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
      */
 
     pthread_mutex_lock(&p->mutex);
+    // FIXME: another place alloc gets called.
     if (!p->active) {
         pthread_mutex_unlock(&p->mutex);
-        fprintf(stderr, "EXTSTORE: WRITE PAGE INACTIVE!\n");
-        return -1;
+        pthread_mutex_lock(&e->mutex);
+        _allocate_page(e, bucket);
+        pthread_mutex_unlock(&e->mutex);
+        return ret;
     }
 
     /* memcpy into wbuf */
@@ -317,7 +340,6 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
         // Flushed buffer to now-full page, assign a new one.
         // FIXME: just flag it as full, add condition check to top of code?
         if (p->allocated >= e->page_size) {
-            fprintf(stderr, "EXTSTORE: allocating new page\n");
             pthread_mutex_unlock(&p->mutex);
             pthread_mutex_lock(&e->mutex);
             _allocate_page(e, bucket);
@@ -394,6 +416,9 @@ int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version, unsi
             p->obj_count -= count;
         } else {
             p->obj_count = 0; // caller has bad accounting?
+        }
+        if (p->obj_count == 0) {
+            _run_maint(e);
         }
     } else {
         ret = -1;
@@ -515,6 +540,10 @@ static void *extstore_io_thread(void *arg) {
                 if (!p->wbuf_stack) {
                     p->wbuf = NULL;
                 }
+                // Page is fully written
+                if (p->written == e->page_size) {
+                    p->active = false;
+                }
             }
             pthread_mutex_unlock(&p->mutex);
             cur_wbuf = next;
@@ -533,7 +562,7 @@ static void *extstore_io_thread(void *arg) {
                 case OBJ_IO_READ:
                     // Page is currently open. deal if read is past the end.
                     pthread_mutex_lock(&p->mutex);
-                    if (p->version == cur_io->page_version) {
+                    if (!p->closed && p->version == cur_io->page_version) {
                         if (p->active && cur_io->offset >= p->written) {
                             ret = _read_from_wbuf(p, cur_io);
                             do_op = 0;
@@ -574,6 +603,44 @@ static void *extstore_io_thread(void *arg) {
     return NULL;
 }
 
+// call with p locked.
+static void _free_page(store_engine *e, store_page *p) {
+    store_page *tmp = NULL;
+    store_page *prev = NULL;
+    fprintf(stderr, "EXTSTORE: freeing page %u\n", p->id);
+    pthread_mutex_lock(&e->mutex);
+    // unlink page from bucket list
+    tmp = e->page_buckets[p->bucket];
+    // It'll be nice when I refactor away all this linked list code :P
+    while (tmp) {
+        if (tmp == p) {
+            if (prev) {
+                prev->next = tmp->next;
+            } else {
+                e->page_buckets[p->bucket] = tmp->next;
+            }
+            tmp->next = NULL;
+            break;
+        }
+        prev = tmp;
+        tmp = tmp->next;
+    }
+    // reset most values
+    p->version = 0;
+    p->obj_count = 0;
+    p->allocated = 0;
+    p->written = 0;
+    p->bucket = 0;
+    p->active = false;
+    p->closed = false;
+    p->free = true;
+    // add to page stack
+    p->next = e->page_stack;
+    e->page_stack = p;
+    e->page_free++;
+    pthread_mutex_unlock(&e->mutex);
+}
+
 /* engine maint thread; takes engine context
  * if write flips buffer, or if a new page is allocated for use, signal engine
  * maint thread.
@@ -588,9 +655,49 @@ static void *extstore_maint_thread(void *arg) {
     store_engine *e = me->e;
     pthread_mutex_lock(&me->mutex);
     while (1) {
+        int i;
+        bool do_run = false;
+        bool do_evict = false;
         pthread_cond_wait(&me->cond, &me->mutex);
         pthread_mutex_lock(&e->mutex);
+        if (e->page_free < 2) {
+            do_run = true;
+        }
+        if (e->page_free == 0) {
+            do_evict = true;
+        }
         pthread_mutex_unlock(&e->mutex);
+        if (do_run) {
+            unsigned int low_page = 0;
+            uint64_t low_count = ULLONG_MAX;
+            for (i = 0; i < e->page_count; i++) {
+                store_page *p = &e->pages[i];
+                pthread_mutex_lock(&p->mutex);
+                if (p->active || p->free) {
+                    pthread_mutex_unlock(&p->mutex);
+                    continue;
+                }
+                if (p->obj_count > 0) {
+                    if (p->obj_count < low_count) {
+                        low_count = p->obj_count;
+                        low_page = i;
+                    }
+                } else if ((p->obj_count == 0 || p->closed) && p->refcount == 0) {
+                    _free_page(e, p);
+                }
+                pthread_mutex_unlock(&p->mutex);
+            }
+
+            if (do_evict && low_count != ULLONG_MAX) {
+                store_page *p = &e->pages[low_page];
+                pthread_mutex_lock(&p->mutex);
+                p->closed = true;
+                if (p->refcount == 0) {
+                    _free_page(e, p);
+                }
+                pthread_mutex_unlock(&p->mutex);
+            }
+        }
     }
 
     return NULL;
