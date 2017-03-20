@@ -1142,6 +1142,9 @@ static bool lru_bump_async(lru_bump_buf *b, item *it, uint32_t hv) {
         ret = false;
         b->dropped++;
     }
+    if (!ret) {
+        refcount_decr(it);
+    }
     pthread_mutex_unlock(&b->mutex);
     return ret;
 }
