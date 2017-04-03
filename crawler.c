@@ -207,7 +207,9 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
         } else {
             rel_time_t ttl_remain = search->exptime - current_time;
             int bucket = ttl_remain / 60;
-            s->histo[bucket]++;
+            if (bucket <= 60) {
+                s->histo[bucket]++;
+            }
         }
     }
     pthread_mutex_unlock(&d->lock);
