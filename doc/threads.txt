@@ -27,7 +27,7 @@ THIS HAS CHANGED!
 
 - Each LRU (and sub-LRU's in newer modes) has an independent lock.
 
-- Raw accessses to the slab class are protected by a global slabs_lock. This
+- Raw accesses to the slab class are protected by a global slabs_lock. This
   is a short lock which covers pushing and popping free memory.
 
 - item_lock must be held while modifying an item.
@@ -49,7 +49,7 @@ Various locks exist for background threads. They can be used to pause the
 thread execution or update settings while the threads are idle. They may call
 item or lru locks.
 
-A low priority isssue:
+A low priority issue:
 
 - If you remove the per-thread stats lock, CPU usage goes down by less than a
   point of a percent, and it does not improve scalability.

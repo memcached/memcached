@@ -446,7 +446,7 @@ typedef struct {
     uint8_t         nkey;       /* key length, w/terminating null and padding */
     uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
     uint64_t        reclaimed;  /* items reclaimed during this crawl. */
-    uint64_t        unfetched;  /* items reclaiemd unfetched during this crawl. */
+    uint64_t        unfetched;  /* items reclaimed unfetched during this crawl. */
     uint64_t        checked;    /* items examined during this crawl. */
 } crawler;
 

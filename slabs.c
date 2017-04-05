@@ -700,7 +700,7 @@ static void *slab_rebalance_alloc(const size_t size, unsigned int id) {
 }
 
 /* CALLED WITH slabs_lock HELD */
-/* detatches item/chunk from freelist. */
+/* detaches item/chunk from freelist. */
 static void slab_rebalance_cut_free(slabclass_t *s_cls, item *it) {
     /* Ensure this was on the freelist and nothing else. */
     assert(it->it_flags == ITEM_SLABBED);
@@ -1042,7 +1042,7 @@ static void *slab_rebalance_thread(void *arg) {
     while (do_run_slab_rebalance_thread) {
         if (slab_rebalance_signal == 1) {
             if (slab_rebalance_start() < 0) {
-                /* Handle errors with more specifity as required. */
+                /* Handle errors with more specificity as required. */
                 slab_rebalance_signal = 0;
             }
 
@@ -1150,7 +1150,7 @@ int start_slab_maintenance_thread(void) {
     }
 
     if (pthread_cond_init(&slab_rebalance_cond, NULL) != 0) {
-        fprintf(stderr, "Can't intiialize rebalance condition\n");
+        fprintf(stderr, "Can't initialize rebalance condition\n");
         return -1;
     }
     pthread_mutex_init(&slabs_rebalance_lock, NULL);

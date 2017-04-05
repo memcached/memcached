@@ -5401,7 +5401,7 @@ static int server_socket_unix(const char *path, int access_mask) {
     setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
 
     /*
-     * the memset call clears nonstandard fields in some impementations
+     * the memset call clears nonstandard fields in some implementations
      * that otherwise mess things up.
      */
     memset(&addr, 0, sizeof(addr));
@@ -5517,7 +5517,7 @@ static void usage(void) {
            "              the daemon with (not for -u <username> user;\n"
            "              under sh this is done with 'ulimit -S -l NUM_KB').\n"
            "-v            verbose (print errors/warnings while in event loop)\n"
-           "-vv           very verbose (also print client commands/reponses)\n"
+           "-vv           very verbose (also print client commands/responses)\n"
            "-vvv          extremely verbose (also print internal state transitions)\n"
            "-h            print this help and exit\n"
            "-i            print memcached and libevent license\n"
@@ -5936,7 +5936,7 @@ int main (int argc, char **argv) {
     /* process arguments */
     while (-1 != (c = getopt(argc, argv,
           "a:"  /* access mask for unix socket */
-          "A"  /* enable admin shutdown commannd */
+          "A"  /* enable admin shutdown command */
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
@@ -6366,7 +6366,7 @@ int main (int argc, char **argv) {
                 // chunk default should come after stitching is fixed.
                 //settings.slab_chunk_size_max = 16384;
 
-                // With slab_ressign, pages are always 1MB, so anything larger
+                // With slab_reassign, pages are always 1MB, so anything larger
                 // than .5m ends up using 1m anyway. With this we at least
                 // avoid having several slab classes that use 1m.
                 if (!slab_chunk_size_changed) {
@@ -6646,7 +6646,7 @@ int main (int argc, char **argv) {
         /*
          * initialization order: first create the listening sockets
          * (may need root on low ports), then drop root if needed,
-         * then daemonise if needed, then init libevent (in some cases
+         * then daemonize if needed, then init libevent (in some cases
          * descriptors created by libevent wouldn't survive forking).
          */
 

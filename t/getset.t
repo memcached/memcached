@@ -69,7 +69,7 @@ print $sock "cas moo 0 0 6 $unique_id\r\nMOOVAL\r\n";
 is(scalar <$sock>, "STORED\r\n");
 mem_get_is($sock, "moo", "MOOVAL");
 
-# pipeling is okay
+# pipeline is okay
 print $sock "set foo 0 0 6\r\nfooval\r\ndelete foo\r\nset foo 0 0 6\r\nfooval\r\ndelete foo\r\n";
 is(scalar <$sock>, "STORED\r\n",  "pipeline set");
 is(scalar <$sock>, "DELETED\r\n", "pipeline delete");

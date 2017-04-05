@@ -18,7 +18,7 @@ my $sock = $server->sock;
 ## STAT version 1.4.3
 ## STAT libevent 1.4.13-stable.
 ## see doc/protocol.txt for others
-# note that auth stats are tested in auth specfic tests
+# note that auth stats are tested in auth specific tests
 
 
 my $stats = mem_stats($sock);

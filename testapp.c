@@ -153,7 +153,7 @@ static enum test_return cache_redzone_test(void)
     cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
                                   NULL, NULL);
 
-    /* Ignore SIGABORT */
+    /* Ignore SIGABRT */
     struct sigaction old_action;
     struct sigaction action = { .sa_handler = SIG_IGN, .sa_flags = 0};
     sigemptyset(&action.sa_mask);

@@ -34,4 +34,4 @@ is (scalar <$sock>, "STORED\r\n", "stored key");
 
 my $stats  = mem_stats($sock, "slabs");
 my $requested2 = $stats->{"31:mem_requested"};
-is ($requested2, $requested, "we've not allocated and freed the same amont");
+is ($requested2, $requested, "we've not allocated and freed the same amount");

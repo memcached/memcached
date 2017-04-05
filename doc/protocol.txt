@@ -657,10 +657,10 @@ integers separated by a colon (treat this as a floating point number).
 | cas_hits              | 64u     | Number of successful CAS reqs.            |
 | cas_badval            | 64u     | Number of CAS reqs for which a key was    |
 |                       |         | found, but the CAS value did not match.   |
-| touch_hits            | 64u     | Numer of keys that have been touched with |
-|                       |         | a new expiration time                     |
-| touch_misses          | 64u     | Numer of items that have been touched and |
-|                       |         | not found                                 |
+| touch_hits            | 64u     | Number of keys that have been touched     |
+|                       |         | with a new expiration time                |
+| touch_misses          | 64u     | Number of items that have been touched    |
+|                       |         | and not found                             |
 | auth_cmds             | 64u     | Number of authentication commands         |
 |                       |         | handled, success or failure.              |
 | auth_errors           | 64u     | Number of failed authentications.         |
@@ -794,7 +794,7 @@ other stats command.
 | worker_logbuf_size| 32u      | Size of internal per-worker-thread buffer    |
 |                   |          | which the background thread reads from.      |
 | track_sizes       | bool     | If yes, a "stats sizes" histogram is being   |
-|                   |          | dymamically tracked.                         |
+|                   |          | dynamically tracked.                         |
 | inline_ascii_response                                                       |
 |                   | bool     | If yes, stores numbers from VALUE response   |
 |                   |          | inside an item, using up to 24 bytes.        |
