@@ -150,7 +150,7 @@
 2007-11-19  Dormando <dormando@rydia.net>
 
        * Patch series from Tomash Brechko <tomash.brechko@gmail.com>:
-         Minor fixes and optimisations.
+         Minor fixes and optimizations.
 
        * Patches from Chris, Dustin, and Dormando to fix CAS.
 
@@ -201,7 +201,7 @@
 	  Patch from Maxim Dounin <mdounin@mdounin.ru>
 
 2007-08-21 Paul Lindner <lindner@inuus.com>
-	* Incorporate incrememnt patch from Evan Miller 
+	* Incorporate increment patch from Evan Miller 
 	  <emiller@imvu.com> to define increment overflow
 	  behavior.
 

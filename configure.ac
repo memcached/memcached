@@ -171,7 +171,7 @@ if test "x$enable_coverage" != "xno"; then
       CFLAGS="$CFLAGS -pthread"
       AC_PATH_PROG([PROFILER], [gcov], "no", [$PATH])
       if test "x$PROFILER" != "xno"; then
-         # Issue 97: The existense of gcov doesn't mean we have -lgcov
+         # Issue 97: The existence of gcov doesn't mean we have -lgcov
          AC_CHECK_LIB(gcov, main,
                     [
                       PROFILER_FLAGS="-fprofile-arcs -ftest-coverage"

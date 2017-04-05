@@ -172,7 +172,7 @@ provider memcached {
    /**
     * Fired when the processing of a command starts.
     * @param connid the connection id
-    * @param request the incomming request
+    * @param request the incoming request
     * @param size the size of the request
     */
    probe process__command__start(int connid, const void *request, int size);
@@ -180,7 +180,7 @@ provider memcached {
    /**
     * Fired when the processing of a command is done.
     * @param connid the connection id
-    * @param respnse the response to send back to the client
+    * @param response the response to send back to the client
     * @param size the size of the response
     */
    probe process__command__end(int connid, const void *response, int size);

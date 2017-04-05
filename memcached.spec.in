@@ -113,7 +113,7 @@ exit 0
 - above suggestions from Bernard Johnson
 
 * Mon May  7 2007 Paul Lindner <lindner@inuus.com> - 1.2.2-2
-- Tidyness improvements suggested by Ruben Kerkhof in bugzilla #238994
+- Tidiness improvements suggested by Ruben Kerkhof in bugzilla #238994
 
 * Fri May  4 2007 Paul Lindner <lindner@inuus.com> - 1.2.2-1
 - Initial spec file created via rpmdev-newspec
