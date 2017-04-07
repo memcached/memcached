@@ -4317,7 +4317,11 @@ static void process_command(conn *c, char *command) {
         process_misbehave_command(c);
 #endif
     } else {
-        out_string(c, "ERROR");
+        if (ntokens >= 2 && strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
+            conn_set_state(c, conn_closing);
+        } else {
+            out_string(c, "ERROR");
+        }
     }
     return;
 }
