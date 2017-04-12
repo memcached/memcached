@@ -117,7 +117,7 @@
 #define ITEM_lruid(item) ((item)->slabs_clsid & (3<<6))
 
 #define STAT_KEY_LEN 128
-#define STAT_VAL_LEN 128
+#define STAT_VAL_LEN 1024
 
 /** Append a simple stat with a stat name, value format and value */
 #define APPEND_STAT(name, fmt, val) \
