@@ -669,6 +669,7 @@ static void *extstore_maint_thread(void *arg) {
         pthread_mutex_unlock(&e->mutex);
         if (do_run) {
             unsigned int low_page = 0;
+            uint64_t low_version = ULLONG_MAX;
             uint64_t low_count = ULLONG_MAX;
             for (i = 0; i < e->page_count; i++) {
                 store_page *p = &e->pages[i];
@@ -678,8 +679,11 @@ static void *extstore_maint_thread(void *arg) {
                     continue;
                 }
                 if (p->obj_count > 0) {
-                    if (p->obj_count < low_count) {
+                    if (p->obj_count < low_count ||
+                        (p->obj_count == low_count &&
+                         p->version < low_version)) {
                         low_count = p->obj_count;
+                        low_version = p->version;
                         low_page = i;
                     }
                 } else if ((p->obj_count == 0 || p->closed) && p->refcount == 0) {
@@ -690,6 +694,8 @@ static void *extstore_maint_thread(void *arg) {
 
             if (do_evict && low_count != ULLONG_MAX) {
                 store_page *p = &e->pages[low_page];
+                fprintf(stderr, "EXTSTORE: evicting page [%d] [v: %llu]\n",
+                        p->id, (unsigned long long) p->version);
                 pthread_mutex_lock(&p->mutex);
                 p->closed = true;
                 if (p->refcount == 0) {
