@@ -3335,10 +3335,18 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
     conn *c = wrap->c;
     assert(wrap->active == true);
 
+    // TODO: How to do counters for hit/misses?
     if (ret < 1) {
-        fprintf(stderr, "EXTSTORE: Failed read! shouldn't be possible yet %d\n", ret);
+        int i;
+        struct iovec *v;
+        for (i = 0; i < wrap->iovec_count; i++) {
+            v = &c->iov[wrap->iovec_start + i];
+            v->iov_len = 0;
+            v->iov_base = NULL;
+        }
     } else {
         item *read_it = (item *)io->buf;
+        assert(read_it->slabs_clsid != 0);
         c->iov[wrap->iovec_data].iov_base = ITEM_data(read_it);
         // iov_len is already set
         // TODO: Should do that here instead and cuddle in the wrap object
@@ -3367,6 +3375,9 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
     if (new_it == NULL)
         return -1;
     assert(!c->io_queued); // FIXME: debugging.
+    // so we can free the chunk on a miss
+    new_it->slabs_clsid = clsid;
+    // FIXME: need to curry hdr->ntotal for slabs_free()
 
     io_wrap *io = do_cache_alloc(c->thread->io_cache);
     io->active = true;

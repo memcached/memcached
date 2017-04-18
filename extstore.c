@@ -587,7 +587,7 @@ static void *extstore_io_thread(void *arg) {
             }
 
             // FIXME: Remove.
-            if (ret < 0) {
+            if (ret == -1) {
                 perror("read/write op failed");
             }
             cur_io->cb(e, cur_io, ret);
