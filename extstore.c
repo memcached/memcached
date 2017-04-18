@@ -435,7 +435,7 @@ static inline int _read_from_wbuf(store_page *p, obj_io *io) {
     // start at head of wbuf stack, then subtract-and-conquer
     _store_wbuf *wbuf = p->wbuf_stack;
     while (wbuf) {
-        if (bytes + wbuf->size < offset) {
+        if (bytes + wbuf->size <= offset) {
             bytes += wbuf->size;
             wbuf = wbuf->page_next;
         } else {
