@@ -504,9 +504,11 @@ typedef struct _io_wrap {
     obj_io io;
     struct _io_wrap *next;
     conn *c;
+    item *hdr_it;             /* original header item. */
     unsigned int iovec_start; /* start of the iovecs for this IO */
     unsigned int iovec_count; /* total number of iovecs */
     unsigned int iovec_data;  /* specific index of data iovec */
+    bool miss;                /* signal a miss to unlink hdr_it */
     bool active; // FIXME: canary for test. remove
 } io_wrap;
 #endif

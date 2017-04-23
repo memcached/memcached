@@ -647,13 +647,23 @@ static void conn_release_items(conn *c) {
         while (tmp) {
             io_wrap *next = tmp->next;
             item *it = (item *)tmp->io.buf;
+            item_hdr *hdr = (item_hdr *)ITEM_data(tmp->hdr_it);
             // FIXME: Temporarily, we free the "item" here instead of
             // replacing it.
-            slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
+            // If request was ultimately a miss, unlink the header.
+            // FIXME: grab the item lock once?
+            if (tmp->miss) {
+                item_unlink(tmp->hdr_it);
+                slabs_free(it, hdr->ntotal, slabs_clsid(hdr->ntotal));
+            } else {
+                slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
+            }
             tmp->io.buf = NULL; // sanity.
             tmp->io.next = NULL;
             tmp->next = NULL;
             tmp->active = false;
+
+            item_remove(tmp->hdr_it);
             do_cache_free(c->thread->io_cache, tmp); // lockless
             tmp = next;
         }
@@ -3344,6 +3354,7 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
             v->iov_len = 0;
             v->iov_base = NULL;
         }
+        wrap->miss = true;
     } else {
         item *read_it = (item *)io->buf;
         assert(read_it->slabs_clsid != 0);
@@ -3381,6 +3392,10 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
 
     io_wrap *io = do_cache_alloc(c->thread->io_cache);
     io->active = true;
+    io->miss = false;
+    // io_wrap owns the reference for this object now.
+    io->hdr_it = it;
+
     // FIXME: error handling.
     // The offsets we'll wipe on a miss.
     io->iovec_start = c->iovused - 3;
@@ -3434,6 +3449,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     char *key;
     size_t nkey;
     int i = 0;
+    int si = 0;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
     char *suffix;
@@ -3476,11 +3492,12 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
                   int nbytes;
-                  suffix = _ascii_get_suffix_buf(c, i);
+                  suffix = _ascii_get_suffix_buf(c, si);
                   if (suffix == NULL) {
                       item_remove(it);
                       break;
                   }
+                  si++;
 #ifdef EXTSTORE
                   // FIXME: think I can move the extstore func call here as
                   // well, instead of branching twice.
@@ -3553,8 +3570,11 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
                 c->thread->stats.get_cmds++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
-                *(c->ilist + i) = it;
-                i++;
+                /* If ITEM_HDR, an io_wrap owns the reference. */
+                if ((it->it_flags & ITEM_HDR) == 0) {
+                    *(c->ilist + i) = it;
+                    i++;
+                }
 
             } else {
                 pthread_mutex_lock(&c->thread->stats.mutex);
@@ -3582,7 +3602,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     c->ileft = i;
     if (return_cas || !settings.inline_ascii_response) {
         c->suffixcurr = c->suffixlist;
-        c->suffixleft = i;
+        c->suffixleft = si;
     }
 
     if (settings.verbose > 1)
