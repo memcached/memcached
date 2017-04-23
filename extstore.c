@@ -642,13 +642,11 @@ static void _free_page(store_engine *e, store_page *p) {
     pthread_mutex_unlock(&e->mutex);
 }
 
-/* engine maint thread; takes engine context
- * if write flips buffer, or if a new page is allocated for use, signal engine
- * maint thread.
- * maint thread sorts pages by estimated freeness, marks inactive best
- * candidate and waits for refcount to hit 0.
- * adds any freed page areas to free pool.
- * stats?
+/* engine maint thread; takes engine context.
+ * Always evicts oldest version if space is required.
+ * Uses version to ensure oldest possible objects are being evicted.
+ * Needs interface to inform owner of pages with fewer objects or most space
+ * free, which can then be actively compacted to avoid eviction.
  */
 
 static void *extstore_maint_thread(void *arg) {
@@ -671,7 +669,6 @@ static void *extstore_maint_thread(void *arg) {
         if (do_run) {
             unsigned int low_page = 0;
             uint64_t low_version = ULLONG_MAX;
-            uint64_t low_count = ULLONG_MAX;
             for (i = 0; i < e->page_count; i++) {
                 store_page *p = &e->pages[i];
                 pthread_mutex_lock(&p->mutex);
@@ -680,20 +677,19 @@ static void *extstore_maint_thread(void *arg) {
                     continue;
                 }
                 if (p->obj_count > 0) {
-                    if (p->obj_count < low_count ||
-                        (p->obj_count == low_count &&
-                         p->version < low_version)) {
-                        low_count = p->obj_count;
+                    if (p->version < low_version) {
                         low_version = p->version;
                         low_page = i;
                     }
                 } else if ((p->obj_count == 0 || p->closed) && p->refcount == 0) {
                     _free_page(e, p);
+                    // Found a page to free, no longer need to evict.
+                    do_evict = false;
                 }
                 pthread_mutex_unlock(&p->mutex);
             }
 
-            if (do_evict && low_count != ULLONG_MAX) {
+            if (do_evict && low_version != ULLONG_MAX) {
                 store_page *p = &e->pages[low_page];
                 fprintf(stderr, "EXTSTORE: evicting page [%d] [v: %llu]\n",
                         p->id, (unsigned long long) p->version);
