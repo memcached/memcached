@@ -1145,9 +1145,10 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
             it->slabs_clsid |= move_to_lru;
             item_link_q(it);
         }
-        if ((flags & LRU_PULL_RETURN_ITEM) == 0)
+        if ((flags & LRU_PULL_RETURN_ITEM) == 0) {
             do_item_remove(it);
-        item_trylock_unlock(hold_lock);
+            item_trylock_unlock(hold_lock);
+        }
     }
 
     return removed;
@@ -1357,8 +1358,6 @@ static int lru_maintainer_store(void *storage, const int clsid) {
         item *it = it_info.it;
         /* First, storage for the header object */
         size_t orig_ntotal = ITEM_ntotal(it);
-        size_t ntotal = (orig_ntotal - (it->nbytes + it->nsuffix)) + sizeof(item_hdr);
-        unsigned int id = slabs_clsid(ntotal);
         uint32_t flags;
         // TODO: Doesn't presently work with chunked items. */
         if ((it->it_flags & ITEM_CHUNKED) == 0) {
@@ -1367,7 +1366,7 @@ static int lru_maintainer_store(void *storage, const int clsid) {
             } else {
                 flags = *((uint32_t *)ITEM_suffix(it));
             }
-            item *hdr_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, ntotal);
+            item *hdr_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, sizeof(item_hdr));
             /* Run the storage write understanding the header is dirty.
              * We will fill it from the header on read either way.
              */
@@ -1376,6 +1375,9 @@ static int lru_maintainer_store(void *storage, const int clsid) {
                 io.buf = (void *) it;
                 io.len = orig_ntotal;
                 io.mode = OBJ_IO_WRITE;
+                // NOTE: when the item is read back in, the slab mover
+                // may see it. Important to have refcount>=2 or ~ITEM_LINKED
+                assert(it->refcount >= 2);
                 if (extstore_write(storage, 0, &io) == 0) {
                     item_hdr *hdr = (item_hdr *) ITEM_data(hdr_it);
                     hdr->page_version = io.page_version;
@@ -1387,25 +1389,21 @@ static int lru_maintainer_store(void *storage, const int clsid) {
                     /* success! Now we need to fill relevant data into the new
                      * header and replace. Most of this requires the item lock
                      */
-                    item_lock(it_info.hv);
                     /* CAS gets set while linking. Copy post-replace */
                     item_replace(it, hdr_it, it_info.hv);
                     ITEM_set_cas(hdr_it, ITEM_get_cas(it));
                     //fprintf(stderr, "EXTSTORE: swapped an item: %s %lu %lu\n", ITEM_key(it), orig_ntotal, ntotal);
-                    do_item_remove(it);
                     do_item_remove(hdr_it);
-                    item_unlock(it_info.hv);
                 } else {
                     fprintf(stderr, "EXTSTORE: failed to write\n");
                     /* Failed to write for some reason, can't continue. */
-                    slabs_free(hdr_it, ntotal, id);
-                    item_remove(it);
+                    slabs_free(hdr_it, ITEM_ntotal(hdr_it), ITEM_clsid(hdr_it));
                     it_info.it = NULL;
                 }
             }
-        } else {
-            item_remove(it);
         }
+        do_item_remove(it);
+        item_unlock(it_info.hv);
     }
     return (it_info.it != NULL) ? 1 : 0;
 }
