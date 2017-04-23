@@ -344,6 +344,7 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
             pthread_mutex_lock(&e->mutex);
             _allocate_page(e, bucket);
             pthread_mutex_unlock(&e->mutex);
+            return ret;
         }
     }
 
