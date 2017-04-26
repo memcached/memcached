@@ -5182,7 +5182,7 @@ static void drive_machine(conn *c) {
                 conn_set_state(c, conn_watch);
                 event_del(&c->event);
                 c->io_queued = true;
-                extstore_read(c->thread->storage, &c->io_wraplist->io);
+                extstore_submit(c->thread->storage, &c->io_wraplist->io);
                 stop = true;
                 break;
             }

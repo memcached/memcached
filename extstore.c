@@ -23,7 +23,6 @@
  */
 typedef struct __store_wbuf {
     struct __store_wbuf *next;
-    struct __store_wbuf *page_next; /* second linked list for page usage */
     char *buf;
     char *buf_pos;
     unsigned int free;
@@ -49,7 +48,7 @@ typedef struct _store_page {
     bool closed; /* closed and draining before free */
     bool free; /* on freelist */
     _store_wbuf *wbuf; /* currently active wbuf from the stack */
-    _store_wbuf *wbuf_stack; /* ordered stack of wbuf's being flushed to disk */
+    _store_wbuf *wbuf_head; /* ordered stack of wbuf's being flushed to disk */
     struct _store_page *next;
 } store_page;
 
@@ -58,7 +57,6 @@ typedef struct {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     obj_io *queue;
-    _store_wbuf *wbuf_queue;
     store_engine *e;
 } store_io_thread;
 
@@ -75,6 +73,7 @@ struct store_engine {
     pthread_mutex_t io_mutex; /* separate mutex for IO submissions */
     store_page *pages;
     _store_wbuf *wbuf_stack;
+    obj_io *io_stack;
     store_io_thread *io_threads;
     store_maint_thread *maint_thread;
     store_page *page_stack;
@@ -190,11 +189,15 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     e->page_bucketcount = cf->page_buckets;
 
     // allocate write buffers
+    // also IO's to use for shipping to IO thread
     for (i = 0; i < cf->wbuf_count; i++) {
         _store_wbuf *w = wbuf_new(cf->wbuf_size);
+        obj_io *io = calloc(1, sizeof(obj_io));
         /* TODO: on error, loop again and free stack. */
         w->next = e->wbuf_stack;
         e->wbuf_stack = w;
+        io->next = e->io_stack;
+        e->io_stack = io;
     }
 
     pthread_mutex_init(&e->mutex, NULL);
@@ -269,19 +272,94 @@ static void _allocate_wbuf(store_engine *e, store_page *p) {
         p->allocated += wbuf->size;
         wbuf->free = wbuf->size;
         wbuf->buf_pos = wbuf->buf;
-        wbuf->page_next = NULL;
         wbuf->full = false;
         wbuf->flushed = false;
 
-        // maintain the tail.
+        // maintain the stack.
         if (p->wbuf) {
-            p->wbuf->page_next = wbuf;
+            p->wbuf->next = wbuf;
         }
         p->wbuf = wbuf;
-        if (!p->wbuf_stack) {
-            p->wbuf_stack = wbuf;
+        // maintain the tail
+        if (!p->wbuf_head) {
+            p->wbuf_head = wbuf;
         }
     }
+}
+
+static void _wbuf_cb(void *ep, obj_io *io, int ret) {
+    store_engine *e = (store_engine *)ep;
+    store_page *p = &e->pages[io->page_id];
+    _store_wbuf *w = (_store_wbuf *) io->data;
+    _store_wbuf *w_ret = NULL;
+
+    // TODO: Examine return code. Not entirely sure how to handle errors.
+    // Naive first-pass should probably cause the page to close/free.
+    w->flushed = true;
+    pthread_mutex_lock(&p->mutex);
+    assert(p->wbuf_head != NULL);
+    // If this buffer is the head of the page stack, remove and
+    // collapse. Also advance written pointer.
+    if (p->wbuf_head == w) {
+        _store_wbuf *tmp = p->wbuf_head;
+        while (tmp) {
+            if (tmp->flushed) {
+                assert(p->written == tmp->offset);
+                p->written += tmp->size;
+                p->wbuf_head = tmp->next;
+                // return wbuf to engine stack.
+                tmp->next = w_ret;
+                w_ret = tmp;
+            } else {
+                break;
+            }
+            tmp = tmp->next;
+        }
+        if (!p->wbuf_head) {
+            p->wbuf = NULL;
+        }
+        // Page is fully written
+        if (p->written == e->page_size) {
+            p->active = false;
+        }
+    }
+    pthread_mutex_lock(&e->mutex);
+    // return any wbuf's under a single lock.
+    while (w_ret) {
+        _store_wbuf *next = w_ret->next;
+        w_ret->next = e->wbuf_stack;
+        e->wbuf_stack = w_ret;
+        w_ret = next;
+    }
+    // always return the IO we just used.
+    io->next = e->io_stack;
+    e->io_stack = io;
+    pthread_mutex_unlock(&e->mutex);
+    pthread_mutex_unlock(&p->mutex);
+
+}
+
+/* Wraps pages current wbuf in an io and submits to IO thread.
+ * Called with p locked, locks e.
+ */
+static void _submit_wbuf(store_engine *e, store_page *p) {
+    _store_wbuf *w;
+    pthread_mutex_lock(&e->mutex);
+    obj_io *io = e->io_stack;
+    e->io_stack = io->next;
+    pthread_mutex_unlock(&e->mutex);
+    w = p->wbuf;
+
+    io->next = NULL;
+    io->mode = OBJ_IO_WRITE;
+    io->page_id = p->id;
+    io->data = w;
+    io->offset = w->offset;
+    io->len = w->size - w->free;
+    io->buf = w->buf;
+    io->cb = _wbuf_cb;
+
+    extstore_submit(e, io);
 }
 
 /* engine write function; takes engine, item_io.
@@ -327,13 +405,7 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
         /* Submit to IO thread */
         /* FIXME: enqueue_io command, use an obj_io? */
         if (!p->wbuf->full) {
-            store_io_thread *t = _get_io_thread(e);
-            pthread_mutex_lock(&t->mutex);
-            /* FIXME: Track tail and do FIFO instead of LIFO */
-            p->wbuf->next = t->wbuf_queue;
-            t->wbuf_queue = p->wbuf;
-            pthread_mutex_unlock(&t->mutex);
-            pthread_cond_signal(&t->cond);
+            _submit_wbuf(e, p);
             p->wbuf->full = true;
         }
 
@@ -376,7 +448,7 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
  * signal io thread to wake.
  * return sucess.
  */
-int extstore_read(void *ptr, obj_io *io) {
+int extstore_submit(void *ptr, obj_io *io) {
     store_engine *e = (store_engine *)ptr;
     store_io_thread *t = _get_io_thread(e);
 
@@ -434,11 +506,11 @@ static inline int _read_from_wbuf(store_page *p, obj_io *io) {
     unsigned int offset = io->offset;
     unsigned int bytes = p->written;
     // start at head of wbuf stack, then subtract-and-conquer
-    _store_wbuf *wbuf = p->wbuf_stack;
+    _store_wbuf *wbuf = p->wbuf_head;
     while (wbuf) {
         if (bytes + wbuf->size <= offset) {
             bytes += wbuf->size;
-            wbuf = wbuf->page_next;
+            wbuf = wbuf->next;
         } else {
             break;
         }
@@ -458,28 +530,9 @@ static void *extstore_io_thread(void *arg) {
     store_engine *e = me->e;
     while (1) {
         obj_io *io_stack = NULL;
-        _store_wbuf *wbuf_stack = NULL;
-        // TODO: lock/check queue before going into wait
         pthread_mutex_lock(&me->mutex);
-        if (me->queue == NULL && me->wbuf_queue == NULL) {
+        if (me->queue == NULL) {
             pthread_cond_wait(&me->cond, &me->mutex);
-        }
-
-        if (me->wbuf_queue != NULL) {
-            int i;
-            _store_wbuf *end = NULL;
-            wbuf_stack = me->wbuf_queue;
-            end = wbuf_stack;
-            /* Pull and disconnect a batch from the queue */
-            for (i = 1; i < e->io_depth; i++) {
-                if (end->next) {
-                    end = end->next;
-                } else {
-                    break;
-                }
-            }
-            me->wbuf_queue = end->next;
-            end->next = NULL;
         }
 
         if (me->queue != NULL) {
@@ -499,56 +552,6 @@ static void *extstore_io_thread(void *arg) {
             end->next = NULL;
         }
         pthread_mutex_unlock(&me->mutex);
-
-        /* TODO: Direct IO + libaio mode */
-        _store_wbuf *cur_wbuf = wbuf_stack;
-        while (cur_wbuf) {
-            _store_wbuf *next = cur_wbuf->next;
-            int ret;
-            store_page *p = &e->pages[cur_wbuf->page_id];
-            ret = pwrite(p->fd, cur_wbuf->buf, cur_wbuf->size - cur_wbuf->free,
-                    p->offset + cur_wbuf->offset);
-            // FIXME: Remove.
-            if (ret == 0) {
-                fprintf(stderr, "Write returned 0 bytes for some reason\n");
-            }
-            if (ret < 0) {
-                perror("wbuf write failed");
-            }
-            cur_wbuf->flushed = true;
-            pthread_mutex_lock(&p->mutex);
-            //p->written += cur_wbuf->size;
-            assert(p->wbuf_stack != NULL);
-            // If this buffer is the head of the page stack, remove and
-            // collapse. Also advance written pointer.
-            if (p->wbuf_stack == cur_wbuf) {
-                _store_wbuf *tmp = p->wbuf_stack;
-                while (tmp) {
-                    if (tmp->flushed) {
-                        p->written += tmp->size;
-                        p->wbuf_stack = tmp->page_next;
-                        // return wbuf to engine stack.
-                        pthread_mutex_lock(&e->mutex);
-                        tmp->page_next = NULL;
-                        tmp->next = e->wbuf_stack;
-                        e->wbuf_stack = tmp;
-                        pthread_mutex_unlock(&e->mutex);
-                    } else {
-                        break;
-                    }
-                    tmp = tmp->page_next;
-                }
-                if (!p->wbuf_stack) {
-                    p->wbuf = NULL;
-                }
-                // Page is fully written
-                if (p->written == e->page_size) {
-                    p->active = false;
-                }
-            }
-            pthread_mutex_unlock(&p->mutex);
-            cur_wbuf = next;
-        }
 
         obj_io *cur_io = io_stack;
         while (cur_io) {
@@ -579,6 +582,7 @@ static void *extstore_io_thread(void *arg) {
                         ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                     break;
                 case OBJ_IO_WRITE:
+                    do_op = 0;
                     ret = pwrite(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                     break;
             }
