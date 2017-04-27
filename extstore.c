@@ -11,23 +11,27 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <stdio.h> // FIXME: only when DEBUG compiled?
+#include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include "extstore.h"
 
-/* TODO: manage the page refcount */
+// TODO: better if an init option turns this on/off.
+#ifdef EXTSTORE_DEBUG
+#define E_DEBUG(...) \
+    do { \
+        fprintf(stderr, __VA_ARGS__); \
+    } while (0)
+#else
+#define E_DEBUG(...)
+#endif
 
-/* TODO: Embed obj_io for internal wbuf's. change extstore_read to
- * extstore_submit.
- */
 typedef struct __store_wbuf {
     struct __store_wbuf *next;
     char *buf;
     char *buf_pos;
     unsigned int free;
     unsigned int size;
-    unsigned int page_id; /* page owner of this write buffer */
     unsigned int offset; /* offset into page this write starts at */
     bool full; /* done writing to this page */
     bool flushed; /* whether wbuf has been flushed to disk */
@@ -64,20 +68,18 @@ typedef struct {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     store_engine *e;
-    store_page *probation[3]; /* closed pages at risk of reclaim */
 } store_maint_thread;
 
 /* TODO: Array of FDs for JBOD support */
 struct store_engine {
-    pthread_mutex_t mutex; /* Need to hold to find active write page */
-    pthread_mutex_t io_mutex; /* separate mutex for IO submissions */
-    store_page *pages;
-    _store_wbuf *wbuf_stack;
-    obj_io *io_stack;
+    pthread_mutex_t mutex; /* covers internal stacks and variables */
+    store_page *pages; /* directly addressable page list */
+    _store_wbuf *wbuf_stack; /* wbuf freelist */
+    obj_io *io_stack; /* IO's to use with submitting wbuf's */
     store_io_thread *io_threads;
     store_maint_thread *maint_thread;
-    store_page *page_stack;
-    store_page **page_buckets;
+    store_page *page_freelist;
+    store_page **page_buckets; /* stack of pages currently allocated to each bucket */
     size_t page_size;
     uint64_t version; /* global version counter */
     unsigned int last_io_thread; /* round robin the IO threads */
@@ -129,36 +131,46 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     pthread_t thread;
 
     if (cf->page_size % cf->wbuf_size != 0) {
+        E_DEBUG("EXTSTORE: page_size must be divisible by wbuf_size\n");
         return NULL;
     }
     // Should ensure at least one write buffer per potential page
     if (cf->page_buckets > cf->wbuf_count) {
+        E_DEBUG("EXTSTORE: wbuf_count must be >= page_buckets\n");
         return NULL;
     }
     if (cf->page_buckets < 1) {
+        E_DEBUG("EXTSTORE: page_buckets must be > 0\n");
         return NULL;
     }
 
     // TODO: More intelligence around alignment of flash erasure block sizes
     if (cf->page_size % (1024 * 1024 * 2) != 0 ||
         cf->wbuf_size % (1024 * 1024 * 2) != 0) {
+        E_DEBUG("EXTSTORE: page_size and wbuf_size must be divisible by 1024*1024*2\n");
         return NULL;
     }
 
     store_engine *e = calloc(1, sizeof(store_engine));
     if (e == NULL) {
+        E_DEBUG("EXTSTORE: failed calloc for engine\n");
         return NULL;
     }
 
     e->page_size = cf->page_size;
     fd = open(fn, O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
+        E_DEBUG("EXTSTORE: failed to open file: %s\n", fn);
+#ifdef EXTSTORE_DEBUG
+        perror("open");
+#endif
         free(e);
         return NULL;
     }
 
     e->pages = calloc(cf->page_count, sizeof(store_page));
     if (e->pages == NULL) {
+        E_DEBUG("EXTSTORE: failed to calloc storage pages\n");
         close(fd);
         free(e);
         return NULL;
@@ -174,8 +186,8 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     }
 
     for (i = cf->page_count-1; i > 0; i--) {
-        e->pages[i].next = e->page_stack;
-        e->page_stack = &e->pages[i];
+        e->pages[i].next = e->page_freelist;
+        e->page_freelist = &e->pages[i];
         e->page_free++;
     }
 
@@ -201,7 +213,6 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     }
 
     pthread_mutex_init(&e->mutex, NULL);
-    pthread_mutex_init(&e->io_mutex, NULL);
 
     e->io_depth = cf->io_depth;
 
@@ -231,11 +242,11 @@ static void _run_maint(store_engine *e) {
 // call with *e locked
 static store_page *_allocate_page(store_engine *e, unsigned int bucket) {
     assert(!e->page_buckets[bucket] || e->page_buckets[bucket]->allocated == e->page_size);
-    store_page *tmp = e->page_stack;
-    fprintf(stderr, "EXTSTORE: allocating new page\n");
+    store_page *tmp = e->page_freelist;
+    E_DEBUG("EXTSTORE: allocating new page\n");
     if (e->page_free > 0) {
-        assert(e->page_stack != NULL);
-        e->page_stack = tmp->next;
+        assert(e->page_freelist != NULL);
+        e->page_freelist = tmp->next;
         tmp->next = e->page_buckets[bucket];
         e->page_buckets[bucket] = tmp;
         tmp->active = true;
@@ -248,16 +259,13 @@ static store_page *_allocate_page(store_engine *e, unsigned int bucket) {
         _run_maint(e);
     }
     if (tmp)
-        fprintf(stderr, "EXTSTORE: got page %u\n", tmp->id);
+        E_DEBUG("EXTSTORE: got page %u\n", tmp->id);
     return tmp;
 }
 
 // call with *p locked. locks *e
 static void _allocate_wbuf(store_engine *e, store_page *p) {
     _store_wbuf *wbuf = NULL;
-    /* TODO: give the engine specific mutexes around things?
-     * would have to ensure struct is padded to avoid false-sharing
-     */
     pthread_mutex_lock(&e->mutex);
     if (e->wbuf_stack) {
         wbuf = e->wbuf_stack;
@@ -266,8 +274,6 @@ static void _allocate_wbuf(store_engine *e, store_page *p) {
     }
     pthread_mutex_unlock(&e->mutex);
     if (wbuf) {
-        wbuf->page_id = p->id;
-
         wbuf->offset = p->allocated;
         p->allocated += wbuf->size;
         wbuf->free = wbuf->size;
@@ -287,6 +293,12 @@ static void _allocate_wbuf(store_engine *e, store_page *p) {
     }
 }
 
+/* callback after wbuf is flushed. can only remove wbuf's from the head onward
+ * if successfully flushed, which complicates this routine. each callback
+ * attempts to free the wbuf stack, which is finally done when the head wbuf's
+ * callback happens.
+ * It's rare flushes would happen out of order.
+ */
 static void _wbuf_cb(void *ep, obj_io *io, int ret) {
     store_engine *e = (store_engine *)ep;
     store_page *p = &e->pages[io->page_id];
@@ -318,7 +330,7 @@ static void _wbuf_cb(void *ep, obj_io *io, int ret) {
         if (!p->wbuf_head) {
             p->wbuf = NULL;
         }
-        // Page is fully written
+        // page is fully written
         if (p->written == e->page_size) {
             p->active = false;
         }
@@ -365,9 +377,7 @@ static void _submit_wbuf(store_engine *e, store_page *p) {
 /* engine write function; takes engine, item_io.
  * fast fail if no available write buffer (flushing)
  * lock engine context, find active page, unlock
- * rotate buffers? active/passive
- * if full and rotated, submit page/buffer to io thread.
- * return status code
+ * if page full, submit page/buffer to io thread.
  */
 
 int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
@@ -441,9 +451,7 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
     return ret;
 }
 
-/* allocate new pages in here or another buffer? */
-
-/* engine read function; takes engine, item_io stack.
+/* engine submit function; takes engine, item_io stack.
  * lock io_thread context and add stack?
  * signal io thread to wake.
  * return sucess.
@@ -457,12 +465,12 @@ int extstore_submit(void *ptr, obj_io *io) {
         t->queue = io;
     } else {
         /* Have to put the *io stack at the end of current queue.
-         * Optimize by tracking tail.
+         * FIXME: Optimize by tracking tail.
          */
         obj_io *tmp = t->queue;
         while (tmp->next != NULL) {
             tmp = tmp->next;
-            assert(tmp != t->queue); // FIXME: Temporary loop detection
+            assert(tmp != t->queue);
         }
         tmp->next = io;
     }
@@ -500,7 +508,11 @@ int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version, unsi
     return ret;
 }
 
-// call with page locked
+/* Finds an attached wbuf that can satisfy the read.
+ * Since wbufs can potentially be flushed to disk out of order, they are only
+ * removed as the head of the list successfuly flushes to disk.
+ */
+// call with *p locked
 // FIXME: protect from reading past wbuf
 static inline int _read_from_wbuf(store_page *p, obj_io *io) {
     unsigned int offset = io->offset;
@@ -521,8 +533,8 @@ static inline int _read_from_wbuf(store_page *p, obj_io *io) {
 }
 
 /* engine IO thread; takes engine context
- * manage writes/reads :P
- * run callback any necessary callback commands?
+ * manage writes/reads
+ * runs IO callbacks inline after each IO
  */
 // FIXME: protect from reading past page
 static void *extstore_io_thread(void *arg) {
@@ -535,12 +547,12 @@ static void *extstore_io_thread(void *arg) {
             pthread_cond_wait(&me->cond, &me->mutex);
         }
 
+        // Pull and disconnect a batch from the queue
         if (me->queue != NULL) {
             int i;
             obj_io *end = NULL;
             io_stack = me->queue;
             end = io_stack;
-            // Pull and disconnect a batch from the queue
             for (i = 1; i < e->io_depth; i++) {
                 if (end->next) {
                     end = end->next;
@@ -555,7 +567,7 @@ static void *extstore_io_thread(void *arg) {
 
         obj_io *cur_io = io_stack;
         while (cur_io) {
-            // We need to hold the next before the callback in case the stack
+            // We need to note next before the callback in case the obj_io
             // gets reused.
             obj_io *next = cur_io->next;
             int ret = 0;
@@ -583,18 +595,20 @@ static void *extstore_io_thread(void *arg) {
                     break;
                 case OBJ_IO_WRITE:
                     do_op = 0;
+                    // FIXME: Should hold refcount during write. doesn't
+                    // currently matter since page can't free while active.
                     ret = pwrite(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                     break;
             }
-            // FIXME: Remove.
             if (ret == 0) {
-                fprintf(stderr, "read returned nothingt\n");
+                E_DEBUG("read returned nothing\n");
             }
 
-            // FIXME: Remove.
+#ifdef EXTSTORE_DEBUG
             if (ret == -1) {
                 perror("read/write op failed");
             }
+#endif
             cur_io->cb(e, cur_io, ret);
             if (do_op) {
                 pthread_mutex_lock(&p->mutex);
@@ -608,15 +622,14 @@ static void *extstore_io_thread(void *arg) {
     return NULL;
 }
 
-// call with p locked.
+// call with *p locked.
 static void _free_page(store_engine *e, store_page *p) {
     store_page *tmp = NULL;
     store_page *prev = NULL;
-    fprintf(stderr, "EXTSTORE: freeing page %u\n", p->id);
+    E_DEBUG("EXTSTORE: freeing page %u\n", p->id);
     pthread_mutex_lock(&e->mutex);
     // unlink page from bucket list
     tmp = e->page_buckets[p->bucket];
-    // It'll be nice when I refactor away all this linked list code :P
     while (tmp) {
         if (tmp == p) {
             if (prev) {
@@ -640,17 +653,22 @@ static void _free_page(store_engine *e, store_page *p) {
     p->closed = false;
     p->free = true;
     // add to page stack
-    p->next = e->page_stack;
-    e->page_stack = p;
+    p->next = e->page_freelist;
+    e->page_freelist = p;
     e->page_free++;
     pthread_mutex_unlock(&e->mutex);
 }
 
 /* engine maint thread; takes engine context.
- * Always evicts oldest version if space is required.
  * Uses version to ensure oldest possible objects are being evicted.
  * Needs interface to inform owner of pages with fewer objects or most space
  * free, which can then be actively compacted to avoid eviction.
+ *
+ * This gets called asynchronously after every page allocation. Could run less
+ * often if more pages are free.
+ *
+ * Another allocation call is required if an attempted free didn't happen
+ * due to the page having a refcount.
  */
 
 static void *extstore_maint_thread(void *arg) {
@@ -695,7 +713,7 @@ static void *extstore_maint_thread(void *arg) {
 
             if (do_evict && low_version != ULLONG_MAX) {
                 store_page *p = &e->pages[low_page];
-                fprintf(stderr, "EXTSTORE: evicting page [%d] [v: %llu]\n",
+                E_DEBUG("EXTSTORE: evicting page [%d] [v: %llu]\n",
                         p->id, (unsigned long long) p->version);
                 pthread_mutex_lock(&p->mutex);
                 p->closed = true;
