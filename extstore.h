@@ -23,6 +23,8 @@ typedef struct _obj_io obj_io;
 typedef void (*obj_io_cb)(void *e, obj_io *io, int ret);
 
 /* An object for both reads and writes to the storage engine.
+ * Once an IO is submitted, ->next may be changed by the IO thread. It is not
+ * safe to further modify the IO stack until the entire request is completed.
  */
 struct _obj_io {
     void *data; /* user supplied data pointer */
