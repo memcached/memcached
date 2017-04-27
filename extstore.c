@@ -378,6 +378,9 @@ static void _submit_wbuf(store_engine *e, store_page *p) {
  * fast fail if no available write buffer (flushing)
  * lock engine context, find active page, unlock
  * if page full, submit page/buffer to io thread.
+ *
+ * write is designed to be flaky; if page full, caller must try again to get
+ * new page. best if used from a background thread that can harmlessly retry.
  */
 
 int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
@@ -387,22 +390,19 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
     if (bucket >= e->page_bucketcount)
         return ret;
 
-    /* This is probably a loop; we continue if the output page had to be
-     * replaced
-     */
     pthread_mutex_lock(&e->mutex);
     p = e->page_buckets[bucket];
     if (!p) {
         p = _allocate_page(e, bucket);
     }
     pthread_mutex_unlock(&e->mutex);
-    /* FIXME: Is it safe to lock here? Need to double check the flag and loop
-     * or lock from within e->mutex
-     */
 
     pthread_mutex_lock(&p->mutex);
-    // FIXME: another place alloc gets called.
-    if (!p->active) {
+
+    // FIXME: can't null out page_buckets!!!
+    // page is full, clear bucket and retry later.
+    if (!p->active ||
+            ((!p->wbuf || p->wbuf->full) && p->allocated >= e->page_size)) {
         pthread_mutex_unlock(&p->mutex);
         pthread_mutex_lock(&e->mutex);
         _allocate_page(e, bucket);
@@ -410,31 +410,17 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
         return ret;
     }
 
-    /* memcpy into wbuf */
-    if (p->wbuf && (p->wbuf->free < io->len || p->wbuf->full)) {
-        /* Submit to IO thread */
-        /* FIXME: enqueue_io command, use an obj_io? */
-        if (!p->wbuf->full) {
-            _submit_wbuf(e, p);
-            p->wbuf->full = true;
-        }
-
-        // Flushed buffer to now-full page, assign a new one.
-        // FIXME: just flag it as full, add condition check to top of code?
-        if (p->allocated >= e->page_size) {
-            pthread_mutex_unlock(&p->mutex);
-            pthread_mutex_lock(&e->mutex);
-            _allocate_page(e, bucket);
-            pthread_mutex_unlock(&e->mutex);
-            return ret;
-        }
+    // if io won't fit, submit IO for wbuf and find new one.
+    if (p->wbuf && p->wbuf->free < io->len && !p->wbuf->full) {
+        _submit_wbuf(e, p);
+        p->wbuf->full = true;
     }
 
-    // TODO: e->page_size safe for dirty reads? "cache" into page object?
     if ((!p->wbuf || p->wbuf->full) && p->allocated < e->page_size) {
         _allocate_wbuf(e, p);
     }
 
+    // memcpy into wbuf
     if (p->wbuf && !p->wbuf->full && p->wbuf->free >= io->len) {
         memcpy(p->wbuf->buf_pos, io->buf, io->len);
         io->page_id = p->id;
@@ -447,7 +433,7 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
     }
 
     pthread_mutex_unlock(&p->mutex);
-    /* p->written is incremented post-wbuf flush */
+    // p->written is incremented post-wbuf flush
     return ret;
 }
 
