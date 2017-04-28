@@ -899,6 +899,7 @@ static int slab_rebalance_move(void) {
                 } else {
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
+                    // FIXME: need storage instance to call extstore_delete
                     do_item_unlink(it, hv);
                     slabs_free(it, ntotal, slab_rebal.s_clsid);
                     /* Swing around again later to remove it from the freelist. */

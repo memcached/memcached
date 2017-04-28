@@ -2323,6 +2323,7 @@ static void process_bin_update(conn *c) {
             it = item_get(key, nkey, c, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
+                STORAGE_delete(c->thread->storage, it);
                 item_remove(it);
             }
         }
@@ -2481,6 +2482,7 @@ static void process_bin_delete(conn *c) {
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
             item_unlink(it);
+            STORAGE_delete(c->thread->storage, it);
             write_bin_response(c, NULL, 0, 0, 0);
         } else {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
@@ -2701,6 +2703,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
+            STORAGE_delete(c->thread->storage, old_it);
             item_replace(old_it, it, hv);
             stored = STORED;
         } else {
@@ -2758,10 +2761,12 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         }
 
         if (stored == NOT_STORED && failed_alloc == 0) {
-            if (old_it != NULL)
+            if (old_it != NULL) {
+                STORAGE_delete(c->thread->storage, old_it);
                 item_replace(old_it, it, hv);
-            else
+            } else {
                 do_item_link(it, hv);
+            }
 
             c->cas = ITEM_get_cas(it);
 
@@ -3702,6 +3707,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
             it = item_get(key, nkey, c, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
+                STORAGE_delete(c->thread->storage, it);
                 item_remove(it);
             }
         }
@@ -3967,6 +3973,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         item_unlink(it);
+        STORAGE_delete(c->thread->storage, it);
         item_remove(it);      /* release our reference */
         out_string(c, "DELETED");
     } else {

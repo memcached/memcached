@@ -909,6 +909,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
         was_found = 1;
         if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
+            STORAGE_delete(c->thread->storage, it);
             do_item_remove(it);
             it = NULL;
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -920,6 +921,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             was_found = 2;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
             do_item_unlink(it, hv);
+            STORAGE_delete(c->thread->storage, it);
             do_item_remove(it);
             it = NULL;
             pthread_mutex_lock(&c->thread->stats.mutex);
