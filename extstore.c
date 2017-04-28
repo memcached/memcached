@@ -40,7 +40,8 @@ typedef struct __store_wbuf {
 typedef struct _store_page {
     pthread_mutex_t mutex; /* Need to be held for most operations */
     uint64_t version;
-    uint64_t obj_count;
+    uint64_t obj_count; /* _delete can decrease post-closing */
+    uint64_t bytes_used; /* _delete can decrease post-closing */
     uint64_t offset; /* starting address of page within fd */
     unsigned int refcount;
     unsigned int id;
@@ -428,6 +429,7 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
         io->page_version = p->version;
         p->wbuf->buf_pos += io->len;
         p->wbuf->free -= io->len;
+        p->bytes_used += io->len;
         p->obj_count++;
         ret = 0;
     }
@@ -471,7 +473,8 @@ int extstore_submit(void *ptr, obj_io *io) {
 /* engine note delete function: takes engine, page id, size?
  * note that an item in this page is no longer valid
  */
-int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version, unsigned int count) {
+int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version,
+        unsigned int count, unsigned int bytes) {
     store_engine *e = (store_engine *)ptr;
     // FIXME: validate page_id in bounds
     store_page *p = &e->pages[page_id];
@@ -479,11 +482,18 @@ int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version, unsi
 
     pthread_mutex_lock(&p->mutex);
     if (p->version == page_version) {
+        if (p->bytes_used >= bytes) {
+            p->bytes_used -= bytes;
+        } else {
+            p->bytes_used = 0;
+        }
+
         if (p->obj_count >= count) {
             p->obj_count -= count;
         } else {
             p->obj_count = 0; // caller has bad accounting?
         }
+
         if (p->obj_count == 0) {
             _run_maint(e);
         }
@@ -632,6 +642,7 @@ static void _free_page(store_engine *e, store_page *p) {
     // reset most values
     p->version = 0;
     p->obj_count = 0;
+    p->bytes_used = 0;
     p->allocated = 0;
     p->written = 0;
     p->bucket = 0;
