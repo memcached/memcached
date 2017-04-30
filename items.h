@@ -65,7 +65,7 @@ void *lru_bump_buf_create(void);
         if (it->it_flags & ITEM_HDR) { \
             item_hdr *hdr = (item_hdr *)ITEM_data(it); \
             extstore_delete(e, hdr->page_id, hdr->page_version, \
-                    1, hdr->nbytes); \
+                    1, hdr->ntotal); \
         } \
     } while (0)
 #else
