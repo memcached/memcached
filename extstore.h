@@ -1,6 +1,28 @@
 #ifndef EXTSTORE_H
 #define EXTSTORE_H
 
+/* Pages can have objects deleted from them at any time. This creates holes
+ * that can't be reused until the page is either evicted or all objects are
+ * deleted.
+ * bytes_fragmented is the total bytes for all of these holes.
+ * It is the size of all used pages minus each page's bytes_used value.
+ */
+struct extstore_stats {
+    uint64_t page_allocs;
+    uint64_t page_evictions;
+    uint64_t pages_free; /* currently unallocated/unused pages */
+    uint64_t pages_used;
+    uint64_t objects_evicted;
+    uint64_t objects_read;
+    uint64_t objects_written;
+    uint64_t objects_used; /* total number of objects stored */
+    uint64_t bytes_evicted;
+    uint64_t bytes_written;
+    uint64_t bytes_read; /* wbuf - read -> bytes read from storage */
+    uint64_t bytes_used; /* total number of bytes stored */
+    uint64_t bytes_fragmented; /* see above comment */
+};
+
 // TODO: Temporary configuration structure. A "real" library should have an
 // extstore_set(enum, void *ptr) which hides the implementation.
 // this is plenty for quick development.
@@ -47,5 +69,6 @@ int extstore_submit(void *ptr, obj_io *io);
  * fragmentation without it.
  */
 int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version, unsigned int count, unsigned int bytes);
+void extstore_get_stats(void *ptr, struct extstore_stats *st);
 
 #endif

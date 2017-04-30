@@ -26,6 +26,20 @@
 #define E_DEBUG(...)
 #endif
 
+#define STAT_L(e) pthread_mutex_lock(&e->stats_mutex);
+#define STAT_UL(e) pthread_mutex_unlock(&e->stats_mutex);
+#define STAT_INCR(e, stat, amount) { \
+    pthread_mutex_lock(&e->stats_mutex); \
+    e->stats.stat += amount; \
+    pthread_mutex_unlock(&e->stats_mutex); \
+}
+
+#define STAT_DECR(e, stat, amount) { \
+    pthread_mutex_lock(&e->stats_mutex); \
+    e->stats.stat -= amount; \
+    pthread_mutex_unlock(&e->stats_mutex); \
+}
+
 typedef struct __store_wbuf {
     struct __store_wbuf *next;
     char *buf;
@@ -89,6 +103,8 @@ struct store_engine {
     unsigned int page_free; /* unallocated pages */
     unsigned int page_bucketcount; /* count of potential page buckets */
     unsigned int io_depth; /* FIXME: Might cache into thr struct */
+    pthread_mutex_t stats_mutex;
+    struct extstore_stats stats;
 };
 
 static _store_wbuf *wbuf_new(size_t size) {
@@ -122,6 +138,24 @@ static uint64_t _next_version(store_engine *e) {
 
 static void *extstore_io_thread(void *arg);
 static void *extstore_maint_thread(void *arg);
+
+/* Copies stats internal to engine and computes any derived values */
+void extstore_get_stats(void *ptr, struct extstore_stats *st) {
+    store_engine *e = (store_engine *)ptr;
+    STAT_L(e);
+    memcpy(st, &e->stats, sizeof(struct extstore_stats));
+    STAT_UL(e);
+
+    // grab pages_free/pages_used
+    pthread_mutex_lock(&e->mutex);
+    st->pages_free = e->page_free;
+    st->pages_used = e->page_count - e->page_free;
+    pthread_mutex_unlock(&e->mutex);
+    // calculate bytes_fragmented.
+    // note that open and yet-filled pages count against fragmentation.
+    st->bytes_fragmented = st->pages_used * e->page_size -
+        st->bytes_used;
+}
 
 /* TODO: debug mode with prints? error code? */
 // TODO: Somehow pass real error codes from config failures
@@ -214,6 +248,7 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
     }
 
     pthread_mutex_init(&e->mutex, NULL);
+    pthread_mutex_init(&e->stats_mutex, NULL);
 
     e->io_depth = cf->io_depth;
 
@@ -256,6 +291,7 @@ static store_page *_allocate_page(store_engine *e, unsigned int bucket) {
         tmp->version = _next_version(e);
         tmp->bucket = bucket;
         e->page_free--;
+        STAT_INCR(e, page_allocs, 1);
     } else {
         _run_maint(e);
     }
@@ -431,6 +467,12 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
         p->wbuf->free -= io->len;
         p->bytes_used += io->len;
         p->obj_count++;
+        STAT_L(e);
+        e->stats.bytes_written += io->len;
+        e->stats.bytes_used += io->len;
+        e->stats.objects_written++;
+        e->stats.objects_used++;
+        STAT_UL(e);
         ret = 0;
     }
 
@@ -481,7 +523,7 @@ int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version,
     int ret = 0;
 
     pthread_mutex_lock(&p->mutex);
-    if (p->version == page_version) {
+    if (!p->closed && p->version == page_version) {
         if (p->bytes_used >= bytes) {
             p->bytes_used -= bytes;
         } else {
@@ -493,8 +535,13 @@ int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version,
         } else {
             p->obj_count = 0; // caller has bad accounting?
         }
+        STAT_L(e);
+        e->stats.bytes_used -= bytes;
+        e->stats.objects_used -= count;
+        STAT_UL(e);
 
         if (p->obj_count == 0) {
+            assert(p->bytes_used == 0);
             _run_maint(e);
         }
     } else {
@@ -581,6 +628,10 @@ static void *extstore_io_thread(void *arg) {
                         } else {
                             p->refcount++;
                         }
+                        STAT_L(e);
+                        e->stats.bytes_read += cur_io->len;
+                        e->stats.objects_read++;
+                        STAT_UL(e);
                     } else {
                         do_op = 0;
                         ret = -2; // TODO: enum in IO for status?
@@ -714,6 +765,13 @@ static void *extstore_maint_thread(void *arg) {
                         p->id, (unsigned long long) p->version);
                 pthread_mutex_lock(&p->mutex);
                 p->closed = true;
+                STAT_L(e);
+                e->stats.page_evictions++;
+                e->stats.objects_evicted += p->obj_count;
+                e->stats.bytes_evicted += p->bytes_used;
+                e->stats.bytes_used -= p->bytes_used;
+                e->stats.objects_used -= p->obj_count;
+                STAT_UL(e);
                 if (p->refcount == 0) {
                     _free_page(e, p);
                 }
