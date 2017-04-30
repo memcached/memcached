@@ -2939,7 +2939,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     threadlocal_stats_aggregate(&thread_stats);
     struct slab_stats slab_stats;
     slab_stats_aggregate(&thread_stats, &slab_stats);
-
+#ifdef EXTSTORE
+    struct extstore_stats st;
+#endif
 #ifndef WIN32
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
@@ -3029,6 +3031,22 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("log_watcher_skipped", "%llu", (unsigned long long)stats.log_watcher_skipped);
     APPEND_STAT("log_watcher_sent", "%llu", (unsigned long long)stats.log_watcher_sent);
     STATS_UNLOCK();
+#ifdef EXTSTORE
+    extstore_get_stats(c->thread->storage, &st);
+    APPEND_STAT("extstore_page_allocs", "%llu", (unsigned long long)st.page_allocs);
+    APPEND_STAT("extstore_page_evictions", "%llu", (unsigned long long)st.page_evictions);
+    APPEND_STAT("extstore_pages_free", "%llu", (unsigned long long)st.pages_free);
+    APPEND_STAT("extstore_pages_used", "%llu", (unsigned long long)st.pages_used);
+    APPEND_STAT("extstore_objects_evicted", "%llu", (unsigned long long)st.objects_evicted);
+    APPEND_STAT("extstore_objects_read", "%llu", (unsigned long long)st.objects_read);
+    APPEND_STAT("extstore_objects_written", "%llu", (unsigned long long)st.objects_written);
+    APPEND_STAT("extstore_objects_used", "%llu", (unsigned long long)st.objects_used);
+    APPEND_STAT("extstore_bytes_evicted", "%llu", (unsigned long long)st.bytes_evicted);
+    APPEND_STAT("extstore_bytes_written", "%llu", (unsigned long long)st.bytes_written);
+    APPEND_STAT("extstore_bytes_read", "%llu", (unsigned long long)st.bytes_read);
+    APPEND_STAT("extstore_bytes_used", "%llu", (unsigned long long)st.bytes_used);
+    APPEND_STAT("extstore_bytes_fragmented", "%llu", (unsigned long long)st.bytes_fragmented);
+#endif
 }
 
 static void process_stat_settings(ADD_STAT add_stats, void *c) {
