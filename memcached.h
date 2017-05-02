@@ -384,6 +384,10 @@ struct settings {
     int idle_timeout;       /* Number of seconds to let connections idle */
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
+#ifdef EXTSTORE
+    unsigned int ext_item_size; /* minimum size of items to store externally */
+    unsigned int ext_item_age; /* max age of tail item before storing ext. */
+#endif
 };
 
 extern struct stats stats;

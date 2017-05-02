@@ -6075,6 +6075,7 @@ int main (int argc, char **argv) {
     bool slab_chunk_size_changed = false;
 #ifdef EXTSTORE
     void *storage = NULL;
+    char *storage_file = "/dev/shm/extstore";
     struct extstore_conf ext_cf;
 #endif
     char *subopts, *subopts_orig;
@@ -6102,6 +6103,17 @@ int main (int argc, char **argv) {
         SLAB_CHUNK_MAX,
         TRACK_SIZES,
         NO_INLINE_ASCII_RESP,
+#ifdef EXTSTORE
+        EXT_PAGE_SIZE,
+        EXT_PAGE_COUNT,
+        EXT_WBUF_SIZE,
+        EXT_WBUF_COUNT,
+        EXT_THREADS,
+        EXT_IO_DEPTH,
+        EXT_PATH,
+        EXT_ITEM_SIZE,
+        EXT_ITEM_AGE,
+#endif
         MODERN
     };
     char *const subopts_tokens[] = {
@@ -6127,6 +6139,17 @@ int main (int argc, char **argv) {
         [SLAB_CHUNK_MAX] = "slab_chunk_max",
         [TRACK_SIZES] = "track_sizes",
         [NO_INLINE_ASCII_RESP] = "no_inline_ascii_resp",
+#ifdef EXTSTORE
+        [EXT_PAGE_SIZE] = "ext_page_size",
+        [EXT_PAGE_COUNT] = "ext_page_count",
+        [EXT_WBUF_SIZE] = "ext_wbuf_size",
+        [EXT_WBUF_COUNT] = "ext_wbuf_count",
+        [EXT_THREADS] = "ext_threads",
+        [EXT_IO_DEPTH] = "ext_io_depth",
+        [EXT_PATH] = "ext_path",
+        [EXT_ITEM_SIZE] = "ext_item_size",
+        [EXT_ITEM_AGE] = "ext_item_age",
+#endif
         [MODERN] = "modern",
         NULL
     };
@@ -6141,6 +6164,17 @@ int main (int argc, char **argv) {
 
     /* init settings */
     settings_init();
+#ifdef EXTSTORE
+    settings.ext_item_size = 512;
+    settings.ext_item_age = 0;
+    ext_cf.page_size = 1024 * 1024 * 64;
+    ext_cf.page_count = 64;
+    ext_cf.wbuf_size = 1024 * 1024 * 8;
+    ext_cf.wbuf_count = 4;
+    ext_cf.io_threadcount = 1;
+    ext_cf.io_depth = 1;
+    ext_cf.page_buckets = 1;
+#endif
 
     /* Run regardless of initializing it later */
     init_lru_crawler();
@@ -6572,6 +6606,93 @@ int main (int argc, char **argv) {
             case NO_INLINE_ASCII_RESP:
                 settings.inline_ascii_response = false;
                 break;
+#ifdef EXTSTORE
+            case EXT_PAGE_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_page_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.page_size)) {
+                    fprintf(stderr, "could not parse argument to ext_page_size\n");
+                    return 1;
+                }
+                ext_cf.page_size *= 1024 * 1024; /* megabytes */
+                break;
+            case EXT_PAGE_COUNT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_page_count argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.page_count)) {
+                    fprintf(stderr, "could not parse argument to ext_page_count\n");
+                    return 1;
+                }
+                break;
+            case EXT_WBUF_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_wbuf_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.wbuf_size)) {
+                    fprintf(stderr, "could not parse argument to ext_wbuf_size\n");
+                    return 1;
+                }
+                ext_cf.wbuf_size *= 1024 * 1024; /* megabytes */
+                break;
+            case EXT_WBUF_COUNT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_wbuf_count argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.wbuf_count)) {
+                    fprintf(stderr, "could not parse argument to ext_wbuf_count\n");
+                    return 1;
+                }
+                break;
+            case EXT_THREADS:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_threads argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.io_threadcount)) {
+                    fprintf(stderr, "could not parse argument to ext_threads\n");
+                    return 1;
+                }
+                break;
+            case EXT_IO_DEPTH:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_io_depth argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.io_depth)) {
+                    fprintf(stderr, "could not parse argument to ext_io_depth\n");
+                    return 1;
+                }
+                break;
+            case EXT_ITEM_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_item_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_item_size)) {
+                    fprintf(stderr, "could not parse argument to ext_item_size\n");
+                    return 1;
+                }
+                break;
+            case EXT_ITEM_AGE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_item_age argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_item_age)) {
+                    fprintf(stderr, "could not parse argument to ext_item_age\n");
+                    return 1;
+                }
+                break;
+            case EXT_PATH:
+                storage_file = strdup(subopts_value);
+                break;
+#endif
             case MODERN:
                 /* Modernized defaults. Need to add equivalent no_* flags
                  * before making truly default. */
@@ -6781,14 +6902,7 @@ int main (int argc, char **argv) {
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL);
 #ifdef EXTSTORE
-    ext_cf.page_size = 1024 * 1024 * 64;
-    ext_cf.page_count = 64;
-    ext_cf.wbuf_size = 1024 * 1024 * 8;
-    ext_cf.wbuf_count = 4;
-    ext_cf.io_threadcount = 1;
-    ext_cf.io_depth = 1;
-    ext_cf.page_buckets = 1;
-    storage = extstore_init("/dev/shm/extstore", &ext_cf);
+    storage = extstore_init(storage_file, &ext_cf);
     if (storage == NULL) {
         fprintf(stderr, "Failed to initialize external storage\n");
         exit(EXIT_FAILURE);

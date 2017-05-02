@@ -1337,13 +1337,13 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
 // count.
 static int lru_maintainer_store(void *storage, const int clsid) {
     //int i;
-    //int did_moves = 0;
+    int did_moves = 0;
     bool mem_limit_reached = false;
     unsigned int chunks_free;
     unsigned int chunks_perslab;
     struct lru_pull_tail_return it_info;
     // FIXME: need to directly ask the slabber how big a class is
-    if (slabs_clsid(1024) > clsid)
+    if (slabs_clsid(settings.ext_item_size) > clsid)
         return 0;
     chunks_free = slabs_available_chunks(clsid, &mem_limit_reached,
             NULL, &chunks_perslab);
@@ -1362,7 +1362,8 @@ static int lru_maintainer_store(void *storage, const int clsid) {
         size_t orig_ntotal = ITEM_ntotal(it);
         uint32_t flags;
         // TODO: Doesn't presently work with chunked items. */
-        if ((it->it_flags & ITEM_CHUNKED) == 0) {
+        if ((it->it_flags & ITEM_CHUNKED) == 0 &&
+                (settings.ext_item_age == 0 || current_time - it->time > settings.ext_item_age)) {
             if (settings.inline_ascii_response) {
                 flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
             } else {
@@ -1396,18 +1397,18 @@ static int lru_maintainer_store(void *storage, const int clsid) {
                     ITEM_set_cas(hdr_it, ITEM_get_cas(it));
                     //fprintf(stderr, "EXTSTORE: swapped an item: %s %lu %lu\n", ITEM_key(it), orig_ntotal, ntotal);
                     do_item_remove(hdr_it);
+                    did_moves = 1;
                 } else {
                     fprintf(stderr, "EXTSTORE: failed to write\n");
                     /* Failed to write for some reason, can't continue. */
                     slabs_free(hdr_it, ITEM_ntotal(hdr_it), ITEM_clsid(hdr_it));
-                    it_info.it = NULL;
                 }
             }
         }
         do_item_remove(it);
         item_unlock(it_info.hv);
     }
-    return (it_info.it != NULL) ? 1 : 0;
+    return did_moves;
 }
 #endif
 /* Will crawl all slab classes a minimum of once per hour */
