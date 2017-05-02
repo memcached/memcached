@@ -4159,7 +4159,26 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
         out_string(c, "ERROR");
     }
 }
-
+#ifdef EXTSTORE
+static void process_extstore_command(conn *c, token_t *tokens, const size_t ntokens) {
+    set_noreply_maybe(c, tokens, ntokens);
+    if (strcmp(tokens[1].value, "item_size") == 0 && ntokens >= 3) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_item_size)) {
+            out_string(c, "ERROR");
+        } else {
+            out_string(c, "OK");
+        }
+    } else if (strcmp(tokens[1].value, "item_age") == 0 && ntokens >= 3) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_item_age)) {
+            out_string(c, "ERROR");
+        } else {
+            out_string(c, "OK");
+        }
+    } else {
+        out_string(c, "ERROR");
+    }
+}
+#endif
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -4445,6 +4464,10 @@ static void process_command(conn *c, char *command) {
         process_verbosity_command(c, tokens, ntokens);
     } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "lru") == 0) {
         process_lru_command(c, tokens, ntokens);
+#ifdef EXTSTORE
+    } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "extstore") == 0) {
+        process_extstore_command(c, tokens, ntokens);
+#endif
     } else {
         out_string(c, "ERROR");
     }
