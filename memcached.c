@@ -3449,7 +3449,7 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
     io->io.page_version = hdr->page_version;
     io->io.page_id = hdr->page_id;
     io->io.offset = hdr->offset;
-    io->io.len = hdr->nbytes;
+    io->io.len = hdr->ntotal;
     io->io.mode = OBJ_IO_READ;
 
     // TODO: set the callback function
