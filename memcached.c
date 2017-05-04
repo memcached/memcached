@@ -3035,6 +3035,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     extstore_get_stats(c->thread->storage, &st);
     APPEND_STAT("extstore_page_allocs", "%llu", (unsigned long long)st.page_allocs);
     APPEND_STAT("extstore_page_evictions", "%llu", (unsigned long long)st.page_evictions);
+    APPEND_STAT("extstore_page_reclaims", "%llu", (unsigned long long)st.page_reclaims);
     APPEND_STAT("extstore_pages_free", "%llu", (unsigned long long)st.pages_free);
     APPEND_STAT("extstore_pages_used", "%llu", (unsigned long long)st.pages_used);
     APPEND_STAT("extstore_objects_evicted", "%llu", (unsigned long long)st.objects_evicted);
