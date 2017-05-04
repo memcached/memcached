@@ -1333,11 +1333,10 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     return did_moves;
 }
 #ifdef EXTSTORE
-// TODO: percentage of total memory/chunks free instead of hardcoded page
-// count.
 static int lru_maintainer_store(void *storage, const int clsid) {
     //int i;
     int did_moves = 0;
+    int item_age = settings.ext_item_age;
     bool mem_limit_reached = false;
     unsigned int chunks_free;
     unsigned int chunks_perslab;
@@ -1347,10 +1346,11 @@ static int lru_maintainer_store(void *storage, const int clsid) {
         return 0;
     chunks_free = slabs_available_chunks(clsid, &mem_limit_reached,
             NULL, &chunks_perslab);
-    if (!mem_limit_reached)
-        return 0;
     if (chunks_free > (chunks_perslab * 2.5))
         return 0;
+    // if we are low on chunks and no spare, push out early.
+    if (chunks_free < (chunks_perslab / 2) && mem_limit_reached)
+        item_age = 0;
 
     it_info.it = NULL;
     lru_pull_tail(clsid, COLD_LRU, 0, LRU_PULL_RETURN_ITEM, 0, &it_info);
@@ -1363,7 +1363,7 @@ static int lru_maintainer_store(void *storage, const int clsid) {
         uint32_t flags;
         // TODO: Doesn't presently work with chunked items. */
         if ((it->it_flags & ITEM_CHUNKED) == 0 &&
-                (settings.ext_item_age == 0 || current_time - it->time > settings.ext_item_age)) {
+                (item_age == 0 || current_time - it->time > item_age)) {
             if (settings.inline_ascii_response) {
                 flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
             } else {

@@ -997,6 +997,7 @@ static void slab_rebalance_finish(void) {
             slab_rebal.d_clsid);
     } else if (slab_rebal.d_clsid == SLAB_GLOBAL_PAGE_POOL) {
         /* mem_malloc'ed might be higher than mem_limit. */
+        mem_limit_reached = false;
         memory_release();
     }
 
