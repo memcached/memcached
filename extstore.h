@@ -10,6 +10,7 @@
 struct extstore_stats {
     uint64_t page_allocs;
     uint64_t page_evictions;
+    uint64_t page_reclaims;
     uint64_t pages_free; /* currently unallocated/unused pages */
     uint64_t pages_used;
     uint64_t objects_evicted;

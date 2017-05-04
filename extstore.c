@@ -705,6 +705,7 @@ static void _free_page(store_engine *e, store_page *p) {
     e->page_freelist = p;
     e->page_free++;
     pthread_mutex_unlock(&e->mutex);
+    STAT_INCR(e, page_reclaims, 1);
 }
 
 /* engine maint thread; takes engine context.
