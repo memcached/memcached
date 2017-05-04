@@ -270,7 +270,9 @@ struct slab_stats {
     X(auth_cmds) \
     X(auth_errors) \
     X(idle_kicks) /* idle connections killed */ \
-    X(get_extstore)
+    X(get_extstore) \
+    X(recache_from_extstore) \
+    X(miss_from_extstore)
 
 /**
  * Stats stored per-thread.
@@ -387,6 +389,7 @@ struct settings {
 #ifdef EXTSTORE
     unsigned int ext_item_size; /* minimum size of items to store externally */
     unsigned int ext_item_age; /* max age of tail item before storing ext. */
+    unsigned int ext_recache_rate; /* counter++ % recache_rate == 0 > recache */
 #endif
 };
 
@@ -581,6 +584,7 @@ struct conn {
     int    suffixleft;
 #ifdef EXTSTORE
     int io_wrapleft;
+    unsigned int recache_counter;
     io_wrap *io_wraplist; /* linked list of io_wraps */
     bool io_queued; /* FIXME: debugging flag */
 #endif

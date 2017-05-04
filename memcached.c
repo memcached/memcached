@@ -619,7 +619,56 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     return c;
 }
+#ifdef EXTSTORE
+static void recache_or_free(conn *c, io_wrap *wrap) {
+    item *it = (item *)wrap->io.buf;
+    item_hdr *hdr = (item_hdr *)ITEM_data(wrap->hdr_it);
+    // If request was ultimately a miss, unlink the header.
+    if (wrap->miss) {
+        item_unlink(wrap->hdr_it);
+        slabs_free(it, hdr->ntotal, slabs_clsid(hdr->ntotal));
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.miss_from_extstore++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+    } else {
+        // TODO: hv can be recovered from it
+        uint32_t hv = hash(ITEM_key(wrap->hdr_it), wrap->hdr_it->nkey);
+        bool do_free = true;
+        // opt to throw away rather than wait on a lock.
+        void *hold_lock = item_trylock(hv);
+        if (hold_lock != NULL) {
+            item *h_it = wrap->hdr_it;
+            uint8_t flags = ITEM_LINKED|ITEM_FETCHED|ITEM_ACTIVE;
+            // Item must be recently hit at least twice to recache.
+            if (((h_it->it_flags & flags) == flags) &&
+                    h_it->time > current_time - ITEM_UPDATE_INTERVAL &&
+                    c->recache_counter++ % settings.ext_recache_rate == 0) {
+                do_free = false;
+                it->it_flags &= ~ITEM_LINKED;
+                it->refcount = 0;
+                it->h_next = NULL; // might not be necessary.
+                STORAGE_delete(c->thread->storage, h_it);
+                item_replace(h_it, it, hv);
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.recache_from_extstore++;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
+            }
+        }
 
+        if (do_free)
+            slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
+        if (hold_lock)
+            item_trylock_unlock(hold_lock);
+    }
+    wrap->io.buf = NULL; // sanity.
+    wrap->io.next = NULL;
+    wrap->next = NULL;
+    wrap->active = false;
+
+    // TODO: reuse lock and/or hv.
+    item_remove(wrap->hdr_it);
+}
+#endif
 static void conn_release_items(conn *c) {
     assert(c != NULL);
 
@@ -641,35 +690,18 @@ static void conn_release_items(conn *c) {
             do_cache_free(c->thread->suffix_cache, *(c->suffixcurr));
         }
     }
-
+#ifdef EXTSTORE
     if (c->io_wraplist) {
         io_wrap *tmp = c->io_wraplist;
         while (tmp) {
             io_wrap *next = tmp->next;
-            item *it = (item *)tmp->io.buf;
-            item_hdr *hdr = (item_hdr *)ITEM_data(tmp->hdr_it);
-            // FIXME: Temporarily, we free the "item" here instead of
-            // replacing it.
-            // If request was ultimately a miss, unlink the header.
-            // FIXME: grab the item lock once?
-            if (tmp->miss) {
-                item_unlink(tmp->hdr_it);
-                slabs_free(it, hdr->ntotal, slabs_clsid(hdr->ntotal));
-            } else {
-                slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
-            }
-            tmp->io.buf = NULL; // sanity.
-            tmp->io.next = NULL;
-            tmp->next = NULL;
-            tmp->active = false;
-
-            item_remove(tmp->hdr_it);
+            recache_or_free(c, tmp);
             do_cache_free(c->thread->io_cache, tmp); // lockless
             tmp = next;
         }
         c->io_wraplist = NULL;
     }
-
+#endif
     c->icurr = c->ilist;
     c->suffixcurr = c->suffixlist;
 }
@@ -2980,7 +3012,11 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
     APPEND_STAT("get_flushed", "%llu", (unsigned long long)thread_stats.get_flushed);
+#ifdef EXTSTORE
     APPEND_STAT("get_extstore", "%llu", (unsigned long long)thread_stats.get_extstore);
+    APPEND_STAT("recache_from_extstore", "%llu", (unsigned long long)thread_stats.recache_from_extstore);
+    APPEND_STAT("miss_from_extstore", "%llu", (unsigned long long)thread_stats.miss_from_extstore);
+#endif
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
     APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
     APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);
@@ -4171,6 +4207,12 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
         }
     } else if (strcmp(tokens[1].value, "item_age") == 0 && ntokens >= 3) {
         if (!safe_strtoul(tokens[2].value, &settings.ext_item_age)) {
+            out_string(c, "ERROR");
+        } else {
+            out_string(c, "OK");
+        }
+    } else if (strcmp(tokens[1].value, "recache_rate") == 0 && ntokens >= 3) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_recache_rate)) {
             out_string(c, "ERROR");
         } else {
             out_string(c, "OK");
@@ -6137,6 +6179,7 @@ int main (int argc, char **argv) {
         EXT_PATH,
         EXT_ITEM_SIZE,
         EXT_ITEM_AGE,
+        EXT_RECACHE_RATE,
 #endif
         MODERN
     };
@@ -6173,6 +6216,7 @@ int main (int argc, char **argv) {
         [EXT_PATH] = "ext_path",
         [EXT_ITEM_SIZE] = "ext_item_size",
         [EXT_ITEM_AGE] = "ext_item_age",
+        [EXT_RECACHE_RATE] = "ext_recache_rate",
 #endif
         [MODERN] = "modern",
         NULL
@@ -6191,6 +6235,7 @@ int main (int argc, char **argv) {
 #ifdef EXTSTORE
     settings.ext_item_size = 512;
     settings.ext_item_age = 0;
+    settings.ext_recache_rate = 2;
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.page_count = 64;
     ext_cf.wbuf_size = 1024 * 1024 * 8;
@@ -6710,6 +6755,16 @@ int main (int argc, char **argv) {
                 }
                 if (!safe_strtoul(subopts_value, &settings.ext_item_age)) {
                     fprintf(stderr, "could not parse argument to ext_item_age\n");
+                    return 1;
+                }
+                break;
+            case EXT_RECACHE_RATE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_recache_rate argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_recache_rate)) {
+                    fprintf(stderr, "could not parse argument to ext_recache_rate\n");
                     return 1;
                 }
                 break;
