@@ -6303,6 +6303,10 @@ int main (int argc, char **argv) {
                 settings.temporary_ttl = atoi(subopts_value);
                 break;
             case IDLE_TIMEOUT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing numeric argument for idle_timeout\n");
+                    return 1;
+                }
                 settings.idle_timeout = atoi(subopts_value);
                 break;
             case WATCHER_LOGBUF_SIZE:
