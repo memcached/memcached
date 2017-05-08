@@ -39,6 +39,10 @@ typedef struct {
     uint64_t moves_to_warm;
     uint64_t moves_within_lru;
     uint64_t direct_reclaims;
+    uint64_t hits_to_hot;
+    uint64_t hits_to_warm;
+    uint64_t hits_to_cold;
+    uint64_t hits_to_temp;
     rel_time_t evicted_time;
 } itemstats_t;
 
@@ -663,6 +667,8 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
 }
 
 void item_stats(ADD_STAT add_stats, void *c) {
+    struct thread_stats thread_stats;
+    threadlocal_stats_aggregate(&thread_stats);
     itemstats_t totals;
     int n;
     for (n = 0; n < MAX_NUMBER_OF_SLAB_CLASSES; n++) {
@@ -707,6 +713,20 @@ void item_stats(ADD_STAT add_stats, void *c) {
             }
             if (lru_type_map[x] == COLD_LRU)
                 totals.evicted_time = itemstats[i].evicted_time;
+            switch (lru_type_map[x]) {
+                case HOT_LRU:
+                    totals.hits_to_hot = thread_stats.lru_hits[i];
+                    break;
+                case WARM_LRU:
+                    totals.hits_to_warm = thread_stats.lru_hits[i];
+                    break;
+                case COLD_LRU:
+                    totals.hits_to_cold = thread_stats.lru_hits[i];
+                    break;
+                case TEMP_LRU:
+                    totals.hits_to_temp = thread_stats.lru_hits[i];
+                    break;
+            }
             pthread_mutex_unlock(&lru_locks[i]);
         }
         if (size == 0)
@@ -758,6 +778,18 @@ void item_stats(ADD_STAT add_stats, void *c) {
                                 "%llu", (unsigned long long)totals.moves_within_lru);
             APPEND_NUM_FMT_STAT(fmt, n, "direct_reclaims",
                                 "%llu", (unsigned long long)totals.direct_reclaims);
+            APPEND_NUM_FMT_STAT(fmt, n, "hits_to_hot",
+                                "%llu", (unsigned long long)totals.hits_to_hot);
+
+            APPEND_NUM_FMT_STAT(fmt, n, "hits_to_warm",
+                                "%llu", (unsigned long long)totals.hits_to_warm);
+
+            APPEND_NUM_FMT_STAT(fmt, n, "hits_to_cold",
+                                "%llu", (unsigned long long)totals.hits_to_cold);
+
+            APPEND_NUM_FMT_STAT(fmt, n, "hits_to_temp",
+                                "%llu", (unsigned long long)totals.hits_to_temp);
+
         }
     }
 

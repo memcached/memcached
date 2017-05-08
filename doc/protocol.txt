@@ -865,6 +865,10 @@ moves_within_lru       Number of times active items were bumped within
                        HOT or WARM.
 direct_reclaims        Number of times worker threads had to directly pull LRU
                        tails to find memory for a new item.
+hits_to_hot
+hits_to_warm
+hits_to_cold
+hits_to_temp           Number of get_hits to each sub-LRU.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.

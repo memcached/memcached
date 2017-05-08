@@ -1499,7 +1499,7 @@ static void process_bin_get_or_touch(conn *c) {
             c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
         } else {
             c->thread->stats.get_cmds++;
-            c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
+            c->thread->stats.lru_hits[it->slabs_clsid]++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
@@ -3398,7 +3398,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                 /* item_get() has incremented it->refcount for us */
                 pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.slab_stats[ITEM_clsid(it)].get_hits++;
+                c->thread->stats.lru_hits[it->slabs_clsid]++;
                 c->thread->stats.get_cmds++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
                 *(c->ilist + i) = it;

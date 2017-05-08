@@ -274,6 +274,7 @@ struct thread_stats {
     THREAD_STATS_FIELDS
 #undef X
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
+    uint64_t lru_hits[POWER_LARGEST];
 };
 
 /**

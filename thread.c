@@ -641,6 +641,8 @@ void threadlocal_stats_reset(void) {
 
         memset(&threads[ii].stats.slab_stats, 0,
                 sizeof(threads[ii].stats.slab_stats));
+        memset(&threads[ii].stats.lru_hits, 0,
+                sizeof(uint64_t) * POWER_LARGEST);
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
     }
@@ -664,6 +666,13 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
             threads[ii].stats.slab_stats[sid].name;
             SLAB_STATS_FIELDS
 #undef X
+        }
+
+        for (sid = 0; sid < POWER_LARGEST; sid++) {
+            stats->lru_hits[sid] +=
+                threads[ii].stats.lru_hits[sid];
+            stats->slab_stats[CLEAR_LRU(sid)].get_hits +=
+                threads[ii].stats.lru_hits[sid];
         }
 
         pthread_mutex_unlock(&threads[ii].stats.mutex);
