@@ -1090,6 +1090,21 @@ Upon receiving this command, the server closes the
 connection. However, the client may also simply close the connection
 when it no longer needs it, without issuing this command.
 
+Security restrictions
+---------------------
+
+In the debug build the following commands are available for testing the
+security restrictions:
+
+"misbehave" is a command with no arguments:
+
+misbehave\r\n
+
+This command causes the worker thread to attempt a) opening a new socket, and
+b) executing a shell command. If either one is successful, an error is
+returned. Otherwise memcached returns OK.
+The check is available only in Linux builds with seccomp enabled.
+
 
 UDP protocol
 ------------
