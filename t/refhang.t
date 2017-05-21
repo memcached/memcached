@@ -3,11 +3,15 @@
 use strict;
 use warnings;
 
-use Test::More tests => 127;
+use Test::More;
 
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
+
+plan skip_all => 'Test is flaky. Needs special hooks.';
+
+plan tests => 127;
 
 # start up a server with 10 maximum connections
 my $server = new_memcached("-m 6");
