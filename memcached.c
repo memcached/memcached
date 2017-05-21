@@ -326,7 +326,7 @@ static void *conn_timeout_thread(void *arg) {
             if ((i % CONNS_PER_SLICE) == 0) {
                 if (settings.verbose > 2)
                     fprintf(stderr, "idle timeout thread sleeping for %ulus\n",
-                        timeslice);
+                        (unsigned int)timeslice);
                 usleep(timeslice);
             }
 
