@@ -3249,6 +3249,16 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas)
     return (p - suffix) + 2;
 }
 
+#define IT_REFCOUNT_LIMIT 60000
+static inline item* limited_get(char *key, size_t nkey, conn *c) {
+    item *it = item_get(key, nkey, c, DO_UPDATE);
+    if (it && it->refcount > IT_REFCOUNT_LIMIT) {
+        item_remove(it);
+        it = NULL;
+    }
+    return it;
+}
+
 /* ntokens is overwritten here... shrug.. */
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
     char *key;
@@ -3273,7 +3283,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 return;
             }
 
-            it = item_get(key, nkey, c, DO_UPDATE);
+            it = limited_get(key, nkey, c);
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
