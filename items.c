@@ -1402,7 +1402,7 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
 
 static pthread_t lru_maintainer_tid;
 
-#define MAX_LRU_MAINTAINER_SLEEP 500000
+#define MAX_LRU_MAINTAINER_SLEEP 1000000
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
 static void *lru_maintainer_thread(void *arg) {
@@ -1443,26 +1443,31 @@ static void *lru_maintainer_thread(void *arg) {
         for (i = POWER_SMALLEST; i < MAX_NUMBER_OF_SLAB_CLASSES; i++) {
             next_juggles[i] = next_juggles[i] > last_sleep ? next_juggles[i] - last_sleep : 0;
 
-            // Sleep the thread just for the minimum amount (or not at all)
-            if (next_juggles[i] < to_sleep) {
-                to_sleep = next_juggles[i];
-            }
-            if (next_juggles[i] > 0)
+            if (next_juggles[i] > 0) {
+                // Sleep the thread just for the minimum amount (or not at all)
+                if (next_juggles[i] < to_sleep)
+                    to_sleep = next_juggles[i];
                 continue;
+            }
 
             int did_moves = lru_maintainer_juggle(i);
             if (did_moves == 0) {
-                if (backoff_juggles[i] < MAX_LRU_MAINTAINER_SLEEP)
+                if (backoff_juggles[i] != 0) {
                     backoff_juggles[i] += backoff_juggles[i] / 8;
+                } else {
+                    backoff_juggles[i] = MIN_LRU_MAINTAINER_SLEEP;
+                }
                 if (backoff_juggles[i] > MAX_LRU_MAINTAINER_SLEEP)
                     backoff_juggles[i] = MAX_LRU_MAINTAINER_SLEEP;
             } else if (backoff_juggles[i] > 0) {
                 backoff_juggles[i] /= 2;
                 if (backoff_juggles[i] < MIN_LRU_MAINTAINER_SLEEP) {
-                    backoff_juggles[i] = MIN_LRU_MAINTAINER_SLEEP;
+                    backoff_juggles[i] = 0;
                 }
             }
             next_juggles[i] = backoff_juggles[i];
+            if (next_juggles[i] < to_sleep)
+                to_sleep = next_juggles[i];
         }
 
         /* Minimize the sleep if we had async LRU bumps to process */
