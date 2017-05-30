@@ -429,7 +429,7 @@ typedef struct _stritem {
 
 // TODO: If we eventually want user loaded modules, we can't use an enum :(
 enum crawler_run_type {
-    CRAWLER_EXPIRED=0, CRAWLER_METADUMP
+    CRAWLER_AUTOEXPIRE=0, CRAWLER_EXPIRED, CRAWLER_METADUMP
 };
 
 typedef struct {

@@ -4,6 +4,7 @@
 #define TEMP_LRU 192
 
 #define CLEAR_LRU(id) (id & ~(3<<6))
+#define GET_LRU(id) (id & (3<<6))
 
 /* See items.c */
 uint64_t get_cas_id(void);

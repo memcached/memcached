@@ -1333,19 +1333,18 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
  */
 static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, logger *l) {
     int i;
-    static rel_time_t next_crawls[MAX_NUMBER_OF_SLAB_CLASSES];
-    static rel_time_t next_crawl_wait[MAX_NUMBER_OF_SLAB_CLASSES];
-    uint8_t todo[MAX_NUMBER_OF_SLAB_CLASSES];
-    memset(todo, 0, sizeof(uint8_t) * MAX_NUMBER_OF_SLAB_CLASSES);
+    static rel_time_t next_crawls[POWER_LARGEST];
+    static rel_time_t next_crawl_wait[POWER_LARGEST];
+    uint8_t todo[POWER_LARGEST];
+    memset(todo, 0, sizeof(uint8_t) * POWER_LARGEST);
     bool do_run = false;
-    if (!cdata->crawl_complete) {
-        return;
-    }
 
-    for (i = POWER_SMALLEST; i < MAX_NUMBER_OF_SLAB_CLASSES; i++) {
+    // TODO: If not segmented LRU, skip non-cold
+    for (i = POWER_SMALLEST; i < POWER_LARGEST; i++) {
         crawlerstats_t *s = &cdata->crawlerstats[i];
         /* We've not successfully kicked off a crawl yet. */
         if (s->run_complete) {
+            char *lru_name = "na";
             pthread_mutex_lock(&cdata->lock);
             int x;
             /* Should we crawl again? */
@@ -1378,7 +1377,24 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
             }
 
             next_crawls[i] = current_time + next_crawl_wait[i] + 5;
-            LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_CRAWLER_STATUS, NULL, i, (unsigned long long)low_watermark,
+            switch (GET_LRU(i)) {
+                case HOT_LRU:
+                    lru_name = "hot";
+                    break;
+                case WARM_LRU:
+                    lru_name = "warm";
+                    break;
+                case COLD_LRU:
+                    lru_name = "cold";
+                    break;
+                case TEMP_LRU:
+                    lru_name = "temp";
+                    break;
+            }
+            LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_CRAWLER_STATUS, NULL,
+                    CLEAR_LRU(i),
+                    lru_name,
+                    (unsigned long long)low_watermark,
                     (unsigned long long)available_reclaims,
                     (unsigned int)since_run,
                     next_crawls[i] - current_time,
@@ -1396,7 +1412,7 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
         }
     }
     if (do_run) {
-        lru_crawler_start(todo, settings.lru_crawler_tocrawl, CRAWLER_EXPIRED, cdata, NULL, 0);
+        lru_crawler_start(todo, settings.lru_crawler_tocrawl, CRAWLER_AUTOEXPIRE, cdata, NULL, 0);
     }
 }
 

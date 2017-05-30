@@ -14,7 +14,7 @@ typedef struct {
 
 struct crawler_expired_data {
     pthread_mutex_t lock;
-    crawlerstats_t crawlerstats[MAX_NUMBER_OF_SLAB_CLASSES];
+    crawlerstats_t crawlerstats[POWER_LARGEST];
     /* redundant with crawlerstats_t so we can get overall start/stop/done */
     rel_time_t start_time;
     rel_time_t end_time;
