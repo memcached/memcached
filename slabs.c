@@ -516,7 +516,7 @@ static void memory_release() {
     while (mem_malloced > mem_limit &&
             (p = get_page_from_global_pool()) != NULL) {
         free(p);
-        mem_malloced -= settings.item_size_max;
+        mem_malloced -= settings.slab_page_size;
     }
 }
 
@@ -991,7 +991,7 @@ static void slab_rebalance_finish(void) {
     d_cls->slab_list[d_cls->slabs++] = slab_rebal.slab_start;
     /* Don't need to split the page into chunks if we're just storing it */
     if (slab_rebal.d_clsid > SLAB_GLOBAL_PAGE_POOL) {
-        memset(slab_rebal.slab_start, 0, (size_t)settings.item_size_max);
+        memset(slab_rebal.slab_start, 0, (size_t)settings.slab_page_size);
         split_slab_page_into_freelist(slab_rebal.slab_start,
             slab_rebal.d_clsid);
     } else if (slab_rebal.d_clsid == SLAB_GLOBAL_PAGE_POOL) {
