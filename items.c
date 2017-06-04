@@ -1370,6 +1370,7 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
     uint8_t todo[POWER_LARGEST];
     memset(todo, 0, sizeof(uint8_t) * POWER_LARGEST);
     bool do_run = false;
+    unsigned int tocrawl_limit = 0;
 
     // TODO: If not segmented LRU, skip non-cold
     for (i = POWER_SMALLEST; i < POWER_LARGEST; i++) {
@@ -1438,13 +1439,21 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
             pthread_mutex_unlock(&cdata->lock);
         }
         if (current_time > next_crawls[i]) {
+            pthread_mutex_lock(&lru_locks[i]);
+            if (sizes[i] > tocrawl_limit) {
+                tocrawl_limit = sizes[i];
+            }
+            pthread_mutex_unlock(&lru_locks[i]);
             todo[i] = 1;
             do_run = true;
             next_crawls[i] = current_time + 5; // minimum retry wait.
         }
     }
     if (do_run) {
-        lru_crawler_start(todo, settings.lru_crawler_tocrawl, CRAWLER_AUTOEXPIRE, cdata, NULL, 0);
+        if (settings.lru_crawler_tocrawl && settings.lru_crawler_tocrawl < tocrawl_limit) {
+            tocrawl_limit = settings.lru_crawler_tocrawl;
+        }
+        lru_crawler_start(todo, tocrawl_limit, CRAWLER_AUTOEXPIRE, cdata, NULL, 0);
     }
 }
 
