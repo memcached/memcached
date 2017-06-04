@@ -58,7 +58,7 @@ def determine_move(history, diffs, totals):
     decision = (-1, -1)
     for sid, slab in diffs.items():
         w[sid] = {}
-        if 'evicted_d' not in slab:
+        if 'evicted_d' not in slab or 'total_pages_d' not in slab:
             continue
         # mark this window as dirty if total pages increases or evictions
         # happened
