@@ -3275,10 +3275,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             key = key_token->value;
             nkey = key_token->length;
 
-            if(nkey > KEY_MAX_LENGTH) {
+            if (nkey > KEY_MAX_LENGTH) {
                 out_string(c, "CLIENT_ERROR bad command line format");
                 while (i-- > 0) {
                     item_remove(*(c->ilist + i));
+                    if (return_cas || !settings.inline_ascii_response) {
+                        do_cache_free(c->thread->suffix_cache, *(c->suffixlist + i));
+                    }
                 }
                 return;
             }
