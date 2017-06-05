@@ -152,15 +152,15 @@ static void maxconns_handler(const int fd, const short which, void *arg) {
     }
 }
 
-#define REALTIME_MAXDELTA 60*60*24*30
+#define REALTIME_MAXDELTA 1000000000
 
 /*
  * given time value that's either unix time or delta from current unix time, return
- * unix time. Use the fact that delta can't exceed one month (and real time value can't
+ * unix time. Use the fact that delta can't exceed a billion (and real time value can't
  * be that low).
  */
 static rel_time_t realtime(const time_t exptime) {
-    /* no. of seconds in 30 days - largest possible delta exptime */
+    /* Your maximum TTL can be ~32 years, then it interpets this as UNIX timestamp */
 
     if (exptime == 0) return 0; /* 0 means never expire */
 
@@ -3483,11 +3483,10 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     /* Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
     exptime = exptime_int;
 
-    /* Negative exptimes can underflow and end up immortal. realtime() will
-       immediately expire values that are greater than REALTIME_MAXDELTA, but less
-       than process_started, so lets aim for that. */
+    /* Negative exptimes can underflow and end up immortal. Let's expire the
+       value immediately instead */
     if (exptime < 0)
-        exptime = REALTIME_MAXDELTA + 1;
+        exptime = 1;
 
     // does cas value exist?
     if (handle_cas) {
