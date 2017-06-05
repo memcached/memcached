@@ -3754,6 +3754,10 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     return OK;
 }
 
+static void unset_noreply(conn *c) {
+    c->noreply = false;
+}
+
 static void process_delete_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
@@ -3767,6 +3771,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         bool valid = (ntokens == 4 && (hold_is_zero || sets_noreply))
             || (ntokens == 5 && hold_is_zero && sets_noreply);
         if (!valid) {
+            unset_noreply(c);
             out_string(c, "CLIENT_ERROR bad command line format.  "
                        "Usage: delete <key> [noreply]");
             return;
