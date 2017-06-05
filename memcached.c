@@ -1323,7 +1323,8 @@ static void complete_incr_bin(conn *c) {
         if (cas) {
             c->cas = cas;
         }
-        write_bin_response(c, &rsp->message.body, 0, 0,
+        write_bin_response(c, &rsp->message.body,
+                           sizeof(rsp->message.body.value), 0,
                            sizeof(rsp->message.body.value));
         break;
     case NON_NUMERIC:
@@ -1349,7 +1350,9 @@ static void complete_incr_bin(conn *c) {
 
                 if (store_item(it, NREAD_ADD, c)) {
                     c->cas = ITEM_get_cas(it);
-                    write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
+                    write_bin_response(c, &rsp->message.body,
+                                       sizeof(rsp->message.body.value), 0,
+                                       sizeof(rsp->message.body.value));
                 } else {
                     write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED,
                                     NULL, 0);
