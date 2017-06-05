@@ -6158,6 +6158,7 @@ int main (int argc, char **argv) {
                     settings.slab_chunk_size_max = 524288;
                 }
             }
+            free(buf);
             break;
         case 'S': /* set Sasl authentication to true. Default is false */
 #ifndef ENABLE_SASL
