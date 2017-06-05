@@ -41,12 +41,18 @@ sub handle_logfile
     $fd_reopened = $logfile;
 }
 
+my $timestamp = '';
+
 sub reopen_logfile
 {
     my ($logfile) = @_;
 
-    open *STDERR, ">>$logfile";
-    open *STDOUT, ">>$logfile";
+    # If you want to use highres timestamping, you need to install package 'moreutils' (debian/ubuntu)   
+    # Otherwise, timestamping is being silently ignored
+    $timestamp = "|ts '%Y-%m-%dT%H:%m:%.SZ' " if system('which ts >/dev/null') == 0;
+
+    open *STDERR, "$timestamp>>$logfile";
+    open *STDOUT, "$timestamp>>$logfile";
     open *STDIN, ">>/dev/null";
     $fd_reopened = $logfile;
 }
