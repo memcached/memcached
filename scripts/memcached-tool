@@ -79,6 +79,20 @@ die "Couldn't connect to $addr\n" unless $sock;
 if ($mode eq 'dump') {
     my %items;
     my $totalitems;
+    my $uptime;
+    my $time;
+
+    print $sock "stats\r\n";
+    while (<$sock>){
+    last if /^END/;
+        if (/^STAT uptime (\d+)/){
+            $uptime = $1 + 0;
+        }
+        if (/^STAT time (\d+)/){
+            $time = $1 + 0;
+        }
+    }
+    my $no_expiration_ts = $time - $uptime;
 
     print $sock "stats items\r\n";
 
@@ -102,7 +116,7 @@ if ($mode eq 'dump') {
             # return format looks like this
             # ITEM foo [6 b; 1176415152 s]
             if (/^ITEM (\S+) \[.* (\d+) s\]/) {
-                $keyexp{$1} = $2;
+                $keyexp{$1} = ( (($2 + 0) == $no_expiration_ts) ? "0" : $2 )
             }
         }
 
