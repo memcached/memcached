@@ -497,7 +497,7 @@ struct conn {
     char   *rbuf;   /** buffer to read commands into */
     char   *rcurr;  /** but if we parsed some already, this is where we stopped */
     int    rsize;   /** total allocated size of rbuf */
-    int    rbytes;  /** how much data, starting from rcur, do we have unparsed */
+    int    rbytes;  /** how much data, starting from rcurr, do we have unparsed */
 
     char   *wbuf;
     char   *wcurr;
