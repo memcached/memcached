@@ -84,7 +84,7 @@ if ($mode eq 'dump') {
 
     print $sock "stats\r\n";
     while (<$sock>){
-    last if /^END/;
+        last if /^END/;
         if (/^STAT uptime (\d+)/){
             $uptime = $1 + 0;
         }
