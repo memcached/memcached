@@ -352,8 +352,6 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     item *it;
 
     assert(id >= POWER_SMALLEST && id <= power_largest);
-    if (id < POWER_SMALLEST || id > power_largest)
-        return;
 
     MEMCACHED_SLABS_FREE(size, id, ptr);
     p = &slabclass[id];
