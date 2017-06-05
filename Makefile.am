@@ -33,6 +33,10 @@ if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += solaris_priv.c
 endif
 
+if BUILD_OPENBSD_PRIVS
+memcached_SOURCES += openbsd_priv.c
+endif
+
 if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
