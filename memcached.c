@@ -2919,6 +2919,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 #endif /* !WIN32 */
 
     APPEND_STAT("curr_connections", "%llu", (unsigned long long)stats_state.curr_conns - 1);
+    APPEND_STAT("curr_connections_pct", "%.2f", ((stats_state.curr_conns - 1.f) / settings.maxconns) * 100.f );
     APPEND_STAT("total_connections", "%llu", (unsigned long long)stats.total_conns);
     if (settings.maxconns_fast) {
         APPEND_STAT("rejected_connections", "%llu", (unsigned long long)stats.rejected_conns);
