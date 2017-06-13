@@ -35,7 +35,6 @@ endif
 
 if BUILD_LINUX_PRIVS
 memcached_SOURCES += linux_priv.c
-LDFLAGS += -lseccomp
 endif
 
 if ENABLE_SASL
@@ -51,6 +50,11 @@ memcached_LDADD =
 memcached_DEPENDENCIES =
 memcached_debug_DEPENDENCIES =
 CLEANFILES=
+
+if BUILD_LINUX_PRIVS
+memcached_LDADD += -lseccomp
+memcached_debug_LDADD += -lseccomp
+endif
 
 if BUILD_DTRACE
 BUILT_SOURCES += memcached_dtrace.h
