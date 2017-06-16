@@ -716,6 +716,8 @@ enum move_status {
     MOVE_PASS=0, MOVE_FROM_SLAB, MOVE_FROM_LRU, MOVE_BUSY, MOVE_LOCKED
 };
 
+#define SLAB_MOVE_MAX_LOOPS 1000
+
 /* refcount == 0 is safe since nobody can incr while item_lock is held.
  * refcount != 0 is impossible since flags/etc can be modified in other
  * threads. instead, note we found a busy one and bail. logic in do_item_get
@@ -781,11 +783,12 @@ static int slab_rebalance_move(void) {
                 if ((hold_lock = item_trylock(hv)) == NULL) {
                     status = MOVE_LOCKED;
                 } else {
+                    bool is_linked = (it->it_flags & ITEM_LINKED);
                     refcount = refcount_incr(it);
                     if (refcount == 2) { /* item is linked but not busy */
                         /* Double check ITEM_LINKED flag here, since we're
                          * past a memory barrier from the mutex. */
-                        if ((it->it_flags & ITEM_LINKED) != 0) {
+                        if (is_linked) {
                             status = MOVE_FROM_LRU;
                         } else {
                             /* refcount == 1 + !ITEM_LINKED means the item is being
@@ -793,6 +796,16 @@ static int slab_rebalance_move(void) {
                              * yet. Let it bleed off on its own and try again later */
                             status = MOVE_BUSY;
                         }
+                    } else if (refcount > 2 && is_linked) {
+                        // TODO: Mark items for delete/rescue and process
+                        // outside of the main loop.
+                        if (slab_rebal.busy_loops > SLAB_MOVE_MAX_LOOPS) {
+                            slab_rebal.busy_deletes++;
+                            // Only safe to hold slabs lock because refcount
+                            // can't drop to 0 until we release item lock.
+                            do_item_unlink(it, hv);
+                        }
+                        status = MOVE_BUSY;
                     } else {
                         if (settings.verbose > 2) {
                             fprintf(stderr, "Slab reassign hit a busy item: refcount: %d (%d -> %d)\n",
@@ -941,6 +954,7 @@ static int slab_rebalance_move(void) {
             stats.slab_reassign_busy_items += slab_rebal.busy_items;
             STATS_UNLOCK();
             slab_rebal.busy_items = 0;
+            slab_rebal.busy_loops++;
         } else {
             slab_rebal.done++;
         }
@@ -959,6 +973,7 @@ static void slab_rebalance_finish(void) {
     uint32_t evictions_nomem;
     uint32_t inline_reclaim;
     uint32_t chunk_rescues;
+    uint32_t busy_deletes;
 
     pthread_mutex_lock(&slabs_lock);
 
@@ -999,6 +1014,7 @@ static void slab_rebalance_finish(void) {
         memory_release();
     }
 
+    slab_rebal.busy_loops = 0;
     slab_rebal.done       = 0;
     slab_rebal.s_clsid    = 0;
     slab_rebal.d_clsid    = 0;
@@ -1009,9 +1025,12 @@ static void slab_rebalance_finish(void) {
     inline_reclaim = slab_rebal.inline_reclaim;
     rescues   = slab_rebal.rescues;
     chunk_rescues = slab_rebal.chunk_rescues;
+    busy_deletes = slab_rebal.busy_deletes;
     slab_rebal.evictions_nomem    = 0;
     slab_rebal.inline_reclaim = 0;
     slab_rebal.rescues  = 0;
+    slab_rebal.chunk_rescues = 0;
+    slab_rebal.busy_deletes = 0;
 
     slab_rebalance_signal = 0;
 
@@ -1023,6 +1042,7 @@ static void slab_rebalance_finish(void) {
     stats.slab_reassign_evictions_nomem += evictions_nomem;
     stats.slab_reassign_inline_reclaim += inline_reclaim;
     stats.slab_reassign_chunk_rescues += chunk_rescues;
+    stats.slab_reassign_busy_deletes += busy_deletes;
     stats_state.slab_reassign_running = false;
     STATS_UNLOCK();
 
