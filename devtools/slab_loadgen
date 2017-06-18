@@ -1,0 +1,47 @@
+#!/usr/bin/python3
+# Copyright 2017 Facebook
+# Licensed under the same terms as memcached itself.
+
+import argparse
+import socket
+import sys
+import csv
+from time import sleep
+
+parser = argparse.ArgumentParser(description="daemon for emulating set/get pressure")
+parser.add_argument("--host", help="host to connect to",
+                    type=str, default="localhost:11211")
+parser.add_argument("-s", "--sleep", help="seconds between rounds",
+                    type=int, default="1")
+parser.add_argument("-c", "--config", help="load specification file",
+                    type=str, default="./config")
+
+args = parser.parse_args()
+
+# prefix, size, count, do_gets
+with open(args.config, newline='') as f:
+    reader = csv.reader(f)
+    tests = [row for row in reader]
+
+host, port = args.host.split(':')
+
+c = socket.create_connection((host, port), 5)
+s = c.makefile(mode="rw", buffering=1)
+
+global_counter = 0
+
+while True:
+    # LATER: stat argument file
+    # LATER: reload arg file if necessary
+    for test in tests:
+        prefix = test[0]
+        size = int(test[1])
+        count = int(test[2])
+        do_gets = int(test[3])
+        value = 'x'*size
+        # issue N 'noreply' sets per specified size
+        for i in range(count):
+            s.write('set {}{} 0 0 {} noreply\r\n{}\r\n'.format(prefix,global_counter,size,value))
+            global_counter += 1
+        # TODO: issue N gets per specified size?
+    sleep(args.sleep)

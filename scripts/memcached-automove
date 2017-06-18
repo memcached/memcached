@@ -45,18 +45,27 @@ def determine_move(history, diffs, totals):
     - if > 2.5 pages of free space without free chunks reducing for N trials,
       and no evictions for N trials, free to global.
     - use ratio of how far apart age can be between slab classes
-    - if get_hits exists, allowable distance in age from the *youngest* slab
+    - TODO: if get_hits exists, allowable distance in age from the *youngest* slab
       class is based on the percentage of get_hits the class gets, against the
       factored max distance, ie:
       1% max delta. youngest is 900, oldest allowable is 900+90
       if class has 30% of get_hits, it can be 930
     - youngest evicting slab class gets page moved to it, if outside ratio max
+    - use age as average over window. smooths over items falling out of WARM.
+      also gives a little weight: if still evicting, a few more pages than
+      necessary may be moved, pulling the classes closer together. Hopefully
+      avoidnig ping-ponging.
     """
+    # rotate windows
+    history['w'].append({})
+    if (len(history['w']) > args.window):
+        history['w'].pop(0)
     w = history['w'][-1]
     oldest = (-1, 0)
     youngest = (-1, sys.maxsize)
     decision = (-1, -1)
     for sid, slab in diffs.items():
+
         w[sid] = {}
         if 'evicted_d' not in slab or 'total_pages_d' not in slab:
             continue
@@ -67,6 +76,8 @@ def determine_move(history, diffs, totals):
         if slab['evicted_d'] > 0:
             w[sid]['dirty'] = 1
             w[sid]['ev'] = 1
+        w[sid]['age'] = slab['age']
+        age = window_check(history, sid, 'age') / len(history['w'])
 
         # if > 2.5 pages free, and not dirty, reassign to global page pool and
         # break.
@@ -76,26 +87,28 @@ def determine_move(history, diffs, totals):
                 break
 
         # are we the oldest slab class? (and a valid target)
-        if slab['age'] > oldest[1] and slab['total_pages'] > 5:
-            oldest = (sid, slab['age'])
+        if age > oldest[1] and slab['total_pages'] > 5:
+            oldest = (sid, age)
 
         # are we the youngest evicting slab class?
-        if slab['age'] < youngest[1] and window_check(history, sid, 'ev') > args.window / 2:
-            youngest = (sid, slab['age'])
+        ev_total = window_check(history, sid, 'ev')
+        window_min = args.window / 2
+        if age < youngest[1] and ev_total > window_min:
+            youngest = (sid, age)
+            #if args.verbose:
+            #    print("window: {} range: {}".format(ev_total, window_min))
 
     # is the youngest slab class too young?
-    if args.verbose:
-        print("old, young:", oldest, youngest)
     if youngest[0] != -1 and oldest[0] != -1:
-        if youngest[1] < oldest[1] * args.ratio:
+        if args.verbose:
+            print("old:   [class: {}] [age: {:.2f}]\nyoung: [class: {}] [age: {:.2f}]".format(
+                int(oldest[0]), oldest[1], int(youngest[0]), youngest[1]))
+        if youngest[1] < oldest[1] * args.ratio and w[youngest[0]].get('ev'):
             decision = (oldest[0], youngest[0])
 
-    # rotate windows
-    history['w'].append({})
-    # TODO: Configurable window size
-    if (len(history['w']) > args.window):
-        history['w'].pop(0)
-    return decision
+    if (len(history['w']) >= args.window):
+        return decision
+    return (-1, -1)
 
 
 def run_move(s, decision):
@@ -106,6 +119,11 @@ def run_move(s, decision):
 
 
 def diff_stats(before, after):
+    """ fills out "diffs" as deltas between before/after,
+    and "totals" as the sum of all slab classes.
+    "_d" postfix to keys means the delta between before/after.
+    non-postfix keys are total as of 'after's reading.
+    """
     diffs = {}
     totals = {}
     for slabid in after.keys():
@@ -160,16 +178,19 @@ def pct(num, divisor):
 
 
 def show_detail(diffs, totals):
-    print("  {:2s}: {:8s} (pct  ) {:10s} (pct    ) {:6s} (pct)".format('sb',
-                'evicted', 'items', 'pages'))
+    """ just a pretty printer for some extra data """
+    print("\n  {:2s}: {:8s} (pct  ) {:10s} (pct    ) {:6s} (pct)   {:6s}".format('sb',
+                'evicted', 'items', 'pages', 'age'))
 
     for sid, slab in diffs.items():
         if 'evicted_d' not in slab:
             continue
-        print("  {:2d}: {:8d} ({:.2f}%) {:10d} ({:.4f}%) {:6d} ({:.2f}%)".format(
+        print("  {:2d}: {:8d} ({:.2f}%) {:10d} ({:.4f}%) {:6d} ({:.2f}%) {:6d}".format(
               int(sid), slab['evicted_d'], pct(slab['evicted_d'], totals['evicted_d']),
               slab['number'], pct(slab['number'], totals['number']),
-              slab['total_pages'], pct(slab['total_pages'], totals['total_pages'])))
+              slab['total_pages'], pct(slab['total_pages'],
+              totals['total_pages']),
+              slab['age']))
 
 
 stats_pre = {}
