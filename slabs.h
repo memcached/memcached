@@ -34,6 +34,13 @@ bool slabs_adjust_mem_limit(size_t new_mem_limit);
 /** Return a datum for stats in binary protocol */
 bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 
+typedef struct {
+    unsigned int chunks_per_page;
+    long int free_chunks;
+    long int total_pages;
+} slab_stats_automove;
+void fill_slab_stats_automove(slab_stats_automove *am);
+
 /** Fill buffer with stats */ /*@null@*/
 void slabs_stats(ADD_STAT add_stats, void *c);
 

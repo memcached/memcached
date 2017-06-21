@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include "memcached.h"
 #include "bipbuffer.h"
+#include "slab_automove.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
@@ -607,6 +608,33 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     *bytes = bufcurr;
     pthread_mutex_unlock(&lru_locks[id]);
     return buffer;
+}
+
+/* With refactoring of the various stats code the automover won't need a
+ * custom function here.
+ */
+void fill_item_stats_automove(item_stats_automove *am) {
+    int n;
+    for (n = 0; n < MAX_NUMBER_OF_SLAB_CLASSES; n++) {
+        item_stats_automove *cur = &am[n];
+
+        // outofmemory records into HOT
+        int i = n | HOT_LRU;
+        pthread_mutex_lock(&lru_locks[i]);
+        cur->outofmemory = itemstats[i].outofmemory;
+        pthread_mutex_unlock(&lru_locks[i]);
+
+        // evictions and tail age are from COLD
+        i = n | COLD_LRU;
+        pthread_mutex_lock(&lru_locks[i]);
+        cur->evicted = itemstats[i].evicted;
+        if (tails[i]) {
+            cur->age = current_time - tails[i]->time;
+        } else {
+            cur->age = 0;
+        }
+        pthread_mutex_unlock(&lru_locks[i]);
+     }
 }
 
 void item_stats_totals(ADD_STAT add_stats, void *c) {
@@ -1293,12 +1321,11 @@ static uint64_t lru_total_bumps_dropped(void) {
 static int lru_maintainer_juggle(const int slabs_clsid) {
     int i;
     int did_moves = 0;
-    bool mem_limit_reached = false;
     uint64_t total_bytes = 0;
     unsigned int chunks_perslab = 0;
-    unsigned int chunks_free = 0;
+    //unsigned int chunks_free = 0;
     /* TODO: if free_chunks below high watermark, increase aggressiveness */
-    chunks_free = slabs_available_chunks(slabs_clsid, &mem_limit_reached,
+    slabs_available_chunks(slabs_clsid, NULL,
             &total_bytes, &chunks_perslab);
     if (settings.temp_lru) {
         /* Only looking for reclaims. Run before we size the LRU. */
@@ -1310,14 +1337,6 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
             }
         }
         total_bytes -= temp_lru_size(slabs_clsid);
-    }
-
-    /* If slab automove is enabled on any level, and we have more than 2 pages
-     * worth of chunks free in this class, ask (gently) to reassign a page
-     * from this class back into the global pool (0)
-     */
-    if (settings.slab_automove > 0 && chunks_free > (chunks_perslab * 2.5)) {
-        slabs_reassign(slabs_clsid, SLAB_GLOBAL_PAGE_POOL);
     }
 
     rel_time_t cold_age = 0;
@@ -1467,6 +1486,7 @@ static void *lru_maintainer_thread(void *arg) {
     useconds_t to_sleep = MIN_LRU_MAINTAINER_SLEEP;
     useconds_t last_sleep = MIN_LRU_MAINTAINER_SLEEP;
     rel_time_t last_crawler_check = 0;
+    rel_time_t last_automove_check = 0;
     useconds_t next_juggles[MAX_NUMBER_OF_SLAB_CLASSES];
     useconds_t backoff_juggles[MAX_NUMBER_OF_SLAB_CLASSES];
     struct crawler_expired_data cdata;
@@ -1479,6 +1499,10 @@ static void *lru_maintainer_thread(void *arg) {
         fprintf(stderr, "Failed to allocate logger for LRU maintainer thread\n");
         abort();
     }
+
+    double last_ratio = settings.slab_automove_ratio;
+    void *am = slab_automove_init(settings.slab_automove_window,
+            settings.slab_automove_ratio);
 
     pthread_mutex_lock(&lru_maintainer_lock);
     if (settings.verbose > 2)
@@ -1537,8 +1561,32 @@ static void *lru_maintainer_thread(void *arg) {
             lru_maintainer_crawler_check(&cdata, l);
             last_crawler_check = current_time;
         }
+
+        if (settings.slab_automove == 1 && last_automove_check != current_time) {
+            if (last_ratio != settings.slab_automove_ratio) {
+                slab_automove_free(am);
+                am = slab_automove_init(settings.slab_automove_window,
+                        settings.slab_automove_ratio);
+                last_ratio = settings.slab_automove_ratio;
+            }
+            int src, dst;
+            slab_automove_run(am, &src, &dst);
+            if (src != -1 && dst != -1) {
+                slabs_reassign(src, dst);
+                LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_SLAB_MOVE, NULL,
+                        src, dst);
+            }
+            // dst == 0 means reclaim to global pool, be more aggressive
+            if (dst != 0) {
+                last_automove_check = current_time;
+            } else if (dst == 0) {
+                // also ensure we minimize the thread sleep
+                to_sleep = 1000;
+            }
+        }
     }
     pthread_mutex_unlock(&lru_maintainer_lock);
+    slab_automove_free(am);
     if (settings.verbose > 2)
         fprintf(stderr, "LRU maintainer thread stopping\n");
 
