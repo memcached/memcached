@@ -19,6 +19,7 @@ enum log_entry_type {
     LOGGER_ITEM_GET,
     LOGGER_ITEM_STORE,
     LOGGER_CRAWLER_STATUS,
+    LOGGER_SLAB_MOVE,
 };
 
 enum log_entry_subtype {

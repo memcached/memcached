@@ -87,7 +87,7 @@ def determine_move(history, diffs, totals):
                 break
 
         # are we the oldest slab class? (and a valid target)
-        if age > oldest[1] and slab['total_pages'] > 5:
+        if age > oldest[1] and slab['total_pages'] > 2:
             oldest = (sid, age)
 
         # are we the youngest evicting slab class?

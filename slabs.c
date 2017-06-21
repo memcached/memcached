@@ -375,6 +375,22 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     return;
 }
 
+/* With refactoring of the various stats code the automover won't need a
+ * custom function here.
+ */
+void fill_slab_stats_automove(slab_stats_automove *am) {
+    int n;
+    pthread_mutex_lock(&slabs_lock);
+    for (n = 0; n < MAX_NUMBER_OF_SLAB_CLASSES; n++) {
+        slabclass_t *p = &slabclass[n];
+        slab_stats_automove *cur = &am[n];
+        cur->chunks_per_page = p->perslab;
+        cur->free_chunks = p->sl_curr;
+        cur->total_pages = p->slabs;
+    }
+    pthread_mutex_unlock(&slabs_lock);
+}
+
 static int nz_strcmp(int nzlength, const char *nz, const char *z) {
     int zlength=strlen(z);
     return (zlength == nzlength) && (strncmp(nz, z, zlength) == 0) ? 0 : -1;

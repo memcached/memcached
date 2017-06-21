@@ -8,7 +8,7 @@ use lib "$Bin/lib";
 use MemcachedTest;
 use Data::Dumper qw/Dumper/;
 
-my $server = new_memcached('-m 60 -o slab_reassign,slab_automove,lru_crawler,lru_maintainer');
+my $server = new_memcached('-m 60 -o slab_reassign,slab_automove,lru_crawler,lru_maintainer,slab_automove_window=3');
 my $sock = $server->sock;
 
 my $value = "B"x11000;
@@ -40,7 +40,7 @@ for (1 .. $todelete) {
     for ($tries = 20; $tries > 0; $tries--) {
         sleep 1;
         my $stats = mem_stats($sock);
-        if ($stats->{slab_global_page_pool} > 0) {
+        if ($stats->{slab_global_page_pool} > 24) {
             last;
         }
     }

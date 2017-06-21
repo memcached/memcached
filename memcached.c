@@ -245,6 +245,8 @@ static void settings_init(void) {
     settings.hashpower_init = 0;
     settings.slab_reassign = false;
     settings.slab_automove = 0;
+    settings.slab_automove_ratio = 0.8;
+    settings.slab_automove_window = 30;
     settings.shutdown_command = false;
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
@@ -3017,6 +3019,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
+    APPEND_STAT("slab_automove_ratio", "%.2f", settings.slab_automove_ratio);
+    APPEND_STAT("slab_automove_window", "%.2f", settings.slab_automove_window);
     APPEND_STAT("slab_chunk_max", "%d", settings.slab_chunk_size_max);
     APPEND_STAT("lru_crawler", "%s", settings.lru_crawler ? "yes" : "no");
     APPEND_STAT("lru_crawler_sleep", "%d", settings.lru_crawler_sleep);
@@ -3822,19 +3826,28 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
 
 static void process_slabs_automove_command(conn *c, token_t *tokens, const size_t ntokens) {
     unsigned int level;
+    double ratio;
 
     assert(c != NULL);
 
     set_noreply_maybe(c, tokens, ntokens);
 
-    level = strtoul(tokens[2].value, NULL, 10);
-    if (level == 0) {
-        settings.slab_automove = 0;
-    } else if (level == 1 || level == 2) {
-        settings.slab_automove = level;
+    if (strcmp(tokens[2].value, "ratio") == 0) {
+        if (ntokens < 5 || !safe_strtod(tokens[3].value, &ratio)) {
+            out_string(c, "ERROR");
+            return;
+        }
+        settings.slab_automove_ratio = ratio;
     } else {
-        out_string(c, "ERROR");
-        return;
+        level = strtoul(tokens[2].value, NULL, 10);
+        if (level == 0) {
+            settings.slab_automove = 0;
+        } else if (level == 1 || level == 2) {
+            settings.slab_automove = level;
+        } else {
+            out_string(c, "ERROR");
+            return;
+        }
     }
     out_string(c, "OK");
     return;
@@ -4135,7 +4148,7 @@ static void process_command(conn *c, char *command) {
                 break;
             }
             return;
-        } else if (ntokens == 4 &&
+        } else if (ntokens >= 4 &&
             (strcmp(tokens[COMMAND_TOKEN + 1].value, "automove") == 0)) {
             process_slabs_automove_command(c, tokens, ntokens);
         } else {
@@ -5872,6 +5885,8 @@ int main (int argc, char **argv) {
         HASHPOWER_INIT,
         SLAB_REASSIGN,
         SLAB_AUTOMOVE,
+        SLAB_AUTOMOVE_RATIO,
+        SLAB_AUTOMOVE_WINDOW,
         TAIL_REPAIR_TIME,
         HASH_ALGORITHM,
         LRU_CRAWLER,
@@ -5897,6 +5912,8 @@ int main (int argc, char **argv) {
         [HASHPOWER_INIT] = "hashpower",
         [SLAB_REASSIGN] = "slab_reassign",
         [SLAB_AUTOMOVE] = "slab_automove",
+        [SLAB_AUTOMOVE_RATIO] = "slab_automove_ratio",
+        [SLAB_AUTOMOVE_WINDOW] = "slab_automove_window",
         [TAIL_REPAIR_TIME] = "tail_repair_time",
         [HASH_ALGORITHM] = "hash_algorithm",
         [LRU_CRAWLER] = "lru_crawler",
@@ -6210,6 +6227,28 @@ int main (int argc, char **argv) {
                 settings.slab_automove = atoi(subopts_value);
                 if (settings.slab_automove < 0 || settings.slab_automove > 2) {
                     fprintf(stderr, "slab_automove must be between 0 and 2\n");
+                    return 1;
+                }
+                break;
+            case SLAB_AUTOMOVE_RATIO:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing slab_automove_ratio argument\n");
+                    return 1;
+                }
+                settings.slab_automove_ratio = atof(subopts_value);
+                if (settings.slab_automove_ratio <= 0 || settings.slab_automove_ratio > 1) {
+                    fprintf(stderr, "slab_automove_ratio must be > 0 and < 1\n");
+                    return 1;
+                }
+                break;
+            case SLAB_AUTOMOVE_WINDOW:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing slab_automove_window argument\n");
+                    return 1;
+                }
+                settings.slab_automove_window = atoi(subopts_value);
+                if (settings.slab_automove_window < 3) {
+                    fprintf(stderr, "slab_automove_window must be > 2\n");
                     return 1;
                 }
                 break;
