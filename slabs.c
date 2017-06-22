@@ -1088,6 +1088,7 @@ static int slabs_reassign_pick_any(int dst) {
 }
 
 static enum reassign_result_type do_slabs_reassign(int src, int dst) {
+    bool nospare = false;
     if (slab_rebalance_signal != 0)
         return REASSIGN_RUNNING;
 
@@ -1104,7 +1105,11 @@ static enum reassign_result_type do_slabs_reassign(int src, int dst) {
         dst < SLAB_GLOBAL_PAGE_POOL || dst > power_largest)
         return REASSIGN_BADCLASS;
 
+    pthread_mutex_lock(&slabs_lock);
     if (slabclass[src].slabs < 2)
+        nospare = true;
+    pthread_mutex_unlock(&slabs_lock);
+    if (nospare)
         return REASSIGN_NOSPARE;
 
     slab_rebal.s_clsid = src;
