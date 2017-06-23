@@ -1092,7 +1092,7 @@ static void *slab_rebalance_thread(void *arg) {
         } else if (was_busy) {
             /* Stuck waiting for some items to unlock, so slow down a bit
              * to give them a chance to free up */
-            usleep(50);
+            usleep(1000);
         }
 
         if (slab_rebalance_signal == 0) {
