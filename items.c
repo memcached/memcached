@@ -1091,6 +1091,7 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                 /* Rescue ACTIVE items aggressively */
                 if ((search->it_flags & ITEM_ACTIVE) != 0) {
                     search->it_flags &= ~ITEM_ACTIVE;
+                    removed++;
                     if (cur_lru == WARM_LRU) {
                         itemstats[id].moves_within_lru++;
                         do_item_update_nolock(search);
@@ -1102,7 +1103,6 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                         move_to_lru = WARM_LRU;
                         do_item_unlink_q(search);
                         it = search;
-                        removed++;
                     }
                 } else if (sizes_bytes[id] > limit ||
                            current_time - search->time > max_age) {
