@@ -234,9 +234,9 @@ static void settings_init(void) {
     settings.lru_crawler_tocrawl = 0;
     settings.lru_maintainer_thread = false;
     settings.lru_segmented = false;
-    settings.hot_lru_pct = 32;
-    settings.warm_lru_pct = 32;
-    settings.hot_max_age = 3600;
+    settings.hot_lru_pct = 20;
+    settings.warm_lru_pct = 40;
+    settings.hot_max_factor = 0.2;
     settings.warm_max_factor = 2.0;
     settings.inline_ascii_response = true;
     settings.temp_lru = false;
@@ -3033,7 +3033,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("lru_segmented", "%s", settings.lru_segmented ? "yes" : "no");
     APPEND_STAT("hot_lru_pct", "%d", settings.hot_lru_pct);
     APPEND_STAT("warm_lru_pct", "%d", settings.warm_lru_pct);
-    APPEND_STAT("hot_max_age", "%u", settings.hot_max_age);
+    APPEND_STAT("hot_max_factor", "%.2f", settings.hot_max_factor);
     APPEND_STAT("warm_max_factor", "%.2f", settings.warm_max_factor);
     APPEND_STAT("temp_lru", "%s", settings.temp_lru ? "yes" : "no");
     APPEND_STAT("temporary_ttl", "%u", settings.temporary_ttl);
@@ -3925,7 +3925,7 @@ static void process_memlimit_command(conn *c, token_t *tokens, const size_t ntok
 static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) {
     uint32_t pct_hot;
     uint32_t pct_warm;
-    uint32_t hot_age;
+    double hot_factor;
     int32_t ttl;
     double factor;
 
@@ -3934,18 +3934,18 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
     if (strcmp(tokens[1].value, "tune") == 0 && ntokens >= 7) {
         if (!safe_strtoul(tokens[2].value, &pct_hot) ||
             !safe_strtoul(tokens[3].value, &pct_warm) ||
-            !safe_strtoul(tokens[4].value, &hot_age) ||
+            !safe_strtod(tokens[4].value, &hot_factor) ||
             !safe_strtod(tokens[5].value, &factor)) {
             out_string(c, "ERROR");
         } else {
             if (pct_hot + pct_warm > 80) {
                 out_string(c, "ERROR hot and warm pcts must not exceed 80");
-            } else if (factor <= 0) {
-                out_string(c, "ERROR cold age factor must be greater than 0");
+            } else if (factor <= 0 || hot_factor <= 0) {
+                out_string(c, "ERROR hot/warm age factors must be greater than 0");
             } else {
                 settings.hot_lru_pct = pct_hot;
                 settings.warm_lru_pct = pct_warm;
-                settings.hot_max_age = hot_age;
+                settings.hot_max_factor = hot_factor;
                 settings.warm_max_factor = factor;
                 out_string(c, "OK");
             }
@@ -5588,8 +5588,8 @@ static void usage(void) {
            "                (requires lru_maintainer)\n"
            "              - warm_lru_pct: Pct of slab memory to reserve for warm lru.\n"
            "                (requires lru_maintainer)\n"
-           "              - hot_max_age: Items idle longer than this drop from hot lru.\n"
-           "              - cold_max_factor: Items idle longer than cold lru age * this drop from warm.\n"
+           "              - hot_max_factor: Items idle longer than cold lru age * drop from hot lru.\n"
+           "              - warm_max_factor: Items idle longer than cold lru age * this drop from warm.\n"
            "              - temporary_ttl: TTL's below this use separate LRU, cannot be evicted.\n"
            "                (requires lru_maintainer)\n"
            "              - idle_timeout: Timeout for idle connections\n"
@@ -5895,7 +5895,7 @@ int main (int argc, char **argv) {
         LRU_MAINTAINER,
         HOT_LRU_PCT,
         WARM_LRU_PCT,
-        HOT_MAX_AGE,
+        HOT_MAX_FACTOR,
         WARM_MAX_FACTOR,
         TEMPORARY_TTL,
         IDLE_TIMEOUT,
@@ -5922,7 +5922,7 @@ int main (int argc, char **argv) {
         [LRU_MAINTAINER] = "lru_maintainer",
         [HOT_LRU_PCT] = "hot_lru_pct",
         [WARM_LRU_PCT] = "warm_lru_pct",
-        [HOT_MAX_AGE] = "hot_max_age",
+        [HOT_MAX_FACTOR] = "hot_max_factor",
         [WARM_MAX_FACTOR] = "warm_max_factor",
         [TEMPORARY_TTL] = "temporary_ttl",
         [IDLE_TIMEOUT] = "idle_timeout",
@@ -6328,13 +6328,14 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
-            case HOT_MAX_AGE:
+            case HOT_MAX_FACTOR:
                 if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing hot_max_age argument\n");
+                    fprintf(stderr, "Missing hot_max_factor argument\n");
                     return 1;
                 }
-                if (!safe_strtoul(subopts_value, &settings.hot_max_age)) {
-                    fprintf(stderr, "invalid argument to hot_max_age\n");
+                settings.hot_max_factor = atof(subopts_value);
+                if (settings.hot_max_factor <= 0) {
+                    fprintf(stderr, "hot_max_factor must be > 0\n");
                     return 1;
                 }
                 break;

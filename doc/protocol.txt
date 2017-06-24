@@ -418,10 +418,10 @@ HOT, WARM, COLD. There is also a TEMP LRU. See doc/new_lru.txt for details.
 lru <tune|mode|temp_ttl> <option list>
 
 - "tune" takes numeric arguments "percent hot", "percent warm",
-  "max hot age", "max warm age factor". IE: "lru tune 10 25 3600 2.0".
+  "max hot factor", "max warm age factor". IE: "lru tune 10 25 0.1 2.0".
   This would cap HOT_LRU at 10% of the cache, or tail is idle longer than
-  3600s. WARM_LRU is up to 25% of cache, or tail is idle longer than 2x
-  COLD_LRU.
+  10% of COLD_LRU. WARM_LRU is up to 25% of cache, or tail is idle longer
+  than 2x COLD_LRU.
 
 - "mode" <flat|segmented>: "flat" is traditional mode. "segmented" uses
   HOT|WARM|COLD split. "segmented" mode requires `-o lru_maintainer` at start
@@ -789,7 +789,7 @@ other stats command.
 |                   | bool     | Split LRU mode and background threads        |
 | hot_lru_pct       | 32       | Pct of slab memory reserved for HOT LRU      |
 | warm_lru_pct      | 32       | Pct of slab memory reserved for WARM LRU     |
-| hot_max_age       | 32u      | Max idle age of items in HOT LRU             |
+| hot_max_factor    | float    | Set idle age of HOT LRU to COLD age * this   |
 | warm_max_factor   | float    | Set idle age of WARM LRU to COLD age * this  |
 | temp_lru          | bool     | If yes, items < temporary_ttl use TEMP_LRU   |
 | temporary_ttl     | 32u      | Items with TTL < this are marked  temporary  |

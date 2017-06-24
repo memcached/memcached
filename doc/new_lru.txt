@@ -14,8 +14,10 @@ Now, enabling `-o lru_maintainer` changes all of the behavior below:
    HOT, move to WARM, if active in WARM, stay in WARM. If active in COLD, move
    to WARM.
    The exception is that items active in COLD are immediately moved to WARM.
- * HOT/WARM each capped at 32% of memory available for that slab class. COLD
+ * HOT/WARM each capped at N% of memory available for that slab class. COLD
    is uncapped (by default, as of this writing).
+ * HOT/WARM are also age capped by ratios of COLD's age. IE: HOT is capped at
+   N% of memory, or 10% of the age of COLD, whichever comes first.
  * Items flow from HOT/WARM into COLD.
  * A background thread exists which shuffles items between/within the LRU's as
    limits are reached. This includes moves from COLD to WARM.

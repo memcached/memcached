@@ -1341,21 +1341,23 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
 
     rel_time_t cold_age = 0;
     rel_time_t hot_age = 0;
+    rel_time_t warm_age = 0;
     /* If LRU is in flat mode, force items to drain into COLD via max age */
     if (settings.lru_segmented) {
-        hot_age = settings.hot_max_age;
         pthread_mutex_lock(&lru_locks[slabs_clsid|COLD_LRU]);
         if (tails[slabs_clsid|COLD_LRU]) {
             cold_age = current_time - tails[slabs_clsid|COLD_LRU]->time;
         }
         pthread_mutex_unlock(&lru_locks[slabs_clsid|COLD_LRU]);
+        hot_age = cold_age * settings.hot_max_factor;
+        warm_age = cold_age * settings.warm_max_factor;
     }
 
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 500; i++) {
         int do_more = 0;
         if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, hot_age) ||
-            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, cold_age * settings.warm_max_factor)) {
+            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, warm_age)) {
             do_more++;
         }
         if (settings.lru_segmented) {
