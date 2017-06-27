@@ -18,6 +18,7 @@
 #include "storage.h"
 #endif
 #include "authfile.h"
+#include "restart.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -150,7 +151,7 @@ volatile int slab_rebalance_signal;
 /* hoping this is temporary; I'd prefer to cut globals, but will complete this
  * battle another day.
  */
-void *ext_storage;
+void *ext_storage = NULL;
 #endif
 /** file scope variables **/
 static conn *listen_conn = NULL;
@@ -188,6 +189,7 @@ static enum transmit_result transmit(conn *c);
  * can block the listener via a condition.
  */
 static volatile bool allow_new_conns = true;
+static bool stop_main_loop = false;
 static struct event maxconnsevent;
 static void maxconns_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
@@ -374,6 +376,7 @@ extern pthread_mutex_t conn_lock;
 
 /* Connection timeout thread bits */
 static pthread_t conn_timeout_tid;
+static int do_run_conn_timeout_thread;
 
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
@@ -385,7 +388,7 @@ static void *conn_timeout_thread(void *arg) {
     int sleep_time;
     useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
 
-    while(1) {
+    while(do_run_conn_timeout_thread) {
         if (settings.verbose > 2)
             fprintf(stderr, "idle timeout thread at top of connection list\n");
 
@@ -443,6 +446,7 @@ static int start_conn_timeout_thread() {
     if (settings.idle_timeout == 0)
         return -1;
 
+    do_run_conn_timeout_thread = 1;
     if ((ret = pthread_create(&conn_timeout_tid, NULL,
         conn_timeout_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create idle connection timeout thread: %s\n",
@@ -450,6 +454,14 @@ static int start_conn_timeout_thread() {
         return -1;
     }
 
+    return 0;
+}
+
+int stop_conn_timeout_thread(void) {
+    if (!do_run_conn_timeout_thread)
+        return -1;
+    do_run_conn_timeout_thread = 0;
+    pthread_join(conn_timeout_tid, NULL);
     return 0;
 }
 
@@ -5073,7 +5085,7 @@ static void process_command(conn *c, char *command) {
                     out_string(c, "ERROR failed to start lru crawler thread");
                 }
             } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
-                if (stop_item_crawler_thread() == 0) {
+                if (stop_item_crawler_thread(CRAWLER_NOWAIT) == 0) {
                     out_string(c, "OK");
                 } else {
                     out_string(c, "ERROR failed to stop lru crawler thread");
@@ -6520,6 +6532,10 @@ static int server_socket_unix(const char *path, int access_mask) {
  */
 volatile rel_time_t current_time;
 static struct event clockevent;
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+static bool monotonic = false;
+static int64_t monotonic_start;
+#endif
 
 /* libevent uses a monotonic clock when available for event scheduling. Aside
  * from jitter, simply ticking our internal timer here is accurate enough.
@@ -6528,25 +6544,12 @@ static struct event clockevent;
 static void clock_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 1, .tv_usec = 0};
     static bool initialized = false;
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
-    static bool monotonic = false;
-    static time_t monotonic_start;
-#endif
 
     if (initialized) {
         /* only delete the event if it's actually there. */
         evtimer_del(&clockevent);
     } else {
         initialized = true;
-        /* process_started is initialized to time() - 2. We initialize to 1 so
-         * flush_all won't underflow during tests. */
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
-        struct timespec ts;
-        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-            monotonic = true;
-            monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
-        }
-#endif
     }
 
     // While we're here, check for hash table expansion.
@@ -6630,6 +6633,9 @@ static void usage(void) {
     printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
     printf("-Y, --auth-file=<file>    (EXPERIMENTAL) enable ASCII protocol authentication. format:\n"
            "                          user:pass\\nuser2:pass2\\n\n");
+    printf("-e, --memory-file=<file>  (EXPERIMENTAL) mmap a file for item memory.\n"
+           "                          use only in ram disks or persistent memory mounts!\n"
+           "                          enables restartable cache (stop with SIGUSR1)\n");
 #ifdef TLS
     printf("-Z, --enable-ssl          enable TLS/SSL\n");
 #endif
@@ -6837,6 +6843,11 @@ static void sighup_handler(const int sig) {
     settings.sig_hup = true;
 }
 
+static void sig_usrhandler(const int sig) {
+    printf("Graceful shutdown signal handled: %s.\n", strsignal(sig));
+    stop_main_loop = true;
+}
+
 #ifndef HAVE_SIGIGNORE
 static int sigignore(int sig) {
     struct sigaction sa = { .sa_handler = SIG_IGN, .sa_flags = 0 };
@@ -6977,6 +6988,296 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
     return true;
 }
 
+struct _mc_meta_data {
+    void *mmap_base;
+    uint64_t old_base;
+    char *slab_config; // string containing either factor or custom slab list.
+    int64_t time_delta;
+    uint64_t process_started;
+    uint32_t current_time;
+};
+
+// We need to remember a combination of configuration settings and global
+// state for restart viability and resumption of internal services.
+// Compared to the number of tunables and state values, relatively little
+// does need to be remembered.
+// Time is the hardest; we have to assume the sys clock is correct and re-sync for
+// the lost time after restart.
+static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
+    struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
+
+    // Settings to remember.
+    // TODO: should get a version of version which is numeric, else
+    // comparisons for compat reasons are difficult.
+    // it may be possible to punt on this for now; since we can test for the
+    // absense of another key... such as the new numeric version.
+    //restart_set_kv(ctx, "version", "%s", VERSION);
+    // We hold the original factor or subopts _string_
+    // it can be directly compared without roundtripping through floats or
+    // serializing/deserializing the long options list.
+    restart_set_kv(ctx, "slab_config", "%s", meta->slab_config);
+    restart_set_kv(ctx, "maxbytes", "%llu", (unsigned long long) settings.maxbytes);
+    restart_set_kv(ctx, "chunk_size", "%d", settings.chunk_size);
+    restart_set_kv(ctx, "item_size_max", "%d", settings.item_size_max);
+    restart_set_kv(ctx, "slab_chunk_size_max", "%d", settings.slab_chunk_size_max);
+    restart_set_kv(ctx, "slab_page_size", "%d", settings.slab_page_size);
+    restart_set_kv(ctx, "use_cas", "%s", settings.use_cas ? "true" : "false");
+    restart_set_kv(ctx, "slab_reassign", "%s", settings.slab_reassign ? "true" : "false");
+
+    // Online state to remember.
+
+    // current time is tough. we need to rely on the clock being correct to
+    // pull the delta between stop and start times. we also need to know the
+    // delta between start time and now to restore monotonic clocks.
+    // for non-monotonic clocks (some OS?), process_started is the only
+    // important one.
+    restart_set_kv(ctx, "current_time", "%u", current_time);
+    // types are great until... this. some systems time_t could be big, but
+    // I'm assuming never negative.
+    restart_set_kv(ctx, "process_started", "%llu", (unsigned long long) process_started);
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        restart_set_kv(ctx, "stop_time", "%lu", tv.tv_sec);
+    }
+
+    // Might as well just fetch the next CAS value to use than tightly
+    // coupling the internal variable into the restart system.
+    restart_set_kv(ctx, "current_cas", "%llu", (unsigned long long) get_cas_id());
+    restart_set_kv(ctx, "oldest_cas", "%llu", (unsigned long long) settings.oldest_cas);
+    restart_set_kv(ctx, "logger_gid", "%llu", logger_get_gid());
+    restart_set_kv(ctx, "hashpower", "%u", stats_state.hash_power_level);
+    // NOTE: oldest_live is a rel_time_t, which aliases for unsigned int.
+    // should future proof this with a 64bit upcast, or fetch value from a
+    // converter function/macro?
+    restart_set_kv(ctx, "oldest_live", "%u", settings.oldest_live);
+    // TODO: use uintptr_t etc? is it portable enough?
+    restart_set_kv(ctx, "mmap_oldbase", "%p", meta->mmap_base);
+
+    return 0;
+}
+
+// We must see at least this number of checked lines. Else empty/missing lines
+// could cause a false-positive.
+// TODO: Once crc32'ing of the metadata file is done this could be ensured better by
+// the restart module itself (crc32 + count of lines must match on the
+// backend)
+#define RESTART_REQUIRED_META 17
+
+// With this callback we make a decision on if the current configuration
+// matches up enough to allow reusing the cache.
+// We also re-load important runtime information.
+static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
+    struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
+    char *key;
+    char *val;
+    int reuse_mmap = 0;
+    meta->process_started = 0;
+    meta->time_delta = 0;
+    meta->current_time = 0;
+    int lines_seen = 0;
+
+    // TODO: not sure this is any better than just doing an if/else tree with
+    // strcmp's...
+    enum {
+        R_MMAP_OLDBASE = 0,
+        R_MAXBYTES,
+        R_CHUNK_SIZE,
+        R_ITEM_SIZE_MAX,
+        R_SLAB_CHUNK_SIZE_MAX,
+        R_SLAB_PAGE_SIZE,
+        R_SLAB_CONFIG,
+        R_USE_CAS,
+        R_SLAB_REASSIGN,
+        R_CURRENT_CAS,
+        R_OLDEST_CAS,
+        R_OLDEST_LIVE,
+        R_LOGGER_GID,
+        R_CURRENT_TIME,
+        R_STOP_TIME,
+        R_PROCESS_STARTED,
+        R_HASHPOWER,
+    };
+
+    const char *opts[] = {
+        [R_MMAP_OLDBASE] = "mmap_oldbase",
+        [R_MAXBYTES] = "maxbytes",
+        [R_CHUNK_SIZE] = "chunk_size",
+        [R_ITEM_SIZE_MAX] = "item_size_max",
+        [R_SLAB_CHUNK_SIZE_MAX] = "slab_chunk_size_max",
+        [R_SLAB_PAGE_SIZE] = "slab_page_size",
+        [R_SLAB_CONFIG] = "slab_config",
+        [R_USE_CAS] = "use_cas",
+        [R_SLAB_REASSIGN] = "slab_reassign",
+        [R_CURRENT_CAS] = "current_cas",
+        [R_OLDEST_CAS] = "oldest_cas",
+        [R_OLDEST_LIVE] = "oldest_live",
+        [R_LOGGER_GID] = "logger_gid",
+        [R_CURRENT_TIME] = "current_time",
+        [R_STOP_TIME] = "stop_time",
+        [R_PROCESS_STARTED] = "process_started",
+        [R_HASHPOWER] = "hashpower",
+        NULL
+    };
+
+    while (restart_get_kv(ctx, &key, &val) == RESTART_OK) {
+        int type = 0;
+        int32_t val_int = 0;
+        uint32_t val_uint = 0;
+        int64_t bigval_int = 0;
+        uint64_t bigval_uint = 0;
+
+        while (opts[type] != NULL && strcmp(key, opts[type]) != 0) {
+            type++;
+        }
+        if (opts[type] == NULL) {
+            fprintf(stderr, "[restart] unknown/unhandled key: %s\n", key);
+            continue;
+        }
+        lines_seen++;
+
+        // helper for any boolean checkers.
+        bool val_bool = false;
+        bool is_bool = true;
+        if (strcmp(val, "false") == 0) {
+            val_bool = false;
+        } else if (strcmp(val, "true") == 0) {
+            val_bool = true;
+        } else {
+            is_bool = false;
+        }
+
+        switch (type) {
+        case R_MMAP_OLDBASE:
+            if (!safe_strtoull_hex(val, &meta->old_base)) {
+                fprintf(stderr, "[restart] failed to parse %s: %s\n", key, val);
+                reuse_mmap = -1;
+            }
+            break;
+        case R_MAXBYTES:
+            if (!safe_strtoll(val, &bigval_int) || settings.maxbytes != bigval_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_CHUNK_SIZE:
+            if (!safe_strtol(val, &val_int) || settings.chunk_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_ITEM_SIZE_MAX:
+            if (!safe_strtol(val, &val_int) || settings.item_size_max != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_CHUNK_SIZE_MAX:
+            if (!safe_strtol(val, &val_int) || settings.slab_chunk_size_max != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_PAGE_SIZE:
+            if (!safe_strtol(val, &val_int) || settings.slab_page_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_CONFIG:
+            if (strcmp(val, meta->slab_config) != 0) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_USE_CAS:
+            if (!is_bool || settings.use_cas != val_bool) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_REASSIGN:
+            if (!is_bool || settings.slab_reassign != val_bool) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_CURRENT_CAS:
+            // FIXME: do we need to fail if these values _aren't_ found?
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                set_cas_id(bigval_uint);
+            }
+            break;
+        case R_OLDEST_CAS:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.oldest_cas = bigval_uint;
+            }
+            break;
+        case R_OLDEST_LIVE:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.oldest_live = val_uint;
+            }
+            break;
+        case R_LOGGER_GID:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                logger_set_gid(bigval_uint);
+            }
+            break;
+        case R_PROCESS_STARTED:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                meta->process_started = bigval_uint;
+            }
+            break;
+        case R_CURRENT_TIME:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                meta->current_time = val_uint;
+            }
+            break;
+        case R_STOP_TIME:
+            if (!safe_strtoll(val, &bigval_int)) {
+                reuse_mmap = -1;
+            } else {
+                struct timeval t;
+                gettimeofday(&t, NULL);
+                meta->time_delta = t.tv_sec - bigval_int;
+                // clock has done something crazy.
+                // there are _lots_ of ways the clock can go wrong here, but
+                // this is a safe sanity check since there's nothing else we
+                // can realistically do.
+                if (meta->time_delta <= 0) {
+                    reuse_mmap = -1;
+                }
+            }
+            break;
+        case R_HASHPOWER:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.hashpower_init = val_uint;
+            }
+            break;
+        default:
+            fprintf(stderr, "[restart] unhandled key: %s\n", key);
+        }
+
+        if (reuse_mmap != 0) {
+            fprintf(stderr, "[restart] restart incompatible due to setting for [%s] [old value: %s]\n", key, val);
+            break;
+        }
+    }
+
+    if (lines_seen < RESTART_REQUIRED_META) {
+        fprintf(stderr, "[restart] missing some metadata lines\n");
+        reuse_mmap = -1;
+    }
+
+    return reuse_mmap;
+}
+
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
@@ -6985,6 +7286,7 @@ int main (int argc, char **argv) {
     int maxcore = 0;
     char *username = NULL;
     char *pid_file = NULL;
+    char *memory_file = NULL;
     struct passwd *pw;
     struct rlimit rlim;
     char *buf;
@@ -7003,6 +7305,10 @@ int main (int argc, char **argv) {
     bool use_slab_sizes = false;
     char *slab_sizes_unparsed = NULL;
     bool slab_chunk_size_changed = false;
+    // struct for restart code. Initialized up here so we can curry
+    // important settings to save or validate.
+    struct _mc_meta_data *meta = malloc(sizeof(struct _mc_meta_data));
+    meta->slab_config = NULL;
 #ifdef EXTSTORE
     void *storage = NULL;
     struct extstore_conf_file *storage_file = NULL;
@@ -7152,6 +7458,7 @@ int main (int argc, char **argv) {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
     signal(SIGHUP, sighup_handler);
+    signal(SIGUSR1, sig_usrhandler);
 
     /* init settings */
     settings_init();
@@ -7212,6 +7519,7 @@ int main (int argc, char **argv) {
           "F"   /* Disable flush_all */
           "X"   /* Disable dump commands */
           "Y:"   /* Enable token auth */
+          "e:"  /* mmap path for external item memory */
           "o:"  /* Extended generic options */
           ;
 
@@ -7250,6 +7558,7 @@ int main (int argc, char **argv) {
         {"disable-flush-all", no_argument, 0, 'F'},
         {"disable-dumping", no_argument, 0, 'X'},
         {"auth-file", required_argument, 0, 'Y'},
+        {"memory-file", required_argument, 0, 'e'},
         {"extended", required_argument, 0, 'o'},
         {0, 0, 0, 0}
     };
@@ -7353,12 +7662,16 @@ int main (int argc, char **argv) {
         case 'P':
             pid_file = optarg;
             break;
+        case 'e':
+            memory_file = optarg;
+            break;
         case 'f':
             settings.factor = atof(optarg);
             if (settings.factor <= 1.0) {
                 fprintf(stderr, "Factor must be greater than 1\n");
                 return 1;
             }
+            meta->slab_config = strdup(optarg);
             break;
         case 'n':
             settings.chunk_size = atoi(optarg);
@@ -8022,11 +8335,20 @@ int main (int argc, char **argv) {
     }*/
 
     if (slab_sizes_unparsed != NULL) {
+        // want the unedited string for restart code.
+        char *temp = strdup(slab_sizes_unparsed);
         if (_parse_slab_sizes(slab_sizes_unparsed, slab_sizes)) {
             use_slab_sizes = true;
+            if (meta->slab_config) {
+                free(meta->slab_config);
+            }
+            meta->slab_config = temp;
         } else {
             exit(EX_USAGE);
         }
+    } else if (!meta->slab_config) {
+        // using the default factor.
+        meta->slab_config = "1.25";
     }
 
     if (settings.hot_lru_pct + settings.warm_lru_pct > 80) {
@@ -8233,10 +8555,39 @@ int main (int argc, char **argv) {
     /* initialize other stuff */
     logger_init();
     stats_init();
-    assoc_init(settings.hashpower_init);
     conn_init();
+    bool reuse_mem = false;
+    void *mem_base = NULL;
+    bool prefill = false;
+    if (memory_file != NULL) {
+        preallocate = true;
+        // Easier to manage memory if we prefill the global pool when reusing.
+        prefill = true;
+        restart_register("main", _mc_meta_load_cb, _mc_meta_save_cb, meta);
+        reuse_mem = restart_mmap_open(settings.maxbytes,
+                        memory_file,
+                        &mem_base);
+        // The "save" callback gets called when we're closing out the mmap,
+        // but we don't know what the mmap_base is until after we call open.
+        // So we pass the struct above but have to fill it in here so the
+        // data's available during the save routine.
+        meta->mmap_base = mem_base;
+        // Also, the callbacks for load() run before _open returns, so we
+        // should have the old base in 'meta' as of here.
+    }
+    // Initialize the hash table _after_ checking restart metadata.
+    // We override the hash table start argument with what was live
+    // previously, to avoid filling a huge set of items into a tiny hash
+    // table.
+    assoc_init(settings.hashpower_init);
+#ifdef EXTSTORE
+    if (storage_file && reuse_mem) {
+        fprintf(stderr, "[restart] memory restart with extstore not presently supported.\n");
+        reuse_mem = false;
+    }
+#endif
     slabs_init(settings.maxbytes, settings.factor, preallocate,
-            use_slab_sizes ? slab_sizes : NULL);
+            use_slab_sizes ? slab_sizes : NULL, mem_base, reuse_mem);
 #ifdef EXTSTORE
     if (storage_file) {
         enum extstore_res eres;
@@ -8261,12 +8612,25 @@ int main (int argc, char **argv) {
         }
         ext_storage = storage;
         /* page mover algorithm for extstore needs memory prefilled */
-        slabs_prefill_global();
+        prefill = true;
     }
 #endif
 
     if (settings.drop_privileges) {
         setup_privilege_violations_handler();
+    }
+
+    if (prefill)
+        slabs_prefill_global();
+    /* In restartable mode and we've decided to issue a fixup on memory */
+    if (memory_file != NULL && reuse_mem) {
+        // should've pulled in process_started from meta file.
+        process_started = meta->process_started;
+        // TODO: must be a more canonical way of serializing/deserializing
+        // pointers? passing through uint64_t should work, and we're not
+        // annotating the pointer with anything, but it's still slightly
+        // insane.
+        restart_fixup((void *)meta->old_base);
     }
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
@@ -8321,6 +8685,25 @@ int main (int argc, char **argv) {
     }
 
     /* initialise clock event */
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+    {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+            monotonic = true;
+            monotonic_start = ts.tv_sec;
+            // Monotonic clock needs special handling for restarts.
+            // We get a start time at an arbitrary place, so we need to
+            // restore the original time delta, which is always "now" - _start
+            if (reuse_mem) {
+                // the running timespan at stop time + the time we think we
+                // were stopped.
+                monotonic_start -= meta->current_time + meta->time_delta;
+            } else {
+                monotonic_start -= ITEM_UPDATE_INTERVAL + 2;
+            }
+        }
+    }
+#endif
     clock_handler(0, 0, 0);
 
     /* create unix mode sockets after dropping privileges */
@@ -8405,11 +8788,25 @@ int main (int argc, char **argv) {
     uriencode_init();
 
     /* enter the event loop */
-    if (event_base_loop(main_base, 0) != 0) {
-        retval = EXIT_FAILURE;
+    while (!stop_main_loop) {
+        if (event_base_loop(main_base, EVLOOP_ONCE) != 0) {
+            retval = EXIT_FAILURE;
+            break;
+        }
     }
 
-    stop_assoc_maintenance_thread();
+    fprintf(stderr, "Gracefully stopping\n");
+    stop_threads();
+    int i;
+    // FIXME: make a function callable from threads.c
+    for (i = 0; i < max_fds; i++) {
+        if (conns[i] && conns[i]->state != conn_closed) {
+            conn_close(conns[i]);
+        }
+    }
+    if (memory_file != NULL) {
+        restart_mmap_close();
+    }
 
     /* remove the PID file if we're a daemon */
     if (do_daemonize)

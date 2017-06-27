@@ -71,6 +71,36 @@ bool safe_strtoull(const char *str, uint64_t *out) {
     return false;
 }
 
+/* Could macro this. Decided to keep this unrolled for safety rather than add
+ * the base parameter to all callers. Very few places need to parse a number
+ * outside of base 10, currently exactly once, so splitting this up should
+ * help avoid typo bugs.
+ */
+bool safe_strtoull_hex(const char *str, uint64_t *out) {
+    assert(out != NULL);
+    errno = 0;
+    *out = 0;
+    char *endptr;
+    unsigned long long ull = strtoull(str, &endptr, 16);
+    if ((errno == ERANGE) || (str == endptr)) {
+        return false;
+    }
+
+    if (xisspace(*endptr) || (*endptr == '\0' && endptr != str)) {
+        if ((long long) ull < 0) {
+            /* only check for negative signs in the uncommon case when
+             * the unsigned number is so big that it's negative as a
+             * signed number. */
+            if (strchr(str, '-') != NULL) {
+                return false;
+            }
+        }
+        *out = ull;
+        return true;
+    }
+    return false;
+}
+
 bool safe_strtoll(const char *str, int64_t *out) {
     assert(out != NULL);
     errno = 0;
@@ -149,6 +179,28 @@ bool safe_strtod(const char *str, double *out) {
         return true;
     }
     return false;
+}
+
+// slow, safe function for copying null terminated buffers.
+// ensures null terminator set on destination buffer. copies at most dstmax-1
+// non-null bytes.
+// Explicitly avoids over-reading src while looking for the null byte.
+// returns true if src was fully copied.
+// returns false if src was truncated into dst.
+bool safe_strcpy(char *dst, const char *src, const size_t dstmax) {
+   size_t x;
+
+   for (x = 0; x < dstmax - 1 && src[x] != '\0'; x++) {
+        dst[x] = src[x];
+   }
+
+   dst[x] = '\0';
+
+   if (src[x] == '\0') {
+       return true;
+   } else {
+       return false;
+   }
 }
 
 void vperror(const char *fmt, ...) {

@@ -8,7 +8,7 @@
     3rd argument specifies if the slab allocator should allocate all memory
     up front (if true), or allocate memory in chunks as it is needed (if false)
 */
-void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes);
+void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes, void *mem_base_external, bool reuse_mem);
 
 /** Call only during init. Pre-allocates all available memory */
 void slabs_prefill_global(void);
@@ -19,6 +19,7 @@ void slabs_prefill_global(void);
  */
 
 unsigned int slabs_clsid(const size_t size);
+unsigned int slabs_size(const int clsid);
 
 /** Allocate object of given length. 0 on error */ /*@null@*/
 #define SLABS_ALLOC_NO_NEWPAGE 1
@@ -64,5 +65,8 @@ void slabs_rebalancer_resume(void);
 #ifdef EXTSTORE
 void slabs_set_storage(void *arg);
 #endif
+
+/* Fixup for restartable code. */
+unsigned int slabs_fixup(char *chunk, const int border);
 
 #endif

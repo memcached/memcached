@@ -255,11 +255,14 @@ static void *assoc_maintenance_thread(void *arg) {
              * allow dynamic hash table expansion without causing significant
              * wait times.
              */
-            pause_threads(PAUSE_ALL_THREADS);
-            assoc_expand();
-            pause_threads(RESUME_ALL_THREADS);
+            if (do_run_maintenance_thread) {
+                pause_threads(PAUSE_ALL_THREADS);
+                assoc_expand();
+                pause_threads(RESUME_ALL_THREADS);
+            }
         }
     }
+    mutex_unlock(&maintenance_lock);
     return NULL;
 }
 

@@ -60,6 +60,7 @@ static uint64_t sizes_bytes[LARGEST_ID];
 static unsigned int *stats_sizes_hist = NULL;
 static uint64_t stats_sizes_cas_min = 0;
 static int stats_sizes_buckets = 0;
+static uint64_t cas_id = 0;
 
 static volatile int do_run_lru_maintainer_thread = 0;
 static int lru_maintainer_initialized = 0;
@@ -109,11 +110,16 @@ static uint64_t lru_total_bumps_dropped(void);
 /* Get the next CAS id for a new item. */
 /* TODO: refactor some atomics for this. */
 uint64_t get_cas_id(void) {
-    static uint64_t cas_id = 0;
     pthread_mutex_lock(&cas_id_lock);
     uint64_t next_id = ++cas_id;
     pthread_mutex_unlock(&cas_id_lock);
     return next_id;
+}
+
+void set_cas_id(uint64_t new_cas) {
+    pthread_mutex_lock(&cas_id_lock);
+    cas_id = new_cas;
+    pthread_mutex_unlock(&cas_id_lock);
 }
 
 int item_is_flushed(item *it) {
@@ -293,7 +299,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         return NULL;
     }
 
-    assert(it->slabs_clsid == 0);
+    assert(it->it_flags == 0 || it->it_flags == ITEM_CHUNKED);
     //assert(it != heads[id]);
 
     /* Refcount is seeded to 1 by slabs_alloc() */
@@ -371,6 +377,31 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
     }
 
     return slabs_clsid(ntotal) != 0;
+}
+
+/* fixing stats/references during warm start */
+void do_item_link_fixup(item *it) {
+    item **head, **tail;
+    int ntotal = ITEM_ntotal(it);
+    uint32_t hv = hash(ITEM_key(it), it->nkey);
+    assoc_insert(it, hv);
+
+    head = &heads[it->slabs_clsid];
+    tail = &tails[it->slabs_clsid];
+    if (it->prev == 0 && *head == 0) *head = it;
+    if (it->next == 0 && *tail == 0) *tail = it;
+    sizes[it->slabs_clsid]++;
+    sizes_bytes[it->slabs_clsid] += ntotal;
+
+    STATS_LOCK();
+    stats_state.curr_bytes += ntotal;
+    stats_state.curr_items += 1;
+    stats.total_items += 1;
+    STATS_UNLOCK();
+
+    item_stats_sizes_add(it);
+
+    return;
 }
 
 static void do_item_link_q(item *it) { /* item is the new head */

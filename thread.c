@@ -189,6 +189,60 @@ void pause_threads(enum pause_thread_types type) {
     pthread_mutex_unlock(&init_lock);
 }
 
+// MUST not be called with any deeper locks held
+// MUST be called only by parent thread
+// Note: listener thread is the "main" event base, which has exited its
+// loop in order to call this function.
+void stop_threads(void) {
+    char buf[1];
+    int i;
+
+    // assoc can call pause_threads(), so we have to stop it first.
+    stop_assoc_maintenance_thread();
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped assoc\n");
+
+    if (settings.verbose > 0)
+        fprintf(stderr, "asking workers to stop\n");
+    buf[0] = 's';
+    pthread_mutex_lock(&init_lock);
+    init_count = 0;
+    for (i = 0; i < settings.num_threads; i++) {
+        if (write(threads[i].notify_send_fd, buf, 1) != 1) {
+            perror("Failed writing to notify pipe");
+            /* TODO: This is a fatal problem. Can it ever happen temporarily? */
+        }
+    }
+    wait_for_thread_registration(settings.num_threads);
+    pthread_mutex_unlock(&init_lock);
+
+    if (settings.verbose > 0)
+        fprintf(stderr, "asking background threads to stop\n");
+
+    // stop each side thread.
+    // TODO: Verify these all work if the threads are already stopped
+    stop_item_crawler_thread(CRAWLER_WAIT);
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped lru crawler\n");
+    stop_lru_maintainer_thread();
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped maintainer\n");
+    stop_slab_maintenance_thread();
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped slab mover\n");
+    logger_stop();
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped logger thread\n");
+    stop_conn_timeout_thread();
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped idle timeout thread\n");
+
+    if (settings.verbose > 0)
+        fprintf(stderr, "all background threads stopped\n");
+
+    // At this point, every background thread must be stopped.
+}
+
 /*
  * Initializes a connection queue.
  */
@@ -400,6 +454,9 @@ static void *worker_libevent(void *arg) {
 
     event_base_loop(me->base, 0);
 
+    // same mechanism used to watch for all threads exiting.
+    register_thread_initialized();
+
     event_base_free(me->base);
     return NULL;
 }
@@ -474,6 +531,10 @@ static void thread_libevent_process(int fd, short which, void *arg) {
             return;
         }
         conn_close_idle(conns[timeout_fd]);
+        break;
+    /* asked to stop */
+    case 's':
+        event_base_loopexit(me->base, NULL);
         break;
     }
 }

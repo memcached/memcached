@@ -97,6 +97,12 @@ unsigned int slabs_clsid(const size_t size) {
     return res;
 }
 
+unsigned int slabs_size(const int clsid) {
+    return slabclass[clsid].size;
+}
+
+// TODO: could this work with the restartable memory?
+// Docs say hugepages only work with private shm allocs.
 #if defined(__linux__) && defined(MADV_HUGEPAGE)
 /* Function split out for better error path handling */
 static void * alloc_large_chunk_linux(const size_t limit)
@@ -148,11 +154,49 @@ static void * alloc_large_chunk_linux(const size_t limit)
 }
 #endif
 
+unsigned int slabs_fixup(char *chunk, const int border) {
+    slabclass_t *p;
+    item *it = (item *)chunk;
+    int id = ITEM_clsid(it);
+
+    // memory isn't used yet. shunt to global pool.
+    // (which must be 0)
+    if (id == 0) {
+        //assert(border == 0);
+        p = &slabclass[0];
+        grow_slab_list(0);
+        p->slab_list[p->slabs++] = (char*)chunk;
+        return -1;
+    }
+    p = &slabclass[id];
+
+    // if we're on a page border, add the slab to slab class
+    if (border == 0) {
+        grow_slab_list(id);
+        p->slab_list[p->slabs++] = chunk;
+    }
+
+    // increase free count if ITEM_SLABBED
+    if (it->it_flags == ITEM_SLABBED) {
+        // if ITEM_SLABBED re-stack on freelist.
+        // don't have to run pointer fixups.
+        it->prev = 0;
+        it->next = p->slots;
+        if (it->next) it->next->prev = it;
+        p->slots = it;
+
+        p->sl_curr++;
+        //fprintf(stderr, "replacing into freelist\n");
+    }
+
+    return p->size;
+}
+
 /**
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes) {
+void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes, void *mem_base_external, bool reuse_mem) {
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
 
@@ -164,7 +208,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
 
     mem_limit = limit;
 
-    if (prealloc) {
+    if (prealloc && mem_base_external == NULL) {
 #if defined(__linux__) && defined(MADV_HUGEPAGE)
         mem_base = alloc_large_chunk_linux(mem_limit);
         if (mem_base)
@@ -174,12 +218,28 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
         mem_base = malloc(mem_limit);
         do_slab_prealloc = true;
 #endif
+
         if (mem_base != NULL) {
             mem_current = mem_base;
             mem_avail = mem_limit;
         } else {
             fprintf(stderr, "Warning: Failed to allocate requested memory in"
                     " one large chunk.\nWill allocate in smaller chunks\n");
+        }
+    } else if (prealloc && mem_base_external != NULL) {
+        // Can't (yet) mix hugepages with mmap allocations, so separate the
+        // logic from above. Reusable memory also force-preallocates memory
+        // pages into the global pool, which requires turning mem_* variables.
+        do_slab_prealloc = true;
+        mem_base = mem_base_external;
+        // _current shouldn't be used in this case, but we set it to where it
+        // should be anyway.
+        if (reuse_mem) {
+            mem_current = ((char*)mem_base) + mem_limit;
+            mem_avail = 0;
+        } else {
+            mem_current = mem_base;
+            mem_avail = mem_limit;
         }
     }
 
@@ -224,8 +284,10 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
 
     }
 
-    if (prealloc && do_slab_prealloc) {
-        slabs_preallocate(power_largest);
+    if (do_slab_prealloc) {
+        if (!reuse_mem) {
+            slabs_preallocate(power_largest);
+        }
     }
 }
 
@@ -254,7 +316,7 @@ static void slabs_preallocate (const unsigned int maxslabs) {
 
     for (i = POWER_SMALLEST; i < MAX_NUMBER_OF_SLAB_CLASSES; i++) {
         if (++prealloc > maxslabs)
-            return;
+            break;
         if (do_slabs_newslab(i) == 0) {
             fprintf(stderr, "Error while preallocating slab memory!\n"
                 "If using -L or other prealloc options, max memory must be "
@@ -340,7 +402,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id,
         return NULL;
     }
     p = &slabclass[id];
-    assert(p->sl_curr == 0 || ((item *)p->slots)->slabs_clsid == 0);
+    assert(p->sl_curr == 0 || (((item *)p->slots)->it_flags & ITEM_SLABBED));
 
     assert(size <= p->size);
     /* fail unless we have space at the end of a recently allocated page,
@@ -378,7 +440,8 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
     slabclass_t *p;
 
     it->it_flags = ITEM_SLABBED;
-    it->slabs_clsid = 0;
+    // FIXME: refresh on how this works?
+    //it->slabs_clsid = 0;
     it->prev = 0;
     // header object's original classid is stored in chunk.
     p = &slabclass[chunk->orig_clsid];
@@ -403,7 +466,6 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
         assert(chunk->it_flags == ITEM_CHUNK);
         chunk->it_flags = ITEM_SLABBED;
         p = &slabclass[chunk->slabs_clsid];
-        chunk->slabs_clsid = 0;
         next_chunk = chunk->next;
 
         chunk->prev = 0;
@@ -433,7 +495,7 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     it = (item *)ptr;
     if ((it->it_flags & ITEM_CHUNKED) == 0) {
         it->it_flags = ITEM_SLABBED;
-        it->slabs_clsid = 0;
+        it->slabs_clsid = id;
         it->prev = 0;
         it->next = p->slots;
         if (it->next) it->next->prev = it;
@@ -649,7 +711,6 @@ void slabs_munlock(void) {
 }
 
 static pthread_cond_t slab_rebalance_cond = PTHREAD_COND_INITIALIZER;
-static volatile int do_run_slab_thread = 1;
 static volatile int do_run_slab_rebalance_thread = 1;
 
 #define DEFAULT_SLAB_BULK_CHECK 1
@@ -1058,6 +1119,8 @@ static void slab_rebalance_finish(void) {
         split_slab_page_into_freelist(slab_rebal.slab_start,
             slab_rebal.d_clsid);
     } else if (slab_rebal.d_clsid == SLAB_GLOBAL_PAGE_POOL) {
+        /* memset just enough to signal restart handler to skip */
+        memset(slab_rebal.slab_start, 0, sizeof(item));
         /* mem_malloc'ed might be higher than mem_limit. */
         mem_limit_reached = false;
         memory_release();
@@ -1108,7 +1171,8 @@ static void *slab_rebalance_thread(void *arg) {
     /* So we first pass into cond_wait with the mutex held */
     mutex_lock(&slabs_rebalance_lock);
 
-    while (do_run_slab_rebalance_thread) {
+    /* Must finish moving page before stopping */
+    while (slab_rebalance_signal || do_run_slab_rebalance_thread) {
         if (slab_rebalance_signal == 1) {
             if (slab_rebalance_start() < 0) {
                 /* Handle errors with more specificity as required. */
@@ -1133,6 +1197,9 @@ static void *slab_rebalance_thread(void *arg) {
             pthread_cond_wait(&slab_rebalance_cond, &slabs_rebalance_lock);
         }
     }
+
+    // TODO: cancel in-flight slab page move
+    mutex_unlock(&slabs_rebalance_lock);
     return NULL;
 }
 
@@ -1241,7 +1308,6 @@ int start_slab_maintenance_thread(void) {
  * short wait */
 void stop_slab_maintenance_thread(void) {
     mutex_lock(&slabs_rebalance_lock);
-    do_run_slab_thread = 0;
     do_run_slab_rebalance_thread = 0;
     pthread_cond_signal(&slab_rebalance_cond);
     pthread_mutex_unlock(&slabs_rebalance_lock);

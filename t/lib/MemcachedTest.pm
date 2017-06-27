@@ -282,6 +282,7 @@ sub new_memcached {
     croak("memcached binary not executable\n") unless -x _;
 
     unless ($childpid) {
+        #print STDERR "RUN: $exe $args\n";
         exec "$builddir/timedrun 600 $exe $args";
         exit; # never gets here.
     }
@@ -348,6 +349,11 @@ sub DESTROY {
 sub stop {
     my $self = shift;
     kill 15, $self->{pid};
+}
+
+sub graceful_stop {
+    my $self = shift;
+    kill 'SIGUSR1', $self->{pid};
 }
 
 sub host { $_[0]{host} }

@@ -88,8 +88,8 @@ static int logger_thread_poll_watchers(int force_poll, int watcher);
 
 /* Logger GID's can be used by watchers to put logs back into strict order
  */
-static uint64_t logger_get_gid(void) {
-    static uint64_t logger_gid = 0;
+static uint64_t logger_gid = 0;
+uint64_t logger_get_gid(void) {
 #ifdef HAVE_GCC_64ATOMICS
     return __sync_add_and_fetch(&logger_gid, 1);
 #elif defined(__sun)
@@ -99,6 +99,18 @@ static uint64_t logger_get_gid(void) {
     uint64_t res = ++logger_gid;
     mutex_unlock(&logger_atomics_mutex);
     return res;
+#endif
+}
+
+void logger_set_gid(uint64_t gid) {
+#ifdef HAVE_GCC_64ATOMICS
+    __sync_add_and_fetch(&logger_gid, gid);
+#elif defined(__sun)
+    atomic_add_64(&logger_gid);
+#else
+    mutex_lock(&logger_atomics_mutex);
+    logger_gid = gid;
+    mutex_unlock(&logger_atomics_mutex);
 #endif
 }
 
@@ -505,6 +517,8 @@ static void logger_thread_sum_stats(struct logger_stats *ls) {
 static void *logger_thread(void *arg) {
     useconds_t to_sleep = MIN_LOGGER_SLEEP;
     L_DEBUG("LOGGER: Starting logger thread\n");
+    // TODO: If we ever have item references in the logger code, will need to
+    // ensure everything is dequeued before stopping the thread.
     while (do_run_logger_thread) {
         int found_logs = 0;
         logger *l;
@@ -553,12 +567,11 @@ static int start_logger_thread(void) {
     return 0;
 }
 
-// future.
-/*static int stop_logger_thread(void) {
+static int stop_logger_thread(void) {
     do_run_logger_thread = 0;
     pthread_join(logger_tid, NULL);
     return 0;
-}*/
+}
 
 /*************************
  * Public functions for submitting logs and starting loggers from workers.
@@ -578,17 +591,14 @@ void logger_init(void) {
         abort();
     }
 
-    /* This can be removed once the global stats initializer is improved */
-    STATS_LOCK();
-    stats.log_worker_dropped = 0;
-    stats.log_worker_written = 0;
-    stats.log_watcher_skipped = 0;
-    stats.log_watcher_sent = 0;
-    STATS_UNLOCK();
     /* This is what adding a STDERR watcher looks like. should replace old
      * "verbose" settings. */
     //logger_add_watcher(NULL, 0);
     return;
+}
+
+void logger_stop(void) {
+    stop_logger_thread();
 }
 
 /* called *from* the thread using a logger.
