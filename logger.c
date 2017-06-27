@@ -553,12 +553,11 @@ static int start_logger_thread(void) {
     return 0;
 }
 
-// future.
-/*static int stop_logger_thread(void) {
+static int stop_logger_thread(void) {
     do_run_logger_thread = 0;
     pthread_join(logger_tid, NULL);
     return 0;
-}*/
+}
 
 /*************************
  * Public functions for submitting logs and starting loggers from workers.
@@ -589,6 +588,10 @@ void logger_init(void) {
      * "verbose" settings. */
     //logger_add_watcher(NULL, 0);
     return;
+}
+
+void logger_stop(void) {
+    stop_logger_thread();
 }
 
 /* called *from* the thread using a logger.

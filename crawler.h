@@ -28,7 +28,7 @@ enum crawler_result_type {
     CRAWLER_OK=0, CRAWLER_RUNNING, CRAWLER_BADCLASS, CRAWLER_NOTSTARTED, CRAWLER_ERROR
 };
 int start_item_crawler_thread(void);
-int stop_item_crawler_thread(void);
+int stop_item_crawler_thread(bool wait);
 int init_lru_crawler(void *arg);
 enum crawler_result_type lru_crawler_crawl(char *slabs, enum crawler_run_type,
         void *c, const int sfd, unsigned int remaining);

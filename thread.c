@@ -189,6 +189,48 @@ void pause_threads(enum pause_thread_types type) {
     pthread_mutex_unlock(&init_lock);
 }
 
+/* Must not be called with any deeper locks held */
+/* MUST be called only by parent thread */
+void stop_threads(void) {
+    char buf[1];
+    int i;
+
+    // assoc can call pause_threads(), so we have to stop it first.
+    stop_assoc_maintenance_thread();
+    fprintf(stderr, "stopped assoc\n");
+
+    fprintf(stderr, "asking workers to stop\n");
+    buf[0] = 's';
+    pthread_mutex_lock(&init_lock);
+    init_count = 0;
+    for (i = 0; i < settings.num_threads; i++) {
+        if (write(threads[i].notify_send_fd, buf, 1) != 1) {
+            perror("Failed writing to notify pipe");
+            /* TODO: This is a fatal problem. Can it ever happen temporarily? */
+        }
+    }
+    wait_for_thread_registration(settings.num_threads);
+    pthread_mutex_unlock(&init_lock);
+
+    fprintf(stderr, "asking background threads to stop\n");
+
+    // stop each side thread.
+    // TODO: Verify these all work if the threads are already stopped
+    stop_item_crawler_thread(true);
+    fprintf(stderr, "stopped lru crawler\n");
+    stop_lru_maintainer_thread();
+    fprintf(stderr, "stopped maintainer\n");
+    stop_slab_maintenance_thread();
+    fprintf(stderr, "stopped slab mover\n");
+    logger_stop();
+    fprintf(stderr, "stopped logger thread\n");
+
+    fprintf(stderr, "done\n");
+
+    // At this point, everything is stopped. If we're using shared memory,
+    // note that it's clean and close the file.
+}
+
 /*
  * Initializes a connection queue.
  */
@@ -400,6 +442,9 @@ static void *worker_libevent(void *arg) {
 
     event_base_loop(me->base, 0);
 
+    // same mechanism used to watch for all threads exiting.
+    register_thread_initialized();
+
     event_base_free(me->base);
     return NULL;
 }
@@ -474,6 +519,10 @@ static void thread_libevent_process(int fd, short which, void *arg) {
             return;
         }
         conn_close_idle(conns[timeout_fd]);
+        break;
+    /* asked to stop */
+    case 's':
+        event_base_loopexit(me->base, NULL);
         break;
     }
 }

@@ -293,7 +293,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         return NULL;
     }
 
-    assert(it->slabs_clsid == 0);
+    assert(it->it_flags == 0);
     //assert(it != heads[id]);
 
     /* Refcount is seeded to 1 by slabs_alloc() */
@@ -371,6 +371,31 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
     }
 
     return slabs_clsid(ntotal) != 0;
+}
+
+/* fixing stats/references during warm start */
+void do_item_link_fixup(item *it) {
+    item **head, **tail;
+    int ntotal = ITEM_ntotal(it);
+    uint32_t hv = hash(ITEM_key(it), it->nkey);
+    assoc_insert(it, hv);
+
+    head = &heads[it->slabs_clsid];
+    tail = &tails[it->slabs_clsid];
+    if (it->prev == 0 && *head == 0) *head = it;
+    if (it->next == 0 && *tail == 0) *tail = it;
+    sizes[it->slabs_clsid]++;
+    sizes_bytes[it->slabs_clsid] += ntotal;
+
+    STATS_LOCK();
+    stats_state.curr_bytes += ntotal;
+    stats_state.curr_items += 1;
+    stats.total_items += 1;
+    STATS_UNLOCK();
+
+    item_stats_sizes_add(it);
+
+    return;
 }
 
 static void do_item_link_q(item *it) { /* item is the new head */

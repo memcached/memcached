@@ -100,6 +100,9 @@ struct logentry_item_store {
 
 /* end intermediary structures */
 
+/* WARNING: cuddled items aren't compatible with warm restart. more code
+ * necessary to ensure log streams are all flushed/processed before stopping
+ */
 typedef struct _logentry {
     enum log_entry_subtype event;
     uint8_t pad;
@@ -108,7 +111,7 @@ typedef struct _logentry {
     struct timeval tv; /* not monotonic! */
     int size;
     union {
-        void *entry; /* probably an item */
+        void *entry; /* unused, possibly an item */
         char end;
     } data[];
 } logentry;
@@ -165,6 +168,7 @@ extern pthread_key_t logger_key;
 /* public functions */
 
 void logger_init(void);
+void logger_stop(void);
 logger *logger_create(void);
 
 #define LOGGER_LOG(l, flag, type, ...) \

@@ -23,6 +23,7 @@ void do_item_remove(item *it);
 void do_item_update(item *it);   /** update LRU time to current and reposition */
 void do_item_update_nolock(item *it);
 int  do_item_replace(item *it, item *new_it, const uint32_t hv);
+void do_item_link_fixup(item *it);
 
 int item_is_flushed(item *it);
 unsigned int do_get_lru_size(uint32_t id);

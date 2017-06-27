@@ -64,5 +64,6 @@ void slabs_rebalancer_resume(void);
 #ifdef EXTSTORE
 void slabs_set_storage(void *arg);
 #endif
+void slabs_mmap_close(void);
 
 #endif

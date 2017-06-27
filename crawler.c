@@ -460,23 +460,27 @@ static void *item_crawler_thread(void *arg) {
     pthread_mutex_unlock(&lru_crawler_lock);
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread stopping\n");
+    settings.lru_crawler = false;
 
     return NULL;
 }
 
 static pthread_t item_crawler_tid;
 
-int stop_item_crawler_thread(void) {
+int stop_item_crawler_thread(bool wait) {
     int ret;
     pthread_mutex_lock(&lru_crawler_lock);
+    if (do_run_lru_crawler_thread == 0) {
+        pthread_mutex_unlock(&lru_crawler_lock);
+        return 0;
+    }
     do_run_lru_crawler_thread = 0;
     pthread_cond_signal(&lru_crawler_cond);
     pthread_mutex_unlock(&lru_crawler_lock);
-    if ((ret = pthread_join(item_crawler_tid, NULL)) != 0) {
+    if (wait && (ret = pthread_join(item_crawler_tid, NULL)) != 0) {
         fprintf(stderr, "Failed to stop LRU crawler thread: %s\n", strerror(ret));
         return -1;
     }
-    settings.lru_crawler = false;
     return 0;
 }
 
@@ -584,6 +588,11 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
     STATS_LOCK();
     is_running = stats_state.lru_crawler_running;
     STATS_UNLOCK();
+    if (do_run_lru_crawler_thread == 0) {
+        pthread_mutex_unlock(&lru_crawler_lock);
+        return -2;
+    }
+
     if (is_running &&
             !(type == CRAWLER_AUTOEXPIRE && active_crawler_type == CRAWLER_AUTOEXPIRE)) {
         pthread_mutex_unlock(&lru_crawler_lock);
