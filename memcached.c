@@ -1526,8 +1526,10 @@ static void process_bin_get_or_touch(conn *c) {
         // add the flags
         if (settings.inline_ascii_response) {
             rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
-        } else {
+        } else if (it->nsuffix > 0) {
             rsp->message.body.flags = htonl(*((uint32_t *)ITEM_suffix(it)));
+        } else {
+            rsp->message.body.flags = 0;
         }
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
@@ -2700,8 +2702,10 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
 
                 if (settings.inline_ascii_response) {
                     flags = (uint32_t) strtoul(ITEM_suffix(old_it), (char **) NULL, 10);
-                } else {
+                } else if (old_it->nsuffix > 0) {
                     flags = *((uint32_t *)ITEM_suffix(old_it));
+                } else {
+                    flags = 0;
                 }
 
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
@@ -3234,11 +3238,18 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
+/* nsuffix == 0 means use no storage for client flags */
 static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas) {
-    char *p;
+    char *p = suffix;
     if (!settings.inline_ascii_response) {
-        *suffix = ' ';
-        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), suffix+1);
+        *p = ' ';
+        p++;
+        if (it->nsuffix == 0) {
+            *p = '0';
+            p++;
+        } else {
+            p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
+        }
         *p = ' ';
         p = itoa_u32(it->nbytes-2, p+1);
     } else {
@@ -3726,8 +3737,10 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         uint32_t flags;
         if (settings.inline_ascii_response) {
             flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
-        } else {
+        } else if (it->nsuffix > 0) {
             flags = *((uint32_t *)ITEM_suffix(it));
+        } else {
+            flags = 0;
         }
         new_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, res + 2);
         if (new_it == 0) {
