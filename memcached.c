@@ -4967,7 +4967,7 @@ static void drive_machine(conn *c) {
 
         case conn_swallow:
             /* we are reading sbytes and throwing them away */
-            if (c->sbytes == 0) {
+            if (c->sbytes <= 0) {
                 conn_set_state(c, conn_new_cmd);
                 break;
             }
