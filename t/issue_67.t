@@ -45,6 +45,10 @@ sub run_server {
 
     my $root = '';
     $root = "-u root" if ($< == 0);
+
+    # test build requires more privileges
+    $args .= " -o relaxed_privileges";
+
     my $cmd = "$builddir/timedrun 10 $exe $root $args";
 
     unless($childpid) {

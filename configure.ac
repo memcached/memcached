@@ -82,6 +82,9 @@ fi
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
+AC_ARG_ENABLE(seccomp,
+  [AS_HELP_STRING([--enable-seccomp],[Enable seccomp restrictions])])
+
 AC_ARG_ENABLE(sasl,
   [AS_HELP_STRING([--enable-sasl],[Enable SASL authentication])])
 
@@ -562,7 +565,19 @@ AC_CHECK_FUNCS(setppriv, [
    ], [])
 ],[])
 
+AS_IF([test "x$enable_seccomp" = "xyes" ], [
+   AC_CHECK_LIB(seccomp, seccomp_rule_add, [
+      AC_DEFINE([HAVE_DROP_PRIVILEGES], 1,
+         [Define this if you have an implementation of drop_privileges()])
+      build_linux_privs=yes
+      AC_DEFINE([HAVE_DROP_WORKER_PRIVILEGES], 1,
+         [Define this if you have an implementation of drop_worker_privileges()])
+      build_linux_privs=yes
+   ], [])
+])
+
 AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
+AM_CONDITIONAL([BUILD_LINUX_PRIVS],[test "$build_linux_privs" = "yes"])
 
 AC_CHECK_HEADER(umem.h, [
    AC_DEFINE([HAVE_UMEM_H], 1,
