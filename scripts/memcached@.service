@@ -7,7 +7,11 @@
 #
 #     [Service]
 #     Environment=OPTIONS="-l 127.0.0.1,::1"
-
+#
+# To use the "instanced" version of this, just start 'memcached@11211' or
+# whatever port you'd like. If /etc/sysconfig/memcached.<port> exists, it
+# will be read first, so you can set different parameters for a given
+# instance.
 
 [Unit]
 Description=memcached daemon
@@ -15,7 +19,8 @@ After=network.target
 
 [Service]
 EnvironmentFile=/etc/sysconfig/memcached
-ExecStart=/usr/bin/memcached -p ${PORT} -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} $OPTIONS
+EnvironmentFile=-/etc/sysconfig/memcached.%i
+ExecStart=/usr/bin/memcached -p %i -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} $OPTIONS
 
 # Set up a new file system namespace and mounts private /tmp and /var/tmp
 # directories so this service cannot access the global directories and
