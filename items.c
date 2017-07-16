@@ -1497,11 +1497,15 @@ static void *lru_maintainer_thread(void *arg) {
     rel_time_t last_automove_check = 0;
     useconds_t next_juggles[MAX_NUMBER_OF_SLAB_CLASSES];
     useconds_t backoff_juggles[MAX_NUMBER_OF_SLAB_CLASSES];
-    struct crawler_expired_data cdata;
-    memset(&cdata, 0, sizeof(struct crawler_expired_data));
+    struct crawler_expired_data *cdata =
+        calloc(1, sizeof(struct crawler_expired_data));
+    if (cdata == NULL) {
+        fprintf(stderr, "Failed to allocate crawler data for LRU maintainer thread\n");
+        abort();
+    }
     memset(next_juggles, 0, sizeof(next_juggles));
-    pthread_mutex_init(&cdata.lock, NULL);
-    cdata.crawl_complete = true; // kick off the crawler.
+    pthread_mutex_init(&cdata->lock, NULL);
+    cdata->crawl_complete = true; // kick off the crawler.
     logger *l = logger_create();
     if (l == NULL) {
         fprintf(stderr, "Failed to allocate logger for LRU maintainer thread\n");
@@ -1566,7 +1570,7 @@ static void *lru_maintainer_thread(void *arg) {
 
         /* Once per second at most */
         if (settings.lru_crawler && last_crawler_check != current_time) {
-            lru_maintainer_crawler_check(&cdata, l);
+            lru_maintainer_crawler_check(cdata, l);
             last_crawler_check = current_time;
         }
 
@@ -1595,6 +1599,8 @@ static void *lru_maintainer_thread(void *arg) {
     }
     pthread_mutex_unlock(&lru_maintainer_lock);
     slab_automove_free(am);
+    // LRU crawler *must* be stopped.
+    free(cdata);
     if (settings.verbose > 2)
         fprintf(stderr, "LRU maintainer thread stopping\n");
 
