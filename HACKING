@@ -47,6 +47,33 @@ If you export the environment variable
 T_MEMD_USE_DAEMON="127.0.0.1:11211" the tests will use an existing
 daemon at that address.
 
+* Debugging seccomp issues
+
+If new functionality fails when built with seccomp / drop privileges
+support, it can be debugged in one of two ways:
+
+Run the memcached via strace. For example:
+
+    strace -o /tmp/memcache.strace -f -- ./memcached
+    less /tmp/memcache.strace
+
+And look for calls which failed due to access restriction. They will
+show up with result: "-1 (errno 13)". Then add them to linux_priv.c.
+
+Alternatively, change the definition in linux_priv.c to:
+
+    #define DENY_ACTION SCMP_ACT_TRAP
+
+and the process will crash with a coredump on all policy violations.
+In strace output those can be seen as:
+
+    SIGSYS {si_signo=SIGSYS, si_code=SYS_SECCOMP,
+    si_call_addr=0x358a443454d, si_syscall=__NR_write,
+    si_arch=AUDIT_ARCH_X86_64} ---
+
+In that output, the si_syscall shows which operation has been
+blocked. In this case that's `write()`.
+
 * Sending patches
 
 See current instructions at http://contributing.appspot.com/memcached

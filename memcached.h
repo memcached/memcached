@@ -381,6 +381,8 @@ struct settings {
     int idle_timeout;       /* Number of seconds to let connections idle */
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
+    bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
+    bool relaxed_privileges;   /* Relax process restrictions when running testapp */
 };
 
 extern struct stats stats;
@@ -682,6 +684,12 @@ enum store_item_type store_item(item *item, int comm, conn *c);
 extern void drop_privileges(void);
 #else
 #define drop_privileges()
+#endif
+
+#if HAVE_DROP_WORKER_PRIVILEGES
+extern void drop_worker_privileges(void);
+#else
+#define drop_worker_privileges()
 #endif
 
 /* If supported, give compiler hints for branch prediction. */
