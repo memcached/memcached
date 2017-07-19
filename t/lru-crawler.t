@@ -7,7 +7,7 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached('-m 32');
+my $server = new_memcached('-m 32 -o no_modern');
 {
     my $stats = mem_stats($server->sock, ' settings');
     is($stats->{lru_crawler}, "no");
@@ -76,7 +76,7 @@ is(scalar <$sock>, "OK\r\n", "disabled lru crawler");
 $server->stop;
 
 # Test initializing crawler from starttime.
-$server = new_memcached('-m 32 -o lru_crawler');
+$server = new_memcached('-m 32 -o no_modern,lru_crawler');
 $sock = $server->sock;
 
 for (1 .. 30) {

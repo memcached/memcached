@@ -20,16 +20,16 @@ swapping and always use non-blocking I/O.
 These programs follow the usual GNU command line syntax. A summary of options
 is included below.
 .TP
-.B \-s <file>
+.B \-s, --unix-socket=<file>
 Unix socket path to listen on (disables network support).
 .TP
-.B \-A
+.B \-A, --enable-shutdown
 Enable ascii "shutdown" command.
 .TP
-.B \-a <perms>
+.B \-a, --unix-mask=<perms>
 Permissions (in octal format) for Unix socket created with \-s option.
 .TP
-.B \-l <addr>
+.B \-l, --listen=<addr>
 Listen on <addr>; default to INADDR_ANY. <addr> may be specified as host:port.
 If you don't specify a port number, the value you specified with -p or -U is
 used. You may specify multiple addresses separated by comma or by using -l
@@ -37,50 +37,50 @@ multiple times. This is an important option to consider as there is no other
 way to secure the installation. Binding to an internal or firewalled network
 interface is suggested.
 .TP
-.B \-d
+.B \-d, --daemon
 Run memcached as a daemon.
 .TP
-.B \-u <username>
+.B \-u, --user=<username>
 Assume the identity of <username> (only when run as root).
 .TP
-.B \-m <num>
+.B \-m, --memory-limit=<num>
 Use <num> MB memory max to use for object storage; the default is 64 megabytes.
 .TP
-.B \-c <num>
+.B \-c, --conn-limit=<num>
 Use <num> max simultaneous connections; the default is 1024.
 .TP
-.B \-R <num>
+.B \-R, --max-reqs-per-event=<num>
 This option seeks to prevent client starvation by setting a limit to the
 number of sequential requests the server will process from an individual
 client connection. Once a connection has exceeded this value, the server will
 attempt to process I/O on other connections before handling any further
 request from this connection. The default value for this option is 20.
 .TP
-.B \-k
+.B \-k, --lock-memory
 Lock down all paged memory. This is a somewhat dangerous option with large
 caches, so consult the README and memcached homepage for configuration
 suggestions.
 .TP
-.B \-p <num>
+.B \-p, --port=<num>
 Listen on TCP port <num>, the default is port 11211.
 .TP
-.B \-U <num>
+.B \-U, --udp-port=<num>
 Listen on UDP port <num>, the default is port 11211, 0 is off.
 .TP
-.B \-M
+.B \-M, --disable-evictions
 Disable automatic removal of items from the cache when out of memory.
 Additions will not be possible until adequate space is freed up.
 .TP
-.B \-r
+.B \-r, --enable-coredumps
 Raise the core file size limit to the maximum allowable.
 .TP
-.B \-f <factor>
+.B \-f, --slab-growth-factor=<factor>
 Use <factor> as the multiplier for computing the sizes of memory chunks that
 items are stored in. A lower value may result in less wasted memory depending
 on the total amount of memory available and the distribution of item sizes.
 The default is 1.25.
 .TP
-.B \-n <size>
+.B \-n, --slab-min-size=<size>
 Allocate a minimum of <size> bytes for the item key, value, and flags. The
 default is 48. If you have a lot of small keys and values, you can get a
 significant memory efficiency gain with a lower value. If you use a high
@@ -88,13 +88,13 @@ chunk growth factor (\-f option), on the other hand, you may want to increase
 the size to allow a bigger percentage of your items to fit in the most densely
 packed (smallest) chunks.
 .TP
-.B \-C
+.B \-C, --disable-cas
 Disable the use of CAS (and reduce the per-item size by 8 bytes).
 .TP
-.B \-h
+.B \-h, --help
 Show the version of memcached and a summary of options.
 .TP
-.B \-v
+.B \-v, --verbose
 Be verbose during the event loop; print out errors and warnings.
 .TP
 .B \-vv
@@ -104,13 +104,13 @@ responses.
 .B \-vvv
 Be extremely verbose; same of the above and also print internal state transitions.
 .TP
-.B \-i
+.B \-i, --license
 Print memcached and libevent licenses.
 .TP
-.B \-P <filename>
+.B \-P, --pidfile=<filename>
 Print pidfile to <filename>, only used under \-d option.
 .TP
-.B \-t <threads>
+.B \-t, --threads=<threads>
 Number of threads to use to process incoming requests. This option is only
 meaningful if memcached was compiled with thread support enabled. It is
 typically not useful to set this higher than the number of CPU cores on the
@@ -123,44 +123,42 @@ per-prefix stats reporting. The default is ":" (colon). If this option is
 specified, stats collection is turned on automatically; if not, then it may
 be turned on by sending the "stats detail on" command to the server.
 .TP
-.B \-L
+.B \-L, --enable-largepages
 Try to use large memory pages (if available). Increasing the memory page size
 could reduce the number of TLB misses and improve the performance. In order to
 get large pages from the OS, memcached will allocate the total item-cache in
 one large chunk. Only available if supported on your OS.
 .TP
-.B \-b <num>
+.B \-b, --listen-backlog=<num>
 Set the backlog queue limit to <num> connections. The default is 1024.
 .TP
-.B \-B <proto>
+.B \-B, --protocol=<proto>
 Specify the binding protocol to use.  By default, the server will
 autonegotiate client connections.  By using this option, you can
 specify the protocol clients must speak.  Possible options are "auto"
 (the default, autonegotiation behavior), "ascii" and "binary".
 .TP
-.B \-I <size>
+.B \-I, --max-item-size=<size>
 Override the default size of each slab page. The default size is 1mb. Default
 value for this parameter is 1m, minimum is 1k, max is 128m.
 Adjusting this value changes the item size limit.
-Beware that this also increases the number of slabs (use \-v to view), and the
-overall memory usage of memcached.
 .TP
-.B \-S
+.B \-S, --enable-sasl
 Turn on SASL authentication. This option is only meaningful if memcached was
 compiled with SASL support enabled.
 .TP
-.B \-F
+.B \-F, --disable-flush-all
 Disables the "flush_all" command. The cmd_flush counter will increment, but
 clients will receive an error message and the flush will not occur.
 .TP
-.B \-X
+.B \-X, --disable-dumping
 Disables the "stats cachedump" and "lru_crawler metadump" commands.
 .TP
-.B \-o <options>
+.B \-o, --extended=<options>
 Comma separated list of extended or experimental options. See \-h or wiki for
 up to date list.
 .TP
-.B \-V
+.B \-V, --version
 print version and exit
 .br
 .SH LICENSE

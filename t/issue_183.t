@@ -6,7 +6,7 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached();
+my $server = new_memcached("-o no_modern");
 my $sock = $server->sock;
 print $sock "set key 0 0 1\r\n1\r\n";
 is (scalar <$sock>, "STORED\r\n", "stored key");

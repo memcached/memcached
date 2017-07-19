@@ -477,6 +477,7 @@ AC_CHECK_FUNCS(memcntl)
 AC_CHECK_FUNCS(sigignore)
 AC_CHECK_FUNCS(clock_gettime)
 AC_CHECK_FUNCS([accept4], [AC_DEFINE(HAVE_ACCEPT4, 1, [Define to 1 if support accept4])])
+AC_CHECK_FUNCS([getopt_long], [AC_DEFINE(HAVE_GETOPT_LONG, 1, [Define to 1 if support getopt_long])])
 
 AC_DEFUN([AC_C_ALIGNMENT],
 [AC_CACHE_CHECK(for alignment, ac_cv_c_alignment,
