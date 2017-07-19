@@ -48,6 +48,10 @@
 #include <sysexits.h>
 #include <stddef.h>
 
+#ifdef HAVE_GETOPT_LONG
+#include <getopt.h>
+#endif
+
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
 #if defined(__FreeBSD__) || defined(__APPLE__) || defined(__GNU__)
@@ -226,25 +230,25 @@ static void settings_init(void) {
     settings.binding_protocol = negotiating_prot;
     settings.item_size_max = 1024 * 1024; /* The famous 1MB upper limit. */
     settings.slab_page_size = 1024 * 1024; /* chunks are split from 1MB pages. */
-    settings.slab_chunk_size_max = settings.slab_page_size;
+    settings.slab_chunk_size_max = settings.slab_page_size / 2;
     settings.sasl = false;
-    settings.maxconns_fast = false;
+    settings.maxconns_fast = true;
     settings.lru_crawler = false;
     settings.lru_crawler_sleep = 100;
     settings.lru_crawler_tocrawl = 0;
     settings.lru_maintainer_thread = false;
-    settings.lru_segmented = false;
+    settings.lru_segmented = true;
     settings.hot_lru_pct = 20;
     settings.warm_lru_pct = 40;
     settings.hot_max_factor = 0.2;
     settings.warm_max_factor = 2.0;
-    settings.inline_ascii_response = true;
+    settings.inline_ascii_response = false;
     settings.temp_lru = false;
     settings.temporary_ttl = 61;
     settings.idle_timeout = 0; /* disabled */
     settings.hashpower_init = 0;
-    settings.slab_reassign = false;
-    settings.slab_automove = 0;
+    settings.slab_reassign = true;
+    settings.slab_automove = 1;
     settings.slab_automove_ratio = 0.8;
     settings.slab_automove_window = 30;
     settings.shutdown_command = false;
@@ -5882,9 +5886,9 @@ int main (int argc, char **argv) {
     bool protocol_specified = false;
     bool tcp_specified = false;
     bool udp_specified = false;
-    bool start_lru_maintainer = false;
-    bool start_lru_crawler = false;
-    enum hashfunc_type hash_type = JENKINS_HASH;
+    bool start_lru_maintainer = true;
+    bool start_lru_crawler = true;
+    enum hashfunc_type hash_type = MURMUR3_HASH;
     uint32_t tocrawl;
     uint32_t slab_sizes[MAX_NUMBER_OF_SLAB_CLASSES];
     bool use_slab_sizes = false;
@@ -5918,7 +5922,15 @@ int main (int argc, char **argv) {
         SLAB_CHUNK_MAX,
         TRACK_SIZES,
         NO_INLINE_ASCII_RESP,
-        MODERN
+        MODERN,
+        NO_MODERN,
+        NO_CHUNKED_ITEMS,
+        NO_SLAB_REASSIGN,
+        NO_SLAB_AUTOMOVE,
+        NO_MAXCONNS_FAST,
+        INLINE_ASCII_RESP,
+        NO_LRU_CRAWLER,
+        NO_LRU_MAINTAINER,
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -5946,6 +5958,14 @@ int main (int argc, char **argv) {
         [TRACK_SIZES] = "track_sizes",
         [NO_INLINE_ASCII_RESP] = "no_inline_ascii_resp",
         [MODERN] = "modern",
+        [NO_MODERN] = "no_modern",
+        [NO_CHUNKED_ITEMS] = "no_chunked_items",
+        [NO_SLAB_REASSIGN] = "no_slab_reassign",
+        [NO_SLAB_AUTOMOVE] = "no_slab_automove",
+        [NO_MAXCONNS_FAST] = "no_maxconns_fast",
+        [INLINE_ASCII_RESP] = "inline_ascii_resp",
+        [NO_LRU_CRAWLER] = "no_lru_crawler",
+        [NO_LRU_MAINTAINER] = "no_lru_maintainer",
         NULL
     };
 
@@ -5967,8 +5987,7 @@ int main (int argc, char **argv) {
     /* set stderr non-buffering (for running under, say, daemontools) */
     setbuf(stderr, NULL);
 
-    /* process arguments */
-    while (-1 != (c = getopt(argc, argv,
+    char *shortopts =
           "a:"  /* access mask for unix socket */
           "A"  /* enable admin shutdown command */
           "p:"  /* TCP port number to listen on */
@@ -5999,7 +6018,50 @@ int main (int argc, char **argv) {
           "F"   /* Disable flush_all */
           "X"   /* Disable dump commands */
           "o:"  /* Extended generic options */
-        ))) {
+          ;
+
+    /* process arguments */
+#ifdef HAVE_GETOPT_LONG
+    const struct option longopts[] = {
+        {"unix-mask", required_argument, 0, 'a'},
+        {"enable-shutdown-cmd", no_argument, 0, 'A'},
+        {"port", required_argument, 0, 'p'},
+        {"unix-socket-path", required_argument, 0, 's'},
+        {"udp-port", required_argument, 0, 'U'},
+        {"memory-limit", required_argument, 0, 'm'},
+        {"disable-evictions", no_argument, 0, 'M'},
+        {"max-connections", required_argument, 0, 'c'},
+        {"lock-memory", no_argument, 0, 'k'},
+        {"help", no_argument, 0, 'h'},
+        {"license", no_argument, 0, 'i'},
+        {"version", no_argument, 0, 'V'},
+        {"enable-coredumps", no_argument, 0, 'r'},
+        {"verbose", optional_argument, 0, 'v'},
+        {"daemon", no_argument, 0, 'd'},
+        {"listen", required_argument, 0, 'l'},
+        {"user", required_argument, 0, 'u'},
+        {"pidfile", required_argument, 0, 'P'},
+        {"slab-growth-factor", required_argument, 0, 'f'},
+        {"slab-min-size", required_argument, 0, 'n'},
+        {"threads", required_argument, 0, 't'},
+        {"enable-largepages", no_argument, 0, 'L'},
+        {"max-reqs-per-event", required_argument, 0, 'R'},
+        {"disable-cas", no_argument, 0, 'C'},
+        {"listen-backlog", required_argument, 0, 'b'},
+        {"protocol", required_argument, 0, 'B'},
+        {"max-item-size", required_argument, 0, 'I'},
+        {"enable-sasl", no_argument, 0, 'S'},
+        {"disable-flush-all", no_argument, 0, 'F'},
+        {"disable-dump-cmds", no_argument, 0, 'X'},
+        {"extended", required_argument, 0, 'o'},
+        {0, 0, 0, 0}
+    };
+    int optindex;
+    while (-1 != (c = getopt_long(argc, argv, shortopts,
+                    longopts, &optindex))) {
+#else
+    while (-1 != (c = getopt(argc, argv, shortopts))) {
+#endif
         switch (c) {
         case 'A':
             /* enables "shutdown" command */
@@ -6186,7 +6248,7 @@ int main (int argc, char **argv) {
             if (settings.item_size_max > 1024 * 1024) {
                 if (!slab_chunk_size_changed) {
                     // Ideal new default is 16k, but needs stitching.
-                    settings.slab_chunk_size_max = 524288;
+                    settings.slab_chunk_size_max = settings.slab_page_size / 2;
                 }
             }
             break;
@@ -6417,26 +6479,43 @@ int main (int argc, char **argv) {
             case NO_INLINE_ASCII_RESP:
                 settings.inline_ascii_response = false;
                 break;
+            case INLINE_ASCII_RESP:
+                settings.inline_ascii_response = true;
+                break;
+            case NO_CHUNKED_ITEMS:
+                settings.slab_chunk_size_max = settings.slab_page_size;
+                break;
+            case NO_SLAB_REASSIGN:
+                settings.slab_reassign = false;
+                break;
+            case NO_SLAB_AUTOMOVE:
+                settings.slab_automove = 0;
+                break;
+            case NO_MAXCONNS_FAST:
+                settings.maxconns_fast = false;
+                break;
+            case NO_LRU_CRAWLER:
+                settings.lru_crawler = false;
+                break;
+            case NO_LRU_MAINTAINER:
+                start_lru_maintainer = false;
+                settings.lru_segmented = false;
+                break;
             case MODERN:
-                /* Modernized defaults. Need to add equivalent no_* flags
-                 * before making truly default. */
-                // chunk default should come after stitching is fixed.
-                //settings.slab_chunk_size_max = 16384;
-
-                // With slab_reassign, pages are always 1MB, so anything larger
-                // than .5m ends up using 1m anyway. With this we at least
-                // avoid having several slab classes that use 1m.
+                /* currently no new defaults */
+                break;
+            case NO_MODERN:
                 if (!slab_chunk_size_changed) {
-                    settings.slab_chunk_size_max = 524288;
+                    settings.slab_chunk_size_max = settings.slab_page_size;
                 }
-                settings.slab_reassign = true;
-                settings.slab_automove = 1;
-                settings.maxconns_fast = true;
-                settings.inline_ascii_response = false;
-                settings.lru_segmented = true;
-                hash_type = MURMUR3_HASH;
-                start_lru_crawler = true;
-                start_lru_maintainer = true;
+                settings.slab_reassign = false;
+                settings.slab_automove = 0;
+                settings.maxconns_fast = false;
+                settings.inline_ascii_response = true;
+                settings.lru_segmented = false;
+                hash_type = JENKINS_HASH;
+                start_lru_crawler = false;
+                start_lru_maintainer = false;
                 break;
             default:
                 printf("Illegal suboption \"%s\"\n", subopts_value);
