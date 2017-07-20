@@ -7,7 +7,7 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached();
+my $server = new_memcached("-o no_modern");
 ok($server, "started the server");
 
 # Based almost 100% off testClient.py which is:
@@ -122,7 +122,7 @@ $empty->('y');
 
 {
     # diag "Some chunked item tests";
-    my $s2 = new_memcached('-o slab_chunk_max=4096');
+    my $s2 = new_memcached('-o no_modern,slab_chunk_max=4096');
     ok($s2, "started the server");
     my $m2 = MC::Client->new($s2);
     # Specifically trying to cross the chunk boundary when internally
