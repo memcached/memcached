@@ -5548,7 +5548,7 @@ static void usage(void) {
            "-V, --version             print version and exit\n"
            "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
            "-f, --slab-growth-factor=<num> chunk size growth factor (default: 1.25)\n"
-           "-n, --slab-min-sizee=<bytes> min space used for key+value+flags (default: 48)\n");
+           "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: 48)\n");
     printf("-L, --enable-largepages  try to use large memory pages (if available)\n");
     printf("-D <char>     Use <char> as the delimiter between key prefixes and IDs.\n"
            "              This is used for per-prefix stats reporting. The default is\n"
