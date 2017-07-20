@@ -5527,99 +5527,85 @@ static void clock_handler(const int fd, const short which, void *arg) {
 
 static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
-    printf("-p <num>      TCP port number to listen on (default: 11211)\n"
-           "-U <num>      UDP port number to listen on (default: 11211, 0 is off)\n"
-           "-s <file>     UNIX socket path to listen on (disables network support)\n"
-           "-A            enable ascii \"shutdown\" command\n"
-           "-a <mask>     access mask for UNIX socket, in octal (default: 0700)\n"
-           "-l <addr>     interface to listen on (default: INADDR_ANY, all addresses)\n"
-           "              <addr> may be specified as host:port. If you don't specify\n"
-           "              a port number, the value you specified with -p or -U is\n"
-           "              used. You may specify multiple addresses separated by comma\n"
-           "              or by using -l multiple times\n"
-
-           "-d            run as a daemon\n"
-           "-r            maximize core file limit\n"
-           "-u <username> assume identity of <username> (only when run as root)\n"
-           "-m <num>      max memory to use for items in megabytes (default: 64 MB)\n"
-           "-M            return error on memory exhausted (rather than removing items)\n"
-           "-c <num>      max simultaneous connections (default: 1024)\n"
-           "-k            lock down all paged memory.  Note that there is a\n"
-           "              limit on how much memory you may lock.  Trying to\n"
-           "              allocate more than that would fail, so be sure you\n"
-           "              set the limit correctly for the user you started\n"
-           "              the daemon with (not for -u <username> user;\n"
-           "              under sh this is done with 'ulimit -S -l NUM_KB').\n"
-           "-v            verbose (print errors/warnings while in event loop)\n"
-           "-vv           very verbose (also print client commands/responses)\n"
-           "-vvv          extremely verbose (also print internal state transitions)\n"
-           "-h            print this help and exit\n"
-           "-i            print memcached and libevent license\n"
-           "-V            print version and exit\n"
-           "-P <file>     save PID in <file>, only used with -d option\n"
-           "-f <factor>   chunk size growth factor (default: 1.25)\n"
-           "-n <bytes>    minimum space allocated for key+value+flags (default: 48)\n");
-    printf("-L            Try to use large memory pages (if available). Increasing\n"
-           "              the memory page size could reduce the number of TLB misses\n"
-           "              and improve the performance. In order to get large pages\n"
-           "              from the OS, memcached will allocate the total item-cache\n"
-           "              in one large chunk.\n");
+    printf("-p, --port=<num>          TCP port to listen on (default: 11211)\n"
+           "-U, --udp-port=<num>      UDP port to listen on (default: 11211, 0 is off)\n"
+           "-s, --unix-socket=<file>  UNIX socket to listen on (disables network support)\n"
+           "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
+           "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: 0700)\n"
+           "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
+           "-d, --daemon              run as a daemon\n"
+           "-r, --enable-coredumps    maximize core file limit\n"
+           "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
+           "-m, --memory-limit=<num>  item memory in megabytes (default: 64 MB)\n"
+           "-M, --disable-evictions   return error on memory exhausted instead of evicting\n"
+           "-c, --conn-limit=<num>    max simultaneous connections (default: 1024)\n"
+           "-k, --lock-memory         lock down all paged memory\n"
+           "-v, --verbose             verbose (print errors/warnings while in event loop)\n"
+           "-vv                       very verbose (also print client commands/responses)\n"
+           "-vvv                      extremely verbose (internal state transitions)\n"
+           "-h, --help                print this help and exit\n"
+           "-i, --license             print memcached and libevent license\n"
+           "-V, --version             print version and exit\n"
+           "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
+           "-f, --slab-growth-factor=<num> chunk size growth factor (default: 1.25)\n"
+           "-n, --slab-min-sizee=<bytes> min space used for key+value+flags (default: 48)\n");
+    printf("-L, --enable-largepages  try to use large memory pages (if available)\n");
     printf("-D <char>     Use <char> as the delimiter between key prefixes and IDs.\n"
            "              This is used for per-prefix stats reporting. The default is\n"
            "              \":\" (colon). If this option is specified, stats collection\n"
            "              is turned on automatically; if not, then it may be turned on\n"
            "              by sending the \"stats detail on\" command to the server.\n");
-    printf("-t <num>      number of threads to use (default: 4)\n");
-    printf("-R            Maximum number of requests per event, limits the number of\n"
-           "              requests process for a given connection to prevent \n"
-           "              starvation (default: 20)\n");
-    printf("-C            Disable use of CAS\n");
-    printf("-b <num>      Set the backlog queue limit (default: 1024)\n");
-    printf("-B            Binding protocol - one of ascii, binary, or auto (default)\n");
-    printf("-I            Override the size of each slab page. Adjusts max item size\n"
-           "              (default: 1mb, min: 1k, max: 128m)\n");
+    printf("-t, --threads=<num>       number of threads to use (default: 4)\n");
+    printf("-R, --max-reqs-per-event  maximum number of requests per event, limits the\n"
+           "                          requests processed per connection to prevent \n"
+           "                          starvation (default: 20)\n");
+    printf("-C, --disable-cas         disable use of CAS\n");
+    printf("-b, --listen-backlog=<num> set the backlog queue limit (default: 1024)\n");
+    printf("-B, --protocol=<name>     protocol - one of ascii, binary, or auto (default)\n");
+    printf("-I, --max-item-size=<num> adjusts max item size\n"
+           "                          (default: 1mb, min: 1k, max: 128m)\n");
 #ifdef ENABLE_SASL
-    printf("-S            Turn on Sasl authentication\n");
+    printf("-S, --enable-sasl         turn on Sasl authentication\n");
 #endif
-    printf("-F            Disable flush_all command\n");
-    printf("-X            Disable stats cachedump and lru_crawler metadump commands\n");
-    printf("-o            Comma separated list of extended or experimental options\n"
-           "              - maxconns_fast: immediately close new\n"
-           "                connections if over maxconns limit\n"
-           "              - hashpower: An integer multiplier for how large the hash\n"
-           "                table should be. Can be grown at runtime if not big enough.\n"
-           "                Set this based on \"STAT hash_power_level\" before a \n"
-           "                restart.\n"
-           "              - tail_repair_time: Time in seconds that indicates how long to wait before\n"
-           "                forcefully taking over the LRU tail item whose refcount has leaked.\n"
-           "                Disabled by default; dangerous option.\n"
-           "              - hash_algorithm: The hash table algorithm\n"
-           "                default is jenkins hash. options: jenkins, murmur3\n"
-           "              - lru_crawler: Enable LRU Crawler background thread\n"
-           "              - lru_crawler_sleep: Microseconds to sleep between items\n"
-           "                default is 100.\n"
-           "              - lru_crawler_tocrawl: Max items to crawl per slab per run\n"
-           "                default is 0 (unlimited)\n"
-           "              - lru_maintainer: Enable new LRU system + background thread\n"
-           "              - hot_lru_pct: Pct of slab memory to reserve for hot lru.\n"
-           "                (requires lru_maintainer)\n"
-           "              - warm_lru_pct: Pct of slab memory to reserve for warm lru.\n"
-           "                (requires lru_maintainer)\n"
-           "              - hot_max_factor: Items idle longer than cold lru age * drop from hot lru.\n"
-           "              - warm_max_factor: Items idle longer than cold lru age * this drop from warm.\n"
-           "              - temporary_ttl: TTL's below this use separate LRU, cannot be evicted.\n"
-           "                (requires lru_maintainer)\n"
-           "              - idle_timeout: Timeout for idle connections\n"
-           "              - (EXPERIMENTAL) slab_chunk_max: Maximum slab size. Do not change without extreme care.\n"
-           "              - watcher_logbuf_size: Size in kilobytes of per-watcher write buffer.\n"
-           "              - worker_logbuf_Size: Size in kilobytes of per-worker-thread buffer\n"
-           "                read by background thread. Which is then written to watchers.\n"
-           "              - track_sizes: Enable dynamic reports for 'stats sizes' command.\n"
-           "              - no_inline_ascii_resp: Save up to 24 bytes per item. Small perf hit in ASCII,\n"
-           "                no perf difference in binary protocol. Speeds up sets.\n"
-           "              - modern: Enables 'modern' defaults. Options that will be default in future.\n"
-           "                enables: slab_chunk_max:512k,slab_reassign,slab_automove=1,maxconns_fast,\n"
-           "                         hash_algorithm=murmur3,lru_crawler,lru_maintainer,no_inline_ascii_resp\n"
+    printf("-F, --disable-flush-all   disable flush_all command\n");
+    printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
+    printf("-o, --extended            comma separated list of extended options\n"
+           "                          most options have a 'no_' prefix to disable\n"
+           "   - maxconns_fast:       immediately close new connections after limit\n"
+           "   - hashpower:           an integer multiplier for how large the hash\n"
+           "                          table should be. normally grows at runtime.\n"
+           "                          set based on \"STAT hash_power_level\"\n"
+           "   - tail_repair_time:    time in seconds for how long to wait before\n"
+           "                          forcefully killing LRU tail item.\n"
+           "                          disabled by default; very dangerous option.\n"
+           "   - hash_algorithm:      the hash table algorithm\n"
+           "                          default is murmur3 hash. options: jenkins, murmur3\n"
+           "   - lru_crawler:         enable LRU Crawler background thread\n"
+           "   - lru_crawler_sleep:   microseconds to sleep between items\n"
+           "                          default is 100.\n"
+           "   - lru_crawler_tocrawl: max items to crawl per slab per run\n"
+           "                          default is 0 (unlimited)\n"
+           "   - lru_maintainer:      enable new LRU system + background thread\n"
+           "   - hot_lru_pct:         pct of slab memory to reserve for hot lru.\n"
+           "                          (requires lru_maintainer)\n"
+           "   - warm_lru_pct:        pct of slab memory to reserve for warm lru.\n"
+           "                          (requires lru_maintainer)\n"
+           "   - hot_max_factor:      items idle > cold lru age * drop from hot lru.\n"
+           "   - warm_max_factor:     items idle > cold lru age * this drop from warm.\n"
+           "   - temporary_ttl:       TTL's below get separate LRU, can't be evicted.\n"
+           "                          (requires lru_maintainer)\n"
+           "   - idle_timeout:        timeout for idle connections\n"
+           "   - slab_chunk_max:      (EXPERIMENTAL) maximum slab size. use extreme care.\n"
+           "   - watcher_logbuf_size: size in kilobytes of per-watcher write buffer.\n"
+           "   - worker_logbuf_size:  size in kilobytes of per-worker-thread buffer\n"
+           "                          read by background thread, then written to watchers.\n"
+           "   - track_sizes:         enable dynamic reports for 'stats sizes' command.\n"
+           "   - no_inline_ascii_resp: save up to 24 bytes per item.\n"
+           "                           small perf hit in ASCII, no perf difference in\n"
+           "                           binary protocol. speeds up all sets.\n"
+           "   - modern:              enables options which will be default in future.\n"
+           "             currently: nothing\n"
+           "   - no_modern:           uses defaults of previous major version (1.4.x)\n"
            );
     return;
 }
@@ -6024,13 +6010,13 @@ int main (int argc, char **argv) {
 #ifdef HAVE_GETOPT_LONG
     const struct option longopts[] = {
         {"unix-mask", required_argument, 0, 'a'},
-        {"enable-shutdown-cmd", no_argument, 0, 'A'},
+        {"enable-shutdown", no_argument, 0, 'A'},
         {"port", required_argument, 0, 'p'},
-        {"unix-socket-path", required_argument, 0, 's'},
+        {"unix-socket", required_argument, 0, 's'},
         {"udp-port", required_argument, 0, 'U'},
         {"memory-limit", required_argument, 0, 'm'},
         {"disable-evictions", no_argument, 0, 'M'},
-        {"max-connections", required_argument, 0, 'c'},
+        {"conn-limit", required_argument, 0, 'c'},
         {"lock-memory", no_argument, 0, 'k'},
         {"help", no_argument, 0, 'h'},
         {"license", no_argument, 0, 'i'},
@@ -6052,7 +6038,7 @@ int main (int argc, char **argv) {
         {"max-item-size", required_argument, 0, 'I'},
         {"enable-sasl", no_argument, 0, 'S'},
         {"disable-flush-all", no_argument, 0, 'F'},
-        {"disable-dump-cmds", no_argument, 0, 'X'},
+        {"disable-dumping", no_argument, 0, 'X'},
         {"extended", required_argument, 0, 'o'},
         {0, 0, 0, 0}
     };
