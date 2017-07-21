@@ -565,6 +565,16 @@ AC_CHECK_FUNCS(setppriv, [
 
 AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
 
+AC_CHECK_FUNCS(pledge, [
+   AC_CHECK_HEADER(unistd.h, [
+      AC_DEFINE([HAVE_DROP_PRIVILEGES], 1,
+         [Define this if you have an implementation of drop_privileges()])
+      build_openbsd_privs=yes
+   ], [])
+],[])
+
+AM_CONDITIONAL([BUILD_OPENBSD_PRIVS],[test "$build_openbsd_privs" = "yes"])
+
 AC_CHECK_HEADER(umem.h, [
    AC_DEFINE([HAVE_UMEM_H], 1,
          [Define this if you have umem.h])
