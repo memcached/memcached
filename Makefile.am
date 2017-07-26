@@ -83,7 +83,11 @@ MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 test:	memcached-debug sizes testapp
 	$(srcdir)/sizes
 	$(srcdir)/testapp
-	prove $(srcdir)/t
+	@if test -n "${PARALLEL}"; then \
+	  prove $(srcdir)/t -j ${PARALLEL}; \
+	else \
+	  prove $(srcdir)/t; \
+	fi
 	@if test `basename $(PROFILER)` = "gcov"; then \
 	  for file in memcached_debug-*.gc??; do \
 	    mv -f $$file `echo $$file | sed 's/memcached_debug-//'`; \
