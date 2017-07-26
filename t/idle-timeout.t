@@ -10,7 +10,7 @@ use lib "$Bin/lib";
 use MemcachedTest;
 
 # start up a server with 10 maximum connections
-my $server = new_memcached("-o idle_timeout=3");
+my $server = new_memcached("-o idle_timeout=3 -l 127.0.0.1");
 my $sock = $server->sock;
 
 # Make sure we can talk to start with

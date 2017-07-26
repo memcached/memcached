@@ -11,6 +11,7 @@ use vars qw(@EXPORT);
 use Cwd;
 my $builddir = getcwd;
 
+my @unixsockets = ();
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
              supports_sasl free_port);
@@ -150,7 +151,7 @@ sub supports_sasl {
 
 sub new_memcached {
     my ($args, $passed_port) = @_;
-    my $port = $passed_port || free_port();
+    my $port = $passed_port;
     my $host = '127.0.0.1';
 
     if ($ENV{T_MEMD_USE_DAEMON}) {
@@ -164,13 +165,22 @@ sub new_memcached {
         croak("Failed to connect to specified memcached server.") unless $conn;
     }
 
-    my $udpport = free_port("udp");
-    $args .= " -p $port";
-    if (supports_udp()) {
-        $args .= " -U $udpport";
-    }
-    if ($< == 0) {
-        $args .= " -u root";
+    my $udpport;
+    if ($args =~ /-l (\S+)/) {
+        $port = free_port();
+        $udpport = free_port("udp");
+        $args .= " -p $port";
+        if (supports_udp()) {
+            $args .= " -U $udpport";
+        }
+        if ($< == 0) {
+            $args .= " -u root";
+        }
+    } elsif ($args !~ /-s (\S+)/) {
+        my $num = @unixsockets;
+        my $file = "/tmp/memcachetest.$$.$num";
+        $args .= " -s $file";
+        push(@unixsockets, $file);
     }
 
     my $childpid = fork();
@@ -213,6 +223,12 @@ sub new_memcached {
         select undef, undef, undef, 0.10;
     }
     croak("Failed to startup/connect to memcached server.");
+}
+
+END {
+    for (@unixsockets) {
+        unlink $_;
+    }
 }
 
 ############################################################################

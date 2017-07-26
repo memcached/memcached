@@ -28,11 +28,11 @@ sub wait_for_early_second {
 
 wait_for_early_second();
 
-print $sock "set foo 0 1 6\r\nfooval\r\n";
+print $sock "set foo 0 3 6\r\nfooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo");
 
 mem_get_is($sock, "foo", "fooval");
-sleep(1.5);
+sleep(4);
 mem_get_is($sock, "foo", undef);
 
 $expire = time() - 1;

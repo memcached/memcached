@@ -27,7 +27,7 @@ use constant INCRDECR_PKT_FMT => "NNNNN";
 use constant MIN_RECV_BYTES   => length(pack(RES_PKT_FMT));
 
 
-my $server = new_memcached();
+my $server = new_memcached("-l 127.0.0.1");
 my $sock = $server->sock;
 
 # set foo (and should get it)
