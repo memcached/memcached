@@ -50,7 +50,7 @@ unlink($filename);
 
 ## Now look at TCP
 
-$server = new_memcached();
+$server = new_memcached("-l 0.0.0.0");
 $sock = $server->sock;
 $stats_sock = $server->new_sock;
 
@@ -67,4 +67,5 @@ like($stats, qr/STAT \d+:state conn_listen/, "there is a listen socket");
 $stats =~ m/STAT \d+:addr udp:0.0.0.0:(\d+)/;
 is($1, $server->udpport, "udp port number is correct");
 $stats =~ m/STAT \d+:addr tcp:0.0.0.0:(\d+)/;
+print STDERR "PORT: ", $server->port, "\n";
 is($1, $server->port, "tcp port number is correct");

@@ -9,7 +9,7 @@ use MemcachedTest;
 
 # Regression test for underestimating the size of items after the large memory
 # change.
-my $server = new_memcached('-m 3 -o lru_maintainer,lru_crawler');
+my $server = new_memcached('-m 3 -o lru_maintainer,lru_crawler -l 127.0.0.1');
 my $sock = $server->sock;
 my $keystub = "X"x200;
 for (1 .. 15000) {
@@ -21,7 +21,7 @@ print $sock "set $keystub 0 0 2\r\nok\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored key without OOM");
 
 # Basic tests
-$server = new_memcached('-m 6 -o lru_maintainer,lru_crawler');
+$server = new_memcached('-m 6 -o lru_maintainer,lru_crawler -l 127.0.0.1');
 $sock = $server->sock;
 
 for (1 .. 10) {
