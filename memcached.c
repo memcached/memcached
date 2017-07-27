@@ -4282,7 +4282,11 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "lru") == 0) {
         process_lru_command(c, tokens, ntokens);
     } else {
-        out_string(c, "ERROR");
+        if (ntokens >= 2 && strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
+            conn_set_state(c, conn_closing);
+        } else {
+            out_string(c, "ERROR");
+        }
     }
     return;
 }
