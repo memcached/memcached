@@ -165,6 +165,10 @@ sub new_memcached {
         croak("Failed to connect to specified memcached server.") unless $conn;
     }
 
+    if ($< == 0) {
+        $args .= " -u root";
+    }
+
     my $udpport;
     if ($args =~ /-l (\S+)/) {
         $port = free_port();
@@ -172,9 +176,6 @@ sub new_memcached {
         $args .= " -p $port";
         if (supports_udp()) {
             $args .= " -U $udpport";
-        }
-        if ($< == 0) {
-            $args .= " -u root";
         }
     } elsif ($args !~ /-s (\S+)/) {
         my $num = @unixsockets;
