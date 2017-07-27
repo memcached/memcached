@@ -19,7 +19,7 @@ foreach my $str (@strs)
 {
     my $server = new_memcached();
     my $sock = $server->sock;
-    
+
     print $sock "$str\r\n";
 
     # Five seconds ought to be enough to get hung up on.
