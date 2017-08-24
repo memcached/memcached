@@ -563,7 +563,6 @@ int do_item_replace(item *it, item *new_it, const uint32_t hv) {
  * The data could possibly be overwritten, but this is only accessing the
  * headers.
  * It may not be the best idea to leave it like this, but for now it's safe.
- * FIXME: only dumps the hot LRU with the new LRU's.
  */
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes) {
     unsigned int memlimit = 2 * 1024 * 1024;   /* 2MB max response size */
@@ -575,8 +574,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
     char key_temp[KEY_MAX_LENGTH + 1];
     char temp[512];
     unsigned int id = slabs_clsid;
-    if (!settings.lru_segmented)
-        id |= COLD_LRU;
+    id |= COLD_LRU;
 
     pthread_mutex_lock(&lru_locks[id]);
     it = heads[id];
