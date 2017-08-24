@@ -214,7 +214,7 @@ foreach my $n (1..$max) {
     my $size = $it->{chunk_size} < 1024 ?
         "$it->{chunk_size}B" :
         sprintf("%.1fK", $it->{chunk_size} / 1024.0);
-    my $full = $it->{free_chunks_end} == 0 ? "yes" : " no";
+    my $full = $it->{used_chunks} == $it->{total_chunks} ? "yes" : " no";
     printf("%3d %8s %9ds %7d %7d %7s %8d %8d %4d\n",
            $n, $size, $it->{age}, $it->{total_pages},
            $it->{number}, $full, $it->{evicted},
