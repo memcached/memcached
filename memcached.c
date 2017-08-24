@@ -3899,7 +3899,7 @@ static void process_misbehave_command(conn *c) {
     }
 
     // try executing new commands
-    system("sleep 0");
+    i = system("sleep 0");
     if (i != -1) {
         allowed++;
     }
