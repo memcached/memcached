@@ -629,6 +629,8 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | to store items                            |
 | max_connections       | 32u     | Max number of simultaneous connections    |
 | curr_connections      | 32u     | Number of open connections                |
+| curr_connections_pct  | 32u.32u | Number of open connections as a           |
+|                       |         | percentage of the maximum number allowed  |
 | total_connections     | 32u     | Total number of connections opened since  |
 |                       |         | the server started running                |
 | rejected_connections  | 64u     | Conns rejected in maxconns_fast mode      |
