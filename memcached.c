@@ -2933,6 +2933,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
                 (long)usage.ru_stime.tv_usec);
 #endif /* !WIN32 */
 
+    APPEND_STAT("max_connections", "%d", settings.maxconns);
     APPEND_STAT("curr_connections", "%llu", (unsigned long long)stats_state.curr_conns - 1);
     APPEND_STAT("total_connections", "%llu", (unsigned long long)stats.total_conns);
     if (settings.maxconns_fast) {
