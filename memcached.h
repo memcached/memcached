@@ -64,6 +64,7 @@
 
 /* Initial power multiplier for the hash table */
 #define HASHPOWER_DEFAULT 16
+#define HASHPOWER_MAX 32
 
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned

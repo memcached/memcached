@@ -6325,7 +6325,7 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "Initial hashtable multiplier of %d is too low\n",
                         settings.hashpower_init);
                     return 1;
-                } else if (settings.hashpower_init > 64) {
+                } else if (settings.hashpower_init > 32) {
                     fprintf(stderr, "Initial hashtable multiplier of %d is too high\n"
                         "Choose a value based on \"STAT hash_power_level\" from a running instance\n",
                         settings.hashpower_init);
