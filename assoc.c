@@ -170,7 +170,8 @@ int assoc_insert(item *it, const uint32_t hv) {
 
     pthread_mutex_lock(&hash_items_counter_lock);
     hash_items++;
-    if (! expanding && hash_items > (hashsize(hashpower) * 3) / 2) {
+    if (! expanding && hash_items > (hashsize(hashpower) * 3) / 2 &&
+          hashpower < HASHPOWER_MAX) {
         assoc_start_expand();
     }
     pthread_mutex_unlock(&hash_items_counter_lock);
