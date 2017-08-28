@@ -217,7 +217,7 @@ static void *assoc_maintenance_thread(void *arg) {
         /* There is only one expansion thread, so no need to global lock. */
         for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             item *it, *next;
-            int bucket;
+            unsigned int bucket;
             void *item_lock = NULL;
 
             /* bucket = hv & hashmask(hashpower) =>the bucket of hash table
