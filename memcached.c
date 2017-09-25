@@ -3249,7 +3249,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 }
 
 /* nsuffix == 0 means use no storage for client flags */
-static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas) {
+static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas, int nbytes) {
     char *p = suffix;
     if (!settings.inline_ascii_response) {
         *p = ' ';
@@ -3261,7 +3261,7 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas)
             p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
         }
         *p = ' ';
-        p = itoa_u32(it->nbytes-2, p+1);
+        p = itoa_u32(nbytes-2, p+1);
     } else {
         p = suffix;
     }
@@ -3285,11 +3285,58 @@ static inline item* limited_get(char *key, size_t nkey, conn *c) {
     return it;
 }
 
+static inline int _ascii_get_expand_ilist(conn *c, int i) {
+    if (i >= c->isize) {
+        item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
+        if (new_list) {
+            c->isize *= 2;
+            c->ilist = new_list;
+        } else {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static inline char *_ascii_get_suffix_buf(conn *c, int i) {
+    char *suffix;
+    /* Goofy mid-flight realloc. */
+    if (i >= c->suffixsize) {
+    char **new_suffix_list = realloc(c->suffixlist,
+                           sizeof(char *) * c->suffixsize * 2);
+    if (new_suffix_list) {
+        c->suffixsize *= 2;
+        c->suffixlist  = new_suffix_list;
+    } else {
+        STATS_LOCK();
+        stats.malloc_fails++;
+        STATS_UNLOCK();
+        return NULL;
+    }
+    }
+
+    suffix = do_cache_alloc(c->thread->suffix_cache);
+    if (suffix == NULL) {
+      STATS_LOCK();
+      stats.malloc_fails++;
+      STATS_UNLOCK();
+      out_of_memory(c, "SERVER_ERROR out of memory making CAS suffix");
+      return NULL;
+    }
+    *(c->suffixlist + i) = suffix;
+    return suffix;
+}
+// FIXME: the 'breaks' around memory malloc's should break all the way down,
+// fill ileft/suffixleft, then run conn_releaseitems()
 /* ntokens is overwritten here... shrug.. */
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas, bool should_touch) {
     char *key;
     size_t nkey;
     int i = 0;
+    int si = 0;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
     char *suffix;
@@ -3334,18 +3381,9 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
             if (it) {
-                if (i >= c->isize) {
-                    item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
-                    if (new_list) {
-                        c->isize *= 2;
-                        c->ilist = new_list;
-                    } else {
-                        STATS_LOCK();
-                        stats.malloc_fails++;
-                        STATS_UNLOCK();
-                        item_remove(it);
-                        break;
-                    }
+                if (_ascii_get_expand_ilist(c, i) != 0) {
+                    item_remove(it);
+                    break; // FIXME: Should bail down to error.
                 }
 
                 /*
@@ -3365,36 +3403,15 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
                   }
-                  /* Goofy mid-flight realloc. */
-                  if (i >= c->suffixsize) {
-                    char **new_suffix_list = realloc(c->suffixlist,
-                                           sizeof(char *) * c->suffixsize * 2);
-                    if (new_suffix_list) {
-                        c->suffixsize *= 2;
-                        c->suffixlist  = new_suffix_list;
-                    } else {
-                        STATS_LOCK();
-                        stats.malloc_fails++;
-                        STATS_UNLOCK();
-                        item_remove(it);
-                        break;
-                    }
-                  }
-
-                  suffix = do_cache_alloc(c->thread->suffix_cache);
+                  int nbytes;
+                  suffix = _ascii_get_suffix_buf(c, si);
                   if (suffix == NULL) {
-                      STATS_LOCK();
-                      stats.malloc_fails++;
-                      STATS_UNLOCK();
-                      out_of_memory(c, "SERVER_ERROR out of memory making CAS suffix");
                       item_remove(it);
-                      while (i-- > 0) {
-                          item_remove(*(c->ilist + i));
-                      }
-                      return;
+                      break;
                   }
-                  *(c->suffixlist + i) = suffix;
-                  int suffix_len = make_ascii_get_suffix(suffix, it, return_cas);
+                  si++;
+                  nbytes = it->nbytes;
+                  int suffix_len = make_ascii_get_suffix(suffix, it, return_cas, nbytes);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
                       (settings.inline_ascii_response && add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0) ||
@@ -3498,7 +3515,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     c->ileft = i;
     if (return_cas || !settings.inline_ascii_response) {
         c->suffixcurr = c->suffixlist;
-        c->suffixleft = i;
+        c->suffixleft = si;
     }
 
     if (settings.verbose > 1)
