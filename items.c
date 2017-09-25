@@ -81,9 +81,16 @@ void do_item_stats_add_crawl(const int i, const uint64_t reclaimed,
 
 #define LRU_PULL_EVICT 1
 #define LRU_PULL_CRAWL_BLOCKS 2
+#define LRU_PULL_RETURN_ITEM 4 /* fill info struct if available */
+
+struct lru_pull_tail_return {
+    item *it;
+    uint32_t hv;
+};
 
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age);
+        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age,
+        struct lru_pull_tail_return *ret_it);
 
 typedef struct _lru_bump_buf {
     struct _lru_bump_buf *prev;
@@ -178,7 +185,7 @@ static size_t item_make_header(const uint8_t nkey, const unsigned int flags, con
     return sizeof(item) + nkey + *nsuffix + nbytes;
 }
 
-static item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
+item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
     item *it = NULL;
     int i;
     /* If no memory is available, attempt a direct LRU juggle/eviction */
@@ -191,7 +198,7 @@ static item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
         uint64_t total_bytes;
         /* Try to reclaim memory first */
         if (!settings.lru_segmented) {
-            lru_pull_tail(id, COLD_LRU, 0, 0, 0);
+            lru_pull_tail(id, COLD_LRU, 0, 0, 0, NULL);
         }
         it = slabs_alloc(ntotal, id, &total_bytes, 0);
 
@@ -199,9 +206,9 @@ static item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
             total_bytes -= temp_lru_size(id);
 
         if (it == NULL) {
-            if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0) <= 0) {
+            if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0, NULL) <= 0) {
                 if (settings.lru_segmented) {
-                    lru_pull_tail(id, HOT_LRU, total_bytes, 0, 0);
+                    lru_pull_tail(id, HOT_LRU, total_bytes, 0, 0, NULL);
                 } else {
                     break;
                 }
@@ -1040,7 +1047,8 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 /* Returns number of items remove, expired, or evicted.
  * Callable from worker threads or the LRU maintainer thread */
 static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age) {
+        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age,
+        struct lru_pull_tail_return *ret_it) {
     item *it = NULL;
     int id = orig_id;
     int removed = 0;
@@ -1172,6 +1180,10 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
                     if (settings.slab_automove == 2) {
                         slabs_reassign(-1, orig_id);
                     }
+                } else if (flags & LRU_PULL_RETURN_ITEM) {
+                    /* Keep a reference to this item and return it. */
+                    ret_it->it = it;
+                    ret_it->hv = hv;
                 } else if ((search->it_flags & ITEM_ACTIVE) != 0
                         && settings.lru_segmented) {
                     itemstats[id].moves_to_warm++;
@@ -1197,8 +1209,10 @@ static int lru_pull_tail(const int orig_id, const int cur_lru,
             it->slabs_clsid |= move_to_lru;
             item_link_q(it);
         }
-        do_item_remove(it);
-        item_trylock_unlock(hold_lock);
+        if ((flags & LRU_PULL_RETURN_ITEM) == 0) {
+            do_item_remove(it);
+            item_trylock_unlock(hold_lock);
+        }
     }
 
     return removed;
@@ -1334,7 +1348,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     if (settings.temp_lru) {
         /* Only looking for reclaims. Run before we size the LRU. */
         for (i = 0; i < 500; i++) {
-            if (lru_pull_tail(slabs_clsid, TEMP_LRU, 0, 0, 0) <= 0) {
+            if (lru_pull_tail(slabs_clsid, TEMP_LRU, 0, 0, 0, NULL) <= 0) {
                 break;
             } else {
                 did_moves++;
@@ -1360,12 +1374,12 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     /* Juggle HOT/WARM up to N times */
     for (i = 0; i < 500; i++) {
         int do_more = 0;
-        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, hot_age) ||
-            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, warm_age)) {
+        if (lru_pull_tail(slabs_clsid, HOT_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, hot_age, NULL) ||
+            lru_pull_tail(slabs_clsid, WARM_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, warm_age, NULL)) {
             do_more++;
         }
         if (settings.lru_segmented) {
-            do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, 0);
+            do_more += lru_pull_tail(slabs_clsid, COLD_LRU, total_bytes, LRU_PULL_CRAWL_BLOCKS, 0, NULL);
         }
         if (do_more == 0)
             break;
