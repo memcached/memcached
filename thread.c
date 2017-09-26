@@ -700,7 +700,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  *
  * nthreads  Number of worker event handler threads to spawn
  */
-void memcached_thread_init(int nthreads) {
+void memcached_thread_init(int nthreads, void *arg) {
     int         i;
     int         power;
 

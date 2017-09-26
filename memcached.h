@@ -637,8 +637,7 @@ extern int daemonize(int nochdir, int noclose);
  * in the current thread) are called via "dispatch_" frontends, which are
  * also #define-d to directly call the underlying code in singlethreaded mode.
  */
-
-void memcached_thread_init(int nthreads);
+void memcached_thread_init(int nthreads, void *arg);
 void redispatch_conn(conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 void sidethread_conn_close(conn *c);

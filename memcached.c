@@ -6089,7 +6089,7 @@ int main (int argc, char **argv) {
     settings_init();
 
     /* Run regardless of initializing it later */
-    init_lru_crawler();
+    init_lru_crawler(NULL);
     init_lru_maintainer();
 
     /* set stderr non-buffering (for running under, say, daemontools) */
@@ -6830,7 +6830,7 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     }
     /* start up worker threads if MT mode */
-    memcached_thread_init(settings.num_threads);
+    memcached_thread_init(settings.num_threads, NULL);
 
     if (start_assoc_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
@@ -6841,7 +6841,7 @@ int main (int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    if (start_lru_maintainer && start_lru_maintainer_thread() != 0) {
+    if (start_lru_maintainer && start_lru_maintainer_thread(NULL) != 0) {
         fprintf(stderr, "Failed to enable LRU maintainer thread\n");
         return 1;
     }
