@@ -641,7 +641,7 @@ void lru_crawler_resume(void) {
     pthread_mutex_unlock(&lru_crawler_lock);
 }
 
-int init_lru_crawler(void) {
+int init_lru_crawler(void *arg) {
     if (lru_crawler_initialized == 0) {
         if (pthread_cond_init(&lru_crawler_cond, NULL) != 0) {
             fprintf(stderr, "Can't initialize lru crawler condition\n");
