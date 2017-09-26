@@ -79,19 +79,6 @@ void do_item_stats_add_crawl(const int i, const uint64_t reclaimed,
     itemstats[i].crawler_items_checked += checked;
 }
 
-#define LRU_PULL_EVICT 1
-#define LRU_PULL_CRAWL_BLOCKS 2
-#define LRU_PULL_RETURN_ITEM 4 /* fill info struct if available */
-
-struct lru_pull_tail_return {
-    item *it;
-    uint32_t hv;
-};
-
-static int lru_pull_tail(const int orig_id, const int cur_lru,
-        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age,
-        struct lru_pull_tail_return *ret_it);
-
 typedef struct _lru_bump_buf {
     struct _lru_bump_buf *prev;
     struct _lru_bump_buf *next;
@@ -1046,7 +1033,7 @@ item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
 
 /* Returns number of items remove, expired, or evicted.
  * Callable from worker threads or the LRU maintainer thread */
-static int lru_pull_tail(const int orig_id, const int cur_lru,
+int lru_pull_tail(const int orig_id, const int cur_lru,
         const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age,
         struct lru_pull_tail_return *ret_it) {
     item *it = NULL;

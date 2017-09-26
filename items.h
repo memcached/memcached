@@ -32,6 +32,19 @@ item *do_item_crawl_q(item *it);
 
 void *item_lru_bump_buf_create(void);
 
+#define LRU_PULL_EVICT 1
+#define LRU_PULL_CRAWL_BLOCKS 2
+#define LRU_PULL_RETURN_ITEM 4 /* fill info struct if available */
+
+struct lru_pull_tail_return {
+    item *it;
+    uint32_t hv;
+};
+
+int lru_pull_tail(const int orig_id, const int cur_lru,
+        const uint64_t total_bytes, const uint8_t flags, const rel_time_t max_age,
+        struct lru_pull_tail_return *ret_it);
+
 /*@null@*/
 char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, unsigned int *bytes);
 void item_stats(ADD_STAT add_stats, void *c);
