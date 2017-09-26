@@ -334,6 +334,13 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         fprintf(stderr, "Failed to create suffix cache\n");
         exit(EXIT_FAILURE);
     }
+#ifdef EXTSTORE
+    me->io_cache = cache_create("io", sizeof(io_wrap), sizeof(char*), NULL, NULL);
+    if (me->io_cache == NULL) {
+        fprintf(stderr, "Failed to create IO object cache\n");
+        exit(EXIT_FAILURE);
+    }
+#endif
 }
 
 /*
@@ -641,6 +648,9 @@ void threadlocal_stats_reset(void) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
 #define X(name) threads[ii].stats.name = 0;
         THREAD_STATS_FIELDS
+#ifdef EXTSTORE
+        EXTSTORE_THREAD_STATS_FIELDS
+#endif
 #undef X
 
         memset(&threads[ii].stats.slab_stats, 0,
@@ -663,6 +673,9 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
 #define X(name) stats->name += threads[ii].stats.name;
         THREAD_STATS_FIELDS
+#ifdef EXTSTORE
+        EXTSTORE_THREAD_STATS_FIELDS
+#endif
 #undef X
 
         for (sid = 0; sid < MAX_NUMBER_OF_SLAB_CLASSES; sid++) {
@@ -765,7 +778,9 @@ void memcached_thread_init(int nthreads, void *arg) {
 
         threads[i].notify_receive_fd = fds[0];
         threads[i].notify_send_fd = fds[1];
-
+#ifdef EXTSTORE
+        threads[i].storage = arg;
+#endif
         setup_thread(&threads[i]);
         /* Reserve three fds for the libevent base, and two for the pipe */
         stats_state.reserved_fds += 5;

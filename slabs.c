@@ -360,6 +360,9 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
 
     it = (item *)ptr;
     if ((it->it_flags & ITEM_CHUNKED) == 0) {
+#ifdef EXTSTORE
+        bool is_hdr = it->it_flags & ITEM_HDR;
+#endif
         it->it_flags = ITEM_SLABBED;
         it->slabs_clsid = 0;
         it->prev = 0;
@@ -368,7 +371,15 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
         p->slots = it;
 
         p->sl_curr++;
+#ifdef EXTSTORE
+        if (!is_hdr) {
+            p->requested -= size;
+        } else {
+            p->requested -= (size - it->nbytes) + sizeof(item_hdr);
+        }
+#else
         p->requested -= size;
+#endif
     } else {
         do_slabs_free_chunked(it, size);
     }
@@ -855,6 +866,11 @@ static int slab_rebalance_move(void) {
                  */
                 /* Check if expired or flushed */
                 ntotal = ITEM_ntotal(it);
+#ifdef EXTSTORE
+                if (it->it_flags & ITEM_HDR) {
+                    ntotal = (ntotal - it->nbytes) + sizeof(item_hdr);
+                }
+#endif
                 /* REQUIRES slabs_lock: CHECK FOR cls->sl_curr > 0 */
                 if (ch == NULL && (it->it_flags & ITEM_CHUNKED)) {
                     /* Chunked should be identical to non-chunked, except we need
@@ -928,6 +944,7 @@ static int slab_rebalance_move(void) {
                 } else {
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
+                    // FIXME: need storage instance to call extstore_delete
                     do_item_unlink(it, hv);
                     slabs_free(it, ntotal, slab_rebal.s_clsid);
                     /* Swing around again later to remove it from the freelist. */
@@ -1027,6 +1044,7 @@ static void slab_rebalance_finish(void) {
             slab_rebal.d_clsid);
     } else if (slab_rebal.d_clsid == SLAB_GLOBAL_PAGE_POOL) {
         /* mem_malloc'ed might be higher than mem_limit. */
+        mem_limit_reached = false;
         memory_release();
     }
 

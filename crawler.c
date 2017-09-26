@@ -96,6 +96,10 @@ static volatile int do_run_lru_crawler_thread = 0;
 static int lru_crawler_initialized = 0;
 static pthread_mutex_t lru_crawler_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
+#ifdef EXTSTORE
+/* TODO: pass this around */
+static void *storage;
+#endif
 
 /* Will crawl all slab classes a minimum of once per hour */
 #define MAX_MAINTCRAWL_WAIT 60 * 60
@@ -179,8 +183,20 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
     pthread_mutex_lock(&d->lock);
     crawlerstats_t *s = &d->crawlerstats[i];
     int is_flushed = item_is_flushed(search);
+#ifdef EXTSTORE
+    bool is_valid = true;
+    if (search->it_flags & ITEM_HDR) {
+        item_hdr *hdr = (item_hdr *)ITEM_data(search);
+        if (extstore_check(storage, hdr->page_id, hdr->page_version) != 0)
+            is_valid = false;
+    }
+#endif
     if ((search->exptime != 0 && search->exptime < current_time)
-        || is_flushed) {
+        || is_flushed
+#ifdef EXTSTORE
+        || !is_valid
+#endif
+        ) {
         crawlers[i].reclaimed++;
         s->reclaimed++;
 
@@ -656,6 +672,9 @@ void lru_crawler_resume(void) {
 
 int init_lru_crawler(void *arg) {
     if (lru_crawler_initialized == 0) {
+#ifdef EXTSTORE
+        storage = arg;
+#endif
         if (pthread_cond_init(&lru_crawler_cond, NULL) != 0) {
             fprintf(stderr, "Can't initialize lru crawler condition\n");
             return -1;

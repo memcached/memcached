@@ -14,6 +14,9 @@
  *      Brad Fitzpatrick <brad@danga.com>
  */
 #include "memcached.h"
+#ifdef EXTSTORE
+#include "storage.h"
+#endif
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -472,9 +475,18 @@ void conn_worker_readd(conn *c) {
     event_base_set(c->thread->base, &c->event);
     c->state = conn_new_cmd;
 
+    // TODO: call conn_cleanup/fail/etc
     if (event_add(&c->event, 0) == -1) {
         perror("event_add");
     }
+#ifdef EXTSTORE
+    // If we had IO objects, process
+    if (c->io_wraplist) {
+        //assert(c->io_wrapleft == 0); // assert no more to process
+        conn_set_state(c, conn_mwrite);
+        drive_machine(c); // FIXME: Again, is it really this easy?
+    }
+#endif
 }
 
 conn *conn_new(const int sfd, enum conn_states init_state,
@@ -592,6 +604,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->msgused = 0;
     c->authenticated = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
+#ifdef EXTSTORE
+    c->io_wraplist = NULL;
+    c->io_wrapleft = 0;
+#endif
 
     c->write_and_go = init_state;
     c->write_and_free = 0;
@@ -617,7 +633,60 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     return c;
 }
+#ifdef EXTSTORE
+static void recache_or_free(conn *c, io_wrap *wrap) {
+    item *it = (item *)wrap->io.buf;
+    // If request was ultimately a miss, unlink the header.
+    if (wrap->miss) {
+        size_t ntotal = ITEM_ntotal(wrap->hdr_it);
+        item_unlink(wrap->hdr_it);
+        slabs_free(it, ntotal, slabs_clsid(ntotal));
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.miss_from_extstore++;
+        if (wrap->badcrc)
+            c->thread->stats.badcrc_from_extstore++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+    } else {
+        // hashvalue is cuddled during store
+        uint32_t hv = (uint32_t)it->time;
+        bool do_free = true;
+        // opt to throw away rather than wait on a lock.
+        void *hold_lock = item_trylock(hv);
+        if (hold_lock != NULL) {
+            item *h_it = wrap->hdr_it;
+            uint8_t flags = ITEM_LINKED|ITEM_FETCHED|ITEM_ACTIVE;
+            // Item must be recently hit at least twice to recache.
+            if (((h_it->it_flags & flags) == flags) &&
+                    h_it->time > current_time - ITEM_UPDATE_INTERVAL &&
+                    c->recache_counter++ % settings.ext_recache_rate == 0) {
+                do_free = false;
+                // In case it's been updated.
+                it->exptime = h_it->exptime;
+                it->it_flags &= ~ITEM_LINKED;
+                it->refcount = 0;
+                it->h_next = NULL; // might not be necessary.
+                STORAGE_delete(c->thread->storage, h_it);
+                item_replace(h_it, it, hv);
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.recache_from_extstore++;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
+            }
+        }
 
+        if (do_free)
+            slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
+        if (hold_lock)
+            item_trylock_unlock(hold_lock);
+    }
+    wrap->io.buf = NULL; // sanity.
+    wrap->io.next = NULL;
+    wrap->next = NULL;
+    wrap->active = false;
+
+    // TODO: reuse lock and/or hv.
+    item_remove(wrap->hdr_it);
+}
+#endif
 static void conn_release_items(conn *c) {
     assert(c != NULL);
 
@@ -639,7 +708,18 @@ static void conn_release_items(conn *c) {
             do_cache_free(c->thread->suffix_cache, *(c->suffixcurr));
         }
     }
-
+#ifdef EXTSTORE
+    if (c->io_wraplist) {
+        io_wrap *tmp = c->io_wraplist;
+        while (tmp) {
+            io_wrap *next = tmp->next;
+            recache_or_free(c, tmp);
+            do_cache_free(c->thread->io_cache, tmp); // lockless
+            tmp = next;
+        }
+        c->io_wraplist = NULL;
+    }
+#endif
     c->icurr = c->ilist;
     c->suffixcurr = c->suffixlist;
 }
@@ -2298,6 +2378,7 @@ static void process_bin_update(conn *c) {
             it = item_get(key, nkey, c, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
+                STORAGE_delete(c->thread->storage, it);
                 item_remove(it);
             }
         }
@@ -2456,6 +2537,7 @@ static void process_bin_delete(conn *c) {
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
             item_unlink(it);
+            STORAGE_delete(c->thread->storage, it);
             write_bin_response(c, NULL, 0, 0, 0);
         } else {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
@@ -2676,6 +2758,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
+            STORAGE_delete(c->thread->storage, old_it);
             item_replace(old_it, it, hv);
             stored = STORED;
         } else {
@@ -2735,10 +2818,12 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         }
 
         if (stored == NOT_STORED && failed_alloc == 0) {
-            if (old_it != NULL)
+            if (old_it != NULL) {
+                STORAGE_delete(c->thread->storage, old_it);
                 item_replace(old_it, it, hv);
-            else
+            } else {
                 do_item_link(it, hv);
+            }
 
             c->cas = ITEM_get_cas(it);
 
@@ -2911,7 +2996,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     threadlocal_stats_aggregate(&thread_stats);
     struct slab_stats slab_stats;
     slab_stats_aggregate(&thread_stats, &slab_stats);
-
+#ifdef EXTSTORE
+    struct extstore_stats st;
+#endif
 #ifndef WIN32
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
@@ -2951,6 +3038,12 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
     APPEND_STAT("get_flushed", "%llu", (unsigned long long)thread_stats.get_flushed);
+#ifdef EXTSTORE
+    APPEND_STAT("get_extstore", "%llu", (unsigned long long)thread_stats.get_extstore);
+    APPEND_STAT("recache_from_extstore", "%llu", (unsigned long long)thread_stats.recache_from_extstore);
+    APPEND_STAT("miss_from_extstore", "%llu", (unsigned long long)thread_stats.miss_from_extstore);
+    APPEND_STAT("badcrc_from_extstore", "%llu", (unsigned long long)thread_stats.badcrc_from_extstore);
+#endif
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
     APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
     APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);
@@ -3002,6 +3095,23 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("log_watcher_skipped", "%llu", (unsigned long long)stats.log_watcher_skipped);
     APPEND_STAT("log_watcher_sent", "%llu", (unsigned long long)stats.log_watcher_sent);
     STATS_UNLOCK();
+#ifdef EXTSTORE
+    extstore_get_stats(c->thread->storage, &st);
+    APPEND_STAT("extstore_page_allocs", "%llu", (unsigned long long)st.page_allocs);
+    APPEND_STAT("extstore_page_evictions", "%llu", (unsigned long long)st.page_evictions);
+    APPEND_STAT("extstore_page_reclaims", "%llu", (unsigned long long)st.page_reclaims);
+    APPEND_STAT("extstore_pages_free", "%llu", (unsigned long long)st.pages_free);
+    APPEND_STAT("extstore_pages_used", "%llu", (unsigned long long)st.pages_used);
+    APPEND_STAT("extstore_objects_evicted", "%llu", (unsigned long long)st.objects_evicted);
+    APPEND_STAT("extstore_objects_read", "%llu", (unsigned long long)st.objects_read);
+    APPEND_STAT("extstore_objects_written", "%llu", (unsigned long long)st.objects_written);
+    APPEND_STAT("extstore_objects_used", "%llu", (unsigned long long)st.objects_used);
+    APPEND_STAT("extstore_bytes_evicted", "%llu", (unsigned long long)st.bytes_evicted);
+    APPEND_STAT("extstore_bytes_written", "%llu", (unsigned long long)st.bytes_written);
+    APPEND_STAT("extstore_bytes_read", "%llu", (unsigned long long)st.bytes_read);
+    APPEND_STAT("extstore_bytes_used", "%llu", (unsigned long long)st.bytes_used);
+    APPEND_STAT("extstore_bytes_fragmented", "%llu", (unsigned long long)st.bytes_fragmented);
+#endif
 }
 
 static void process_stat_settings(ADD_STAT add_stats, void *c) {
@@ -3336,6 +3446,128 @@ static inline char *_ascii_get_suffix_buf(conn *c, int i) {
     *(c->suffixlist + i) = suffix;
     return suffix;
 }
+#ifdef EXTSTORE
+// FIXME: This runs in the IO thread. to get better IO performance this should
+// simply mark the io wrapper with the return value and decrement wrapleft, if
+// zero redispatching. Still a bit of work being done in the side thread but
+// minimized at least.
+static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
+    // FIXME: assumes success
+    io_wrap *wrap = (io_wrap *)io->data;
+    conn *c = wrap->c;
+    assert(wrap->active == true);
+    item *read_it = (item *)io->buf;
+    bool miss = false;
+
+    // TODO: How to do counters for hit/misses?
+    if (ret < 1) {
+        miss = true;
+    } else {
+        uint32_t crc = (uint32_t) read_it->exptime;
+        read_it->exptime = 0; // to match what was crc'ed
+        uint32_t crc2 = crc32c(0, (char *)read_it+24, io->len-24);
+        if (crc != crc2) {
+            miss = true;
+            wrap->badcrc = true;
+        }
+    }
+
+    if (miss) {
+        int i;
+        struct iovec *v;
+        for (i = 0; i < wrap->iovec_count; i++) {
+            v = &c->iov[wrap->iovec_start + i];
+            v->iov_len = 0;
+            v->iov_base = NULL;
+        }
+        wrap->miss = true;
+    } else {
+        assert(read_it->slabs_clsid != 0);
+        c->iov[wrap->iovec_data].iov_base = ITEM_data(read_it);
+        // iov_len is already set
+        // TODO: Should do that here instead and cuddle in the wrap object
+    }
+    c->io_wrapleft--;
+    wrap->active = false;
+    //assert(c->io_wrapleft >= 0);
+
+    // All IO's have returned, lets re-attach this connection to our original
+    // thread.
+    if (c->io_wrapleft == 0) {
+        assert(c->io_queued == true);
+        c->io_queued = false;
+        // FIXME: Is it really this easy?
+        // I have worries this won't be performant enough under load though.
+        // Can cause the IO threads to block if the pipes are full, too.
+        redispatch_conn(c);
+    }
+}
+
+// FIXME: This completely breaks UDP support.
+static inline int _ascii_get_extstore(conn *c, item *it) {
+    item_hdr *hdr = (item_hdr *)ITEM_data(it);
+    size_t ntotal = ITEM_ntotal(it);
+    unsigned int clsid = slabs_clsid(ntotal);
+    item *new_it = do_item_alloc_pull(ntotal, clsid);
+    if (new_it == NULL)
+        return -1;
+    assert(!c->io_queued); // FIXME: debugging.
+    // so we can free the chunk on a miss
+    new_it->slabs_clsid = clsid;
+
+    io_wrap *io = do_cache_alloc(c->thread->io_cache);
+    io->active = true;
+    io->miss = false;
+    io->badcrc = false;
+    // io_wrap owns the reference for this object now.
+    io->hdr_it = it;
+
+    // FIXME: error handling.
+    // The offsets we'll wipe on a miss.
+    io->iovec_start = c->iovused - 3;
+    io->iovec_count = 4;
+    // FIXME: error handling.
+    // This is probably super dangerous. keep it at 0 and fill into wrap
+    // object?
+    io->iovec_data = c->iovused;
+    add_iov(c, "", it->nbytes);
+    // The offset we'll fill in on a hit.
+    io->c = c;
+    // We need to stack the sub-struct IO's together as well.
+    if (c->io_wraplist) {
+        io->io.next = &c->io_wraplist->io;
+    } else {
+        io->io.next = NULL;
+    }
+    // IO queue for this connection.
+    io->next = c->io_wraplist;
+    c->io_wraplist = io;
+    assert(c->io_wrapleft >= 0);
+    c->io_wrapleft++;
+    // reference ourselves for the callback.
+    io->io.data = (void *)io;
+    io->io.buf = (void *)new_it;
+
+    // Now, fill in io->io based on what was in our header.
+    io->io.page_version = hdr->page_version;
+    io->io.page_id = hdr->page_id;
+    io->io.offset = hdr->offset;
+    io->io.len = ITEM_ntotal(it);
+    io->io.mode = OBJ_IO_READ;
+
+    // TODO: set the callback function
+    io->io.cb = _ascii_get_extstore_cb;
+    //fprintf(stderr, "EXTSTORE: IO stacked %u\n", io->iovec_data);
+    // FIXME: This stat needs to move to reflect # of flash hits vs misses
+    // for now it's a good gauge on how often we request out to flash at
+    // least.
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.get_extstore++;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
+
+    return 0;
+}
+#endif
 // FIXME: the 'breaks' around memory malloc's should break all the way down,
 // fill ileft/suffixleft, then run conn_releaseitems()
 /* ntokens is overwritten here... shrug.. */
@@ -3417,7 +3649,16 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                           item_remove(it);
                           break;
                       }
+#ifdef EXTSTORE
+                  if (it->it_flags & ITEM_HDR) {
+                      if (_ascii_get_extstore(c, it) != 0) {
+                          item_remove(it);
+                          break;
+                      }
+                  } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+#else
                   if ((it->it_flags & ITEM_CHUNKED) == 0) {
+#endif
                       add_iov(c, ITEM_data(it), it->nbytes);
                   } else if (add_chunked_item_iovs(c, it, it->nbytes) != 0) {
                       item_remove(it);
@@ -3468,9 +3709,16 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                     c->thread->stats.get_cmds++;
                 }
                 pthread_mutex_unlock(&c->thread->stats.mutex);
+#ifdef EXTSTORE
+                /* If ITEM_HDR, an io_wrap owns the reference. */
+                if ((it->it_flags & ITEM_HDR) == 0) {
+                    *(c->ilist + i) = it;
+                    i++;
+                }
+#else
                 *(c->ilist + i) = it;
                 i++;
-
+#endif
             } else {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 if (should_touch) {
@@ -3602,6 +3850,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
             it = item_get(key, nkey, c, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
+                STORAGE_delete(c->thread->storage, it);
                 item_remove(it);
             }
         }
@@ -3869,6 +4118,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         item_unlink(it);
+        STORAGE_delete(c->thread->storage, it);
         item_remove(it);      /* release our reference */
         out_string(c, "DELETED");
     } else {
@@ -4072,7 +4322,38 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
         out_string(c, "ERROR");
     }
 }
-
+#ifdef EXTSTORE
+static void process_extstore_command(conn *c, token_t *tokens, const size_t ntokens) {
+    set_noreply_maybe(c, tokens, ntokens);
+    if (strcmp(tokens[1].value, "item_size") == 0 && ntokens >= 3) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_item_size)) {
+            out_string(c, "ERROR");
+        } else {
+            out_string(c, "OK");
+        }
+    } else if (strcmp(tokens[1].value, "item_age") == 0 && ntokens >= 3) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_item_age)) {
+            out_string(c, "ERROR");
+        } else {
+            out_string(c, "OK");
+        }
+    } else if (strcmp(tokens[1].value, "recache_rate") == 0 && ntokens >= 3) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_recache_rate)) {
+            out_string(c, "ERROR");
+        } else {
+            out_string(c, "OK");
+        }
+    } else if (strcmp(tokens[1].value, "max_frag") == 0 && ntokens >= 3) {
+        if (!safe_strtod(tokens[2].value, &settings.ext_max_frag)) {
+            out_string(c, "ERROR");
+        } else {
+            out_string(c, "OK");
+        }
+    } else {
+        out_string(c, "ERROR");
+    }
+}
+#endif
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -4370,6 +4651,10 @@ static void process_command(conn *c, char *command) {
     // commands which exist only for testing the memcached's security protection
     } else if (ntokens == 2 && (strcmp(tokens[COMMAND_TOKEN].value, "misbehave") == 0)) {
         process_misbehave_command(c);
+#endif
+#ifdef EXTSTORE
+    } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "extstore") == 0) {
+        process_extstore_command(c, tokens, ntokens);
 #endif
     } else {
         if (ntokens >= 2 && strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
@@ -5126,6 +5411,23 @@ static void drive_machine(conn *c) {
             /* fall through... */
 
         case conn_mwrite:
+#ifdef EXTSTORE
+            /* have side IO's that must process before transmit() can run.
+             * remove the connection from the worker thread and dispatch the
+             * IO queue
+             */
+            if (c->io_wrapleft) {
+                assert(c->io_queued == false);
+                assert(c->io_wraplist != NULL);
+                // TODO: create proper state for this condition
+                conn_set_state(c, conn_watch);
+                event_del(&c->event);
+                c->io_queued = true;
+                extstore_submit(c->thread->storage, &c->io_wraplist->io);
+                stop = true;
+                break;
+            }
+#endif
           if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
             if (settings.verbose > 0)
               fprintf(stderr, "Failed to build UDP headers\n");
@@ -5983,7 +6285,11 @@ int main (int argc, char **argv) {
     bool use_slab_sizes = false;
     char *slab_sizes_unparsed = NULL;
     bool slab_chunk_size_changed = false;
-
+#ifdef EXTSTORE
+    void *storage = NULL;
+    char *storage_file = "/dev/shm/extstore";
+    struct extstore_conf ext_cf;
+#endif
     char *subopts, *subopts_orig;
     char *subopts_value;
     enum {
@@ -6025,6 +6331,19 @@ int main (int argc, char **argv) {
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
+#ifdef EXTSTORE
+        EXT_PAGE_SIZE,
+        EXT_PAGE_COUNT,
+        EXT_WBUF_SIZE,
+        EXT_WBUF_COUNT,
+        EXT_THREADS,
+        EXT_IO_DEPTH,
+        EXT_PATH,
+        EXT_ITEM_SIZE,
+        EXT_ITEM_AGE,
+        EXT_RECACHE_RATE,
+        EXT_MAX_FRAG,
+#endif
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -6065,6 +6384,19 @@ int main (int argc, char **argv) {
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
 #endif
+#ifdef EXTSTORE
+        [EXT_PAGE_SIZE] = "ext_page_size",
+        [EXT_PAGE_COUNT] = "ext_page_count",
+        [EXT_WBUF_SIZE] = "ext_wbuf_size",
+        [EXT_WBUF_COUNT] = "ext_wbuf_count",
+        [EXT_THREADS] = "ext_threads",
+        [EXT_IO_DEPTH] = "ext_io_depth",
+        [EXT_PATH] = "ext_path",
+        [EXT_ITEM_SIZE] = "ext_item_size",
+        [EXT_ITEM_AGE] = "ext_item_age",
+        [EXT_RECACHE_RATE] = "ext_recache_rate",
+        [EXT_MAX_FRAG] = "ext_max_frag",
+#endif
         NULL
     };
 
@@ -6078,9 +6410,22 @@ int main (int argc, char **argv) {
 
     /* init settings */
     settings_init();
+#ifdef EXTSTORE
+    settings.ext_item_size = 512;
+    settings.ext_item_age = 0;
+    settings.ext_recache_rate = 2;
+    settings.ext_max_frag = 0.9;
+    settings.ext_wbuf_size = 1024 * 1024 * 8;
+    ext_cf.page_size = 1024 * 1024 * 64;
+    ext_cf.page_count = 64;
+    ext_cf.wbuf_size = settings.ext_wbuf_size;
+    ext_cf.wbuf_count = 2;
+    ext_cf.io_threadcount = 1;
+    ext_cf.io_depth = 1;
+    ext_cf.page_buckets = 2;
+#endif
 
     /* Run regardless of initializing it later */
-    init_lru_crawler(NULL);
     init_lru_maintainer();
 
     /* set stderr non-buffering (for running under, say, daemontools) */
@@ -6604,6 +6949,114 @@ int main (int argc, char **argv) {
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
                 break;
+#ifdef EXTSTORE
+            case EXT_PAGE_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_page_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.page_size)) {
+                    fprintf(stderr, "could not parse argument to ext_page_size\n");
+                    return 1;
+                }
+                ext_cf.page_size *= 1024 * 1024; /* megabytes */
+                break;
+            case EXT_PAGE_COUNT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_page_count argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.page_count)) {
+                    fprintf(stderr, "could not parse argument to ext_page_count\n");
+                    return 1;
+                }
+                break;
+            case EXT_WBUF_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_wbuf_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.wbuf_size)) {
+                    fprintf(stderr, "could not parse argument to ext_wbuf_size\n");
+                    return 1;
+                }
+                ext_cf.wbuf_size *= 1024 * 1024; /* megabytes */
+                settings.ext_wbuf_size = ext_cf.wbuf_size;
+                break;
+            case EXT_WBUF_COUNT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_wbuf_count argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.wbuf_count)) {
+                    fprintf(stderr, "could not parse argument to ext_wbuf_count\n");
+                    return 1;
+                }
+                break;
+            case EXT_THREADS:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_threads argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.io_threadcount)) {
+                    fprintf(stderr, "could not parse argument to ext_threads\n");
+                    return 1;
+                }
+                break;
+            case EXT_IO_DEPTH:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_io_depth argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &ext_cf.io_depth)) {
+                    fprintf(stderr, "could not parse argument to ext_io_depth\n");
+                    return 1;
+                }
+                break;
+            case EXT_ITEM_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_item_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_item_size)) {
+                    fprintf(stderr, "could not parse argument to ext_item_size\n");
+                    return 1;
+                }
+                break;
+            case EXT_ITEM_AGE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_item_age argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_item_age)) {
+                    fprintf(stderr, "could not parse argument to ext_item_age\n");
+                    return 1;
+                }
+                break;
+            case EXT_RECACHE_RATE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_recache_rate argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_recache_rate)) {
+                    fprintf(stderr, "could not parse argument to ext_recache_rate\n");
+                    return 1;
+                }
+                break;
+            case EXT_MAX_FRAG:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_max_frag argument\n");
+                    return 1;
+                }
+                if (!safe_strtod(subopts_value, &settings.ext_max_frag)) {
+                    fprintf(stderr, "could not parse argument to ext_max_frag\n");
+                    return 1;
+                }
+                break;
+            case EXT_PATH:
+                storage_file = strdup(subopts_value);
+                break;
+#endif
             case MODERN:
                 /* currently no new defaults */
                 break;
@@ -6815,7 +7268,14 @@ int main (int argc, char **argv) {
     conn_init();
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL);
-
+#ifdef EXTSTORE
+    crc32c_init();
+    storage = extstore_init(storage_file, &ext_cf);
+    if (storage == NULL) {
+        fprintf(stderr, "Failed to initialize external storage\n");
+        exit(EXIT_FAILURE);
+    }
+#endif
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
@@ -6825,18 +7285,31 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     }
     /* start up worker threads if MT mode */
+#ifdef EXTSTORE
+    memcached_thread_init(settings.num_threads, storage);
+    init_lru_crawler(storage);
+#else
     memcached_thread_init(settings.num_threads, NULL);
+    init_lru_crawler(NULL);
+#endif
 
     if (start_assoc_maint && start_assoc_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
     }
-
     if (start_lru_crawler && start_item_crawler_thread() != 0) {
         fprintf(stderr, "Failed to enable LRU crawler thread\n");
         exit(EXIT_FAILURE);
     }
+#ifdef EXTSTORE
+    if (start_storage_compact_thread(storage) != 0) {
+        fprintf(stderr, "Failed to start storage compaction thread\n");
+        exit(EXIT_FAILURE);
+    }
 
+    if (start_lru_maintainer && start_lru_maintainer_thread(storage) != 0) {
+#else
     if (start_lru_maintainer && start_lru_maintainer_thread(NULL) != 0) {
+#endif
         fprintf(stderr, "Failed to enable LRU maintainer thread\n");
         return 1;
     }

@@ -2,6 +2,9 @@
 #include "memcached.h"
 #include "bipbuffer.h"
 #include "slab_automove.h"
+#ifdef EXTSTORE
+#include "storage.h"
+#endif
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
@@ -960,6 +963,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
         was_found = 1;
         if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
+            STORAGE_delete(c->thread->storage, it);
             do_item_remove(it);
             it = NULL;
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -971,6 +975,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             was_found = 2;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
             do_item_unlink(it, hv);
+            STORAGE_delete(c->thread->storage, it);
             do_item_remove(it);
             it = NULL;
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -1489,6 +1494,10 @@ static pthread_t lru_maintainer_tid;
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
 static void *lru_maintainer_thread(void *arg) {
+#ifdef EXTSTORE
+    void *storage = arg;
+    int x;
+#endif
     int i;
     useconds_t to_sleep = MIN_LRU_MAINTAINER_SLEEP;
     useconds_t last_sleep = MIN_LRU_MAINTAINER_SLEEP;
@@ -1542,6 +1551,18 @@ static void *lru_maintainer_thread(void *arg) {
             }
 
             int did_moves = lru_maintainer_juggle(i);
+#ifdef EXTSTORE
+            // Deeper loop to speed up pushing to storage.
+            for (x = 0; x < 500; x++) {
+                int found;
+                found = lru_maintainer_store(storage, i);
+                if (found) {
+                    did_moves += found;
+                } else {
+                    break;
+                }
+            }
+#endif
             if (did_moves == 0) {
                 if (backoff_juggles[i] != 0) {
                     backoff_juggles[i] += backoff_juggles[i] / 8;

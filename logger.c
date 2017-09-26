@@ -54,7 +54,27 @@ static const entry_details default_entries[] = {
     },
     [LOGGER_SLAB_MOVE] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
         "type=slab_move src=%d dst=%d"
-    }
+    },
+#ifdef EXTSTORE
+    [LOGGER_COMPACT_START] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
+        "type=compact_start id=%lu version=%llu"
+    },
+    [LOGGER_COMPACT_ABORT] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
+        "type=compact_abort id=%lu"
+    },
+    [LOGGER_COMPACT_READ_START] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
+        "type=compact_read_start id=%lu offset=%llu"
+    },
+    [LOGGER_COMPACT_READ_END] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
+        "type=compact_read_end id=%lu offset=%llu rescues=%lu lost=%lu"
+    },
+    [LOGGER_COMPACT_END] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
+        "type=compact_end id=%lu"
+    },
+    [LOGGER_COMPACT_FRAGINFO] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
+        "type=compact_fraginfo ratio=%.2f bytes=%lu"
+    },
+#endif
 };
 
 #define WATCHER_ALL -1

@@ -16,6 +16,9 @@ int main(int argc, char **argv) {
     display("Settings", sizeof(struct settings));
     display("Item (no cas)", sizeof(item));
     display("Item (cas)", sizeof(item) + sizeof(uint64_t));
+#ifdef EXTSTORE
+    display("extstore header", sizeof(item_hdr));
+#endif
     display("Libevent thread",
             sizeof(LIBEVENT_THREAD) - sizeof(struct thread_stats));
     display("Connection", sizeof(conn));
