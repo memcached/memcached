@@ -73,9 +73,9 @@ struct _obj_io {
     obj_io_cb cb;
 };
 
-
 void *extstore_init(char *fn, struct extstore_conf *cf);
-int extstore_write(void *ptr, unsigned int bucket, obj_io *io);
+int extstore_write_request(void *ptr, unsigned int bucket, obj_io *io);
+void extstore_write(void *ptr, obj_io *io);
 int extstore_submit(void *ptr, obj_io *io);
 /* count are the number of objects being removed, bytes are the original
  * length of those objects. Bytes is optional but you can't track

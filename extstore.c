@@ -405,7 +405,7 @@ static void _submit_wbuf(store_engine *e, store_page *p) {
  * new page. best if used from a background thread that can harmlessly retry.
  */
 
-int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
+int extstore_write_request(void *ptr, unsigned int bucket, obj_io *io) {
     store_engine *e = (store_engine *)ptr;
     store_page *p;
     int ret = -1;
@@ -444,28 +444,40 @@ int extstore_write(void *ptr, unsigned int bucket, obj_io *io) {
         _allocate_wbuf(e, p);
     }
 
-    // memcpy into wbuf
+    // hand over buffer for caller to copy into
+    // leaves p locked.
     if (p->wbuf && !p->wbuf->full && p->wbuf->free >= io->len) {
-        memcpy(p->wbuf->buf_pos, io->buf, io->len);
+        io->buf = p->wbuf->buf_pos;
         io->page_id = p->id;
-        io->offset = p->wbuf->offset + (p->wbuf->size - p->wbuf->free);
-        io->page_version = p->version;
-        p->wbuf->buf_pos += io->len;
-        p->wbuf->free -= io->len;
-        p->bytes_used += io->len;
-        p->obj_count++;
-        STAT_L(e);
-        e->stats.bytes_written += io->len;
-        e->stats.bytes_used += io->len;
-        e->stats.objects_written++;
-        e->stats.objects_used++;
-        STAT_UL(e);
-        ret = 0;
+        return 0;
     }
 
     pthread_mutex_unlock(&p->mutex);
     // p->written is incremented post-wbuf flush
     return ret;
+}
+
+/* _must_ be called after a successful write_request.
+ * fills the rest of io structure.
+ */
+void extstore_write(void *ptr, obj_io *io) {
+    store_engine *e = (store_engine *)ptr;
+    store_page *p = &e->pages[io->page_id];
+
+    io->offset = p->wbuf->offset + (p->wbuf->size - p->wbuf->free);
+    io->page_version = p->version;
+    p->wbuf->buf_pos += io->len;
+    p->wbuf->free -= io->len;
+    p->bytes_used += io->len;
+    p->obj_count++;
+    STAT_L(e);
+    e->stats.bytes_written += io->len;
+    e->stats.bytes_used += io->len;
+    e->stats.objects_written++;
+    e->stats.objects_used++;
+    STAT_UL(e);
+
+    pthread_mutex_unlock(&p->mutex);
 }
 
 /* engine submit function; takes engine, item_io stack.

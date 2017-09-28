@@ -3470,8 +3470,7 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
         miss = true;
     } else {
         uint32_t crc = (uint32_t) read_it->exptime;
-        read_it->exptime = 0; // to match what was crc'ed
-        uint32_t crc2 = crc32c(0, (char *)read_it+24, io->len-24);
+        uint32_t crc2 = crc32c(0, (char *)read_it+32, io->len-32);
         if (crc != crc2) {
             miss = true;
             wrap->badcrc = true;

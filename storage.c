@@ -46,25 +46,22 @@ int lru_maintainer_store(void *storage, const int clsid) {
              * We will fill it from the header on read either way.
              */
             if (hdr_it != NULL) {
-                // N.B.: rel_time_t happens to be an unsigned int.
-                // to do this fully safely requires more refactoring.
                 // cuddle the hash value into the time field so we don't have
-                // to recalcultae it.
-                uint32_t orig_time = (uint32_t) it->time;
-                it->time = it_info.hv;
-                // Also cuddle a crc32c into the exptime field.
-                // first clear it so we get a clean crc
-                uint32_t orig_exptime = (uint32_t) it->exptime;
-                it->exptime = 0;
-                it->exptime = crc32c(0, (char*)it+24, orig_ntotal-24);
+                // to recalculate it.
+                uint32_t crc = crc32c(0, (char*)it+32, orig_ntotal-32);
                 hdr_it->it_flags |= ITEM_HDR;
-                io.buf = (void *) it;
                 io.len = orig_ntotal;
                 io.mode = OBJ_IO_WRITE;
                 // NOTE: when the item is read back in, the slab mover
                 // may see it. Important to have refcount>=2 or ~ITEM_LINKED
                 assert(it->refcount >= 2);
-                if (extstore_write(storage, 0, &io) == 0) {
+                if (extstore_write_request(storage, 0, &io) == 0) {
+                    item *buf_it = (item *) io.buf;
+                    buf_it->time = it_info.hv;
+                    buf_it->exptime = crc;
+                    // copy from past the headers + time headers.
+                    memcpy((char *)io.buf+32, (char *)it+32, io.len-32);
+                    extstore_write(storage, &io);
                     item_hdr *hdr = (item_hdr *) ITEM_data(hdr_it);
                     hdr->page_version = io.page_version;
                     hdr->page_id = io.page_id;
@@ -85,8 +82,6 @@ int lru_maintainer_store(void *storage, const int clsid) {
                     /* Failed to write for some reason, can't continue. */
                     slabs_free(hdr_it, ITEM_ntotal(hdr_it), ITEM_clsid(hdr_it));
                 }
-                it->time = orig_time;
-                it->exptime = orig_exptime;
             }
         }
         do_item_remove(it);
@@ -203,11 +198,12 @@ static void storage_compact_readback(void *storage, logger *l,
                 bool do_update = false;
                 int tries;
                 obj_io io;
-                io.buf = (void *)it;
                 io.len = ntotal;
                 io.mode = OBJ_IO_WRITE;
                 for (tries = 10; tries > 0; tries--) {
-                    if (extstore_write(storage, 1, &io) == 0) {
+                    if (extstore_write_request(storage, 1, &io) == 0) {
+                        memcpy(io.buf, it, io.len);
+                        extstore_write(storage, &io);
                         do_update = true;
                         break;
                     } else {
