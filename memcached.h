@@ -319,6 +319,11 @@ struct stats {
     uint64_t      log_worker_written; /* logs written by worker threads */
     uint64_t      log_watcher_skipped; /* logs watchers missed */
     uint64_t      log_watcher_sent; /* logs sent to watcher buffers */
+#ifdef EXTSTORE
+    uint64_t      extstore_compact_lost; /* items lost because they were locked */
+    uint64_t      extstore_compact_rescues; /* items re-written during compaction */
+    uint64_t      extstore_compact_skipped; /* unhit items skipped during compaction */
+#endif
     struct timeval maxconns_entered;  /* last time maxconns entered */
 };
 

@@ -3102,6 +3102,11 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("log_watcher_sent", "%llu", (unsigned long long)stats.log_watcher_sent);
     STATS_UNLOCK();
 #ifdef EXTSTORE
+    STATS_LOCK();
+    APPEND_STAT("extstore_compact_lost", "%llu", (unsigned long long)stats.extstore_compact_lost);
+    APPEND_STAT("extstore_compact_rescues", "%llu", (unsigned long long)stats.extstore_compact_rescues);
+    APPEND_STAT("extstore_compact_skipped", "%llu", (unsigned long long)stats.extstore_compact_skipped);
+    STATS_UNLOCK();
     extstore_get_stats(c->thread->storage, &st);
     APPEND_STAT("extstore_page_allocs", "%llu", (unsigned long long)st.page_allocs);
     APPEND_STAT("extstore_page_evictions", "%llu", (unsigned long long)st.page_evictions);

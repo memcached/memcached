@@ -63,15 +63,17 @@ mem_get_is($sock, "foo", "hi");
     cmp_ok($stats->{extstore_objects_used}, '>', $stats2->{extstore_objects_used},
         'objects used dropped after deletions');
     is($stats2->{badcrc_from_extstore}, 0, 'CRC checks successful');
+
+    # delete the rest
+    for (1 .. $keycount) {
+        next unless $_ % 2 == 1;
+        print $sock "delete nfoo$_ noreply\r\n";
+    }
 }
-# TODO: no compaction counters exist.
-# could watch log entries? need to disable lru crawler to reduce noise.
-# fill to compaction. or add the counters...
-# check counters
-#
+
 # fill to eviction
 {
-    my $keycount = 2000;
+    my $keycount = 3000;
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 20000 noreply\r\n$value\r\n";
     }
@@ -82,6 +84,18 @@ mem_get_is($sock, "foo", "hi");
     cmp_ok($stats->{extstore_page_evictions}, '>', 0, 'at least one page evicted');
     cmp_ok($stats->{extstore_objects_evicted}, '>', 0, 'at least one object evicted');
     cmp_ok($stats->{extstore_bytes_evicted}, '>', 0, 'some bytes evicted');
+    is($stats->{extstore_pages_free}, 0, '0 pages are free');
+
+    for (1 .. $keycount) {
+        next unless $_ % 2 == 0;
+        print $sock "delete mfoo$_ noreply\r\n";
+    }
+
+    sleep 4;
+    $stats = mem_stats($sock);
+    cmp_ok($stats->{extstore_pages_free}, '>', 0, 'some pages now free');
+    cmp_ok($stats->{extstore_compact_rescues}, '>', 0, 'some compaction rescues happened');
+    cmp_ok($stats->{extstore_compact_skipped}, '>', 0, 'some compaction skips happened');
 }
 
 # attempt to incr/decr/append/prepend or chunk objects that were sent to disk.
@@ -104,3 +118,7 @@ mem_get_is($sock, "foo", "hi");
 }
 
 done_testing();
+
+END {
+    unlink $ext_path;
+}

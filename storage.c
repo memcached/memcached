@@ -95,8 +95,8 @@ int lru_maintainer_store(void *storage, const int clsid) {
  * compaction, up to a desired target when all pages are full.
  */
 static int storage_compact_check(void *storage, logger *l,
-        uint32_t *page_id,
-        uint64_t *page_version, uint64_t *page_size) {
+        uint32_t *page_id, uint64_t *page_version,
+        uint64_t *page_size, bool *drop_unread) {
     struct extstore_stats st;
     int x;
     double rate;
@@ -114,6 +114,10 @@ static int storage_compact_check(void *storage, logger *l,
     // the number of free pages reduces the configured frag limit
     // this allows us to defrag early if pages are very empty.
     rate = 1.0 - ((double)st.pages_free / st.page_count);
+    // if we're nearly out of pages, drop more data ahead of eviction.
+    if (st.pages_free < 2) {
+        *drop_unread = true;
+    }
     rate *= settings.ext_max_frag;
     frag_limit = st.page_size * rate;
     LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_FRAGINFO,
@@ -158,11 +162,12 @@ struct storage_compact_wrap {
 };
 
 static void storage_compact_readback(void *storage, logger *l,
-        char *readback_buf,
+        bool drop_unread, char *readback_buf,
         uint32_t page_id, uint64_t page_version, uint64_t read_size) {
     uint64_t offset = 0;
     unsigned int rescues = 0;
     unsigned int lost = 0;
+    unsigned int skipped = 0;
 
     while (offset < read_size) {
         item *hdr_it = NULL;
@@ -190,7 +195,12 @@ static void storage_compact_readback(void *storage, logger *l,
                 if (hdr->page_id == page_id && hdr->page_version == page_version) {
                     // Item header is still completely valid.
                     extstore_delete(storage, page_id, page_version, 1, ntotal);
-                    do_write = true;
+                    if (drop_unread && (hdr_it->it_flags & ITEM_FETCHED) == 0) {
+                        do_write = false;
+                        skipped++;
+                    } else {
+                        do_write = true;
+                    }
                 }
             }
 
@@ -233,8 +243,13 @@ static void storage_compact_readback(void *storage, logger *l,
             break;
     }
 
+    STATS_LOCK();
+    stats.extstore_compact_lost += lost;
+    stats.extstore_compact_rescues += rescues;
+    stats.extstore_compact_skipped += skipped;
+    STATS_UNLOCK();
     LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_READ_END,
-            NULL, page_id, offset, rescues, lost);
+            NULL, page_id, offset, rescues, lost, skipped);
 }
 
 static void _storage_compact_cb(void *e, obj_io *io, int ret) {
@@ -262,6 +277,7 @@ static void *storage_compact_thread(void *arg) {
     uint64_t page_size = 0;
     uint64_t page_offset = 0;
     uint32_t page_id = 0;
+    bool drop_unread = false;
     char *readback_buf = NULL;
     struct storage_compact_wrap wrap;
 
@@ -291,7 +307,7 @@ static void *storage_compact_thread(void *arg) {
         }
 
         if (!compacting && storage_compact_check(storage, l,
-                    &page_id, &page_version, &page_size)) {
+                    &page_id, &page_version, &page_size, &drop_unread)) {
             page_offset = 0;
             compacting = true;
             LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_START,
@@ -319,7 +335,7 @@ static void *storage_compact_thread(void *arg) {
             } else if (wrap.submitted && wrap.done) {
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_READ_START,
                         NULL, page_id, page_offset);
-                storage_compact_readback(storage, l,
+                storage_compact_readback(storage, l, drop_unread,
                         readback_buf, page_id, page_version, settings.ext_wbuf_size);
                 page_offset += settings.ext_wbuf_size;
                 wrap.done = false;
@@ -328,6 +344,7 @@ static void *storage_compact_thread(void *arg) {
                 compacting = false;
                 wrap.done = false;
                 wrap.submitted = false;
+                drop_unread = false;
                 extstore_close_page(storage, page_id, page_version);
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_END,
                         NULL, page_id);

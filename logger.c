@@ -66,7 +66,7 @@ static const entry_details default_entries[] = {
         "type=compact_read_start id=%lu offset=%llu"
     },
     [LOGGER_COMPACT_READ_END] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "type=compact_read_end id=%lu offset=%llu rescues=%lu lost=%lu"
+        "type=compact_read_end id=%lu offset=%llu rescues=%lu lost=%lu skipped=%lu"
     },
     [LOGGER_COMPACT_END] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
         "type=compact_end id=%lu"
