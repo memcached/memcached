@@ -7123,6 +7123,12 @@ int main (int argc, char **argv) {
         exit(EX_USAGE);
     }
 
+#ifdef EXTSTORE
+    // extstore will break with chunked items. force-disable them.
+    settings.slab_chunk_size_max = settings.slab_page_size;
+    settings.item_size_max = settings.slab_page_size;
+#endif
+
     // Reserve this for the new default. If factor size hasn't changed, use
     // new default.
     /*if (settings.slab_chunk_size_max == 16384 && settings.factor == 1.25) {
