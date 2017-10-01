@@ -38,6 +38,10 @@ if BUILD_LINUX_PRIVS
 memcached_SOURCES += linux_priv.c
 endif
 
+if BUILD_OPENBSD_PRIVS
+memcached_SOURCES += openbsd_priv.c
+endif
+
 if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
