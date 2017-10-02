@@ -112,6 +112,10 @@ static int add_msghdr(conn *c);
 static void write_bin_error(conn *c, protocol_binary_response_status err,
                             const char *errstr, int swallow);
 
+#ifdef EXTSTORE
+static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret);
+static inline int _ascii_get_extstore(conn *c, item *it, int iovst, int iovcnt);
+#endif
 static void conn_free(conn *c);
 
 /** exported globals **/
@@ -1628,7 +1632,23 @@ static void process_bin_get_or_touch(conn *c) {
         if (should_return_value) {
             /* Add the data minus the CRLF */
             if ((it->it_flags & ITEM_CHUNKED) == 0) {
+#ifdef EXTSTORE
+                if (it->it_flags & ITEM_HDR) {
+                    int iovcnt = 4;
+                    int iovst = c->iovused - 3;
+                    if (!should_return_key) {
+                        iovcnt = 3;
+                        iovst = c->iovused - 2;
+                    }
+                    // FIXME: this can return an error, but code flow doesn't
+                    // allow bailing here.
+                    _ascii_get_extstore(c, it, iovst, iovcnt);
+                } else {
+#endif
                 add_iov(c, ITEM_data(it), it->nbytes - 2);
+#ifdef EXTSTORE
+                }
+#endif
             } else {
                 add_chunked_item_iovs(c, it, it->nbytes - 2);
             }
@@ -1637,7 +1657,15 @@ static void process_bin_get_or_touch(conn *c) {
         conn_set_state(c, conn_mwrite);
         c->write_and_go = conn_new_cmd;
         /* Remember this command so we can garbage collect it later */
+#ifdef EXTSTORE
+        if ((it->it_flags & ITEM_HDR) == 0) {
+            c->item = it;
+        } else {
+            c->item = NULL;
+        }
+#else
         c->item = it;
+#endif
     } else {
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
@@ -3514,7 +3542,7 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
 }
 
 // FIXME: This completely breaks UDP support.
-static inline int _ascii_get_extstore(conn *c, item *it) {
+static inline int _ascii_get_extstore(conn *c, item *it, int iovst, int iovcnt) {
     item_hdr *hdr = (item_hdr *)ITEM_data(it);
     size_t ntotal = ITEM_ntotal(it);
     unsigned int clsid = slabs_clsid(ntotal);
@@ -3535,12 +3563,17 @@ static inline int _ascii_get_extstore(conn *c, item *it) {
     // FIXME: error handling.
     // The offsets we'll wipe on a miss.
     io->iovec_start = c->iovused - 3;
-    io->iovec_count = 4;
+    io->iovec_count = iovcnt;
     // FIXME: error handling.
     // This is probably super dangerous. keep it at 0 and fill into wrap
     // object?
     io->iovec_data = c->iovused;
-    add_iov(c, "", it->nbytes);
+    if (c->protocol == ascii_prot) {
+        add_iov(c, "", it->nbytes);
+    } else {
+        // binary protocol drops the \r\n
+        add_iov(c, "", it->nbytes-2);
+    }
     // The offset we'll fill in on a hit.
     io->c = c;
     // We need to stack the sub-struct IO's together as well.
@@ -3661,7 +3694,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       }
 #ifdef EXTSTORE
                   if (it->it_flags & ITEM_HDR) {
-                      if (_ascii_get_extstore(c, it) != 0) {
+                      if (_ascii_get_extstore(c, it, c->iovused-3, 4) != 0) {
                           item_remove(it);
                           break;
                       }
