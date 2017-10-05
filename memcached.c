@@ -3332,7 +3332,7 @@ static inline char *_ascii_get_suffix_buf(conn *c, int i) {
 // FIXME: the 'breaks' around memory malloc's should break all the way down,
 // fill ileft/suffixleft, then run conn_releaseitems()
 /* ntokens is overwritten here... shrug.. */
-static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas) {
+static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas, bool should_touch) {
     char *key;
     size_t nkey;
     int i = 0;
@@ -3340,7 +3340,19 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
     char *suffix;
+    int32_t exptime_int = 0;
+    rel_time_t exptime = 0;
     assert(c != NULL);
+
+    if (should_touch) {
+        // For get and touch commands, use first token as exptime
+        if (!safe_strtol(tokens[1].value, &exptime_int)) {
+            out_string(c, "CLIENT_ERROR invalid exptime argument");
+            return;
+        }
+        key_token++;
+        exptime = realtime(exptime_int);
+    }
 
     do {
         while(key_token->length != 0) {
@@ -3359,7 +3371,12 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 return;
             }
 
-            it = limited_get(key, nkey, c);
+            if (should_touch) {
+                it = item_touch(key, nkey, exptime, c);
+            } else {
+                it = limited_get(key, nkey, c);
+            }
+
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
@@ -3379,8 +3396,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
                 if (return_cas || !settings.inline_ascii_response)
                 {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                  if (should_touch) {
+                    MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
+                  } else {
+                    MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                                        it->nbytes, ITEM_get_cas(it));
+                  }
                   int nbytes;
                   suffix = _ascii_get_suffix_buf(c, si);
                   if (suffix == NULL) {
@@ -3407,8 +3429,13 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 }
                 else
                 {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                  if (should_touch) {
+                      MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
+                  } else {
+                      MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
+                                         it->nbytes, ITEM_get_cas(it));
+                  }
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0)
                       {
@@ -3440,19 +3467,34 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 }
 
                 /* item_get() has incremented it->refcount for us */
-                pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.lru_hits[it->slabs_clsid]++;
-                c->thread->stats.get_cmds++;
-                pthread_mutex_unlock(&c->thread->stats.mutex);
+                if (should_touch) {
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.touch_cmds++;
+                    c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                } else {
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.lru_hits[it->slabs_clsid]++;
+                    c->thread->stats.get_cmds++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                }
                 *(c->ilist + i) = it;
                 i++;
 
             } else {
-                pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.get_misses++;
-                c->thread->stats.get_cmds++;
-                pthread_mutex_unlock(&c->thread->stats.mutex);
-                MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
+                if (should_touch) {
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.touch_cmds++;
+                    c->thread->stats.touch_misses++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    MEMCACHED_COMMAND_TOUCH(c->sfd, key, nkey, -1, 0);
+                } else {
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.get_misses++;
+                    c->thread->stats.get_cmds++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
+                }
             }
 
             key_token++;
@@ -4075,7 +4117,7 @@ static void process_command(conn *c, char *command) {
         ((strcmp(tokens[COMMAND_TOKEN].value, "get") == 0) ||
          (strcmp(tokens[COMMAND_TOKEN].value, "bget") == 0))) {
 
-        process_get_command(c, tokens, ntokens, false);
+        process_get_command(c, tokens, ntokens, false, false);
 
     } else if ((ntokens == 6 || ntokens == 7) &&
                ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
@@ -4096,7 +4138,7 @@ static void process_command(conn *c, char *command) {
 
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "gets") == 0)) {
 
-        process_get_command(c, tokens, ntokens, true);
+        process_get_command(c, tokens, ntokens, true, false);
 
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
@@ -4109,6 +4151,14 @@ static void process_command(conn *c, char *command) {
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "touch") == 0)) {
 
         process_touch_command(c, tokens, ntokens);
+
+    } else if (ntokens >= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "gat") == 0)) {
+
+        process_get_command(c, tokens, ntokens, false, true);
+
+    } else if (ntokens >= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "gats") == 0)) {
+
+        process_get_command(c, tokens, ntokens, true, true);
 
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0)) {
 
