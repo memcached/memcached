@@ -342,6 +342,45 @@ The response line to this command can be one of:
 - "NOT_FOUND\r\n" to indicate that the item with this key was not
   found.
 
+Get And Touch
+-----
+
+The "gat" and "gats" commands are used to fetch items and update the
+expiration time of an existing items.
+
+gat <exptime> <key>*\r\n
+gats <exptime> <key>*\r\n
+
+- <exptime> is expiration time.
+
+- <key>* means one or more key strings separated by whitespace.
+
+After this command, the client expects zero or more items, each of
+which is received as a text line followed by a data block. After all
+the items have been transmitted, the server sends the string
+
+"END\r\n"
+
+to indicate the end of response.
+
+Each item sent by the server looks like this:
+
+VALUE <key> <flags> <bytes> [<cas unique>]\r\n
+<data block>\r\n
+
+- <key> is the key for the item being sent
+
+- <flags> is the flags value set by the storage command
+
+- <bytes> is the length of the data block to follow, *not* including
+  its delimiting \r\n
+
+- <cas unique> is a unique 64-bit integer that uniquely identifies
+  this specific item.
+
+- <data block> is the data for this item.
+
+
 Slabs Reassign
 --------------
 
