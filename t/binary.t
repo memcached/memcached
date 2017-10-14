@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 4981;
+use Test::More tests => 4982;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -135,6 +135,11 @@ $empty->('y');
         my (undef, $gval, undef) = $m2->get('t');
         ok($gval eq $val, $gval . " = " . $val);
     }
+
+    my $cval = ('d' x 8100) . '123';
+
+    my $m3 = $s2->new_sock;
+    mem_get_is($m3, 't', $cval, "large value set from bin fetched from ascii");
 }
 
 {
