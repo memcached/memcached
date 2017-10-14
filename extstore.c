@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -584,7 +585,18 @@ static inline int _read_from_wbuf(store_page *p, obj_io *io) {
     _store_wbuf *wbuf = p->wbuf;
     assert(wbuf != NULL);
     assert(io->offset < p->written + wbuf->size);
-    memcpy(io->buf, wbuf->buf + (io->offset - wbuf->offset), io->len);
+    if (io->iov == NULL) {
+        memcpy(io->buf, wbuf->buf + (io->offset - wbuf->offset), io->len);
+    } else {
+        int x;
+        unsigned int off = io->offset - wbuf->offset;
+        // need to loop fill iovecs
+        for (x = 0; x < io->iovcnt; x++) {
+            struct iovec *iov = &io->iov[x];
+            memcpy(iov->iov_base, wbuf->buf + off, iov->iov_len);
+            off += iov->iov_len;
+        }
+    }
     return io->len;
 }
 
@@ -650,8 +662,13 @@ static void *extstore_io_thread(void *arg) {
                         ret = -2; // TODO: enum in IO for status?
                     }
                     pthread_mutex_unlock(&p->mutex);
-                    if (do_op)
-                        ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
+                    if (do_op) {
+                        if (cur_io->iov == NULL) {
+                            ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
+                        } else {
+                            ret = preadv(p->fd, cur_io->iov, cur_io->iovcnt, p->offset + cur_io->offset);
+                        }
+                    }
                     break;
                 case OBJ_IO_WRITE:
                     do_op = 0;

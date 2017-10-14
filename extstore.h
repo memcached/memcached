@@ -64,6 +64,8 @@ struct _obj_io {
     void *data; /* user supplied data pointer */
     struct _obj_io *next;
     char *buf;  /* buffer of data to read or write to */
+    struct iovec *iov; /* alternatively, use this iovec */
+    unsigned int iovcnt; /* number of IOV's */
     unsigned int page_version;     /* page version for read mode */
     unsigned int len;     /* for both modes */
     unsigned int offset;  /* for read mode */

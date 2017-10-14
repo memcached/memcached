@@ -10,7 +10,7 @@ use Data::Dumper qw/Dumper/;
 
 my $ext_path = "/tmp/extstore.$$";
 
-my $server = new_memcached("-m 64 -o ext_page_size=8,ext_page_count=8,ext_wbuf_size=2,ext_wbuf_count=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path,no_lru_crawler");
+my $server = new_memcached("-m 64 -o ext_page_size=8,ext_page_count=8,ext_wbuf_size=2,ext_wbuf_count=3,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path,no_lru_crawler");
 ok($server, "started the server");
 
 # Based almost 100% off testClient.py which is:
@@ -88,10 +88,14 @@ my $delete = sub {
 };
 
 my $value;
+my $bigvalue;
 {
     my @chars = ("C".."Z");
     for (1 .. 20000) {
         $value .= $chars[rand @chars];
+    }
+    for (1 .. 800000) {
+        $bigvalue .= $chars[rand @chars];
     }
 }
 
@@ -120,6 +124,7 @@ $set->('x', 10, 19, "somevalue");
     sleep 4;
     # value returns for one flushed object.
     $check->('nfoo1', 19, $value);
+
     # check extstore counters
     my %stats = $mc->stats('');
     cmp_ok($stats{extstore_page_allocs}, '>', 0, 'at least one page allocated');
@@ -151,6 +156,36 @@ $set->('x', 10, 19, "somevalue");
         next unless $_ % 2 == 1;
         $delete->("nfoo$_");
     }
+}
+
+# store and re-fetch a chunked value
+{
+    my %stats = $mc->stats('');
+    $set->("bigvalue", 0, 0, $bigvalue);
+    sleep 4;
+    $check->("bigvalue", 0, $bigvalue);
+    my %stats2 = $mc->stats('');
+
+    cmp_ok($stats2{extstore_objects_written}, '>',
+        $stats{extstore_objects_written}, "a large value flushed");
+}
+
+# ensure ASCII can still fetch the chunked value.
+{
+    my $ns = $server->new_sock;
+
+    my %s1 = $mc->stats('');
+    mem_get_is($ns, "bigvalue", $bigvalue);
+    print $ns "extstore recache_rate 1\r\n";
+    is(scalar <$ns>, "OK\r\n", "recache rate upped");
+    for (1..3) {
+        mem_get_is($ns, "bigvalue", $bigvalue);
+        $check->('bigvalue', 0, $bigvalue);
+    }
+    my %s2 = $mc->stats('');
+    cmp_ok($s2{recache_from_extstore}, '>', $s1{recache_from_extstore},
+        'a new recache happened');
+
 }
 
 done_testing();

@@ -10,7 +10,7 @@ use Data::Dumper qw/Dumper/;
 
 my $ext_path = "/tmp/extstore.$$";
 
-my $server = new_memcached("-m 64 -o ext_page_size=8,ext_page_count=8,ext_wbuf_size=2,ext_wbuf_count=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path");
+my $server = new_memcached("-m 64 -o ext_page_size=8,ext_page_count=8,ext_wbuf_size=2,ext_wbuf_count=3,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path");
 my $sock = $server->sock;
 
 my $value;
@@ -33,6 +33,8 @@ mem_get_is($sock, "foo", "hi");
 }
 # fill some larger objects
 {
+    # set one canary value for later
+    print $sock "set canary 0 0 20000 noreply\r\n$value\r\n";
     my $keycount = 1000;
     for (1 .. $keycount) {
         print $sock "set nfoo$_ 0 0 20000 noreply\r\n$value\r\n";
@@ -63,6 +65,7 @@ mem_get_is($sock, "foo", "hi");
     cmp_ok($stats->{extstore_objects_used}, '>', $stats2->{extstore_objects_used},
         'objects used dropped after deletions');
     is($stats2->{badcrc_from_extstore}, 0, 'CRC checks successful');
+    is($stats2->{miss_from_extstore}, 0, 'no misses');
 
     # delete the rest
     for (1 .. $keycount) {
@@ -78,13 +81,17 @@ mem_get_is($sock, "foo", "hi");
         print $sock "set mfoo$_ 0 0 20000 noreply\r\n$value\r\n";
     }
     sleep 4;
+    my $stats = mem_stats($sock);
+    is($stats->{miss_from_extstore}, 0, 'no misses');
+    mem_get_is($sock, "canary", undef);
 
     # check counters
-    my $stats = mem_stats($sock);
+    $stats = mem_stats($sock);
     cmp_ok($stats->{extstore_page_evictions}, '>', 0, 'at least one page evicted');
     cmp_ok($stats->{extstore_objects_evicted}, '>', 0, 'at least one object evicted');
     cmp_ok($stats->{extstore_bytes_evicted}, '>', 0, 'some bytes evicted');
     is($stats->{extstore_pages_free}, 0, '0 pages are free');
+    is($stats->{miss_from_extstore}, 1, 'exactly one miss');
 
     for (1 .. $keycount) {
         next unless $_ % 2 == 0;
