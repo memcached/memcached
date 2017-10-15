@@ -111,6 +111,7 @@ static int add_chunked_item_iovs(conn *c, item *it, int len);
 static int add_msghdr(conn *c);
 static void write_bin_error(conn *c, protocol_binary_response_status err,
                             const char *errstr, int swallow);
+static void write_bin_miss_response(conn *c, char *key, size_t nkey);
 
 #ifdef EXTSTORE
 static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret);
@@ -1555,6 +1556,21 @@ static void complete_update_bin(conn *c) {
     c->item = 0;
 }
 
+static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
+    if (nkey) {
+        char *ofs = c->wbuf + sizeof(protocol_binary_response_header);
+        add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
+                0, nkey, nkey);
+        memcpy(ofs, key, nkey);
+        add_iov(c, ofs, nkey);
+        conn_set_state(c, conn_mwrite);
+        c->write_and_go = conn_new_cmd;
+    } else {
+        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
+                        NULL, 0);
+    }
+}
+
 static void process_bin_get_or_touch(conn *c) {
     item *it;
 
@@ -1633,26 +1649,28 @@ static void process_bin_get_or_touch(conn *c) {
         if (should_return_value) {
             /* Add the data minus the CRLF */
 #ifdef EXTSTORE
-                if (it->it_flags & ITEM_HDR) {
-                    int iovcnt = 4;
-                    int iovst = c->iovused - 3;
-                    if (!should_return_key) {
-                        iovcnt = 3;
-                        iovst = c->iovused - 2;
-                    }
-                    // FIXME: this can return an error, but code flow doesn't
-                    // allow bailing here.
-                    _ascii_get_extstore(c, it, iovst, iovcnt);
-                } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
-#endif
-            if ((it->it_flags & ITEM_CHUNKED) == 0) {
-                add_iov(c, ITEM_data(it), it->nbytes - 2);
-#ifdef EXTSTORE
+            if (it->it_flags & ITEM_HDR) {
+                int iovcnt = 4;
+                int iovst = c->iovused - 3;
+                if (!should_return_key) {
+                    iovcnt = 3;
+                    iovst = c->iovused - 2;
                 }
-#endif
+                // FIXME: this can return an error, but code flow doesn't
+                // allow bailing here.
+                _ascii_get_extstore(c, it, iovst, iovcnt);
+            } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                add_iov(c, ITEM_data(it), it->nbytes - 2);
             } else {
                 add_chunked_item_iovs(c, it, it->nbytes - 2);
             }
+#else
+            if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                add_iov(c, ITEM_data(it), it->nbytes - 2);
+            } else {
+                add_chunked_item_iovs(c, it, it->nbytes - 2);
+            }
+#endif
         }
 
         conn_set_state(c, conn_mwrite);
@@ -1688,16 +1706,9 @@ static void process_bin_get_or_touch(conn *c) {
             conn_set_state(c, conn_new_cmd);
         } else {
             if (should_return_key) {
-                char *ofs = c->wbuf + sizeof(protocol_binary_response_header);
-                add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
-                        0, nkey, nkey);
-                memcpy(ofs, key, nkey);
-                add_iov(c, ofs, nkey);
-                conn_set_state(c, conn_mwrite);
-                c->write_and_go = conn_new_cmd;
+                write_bin_miss_response(c, key, nkey);
             } else {
-                write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
-                                NULL, 0);
+                write_bin_miss_response(c, NULL, 0);
             }
         }
     }
@@ -3528,10 +3539,22 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
     if (miss) {
         int i;
         struct iovec *v;
-        for (i = 0; i < wrap->iovec_count; i++) {
-            v = &c->iov[wrap->iovec_start + i];
-            v->iov_len = 0;
-            v->iov_base = NULL;
+        // TODO: This should be movable to the worker thread.
+        if (c->protocol == binary_prot) {
+            protocol_binary_response_header *header =
+                (protocol_binary_response_header *)c->wbuf;
+            // this zeroes out the iovecs since binprot never stacks them.
+            if (header->response.keylen) {
+                write_bin_miss_response(c, ITEM_key(wrap->hdr_it), wrap->hdr_it->nkey);
+            } else {
+                write_bin_miss_response(c, 0, 0);
+            }
+        } else {
+            for (i = 0; i < wrap->iovec_count; i++) {
+                v = &c->iov[wrap->iovec_start + i];
+                v->iov_len = 0;
+                v->iov_base = NULL;
+            }
         }
         wrap->miss = true;
     } else {

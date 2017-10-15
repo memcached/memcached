@@ -158,6 +158,24 @@ $set->('x', 10, 19, "somevalue");
     }
 }
 
+# check evictions and misses
+{
+    my $keycount = 1000;
+    for (1 .. $keycount) {
+        $set->("mfoo$_", 0, 19, $value);
+    }
+    sleep 4;
+    for ($keycount .. ($keycount*3)) {
+        $set->("mfoo$_", 0, 19, $value);
+    }
+    sleep 4;
+    $empty->('mfoo1');
+
+    my %s = $mc->stats('');
+    cmp_ok($s{extstore_objects_evicted}, '>', 0);
+    cmp_ok($s{miss_from_extstore}, '>', 0);
+}
+
 # store and re-fetch a chunked value
 {
     my %stats = $mc->stats('');
