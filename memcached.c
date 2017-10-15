@@ -3612,7 +3612,7 @@ static inline int _ascii_get_extstore(conn *c, item *it, int iovst, int iovcnt) 
 
     // FIXME: error handling.
     // The offsets we'll wipe on a miss.
-    io->iovec_start = c->iovused - 3;
+    io->iovec_start = iovst;
     io->iovec_count = iovcnt;
     // This is probably super dangerous. keep it at 0 and fill into wrap
     // object?
@@ -4153,7 +4153,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         item *new_it;
         uint32_t flags;
         if (settings.inline_ascii_response) {
-            flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
+            flags = (uint32_t) strtoul(ITEM_suffix(it), (char **) NULL, 10);
         } else if (it->nsuffix > 0) {
             flags = *((uint32_t *)ITEM_suffix(it));
         } else {
@@ -7228,6 +7228,15 @@ int main (int argc, char **argv) {
     if (settings.item_size_max > ext_cf.wbuf_size) {
         fprintf(stderr, "-I (item_size_max: %d) cannot be larger than ext_wbuf_size: %d\n",
             settings.item_size_max, ext_cf.wbuf_size);
+        exit(EX_USAGE);
+    }
+
+    /* This is due to the suffix header being generated with the wrong length
+     * value for the ITEM_HDR replacement. The cuddled nbytes no longer
+     * matches, so we end up losing a few bytes on readback.
+     */
+    if (settings.inline_ascii_response) {
+        fprintf(stderr, "Cannot use inline_ascii_response with extstore enabled\n");
         exit(EX_USAGE);
     }
 #endif

@@ -42,7 +42,7 @@ int lru_maintainer_store(void *storage, const int clsid) {
             (item_age == 0 || current_time - it->time > item_age)) {
         // FIXME: flag conversion again
         if (settings.inline_ascii_response) {
-            flags = (uint32_t) strtoul(ITEM_suffix(it)+1, (char **) NULL, 10);
+            flags = (uint32_t) strtoul(ITEM_suffix(it), (char **) NULL, 10);
         } else if (it->nsuffix > 0) {
             flags = *((uint32_t *)ITEM_suffix(it));
         } else {
