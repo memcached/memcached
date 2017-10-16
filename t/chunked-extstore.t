@@ -143,3 +143,7 @@ for (1..5) {
 }
 
 done_testing();
+
+END {
+    unlink $ext_path;
+}
