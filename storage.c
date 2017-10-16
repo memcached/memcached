@@ -177,6 +177,7 @@ static int storage_compact_check(void *storage, logger *l,
 }
 
 static pthread_t storage_compact_tid;
+static pthread_mutex_t storage_compact_plock;
 #define MIN_STORAGE_COMPACT_SLEEP 10000
 #define MAX_STORAGE_COMPACT_SLEEP 2000000
 
@@ -328,12 +329,15 @@ static void *storage_compact_thread(void *arg) {
     wrap.io.len = settings.ext_wbuf_size;
     wrap.io.mode = OBJ_IO_READ;
     wrap.io.cb = _storage_compact_cb;
+    pthread_mutex_lock(&storage_compact_plock);
 
     while (1) {
+        pthread_mutex_unlock(&storage_compact_plock);
         if (to_sleep) {
             extstore_run_maint(storage);
             usleep(to_sleep);
         }
+        pthread_mutex_lock(&storage_compact_plock);
 
         if (!compacting && storage_compact_check(storage, l,
                     &page_id, &page_version, &page_size, &drop_unread)) {
@@ -393,6 +397,7 @@ static void *storage_compact_thread(void *arg) {
 }
 
 // TODO
+// logger needs logger_destroy() to exist/work before this is safe.
 /*int stop_storage_compact_thread(void) {
     int ret;
     pthread_mutex_lock(&lru_maintainer_lock);
@@ -406,9 +411,18 @@ static void *storage_compact_thread(void *arg) {
     return 0;
 }*/
 
+void storage_compact_pause(void) {
+    pthread_mutex_lock(&storage_compact_plock);
+}
+
+void storage_compact_resume(void) {
+    pthread_mutex_unlock(&storage_compact_plock);
+}
+
 int start_storage_compact_thread(void *arg) {
     int ret;
 
+    pthread_mutex_init(&storage_compact_plock, NULL);
     if ((ret = pthread_create(&storage_compact_tid, NULL,
         storage_compact_thread, arg)) != 0) {
         fprintf(stderr, "Can't create storage_compact thread: %s\n",

@@ -3,6 +3,9 @@
  * Thread management for memcached.
  */
 #include "memcached.h"
+#ifdef EXTSTORE
+#include "storage.h"
+#endif
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
@@ -139,6 +142,9 @@ void pause_threads(enum pause_thread_types type) {
             lru_maintainer_pause();
             slabs_rebalancer_pause();
             lru_crawler_pause();
+#ifdef EXTSTORE
+            storage_compact_pause();
+#endif
         case PAUSE_WORKER_THREADS:
             buf[0] = 'p';
             pthread_mutex_lock(&worker_hang_lock);
@@ -147,6 +153,9 @@ void pause_threads(enum pause_thread_types type) {
             lru_maintainer_resume();
             slabs_rebalancer_resume();
             lru_crawler_resume();
+#ifdef EXTSTORE
+            storage_compact_resume();
+#endif
         case RESUME_WORKER_THREADS:
             pthread_mutex_unlock(&worker_hang_lock);
             break;
