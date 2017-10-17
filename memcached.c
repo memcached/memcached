@@ -5660,6 +5660,7 @@ static void usage(void) {
            "   - no_inline_ascii_resp: save up to 24 bytes per item.\n"
            "                           small perf hit in ASCII, no perf difference in\n"
            "                           binary protocol. speeds up all sets.\n"
+           "   - no_hashexpand:       disables hash table expansion (dangerous)\n"
            "   - modern:              enables options which will be default in future.\n"
            "             currently: nothing\n"
            "   - no_modern:           uses defaults of previous major version (1.4.x)\n"
@@ -5938,6 +5939,7 @@ int main (int argc, char **argv) {
     bool udp_specified = false;
     bool start_lru_maintainer = true;
     bool start_lru_crawler = true;
+    bool start_assoc_maint = true;
     enum hashfunc_type hash_type = MURMUR3_HASH;
     uint32_t tocrawl;
     uint32_t slab_sizes[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -5950,6 +5952,7 @@ int main (int argc, char **argv) {
     enum {
         MAXCONNS_FAST = 0,
         HASHPOWER_INIT,
+        NO_HASHEXPAND,
         SLAB_REASSIGN,
         SLAB_AUTOMOVE,
         SLAB_AUTOMOVE_RATIO,
@@ -5989,6 +5992,7 @@ int main (int argc, char **argv) {
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
         [HASHPOWER_INIT] = "hashpower",
+        [NO_HASHEXPAND] = "no_hashexpand",
         [SLAB_REASSIGN] = "slab_reassign",
         [SLAB_AUTOMOVE] = "slab_automove",
         [SLAB_AUTOMOVE_RATIO] = "slab_automove_ratio",
@@ -6348,6 +6352,9 @@ int main (int argc, char **argv) {
                         settings.hashpower_init);
                     return 1;
                 }
+                break;
+            case NO_HASHEXPAND:
+                start_assoc_maint = false;
                 break;
             case SLAB_REASSIGN:
                 settings.slab_reassign = true;
@@ -6782,7 +6789,7 @@ int main (int argc, char **argv) {
     /* start up worker threads if MT mode */
     memcached_thread_init(settings.num_threads, NULL);
 
-    if (start_assoc_maintenance_thread() == -1) {
+    if (start_assoc_maint && start_assoc_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);
     }
 
