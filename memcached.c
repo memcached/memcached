@@ -2829,14 +2829,16 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                     stored = EXISTS;
                 }
             }
-
+#ifdef EXTSTORE
             if ((old_it->it_flags & ITEM_HDR) != 0) {
                 /* block append/prepend from working with extstore-d items.
                  * also don't replace the header with the append chunk
                  * accidentally, so mark as a failed_alloc.
                  */
                 failed_alloc = 1;
-            } else if (stored == NOT_STORED) {
+            } else
+#endif
+            if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
                 /* flags was already lost - so recover them from ITEM_suffix(it) */
 
@@ -4119,7 +4121,11 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
 
     /* Can't delta zero byte values. 2-byte are the "\r\n" */
     /* Also can't delta for chunked items. Too large to be a number */
+#ifdef EXTSTORE
     if (it->nbytes <= 2 || (it->it_flags & (ITEM_CHUNKED|ITEM_HDR)) != 0) {
+#else
+    if (it->nbytes <= 2 || (it->it_flags & (ITEM_CHUNKED)) != 0) {
+#endif
         return NON_NUMERIC;
     }
 

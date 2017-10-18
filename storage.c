@@ -1,5 +1,7 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include "memcached.h"
+#ifdef EXTSTORE
+
 #include "storage.h"
 #include <stdlib.h>
 #include <string.h>
@@ -433,3 +435,4 @@ int start_storage_compact_thread(void *arg) {
     return 0;
 }
 
+#endif
