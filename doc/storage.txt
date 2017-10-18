@@ -121,9 +121,9 @@ Sharing my broad TODO items into here. While doing the work they get split up
 more into local notes. Adding this so others can follow along:
 
 (a bunch of the TODO has been completed and removed)
-- DIRECT_IO support
-- libaio support (requires DIRECT_IO)
-- code cleanup (funtion over form until I have bugs out)
+- O_DIRECT support
+- libaio support (requires O_DIRECT)
+- code cleanup (function over form until I have bugs out)
   - pull all of the inlined linked list code
   - naming consistency
   - clear FIXME/TODO's related to error handling
@@ -133,9 +133,8 @@ more into local notes. Adding this so others can follow along:
     all writes. could also simply rotate devices on a per-bucket basis.
 
 on memcached end:
-- fix append/prepend/incr/decr/etc
-- large item support
-- --configure gating for extstore being compiled (for now, at least)
-- binprot support
-- DIRECT_IO support; mostly memalign pages, but also making chunks grow
+- O_DIRECT support; mostly memalign pages, but also making chunks grow
   aligned to sector sizes once they are >= a single sector.
+- better documentation
+- specify storage size by MB/G/T/etc instead of page count
+- slab page automover algorithm specific for external storage

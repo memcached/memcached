@@ -14,7 +14,7 @@ my $builddir = getcwd;
 my @unixsockets = ();
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
-             supports_sasl free_port supports_drop_priv);
+             supports_sasl free_port supports_drop_priv supports_extstore);
 
 sub sleep {
     my $n = shift;
@@ -146,6 +146,12 @@ sub supports_udp {
 sub supports_sasl {
     my $output = `$builddir/memcached-debug -h`;
     return 1 if $output =~ /sasl/i;
+    return 0;
+}
+
+sub supports_extstore {
+    my $output = `$builddir/memcached-debug -h`;
+    return 1 if $output =~ /ext_path/i;
     return 0;
 }
 

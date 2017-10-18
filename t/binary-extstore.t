@@ -8,7 +8,14 @@ use lib "$Bin/lib";
 use MemcachedTest;
 use Data::Dumper qw/Dumper/;
 
-my $ext_path = "/tmp/extstore.$$";
+my $ext_path;
+
+if (!supports_extstore()) {
+    plan skip_all => 'extstore not enabled';
+    exit 0;
+}
+
+$ext_path = "/tmp/extstore.$$";
 
 my $server = new_memcached("-m 64 -o ext_page_size=8,ext_page_count=8,ext_wbuf_size=2,ext_wbuf_count=3,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path,no_lru_crawler");
 ok($server, "started the server");
@@ -209,7 +216,7 @@ $set->('x', 10, 19, "somevalue");
 done_testing();
 
 END {
-    unlink $ext_path;
+    unlink $ext_path if $ext_path;
 }
 # ######################################################################
 # Test ends around here.

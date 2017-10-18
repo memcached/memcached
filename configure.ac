@@ -82,6 +82,9 @@ fi
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
+AC_ARG_ENABLE(extstore,
+  [AS_HELP_STRING([--enable-extstore], [Enable external storage EXPERIMENTAL ])])
+
 AC_ARG_ENABLE(seccomp,
   [AS_HELP_STRING([--enable-seccomp],[Enable seccomp restrictions])])
 
@@ -156,9 +159,14 @@ if test "x$enable_dtrace" = "xyes"; then
   fi
 fi
 
+if test "x$enable_extstore" = "xyes"; then
+    AC_DEFINE([EXTSTORE],1,[Set to nonzero if you want to enable extstorextstore])
+fi
+
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
+AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" = "yes"])
 
 AC_SUBST(DTRACE)
 AC_SUBST(DTRACEFLAGS)

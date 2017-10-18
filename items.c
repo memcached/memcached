@@ -1553,13 +1553,15 @@ static void *lru_maintainer_thread(void *arg) {
             int did_moves = lru_maintainer_juggle(i);
 #ifdef EXTSTORE
             // Deeper loop to speed up pushing to storage.
-            for (x = 0; x < 500; x++) {
-                int found;
-                found = lru_maintainer_store(storage, i);
-                if (found) {
-                    did_moves += found;
-                } else {
-                    break;
+            if (storage) {
+                for (x = 0; x < 500; x++) {
+                    int found;
+                    found = lru_maintainer_store(storage, i);
+                    if (found) {
+                        did_moves += found;
+                    } else {
+                        break;
+                    }
                 }
             }
 #endif

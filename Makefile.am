@@ -24,8 +24,6 @@ memcached_SOURCES = memcached.c memcached.h \
                     crawler.c crawler.h \
                     itoa_ljust.c itoa_ljust.h \
                     slab_automove.c slab_automove.h \
-                    extstore.c exstore.h \
-                    storage.c storage.h \
                     crc32c.c crc32c.h
 
 if BUILD_CACHE
@@ -47,6 +45,11 @@ endif
 
 if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
+endif
+
+if ENABLE_EXTSTORE
+memcached_SOURCES += extstore.c extstore.h \
+                     storage.c storage.h
 endif
 
 memcached_debug_SOURCES = $(memcached_SOURCES)

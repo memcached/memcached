@@ -3087,10 +3087,12 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
     APPEND_STAT("get_flushed", "%llu", (unsigned long long)thread_stats.get_flushed);
 #ifdef EXTSTORE
-    APPEND_STAT("get_extstore", "%llu", (unsigned long long)thread_stats.get_extstore);
-    APPEND_STAT("recache_from_extstore", "%llu", (unsigned long long)thread_stats.recache_from_extstore);
-    APPEND_STAT("miss_from_extstore", "%llu", (unsigned long long)thread_stats.miss_from_extstore);
-    APPEND_STAT("badcrc_from_extstore", "%llu", (unsigned long long)thread_stats.badcrc_from_extstore);
+    if (c->thread->storage) {
+        APPEND_STAT("get_extstore", "%llu", (unsigned long long)thread_stats.get_extstore);
+        APPEND_STAT("recache_from_extstore", "%llu", (unsigned long long)thread_stats.recache_from_extstore);
+        APPEND_STAT("miss_from_extstore", "%llu", (unsigned long long)thread_stats.miss_from_extstore);
+        APPEND_STAT("badcrc_from_extstore", "%llu", (unsigned long long)thread_stats.badcrc_from_extstore);
+    }
 #endif
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
     APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
@@ -3144,26 +3146,28 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("log_watcher_sent", "%llu", (unsigned long long)stats.log_watcher_sent);
     STATS_UNLOCK();
 #ifdef EXTSTORE
-    STATS_LOCK();
-    APPEND_STAT("extstore_compact_lost", "%llu", (unsigned long long)stats.extstore_compact_lost);
-    APPEND_STAT("extstore_compact_rescues", "%llu", (unsigned long long)stats.extstore_compact_rescues);
-    APPEND_STAT("extstore_compact_skipped", "%llu", (unsigned long long)stats.extstore_compact_skipped);
-    STATS_UNLOCK();
-    extstore_get_stats(c->thread->storage, &st);
-    APPEND_STAT("extstore_page_allocs", "%llu", (unsigned long long)st.page_allocs);
-    APPEND_STAT("extstore_page_evictions", "%llu", (unsigned long long)st.page_evictions);
-    APPEND_STAT("extstore_page_reclaims", "%llu", (unsigned long long)st.page_reclaims);
-    APPEND_STAT("extstore_pages_free", "%llu", (unsigned long long)st.pages_free);
-    APPEND_STAT("extstore_pages_used", "%llu", (unsigned long long)st.pages_used);
-    APPEND_STAT("extstore_objects_evicted", "%llu", (unsigned long long)st.objects_evicted);
-    APPEND_STAT("extstore_objects_read", "%llu", (unsigned long long)st.objects_read);
-    APPEND_STAT("extstore_objects_written", "%llu", (unsigned long long)st.objects_written);
-    APPEND_STAT("extstore_objects_used", "%llu", (unsigned long long)st.objects_used);
-    APPEND_STAT("extstore_bytes_evicted", "%llu", (unsigned long long)st.bytes_evicted);
-    APPEND_STAT("extstore_bytes_written", "%llu", (unsigned long long)st.bytes_written);
-    APPEND_STAT("extstore_bytes_read", "%llu", (unsigned long long)st.bytes_read);
-    APPEND_STAT("extstore_bytes_used", "%llu", (unsigned long long)st.bytes_used);
-    APPEND_STAT("extstore_bytes_fragmented", "%llu", (unsigned long long)st.bytes_fragmented);
+    if (c->thread->storage) {
+        STATS_LOCK();
+        APPEND_STAT("extstore_compact_lost", "%llu", (unsigned long long)stats.extstore_compact_lost);
+        APPEND_STAT("extstore_compact_rescues", "%llu", (unsigned long long)stats.extstore_compact_rescues);
+        APPEND_STAT("extstore_compact_skipped", "%llu", (unsigned long long)stats.extstore_compact_skipped);
+        STATS_UNLOCK();
+        extstore_get_stats(c->thread->storage, &st);
+        APPEND_STAT("extstore_page_allocs", "%llu", (unsigned long long)st.page_allocs);
+        APPEND_STAT("extstore_page_evictions", "%llu", (unsigned long long)st.page_evictions);
+        APPEND_STAT("extstore_page_reclaims", "%llu", (unsigned long long)st.page_reclaims);
+        APPEND_STAT("extstore_pages_free", "%llu", (unsigned long long)st.pages_free);
+        APPEND_STAT("extstore_pages_used", "%llu", (unsigned long long)st.pages_used);
+        APPEND_STAT("extstore_objects_evicted", "%llu", (unsigned long long)st.objects_evicted);
+        APPEND_STAT("extstore_objects_read", "%llu", (unsigned long long)st.objects_read);
+        APPEND_STAT("extstore_objects_written", "%llu", (unsigned long long)st.objects_written);
+        APPEND_STAT("extstore_objects_used", "%llu", (unsigned long long)st.objects_used);
+        APPEND_STAT("extstore_bytes_evicted", "%llu", (unsigned long long)st.bytes_evicted);
+        APPEND_STAT("extstore_bytes_written", "%llu", (unsigned long long)st.bytes_written);
+        APPEND_STAT("extstore_bytes_read", "%llu", (unsigned long long)st.bytes_read);
+        APPEND_STAT("extstore_bytes_used", "%llu", (unsigned long long)st.bytes_used);
+        APPEND_STAT("extstore_bytes_fragmented", "%llu", (unsigned long long)st.bytes_fragmented);
+    }
 #endif
 }
 
@@ -6151,6 +6155,17 @@ static void usage(void) {
            "   - relaxed_privileges: Running tests requires extra privileges.\n"
 #endif
 #endif
+#ifdef EXTSTORE
+           "   - ext_path:            file to write to for external storage.\n"
+           "   - ext_page_size:       size in megabytes of storage pages.\n"
+           "   - ext_wbuf_size:       size in megabytes of page write buffers.\n"
+           "   - ext_threads:         number of IO threads to run.\n"
+           "   - ext_item_size:       store items larger than this (bytes)\n"
+           "   - ext_item_age:        store items idle at least this long\n"
+           "   - ext_recache_rate:    recache an item every N accesses\n"
+           "   - ext_max_frag:        max page fragmentation to tolerage\n"
+           "                          (see doc/storage.txt for more info)"
+#endif
            );
     return;
 }
@@ -6428,7 +6443,7 @@ int main (int argc, char **argv) {
     bool slab_chunk_size_changed = false;
 #ifdef EXTSTORE
     void *storage = NULL;
-    char *storage_file = "/dev/shm/extstore";
+    char *storage_file = NULL;
     struct extstore_conf ext_cf;
 #endif
     char *subopts, *subopts_orig;
@@ -6554,9 +6569,9 @@ int main (int argc, char **argv) {
 #ifdef EXTSTORE
     settings.ext_item_size = 512;
     settings.ext_item_age = 0;
-    settings.ext_recache_rate = 2;
-    settings.ext_max_frag = 0.9;
-    settings.ext_wbuf_size = 1024 * 1024 * 8;
+    settings.ext_recache_rate = 2000;
+    settings.ext_max_frag = 0.8;
+    settings.ext_wbuf_size = 1024 * 1024 * 4;
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.page_count = 64;
     ext_cf.wbuf_size = settings.ext_wbuf_size;
@@ -7254,19 +7269,21 @@ int main (int argc, char **argv) {
         exit(EX_USAGE);
     }
 #ifdef EXTSTORE
-    if (settings.item_size_max > ext_cf.wbuf_size) {
-        fprintf(stderr, "-I (item_size_max: %d) cannot be larger than ext_wbuf_size: %d\n",
-            settings.item_size_max, ext_cf.wbuf_size);
-        exit(EX_USAGE);
-    }
+    if (storage_file) {
+        if (settings.item_size_max > ext_cf.wbuf_size) {
+            fprintf(stderr, "-I (item_size_max: %d) cannot be larger than ext_wbuf_size: %d\n",
+                settings.item_size_max, ext_cf.wbuf_size);
+            exit(EX_USAGE);
+        }
 
-    /* This is due to the suffix header being generated with the wrong length
-     * value for the ITEM_HDR replacement. The cuddled nbytes no longer
-     * matches, so we end up losing a few bytes on readback.
-     */
-    if (settings.inline_ascii_response) {
-        fprintf(stderr, "Cannot use inline_ascii_response with extstore enabled\n");
-        exit(EX_USAGE);
+        /* This is due to the suffix header being generated with the wrong length
+         * value for the ITEM_HDR replacement. The cuddled nbytes no longer
+         * matches, so we end up losing a few bytes on readback.
+         */
+        if (settings.inline_ascii_response) {
+            fprintf(stderr, "Cannot use inline_ascii_response with extstore enabled\n");
+            exit(EX_USAGE);
+        }
     }
 #endif
     // Reserve this for the new default. If factor size hasn't changed, use
@@ -7425,11 +7442,13 @@ int main (int argc, char **argv) {
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL);
 #ifdef EXTSTORE
-    crc32c_init();
-    storage = extstore_init(storage_file, &ext_cf);
-    if (storage == NULL) {
-        fprintf(stderr, "Failed to initialize external storage\n");
-        exit(EXIT_FAILURE);
+    if (storage_file) {
+        crc32c_init();
+        storage = extstore_init(storage_file, &ext_cf);
+        if (storage == NULL) {
+            fprintf(stderr, "Failed to initialize external storage\n");
+            exit(EXIT_FAILURE);
+        }
     }
 #endif
     /*
@@ -7457,7 +7476,7 @@ int main (int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 #ifdef EXTSTORE
-    if (start_storage_compact_thread(storage) != 0) {
+    if (storage && start_storage_compact_thread(storage) != 0) {
         fprintf(stderr, "Failed to start storage compaction thread\n");
         exit(EXIT_FAILURE);
     }
