@@ -721,7 +721,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
         return LOGGER_ADD_WATCHER_TOO_MANY;
     }
 
-    for (x = 0; x < WATCHER_LIMIT; x++) {
+    for (x = 0; x < WATCHER_LIMIT-1; x++) {
         if (watchers[x] == NULL)
             break;
     }
