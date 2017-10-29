@@ -1735,7 +1735,9 @@ static void process_bin_stat(conn *c) {
             char *dump_buf = stats_prefix_dump(&len);
             if (dump_buf == NULL || len <= 0) {
                 out_of_memory(c, "SERVER_ERROR Out of memory generating stats");
-                return ;
+                if (dump_buf != NULL)
+                    free(dump_buf);
+                return;
             } else {
                 append_stats("detailed", strlen("detailed"), dump_buf, len, c);
                 free(dump_buf);
