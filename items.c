@@ -1494,15 +1494,14 @@ static void *lru_maintainer_thread(void *arg) {
     useconds_t last_sleep = MIN_LRU_MAINTAINER_SLEEP;
     rel_time_t last_crawler_check = 0;
     rel_time_t last_automove_check = 0;
-    useconds_t next_juggles[MAX_NUMBER_OF_SLAB_CLASSES];
-    useconds_t backoff_juggles[MAX_NUMBER_OF_SLAB_CLASSES];
+    useconds_t next_juggles[MAX_NUMBER_OF_SLAB_CLASSES] = {0};
+    useconds_t backoff_juggles[MAX_NUMBER_OF_SLAB_CLASSES] = {0};
     struct crawler_expired_data *cdata =
         calloc(1, sizeof(struct crawler_expired_data));
     if (cdata == NULL) {
         fprintf(stderr, "Failed to allocate crawler data for LRU maintainer thread\n");
         abort();
     }
-    memset(next_juggles, 0, sizeof(next_juggles));
     pthread_mutex_init(&cdata->lock, NULL);
     cdata->crawl_complete = true; // kick off the crawler.
     logger *l = logger_create();
