@@ -89,6 +89,9 @@ of seconds in 30 days); if the number sent by a client is larger than
 that, the server will consider it to be real Unix time value rather
 than an offset from current time.
 
+Note that a TTL of 1 will sometimes immediately expire. Time is internally
+updated on second boundaries, which makes expiration time roughly +/- 1s.
+This more proportionally affects very low TTL's.
 
 Error strings
 -------------
