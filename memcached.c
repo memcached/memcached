@@ -6598,6 +6598,7 @@ int main (int argc, char **argv) {
                 break;
             case NO_LRU_CRAWLER:
                 settings.lru_crawler = false;
+                start_lru_crawler = false;
                 break;
             case NO_LRU_MAINTAINER:
                 start_lru_maintainer = false;
