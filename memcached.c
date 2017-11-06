@@ -7285,6 +7285,11 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Cannot use inline_ascii_response with extstore enabled\n");
             exit(EX_USAGE);
         }
+
+        if (settings.udpport) {
+            fprintf(stderr, "Cannot use UDP with extstore enabled (-U 0 to disable)\n");
+            exit(EX_USAGE);
+        }
     }
 #endif
     // Reserve this for the new default. If factor size hasn't changed, use
@@ -7337,9 +7342,9 @@ int main (int argc, char **argv) {
         }
     }
 
-    if (tcp_specified && !udp_specified) {
+    if (tcp_specified && settings.port != 0 && !udp_specified) {
         settings.udpport = settings.port;
-    } else if (udp_specified && !tcp_specified) {
+    } else if (udp_specified && settings.udpport != 0 && !tcp_specified) {
         settings.port = settings.udpport;
     }
 
