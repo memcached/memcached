@@ -114,8 +114,8 @@ static void write_bin_error(conn *c, protocol_binary_response_status err,
 static void write_bin_miss_response(conn *c, char *key, size_t nkey);
 
 #ifdef EXTSTORE
-static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret);
-static inline int _ascii_get_extstore(conn *c, item *it, int iovst, int iovcnt);
+static void _get_extstore_cb(void *e, obj_io *io, int ret);
+static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt);
 #endif
 static void conn_free(conn *c);
 
@@ -1658,7 +1658,7 @@ static void process_bin_get_or_touch(conn *c) {
                 }
                 // FIXME: this can return an error, but code flow doesn't
                 // allow bailing here.
-                _ascii_get_extstore(c, it, iovst, iovcnt);
+                _get_extstore(c, it, iovst, iovcnt);
             } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 add_iov(c, ITEM_data(it), it->nbytes - 2);
             } else {
@@ -3508,7 +3508,7 @@ static inline char *_ascii_get_suffix_buf(conn *c, int i) {
 // simply mark the io wrapper with the return value and decrement wrapleft, if
 // zero redispatching. Still a bit of work being done in the side thread but
 // minimized at least.
-static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
+static void _get_extstore_cb(void *e, obj_io *io, int ret) {
     // FIXME: assumes success
     io_wrap *wrap = (io_wrap *)io->data;
     conn *c = wrap->c;
@@ -3602,7 +3602,7 @@ static void _ascii_get_extstore_cb(void *e, obj_io *io, int ret) {
 }
 
 // FIXME: This completely breaks UDP support.
-static inline int _ascii_get_extstore(conn *c, item *it, int iovst, int iovcnt) {
+static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
     item_hdr *hdr = (item_hdr *)ITEM_data(it);
     size_t ntotal = ITEM_ntotal(it);
     unsigned int clsid = slabs_clsid(ntotal);
@@ -3696,7 +3696,7 @@ static inline int _ascii_get_extstore(conn *c, item *it, int iovst, int iovcnt) 
     io->io.offset = hdr->offset;
     io->io.len = ntotal;
     io->io.mode = OBJ_IO_READ;
-    io->io.cb = _ascii_get_extstore_cb;
+    io->io.cb = _get_extstore_cb;
 
     //fprintf(stderr, "EXTSTORE: IO stacked %u\n", io->iovec_data);
     // FIXME: This stat needs to move to reflect # of flash hits vs misses
@@ -3792,7 +3792,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       }
 #ifdef EXTSTORE
                   if (it->it_flags & ITEM_HDR) {
-                      if (_ascii_get_extstore(c, it, c->iovused-3, 4) != 0) {
+                      if (_get_extstore(c, it, c->iovused-3, 4) != 0) {
                           item_remove(it);
                           break;
                       }
