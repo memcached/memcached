@@ -642,8 +642,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 static void recache_or_free(conn *c, io_wrap *wrap) {
     item *it;
     it = (item *)wrap->io.buf;
+    bool do_free = true;
     // If request was ultimately a miss, unlink the header.
     if (wrap->miss) {
+        do_free = false;
         size_t ntotal = ITEM_ntotal(wrap->hdr_it);
         item_unlink(wrap->hdr_it);
         slabs_free(it, ntotal, slabs_clsid(ntotal));
@@ -652,10 +654,9 @@ static void recache_or_free(conn *c, io_wrap *wrap) {
         if (wrap->badcrc)
             c->thread->stats.badcrc_from_extstore++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
-    } else {
+    } else if (settings.ext_recache_rate) {
         // hashvalue is cuddled during store
         uint32_t hv = (uint32_t)it->time;
-        bool do_free = true;
         // opt to throw away rather than wait on a lock.
         void *hold_lock = item_trylock(hv);
         if (hold_lock != NULL) {
@@ -678,12 +679,12 @@ static void recache_or_free(conn *c, io_wrap *wrap) {
                 pthread_mutex_unlock(&c->thread->stats.mutex);
             }
         }
-
-        if (do_free)
-            slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
         if (hold_lock)
             item_trylock_unlock(hold_lock);
     }
+    if (do_free)
+        slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
+
     wrap->io.buf = NULL; // sanity.
     wrap->io.next = NULL;
     wrap->next = NULL;
