@@ -489,7 +489,7 @@ void conn_worker_readd(conn *c) {
     if (c->io_wraplist) {
         //assert(c->io_wrapleft == 0); // assert no more to process
         conn_set_state(c, conn_mwrite);
-        drive_machine(c); // FIXME: Again, is it really this easy?
+        drive_machine(c);
     }
 #endif
 }
@@ -3168,6 +3168,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("extstore_bytes_read", "%llu", (unsigned long long)st.bytes_read);
         APPEND_STAT("extstore_bytes_used", "%llu", (unsigned long long)st.bytes_used);
         APPEND_STAT("extstore_bytes_fragmented", "%llu", (unsigned long long)st.bytes_fragmented);
+        APPEND_STAT("extstore_limit_maxbytes", "%llu", (unsigned long long)(st.page_count * st.page_size));
     }
 #endif
 }
@@ -3595,9 +3596,6 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
     if (c->io_wrapleft == 0) {
         assert(c->io_queued == true);
         c->io_queued = false;
-        // FIXME: Is it really this easy?
-        // I have worries this won't be performant enough under load though.
-        // Can cause the IO threads to block if the pipes are full, too.
         redispatch_conn(c);
     }
 }
