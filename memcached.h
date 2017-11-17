@@ -408,6 +408,7 @@ struct settings {
 #ifdef EXTSTORE
     unsigned int ext_item_size; /* minimum size of items to store externally */
     unsigned int ext_item_age; /* max age of tail item before storing ext. */
+    unsigned int ext_low_ttl; /* remaining TTL below this uses own pages */
     unsigned int ext_recache_rate; /* counter++ % recache_rate == 0 > recache */
     unsigned int ext_wbuf_size; /* read only note for the engine */
     double ext_max_frag; /* ideal maximum page fragmentation */

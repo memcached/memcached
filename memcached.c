@@ -4469,32 +4469,31 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
 #ifdef EXTSTORE
 static void process_extstore_command(conn *c, token_t *tokens, const size_t ntokens) {
     set_noreply_maybe(c, tokens, ntokens);
-    if (strcmp(tokens[1].value, "item_size") == 0 && ntokens >= 3) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_item_size)) {
-            out_string(c, "ERROR");
-        } else {
-            out_string(c, "OK");
-        }
-    } else if (strcmp(tokens[1].value, "item_age") == 0 && ntokens >= 3) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_item_age)) {
-            out_string(c, "ERROR");
-        } else {
-            out_string(c, "OK");
-        }
-    } else if (strcmp(tokens[1].value, "recache_rate") == 0 && ntokens >= 3) {
-        if (!safe_strtoul(tokens[2].value, &settings.ext_recache_rate)) {
-            out_string(c, "ERROR");
-        } else {
-            out_string(c, "OK");
-        }
-    } else if (strcmp(tokens[1].value, "max_frag") == 0 && ntokens >= 3) {
-        if (!safe_strtod(tokens[2].value, &settings.ext_max_frag)) {
-            out_string(c, "ERROR");
-        } else {
-            out_string(c, "OK");
-        }
+    bool ok = true;
+    if (ntokens < 3) {
+        ok = false;
+    } else if (strcmp(tokens[1].value, "item_size") == 0) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_item_size))
+            ok = false;
+    } else if (strcmp(tokens[1].value, "item_age") == 0) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_item_age))
+            ok = false;
+    } else if (strcmp(tokens[1].value, "low_ttl") == 0) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_low_ttl))
+            ok = false;
+    } else if (strcmp(tokens[1].value, "recache_rate") == 0) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_recache_rate))
+            ok = false;
+    } else if (strcmp(tokens[1].value, "max_frag") == 0) {
+        if (!safe_strtod(tokens[2].value, &settings.ext_max_frag))
+            ok = false;
     } else {
+        ok = false;
+    }
+    if (!ok) {
         out_string(c, "ERROR");
+    } else {
+        out_string(c, "OK");
     }
 }
 #endif
@@ -6161,6 +6160,7 @@ static void usage(void) {
            "   - ext_threads:         number of IO threads to run.\n"
            "   - ext_item_size:       store items larger than this (bytes)\n"
            "   - ext_item_age:        store items idle at least this long\n"
+           "   - ext_low_ttl:         consider TTLs lower than this specially\n"
            "   - ext_recache_rate:    recache an item every N accesses\n"
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
            "                          (see doc/storage.txt for more info)"
@@ -6496,6 +6496,7 @@ int main (int argc, char **argv) {
         EXT_PATH,
         EXT_ITEM_SIZE,
         EXT_ITEM_AGE,
+        EXT_LOW_TTL,
         EXT_RECACHE_RATE,
         EXT_MAX_FRAG,
 #endif
@@ -6549,6 +6550,7 @@ int main (int argc, char **argv) {
         [EXT_PATH] = "ext_path",
         [EXT_ITEM_SIZE] = "ext_item_size",
         [EXT_ITEM_AGE] = "ext_item_age",
+        [EXT_LOW_TTL] = "ext_low_ttl",
         [EXT_RECACHE_RATE] = "ext_recache_rate",
         [EXT_MAX_FRAG] = "ext_max_frag",
 #endif
@@ -6568,16 +6570,17 @@ int main (int argc, char **argv) {
 #ifdef EXTSTORE
     settings.ext_item_size = 512;
     settings.ext_item_age = 0;
+    settings.ext_low_ttl = 0;
     settings.ext_recache_rate = 2000;
     settings.ext_max_frag = 0.8;
     settings.ext_wbuf_size = 1024 * 1024 * 4;
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.page_count = 64;
     ext_cf.wbuf_size = settings.ext_wbuf_size;
-    ext_cf.wbuf_count = 3;
+    ext_cf.wbuf_count = 4;
     ext_cf.io_threadcount = 1;
     ext_cf.io_depth = 1;
-    ext_cf.page_buckets = 3;
+    ext_cf.page_buckets = 4;
 #endif
 
     /* Run regardless of initializing it later */
@@ -7185,6 +7188,16 @@ int main (int argc, char **argv) {
                 }
                 if (!safe_strtoul(subopts_value, &settings.ext_item_age)) {
                     fprintf(stderr, "could not parse argument to ext_item_age\n");
+                    return 1;
+                }
+                break;
+            case EXT_LOW_TTL:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_low_ttl argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_low_ttl)) {
+                    fprintf(stderr, "could not parse argument to ext_low_ttl\n");
                     return 1;
                 }
                 break;

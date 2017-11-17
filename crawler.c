@@ -213,6 +213,9 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
         if ((search->it_flags & ITEM_FETCHED) == 0 && !is_flushed) {
             crawlers[i].unfetched++;
         }
+#ifdef EXTSTORE
+        STORAGE_delete(storage, search);
+#endif
         do_item_unlink_nolock(search, hv);
         do_item_remove(search);
         assert(search->slabs_clsid == 0);

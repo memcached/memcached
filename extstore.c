@@ -785,6 +785,7 @@ static void *extstore_maint_thread(void *arg) {
             if (p->obj_count > 0 && !p->closed) {
                 pd[p->id].version = p->version;
                 pd[p->id].bytes_used = p->bytes_used;
+                pd[p->id].bucket = p->bucket;
                 if (p->version < low_version) {
                     low_version = p->version;
                     low_page = i;

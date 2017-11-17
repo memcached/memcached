@@ -7,6 +7,7 @@
 struct extstore_page_data {
     uint64_t version;
     uint64_t bytes_used;
+    unsigned int bucket;
 };
 
 /* Pages can have objects deleted from them at any time. This creates holes

@@ -10,6 +10,7 @@
 #define PAGE_BUCKET_DEFAULT 0
 #define PAGE_BUCKET_COMPACT 1
 #define PAGE_BUCKET_CHUNKED 2
+#define PAGE_BUCKET_LOWTTL  3
 
 int lru_maintainer_store(void *storage, const int clsid) {
     //int i;
@@ -25,7 +26,7 @@ int lru_maintainer_store(void *storage, const int clsid) {
     chunks_free = slabs_available_chunks(clsid, &mem_limit_reached,
             NULL, &chunks_perslab);
     // if we are low on chunks and no spare, push out early.
-    if (chunks_free < (chunks_perslab / 2) && mem_limit_reached)
+    if (chunks_free < chunks_perslab && mem_limit_reached)
         item_age = 0;
 
     it_info.it = NULL;
@@ -57,6 +58,10 @@ int lru_maintainer_store(void *storage, const int clsid) {
         if (hdr_it != NULL) {
             int bucket = (it->it_flags & ITEM_CHUNKED) ?
                 PAGE_BUCKET_CHUNKED : PAGE_BUCKET_DEFAULT;
+            // Compres soon to expire items into similar pages.
+            if (it->exptime - current_time < settings.ext_low_ttl) {
+                bucket = PAGE_BUCKET_LOWTTL;
+            }
             hdr_it->it_flags |= ITEM_HDR;
             io.len = orig_ntotal;
             io.mode = OBJ_IO_WRITE;
@@ -156,7 +161,8 @@ static int storage_compact_check(void *storage, logger *l,
 
     // find oldest page by version that violates the constraint
     for (x = 0; x < st.page_count; x++) {
-        if (st.page_data[x].version == 0)
+        if (st.page_data[x].version == 0 ||
+            st.page_data[x].bucket == PAGE_BUCKET_LOWTTL)
             continue;
         if (st.page_data[x].bytes_used < frag_limit) {
             if (st.page_data[x].version < low_version) {
