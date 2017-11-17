@@ -50,7 +50,9 @@ static int power_largest;
 static void *mem_base = NULL;
 static void *mem_current = NULL;
 static size_t mem_avail = 0;
-
+#ifdef EXTSTORE
+static void *storage  = NULL;
+#endif
 /**
  * Access to the slab allocator is protected by this lock
  */
@@ -71,7 +73,11 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id);
    slab types can be made.  if max memory is less than 18 MB, only the
    smaller ones will be made.  */
 static void slabs_preallocate (const unsigned int maxslabs);
-
+#ifdef EXTSTORE
+void slabs_set_storage(void *arg) {
+    storage = arg;
+}
+#endif
 /*
  * Figures out which slab class (chunk size) is required to store an item of
  * a given size.
@@ -830,6 +836,7 @@ static int slab_rebalance_move(void) {
                             slab_rebal.busy_deletes++;
                             // Only safe to hold slabs lock because refcount
                             // can't drop to 0 until we release item lock.
+                            STORAGE_delete(storage, it);
                             do_item_unlink(it, hv);
                         }
                         status = MOVE_BUSY;
@@ -944,7 +951,7 @@ static int slab_rebalance_move(void) {
                 } else {
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
-                    // FIXME: need storage instance to call extstore_delete
+                    STORAGE_delete(storage, it);
                     do_item_unlink(it, hv);
                     slabs_free(it, ntotal, slab_rebal.s_clsid);
                     /* Swing around again later to remove it from the freelist. */

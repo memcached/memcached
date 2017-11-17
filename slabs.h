@@ -63,4 +63,8 @@ enum reassign_result_type slabs_reassign(int src, int dst);
 void slabs_rebalancer_pause(void);
 void slabs_rebalancer_resume(void);
 
+#ifdef EXTSTORE
+void slabs_set_storage(void *arg);
+#endif
+
 #endif

@@ -7478,6 +7478,7 @@ int main (int argc, char **argv) {
     }
     /* start up worker threads if MT mode */
 #ifdef EXTSTORE
+    slabs_set_storage(storage);
     memcached_thread_init(settings.num_threads, storage);
     init_lru_crawler(storage);
 #else
