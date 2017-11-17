@@ -68,12 +68,13 @@ crawler_module_reg_t crawler_expired_mod = {
 };
 
 static void crawler_metadump_eval(crawler_module_t *cm, item *search, uint32_t hv, int i);
+static void crawler_metadump_finalize(crawler_module_t *cm);
 
 crawler_module_reg_t crawler_metadump_mod = {
     .init = NULL,
     .eval = crawler_metadump_eval,
     .doneclass = NULL,
-    .finalize = NULL,
+    .finalize = crawler_metadump_finalize,
     .needs_lock = false,
     .needs_client = true
 };
@@ -84,6 +85,7 @@ crawler_module_reg_t *crawler_mod_regs[3] = {
     &crawler_metadump_mod
 };
 
+static int lru_crawler_client_getbuf(crawler_client_t *c);
 crawler_module_t active_crawler_mod;
 enum crawler_run_type active_crawler_type;
 
@@ -229,12 +231,14 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
     // TODO: uriencode directly into the buffer.
     uriencode(ITEM_key(it), keybuf, it->nkey, KEY_MAX_LENGTH * 3 + 1);
     int total = snprintf(cm->c.cbuf, 4096,
-            "key=%s exp=%ld la=%llu cas=%llu fetch=%s\n",
+            "key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu\n",
             keybuf,
             (it->exptime == 0) ? -1 : (long)it->exptime + process_started,
             (unsigned long long)it->time + process_started,
             (unsigned long long)ITEM_get_cas(it),
-            (it->it_flags & ITEM_FETCHED) ? "yes" : "no");
+            (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
+            ITEM_clsid(it),
+            ITEM_ntotal(it));
     refcount_decr(it);
     // TODO: some way of tracking the errors. these are very unlikely though.
     if (total >= LRU_CRAWLER_WRITEBUF - 1 || total <= 0) {
@@ -242,6 +246,13 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
         return;
     }
     bipbuf_push(cm->c.buf, total);
+}
+
+static void crawler_metadump_finalize(crawler_module_t *cm) {
+    // Ensure space for final message.
+    lru_crawler_client_getbuf(&cm->c);
+    memcpy(cm->c.cbuf, "END\r\n", 5);
+    bipbuf_push(cm->c.buf, 5);
 }
 
 static int lru_crawler_poll(crawler_client_t *c) {
