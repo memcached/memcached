@@ -231,8 +231,8 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
     int total = snprintf(cm->c.cbuf, 4096,
             "key=%s exp=%ld la=%llu cas=%llu fetch=%s\n",
             keybuf,
-            (it->exptime == 0) ? -1 : (long)it->exptime + process_started,
-            (unsigned long long)it->time + process_started,
+            (it->exptime == 0) ? -1 : (long)(it->exptime + process_started),
+            (unsigned long long)(it->time + process_started),
             (unsigned long long)ITEM_get_cas(it),
             (it->it_flags & ITEM_FETCHED) ? "yes" : "no");
     refcount_decr(it);
