@@ -198,8 +198,7 @@ def read_slab_stats(s):
 # HACK: lets look at 'evictions' being nonzero to indicate memory filled at some point.
 def read_stats(s):
     stats = {}
-    # HACK: Current version can't display global page pool. stupid me.
-    s.write("slabs automove 1\r\nstats\r\nslabs automove 0\r\n")
+    s.write("stats\r\n")
     while True:
         line = s.readline().rstrip()
         if line.startswith("END"):

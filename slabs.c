@@ -424,11 +424,9 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
             APPEND_STAT("curr_items", "%llu", (unsigned long long)stats_state.curr_items);
             APPEND_STAT("total_items", "%llu", (unsigned long long)stats.total_items);
             STATS_UNLOCK();
-            if (settings.slab_automove > 0) {
-                pthread_mutex_lock(&slabs_lock);
-                APPEND_STAT("slab_global_page_pool", "%u", slabclass[SLAB_GLOBAL_PAGE_POOL].slabs);
-                pthread_mutex_unlock(&slabs_lock);
-            }
+            pthread_mutex_lock(&slabs_lock);
+            APPEND_STAT("slab_global_page_pool", "%u", slabclass[SLAB_GLOBAL_PAGE_POOL].slabs);
+            pthread_mutex_unlock(&slabs_lock);
             item_stats_totals(add_stats, c);
         } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
             item_stats(add_stats, c);
