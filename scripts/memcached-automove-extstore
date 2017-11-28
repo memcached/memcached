@@ -249,7 +249,7 @@ while True:
                 #if args.verbose:
                 #    show_detail(diffs, totals)
                 decision = (-1, -1)
-                if stats['evictions'] != 0:
+                if int(stats['evictions']) > 0:
                     decision = determine_move(history, stats, diffs, totals)
                     if int(decision[0]) > 0 and decision[1] != -1:
                         print("moving page from, to:", decision)
