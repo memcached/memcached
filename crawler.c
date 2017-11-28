@@ -249,10 +249,12 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
 }
 
 static void crawler_metadump_finalize(crawler_module_t *cm) {
-    // Ensure space for final message.
-    lru_crawler_client_getbuf(&cm->c);
-    memcpy(cm->c.cbuf, "END\r\n", 5);
-    bipbuf_push(cm->c.buf, 5);
+    if (cm->c.c != NULL) {
+        // Ensure space for final message.
+        lru_crawler_client_getbuf(&cm->c);
+        memcpy(cm->c.cbuf, "END\r\n", 5);
+        bipbuf_push(cm->c.buf, 5);
+    }
 }
 
 static int lru_crawler_poll(crawler_client_t *c) {
