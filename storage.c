@@ -142,7 +142,7 @@ static int storage_compact_check(void *storage, logger *l,
         return 0;
 
     // lets pick a target "wasted" value and slew.
-    if (st.pages_free > st.page_count / 4)
+    if (st.pages_free > settings.ext_compact_under)
         return 0;
 
     // the number of free pages reduces the configured frag limit

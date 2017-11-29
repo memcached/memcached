@@ -411,6 +411,7 @@ struct settings {
     unsigned int ext_low_ttl; /* remaining TTL below this uses own pages */
     unsigned int ext_recache_rate; /* counter++ % recache_rate == 0 > recache */
     unsigned int ext_wbuf_size; /* read only note for the engine */
+    unsigned int ext_compact_under; /* when fewer than this many pages, compact */
     double ext_max_frag; /* ideal maximum page fragmentation */
     bool ext_drop_unread; /* skip unread items during compaction */
 #endif
