@@ -4487,6 +4487,13 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
     } else if (strcmp(tokens[1].value, "max_frag") == 0) {
         if (!safe_strtod(tokens[2].value, &settings.ext_max_frag))
             ok = false;
+    } else if (strcmp(tokens[1].value, "drop_unread") == 0) {
+        unsigned int v;
+        if (!safe_strtoul(tokens[2].value, &v)) {
+            ok = false;
+        } else {
+            settings.ext_drop_unread = v == 0 ? false : true;
+        }
     } else {
         ok = false;
     }
@@ -6161,6 +6168,7 @@ static void usage(void) {
            "   - ext_item_size:       store items larger than this (bytes)\n"
            "   - ext_item_age:        store items idle at least this long\n"
            "   - ext_low_ttl:         consider TTLs lower than this specially\n"
+           "   - ext_drop_unread:     don't re-write unread values during compaction\n"
            "   - ext_recache_rate:    recache an item every N accesses\n"
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
            "                          (see doc/storage.txt for more info)"
@@ -6499,6 +6507,7 @@ int main (int argc, char **argv) {
         EXT_LOW_TTL,
         EXT_RECACHE_RATE,
         EXT_MAX_FRAG,
+        EXT_DROP_UNREAD,
 #endif
     };
     char *const subopts_tokens[] = {
@@ -6553,6 +6562,7 @@ int main (int argc, char **argv) {
         [EXT_LOW_TTL] = "ext_low_ttl",
         [EXT_RECACHE_RATE] = "ext_recache_rate",
         [EXT_MAX_FRAG] = "ext_max_frag",
+        [EXT_DROP_UNREAD] = "ext_drop_unread",
 #endif
         NULL
     };
@@ -6573,6 +6583,7 @@ int main (int argc, char **argv) {
     settings.ext_low_ttl = 0;
     settings.ext_recache_rate = 2000;
     settings.ext_max_frag = 0.8;
+    settings.ext_drop_unread = false;
     settings.ext_wbuf_size = 1024 * 1024 * 4;
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.page_count = 64;
@@ -7220,6 +7231,9 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "could not parse argument to ext_max_frag\n");
                     return 1;
                 }
+                break;
+            case EXT_DROP_UNREAD:
+                settings.ext_drop_unread = true;
                 break;
             case EXT_PATH:
                 storage_file = strdup(subopts_value);

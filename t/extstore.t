@@ -100,6 +100,13 @@ mem_get_is($sock, "foo", "hi");
     is($stats->{extstore_pages_free}, 0, '0 pages are free');
     is($stats->{miss_from_extstore}, 1, 'exactly one miss');
 
+    # refresh some keys so rescues happen while drop_unread == 1.
+    for (1 .. $keycount / 2) {
+        next unless $_ % 2 == 1;
+        print $sock "touch mfoo$_ 0 noreply\r\n";
+    }
+    print $sock "extstore drop_unread 1\r\n";
+    my $res = <$sock>;
     for (1 .. $keycount) {
         next unless $_ % 2 == 0;
         print $sock "delete mfoo$_ noreply\r\n";
@@ -110,6 +117,8 @@ mem_get_is($sock, "foo", "hi");
     cmp_ok($stats->{extstore_pages_free}, '>', 0, 'some pages now free');
     cmp_ok($stats->{extstore_compact_rescues}, '>', 0, 'some compaction rescues happened');
     cmp_ok($stats->{extstore_compact_skipped}, '>', 0, 'some compaction skips happened');
+    print $sock "extstore drop_unread 0\r\n";
+    $res = <$sock>;
 }
 
 # attempt to incr/decr/append/prepend or chunk objects that were sent to disk.

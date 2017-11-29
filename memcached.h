@@ -412,6 +412,7 @@ struct settings {
     unsigned int ext_recache_rate; /* counter++ % recache_rate == 0 > recache */
     unsigned int ext_wbuf_size; /* read only note for the engine */
     double ext_max_frag; /* ideal maximum page fragmentation */
+    bool ext_drop_unread; /* skip unread items during compaction */
 #endif
 };
 
