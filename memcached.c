@@ -3335,7 +3335,31 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
         }
     }
 }
+#ifdef EXTSTORE
+static void process_extstore_stats(ADD_STAT add_stats, conn *c) {
+    int i;
+    char key_str[STAT_KEY_LEN];
+    char val_str[STAT_VAL_LEN];
+    int klen = 0, vlen = 0;
+    struct extstore_stats st;
 
+    assert(add_stats);
+
+    void *storage = c->thread->storage;
+    extstore_get_stats(storage, &st);
+    st.page_data = calloc(st.page_count, sizeof(struct extstore_page_data));
+    extstore_get_page_data(storage, &st);
+
+    for (i = 0; i < st.page_count; i++) {
+        APPEND_NUM_STAT(i, "version", "%llu",
+                (unsigned long long) st.page_data[i].version);
+        APPEND_NUM_STAT(i, "bytes", "%llu",
+                (unsigned long long) st.page_data[i].bytes_used);
+        APPEND_NUM_STAT(i, "bucket", "%u",
+                st.page_data[i].bucket);
+    }
+}
+#endif
 static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     const char *subcommand = tokens[SUBCOMMAND_TOKEN].value;
     assert(c != NULL);
@@ -3392,6 +3416,10 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         return ;
     } else if (strcmp(subcommand, "conns") == 0) {
         process_stats_conns(&append_stats, c);
+#ifdef EXTSTORE
+    } else if (strcmp(subcommand, "extstore") == 0) {
+        process_extstore_stats(&append_stats, c);
+#endif
     } else {
         /* getting here means that the subcommand is either engine specific or
            is invalid. query the engine and see. */
