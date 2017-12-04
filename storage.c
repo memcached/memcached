@@ -18,15 +18,14 @@ int lru_maintainer_store(void *storage, const int clsid) {
     int item_age = settings.ext_item_age;
     bool mem_limit_reached = false;
     unsigned int chunks_free;
-    unsigned int chunks_perslab;
     struct lru_pull_tail_return it_info;
     // FIXME: need to directly ask the slabber how big a class is
     if (slabs_clsid(settings.ext_item_size) > clsid)
         return 0;
     chunks_free = slabs_available_chunks(clsid, &mem_limit_reached,
-            NULL, &chunks_perslab);
+            NULL, NULL);
     // if we are low on chunks and no spare, push out early.
-    if (chunks_free < chunks_perslab && mem_limit_reached)
+    if (chunks_free < settings.ext_free_memchunks[clsid] && mem_limit_reached)
         item_age = 0;
 
     it_info.it = NULL;

@@ -4500,6 +4500,20 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
     bool ok = true;
     if (ntokens < 3) {
         ok = false;
+    } else if (strcmp(tokens[1].value, "free_memchunks") == 0 && ntokens > 4) {
+        /* per-slab-class free chunk setting. */
+        unsigned int clsid = 0;
+        unsigned int limit = 0;
+        if (!safe_strtoul(tokens[2].value, &clsid) ||
+                !safe_strtoul(tokens[3].value, &limit)) {
+            ok = false;
+        } else {
+            if (clsid < MAX_NUMBER_OF_SLAB_CLASSES) {
+                settings.ext_free_memchunks[clsid] = limit;
+            } else {
+                ok = false;
+            }
+        }
     } else if (strcmp(tokens[1].value, "item_size") == 0) {
         if (!safe_strtoul(tokens[2].value, &settings.ext_item_size))
             ok = false;
@@ -7523,6 +7537,10 @@ int main (int argc, char **argv) {
             settings.ext_compact_under = ext_cf.page_count / 4;
         }
         crc32c_init();
+        /* Keep at least one chunk free by default. */
+        for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
+            settings.ext_free_memchunks[x] = 1;
+        }
         storage = extstore_init(storage_file, &ext_cf);
         if (storage == NULL) {
             fprintf(stderr, "Failed to initialize external storage\n");
