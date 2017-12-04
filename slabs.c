@@ -615,7 +615,7 @@ unsigned int slabs_available_chunks(const unsigned int id, bool *mem_flag,
     p = &slabclass[id];
     ret = p->sl_curr;
     if (mem_flag != NULL)
-        *mem_flag = mem_limit_reached;
+        *mem_flag = mem_malloced >= mem_limit ? true : false;
     if (total_bytes != NULL)
         *total_bytes = p->requested;
     if (chunks_perslab != NULL)
