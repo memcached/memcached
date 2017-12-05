@@ -7,7 +7,7 @@ import socket
 import sys
 import re
 import traceback
-from time import sleep
+from time import sleep, time
 
 parser = argparse.ArgumentParser(description="daemon for rebalancing slabs")
 parser.add_argument("--host", help="host to connect to",
@@ -19,10 +19,12 @@ parser.add_argument("-a", "--automove", action="store_true", default=False,
                     help="enable automatic page rebalancing")
 parser.add_argument("-w", "--window", type=int, default="30",
                     help="rolling window size for decision history")
-parser.add_argument("-l", "--poolmin", type=int, default=1000,
-                    help="a thing")
-parser.add_argument("-p", "--poolhigh", type=int, default=2000,
-                    help="another thing")
+parser.add_argument("-r", "--ratio", type=float, default=0.8,
+                    help="ratio limiting distance between low/high class ages")
+parser.add_argument("-f", "--free", type=float, default=0.005,
+                    help="free chunks/pages buffer ratio")
+parser.add_argument("-z", "--size", type=int, default=512,
+                    help="item size cutoff for storage")
 
 args = parser.parse_args()
 
@@ -45,7 +47,7 @@ def window_key_check(history, key):
     return total
 
 
-def determine_move(history, stats, diffs, totals):
+def determine_move(history, stats, diffs, memfree):
     """ Figure out of a page move is in order.
 
     - we should use as much memory as possible to buffer items, reducing
@@ -54,12 +56,11 @@ def determine_move(history, stats, diffs, totals):
     - avoids flapping as much as possible:
       - only pull pages off of a class if it hasn't recently evicted or allocated pages.
       - only pull pages off if a sufficient number of chunks are available.
-      - if global pool is below minimum, slowly reduce extstore item_age, flushing
-        more items to storage.
-      - if global pool is above maximum, slowly increase extstore item_age, which
-        will slowly free memory.
-    - shifts in traffic load patterns should slowly move between increasing or decreasing
-      age.
+      - if global pool is below minimum remove pages from oldest large class.
+      - if global pool is above maximum, move pages to youngest large class.
+    - re-adjusts number of free chunks once per minute, based on usage.
+    - age balancing should move memory around large classes, which then
+      adjusts the per-class free chunk minimums.
     """
     # rotate windows
     history['w'].append({})
@@ -67,12 +68,12 @@ def determine_move(history, stats, diffs, totals):
         history['w'].pop(0)
     w = history['w'][-1]
     oldest = (-1, 0)
+    youngest = (-1, sys.maxsize)
     # Most bytes free
-    freest = (-1, 0)
     decision = (-1, -1)
-    if int(stats['slab_global_page_pool']) < args.poolmin:
+    if int(stats['slab_global_page_pool']) < memfree[0] / 2:
         w['slab_pool_low'] = 1
-    if int(stats['slab_global_page_pool']) > args.poolhigh:
+    if int(stats['slab_global_page_pool']) > memfree[0]:
         w['slab_pool_high'] = 1
     if args.verbose:
         print("global pool: [{}]".format(stats['slab_global_page_pool']))
@@ -80,9 +81,10 @@ def determine_move(history, stats, diffs, totals):
     pool_low = window_key_check(history, 'slab_pool_low')
     pool_high = window_key_check(history, 'slab_pool_high')
     for sid, slab in diffs.items():
+        small_slab = False
         # Only balance larger slab classes
-        if slab['chunk_size'] < 250:
-            continue
+        if slab['chunk_size'] < args.size:
+            small_slab = True
 
         w[sid] = {}
         if 'evicted_d' not in slab or 'total_pages_d' not in slab:
@@ -97,32 +99,38 @@ def determine_move(history, stats, diffs, totals):
         w[sid]['age'] = slab['age']
         age = window_check(history, sid, 'age') / len(history['w'])
 
-        # if > 3.5 pages free, and not dirty, reassign to global page pool and
-        # break.
-        if slab['free_chunks'] > slab['chunks_per_page'] * 3.5:
-            if window_check(history, sid, 'dirty') == 0:
-                cbytes = slab['chunk_size'] * slab['free_chunks']
-                if cbytes > freest[1]:
-                    freest = (sid, cbytes)
+        # if > 2.5 pages free, and not dirty, reassign to global page pool
+        if slab['free_chunks'] > slab['chunks_per_page'] * 2.5:
+            if window_check(history, sid, 'dirty') == 0 and small_slab == True:
+                # If we're a small slab, don't hang on to free memory forever.
+                decision = (sid, 0)
 
         # are we the oldest slab class? (and a valid target)
-        if age > oldest[1] and slab['total_pages'] > 2:
-            oldest = (sid, age)
+        if small_slab == False:
+            if age > oldest[1] and slab['total_pages'] > 2:
+                oldest = (sid, age)
+            if age < youngest[1]:
+                youngest = (sid, age)
 
-    # Oldest loses a page to global pool goes to global page pool.
-    if pool_high:
-        # Pool is too large, target item age higher.
-        decision = (-2, int(oldest[1] * 1.02))
-    elif freest[0] != -1:
+
+    if pool_high and youngest[0] != -1:
+        # if global pool is too high, feed youngest large class.
+        decision = (0, youngest[0])
+    elif pool_low and oldest[0] != -1:
+        # if pool is too low, take from oldest large class.
         if args.verbose:
-            print("freest:  [class: {}] [bytes: {}]".format(int(freest[0]), freest[1]))
-        decision = (freest[0], 0)
-    elif oldest[0] != -1 and pool_low:
+            print("oldest:  [class: {}] [age: {}]".format(int(oldest[0]), oldest[1]))
+        decision = (oldest[0], 0)
+    elif youngest[0] != -1 and oldest[0] != -1:
+        # youngest is outside of the tolerance ratio, move a page around.
         if args.verbose:
-            print("old:   [class: {}] [age: {:.2f}]".format(
-                int(oldest[0]), oldest[1]))
-        # Re-target item age.
-        decision = (-2, int(oldest[1] * 0.99))
+            print("old:   [class: {}] [age: {:.2f}]\nyoung: [class: {}] [age: {:.2f}]".format(
+                int(oldest[0]), oldest[1], int(youngest[0]), youngest[1]))
+
+        slab = diffs[youngest[0]]
+        #print("F:{} L:{} Y:{} R:{}".format(slab['free_chunks'], memfree[youngest[0]], int(youngest[1]), int(oldest[1] * args.ratio)))
+        if (slab['free_chunks'] <= memfree[youngest[0]]) and (youngest[1] < oldest[1] * args.ratio):
+            decision = (oldest[0], youngest[0])
 
     if (len(history['w']) >= args.window):
         return decision
@@ -135,12 +143,6 @@ def run_move(s, decision):
     if args.verbose:
         print("move result:", line)
 
-
-def run_item_age_adjust(s, age):
-    s.write("extstore item_age {}\r\n".format(age))
-    line = s.readline().rstrip()
-    if args.verbose:
-        print("extstore item_age result:", age, line)
 
 def diff_stats(before, after):
     """ fills out "diffs" as deltas between before/after,
@@ -232,10 +234,27 @@ def show_detail(diffs, totals):
               totals['total_pages']),
               slab['age']))
 
+def memfree_check(s, diffs, totals):
+    info = {}
+    # manage about this many free chunks in each slab class.
+    for sid, slab in diffs.items():
+        if sid == 0:
+            continue
+        hold_free = int((slab['used_chunks'] + slab['free_chunks']) * args.free)
+        info[sid] = hold_free
+        # TODO: only adjust if different?
+        s.write("extstore free_memchunks {} {}\r\n".format(sid, hold_free))
+        s.readline()
+
+    # how many pages to leave in the global pool.
+    info[0] = int(totals['total_pages'] * args.free)
+    return info
+
 
 stats_pre = {}
 history = { 'w': [{}] }
-last_item_age = 1
+memfree = { 0: 2 }
+last_memfree_check = 0
 while True:
     try:
         with socket.create_connection((host, port), 5) as c:
@@ -248,17 +267,16 @@ while True:
                 (diffs, totals) = diff_stats(stats_pre, stats_post)
                 #if args.verbose:
                 #    show_detail(diffs, totals)
+                if (last_memfree_check < time() - 60) and totals.get('total_pages'):
+                    memfree = memfree_check(s, diffs, totals)
+                    last_memfree_check = time()
                 decision = (-1, -1)
                 if int(stats['evictions']) > 0:
-                    decision = determine_move(history, stats, diffs, totals)
+                    decision = determine_move(history, stats, diffs, memfree)
                     if int(decision[0]) > 0 and decision[1] != -1:
                         print("moving page from, to:", decision)
                         if args.automove:
                             run_move(s, decision)
-                    elif decision[0] == -2 and last_item_age != decision[1]:
-                        # Adjusting the item age for bg flusher
-                        if args.automove:
-                            run_item_age_adjust(s, decision[1])
 
 
                 # Minimize sleeping if we just moved a page to global pool.
