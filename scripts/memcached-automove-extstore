@@ -241,6 +241,9 @@ def memfree_check(s, diffs, totals):
         if sid == 0:
             continue
         hold_free = int((slab['used_chunks'] + slab['free_chunks']) * args.free)
+        # Hold a minimum of 1.5 pages so page moves are unlikely to lose items.
+        if slab['chunks_per_page'] * 1.5 > hold_free:
+            hold_free = int(slab['chunks_per_page'] * 1.5)
         info[sid] = hold_free
         # TODO: only adjust if different?
         s.write("extstore free_memchunks {} {}\r\n".format(sid, hold_free))
