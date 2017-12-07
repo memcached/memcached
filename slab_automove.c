@@ -30,7 +30,9 @@ typedef struct {
     slab_stats_automove sam_after[MAX_NUMBER_OF_SLAB_CLASSES];
 } slab_automove;
 
-void *slab_automove_init(uint32_t window_size, double max_age_ratio) {
+void *slab_automove_init(struct settings *settings) {
+    uint32_t window_size = settings->slab_automove_window;
+    double max_age_ratio = settings->slab_automove_ratio;
     slab_automove *a = calloc(1, sizeof(slab_automove));
     if (a == NULL)
         return NULL;

@@ -49,7 +49,8 @@ endif
 
 if ENABLE_EXTSTORE
 memcached_SOURCES += extstore.c extstore.h \
-                     storage.c storage.h
+                     storage.c storage.h \
+                     slab_automove_extstore.c slab_automove_extstore.h
 endif
 
 memcached_debug_SOURCES = $(memcached_SOURCES)

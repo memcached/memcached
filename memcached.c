@@ -6634,6 +6634,7 @@ int main (int argc, char **argv) {
     settings.ext_drop_unread = false;
     settings.ext_wbuf_size = 1024 * 1024 * 4;
     settings.ext_compact_under = 0;
+    settings.slab_automove_freeratio = 0.005;
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.page_count = 64;
     ext_cf.wbuf_size = settings.ext_wbuf_size;

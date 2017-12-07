@@ -404,8 +404,22 @@ void fill_slab_stats_automove(slab_stats_automove *am) {
         cur->chunks_per_page = p->perslab;
         cur->free_chunks = p->sl_curr;
         cur->total_pages = p->slabs;
+        cur->chunk_size = p->size;
     }
     pthread_mutex_unlock(&slabs_lock);
+}
+
+/* TODO: slabs_available_chunks should grow up to encompass this.
+ * mem_flag is redundant with the other function.
+ */
+unsigned int global_page_pool_size(bool *mem_flag) {
+    unsigned int ret = 0;
+    pthread_mutex_lock(&slabs_lock);
+    if (mem_flag != NULL)
+        *mem_flag = mem_malloced >= mem_limit ? true : false;
+    ret = slabclass[SLAB_GLOBAL_PAGE_POOL].slabs;
+    pthread_mutex_unlock(&slabs_lock);
+    return ret;
 }
 
 static int nz_strcmp(int nzlength, const char *nz, const char *z) {

@@ -4,6 +4,7 @@
 #include "slab_automove.h"
 #ifdef EXTSTORE
 #include "storage.h"
+#include "slab_automove_extstore.h"
 #endif
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -1488,14 +1489,29 @@ static void lru_maintainer_crawler_check(struct crawler_expired_data *cdata, log
     }
 }
 
+slab_automove_reg_t slab_automove_default = {
+    .init = slab_automove_init,
+    .free = slab_automove_free,
+    .run = slab_automove_run
+};
+#ifdef EXTSTORE
+slab_automove_reg_t slab_automove_extstore = {
+    .init = slab_automove_extstore_init,
+    .free = slab_automove_extstore_free,
+    .run = slab_automove_extstore_run
+};
+#endif
 static pthread_t lru_maintainer_tid;
 
 #define MAX_LRU_MAINTAINER_SLEEP 1000000
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
 static void *lru_maintainer_thread(void *arg) {
+    slab_automove_reg_t *sam = &slab_automove_default;
 #ifdef EXTSTORE
     void *storage = arg;
+    if (storage != NULL)
+        sam = &slab_automove_extstore;
     int x;
 #endif
     int i;
@@ -1520,8 +1536,7 @@ static void *lru_maintainer_thread(void *arg) {
     }
 
     double last_ratio = settings.slab_automove_ratio;
-    void *am = slab_automove_init(settings.slab_automove_window,
-            settings.slab_automove_ratio);
+    void *am = sam->init(&settings);
 
     pthread_mutex_lock(&lru_maintainer_lock);
     if (settings.verbose > 2)
@@ -1597,13 +1612,12 @@ static void *lru_maintainer_thread(void *arg) {
 
         if (settings.slab_automove == 1 && last_automove_check != current_time) {
             if (last_ratio != settings.slab_automove_ratio) {
-                slab_automove_free(am);
-                am = slab_automove_init(settings.slab_automove_window,
-                        settings.slab_automove_ratio);
+                sam->free(am);
+                am = sam->init(&settings);
                 last_ratio = settings.slab_automove_ratio;
             }
             int src, dst;
-            slab_automove_run(am, &src, &dst);
+            sam->run(am, &src, &dst);
             if (src != -1 && dst != -1) {
                 slabs_reassign(src, dst);
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_SLAB_MOVE, NULL,
@@ -1619,7 +1633,7 @@ static void *lru_maintainer_thread(void *arg) {
         }
     }
     pthread_mutex_unlock(&lru_maintainer_lock);
-    slab_automove_free(am);
+    sam->free(am);
     // LRU crawler *must* be stopped.
     free(cdata);
     if (settings.verbose > 2)

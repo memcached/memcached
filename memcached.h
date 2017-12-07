@@ -413,6 +413,7 @@ struct settings {
     unsigned int ext_wbuf_size; /* read only note for the engine */
     unsigned int ext_compact_under; /* when fewer than this many pages, compact */
     double ext_max_frag; /* ideal maximum page fragmentation */
+    double slab_automove_freeratio; /* % of memory to hold free as buffer */
     bool ext_drop_unread; /* skip unread items during compaction */
     /* per-slab-class free chunk limit */
     unsigned int ext_free_memchunks[MAX_NUMBER_OF_SLAB_CLASSES];

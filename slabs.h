@@ -36,10 +36,12 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 
 typedef struct {
     unsigned int chunks_per_page;
+    unsigned int chunk_size;
     long int free_chunks;
     long int total_pages;
 } slab_stats_automove;
 void fill_slab_stats_automove(slab_stats_automove *am);
+unsigned int global_page_pool_size(bool *mem_flag);
 
 /** Fill buffer with stats */ /*@null@*/
 void slabs_stats(ADD_STAT add_stats, void *c);
