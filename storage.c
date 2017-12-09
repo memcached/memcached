@@ -135,7 +135,9 @@ static int storage_compact_check(void *storage, logger *l,
     double rate;
     uint64_t frag_limit;
     uint64_t low_version = ULLONG_MAX;
+    uint64_t lowest_version = ULLONG_MAX;
     unsigned int low_page = 0;
+    unsigned int lowest_page = 0;
     extstore_get_stats(storage, &st);
     if (st.pages_used == 0)
         return 0;
@@ -159,6 +161,10 @@ static int storage_compact_check(void *storage, logger *l,
         if (st.page_data[x].version == 0 ||
             st.page_data[x].bucket == PAGE_BUCKET_LOWTTL)
             continue;
+        if (st.page_data[x].version < lowest_version) {
+            lowest_page = x;
+            lowest_version = st.page_data[x].version;
+        }
         if (st.page_data[x].bytes_used < frag_limit) {
             if (st.page_data[x].version < low_version) {
                 low_page = x;
@@ -174,6 +180,11 @@ static int storage_compact_check(void *storage, logger *l,
         *page_id = low_page;
         *page_version = low_version;
         return 1;
+    } else if (lowest_version != ULLONG_MAX && settings.ext_drop_unread) {
+        // nothing matched the frag rate barrier, so pick the absolute oldest
+        // version if we're configured to drop items.
+        *page_id = lowest_page;
+        *page_version = lowest_version;
     }
 
     return 0;
@@ -226,7 +237,8 @@ static void storage_compact_readback(void *storage, logger *l,
                 if (hdr->page_id == page_id && hdr->page_version == page_version) {
                     // Item header is still completely valid.
                     extstore_delete(storage, page_id, page_version, 1, ntotal);
-                    if (drop_unread && (hdr_it->it_flags & ITEM_FETCHED) == 0) {
+                    // drop inactive items.
+                    if (drop_unread && GET_LRU(hdr_it->slabs_clsid) == COLD_LRU) {
                         do_write = false;
                         skipped++;
                     } else {

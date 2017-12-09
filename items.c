@@ -392,7 +392,16 @@ static void do_item_link_q(item *it) { /* item is the new head */
     *head = it;
     if (*tail == 0) *tail = it;
     sizes[it->slabs_clsid]++;
+#ifdef EXTSTORE
+    if (it->it_flags & ITEM_HDR) {
+        sizes_bytes[it->slabs_clsid] += (ITEM_ntotal(it) - it->nbytes) + sizeof(item_hdr);
+    } else {
+        sizes_bytes[it->slabs_clsid] += ITEM_ntotal(it);
+    }
+#else
     sizes_bytes[it->slabs_clsid] += ITEM_ntotal(it);
+#endif
+
     return;
 }
 
@@ -428,7 +437,16 @@ static void do_item_unlink_q(item *it) {
     if (it->next) it->next->prev = it->prev;
     if (it->prev) it->prev->next = it->next;
     sizes[it->slabs_clsid]--;
+#ifdef EXTSTORE
+    if (it->it_flags & ITEM_HDR) {
+        sizes_bytes[it->slabs_clsid] -= (ITEM_ntotal(it) - it->nbytes) + sizeof(item_hdr);
+    } else {
+        sizes_bytes[it->slabs_clsid] -= ITEM_ntotal(it);
+    }
+#else
     sizes_bytes[it->slabs_clsid] -= ITEM_ntotal(it);
+#endif
+
     return;
 }
 

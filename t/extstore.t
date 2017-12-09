@@ -103,6 +103,8 @@ mem_get_is($sock, "foo", "hi");
     # refresh some keys so rescues happen while drop_unread == 1.
     for (1 .. $keycount / 2) {
         next unless $_ % 2 == 1;
+        # Need to be fetched twice in order to bump
+        print $sock "touch mfoo$_ 0 noreply\r\n";
         print $sock "touch mfoo$_ 0 noreply\r\n";
     }
     print $sock "extstore drop_unread 1\r\n";
