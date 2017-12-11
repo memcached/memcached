@@ -185,6 +185,7 @@ static int storage_compact_check(void *storage, logger *l,
         // version if we're configured to drop items.
         *page_id = lowest_page;
         *page_version = lowest_version;
+        return 1;
     }
 
     return 0;
