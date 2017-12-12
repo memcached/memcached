@@ -6896,24 +6896,6 @@ int main (int argc, char **argv) {
                 settings.item_size_max = atoi(buf);
             }
             free(buf);
-            if (settings.item_size_max < 1024) {
-                fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
-                return 1;
-            }
-            if (settings.item_size_max > (settings.maxbytes / 4)) {
-                fprintf(stderr, "Cannot set item size limit higher than 1/4 of memory max.\n");
-                return 1;
-            }
-            if (settings.item_size_max > (1024 * 1024 * 1024)) {
-                fprintf(stderr, "Cannot set item size limit higher than a gigabyte.\n");
-                return 1;
-            }
-            if (settings.item_size_max > 1024 * 1024) {
-                if (!slab_chunk_size_changed) {
-                    // Ideal new default is 16k, but needs stitching.
-                    settings.slab_chunk_size_max = settings.slab_page_size / 2;
-                }
-            }
             break;
         case 'S': /* set Sasl authentication to true. Default is false */
 #ifndef ENABLE_SASL
@@ -7334,6 +7316,25 @@ int main (int argc, char **argv) {
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
+        }
+    }
+
+    if (settings.item_size_max < 1024) {
+        fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
+        exit(EX_USAGE);
+    }
+    if (settings.item_size_max > (settings.maxbytes / 2)) {
+        fprintf(stderr, "Cannot set item size limit higher than 1/2 of memory max.\n");
+        exit(EX_USAGE);
+    }
+    if (settings.item_size_max > (1024 * 1024 * 1024)) {
+        fprintf(stderr, "Cannot set item size limit higher than a gigabyte.\n");
+        exit(EX_USAGE);
+    }
+    if (settings.item_size_max > 1024 * 1024) {
+        if (!slab_chunk_size_changed) {
+            // Ideal new default is 16k, but needs stitching.
+            settings.slab_chunk_size_max = settings.slab_page_size / 2;
         }
     }
 
