@@ -6432,6 +6432,16 @@ static int enable_large_pages(void) {
     }
 
     return ret;
+#elif defined(__linux__) && defined(MADV_HUGEPAGE)
+    /* check if transparent hugepages is compiled into the kernel */
+    struct stat st;
+    int ret = stat("/sys/kernel/mm/transparent_hugepage/enabled", &st);
+    if (ret || !(st.st_mode & S_IFREG)) {
+        fprintf(stderr, "Transparent huge pages support not detected.\n");
+        fprintf(stderr, "Will use default page size.\n");
+        return -1;
+    }
+    return 0;
 #else
     return -1;
 #endif
