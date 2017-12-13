@@ -8,6 +8,7 @@
  * memcached protocol.
  */
 #include "memcached.h"
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
@@ -98,6 +99,57 @@ unsigned int slabs_clsid(const size_t size) {
     return res;
 }
 
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+/* Function split out for better error path handling */
+static void * alloc_large_chunk_linux(const size_t limit)
+{
+    size_t pagesize = 0;
+    void *ptr = NULL;
+    FILE *fp;
+    int ret;
+
+    /* Get the size of huge pages */
+    fp = fopen("/proc/meminfo", "r");
+    if (fp != NULL) {
+        char buf[64];
+
+        while ((fgets(buf, sizeof(buf), fp)))
+            if (!strncmp(buf, "Hugepagesize:", 13)) {
+                ret = sscanf(buf + 13, "%zu\n", &pagesize);
+
+                /* meminfo huge page size is in KiBs */
+                pagesize <<= 10;
+            }
+        fclose(fp);
+    }
+
+    if (!pagesize) {
+        fprintf(stderr, "Failed to get supported huge page size\n");
+        return NULL;
+    }
+
+    if (settings.verbose > 1)
+        fprintf(stderr, "huge page size: %zu\n", pagesize);
+
+    /* This works because glibc simply uses mmap when the alignment is
+     * above a certain limit. */
+    ret = posix_memalign(&ptr, pagesize, limit);
+    if (ret != 0) {
+        fprintf(stderr, "Failed to get aligned memory chunk: %d\n", ret);
+        return NULL;
+    }
+
+    ret = madvise(ptr, limit, MADV_HUGEPAGE);
+    if (ret < 0) {
+        fprintf(stderr, "Failed to set transparent hugepage hint: %d\n", ret);
+        free(ptr);
+        ptr = NULL;
+    }
+
+    return ptr;
+}
+#endif
+
 /**
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
@@ -106,11 +158,24 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
 
+    /* Some platforms use runtime transparent hugepages. If for any reason
+     * the initial allocation fails, the required settings do not persist
+     * for remaining allocations. As such it makes little sense to do slab
+     * preallocation. */
+    bool __attribute__ ((unused)) do_slab_prealloc = false;
+
     mem_limit = limit;
 
     if (prealloc) {
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+        mem_base = alloc_large_chunk_linux(mem_limit);
+        if (mem_base)
+            do_slab_prealloc = true;
+#else
         /* Allocate everything in a big chunk with malloc */
         mem_base = malloc(mem_limit);
+        do_slab_prealloc = true;
+#endif
         if (mem_base != NULL) {
             mem_current = mem_base;
             mem_avail = mem_limit;
@@ -161,7 +226,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
 
     }
 
-    if (prealloc) {
+    if (prealloc && do_slab_prealloc) {
         slabs_preallocate(power_largest);
     }
 }
