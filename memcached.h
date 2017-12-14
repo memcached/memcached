@@ -671,7 +671,9 @@ struct slab_rebalance {
 };
 
 extern struct slab_rebalance slab_rebal;
-
+#ifdef EXTSTORE
+extern void *ext_storage;
+#endif
 /*
  * Functions
  */

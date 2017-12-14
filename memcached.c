@@ -128,7 +128,12 @@ conn **conns;
 
 struct slab_rebalance slab_rebal;
 volatile int slab_rebalance_signal;
-
+#ifdef EXTSTORE
+/* hoping this is temporary; I'd prefer to cut globals, but will complete this
+ * battle another day.
+ */
+void *ext_storage;
+#endif
 /** file scope variables **/
 static conn *listen_conn = NULL;
 static int max_fds;
@@ -7548,6 +7553,7 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Failed to initialize external storage\n");
             exit(EXIT_FAILURE);
         }
+        ext_storage = storage;
     }
 #endif
     /*

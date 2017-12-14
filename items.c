@@ -1106,6 +1106,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                 itemstats[id].tailrepairs++;
                 search->refcount = 1;
                 /* This will call item_remove -> item_free since refcnt is 1 */
+                STORAGE_delete(ext_storage, search);
                 do_item_unlink_nolock(search, hv);
                 item_trylock_unlock(hold_lock);
                 continue;
@@ -1121,6 +1122,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
             }
             /* refcnt 2 -> 1 */
             do_item_unlink_nolock(search, hv);
+            STORAGE_delete(ext_storage, search);
             /* refcnt 1 -> 0 -> item_free */
             do_item_remove(search);
             item_trylock_unlock(hold_lock);
@@ -1186,6 +1188,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                         itemstats[id].evicted_active++;
                     }
                     LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EVICTION, search);
+                    STORAGE_delete(ext_storage, search);
                     do_item_unlink_nolock(search, hv);
                     removed++;
                     if (settings.slab_automove == 2) {
