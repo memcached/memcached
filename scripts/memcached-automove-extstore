@@ -30,6 +30,11 @@ args = parser.parse_args()
 
 host, port = args.host.split(':')
 
+MIN_PAGES_FOR_SOURCE = 2
+MIN_PAGES_FOR_RECLAIM = 2.5
+MIN_PAGES_FREE = 1.5
+MEMCHECK_PERIOD = 60
+
 def window_check(history, sid, key):
     total = 0
     for window in history['w']:
@@ -96,32 +101,39 @@ def determine_move(history, stats, diffs, memfree):
         if slab['evicted_d'] > 0:
             w[sid]['dirty'] = 1
             w[sid]['ev'] = 1
+        if slab['free_chunks'] > memfree[sid] and memfree[sid] > 0:
+            w[sid]['excess_free'] = 1
         w[sid]['age'] = slab['age']
         age = window_check(history, sid, 'age') / len(history['w'])
 
         # if > 2.5 pages free, and not dirty, reassign to global page pool
-        if slab['free_chunks'] > slab['chunks_per_page'] * 2.5:
+        if slab['free_chunks'] > slab['chunks_per_page'] * MIN_PAGES_FOR_RECLAIM:
             if window_check(history, sid, 'dirty') == 0 and small_slab == True:
                 # If we're a small slab, don't hang on to free memory forever.
                 decision = (sid, 0)
+                break
 
         # are we the oldest slab class? (and a valid target)
         if small_slab == False:
-            if age > oldest[1] and slab['total_pages'] > 2:
+            if age > oldest[1] and slab['total_pages'] > MIN_PAGES_FOR_SOURCE:
                 oldest = (sid, age)
-            if age < youngest[1]:
+            if age < youngest[1] and slab['total_pages'] > 0 \
+                    and window_check(history, sid, 'excess_free') < len(history['w']):
                 youngest = (sid, age)
 
 
     if pool_high and youngest[0] != -1:
         # if global pool is too high, feed youngest large class.
-        decision = (0, youngest[0])
+        # decision = (0, youngest[0])
+        # No current way to assign directly from global to a class.
+        # minimize the free chunks limiter and re-check.
+        decision = (youngest[0], -2)
     elif pool_low and oldest[0] != -1:
         # if pool is too low, take from oldest large class.
         if args.verbose:
             print("oldest:  [class: {}] [age: {}]".format(int(oldest[0]), oldest[1]))
         decision = (oldest[0], 0)
-    elif youngest[0] != -1 and oldest[0] != -1:
+    elif youngest[0] != -1 and oldest[0] != -1 and youngest[0] != oldest[0]:
         # youngest is outside of the tolerance ratio, move a page around.
         if args.verbose:
             print("old:   [class: {}] [age: {:.2f}]\nyoung: [class: {}] [age: {:.2f}]".format(
@@ -242,8 +254,8 @@ def memfree_check(s, diffs, totals):
             continue
         hold_free = int((slab['used_chunks'] + slab['free_chunks']) * args.free)
         # Hold a minimum of 1.5 pages so page moves are unlikely to lose items.
-        if slab['chunks_per_page'] * 1.5 > hold_free:
-            hold_free = int(slab['chunks_per_page'] * 1.5)
+        if slab['chunks_per_page'] * MIN_PAGES_FREE > hold_free:
+            hold_free = int(slab['chunks_per_page'] * MIN_PAGES_FREE)
         info[sid] = hold_free
         # TODO: only adjust if different?
         s.write("extstore free_memchunks {} {}\r\n".format(sid, hold_free))
@@ -276,10 +288,16 @@ while True:
                 decision = (-1, -1)
                 if int(stats['evictions']) > 0:
                     decision = determine_move(history, stats, diffs, memfree)
-                    if int(decision[0]) > 0 and decision[1] != -1:
+                    if int(decision[0]) > 0 and decision[1] >= 0:
                         print("moving page from, to:", decision)
                         if args.automove:
                             run_move(s, decision)
+                    elif int(decision[0]) > 0 and decision[1] == -2:
+                        # we've been told to zero out the memory limit and
+                        # sleep for a bit.
+                        last_memfree_check = 0
+                        s.write("extstore free_memchunks {} {}\r\n".format(decision[0], 0))
+                        s.readline()
 
 
                 # Minimize sleeping if we just moved a page to global pool.

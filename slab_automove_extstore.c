@@ -179,13 +179,9 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
         if (a->sam_after[n].total_pages - a->sam_before[n].total_pages > 0) {
             wd->dirty = 1;
         }
-        // Mark excess free if we're over the free mem limit and the number of
-        // chunks aren't decreasing at all.
-        if (a->sam_after[n].free_chunks > a->free_mem[n]
-                && a->sam_after[n].free_chunks - a->sam_before[n].free_chunks >= 0) {
-            if (a->free_mem[n] > 0) {
-                wd->excess_free = 1;
-            }
+        // Mark excess free if we're over the free mem limit for too long.
+        if (a->sam_after[n].free_chunks > a->free_mem[n] && a->free_mem[n] > 0) {
+            wd->excess_free = 1;
         }
 
         // set age into window
@@ -237,7 +233,7 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
         /**src = 0;
         *dst = youngest;*/
         /* TODO: No current way to directly assign page from 0 to elsewhere.
-         * Do a current hack by setting the youngest's free mem limiter to
+         * Do a hack by setting the youngest's free mem limiter to
          * zero and re-running memcheck in the next second.
          * If set rates are very high and the pool is too low, this can bottom
          * out...
