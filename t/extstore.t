@@ -109,6 +109,8 @@ mem_get_is($sock, "foo", "hi");
     }
     print $sock "extstore drop_unread 1\r\n";
     my $res = <$sock>;
+    print $sock "extstore max_frag 0\r\n";
+    $res = <$sock>;
     for (1 .. $keycount) {
         next unless $_ % 2 == 0;
         print $sock "delete mfoo$_ noreply\r\n";

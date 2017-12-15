@@ -131,7 +131,7 @@ int lru_maintainer_store(void *storage, const int clsid) {
  */
 static int storage_compact_check(void *storage, logger *l,
         uint32_t *page_id, uint64_t *page_version,
-        uint64_t *page_size) {
+        uint64_t *page_size, bool *drop_unread) {
     struct extstore_stats st;
     int x;
     double rate;
@@ -147,6 +147,7 @@ static int storage_compact_check(void *storage, logger *l,
     // lets pick a target "wasted" value and slew.
     if (st.pages_free > settings.ext_compact_under)
         return 0;
+    *drop_unread = false;
 
     // the number of free pages reduces the configured frag limit
     // this allows us to defrag early if pages are very empty.
@@ -182,11 +183,13 @@ static int storage_compact_check(void *storage, logger *l,
         *page_id = low_page;
         *page_version = low_version;
         return 1;
-    } else if (lowest_version != ULLONG_MAX && settings.ext_drop_unread) {
+    } else if (lowest_version != ULLONG_MAX && settings.ext_drop_unread
+            && st.pages_free <= settings.ext_drop_under) {
         // nothing matched the frag rate barrier, so pick the absolute oldest
         // version if we're configured to drop items.
         *page_id = lowest_page;
         *page_version = lowest_version;
+        *drop_unread = true;
         return 1;
     }
 
@@ -358,11 +361,9 @@ static void *storage_compact_thread(void *arg) {
         pthread_mutex_lock(&storage_compact_plock);
 
         if (!compacting && storage_compact_check(storage, l,
-                    &page_id, &page_version, &page_size)) {
+                    &page_id, &page_version, &page_size, &drop_unread)) {
             page_offset = 0;
             compacting = true;
-            // only allow this to flip inbetween compactions.
-            drop_unread = settings.ext_drop_unread;
             LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_START,
                     NULL, page_id, page_version);
         }

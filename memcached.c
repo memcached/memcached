@@ -4534,6 +4534,9 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
     } else if (strcmp(tokens[1].value, "compact_under") == 0) {
         if (!safe_strtoul(tokens[2].value, &settings.ext_compact_under))
             ok = false;
+    } else if (strcmp(tokens[1].value, "drop_under") == 0) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_drop_under))
+            ok = false;
     } else if (strcmp(tokens[1].value, "max_frag") == 0) {
         if (!safe_strtod(tokens[2].value, &settings.ext_max_frag))
             ok = false;
@@ -6221,6 +6224,7 @@ static void usage(void) {
            "   - ext_drop_unread:     don't re-write unread values during compaction\n"
            "   - ext_recache_rate:    recache an item every N accesses\n"
            "   - ext_compact_under:   compact when fewer than this many free pages\n"
+           "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
            "                          (see doc/storage.txt for more info)"
 #endif
@@ -6558,6 +6562,7 @@ int main (int argc, char **argv) {
         EXT_LOW_TTL,
         EXT_RECACHE_RATE,
         EXT_COMPACT_UNDER,
+        EXT_DROP_UNDER,
         EXT_MAX_FRAG,
         EXT_DROP_UNREAD,
 #endif
@@ -6614,6 +6619,7 @@ int main (int argc, char **argv) {
         [EXT_LOW_TTL] = "ext_low_ttl",
         [EXT_RECACHE_RATE] = "ext_recache_rate",
         [EXT_COMPACT_UNDER] = "ext_compact_under",
+        [EXT_DROP_UNDER] = "ext_drop_under",
         [EXT_MAX_FRAG] = "ext_max_frag",
         [EXT_DROP_UNREAD] = "ext_drop_unread",
 #endif
@@ -6639,6 +6645,7 @@ int main (int argc, char **argv) {
     settings.ext_drop_unread = false;
     settings.ext_wbuf_size = 1024 * 1024 * 4;
     settings.ext_compact_under = 0;
+    settings.ext_drop_under = 0;
     settings.slab_automove_freeratio = 0.005;
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.page_count = 64;
@@ -7269,6 +7276,16 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
+            case EXT_DROP_UNDER:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_drop_under argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_drop_under)) {
+                    fprintf(stderr, "could not parse argument to ext_drop_under\n");
+                    return 1;
+                }
+                break;
             case EXT_MAX_FRAG:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ext_max_frag argument\n");
@@ -7542,6 +7559,8 @@ int main (int argc, char **argv) {
     if (storage_file) {
         if (settings.ext_compact_under == 0) {
             settings.ext_compact_under = ext_cf.page_count / 4;
+            /* Only rescues non-COLD items if below this threshold */
+            settings.ext_drop_under = ext_cf.page_count / 4;
         }
         crc32c_init();
         /* Keep at least one chunk free by default. */
