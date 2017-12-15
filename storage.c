@@ -113,6 +113,7 @@ int lru_maintainer_store(void *storage, const int clsid) {
                 ITEM_set_cas(hdr_it, ITEM_get_cas(it));
                 do_item_remove(hdr_it);
                 did_moves = 1;
+                LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EXTSTORE_WRITE, it, bucket);
             } else {
                 /* Failed to write for some reason, can't continue. */
                 slabs_free(hdr_it, ITEM_ntotal(hdr_it), ITEM_clsid(hdr_it));

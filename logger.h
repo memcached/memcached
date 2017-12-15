@@ -21,6 +21,7 @@ enum log_entry_type {
     LOGGER_CRAWLER_STATUS,
     LOGGER_SLAB_MOVE,
 #ifdef EXTSTORE
+    LOGGER_EXTSTORE_WRITE,
     LOGGER_COMPACT_START,
     LOGGER_COMPACT_ABORT,
     LOGGER_COMPACT_READ_START,
@@ -34,7 +35,10 @@ enum log_entry_subtype {
     LOGGER_TEXT_ENTRY = 0,
     LOGGER_EVICTION_ENTRY,
     LOGGER_ITEM_GET_ENTRY,
-    LOGGER_ITEM_STORE_ENTRY
+    LOGGER_ITEM_STORE_ENTRY,
+#ifdef EXTSTORE
+    LOGGER_EXT_WRITE_ENTRY,
+#endif
 };
 
 enum logger_ret_type {
@@ -65,7 +69,17 @@ struct logentry_eviction {
     uint8_t clsid;
     char key[];
 };
-
+#ifdef EXTSTORE
+struct logentry_ext_write {
+    long long int exptime;
+    uint32_t latime;
+    uint16_t it_flags;
+    uint8_t nkey;
+    uint8_t clsid;
+    uint8_t bucket;
+    char key[];
+};
+#endif
 struct logentry_item_get {
     uint8_t was_found;
     uint8_t nkey;
