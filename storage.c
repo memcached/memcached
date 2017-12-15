@@ -96,6 +96,7 @@ int lru_maintainer_store(void *storage, const int clsid) {
                     memcpy((char *)io.buf+32, (char *)it+32, io.len-32);
                 }
                 // crc what we copied so we can do it sequentially.
+                buf_it->it_flags &= ~ITEM_LINKED;
                 buf_it->exptime = crc32c(0, (char*)io.buf+32, orig_ntotal-32);
                 extstore_write(storage, &io);
                 item_hdr *hdr = (item_hdr *) ITEM_data(hdr_it);
