@@ -3210,7 +3210,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
     APPEND_STAT("slab_automove_ratio", "%.2f", settings.slab_automove_ratio);
-    APPEND_STAT("slab_automove_window", "%.2f", settings.slab_automove_window);
+    APPEND_STAT("slab_automove_window", "%u", settings.slab_automove_window);
     APPEND_STAT("slab_chunk_max", "%d", settings.slab_chunk_size_max);
     APPEND_STAT("lru_crawler", "%s", settings.lru_crawler ? "yes" : "no");
     APPEND_STAT("lru_crawler_sleep", "%d", settings.lru_crawler_sleep);
