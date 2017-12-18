@@ -7557,6 +7557,7 @@ int main (int argc, char **argv) {
             use_slab_sizes ? slab_sizes : NULL);
 #ifdef EXTSTORE
     if (storage_file) {
+        enum extstore_res eres;
         if (settings.ext_compact_under == 0) {
             settings.ext_compact_under = ext_cf.page_count / 4;
             /* Only rescues non-COLD items if below this threshold */
@@ -7567,9 +7568,13 @@ int main (int argc, char **argv) {
         for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
             settings.ext_free_memchunks[x] = 1;
         }
-        storage = extstore_init(storage_file, &ext_cf);
+        storage = extstore_init(storage_file, &ext_cf, &eres);
         if (storage == NULL) {
-            fprintf(stderr, "Failed to initialize external storage\n");
+            fprintf(stderr, "Failed to initialize external storage: %s\n",
+                    extstore_err(eres));
+            if (eres == EXTSTORE_INIT_OPEN_FAIL) {
+                perror("extstore open");
+            }
             exit(EXIT_FAILURE);
         }
         ext_storage = storage;

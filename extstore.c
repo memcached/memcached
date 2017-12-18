@@ -165,45 +165,71 @@ void extstore_get_page_data(void *ptr, struct extstore_stats *st) {
     STAT_UL(e);
 }
 
-/* TODO: debug mode with prints? error code? */
-// TODO: Somehow pass real error codes from config failures
-void *extstore_init(char *fn, struct extstore_conf *cf) {
+const char *extstore_err(enum extstore_res res) {
+    char *rv = "unknown error";
+    switch (res) {
+        case EXTSTORE_INIT_BAD_WBUF_SIZE:
+            rv = "page_size must be divisible by wbuf_size";
+            break;
+        case EXTSTORE_INIT_NEED_MORE_WBUF:
+            rv = "wbuf_count must be >= page_buckets";
+            break;
+        case EXTSTORE_INIT_NEED_MORE_BUCKETS:
+            rv = "page_buckets must be > 0";
+            break;
+        case EXTSTORE_INIT_PAGE_WBUF_ALIGNMENT:
+            rv = "page_size and wbuf_size must be divisible by 1024*1024*2";
+            break;
+        case EXTSTORE_INIT_OOM:
+            rv = "failed calloc for engine";
+            break;
+        case EXTSTORE_INIT_OPEN_FAIL:
+            rv = "failed to open file";
+            break;
+        case EXTSTORE_INIT_THREAD_FAIL:
+            break;
+    }
+    return rv;
+}
+
+void *extstore_init(char *fn, struct extstore_conf *cf,
+        enum extstore_res *res) {
     int i;
     int fd;
     uint64_t offset = 0;
     pthread_t thread;
 
     if (cf->page_size % cf->wbuf_size != 0) {
-        E_DEBUG("EXTSTORE: page_size must be divisible by wbuf_size\n");
+        *res = EXTSTORE_INIT_BAD_WBUF_SIZE;
         return NULL;
     }
     // Should ensure at least one write buffer per potential page
     if (cf->page_buckets > cf->wbuf_count) {
-        E_DEBUG("EXTSTORE: wbuf_count must be >= page_buckets\n");
+        *res = EXTSTORE_INIT_NEED_MORE_WBUF;
         return NULL;
     }
     if (cf->page_buckets < 1) {
-        E_DEBUG("EXTSTORE: page_buckets must be > 0\n");
+        *res = EXTSTORE_INIT_NEED_MORE_BUCKETS;
         return NULL;
     }
 
     // TODO: More intelligence around alignment of flash erasure block sizes
     if (cf->page_size % (1024 * 1024 * 2) != 0 ||
         cf->wbuf_size % (1024 * 1024 * 2) != 0) {
-        E_DEBUG("EXTSTORE: page_size and wbuf_size must be divisible by 1024*1024*2\n");
+        *res = EXTSTORE_INIT_PAGE_WBUF_ALIGNMENT;
         return NULL;
     }
 
     store_engine *e = calloc(1, sizeof(store_engine));
     if (e == NULL) {
-        E_DEBUG("EXTSTORE: failed calloc for engine\n");
+        *res = EXTSTORE_INIT_OOM;
         return NULL;
     }
 
     e->page_size = cf->page_size;
     fd = open(fn, O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        E_DEBUG("EXTSTORE: failed to open file: %s\n", fn);
+        *res = EXTSTORE_INIT_OPEN_FAIL;
 #ifdef EXTSTORE_DEBUG
         perror("open");
 #endif
@@ -213,7 +239,7 @@ void *extstore_init(char *fn, struct extstore_conf *cf) {
 
     e->pages = calloc(cf->page_count, sizeof(store_page));
     if (e->pages == NULL) {
-        E_DEBUG("EXTSTORE: failed to calloc storage pages\n");
+        *res = EXTSTORE_INIT_OOM;
         close(fd);
         free(e);
         return NULL;

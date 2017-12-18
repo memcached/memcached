@@ -76,7 +76,18 @@ struct _obj_io {
     obj_io_cb cb;
 };
 
-void *extstore_init(char *fn, struct extstore_conf *cf);
+enum extstore_res {
+    EXTSTORE_INIT_BAD_WBUF_SIZE = 1,
+    EXTSTORE_INIT_NEED_MORE_WBUF,
+    EXTSTORE_INIT_NEED_MORE_BUCKETS,
+    EXTSTORE_INIT_PAGE_WBUF_ALIGNMENT,
+    EXTSTORE_INIT_OOM,
+    EXTSTORE_INIT_OPEN_FAIL,
+    EXTSTORE_INIT_THREAD_FAIL
+};
+
+const char *extstore_err(enum extstore_res res);
+void *extstore_init(char *fn, struct extstore_conf *cf, enum extstore_res *res);
 int extstore_write_request(void *ptr, unsigned int bucket, obj_io *io);
 void extstore_write(void *ptr, obj_io *io);
 int extstore_submit(void *ptr, obj_io *io);
