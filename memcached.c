@@ -3232,6 +3232,18 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
     APPEND_STAT("inline_ascii_response", "%s", settings.inline_ascii_response ? "yes" : "no");
+#ifdef EXTSTORE
+    APPEND_STAT("ext_item_size", "%u", settings.ext_item_size);
+    APPEND_STAT("ext_item_age", "%u", settings.ext_item_age);
+    APPEND_STAT("ext_low_ttl", "%u", settings.ext_low_ttl);
+    APPEND_STAT("ext_recache_rate", "%u", settings.ext_recache_rate);
+    APPEND_STAT("ext_wbuf_size", "%u", settings.ext_wbuf_size);
+    APPEND_STAT("ext_compact_under", "%u", settings.ext_compact_under);
+    APPEND_STAT("ext_drop_under", "%u", settings.ext_drop_under);
+    APPEND_STAT("ext_max_frag", "%.2f", settings.ext_max_frag);
+    APPEND_STAT("slab_automove_freeratio", "%.3f", settings.slab_automove_freeratio);
+    APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
+#endif
 }
 
 static void conn_to_str(const conn *c, char *buf) {
