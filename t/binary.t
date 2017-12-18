@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 4994;
+use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -513,6 +513,8 @@ my %stats = $mc->stats('detail dump');
     };
     ok($@->einval, "Invalid key length");
 }
+
+done_testing();
 
 # ######################################################################
 # Test ends around here.
