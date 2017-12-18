@@ -144,6 +144,7 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
     uint64_t oldest_age = 0;
     int youngest = -1;
     uint64_t youngest_age = ~0;
+    bool too_free = false;
     *src = -1;
     *dst = -1;
 
@@ -191,17 +192,18 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
         uint64_t age = w_sum.age / a->window_size;
 
         // if > N free chunks and not dirty, make decision.
-        if (a->sam_after[n].free_chunks > a->sam_after[n].chunks_per_page * MIN_PAGES_FOR_RECLAIM) {
-            if (small_slab && w_sum.dirty == 0) {
+        if (a->sam_after[n].free_chunks > a->sam_after[n].chunks_per_page * MIN_PAGES_FOR_RECLAIM
+                && w_sum.dirty == 0) {
+            if (small_slab) {
                 *src = n;
                 *dst = 0;
-                break;
-            } else if (!small_slab && w_sum.excess_free >= a->window_size / 2
-                    && a->sam_after[n].total_pages > MIN_PAGES_FOR_SOURCE) {
+                too_free = true;
+            } else if (!small_slab && w_sum.excess_free >= a->window_size) {
                 // If large slab and free chunks haven't decreased for a full
                 // window, reclaim pages.
                 *src = n;
                 *dst = 0;
+                too_free = true;
             }
         }
 
@@ -229,7 +231,7 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
     if (a->window_cur < a->window_size)
         return;
 
-    if (wg_sum.pool_high && youngest != -1) {
+    if (wg_sum.pool_high >= a->window_size && !wg_sum.pool_low && youngest != -1) {
         /**src = 0;
         *dst = youngest;*/
         /* TODO: No current way to directly assign page from 0 to elsewhere.
@@ -238,12 +240,15 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
          * If set rates are very high and the pool is too low, this can bottom
          * out...
          */
-        a->last_memcheck_run = 0;
+        // schedule a memcheck run for "soon" to keep the limit zeroed out
+        // while the pool stays too high. This will also allow multiple
+        // classes to zero out over time.
+        a->last_memcheck_run = current_time - (MEMCHECK_PERIOD - 2);
         a->settings->ext_free_memchunks[youngest] = 0;
-    } else if (wg_sum.pool_low && oldest != -1) {
+    } else if (!too_free && wg_sum.pool_low && oldest != -1) {
         *src = oldest;
         *dst = 0;
-    } else if (youngest != -1 && oldest != -1 && youngest != oldest) {
+    } else if (!too_free && youngest != -1 && oldest != -1 && youngest != oldest) {
         // if we have a youngest and oldest, and oldest is outside the ratio.
         if (a->sam_after[youngest].free_chunks <= a->free_mem[youngest]
                 && youngest_age < ((double)oldest_age * a->max_age_ratio)) {
