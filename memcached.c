@@ -6650,7 +6650,7 @@ int main (int argc, char **argv) {
     settings_init();
 #ifdef EXTSTORE
     settings.ext_item_size = 512;
-    settings.ext_item_age = 0;
+    settings.ext_item_age = UINT_MAX;
     settings.ext_low_ttl = 0;
     settings.ext_recache_rate = 2000;
     settings.ext_max_frag = 0.8;
