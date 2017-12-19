@@ -334,12 +334,15 @@ static void *storage_compact_thread(void *arg) {
 
     logger *l = logger_create();
     if (l == NULL) {
-        fprintf(stderr, "Failed to allocate logger for LRU maintainer thread\n");
+        fprintf(stderr, "Failed to allocate logger for storage compaction thread\n");
         abort();
     }
 
-    // TODO: check error.
     readback_buf = malloc(settings.ext_wbuf_size);
+    if (readback_buf == NULL) {
+        fprintf(stderr, "Failed to allocate readback buffer for storage compaction thread\n");
+        abort();
+    }
 
     pthread_mutex_init(&wrap.lock, NULL);
     wrap.done = false;
