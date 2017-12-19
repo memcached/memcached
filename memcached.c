@@ -6565,7 +6565,6 @@ int main (int argc, char **argv) {
         EXT_PAGE_SIZE,
         EXT_PAGE_COUNT,
         EXT_WBUF_SIZE,
-        EXT_WBUF_COUNT,
         EXT_THREADS,
         EXT_IO_DEPTH,
         EXT_PATH,
@@ -6622,7 +6621,6 @@ int main (int argc, char **argv) {
         [EXT_PAGE_SIZE] = "ext_page_size",
         [EXT_PAGE_COUNT] = "ext_page_count",
         [EXT_WBUF_SIZE] = "ext_wbuf_size",
-        [EXT_WBUF_COUNT] = "ext_wbuf_count",
         [EXT_THREADS] = "ext_threads",
         [EXT_IO_DEPTH] = "ext_io_depth",
         [EXT_PATH] = "ext_path",
@@ -6662,10 +6660,10 @@ int main (int argc, char **argv) {
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.page_count = 64;
     ext_cf.wbuf_size = settings.ext_wbuf_size;
-    ext_cf.wbuf_count = 4;
     ext_cf.io_threadcount = 1;
     ext_cf.io_depth = 1;
     ext_cf.page_buckets = 4;
+    ext_cf.wbuf_count = ext_cf.page_buckets;
 #endif
 
     /* Run regardless of initializing it later */
@@ -7207,16 +7205,6 @@ int main (int argc, char **argv) {
                 }
                 ext_cf.wbuf_size *= 1024 * 1024; /* megabytes */
                 settings.ext_wbuf_size = ext_cf.wbuf_size;
-                break;
-            case EXT_WBUF_COUNT:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing ext_wbuf_count argument\n");
-                    return 1;
-                }
-                if (!safe_strtoul(subopts_value, &ext_cf.wbuf_count)) {
-                    fprintf(stderr, "could not parse argument to ext_wbuf_count\n");
-                    return 1;
-                }
                 break;
             case EXT_THREADS:
                 if (subopts_value == NULL) {
