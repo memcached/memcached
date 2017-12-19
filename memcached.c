@@ -7576,9 +7576,9 @@ int main (int argc, char **argv) {
             settings.ext_drop_under = ext_cf.page_count / 4;
         }
         crc32c_init();
-        /* Keep at least one chunk free by default. */
+        /* Init free chunks to zero. */
         for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
-            settings.ext_free_memchunks[x] = 1;
+            settings.ext_free_memchunks[x] = 0;
         }
         storage = extstore_init(storage_file, &ext_cf, &eres);
         if (storage == NULL) {
