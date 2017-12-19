@@ -62,6 +62,7 @@ static pthread_mutex_t slabs_rebalance_lock = PTHREAD_MUTEX_INITIALIZER;
 /*
  * Forward Declarations
  */
+static int grow_slab_list (const unsigned int id);
 static int do_slabs_newslab(const unsigned int id);
 static void *memory_allocate(size_t size);
 static void do_slabs_free(void *ptr, const size_t size, unsigned int id);
@@ -165,6 +166,19 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
     }
 }
 
+void slabs_prefill_global(void) {
+    void *ptr;
+    slabclass_t *p = &slabclass[0];
+    int len = settings.slab_page_size;
+
+    while (mem_malloced < mem_limit
+            && (ptr = memory_allocate(len)) != NULL) {
+        grow_slab_list(0);
+        p->slab_list[p->slabs++] = ptr;
+    }
+    mem_limit_reached = true;
+}
+
 static void slabs_preallocate (const unsigned int maxslabs) {
     int i;
     unsigned int prealloc = 0;
@@ -185,7 +199,6 @@ static void slabs_preallocate (const unsigned int maxslabs) {
             exit(1);
         }
     }
-
 }
 
 static int grow_slab_list (const unsigned int id) {

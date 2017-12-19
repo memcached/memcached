@@ -6576,6 +6576,7 @@ int main (int argc, char **argv) {
         EXT_DROP_UNDER,
         EXT_MAX_FRAG,
         EXT_DROP_UNREAD,
+        SLAB_AUTOMOVE_FREERATIO,
 #endif
     };
     char *const subopts_tokens[] = {
@@ -6632,6 +6633,7 @@ int main (int argc, char **argv) {
         [EXT_DROP_UNDER] = "ext_drop_under",
         [EXT_MAX_FRAG] = "ext_max_frag",
         [EXT_DROP_UNREAD] = "ext_drop_unread",
+        [SLAB_AUTOMOVE_FREERATIO] = "slab_automove_freeratio",
 #endif
         NULL
     };
@@ -6656,7 +6658,7 @@ int main (int argc, char **argv) {
     settings.ext_wbuf_size = 1024 * 1024 * 4;
     settings.ext_compact_under = 0;
     settings.ext_drop_under = 0;
-    settings.slab_automove_freeratio = 0.005;
+    settings.slab_automove_freeratio = 0.01;
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.page_count = 64;
     ext_cf.wbuf_size = settings.ext_wbuf_size;
@@ -7296,6 +7298,16 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 break;
+            case SLAB_AUTOMOVE_FREERATIO:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing slab_automove_freeratio argument\n");
+                    return 1;
+                }
+                if (!safe_strtod(subopts_value, &settings.slab_automove_freeratio)) {
+                    fprintf(stderr, "could not parse argument to slab_automove_freeratio\n");
+                    return 1;
+                }
+                break;
             case EXT_DROP_UNREAD:
                 settings.ext_drop_unread = true;
                 break;
@@ -7578,6 +7590,8 @@ int main (int argc, char **argv) {
             exit(EXIT_FAILURE);
         }
         ext_storage = storage;
+        /* page mover algorithm for extstore needs memory prefilled */
+        slabs_prefill_global();
     }
 #endif
     /*

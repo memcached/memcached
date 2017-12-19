@@ -37,6 +37,7 @@ typedef struct {
     rel_time_t last_memcheck_run;
     double max_age_ratio;
     double free_ratio;
+    bool pool_filled_once;
     unsigned int free_mem[MAX_NUMBER_OF_SLAB_CLASSES];
     item_stats_automove iam_before[MAX_NUMBER_OF_SLAB_CLASSES];
     item_stats_automove iam_after[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -58,6 +59,7 @@ void *slab_automove_extstore_init(struct settings *settings) {
     a->item_size = settings->ext_item_size;
     a->last_memcheck_run = 0;
     a->settings = settings;
+    a->pool_filled_once = false;
     if (a->window_data == NULL || a->window_global == NULL) {
         if (a->window_data)
             free(a->window_data);
@@ -111,8 +113,11 @@ static void global_pool_check(slab_automove *a) {
         return;
     if (count < free / 2) {
         wg->pool_low = 1;
+        a->pool_filled_once = true;
     } else if (count > free) {
         wg->pool_high = 1;
+    } else {
+        a->pool_filled_once = true;
     }
 }
 
@@ -129,10 +134,12 @@ static void memcheck(slab_automove *a) {
         if (sam->chunks_per_page * MIN_PAGES_FREE > hold_free)
             hold_free = sam->chunks_per_page * MIN_PAGES_FREE;
         a->free_mem[n] = hold_free;
-        if (a->settings->ext_free_memchunks[n] != hold_free) {
+        if (a->settings->ext_free_memchunks[n] != hold_free && a->pool_filled_once) {
             a->settings->ext_free_memchunks[n] = hold_free;
         }
     }
+    // remember to add what remains in global pool.
+    total_pages += a->sam_after[0].total_pages;
     a->free_mem[0] = total_pages * a->free_ratio;
 }
 

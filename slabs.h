@@ -10,6 +10,8 @@
 */
 void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes);
 
+/** Call only during init. Pre-allocates all available memory */
+void slabs_prefill_global(void);
 
 /**
  * Given object size, return id to use when allocating/freeing memory for object
