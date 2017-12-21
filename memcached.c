@@ -1589,6 +1589,7 @@ static void process_bin_get_or_touch(conn *c) {
     int should_return_key = (c->cmd == PROTOCOL_BINARY_CMD_GETK ||
                              c->cmd == PROTOCOL_BINARY_CMD_GATK);
     int should_return_value = (c->cmd != PROTOCOL_BINARY_CMD_TOUCH);
+    bool failed = false;
 
     if (settings.verbose > 1) {
         fprintf(stderr, "<%d %s ", c->sfd, should_touch ? "TOUCH" : "GET");
@@ -1664,7 +1665,8 @@ static void process_bin_get_or_touch(conn *c) {
                 }
                 // FIXME: this can return an error, but code flow doesn't
                 // allow bailing here.
-                _get_extstore(c, it, iovst, iovcnt);
+                if (_get_extstore(c, it, iovst, iovcnt) != 0)
+                    failed = true;
             } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 add_iov(c, ITEM_data(it), it->nbytes - 2);
             } else {
@@ -1679,19 +1681,27 @@ static void process_bin_get_or_touch(conn *c) {
 #endif
         }
 
-        conn_set_state(c, conn_mwrite);
-        c->write_and_go = conn_new_cmd;
-        /* Remember this command so we can garbage collect it later */
+        if (!failed) {
+            conn_set_state(c, conn_mwrite);
+            c->write_and_go = conn_new_cmd;
+            /* Remember this command so we can garbage collect it later */
 #ifdef EXTSTORE
-        if ((it->it_flags & ITEM_HDR) == 0) {
-            c->item = it;
-        } else {
-            c->item = NULL;
-        }
+            if ((it->it_flags & ITEM_HDR) == 0) {
+                c->item = it;
+            } else {
+                c->item = NULL;
+            }
 #else
-        c->item = it;
+            c->item = it;
 #endif
+        } else {
+            item_remove(it);
+        }
     } else {
+        failed = true;
+    }
+
+    if (failed) {
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
