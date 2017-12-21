@@ -6248,7 +6248,7 @@ static void usage(void) {
            "   - ext_compact_under:   compact when fewer than this many free pages\n"
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
-           "                          (see doc/storage.txt for more info)"
+           "                          (see doc/storage.txt for more info)\n"
 #endif
            );
     return;
