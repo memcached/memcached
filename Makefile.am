@@ -23,8 +23,7 @@ memcached_SOURCES = memcached.c memcached.h \
                     logger.c logger.h \
                     crawler.c crawler.h \
                     itoa_ljust.c itoa_ljust.h \
-                    slab_automove.c slab_automove.h \
-                    crc32c.c crc32c.h
+                    slab_automove.c slab_automove.h
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c
@@ -49,6 +48,7 @@ endif
 
 if ENABLE_EXTSTORE
 memcached_SOURCES += extstore.c extstore.h \
+                     crc32c.c crc32c.h \
                      storage.c storage.h \
                      slab_automove_extstore.c slab_automove_extstore.h
 endif

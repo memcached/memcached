@@ -257,7 +257,7 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
             (unsigned long long)ITEM_get_cas(it),
             (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
             ITEM_clsid(it),
-            ITEM_ntotal(it));
+            (unsigned long) ITEM_ntotal(it));
     refcount_decr(it);
     // TODO: some way of tracking the errors. these are very unlikely though.
     if (total >= LRU_CRAWLER_WRITEBUF - 1 || total <= 0) {
