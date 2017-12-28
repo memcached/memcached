@@ -17,7 +17,7 @@ static void caught_signal(int which)
 static int wait_for_process(pid_t pid)
 {
     int rv = EX_SOFTWARE;
-    int stats = 0;
+    int status = 0;
     int i = 0;
     struct sigaction sig_handler;
 
@@ -32,12 +32,12 @@ static int wait_for_process(pid_t pid)
 
     /* Loop forever waiting for the process to quit */
     for (i = 0; ;i++) {
-        pid_t p = waitpid(pid, &stats, 0);
+        pid_t p = waitpid(pid, &status, 0);
         if (p == pid) {
             /* child exited.  Let's get out of here */
-            rv = WIFEXITED(stats) ?
-                WEXITSTATUS(stats) :
-                (0x80 | WTERMSIG(stats));
+            rv = WIFEXITED(status) ?
+                WEXITSTATUS(status) :
+                (0x80 | WTERMSIG(status));
             break;
         } else {
             int sig = 0;
