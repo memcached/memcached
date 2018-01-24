@@ -862,7 +862,9 @@ static int slab_rebalance_move(void) {
                             // Only safe to hold slabs lock because refcount
                             // can't drop to 0 until we release item lock.
                             STORAGE_delete(storage, it);
+                            pthread_mutex_unlock(&slabs_lock);
                             do_item_unlink(it, hv);
+                            pthread_mutex_lock(&slabs_lock);
                         }
                         status = MOVE_BUSY;
                     } else {
