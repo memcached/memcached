@@ -4525,7 +4525,7 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
 static void process_extstore_command(conn *c, token_t *tokens, const size_t ntokens) {
     set_noreply_maybe(c, tokens, ntokens);
     bool ok = true;
-    if (ntokens < 3) {
+    if (ntokens < 4) {
         ok = false;
     } else if (strcmp(tokens[1].value, "free_memchunks") == 0 && ntokens > 4) {
         /* per-slab-class free chunk setting. */
