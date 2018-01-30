@@ -930,7 +930,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
         int i;
         for (i = 0; i < stats_sizes_buckets; i++) {
             if (stats_sizes_hist[i] != 0) {
-                char key[8];
+                char key[12];
                 snprintf(key, sizeof(key), "%d", i * 32);
                 APPEND_STAT(key, "%u", stats_sizes_hist[i]);
             }
