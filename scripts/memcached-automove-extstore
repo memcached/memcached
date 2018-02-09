@@ -55,17 +55,17 @@ def window_key_check(history, key):
 def determine_move(history, stats, diffs, memfree):
     """ Figure out of a page move is in order.
 
-    - we should use as much memory as possible to buffer items, reducing
-      the load on flash.
+    - Use as much memory as possible to hold items, reducing the load on
+      flash.
     - tries to keep the global free page pool inbetween poolmin/poolmax.
     - avoids flapping as much as possible:
       - only pull pages off of a class if it hasn't recently evicted or allocated pages.
-      - only pull pages off if a sufficient number of chunks are available.
+      - only pull pages off if a sufficient number of free chunks are available.
       - if global pool is below minimum remove pages from oldest large class.
       - if global pool is above maximum, move pages to youngest large class.
-    - re-adjusts number of free chunks once per minute, based on usage.
-    - age balancing should move memory around large classes, which then
-      adjusts the per-class free chunk minimums.
+    - extstore manages a desired number of free chunks in each slab class.
+    - autmover adjusts above limits once per minute based on current sizes.
+    - if youngest is below the age ratio limit of oldest, move a page to it.
     """
     # rotate windows
     history['w'].append({})
@@ -88,6 +88,7 @@ def determine_move(history, stats, diffs, memfree):
     pool_high = window_key_check(history, 'slab_pool_high')
     for sid, slab in diffs.items():
         small_slab = False
+        free_enough = False
         # Only balance larger slab classes
         if slab['chunk_size'] < args.size:
             small_slab = True
@@ -102,7 +103,9 @@ def determine_move(history, stats, diffs, memfree):
         if slab['evicted_d'] > 0:
             w[sid]['dirty'] = 1
             w[sid]['ev'] = 1
-        if slab['free_chunks'] > memfree[sid] and memfree[sid] > 0:
+        if slab['free_chunks'] > memfree[sid]:
+            free_enough = True
+        if memfree[sid] > 0 and slab['free_chunks'] > (memfree[sid] * 2):
             w[sid]['excess_free'] = 1
         w[sid]['age'] = slab['age']
         age = window_check(history, sid, 'age') / len(history['w'])
@@ -121,24 +124,25 @@ def determine_move(history, stats, diffs, memfree):
                 too_free = True
 
         # are we the oldest slab class? (and a valid target)
+        # don't consider for young if we've recently given it unused memory
         if small_slab == False:
             if age > oldest[1] and slab['total_pages'] > MIN_PAGES_FOR_SOURCE:
                 oldest = (sid, age)
             if age < youngest[1] and slab['total_pages'] > 0 \
-                    and window_check(history, sid, 'excess_free') < len(history['w']):
+                    and window_check(history, sid, 'excess_free') < len(history['w']) \
+                    and not (window_check(history, sid, 'relaxed') and free_enough):
                 youngest = (sid, age)
 
 
     if w.get('slab_pool_high') and youngest[0] != -1:
         # if global pool is too high, feed youngest large class.
-        # decision = (0, youngest[0])
-        # No current way to assign directly from global to a class.
-        # minimize the free chunks limiter and re-check.
-        decision = (youngest[0], -2)
+        if slab['free_chunks'] <= memfree[youngest[0]]:
+            decision = (0, youngest[0])
+        w[youngest[0]]['relaxed'] = 1
     elif too_free == False and pool_low and oldest[0] != -1:
         # if pool is too low, take from oldest large class.
         if args.verbose:
-            print("oldest:  [class: {}] [age: {}]".format(int(oldest[0]), oldest[1]))
+            print("oldest:  [class: {}] [age: {:.2f}]".format(int(oldest[0]), oldest[1]))
         decision = (oldest[0], 0)
     elif too_free == False and youngest[0] != -1 and oldest[0] != -1 and youngest[0] != oldest[0]:
         # youngest is outside of the tolerance ratio, move a page around.
@@ -148,8 +152,10 @@ def determine_move(history, stats, diffs, memfree):
 
         slab = diffs[youngest[0]]
         #print("F:{} L:{} Y:{} R:{}".format(slab['free_chunks'], memfree[youngest[0]], int(youngest[1]), int(oldest[1] * args.ratio)))
-        if (slab['free_chunks'] <= memfree[youngest[0]]) and (youngest[1] < oldest[1] * args.ratio):
-            decision = (oldest[0], youngest[0])
+        if youngest[1] < oldest[1] * args.ratio:
+            w[youngest[0]]['relaxed'] = 1
+            if slab['free_chunks'] <= memfree[youngest[0]]:
+                decision = (0, youngest[0])
 
     if (len(history['w']) >= args.window):
         return decision
@@ -293,23 +299,11 @@ while True:
                     memfree = memfree_check(s, diffs, totals)
                     last_memfree_check = time()
                 decision = (-1, -1)
-                if int(stats['evictions']) > 0:
-                    decision = determine_move(history, stats, diffs, memfree)
-                    if int(decision[0]) > 0 and int(decision[1]) >= 0:
-                        print("moving page from, to:", decision)
-                        if args.automove:
-                            run_move(s, decision)
-                    elif int(decision[0]) > 0 and decision[1] == -2:
-                        # we've been told to zero out the memory limit.
-                        # let the memfree check run "soon".
-                        # this (purposefully) can slowly remove limits on
-                        # multiple classes if global pool stays too high.
-                        last_memfree_check = time() - 58
-                        s.write("extstore free_memchunks {} {}\r\n".format(decision[0], 0))
-                        s.readline()
-                        if args.verbose:
-                            print("relaxing free:", decision[0])
-
+                decision = determine_move(history, stats, diffs, memfree)
+                if int(decision[0]) > 0 and int(decision[1]) >= 0:
+                    print("moving page from, to:", decision)
+                    if args.automove:
+                        run_move(s, decision)
 
                 # Minimize sleeping if we just moved a page to global pool.
                 # Improves responsiveness during flushes/quick changes.

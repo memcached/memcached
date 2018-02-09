@@ -678,7 +678,7 @@ static int slab_rebalance_start(void) {
 
     pthread_mutex_lock(&slabs_lock);
 
-    if (slab_rebal.s_clsid < POWER_SMALLEST ||
+    if (slab_rebal.s_clsid < SLAB_GLOBAL_PAGE_POOL ||
         slab_rebal.s_clsid > power_largest  ||
         slab_rebal.d_clsid < SLAB_GLOBAL_PAGE_POOL ||
         slab_rebal.d_clsid > power_largest  ||
@@ -707,8 +707,11 @@ static int slab_rebalance_start(void) {
         (s_cls->size * s_cls->perslab);
     slab_rebal.slab_pos   = slab_rebal.slab_start;
     slab_rebal.done       = 0;
+    // Don't need to do chunk move work if page is in global pool.
+    if (slab_rebal.s_clsid == SLAB_GLOBAL_PAGE_POOL) {
+        slab_rebal.done = 1;
+    }
 
-    /* Also tells do_item_get to search for items in this slab */
     slab_rebalance_signal = 2;
 
     if (settings.verbose > 1) {
@@ -1189,7 +1192,7 @@ static enum reassign_result_type do_slabs_reassign(int src, int dst) {
         /* TODO: If we end up back at -1, return a new error type */
     }
 
-    if (src < POWER_SMALLEST        || src > power_largest ||
+    if (src < SLAB_GLOBAL_PAGE_POOL || src > power_largest ||
         dst < SLAB_GLOBAL_PAGE_POOL || dst > power_largest)
         return REASSIGN_BADCLASS;
 
