@@ -4770,7 +4770,8 @@ static void process_command(conn *c, char *command) {
                 return;
             }
 
-            rv = lru_crawler_crawl(tokens[2].value, CRAWLER_EXPIRED, NULL, 0);
+            rv = lru_crawler_crawl(tokens[2].value, CRAWLER_EXPIRED, NULL, 0,
+                    settings.lru_crawler_tocrawl);
             switch(rv) {
             case CRAWLER_OK:
                 out_string(c, "OK");
@@ -4800,7 +4801,7 @@ static void process_command(conn *c, char *command) {
             }
 
             int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_METADUMP,
-                    c, c->sfd);
+                    c, c->sfd, LRU_CRAWLER_CAP_REMAINING);
             switch(rv) {
                 case CRAWLER_OK:
                     out_string(c, "OK");
