@@ -27,7 +27,6 @@
 
 static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t maintenance_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t hash_items_counter_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
@@ -46,9 +45,6 @@ static item** primary_hashtable = 0;
  * been moved over to the primary yet.
  */
 static item** old_hashtable = 0;
-
-/* Number of items in the hash table. */
-static unsigned int hash_items = 0;
 
 /* Flag: Are we in the middle of expanding now? */
 static bool expanding = false;
@@ -144,12 +140,15 @@ static void assoc_expand(void) {
     }
 }
 
-static void assoc_start_expand(void) {
+void assoc_start_expand(uint64_t curr_items) {
     if (started_expanding)
         return;
 
-    started_expanding = true;
-    pthread_cond_signal(&maintenance_cond);
+    if (curr_items > (hashsize(hashpower) * 3) / 2 &&
+          hashpower < HASHPOWER_MAX) {
+        started_expanding = true;
+        pthread_cond_signal(&maintenance_cond);
+    }
 }
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
@@ -168,15 +167,7 @@ int assoc_insert(item *it, const uint32_t hv) {
         primary_hashtable[hv & hashmask(hashpower)] = it;
     }
 
-    pthread_mutex_lock(&hash_items_counter_lock);
-    hash_items++;
-    if (! expanding && hash_items > (hashsize(hashpower) * 3) / 2 &&
-          hashpower < HASHPOWER_MAX) {
-        assoc_start_expand();
-    }
-    pthread_mutex_unlock(&hash_items_counter_lock);
-
-    MEMCACHED_ASSOC_INSERT(ITEM_key(it), it->nkey, hash_items);
+    MEMCACHED_ASSOC_INSERT(ITEM_key(it), it->nkey);
     return 1;
 }
 
@@ -185,13 +176,10 @@ void assoc_delete(const char *key, const size_t nkey, const uint32_t hv) {
 
     if (*before) {
         item *nxt;
-        pthread_mutex_lock(&hash_items_counter_lock);
-        hash_items--;
-        pthread_mutex_unlock(&hash_items_counter_lock);
         /* The DTrace probe cannot be triggered as the last instruction
          * due to possible tail-optimization by the compiler
          */
-        MEMCACHED_ASSOC_DELETE(key, nkey, hash_items);
+        MEMCACHED_ASSOC_DELETE(key, nkey);
         nxt = (*before)->h_next;
         (*before)->h_next = 0;   /* probably pointless, but whatever. */
         *before = nxt;

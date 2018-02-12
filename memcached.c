@@ -6127,6 +6127,10 @@ static void clock_handler(const int fd, const short which, void *arg) {
 #endif
     }
 
+    // While we're here, check for hash table expansion.
+    // This function should be quick to avoid delaying the timer.
+    assoc_start_expand(stats_state.curr_items);
+
     evtimer_set(&clockevent, clock_handler, 0);
     event_base_set(main_base, &clockevent);
     evtimer_add(&clockevent, &t);

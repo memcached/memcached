@@ -4,11 +4,11 @@
 #ifdef ENABLE_DTRACE
 #include "memcached_dtrace.h"
 #else
-#define MEMCACHED_ASSOC_DELETE(arg0, arg1, arg2)
+#define MEMCACHED_ASSOC_DELETE(arg0, arg1)
 #define MEMCACHED_ASSOC_DELETE_ENABLED() (0)
 #define MEMCACHED_ASSOC_FIND(arg0, arg1, arg2)
 #define MEMCACHED_ASSOC_FIND_ENABLED() (0)
-#define MEMCACHED_ASSOC_INSERT(arg0, arg1, arg2)
+#define MEMCACHED_ASSOC_INSERT(arg0, arg1)
 #define MEMCACHED_ASSOC_INSERT_ENABLED() (0)
 #define MEMCACHED_COMMAND_ADD(arg0, arg1, arg2, arg3, arg4)
 #define MEMCACHED_COMMAND_ADD_ENABLED() (0)
