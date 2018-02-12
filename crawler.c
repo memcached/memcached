@@ -530,6 +530,9 @@ static int do_lru_crawler_start(uint32_t id, uint32_t remaining) {
         crawlers[sid].next = 0;
         crawlers[sid].prev = 0;
         crawlers[sid].time = 0;
+        if (remaining == LRU_CRAWLER_CAP_REMAINING) {
+            remaining = do_get_lru_size(sid);
+        }
         crawlers[sid].remaining = remaining;
         crawlers[sid].slabs_clsid = sid;
         crawlers[sid].reclaimed = 0;
@@ -622,7 +625,7 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
  * Also only clear the crawlerstats once per sid.
  */
 enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_type type,
-        void *c, const int sfd) {
+        void *c, const int sfd, unsigned int remaining) {
     char *b = NULL;
     uint32_t sid = 0;
     int starts = 0;
@@ -651,8 +654,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_t
         }
     }
 
-    starts = lru_crawler_start(tocrawl, settings.lru_crawler_tocrawl,
-            type, NULL, c, sfd);
+    starts = lru_crawler_start(tocrawl, remaining, type, NULL, c, sfd);
     if (starts == -1) {
         return CRAWLER_RUNNING;
     } else if (starts == -2) {
