@@ -138,6 +138,11 @@ static unsigned int temp_lru_size(int slabs_clsid) {
     return ret;
 }
 
+/* must be locked before call */
+unsigned int do_get_lru_size(uint32_t id) {
+    return sizes[id];
+}
+
 /* Enable this for reference-count debugging. */
 #if 0
 # define DEBUG_REFCNT(it,op) \

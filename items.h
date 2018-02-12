@@ -25,6 +25,7 @@ void do_item_update_nolock(item *it);
 int  do_item_replace(item *it, item *new_it, const uint32_t hv);
 
 int item_is_flushed(item *it);
+unsigned int do_get_lru_size(uint32_t id);
 
 void do_item_linktail_q(item *it);
 void do_item_unlinktail_q(item *it);
