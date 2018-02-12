@@ -295,15 +295,16 @@ while True:
                 (diffs, totals) = diff_stats(stats_pre, stats_post)
                 #if args.verbose:
                 #    show_detail(diffs, totals)
-                if (last_memfree_check < time() - 60) and totals.get('total_pages'):
-                    memfree = memfree_check(s, diffs, totals)
-                    last_memfree_check = time()
-                decision = (-1, -1)
-                decision = determine_move(history, stats, diffs, memfree)
-                if int(decision[0]) > 0 and int(decision[1]) >= 0:
-                    print("moving page from, to:", decision)
-                    if args.automove:
-                        run_move(s, decision)
+                if int(stats['evictions']) > 0:
+                    if (last_memfree_check < time() - 60) and totals.get('total_pages'):
+                        memfree = memfree_check(s, diffs, totals)
+                        last_memfree_check = time()
+                    decision = (-1, -1)
+                    decision = determine_move(history, stats, diffs, memfree)
+                    if int(decision[0]) > 0 and int(decision[1]) >= 0:
+                        print("moving page from, to:", decision)
+                        if args.automove:
+                            run_move(s, decision)
 
                 # Minimize sleeping if we just moved a page to global pool.
                 # Improves responsiveness during flushes/quick changes.
