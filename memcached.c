@@ -7575,7 +7575,17 @@ int main (int argc, char **argv) {
     }
 
     /* initialize main thread libevent instance */
+#if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
+    /* If libevent version is larger/equal to 2.0.2-alpha, use newer version */
+    struct event_config *ev_config;
+    ev_config = event_config_new();
+    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
+    main_base = event_base_new_with_config(ev_config);
+    event_config_free(ev_config);
+#else
+    /* Otherwise, use older API */
     main_base = event_init();
+#endif
 
     /* initialize other stuff */
     logger_init();
@@ -7760,6 +7770,9 @@ int main (int argc, char **argv) {
       free(l_socket);
     if (u_socket)
       free(u_socket);
+
+    /* cleanup base */
+    event_base_free(main_base);
 
     return retval;
 }

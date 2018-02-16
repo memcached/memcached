@@ -309,7 +309,16 @@ void accept_new_conns(const bool do_accept) {
  * Set up a thread's information.
  */
 static void setup_thread(LIBEVENT_THREAD *me) {
+#if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
+    struct event_config *ev_config;
+    ev_config = event_config_new();
+    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
+    me->base = event_base_new_with_config(ev_config);
+    event_config_free(ev_config);
+#else
     me->base = event_init();
+#endif
+
     if (! me->base) {
         fprintf(stderr, "Can't allocate event base\n");
         exit(1);
@@ -374,6 +383,8 @@ static void *worker_libevent(void *arg) {
     register_thread_initialized();
 
     event_base_loop(me->base, 0);
+
+    event_base_free(me->base);
     return NULL;
 }
 
