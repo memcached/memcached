@@ -7717,8 +7717,9 @@ int main (int argc, char **argv) {
         if (portnumber_file) {
             fclose(portnumber_file);
             rename(temp_portnumber_filename, portnumber_filename);
-            free(temp_portnumber_filename);
         }
+        if (temp_portnumber_filename)
+            free(temp_portnumber_filename);
     }
 
     /* Give the sockets a moment to open. I know this is dumb, but the error
