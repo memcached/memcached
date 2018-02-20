@@ -5974,6 +5974,7 @@ static int server_sockets(int port, enum network_transport transport,
                 char *e = strchr(p, ']');
                 if (e == NULL) {
                     fprintf(stderr, "Invalid IPV6 address: \"%s\"", p);
+                    free(list);
                     return 1;
                 }
                 h = ++p; // skip the opening '['
@@ -5992,6 +5993,7 @@ static int server_sockets(int port, enum network_transport transport,
                     ++s;
                     if (!safe_strtol(s, &the_port)) {
                         fprintf(stderr, "Invalid port number: \"%s\"", s);
+                        free(list);
                         return 1;
                     }
                 }
