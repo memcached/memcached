@@ -222,7 +222,7 @@ static void settings_init(void) {
     settings.use_cas = true;
     settings.access = 0700;
     settings.port = 11211;
-    settings.udpport = 11211;
+    settings.udpport = 0;
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -7479,9 +7479,7 @@ int main (int argc, char **argv) {
         }
     }
 
-    if (tcp_specified && settings.port != 0 && !udp_specified) {
-        settings.udpport = settings.port;
-    } else if (udp_specified && settings.udpport != 0 && !tcp_specified) {
+    if (udp_specified && settings.udpport != 0 && !tcp_specified) {
         settings.port = settings.udpport;
     }
 

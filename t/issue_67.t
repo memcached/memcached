@@ -77,11 +77,11 @@ sub when {
 
 # Disabling the defaults since it conflicts with a running instance.
 # when('no arguments', '', 11211, 11211);
-when('specifying tcp port', '-p 11212', 11212, 11212);
+when('specifying tcp port', '-p 11212', 11212, -1);
 when('specifying udp port', '-U 11222', 11222, 11222);
 when('specifying tcp ephemeral port', '-p -1', 0, 0);
 when('specifying udp ephemeral port', '-U -1', 0, 0);
-when('tcp port disabled', '-p 0', -1, 11211);
+when('tcp port disabled', '-p 0', -1, -1);
 when('udp port disabled', '-U 0', 11211, -1);
 when('specifying tcp and udp ports', '-p 11232 -U 11233', 11232, 11233);
 when('specifying tcp and disabling udp', '-p 11242 -U 0', 11242, -1);
