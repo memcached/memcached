@@ -490,48 +490,7 @@ AC_CHECK_FUNCS(clock_gettime)
 AC_CHECK_FUNCS([accept4], [AC_DEFINE(HAVE_ACCEPT4, 1, [Define to 1 if support accept4])])
 AC_CHECK_FUNCS([getopt_long], [AC_DEFINE(HAVE_GETOPT_LONG, 1, [Define to 1 if support getopt_long])])
 
-AC_DEFUN([AC_C_ALIGNMENT],
-[AC_CACHE_CHECK(for alignment, ac_cv_c_alignment,
-[
-  AC_RUN_IFELSE(
-    [AC_LANG_PROGRAM([
-#include <stdlib.h>
-#include <inttypes.h>
-    ], [
-       char *buf = malloc(32);
-
-       uint64_t *ptr = (uint64_t*)(buf+2);
-       // catch sigbus, etc.
-       *ptr = 0x1;
-
-       // catch unaligned word access (ARM cpus)
-#ifdef ENDIAN_BIG
-#define ALIGNMENT 0x02030405
-#else
-#define ALIGNMENT 0x05040302
-#endif
-       *(buf + 0) = 1;
-       *(buf + 1) = 2;
-       *(buf + 2) = 3;
-       *(buf + 3) = 4;
-       *(buf + 4) = 5;
-       int* i = (int*)(buf+1);
-       return (ALIGNMENT == *i) ? 0 : 1;
-    ])
-  ],[
-    ac_cv_c_alignment=none
-  ],[
-    ac_cv_c_alignment=need
-  ],[
-    ac_cv_c_alignment=need
-  ])
-])
-if test $ac_cv_c_alignment = need; then
-  AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])
-fi
-])
-
-AC_C_ALIGNMENT
+AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])
 
 dnl Check for our specific usage of GCC atomics.
 dnl These were added in 4.1.2, but 32bit OS's may lack shorts and 4.1.2
