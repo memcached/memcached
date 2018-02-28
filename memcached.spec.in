@@ -79,9 +79,9 @@ install -Dp -m0755 scripts/memcached.service %{buildroot}%{_unitdir}/%{name}.ser
 install -Dp -m0755 scripts/memcached@.service %{buildroot}%{_unitdir}/%{name}@.service
 
 if [ %{safer_systemd} -gt 0 ]; then
-    sed -e -i 's/^##safer##//g' %{buildroot}%{_unitdir}/%{name}.service %{buildroot}%{_unitdir}/%{name}@.service
+    sed -e 's/^##safer##//g' -i %{buildroot}%{_unitdir}/%{name}.service %{buildroot}%{_unitdir}/%{name}@.service
 else
-    sed -e -i 's/^##safer##/#/g' %{buildroot}%{_unitdir}/%{name}.service %{buildroot}%{_unitdir}/%{name}@.service
+    sed -e 's/^##safer##/#/g' -i %{buildroot}%{_unitdir}/%{name}.service %{buildroot}%{_unitdir}/%{name}@.service
 fi
 %else
 install -Dp -m0755 scripts/memcached.sysv %{buildroot}%{_initrddir}/%{name}
