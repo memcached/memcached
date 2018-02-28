@@ -71,20 +71,26 @@ void assoc_init(const int hashtable_init) {
     STATS_UNLOCK();
 }
 
-item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
-    item *it;
+static inline item **assoc_find_item(const uint32_t hv) {
+    item **it;
     unsigned int oldbucket;
 
     if (expanding &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
     {
-        it = old_hashtable[oldbucket];
+        it = &old_hashtable[oldbucket];
     } else {
-        it = primary_hashtable[hv & hashmask(hashpower)];
+        it = &primary_hashtable[hv & hashmask(hashpower)];
     }
 
+    return it;
+}
+
+item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
+    item *it = *assoc_find_item(hv);
     item *ret = NULL;
     int depth = 0;
+
     while (it) {
         if ((nkey == it->nkey) && (memcmp(key, ITEM_key(it), nkey) == 0)) {
             ret = it;
@@ -101,16 +107,7 @@ item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
    the item wasn't found */
 
 static item** _hashitem_before (const char *key, const size_t nkey, const uint32_t hv) {
-    item **pos;
-    unsigned int oldbucket;
-
-    if (expanding &&
-        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
-    {
-        pos = &old_hashtable[oldbucket];
-    } else {
-        pos = &primary_hashtable[hv & hashmask(hashpower)];
-    }
+    item **pos = assoc_find_item(hv);
 
     while (*pos && ((nkey != (*pos)->nkey) || memcmp(key, ITEM_key(*pos), nkey))) {
         pos = &(*pos)->h_next;
@@ -135,8 +132,9 @@ static void assoc_expand(void) {
         stats_state.hash_is_expanding = true;
         STATS_UNLOCK();
     } else {
-        primary_hashtable = old_hashtable;
-        /* Bad news, but we can keep running. */
+	primary_hashtable = old_hashtable;
+	fprintf(stderr, "Hash table expansion failed.\n");
+	/* Bad news, but we can keep running. */
     }
 }
 
@@ -153,19 +151,12 @@ void assoc_start_expand(uint64_t curr_items) {
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
 int assoc_insert(item *it, const uint32_t hv) {
-    unsigned int oldbucket;
 
 //    assert(assoc_find(ITEM_key(it), it->nkey) == 0);  /* shouldn't have duplicately named things defined */
 
-    if (expanding &&
-        (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
-    {
-        it->h_next = old_hashtable[oldbucket];
-        old_hashtable[oldbucket] = it;
-    } else {
-        it->h_next = primary_hashtable[hv & hashmask(hashpower)];
-        primary_hashtable[hv & hashmask(hashpower)] = it;
-    }
+    item **itP = assoc_find_item(hv);
+    it->h_next = (*itP);
+    *itP = it;
 
     MEMCACHED_ASSOC_INSERT(ITEM_key(it), it->nkey);
     return 1;
