@@ -1,0 +1,10 @@
+version: '3'
+services:
+    alpine:
+        build:
+            context: .
+            dockerfile: devtools/Dockerfile.alpine
+    ubuntu:
+        build:
+            context: .
+            dockerfile: devtools/Dockerfile.ubuntu

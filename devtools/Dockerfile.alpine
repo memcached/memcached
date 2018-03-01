@@ -1,0 +1,7 @@
+FROM alpine:latest
+
+RUN apk update && apk add --no-cache musl-dev libevent-dev libseccomp-dev linux-headers gcc make automake autoconf
+
+ADD . /src
+
+CMD cd /src && ./autogen.sh && ./configure --enable-seccomp && make -j && ./testapp
