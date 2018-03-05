@@ -5,9 +5,8 @@
 #include <sys/ioctl.h>
 #include "memcached.h"
 
-// In the future when the system is more tested this could be switched
-// to SCMP_ACT_KILL instead.
-#define DENY_ACTION SCMP_ACT_ERRNO(EACCES)
+// If anything crosses the policy, kill the process.
+#define DENY_ACTION SCMP_ACT_KILL
 
 void drop_privileges(void) {
     scmp_filter_ctx ctx = seccomp_init(DENY_ACTION);
