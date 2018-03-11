@@ -54,7 +54,7 @@ def determine_move(history, diffs, totals):
     - use age as average over window. smooths over items falling out of WARM.
       also gives a little weight: if still evicting, a few more pages than
       necessary may be moved, pulling the classes closer together. Hopefully
-      avoidnig ping-ponging.
+      avoiding ping-ponging.
     """
     # rotate windows
     history['w'].append({})

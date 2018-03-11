@@ -64,7 +64,7 @@ def determine_move(history, stats, diffs, memfree):
       - if global pool is below minimum remove pages from oldest large class.
       - if global pool is above maximum, move pages to youngest large class.
     - extstore manages a desired number of free chunks in each slab class.
-    - autmover adjusts above limits once per minute based on current sizes.
+    - automover adjusts above limits once per minute based on current sizes.
     - if youngest is below the age ratio limit of oldest, move a page to it.
     """
     # rotate windows

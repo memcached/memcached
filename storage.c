@@ -57,7 +57,7 @@ int lru_maintainer_store(void *storage, const int clsid) {
         if (hdr_it != NULL) {
             int bucket = (it->it_flags & ITEM_CHUNKED) ?
                 PAGE_BUCKET_CHUNKED : PAGE_BUCKET_DEFAULT;
-            // Compres soon to expire items into similar pages.
+            // Compress soon to expire items into similar pages.
             if (it->exptime - current_time < settings.ext_low_ttl) {
                 bucket = PAGE_BUCKET_LOWTTL;
             }
