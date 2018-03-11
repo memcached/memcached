@@ -139,7 +139,7 @@ mem_get_is($sock, "foo", "hi");
 
     # append/prepend *could* work, but it would require pulling the item back in.
     print $sock "append bfoo1 0 0 2\r\nhi\r\n";
-    is(scalar <$sock>, "NOT_STORED\r\n", 'append falis');
+    is(scalar <$sock>, "NOT_STORED\r\n", 'append fails');
     print $sock "prepend bfoo1 0 0 2\r\nhi\r\n";
     is(scalar <$sock>, "NOT_STORED\r\n", 'prepend fails');
 }
