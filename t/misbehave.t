@@ -3,6 +3,7 @@
 use strict;
 use Test::More;
 use FindBin qw($Bin);
+use Socket qw(MSG_PEEK MSG_DONTWAIT);
 use lib "$Bin/lib";
 use MemcachedTest;
 
@@ -17,4 +18,11 @@ my $server = new_memcached();
 my $sock = $server->sock;
 
 print $sock "misbehave\r\n";
-is(scalar <$sock>, "OK\r\n", "did not allow misbehaving");
+sleep(1);
+
+# check if the socket is dead now
+my $buff;
+my $ret = recv($sock, $buff, 1, MSG_PEEK | MSG_DONTWAIT);
+is($ret, undef, "did not allow misbehaving");
+
+$server->DESTROY();
