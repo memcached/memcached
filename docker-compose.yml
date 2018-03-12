@@ -8,3 +8,7 @@ services:
         build:
             context: .
             dockerfile: devtools/Dockerfile.ubuntu
+    arch:
+        build:
+            context: .
+            dockerfile: devtools/Dockerfile.arch
