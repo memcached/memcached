@@ -77,48 +77,34 @@ else {
 die "Couldn't connect to $addr\n" unless $sock;
 
 if ($mode eq 'dump') {
-    my %items;
-    my $totalitems;
-
-    print $sock "stats items\r\n";
-
+    print STDERR "Dumping memcache contents\n";
+    print $sock "lru_crawler metadump all\r\n";
+    my %keyexp;
     while (<$sock>) {
         last if /^END/;
-        if (/^STAT items:(\d*):number (\d*)/) {
-            $items{$1} = $2;
-            $totalitems += $2;
-        }
-    }
-    print STDERR "Dumping memcache contents\n";
-    print STDERR "  Number of buckets: " . scalar(keys(%items)) . "\n";
-    print STDERR "  Number of items  : $totalitems\n";
-
-    foreach my $bucket (sort(keys(%items))) {
-        print STDERR "Dumping bucket $bucket - " . $items{$bucket} . " total items\n";
-        print $sock "stats cachedump $bucket $items{$bucket}\r\n";
-        my %keyexp;
-        while (<$sock>) {
-            last if /^END/;
-            # return format looks like this
-            # ITEM foo [6 b; 1176415152 s]
-            if (/^ITEM (\S+) \[.* (\d+) s\]/) {
+        # return format looks like this
+        # key=foo exp=2147483647 la=1521046038 cas=717111 fetch=no cls=13 size=1232
+        if (/^key=(\S+) exp=(-?\d+) .*/) {
+            if ($2 == -1) {
+                $keyexp{$1} = 0;
+            } else {
                 $keyexp{$1} = $2;
             }
         }
+    }
 
-        foreach my $k (keys(%keyexp)) {
-            print $sock "get $k\r\n";
-            my $response = <$sock>;
-            if ($response =~ /VALUE (\S+) (\d+) (\d+)/) {
-                my $flags = $2;
-                my $len = $3;
-                my $val;
-                read $sock, $val, $len;
-                print "add $k $flags $keyexp{$k} $len\r\n$val\r\n";
-                # get the END
-                $_ = <$sock>;
-                $_ = <$sock>;
-            }
+    foreach my $k (keys(%keyexp)) {
+        print $sock "get $k\r\n";
+        my $response = <$sock>;
+        if ($response =~ /VALUE (\S+) (\d+) (\d+)/) {
+            my $flags = $2;
+            my $len = $3;
+            my $val;
+            read $sock, $val, $len;
+            print "add $k $flags $keyexp{$k} $len\r\n$val\r\n";
+            # get the END
+            $_ = <$sock>;
+            $_ = <$sock>;
         }
     }
     exit;
