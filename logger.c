@@ -363,7 +363,7 @@ static int logger_thread_read(logger *l, struct logger_stats *ls) {
         } else {
             logger_thread_write_entry(e, ls, scratch, scratch_len);
         }
-        pos += sizeof(logentry) + e->size;
+        pos += sizeof(logentry) + e->size + e->pad;
     }
     assert(pos <= size);
 
@@ -699,8 +699,9 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
         l->dropped++;
         return LOGGER_RET_NOSPACE;
     }
-    e->gid = logger_get_gid();
     e->event = d->subtype;
+    e->pad = 0;
+    e->gid = logger_get_gid();
     /* TODO: Could pass this down as an argument now that we're using
      * LOGGER_LOG() macro.
      */
@@ -754,8 +755,15 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             break;
     }
 
+#ifdef NEED_ALIGN
+    /* Need to ensure *next* request is aligned. */
+    if (sizeof(logentry) + e->size % 8 != 0) {
+        e->pad = 8 - (sizeof(logentry) + e->size % 8);
+    }
+#endif
+
     /* Push pointer forward by the actual amount required */
-    if (bipbuf_push(buf, (sizeof(logentry) + e->size)) == 0) {
+    if (bipbuf_push(buf, (sizeof(logentry) + e->size + e->pad)) == 0) {
         fprintf(stderr, "LOGGER: Failed to bipbuf push a text entry\n");
         pthread_mutex_unlock(&l->mutex);
         return LOGGER_RET_ERR;

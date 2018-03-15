@@ -490,6 +490,8 @@ AC_CHECK_FUNCS(clock_gettime)
 AC_CHECK_FUNCS([accept4], [AC_DEFINE(HAVE_ACCEPT4, 1, [Define to 1 if support accept4])])
 AC_CHECK_FUNCS([getopt_long], [AC_DEFINE(HAVE_GETOPT_LONG, 1, [Define to 1 if support getopt_long])])
 
+dnl Need to disable opt for alignment check. GCC is too clever and turns this
+dnl into wide stores and no cmp under O2.
 AC_DEFUN([AC_C_ALIGNMENT],
 [AC_CACHE_CHECK(for alignment, ac_cv_c_alignment,
 [
@@ -497,6 +499,7 @@ AC_DEFUN([AC_C_ALIGNMENT],
     [AC_LANG_PROGRAM([
 #include <stdlib.h>
 #include <inttypes.h>
+#pragma GCC optimize ("O0")
     ], [
        char *buf = malloc(32);
 
@@ -551,7 +554,8 @@ dnl Check for usage of 64bit atomics
 dnl 32bit systems shouldn't have these.
 have_gcc_64atomics=no
 AC_MSG_CHECKING(for GCC 64bit atomics)
-AC_TRY_LINK([],[
+AC_TRY_LINK([#include <inttypes.h>
+   ],[
   uint64_t a;
   uint64_t b;
   b = __sync_add_and_fetch(&a, 1);

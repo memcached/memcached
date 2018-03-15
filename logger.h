@@ -100,6 +100,7 @@ struct logentry_item_store {
 
 typedef struct _logentry {
     enum log_entry_subtype event;
+    uint8_t pad;
     uint16_t eflags;
     uint64_t gid;
     struct timeval tv; /* not monotonic! */
