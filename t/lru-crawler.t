@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 221;
+use Test::More tests => 222;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -58,6 +58,18 @@ while (1) {
     is($slabs->{"1:used_chunks"}, 60, "slab1 now has 60 used chunks");
     my $items = mem_stats($sock, "items");
     is($items->{"items:1:crawler_reclaimed"}, 30, "slab1 has 30 reclaims");
+}
+
+# Check that crawler metadump works correctly.
+{
+    print $sock "lru_crawler metadump all\r\n";
+    my $count = 0;
+    while (<$sock>) {
+        last if /^(\.|END)/;
+        /^(key=) (\S+).*([^\r\n]+)/;
+        $count++;
+    }
+    is ($count, 60);
 }
 
 for (1 .. 30) {

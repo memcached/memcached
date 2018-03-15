@@ -533,6 +533,14 @@ static int do_lru_crawler_start(uint32_t id, uint32_t remaining) {
         if (remaining == LRU_CRAWLER_CAP_REMAINING) {
             remaining = do_get_lru_size(sid);
         }
+        /* Values for remaining:
+         * remaining = 0
+         * - scan all elements, until a NULL is reached
+         * - if empty, NULL is reached right away
+         * remaining = n + 1
+         * - first n elements are parsed (or until a NULL is reached)
+         */
+        if (remaining) remaining++;
         crawlers[sid].remaining = remaining;
         crawlers[sid].slabs_clsid = sid;
         crawlers[sid].reclaimed = 0;
