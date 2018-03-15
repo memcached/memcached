@@ -361,102 +361,102 @@ static void *item_crawler_thread(void *arg) {
     if (settings.verbose > 2)
         fprintf(stderr, "Starting LRU crawler background thread\n");
     while (do_run_lru_crawler_thread) {
-    pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
+        pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
 
-    while (crawler_count) {
-        item *search = NULL;
-        void *hold_lock = NULL;
+        while (crawler_count) {
+            item *search = NULL;
+            void *hold_lock = NULL;
 
-        for (i = POWER_SMALLEST; i < LARGEST_ID; i++) {
-            if (crawlers[i].it_flags != 1) {
-                continue;
-            }
+            for (i = POWER_SMALLEST; i < LARGEST_ID; i++) {
+                if (crawlers[i].it_flags != 1) {
+                    continue;
+                }
 
-            /* Get memory from bipbuf, if client has no space, flush. */
-            if (active_crawler_mod.c.c != NULL) {
-                int ret = lru_crawler_client_getbuf(&active_crawler_mod.c);
-                if (ret != 0) {
+                /* Get memory from bipbuf, if client has no space, flush. */
+                if (active_crawler_mod.c.c != NULL) {
+                    int ret = lru_crawler_client_getbuf(&active_crawler_mod.c);
+                    if (ret != 0) {
+                        lru_crawler_class_done(i);
+                        continue;
+                    }
+                } else if (active_crawler_mod.mod->needs_client) {
                     lru_crawler_class_done(i);
                     continue;
                 }
-            } else if (active_crawler_mod.mod->needs_client) {
-                lru_crawler_class_done(i);
-                continue;
-            }
-            pthread_mutex_lock(&lru_locks[i]);
-            search = do_item_crawl_q((item *)&crawlers[i]);
-            if (search == NULL ||
-                (crawlers[i].remaining && --crawlers[i].remaining < 1)) {
-                if (settings.verbose > 2)
-                    fprintf(stderr, "Nothing left to crawl for %d\n", i);
-                lru_crawler_class_done(i);
-                continue;
-            }
-            uint32_t hv = hash(ITEM_key(search), search->nkey);
-            /* Attempt to hash item lock the "search" item. If locked, no
-             * other callers can incr the refcount
-             */
-            if ((hold_lock = item_trylock(hv)) == NULL) {
-                pthread_mutex_unlock(&lru_locks[i]);
-                continue;
-            }
-            /* Now see if the item is refcount locked */
-            if (refcount_incr(search) != 2) {
-                refcount_decr(search);
+                pthread_mutex_lock(&lru_locks[i]);
+                search = do_item_crawl_q((item *)&crawlers[i]);
+                if (search == NULL ||
+                    (crawlers[i].remaining && --crawlers[i].remaining < 1)) {
+                    if (settings.verbose > 2)
+                        fprintf(stderr, "Nothing left to crawl for %d\n", i);
+                    lru_crawler_class_done(i);
+                    continue;
+                }
+                uint32_t hv = hash(ITEM_key(search), search->nkey);
+                /* Attempt to hash item lock the "search" item. If locked, no
+                 * other callers can incr the refcount
+                 */
+                if ((hold_lock = item_trylock(hv)) == NULL) {
+                    pthread_mutex_unlock(&lru_locks[i]);
+                    continue;
+                }
+                /* Now see if the item is refcount locked */
+                if (refcount_incr(search) != 2) {
+                    refcount_decr(search);
+                    if (hold_lock)
+                        item_trylock_unlock(hold_lock);
+                    pthread_mutex_unlock(&lru_locks[i]);
+                    continue;
+                }
+
+                crawlers[i].checked++;
+                /* Frees the item or decrements the refcount. */
+                /* Interface for this could improve: do the free/decr here
+                 * instead? */
+                if (!active_crawler_mod.mod->needs_lock) {
+                    pthread_mutex_unlock(&lru_locks[i]);
+                }
+
+                active_crawler_mod.mod->eval(&active_crawler_mod, search, hv, i);
+
                 if (hold_lock)
                     item_trylock_unlock(hold_lock);
-                pthread_mutex_unlock(&lru_locks[i]);
-                continue;
-            }
+                if (active_crawler_mod.mod->needs_lock) {
+                    pthread_mutex_unlock(&lru_locks[i]);
+                }
 
-            crawlers[i].checked++;
-            /* Frees the item or decrements the refcount. */
-            /* Interface for this could improve: do the free/decr here
-             * instead? */
-            if (!active_crawler_mod.mod->needs_lock) {
-                pthread_mutex_unlock(&lru_locks[i]);
-            }
-
-            active_crawler_mod.mod->eval(&active_crawler_mod, search, hv, i);
-
-            if (hold_lock)
-                item_trylock_unlock(hold_lock);
-            if (active_crawler_mod.mod->needs_lock) {
-                pthread_mutex_unlock(&lru_locks[i]);
-            }
-
-            if (crawls_persleep-- <= 0 && settings.lru_crawler_sleep) {
-                pthread_mutex_unlock(&lru_crawler_lock);
-                usleep(settings.lru_crawler_sleep);
-                pthread_mutex_lock(&lru_crawler_lock);
-                crawls_persleep = settings.crawls_persleep;
-            } else if (!settings.lru_crawler_sleep) {
-                // TODO: only cycle lock every N?
-                pthread_mutex_unlock(&lru_crawler_lock);
-                pthread_mutex_lock(&lru_crawler_lock);
+                if (crawls_persleep-- <= 0 && settings.lru_crawler_sleep) {
+                    pthread_mutex_unlock(&lru_crawler_lock);
+                    usleep(settings.lru_crawler_sleep);
+                    pthread_mutex_lock(&lru_crawler_lock);
+                    crawls_persleep = settings.crawls_persleep;
+                } else if (!settings.lru_crawler_sleep) {
+                    // TODO: only cycle lock every N?
+                    pthread_mutex_unlock(&lru_crawler_lock);
+                    pthread_mutex_lock(&lru_crawler_lock);
+                }
             }
         }
-    }
 
-    if (active_crawler_mod.mod != NULL) {
-        if (active_crawler_mod.mod->finalize != NULL)
-            active_crawler_mod.mod->finalize(&active_crawler_mod);
-        while (active_crawler_mod.c.c != NULL && bipbuf_used(active_crawler_mod.c.buf)) {
-            lru_crawler_poll(&active_crawler_mod.c);
+        if (active_crawler_mod.mod != NULL) {
+            if (active_crawler_mod.mod->finalize != NULL)
+                active_crawler_mod.mod->finalize(&active_crawler_mod);
+            while (active_crawler_mod.c.c != NULL && bipbuf_used(active_crawler_mod.c.buf)) {
+                lru_crawler_poll(&active_crawler_mod.c);
+            }
+            // Double checking in case the client closed during the poll
+            if (active_crawler_mod.c.c != NULL) {
+                lru_crawler_release_client(&active_crawler_mod.c);
+            }
+            active_crawler_mod.mod = NULL;
         }
-        // Double checking in case the client closed during the poll
-        if (active_crawler_mod.c.c != NULL) {
-            lru_crawler_release_client(&active_crawler_mod.c);
-        }
-        active_crawler_mod.mod = NULL;
-    }
 
-    if (settings.verbose > 2)
-        fprintf(stderr, "LRU crawler thread sleeping\n");
+        if (settings.verbose > 2)
+            fprintf(stderr, "LRU crawler thread sleeping\n");
 
-    STATS_LOCK();
-    stats_state.lru_crawler_running = false;
-    STATS_UNLOCK();
+        STATS_LOCK();
+        stats_state.lru_crawler_running = false;
+        STATS_UNLOCK();
     }
     pthread_mutex_unlock(&lru_crawler_lock);
     if (settings.verbose > 2)
