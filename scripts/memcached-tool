@@ -20,6 +20,7 @@ use IO::Socket::INET;
 my $addr = shift;
 my $mode = shift || "display";
 my ($from, $to);
+my $limit;
 
 if ($mode eq "display") {
     undef $mode if @ARGV;
@@ -30,7 +31,11 @@ if ($mode eq "display") {
     undef $mode if $to   < 6 || $to   > 17;
     print STDERR "ERROR: parameters out of range\n\n" unless $mode;
 } elsif ($mode eq 'dump') {
-    ;
+    if (@ARGV) {
+        $limit = shift;
+        undef $mode if $limit < 1;
+        print STDERR "ERROR: invalid limit (should be a positive number)\n\n" unless $mode;
+    }
 } elsif ($mode eq 'stats') {
     ;
 } elsif ($mode eq 'settings') {
@@ -45,12 +50,12 @@ undef $mode if @ARGV;
 
 die
     "Usage: memcached-tool <host[:port] | /path/to/socket> [mode]\n
-       memcached-tool 10.0.0.5:11211 display    # shows slabs
-       memcached-tool 10.0.0.5:11211            # same.  (default is display)
-       memcached-tool 10.0.0.5:11211 stats      # shows general stats
-       memcached-tool 10.0.0.5:11211 settings   # shows settings stats
-       memcached-tool 10.0.0.5:11211 sizes      # shows sizes stats
-       memcached-tool 10.0.0.5:11211 dump       # dumps keys and values
+       memcached-tool 10.0.0.5:11211 display        # shows slabs
+       memcached-tool 10.0.0.5:11211                # same.  (default is display)
+       memcached-tool 10.0.0.5:11211 stats          # shows general stats
+       memcached-tool 10.0.0.5:11211 settings       # shows settings stats
+       memcached-tool 10.0.0.5:11211 sizes          # shows sizes stats
+       memcached-tool 10.0.0.5:11211 dump [limit]   # dumps keys and values
 
 WARNING! sizes is a development command.
 As of 1.4 it is still the only command which will lock your memcached instance for some time.
@@ -60,28 +65,36 @@ or at least speed it up.
 " unless $addr && $mode;
 
 
-my $sock;
-if ($addr =~ m:/:) {
-    $sock = IO::Socket::UNIX->new(
-        Peer => $addr,
-    );
-}
-else {
-    $addr .= ':11211' unless $addr =~ /:\d+$/;
+sub server_connect {
+    my $sock;
+    if ($addr =~ m:/:) {
+        $sock = IO::Socket::UNIX->new(
+            Peer => $addr,
+        );
+    }
+    else {
+        $addr .= ':11211' unless $addr =~ /:\d+$/;
 
-    $sock = IO::Socket::INET->new(
-        PeerAddr => $addr,
-        Proto    => 'tcp',
-    );
+        $sock = IO::Socket::INET->new(
+            PeerAddr => $addr,
+            Proto    => 'tcp',
+        );
+    }
+    die "Couldn't connect to $addr\n" unless $sock;
+    return $sock;
 }
-die "Couldn't connect to $addr\n" unless $sock;
+
+my $sock = server_connect();
 
 if ($mode eq 'dump') {
-    print STDERR "Dumping memcache contents\n";
+    print STDERR "Dumping memcache contents";
+    print STDERR " (limiting to $limit keys)" unless !$limit;
+    print STDERR "\n";
     print $sock "lru_crawler metadump all\r\n";
     my %keyexp;
+    my $keycount = 0;
     while (<$sock>) {
-        last if /^END/;
+        last if /^END/ or ($limit and $keycount == $limit);
         # return format looks like this
         # key=foo exp=2147483647 la=1521046038 cas=717111 fetch=no cls=13 size=1232
         if (/^key=(\S+) exp=(-?\d+) .*/) {
@@ -91,6 +104,18 @@ if ($mode eq 'dump') {
                 $keyexp{$1} = $2;
             }
         }
+        $keycount++;
+    }
+
+    if ($limit) {
+        # Need to reopen the connection here to stop the metadump in
+        # case the key limit was reached.
+        #
+        # XXX: Once a limit on # of keys returned is introduced in
+        # `lru_crawler metadump`, this should be removed and the proper
+        # parameter passed in the query above.
+        close($sock);
+        $sock = server_connect();
     }
 
     foreach my $k (keys(%keyexp)) {
