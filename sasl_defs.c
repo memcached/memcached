@@ -7,7 +7,7 @@
 
 char my_sasl_hostname[1025];
 
-#ifdef HAVE_SASL_CB_GETCONF
+#if defined(HAVE_SASL_CB_GETCONF) || defined(HAVE_SASL_CB_GETCONFPATH)
 /* The locations we may search for a SASL config file if the user didn't
  * specify one in the environment variable SASL_CONF_PATH
  */
@@ -82,7 +82,7 @@ static int sasl_server_userdb_checkpass(sasl_conn_t *conn,
 }
 #endif
 
-#ifdef HAVE_SASL_CB_GETCONF
+#if defined(HAVE_SASL_CB_GETCONF) || defined(HAVE_SASL_CB_GETCONFPATH)
 static int sasl_getconf(void *context, const char **path)
 {
     *path = getenv("SASL_CONF_PATH");
@@ -152,6 +152,10 @@ static sasl_callback_t sasl_callbacks[] = {
 
 #ifdef HAVE_SASL_CB_GETCONF
    { SASL_CB_GETCONF, sasl_getconf, NULL },
+#else
+#ifdef HAVE_SASL_CB_GETCONFPATH
+   { SASL_CB_GETCONFPATH, (sasl_callback_ft)sasl_getconf, NULL },
+#endif
 #endif
 
    { SASL_CB_LIST_END, NULL, NULL }
