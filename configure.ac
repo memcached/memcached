@@ -122,9 +122,33 @@ unsigned long val = SASL_CB_GETCONF;
                      [Set to nonzero if your SASL implementation supports SASL_CB_GETCONF])])
 ])
 
+dnl **********************************************************************
+dnl DETECT_SASL_CB_GETCONFPATH
+dnl
+dnl check if we can use SASL_CB_GETCONFPATH
+dnl **********************************************************************
+AC_DEFUN([AC_C_DETECT_SASL_CB_GETCONFPATH],
+[
+    AC_CACHE_CHECK([for SASL_CB_GETCONFPATH],
+        [ac_cv_c_sasl_cb_getconfpath],
+        [AC_TRY_COMPILE(
+            [
+#include <sasl/sasl.h>
+            ], [
+unsigned long val = SASL_CB_GETCONFPATH;
+            ],
+            [ ac_cv_c_sasl_cb_getconfpath=yes ],
+            [ ac_cv_c_sasl_cb_getconfpath=no ])
+        ])
+    AS_IF([test "$ac_cv_c_sasl_cb_getconfpath" = "yes"],
+          [AC_DEFINE([HAVE_SASL_CB_GETCONFPATH], 1,
+                     [Set to nonzero if your SASL implementation supports SASL_CB_GETCONFPATH])])
+])
+
 AC_CHECK_HEADERS([sasl/sasl.h])
 if test "x$enable_sasl" = "xyes"; then
   AC_C_DETECT_SASL_CB_GETCONF
+  AC_C_DETECT_SASL_CB_GETCONFPATH
   AC_DEFINE([ENABLE_SASL],1,[Set to nonzero if you want to include SASL])
   AC_SEARCH_LIBS([sasl_server_init], [sasl2 sasl], [],
     [
