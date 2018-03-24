@@ -305,6 +305,8 @@ void *extstore_init(char *fn, struct extstore_conf *cf,
     e->maint_thread = calloc(1, sizeof(store_maint_thread));
     e->maint_thread->e = e;
     // FIXME: error handling
+    pthread_mutex_init(&e->maint_thread->mutex, NULL);
+    pthread_cond_init(&e->maint_thread->cond, NULL);
     pthread_create(&thread, NULL, extstore_maint_thread, e->maint_thread);
 
     return (void *)e;
