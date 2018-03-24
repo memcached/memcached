@@ -18,6 +18,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <assert.h>
+#include <grp.h>
 
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
