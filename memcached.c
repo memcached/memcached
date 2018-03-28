@@ -1686,10 +1686,11 @@ static void process_bin_get_or_touch(conn *c) {
             c->write_and_go = conn_new_cmd;
             /* Remember this command so we can garbage collect it later */
 #ifdef EXTSTORE
-            if ((it->it_flags & ITEM_HDR) == 0) {
-                c->item = it;
-            } else {
+            if ((it->it_flags & ITEM_HDR) != 0 && should_return_value) {
+                // Only have extstore clean if header and returning value.
                 c->item = NULL;
+            } else {
+                c->item = it;
             }
 #else
             c->item = it;
