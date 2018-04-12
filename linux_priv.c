@@ -58,8 +58,13 @@ void drop_privileges(void) {
         goto fail;
     }
 
+    seccomp_release(ctx);
+    return;
+
 fail:
     seccomp_release(ctx);
+    fprintf(stderr, "Failed to set a seccomp profile on the main thread\n");
+    exit(EXIT_FAILURE);
 }
 
 void drop_worker_privileges(void) {
@@ -135,6 +140,11 @@ void drop_worker_privileges(void) {
         goto fail;
     }
 
+    seccomp_release(ctx);
+    return;
+
 fail:
     seccomp_release(ctx);
+    fprintf(stderr, "Failed to set a seccomp profile on a worker thread\n");
+    exit(EXIT_FAILURE);
 }
