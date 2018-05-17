@@ -139,8 +139,8 @@ void pause_threads(enum pause_thread_types type) {
     buf[0] = 0;
     switch (type) {
         case PAUSE_ALL_THREADS:
-            lru_maintainer_pause();
             slabs_rebalancer_pause();
+            lru_maintainer_pause();
             lru_crawler_pause();
 #ifdef EXTSTORE
             storage_compact_pause();
@@ -150,8 +150,8 @@ void pause_threads(enum pause_thread_types type) {
             pthread_mutex_lock(&worker_hang_lock);
             break;
         case RESUME_ALL_THREADS:
-            lru_maintainer_resume();
             slabs_rebalancer_resume();
+            lru_maintainer_resume();
             lru_crawler_resume();
 #ifdef EXTSTORE
             storage_compact_resume();
