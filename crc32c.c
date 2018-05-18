@@ -40,6 +40,9 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <pthread.h>
+#if defined(__linux__) && defined(__aarch64__)
+#include <sys/auxv.h>
+#endif
 #include "crc32c.h"
 
 /* CRC-32C (iSCSI) polynomial in reversed bit order. */
@@ -108,6 +111,60 @@ static uint32_t crc32c_sw(uint32_t crci, const void *buf, size_t len)
     }
     return (uint32_t)crc ^ 0xffffffff;
 }
+
+/* Hardware CRC support for aarch64 platform */
+#if defined(__linux__) && defined(__aarch64__)
+
+#define CRC32CX(crc, value) __asm__("crc32cx %w[c], %w[c], %x[v]":[c]"+r"(crc):[v]"r"(+value))
+#define CRC32CW(crc, value) __asm__("crc32cw %w[c], %w[c], %w[v]":[c]"+r"(crc):[v]"r"(+value))
+#define CRC32CH(crc, value) __asm__("crc32ch %w[c], %w[c], %w[v]":[c]"+r"(crc):[v]"r"(+value))
+#define CRC32CB(crc, value) __asm__("crc32cb %w[c], %w[c], %w[v]":[c]"+r"(crc):[v]"r"(+value))
+
+#ifndef HWCAP_CRC32
+#define HWCAP_CRC32             (1 << 7)
+#endif /* HWCAP for crc32 */
+
+static uint32_t crc32c_hw_aarch64(uint32_t crc, const void* buf, size_t len)
+{
+        const uint8_t* p_buf = buf;
+        uint64_t crc64bit = crc;
+        for (size_t i = 0; i < len / sizeof(uint64_t); i++) {
+                CRC32CX(crc64bit, *(uint64_t*) p_buf);
+                p_buf += sizeof(uint64_t);
+        }
+
+        uint32_t crc32bit = (uint32_t) crc64bit;
+        len &= sizeof(uint64_t) - 1;
+        switch (len) {
+        case 7:
+                CRC32CB(crc32bit, *p_buf++);
+        case 6:
+                CRC32CH(crc32bit, *(uint16_t*) p_buf);
+                p_buf += 2;
+        case 4:
+                CRC32CW(crc32bit, *(uint32_t*) p_buf);
+                break;
+        case 3:
+                CRC32CB(crc32bit, *p_buf++);
+        case 2:
+                CRC32CH(crc32bit, *(uint16_t*) p_buf);
+                break;
+        case 5:
+                CRC32CW(crc32bit, *(uint32_t*) p_buf);
+                p_buf += 4;
+        case 1:
+                CRC32CB(crc32bit, *p_buf);
+                break;
+        case 0:
+                break;
+        }
+
+        return crc32bit;
+}
+#endif
+
+/* Apply if the platform is intel */
+#if defined(__X86_64__)||defined(__x86_64__)||defined(__ia64__)
 
 /* Multiply a matrix times a vector over the Galois field of two elements,
    GF(2).  Each element is a bit in an unsigned integer.  mat must have at
@@ -329,15 +386,27 @@ static uint32_t crc32c_hw(uint32_t crc, const void *buf, size_t len)
         (have) = (ecx >> 20) & 1; \
     } while (0)
 
+#endif
 /* Compute a CRC-32C.  If the crc32 instruction is available, use the hardware
    version.  Otherwise, use the software version. */
 void crc32c_init(void) {
+    #if defined(__X86_64__)||defined(__x86_64__)||defined(__ia64__)
     int sse42;
-
     SSE42(sse42);
+
     if (sse42) {
         crc32c = crc32c_hw;
-    } else {
+    } else
+    #endif
+    /* Check if CRC instructions supported by aarch64 */
+    #if defined(__linux__) && defined(__aarch64__)
+    unsigned long hwcap = getauxval(AT_HWCAP);
+
+    if (hwcap & HWCAP_CRC32) {
+        crc32c = crc32c_hw_aarch64;
+    } else
+    #endif
+    {
         crc32c = crc32c_sw;
     }
 }
