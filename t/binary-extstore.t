@@ -181,7 +181,10 @@ $set->('x', 10, 19, "somevalue");
     # filled after the first few items, then the eviction algo pulls those
     # pages since they have the lowest version number, leaving older objects
     # in memory and evicting newer ones.
-    $empty->('mfoo500');
+    for (1 .. ($keycount*3)) {
+        next unless $_ % 100 == 0;
+        eval { $mc->get("mfoo$_"); };
+    }
 
     my %s = $mc->stats('');
     cmp_ok($s{extstore_objects_evicted}, '>', 0);
