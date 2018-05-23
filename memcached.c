@@ -3584,14 +3584,14 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
         // item is chunked, crc the iov's
         if (io->iov != NULL) {
             // first iov is the header, which we don't use beyond crc
-            crc2 = crc32c(0, (char *)io->iov[0].iov_base+32, io->iov[0].iov_len-32);
+            crc2 = crc32c(0, (char *)io->iov[0].iov_base+STORE_OFFSET, io->iov[0].iov_len-STORE_OFFSET);
             // make sure it's not sent. hack :(
             io->iov[0].iov_len = 0;
             for (x = 1; x < io->iovcnt; x++) {
                 crc2 = crc32c(crc2, (char *)io->iov[x].iov_base, io->iov[x].iov_len);
             }
         } else {
-            crc2 = crc32c(0, (char *)read_it+32, io->len-32);
+            crc2 = crc32c(0, (char *)read_it+STORE_OFFSET, io->len-STORE_OFFSET);
         }
 
         if (crc != crc2) {
@@ -3658,7 +3658,12 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
 
 // FIXME: This completely breaks UDP support.
 static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
+#ifdef NEED_ALIGN
+    item_hdr hdr;
+    memcpy(&hdr, ITEM_data(it), sizeof(hdr));
+#else
     item_hdr *hdr = (item_hdr *)ITEM_data(it);
+#endif
     size_t ntotal = ITEM_ntotal(it);
     unsigned int clsid = slabs_clsid(ntotal);
     item *new_it;
@@ -3746,9 +3751,15 @@ static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
     io->io.data = (void *)io;
 
     // Now, fill in io->io based on what was in our header.
+#ifdef NEED_ALIGN
+    io->io.page_version = hdr.page_version;
+    io->io.page_id = hdr.page_id;
+    io->io.offset = hdr.offset;
+#else
     io->io.page_version = hdr->page_version;
     io->io.page_id = hdr->page_id;
     io->io.offset = hdr->offset;
+#endif
     io->io.len = ntotal;
     io->io.mode = OBJ_IO_READ;
     io->io.cb = _get_extstore_cb;

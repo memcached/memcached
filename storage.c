@@ -81,7 +81,7 @@ int lru_maintainer_store(void *storage, const int clsid) {
                     int copied = 0;
                     // copy original header
                     int hdrtotal = ITEM_ntotal(it) - it->nbytes;
-                    memcpy((char *)io.buf+32, (char *)it+32, hdrtotal - 32);
+                    memcpy((char *)io.buf+STORE_OFFSET, (char *)it+STORE_OFFSET, hdrtotal - STORE_OFFSET);
                     copied = hdrtotal;
                     // copy data in like it were one large object.
                     while (sch && remain) {
@@ -93,11 +93,11 @@ int lru_maintainer_store(void *storage, const int clsid) {
                         sch = sch->next;
                     }
                 } else {
-                    memcpy((char *)io.buf+32, (char *)it+32, io.len-32);
+                    memcpy((char *)io.buf+STORE_OFFSET, (char *)it+STORE_OFFSET, io.len-STORE_OFFSET);
                 }
                 // crc what we copied so we can do it sequentially.
                 buf_it->it_flags &= ~ITEM_LINKED;
-                buf_it->exptime = crc32c(0, (char*)io.buf+32, orig_ntotal-32);
+                buf_it->exptime = crc32c(0, (char*)io.buf+STORE_OFFSET, orig_ntotal-STORE_OFFSET);
                 extstore_write(storage, &io);
                 item_hdr *hdr = (item_hdr *) ITEM_data(hdr_it);
                 hdr->page_version = io.page_version;
