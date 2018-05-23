@@ -82,6 +82,9 @@ fi
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
+AC_ARG_ENABLE(arm_crc32,
+  [AS_HELP_STRING([--enable-arm-crc32], [Enable ARMv8 CRC32 instructions])])
+
 AC_ARG_ENABLE(extstore,
   [AS_HELP_STRING([--enable-extstore], [Enable external storage EXPERIMENTAL ])])
 
@@ -184,13 +187,18 @@ if test "x$enable_dtrace" = "xyes"; then
 fi
 
 if test "x$enable_extstore" = "xyes"; then
-    AC_DEFINE([EXTSTORE],1,[Set to nonzero if you want to enable extstorextstore])
+    AC_DEFINE([EXTSTORE],1,[Set to nonzero if you want to enable extstore])
+fi
+
+if test "x$enable_arm_crc32" = "xyes"; then
+    AC_DEFINE([ARM_CRC32],1,[Set to nonzero if you want to enable ARMv8 crc32])
 fi
 
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
 AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" = "yes"])
+AM_CONDITIONAL([ENABLE_ARM_CRC32],[test "$enable_arm_crc32" = "yes"])
 
 AC_SUBST(DTRACE)
 AC_SUBST(DTRACEFLAGS)

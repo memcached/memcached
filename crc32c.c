@@ -40,6 +40,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <pthread.h>
+#include "config.h"
 #if defined(__linux__) && defined(__aarch64__)
 #include <sys/auxv.h>
 #endif
@@ -113,7 +114,7 @@ static uint32_t crc32c_sw(uint32_t crci, const void *buf, size_t len)
 }
 
 /* Hardware CRC support for aarch64 platform */
-#if defined(__linux__) && defined(__aarch64__)
+#if defined(__linux__) && defined(__aarch64__) && defined(ARM_CRC32)
 
 #define CRC32CX(crc, value) __asm__("crc32cx %w[c], %w[c], %x[v]":[c]"+r"(crc):[v]"r"(+value))
 #define CRC32CW(crc, value) __asm__("crc32cw %w[c], %w[c], %w[v]":[c]"+r"(crc):[v]"r"(+value))
@@ -399,7 +400,7 @@ void crc32c_init(void) {
     } else
     #endif
     /* Check if CRC instructions supported by aarch64 */
-    #if defined(__linux__) && defined(__aarch64__)
+    #if defined(__linux__) && defined(__aarch64__) && defined(ARM_CRC32)
     unsigned long hwcap = getauxval(AT_HWCAP);
 
     if (hwcap & HWCAP_CRC32) {
