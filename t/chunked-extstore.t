@@ -18,8 +18,25 @@ if (!supports_extstore()) {
 
 $ext_path = "/tmp/extstore.$$";
 
-my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_page_count=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path,slab_chunk_max=16384,slab_automove=0");
+my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_page_count=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path,slab_chunk_max=16384,slab_automove=0,ext_compact_under=1");
 my $sock = $server->sock;
+
+# Wait until all items have flushed
+sub wait_for_ext {
+    my $sum = 1;
+    while ($sum != 0) {
+        my $s = mem_stats($sock, "items");
+        $sum = 0;
+        for my $key (keys %$s) {
+            if ($key =~ m/items:(\d+):number/) {
+                # Ignore classes which can contain extstore items
+                next if $1 < 3;
+                $sum += $s->{$key};
+            }
+        }
+        sleep 1 if $sum != 0;
+    }
+}
 
 # We're testing to ensure item chaining doesn't corrupt or poorly overlap
 # data, so create a non-repeating pattern.
@@ -58,7 +75,7 @@ for (1..5) {
         print $sock "set toast$_ 0 0 $biglen\r\n$big\r\n";
         is(scalar <$sock>, "STORED\r\n", "stored big");
     }
-    sleep 4;
+    wait_for_ext();
 
     for (1..40) {
         mem_get_is($sock, "toast$_", $big);
@@ -76,18 +93,19 @@ for (1..5) {
 
 # fill to eviction
 {
-    my $keycount = 2000;
+    my $keycount = 1250;
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 $plen noreply\r\n$pattern\r\n";
-        sleep 1 if ($_ % 250 == 0);
+        wait_for_ext() if $_ % 500 == 0;
     }
-    sleep 1;
+    # because item_age is set to 2s.
+    wait_for_ext();
 
     my $stats = mem_stats($sock);
     cmp_ok($stats->{extstore_page_evictions}, '>', 0, 'at least one page evicted');
     cmp_ok($stats->{extstore_objects_evicted}, '>', 0, 'at least one object evicted');
     cmp_ok($stats->{extstore_bytes_evicted}, '>', 0, 'some bytes evicted');
-    is($stats->{extstore_pages_free}, 1, '1 page is free');
+    cmp_ok($stats->{extstore_pages_free}, '<', 2, 'most pages are used');
     is($stats->{miss_from_extstore}, 0, 'no misses');
 
     # original "pattern" key should be gone.
@@ -107,14 +125,18 @@ for (1..5) {
         print $sock "delete toast$_ noreply\r\n" if $_ % 2 == 0;
     }
 
-    for (1..1000) {
+    for (1..1250) {
         # Force a read so objects don't get skipped.
-        mem_get_is($sock, "mfoo$_", $pattern) if $_ % 2 == 1;
+        print $sock "add mfoo$_ 0 0 1 noreply\r\n1\r\n" if $_ % 2 == 1;
     }
-    for (1..1000) {
-        # Force a read so objects don't get skipped.
+    for (1..1250) {
+        # Delete lots of objects to trigger compaction.
         print $sock "delete mfoo$_ noreply\r\n" if $_ % 2 == 0;
     }
+    print $sock "extstore compact_under 4\r\n";
+    my $res = <$sock>;
+    print $sock "extstore drop_under 3\r\n";
+    $res = <$sock>;
 
     sleep 4;
 
@@ -123,7 +145,7 @@ for (1..5) {
     cmp_ok($stats->{extstore_compact_rescues}, '>', 0, 'some compaction rescues happened');
 
     # Some of the early items got evicted
-    for (100..1000) {
+    for (750..1250) {
         # everything should validate properly.
         mem_get_is($sock, "mfoo$_", $pattern) if $_ % 2 == 1;
     }
@@ -134,20 +156,12 @@ for (1..5) {
     print $sock "extstore recache_rate 1\r\n";
     is(scalar <$sock>, "OK\r\n", "upped recache rate");
 
-    for (800..1000) {
+    for (1150..1250) {
         mem_get_is($sock, "mfoo$_", $pattern) if $_ % 2 == 1;
     }
 
     my $stats = mem_stats($sock);
-    cmp_ok($stats->{recache_from_extstore}, '>', 100, 'recaching happening');
-
-    for (800..1000) {
-        mem_get_is($sock, "mfoo$_", $pattern) if $_ % 2 == 1;
-    }
-
-    my $stats2 = mem_stats($sock);
-    is($stats->{recache_from_extstore}, $stats2->{recache_from_extstore},
-        'values already recached');
+    cmp_ok($stats->{recache_from_extstore}, '>', 25, 'recaching happening');
 }
 
 done_testing();
