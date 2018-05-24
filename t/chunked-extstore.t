@@ -76,11 +76,12 @@ for (1..5) {
 
 # fill to eviction
 {
-    my $keycount = 1000;
+    my $keycount = 2000;
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 $plen noreply\r\n$pattern\r\n";
+        sleep 1 if ($_ % 250 == 0);
     }
-    sleep 6;
+    sleep 1;
 
     my $stats = mem_stats($sock);
     cmp_ok($stats->{extstore_page_evictions}, '>', 0, 'at least one page evicted');

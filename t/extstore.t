@@ -83,11 +83,12 @@ mem_get_is($sock, "foo", "hi");
 
 # fill to eviction
 {
-    my $keycount = 3000;
+    my $keycount = 4000;
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 20000 noreply\r\n$value\r\n";
+        sleep 1 if ($_ % 1000 == 0);
     }
-    sleep 4;
+    sleep 1;
     my $stats = mem_stats($sock);
     is($stats->{miss_from_extstore}, 0, 'no misses');
     mem_get_is($sock, "canary", undef);
