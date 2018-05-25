@@ -56,6 +56,18 @@ for (my $key = 0; $key < 100; $key++) {
         # Items need two fetches to become active
         mem_get_is($sock, "canary", $value);
         mem_get_is($sock, "canary", $value);
+        $stats = mem_stats($sock);
+        # The maintainer thread needs to juggle a bit to actually rescue an
+        # item. If it's slow we could evict after resuming setting.
+        sleep 1;
+        for (0..4) {
+            my $s2 = mem_stats($sock);
+            if ($s2->{lru_maintainer_juggles} - $stats->{lru_maintainer_juggles} < 5) {
+                sleep 1;
+                next;
+            }
+            last;
+        }
     }
     print $sock "set key$key 0 0 66560\r\n$value\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key$key");
