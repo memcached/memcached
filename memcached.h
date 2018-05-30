@@ -555,6 +555,7 @@ typedef struct _io_wrap {
 struct conn {
     int    sfd;
     sasl_conn_t *sasl_conn;
+    bool sasl_started;
     bool authenticated;
     enum conn_states  state;
     enum bin_substates substate;

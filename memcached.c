@@ -612,6 +612,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->iovused = 0;
     c->msgcurr = 0;
     c->msgused = 0;
+    c->sasl_started = false;
     c->authenticated = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
 #ifdef EXTSTORE
@@ -2106,8 +2107,16 @@ static void process_bin_complete_sasl_auth(conn *c) {
         result = sasl_server_start(c->sasl_conn, mech,
                                    challenge, vlen,
                                    &out, &outlen);
+        c->sasl_started = (result == SASL_OK || result == SASL_CONTINUE);
         break;
     case PROTOCOL_BINARY_CMD_SASL_STEP:
+        if (!c->sasl_started) {
+            if (settings.verbose) {
+                fprintf(stderr, "%d: SASL_STEP called but sasl_server_start "
+                        "not called for this connection!\n", c->sfd);
+            }
+            break;
+        }
         result = sasl_server_step(c->sasl_conn,
                                   challenge, vlen,
                                   &out, &outlen);
