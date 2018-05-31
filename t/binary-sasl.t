@@ -13,7 +13,7 @@ use Test::More;
 
 if (supports_sasl()) {
     if ($ENV{'RUN_SASL_TESTS'}) {
-        plan tests => 33;
+        plan tests => 34;
     } else {
         plan skip_all => 'Skipping SASL tests';
         exit 0;
@@ -263,6 +263,11 @@ $empty->('x', 'somevalue');
     cmp_ok($status,'==',ERR_AUTH_ERROR, "error code matches");
 }
 
+{
+    my $mc = MC::Client->new;
+    is ($mc->sasl_step('testuser', 'testpass'), 0x20, "sasl_step_fails_no_segfault");
+}
+
 # check the SASL stats, make sure they track things correctly
 # note: the enabled or not is presence checked in stats.t
 
@@ -275,8 +280,8 @@ $empty->('x', 'somevalue');
 
 {
     my %stats = $mc->stats('');
-    is ($stats{'auth_cmds'}, 5, "auth commands counted");
-    is ($stats{'auth_errors'}, 3, "auth errors correct");
+    is ($stats{'auth_cmds'}, 6, "auth commands counted");
+    is ($stats{'auth_errors'}, 4, "auth errors correct");
 }
 
 
@@ -313,6 +318,13 @@ sub authenticate {
     $mech ||= 'PLAIN';
     my $buf = sprintf("%c%s@%s%c%s", 0, $user, $sasl_realm, 0, $pass);
     my ($status, $rv, undef) = $self->_do_command(::CMD_SASL_AUTH, $mech, $buf, '');
+    return $status;
+}
+sub sasl_step {
+    my ($self, $user, $pass, $mech)= @_;
+    $mech ||= 'PLAIN';
+    my $buf = sprintf("%c%s@%s%c%s", 0, $user, $sasl_realm, 0, $pass);
+    my ($status, $rv, undef) = $self->_do_command(::CMD_SASL_STEP, $mech, $buf, '');
     return $status;
 }
 sub list_mechs {
