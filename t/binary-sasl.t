@@ -192,7 +192,9 @@ for my $dir (split(/:/, $ENV{PATH}),
     }
 }
 
-system("echo testpass | $saslpasswd_path -a memcached -c -p testuser");
+my $sasl_realm = 'memcached.realm';
+
+system("echo testpass | $saslpasswd_path -a memcached -u $sasl_realm -c -p testuser");
 
 $mc = MC::Client->new;
 
@@ -309,7 +311,7 @@ sub new {
 sub authenticate {
     my ($self, $user, $pass, $mech)= @_;
     $mech ||= 'PLAIN';
-    my $buf = sprintf("%c%s%c%s", 0, $user, 0, $pass);
+    my $buf = sprintf("%c%s@%s%c%s", 0, $user, $sasl_realm, 0, $pass);
     my ($status, $rv, undef) = $self->_do_command(::CMD_SASL_AUTH, $mech, $buf, '');
     return $status;
 }
@@ -661,4 +663,3 @@ sub auth_error {
 unlink $sasldb;
 
 # vim: filetype=perl
-
