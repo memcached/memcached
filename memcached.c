@@ -6257,6 +6257,7 @@ static void usage(void) {
 #ifdef EXTSTORE
            "   - ext_path:            file to write to for external storage.\n"
            "   - ext_page_size:       size in megabytes of storage pages.\n"
+           "   - ext_page_count:      total number of storage pages.\n"
            "   - ext_wbuf_size:       size in megabytes of page write buffers.\n"
            "   - ext_threads:         number of IO threads to run.\n"
            "   - ext_item_size:       store items larger than this (bytes)\n"
@@ -6267,6 +6268,7 @@ static void usage(void) {
            "   - ext_compact_under:   compact when fewer than this many free pages\n"
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
+           "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info)\n"
 #endif
            );
