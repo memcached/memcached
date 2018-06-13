@@ -141,6 +141,19 @@
 #define APPEND_NUM_STAT(num, name, fmt, val) \
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
+/** Item client flag conversion */
+#define FLAGS_CONV(iar, it) (__extension__ ({ \
+	uint32_t flag; \
+	if ((iar)) { \
+		flag = (uint32_t) strtoul(ITEM_suffix((it)), (char **) NULL, 10); \
+	} else if ((it)->nsuffix > 0) { \
+		flag = *((uint32_t *)ITEM_suffix((it))); \
+	} else { \
+		flag = 0; \
+	} \
+	flag; \
+}))
+
 /**
  * Callback for any function producing stats.
  *

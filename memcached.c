@@ -1640,13 +1640,7 @@ static void process_bin_get_or_touch(conn *c) {
         rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
 
         // add the flags
-        if (settings.inline_ascii_response) {
-            rsp->message.body.flags = htonl(strtoul(ITEM_suffix(it), NULL, 10));
-        } else if (it->nsuffix > 0) {
-            rsp->message.body.flags = htonl(*((uint32_t *)ITEM_suffix(it)));
-        } else {
-            rsp->message.body.flags = 0;
-        }
+        rsp->message.body.flags = htonl(FLAGS_CONV(settings.inline_ascii_response, it));
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
         if (should_return_key) {
@@ -2858,15 +2852,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
                 /* flags was already lost - so recover them from ITEM_suffix(it) */
-
-                if (settings.inline_ascii_response) {
-                    flags = (uint32_t) strtoul(ITEM_suffix(old_it), (char **) NULL, 10);
-                } else if (old_it->nsuffix > 0) {
-                    flags = *((uint32_t *)ITEM_suffix(old_it));
-                } else {
-                    flags = 0;
-                }
-
+                flags = FLAGS_CONV(settings.inline_ascii_response, old_it);
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
                 /* copy data from it and old_it to new_it */
@@ -3670,16 +3656,8 @@ static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
     bool chunked = false;
     if (ntotal > settings.slab_chunk_size_max) {
         // Pull a chunked item header.
-        // FIXME: make a func. used in several places.
         uint32_t flags;
-        if (settings.inline_ascii_response) {
-            flags = (uint32_t) strtoul(ITEM_suffix(it), (char **) NULL, 10);
-        } else if (it->nsuffix > 0) {
-            flags = *((uint32_t *)ITEM_suffix(it));
-        } else {
-            flags = 0;
-        }
-
+        flags = FLAGS_CONV(settings.inline_ascii_response, it);
         new_it = item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, it->nbytes);
         assert(new_it == NULL || (new_it->it_flags & ITEM_CHUNKED));
         chunked = true;
@@ -4251,13 +4229,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     } else if (it->refcount > 1) {
         item *new_it;
         uint32_t flags;
-        if (settings.inline_ascii_response) {
-            flags = (uint32_t) strtoul(ITEM_suffix(it), (char **) NULL, 10);
-        } else if (it->nsuffix > 0) {
-            flags = *((uint32_t *)ITEM_suffix(it));
-        } else {
-            flags = 0;
-        }
+        flags = FLAGS_CONV(settings.inline_ascii_response, it);
         new_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, res + 2);
         if (new_it == 0) {
             do_item_remove(it);
