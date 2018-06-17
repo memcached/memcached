@@ -14,6 +14,9 @@ once in order to create the configure script.
 
 Next, run the configure script and start doing builds.
 
+IE:
+    ./autogen.sh && ./configure && make && make test
+
 * Setting up Git
 
 Though not required, there are a couple of things you can add to git
