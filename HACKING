@@ -76,4 +76,4 @@ blocked. In this case that's `write()`.
 
 * Sending patches
 
-See current instructions at http://contributing.appspot.com/memcached
+See current instructions at https://github.com/memcached/memcached/wiki/DevelopmentRepos
