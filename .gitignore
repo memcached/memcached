@@ -42,4 +42,6 @@ doc/protocol-binary.txt
 /doc/doxy
 /memcached.spec
 .*.swp
+.swp
+.swo
 /compile_commands.json
