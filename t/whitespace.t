@@ -6,13 +6,12 @@ our @files;
 BEGIN {
     chdir "$Bin/.." or die;
 
-    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md compile_commands.json);
+    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md);
     push(@exempted, glob("doc/*.xml"));
     push(@exempted, glob("doc/*.full"));
     push(@exempted, glob("doc/xml2rfc/*.xsl"));
     push(@exempted, glob("m4/*backport*m4"));
     push(@exempted, glob("*.orig"));
-    push(@exempted, glob(".*.swp"));
     my %exempted_hash = map { $_ => 1 } @exempted;
 
     my @stuff = split /\0/, `git ls-files -z -c -m -o --exclude-standard`;
