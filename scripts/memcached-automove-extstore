@@ -85,7 +85,6 @@ def determine_move(history, stats, diffs, memfree):
         print("global pool: [{}]".format(stats['slab_global_page_pool']))
 
     pool_low = window_key_check(history, 'slab_pool_low')
-    pool_high = window_key_check(history, 'slab_pool_high')
     for sid, slab in diffs.items():
         small_slab = False
         free_enough = False
