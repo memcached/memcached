@@ -4,7 +4,6 @@
 
 import argparse
 import socket
-import sys
 import csv
 from time import sleep
 
