@@ -18,8 +18,8 @@ list to ask questions, github issues aren't seen by everyone!
 ## Dependencies
 
 * libevent, http://www.monkey.org/~provos/libevent/ (libevent-dev)
-* libseccomp, (optional, linux) - enables process restrictions for better
-  security.
+* libseccomp, (optional, experimental, linux) - enables process restrictions for
+  better security. Tested only on x86_64 architectures.
 
 ## Environment
 

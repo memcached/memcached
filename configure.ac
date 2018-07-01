@@ -89,7 +89,7 @@ AC_ARG_ENABLE(extstore,
   [AS_HELP_STRING([--enable-extstore], [Enable external storage EXPERIMENTAL ])])
 
 AC_ARG_ENABLE(seccomp,
-  [AS_HELP_STRING([--enable-seccomp],[Enable seccomp restrictions])])
+  [AS_HELP_STRING([--enable-seccomp],[Enable seccomp restrictions EXPERIMENTAL])])
 
 AC_ARG_ENABLE(sasl,
   [AS_HELP_STRING([--enable-sasl],[Enable SASL authentication])])
