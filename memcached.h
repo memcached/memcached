@@ -286,6 +286,8 @@ struct slab_stats {
 #ifdef EXTSTORE
 #define EXTSTORE_THREAD_STATS_FIELDS \
     X(get_extstore) \
+    X(get_aborted_extstore) \
+    X(get_oom_extstore) \
     X(recache_from_extstore) \
     X(miss_from_extstore) \
     X(badcrc_from_extstore)
@@ -557,7 +559,7 @@ typedef struct _io_wrap {
     unsigned int iovec_data;  /* specific index of data iovec */
     bool miss;                /* signal a miss to unlink hdr_it */
     bool badcrc;              /* signal a crc failure */
-    bool active; // FIXME: canary for test. remove
+    bool active;              /* tells if IO was dispatched or not */
 } io_wrap;
 #endif
 /**

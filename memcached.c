@@ -649,8 +649,19 @@ static void recache_or_free(conn *c, io_wrap *wrap) {
     item *it;
     it = (item *)wrap->io.buf;
     bool do_free = true;
-    // If request was ultimately a miss, unlink the header.
-    if (wrap->miss) {
+    if (wrap->active) {
+        // If request never dispatched, free the read buffer but leave the
+        // item header alone.
+        do_free = false;
+        size_t ntotal = ITEM_ntotal(wrap->hdr_it);
+        slabs_free(it, ntotal, slabs_clsid(ntotal));
+        c->io_wrapleft--;
+        assert(c->io_wrapleft >= 0);
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.get_aborted_extstore++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+    } else if (wrap->miss) {
+        // If request was ultimately a miss, unlink the header.
         do_free = false;
         size_t ntotal = ITEM_ntotal(wrap->hdr_it);
         item_unlink(wrap->hdr_it);
@@ -1659,10 +1670,14 @@ static void process_bin_get_or_touch(conn *c) {
                     iovcnt = 3;
                     iovst = c->iovused - 2;
                 }
-                // FIXME: this can return an error, but code flow doesn't
-                // allow bailing here.
-                if (_get_extstore(c, it, iovst, iovcnt) != 0)
+
+                if (_get_extstore(c, it, iovst, iovcnt) != 0) {
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.get_oom_extstore++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+
                     failed = true;
+                }
             } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 add_iov(c, ITEM_data(it), it->nbytes - 2);
             } else {
@@ -3102,6 +3117,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 #ifdef EXTSTORE
     if (c->thread->storage) {
         APPEND_STAT("get_extstore", "%llu", (unsigned long long)thread_stats.get_extstore);
+        APPEND_STAT("get_aborted_extstore", "%llu", (unsigned long long)thread_stats.get_aborted_extstore);
+        APPEND_STAT("get_oom_extstore", "%llu", (unsigned long long)thread_stats.get_oom_extstore);
         APPEND_STAT("recache_from_extstore", "%llu", (unsigned long long)thread_stats.recache_from_extstore);
         APPEND_STAT("miss_from_extstore", "%llu", (unsigned long long)thread_stats.miss_from_extstore);
         APPEND_STAT("badcrc_from_extstore", "%llu", (unsigned long long)thread_stats.badcrc_from_extstore);
@@ -3636,6 +3653,7 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
                 }
             }
         }
+        wrap->miss = false;
         // iov_len is already set
         // TODO: Should do that here instead and cuddle in the wrap object
     }
@@ -3702,7 +3720,6 @@ static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
         add_iov(c, new_it, ITEM_ntotal(new_it) - new_it->nbytes);
         while (remain > 0) {
             chunk = do_item_alloc_chunk(chunk, remain);
-            // TODO: counter bump
             if (chunk == NULL) {
                 item_remove(new_it);
                 do_cache_free(c->thread->io_cache, io);
@@ -3763,8 +3780,6 @@ static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
     return 0;
 }
 #endif
-// FIXME: the 'breaks' around memory malloc's should break all the way down,
-// fill ileft/suffixleft, then run conn_releaseitems()
 /* ntokens is overwritten here... shrug.. */
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas, bool should_touch) {
     char *key;
@@ -3776,6 +3791,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     char *suffix;
     int32_t exptime_int = 0;
     rel_time_t exptime = 0;
+    bool fail_length = false;
     assert(c != NULL);
 
     if (should_touch) {
@@ -3795,14 +3811,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             nkey = key_token->length;
 
             if (nkey > KEY_MAX_LENGTH) {
-                out_string(c, "CLIENT_ERROR bad command line format");
-                while (i-- > 0) {
-                    item_remove(*(c->ilist + i));
-                    if (return_cas || !settings.inline_ascii_response) {
-                        do_cache_free(c->thread->suffix_cache, *(c->suffixlist + i));
-                    }
-                }
-                return;
+                fail_length = true;
+                goto stop;
             }
 
             it = limited_get(key, nkey, c, exptime, should_touch);
@@ -3812,7 +3822,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             if (it) {
                 if (_ascii_get_expand_ilist(c, i) != 0) {
                     item_remove(it);
-                    break; // FIXME: Should bail down to error.
+                    goto stop;
                 }
 
                 /*
@@ -3831,7 +3841,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   suffix = _ascii_get_suffix_buf(c, si);
                   if (suffix == NULL) {
                       item_remove(it);
-                      break;
+                      goto stop;
                   }
                   si++;
                   nbytes = it->nbytes;
@@ -3842,13 +3852,17 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       add_iov(c, suffix, suffix_len) != 0)
                       {
                           item_remove(it);
-                          break;
+                          goto stop;
                       }
 #ifdef EXTSTORE
                   if (it->it_flags & ITEM_HDR) {
                       if (_get_extstore(c, it, c->iovused-3, 4) != 0) {
+                          pthread_mutex_lock(&c->thread->stats.mutex);
+                          c->thread->stats.get_oom_extstore++;
+                          pthread_mutex_unlock(&c->thread->stats.mutex);
+
                           item_remove(it);
-                          break;
+                          goto stop;
                       }
                   } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
 #else
@@ -3857,7 +3871,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       add_iov(c, ITEM_data(it), it->nbytes);
                   } else if (add_chunked_item_iovs(c, it, it->nbytes) != 0) {
                       item_remove(it);
-                      break;
+                      goto stop;
                   }
                 }
                 else
@@ -3868,19 +3882,19 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       add_iov(c, ITEM_key(it), it->nkey) != 0)
                       {
                           item_remove(it);
-                          break;
+                          goto stop;
                       }
                   if ((it->it_flags & ITEM_CHUNKED) == 0)
                       {
                           if (add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
                           {
                               item_remove(it);
-                              break;
+                              goto stop;
                           }
                       } else if (add_iov(c, ITEM_suffix(it), it->nsuffix) != 0 ||
                                  add_chunked_item_iovs(c, it, it->nbytes) != 0) {
                           item_remove(it);
-                          break;
+                          goto stop;
                       }
                 }
 
@@ -3940,6 +3954,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         }
 
     } while(key_token->value != NULL);
+stop:
 
     c->icurr = c->ilist;
     c->ileft = i;
@@ -3958,7 +3973,12 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     */
     if (key_token->value != NULL || add_iov(c, "END\r\n", 5) != 0
         || (IS_UDP(c->transport) && build_udp_headers(c) != 0)) {
-        out_of_memory(c, "SERVER_ERROR out of memory writing get response");
+        if (fail_length) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+        } else {
+            out_of_memory(c, "SERVER_ERROR out of memory writing get response");
+        }
+        conn_release_items(c);
     }
     else {
         conn_set_state(c, conn_mwrite);
