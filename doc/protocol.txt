@@ -849,6 +849,8 @@ other stats command.
 |                   | bool     | If yes, stores numbers from VALUE response   |
 |                   |          | inside an item, using up to 24 bytes.        |
 |                   |          | Small slowdown for ASCII get, faster sets.   |
+| drop_privileges   | bool     | If yes, and available, drop unused syscalls  |
+|                   |          | (see seccomp on Linux, pledge on OpenBSD)    |
 |-------------------+----------+----------------------------------------------|
 
 

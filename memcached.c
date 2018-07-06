@@ -271,7 +271,7 @@ static void settings_init(void) {
     settings.crawls_persleep = 1000;
     settings.logger_watcher_buf_size = LOGGER_WATCHER_BUF_SIZE;
     settings.logger_buf_size = LOGGER_BUF_SIZE;
-    settings.drop_privileges = true;
+    settings.drop_privileges = false;
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
 #endif
@@ -3239,6 +3239,9 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
     APPEND_STAT("inline_ascii_response", "%s", settings.inline_ascii_response ? "yes" : "no");
+#ifdef HAVE_DROP_PRIVILEGES
+    APPEND_STAT("drop_privileges", "%s", settings.drop_privileges ? "yes" : "no");
+#endif
 #ifdef EXTSTORE
     APPEND_STAT("ext_item_size", "%u", settings.ext_item_size);
     APPEND_STAT("ext_item_age", "%u", settings.ext_item_age);
@@ -6230,7 +6233,8 @@ static void usage(void) {
            "             currently: nothing\n"
            "   - no_modern:           uses defaults of previous major version (1.4.x)\n"
 #ifdef HAVE_DROP_PRIVILEGES
-           "   - no_drop_privileges: Disable drop_privileges in case it causes issues with\n"
+           "   - drop_privileges:     enable dropping extra syscall privileges\n"
+           "   - no_drop_privileges:  disable drop_privileges in case it causes issues with\n"
            "                          some customisation.\n"
 #ifdef MEMCACHED_DEBUG
            "   - relaxed_privileges: Running tests requires extra privileges.\n"
@@ -6581,6 +6585,7 @@ int main (int argc, char **argv) {
         NO_LRU_CRAWLER,
         NO_LRU_MAINTAINER,
         NO_DROP_PRIVILEGES,
+        DROP_PRIVILEGES,
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
@@ -6638,6 +6643,7 @@ int main (int argc, char **argv) {
         [NO_LRU_CRAWLER] = "no_lru_crawler",
         [NO_LRU_MAINTAINER] = "no_lru_maintainer",
         [NO_DROP_PRIVILEGES] = "no_drop_privileges",
+        [DROP_PRIVILEGES] = "drop_privileges",
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
 #endif
@@ -7356,6 +7362,9 @@ int main (int argc, char **argv) {
                 break;
             case NO_DROP_PRIVILEGES:
                 settings.drop_privileges = false;
+                break;
+            case DROP_PRIVILEGES:
+                settings.drop_privileges = true;
                 break;
 #ifdef MEMCACHED_DEBUG
             case RELAXED_PRIVILEGES:

@@ -14,7 +14,7 @@ if (supports_drop_priv()) {
     exit 0;
 }
 
-my $server = new_memcached();
+my $server = new_memcached('-o drop_privileges');
 my $sock = $server->sock;
 
 print $sock "misbehave\r\n";
