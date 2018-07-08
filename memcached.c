@@ -8227,6 +8227,10 @@ int main (int argc, char **argv) {
         slabs_prefill_global();
     }
 #endif
+
+    if (settings.drop_privileges) {
+        setup_privilege_violations_handler();
+    }
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
