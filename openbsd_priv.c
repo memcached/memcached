@@ -26,3 +26,6 @@ void drop_privileges() {
        }
      }
 }
+
+void drop_worker_privileges(void) {
+}
