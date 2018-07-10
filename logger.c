@@ -752,6 +752,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             rel_time_t sttl = va_arg(ap, rel_time_t);
             uint8_t sclsid = va_arg(ap, int);
             _logger_log_item_store(e, status, comm, skey, snkey, sttl, sclsid);
+            va_end(ap);
             break;
     }
 
