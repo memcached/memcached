@@ -144,6 +144,7 @@ void pause_threads(enum pause_thread_types type) {
             lru_crawler_pause();
 #ifdef EXTSTORE
             storage_compact_pause();
+            storage_write_pause();
 #endif
         case PAUSE_WORKER_THREADS:
             buf[0] = 'p';
@@ -155,6 +156,7 @@ void pause_threads(enum pause_thread_types type) {
             lru_crawler_resume();
 #ifdef EXTSTORE
             storage_compact_resume();
+            storage_write_resume();
 #endif
         case RESUME_WORKER_THREADS:
             pthread_mutex_unlock(&worker_hang_lock);

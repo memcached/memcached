@@ -1538,7 +1538,6 @@ static void *lru_maintainer_thread(void *arg) {
     void *storage = arg;
     if (storage != NULL)
         sam = &slab_automove_extstore;
-    int x;
 #endif
     int i;
     useconds_t to_sleep = MIN_LRU_MAINTAINER_SLEEP;
@@ -1592,20 +1591,6 @@ static void *lru_maintainer_thread(void *arg) {
             }
 
             int did_moves = lru_maintainer_juggle(i);
-#ifdef EXTSTORE
-            // Deeper loop to speed up pushing to storage.
-            if (storage) {
-                for (x = 0; x < 500; x++) {
-                    int found;
-                    found = lru_maintainer_store(storage, i);
-                    if (found) {
-                        did_moves += found;
-                    } else {
-                        break;
-                    }
-                }
-            }
-#endif
             if (did_moves == 0) {
                 if (backoff_juggles[i] != 0) {
                     backoff_juggles[i] += backoff_juggles[i] / 8;

@@ -7688,6 +7688,10 @@ int main (int argc, char **argv) {
         fprintf(stderr, "Failed to start storage compaction thread\n");
         exit(EXIT_FAILURE);
     }
+    if (storage && start_storage_write_thread(storage) != 0) {
+        fprintf(stderr, "Failed to start storage writer thread\n");
+        exit(EXIT_FAILURE);
+    }
 
     if (start_lru_maintainer && start_lru_maintainer_thread(storage) != 0) {
 #else

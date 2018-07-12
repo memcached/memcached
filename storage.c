@@ -12,21 +12,11 @@
 #define PAGE_BUCKET_CHUNKED 2
 #define PAGE_BUCKET_LOWTTL  3
 
-int lru_maintainer_store(void *storage, const int clsid) {
-    //int i;
+/*** WRITE FLUSH THREAD ***/
+
+static int storage_write(void *storage, const int clsid, const int item_age) {
     int did_moves = 0;
-    int item_age = settings.ext_item_age;
-    bool mem_limit_reached = false;
-    unsigned int chunks_free;
     struct lru_pull_tail_return it_info;
-    // FIXME: need to directly ask the slabber how big a class is
-    if (slabs_clsid(settings.ext_item_size) > clsid)
-        return 0;
-    chunks_free = slabs_available_chunks(clsid, &mem_limit_reached,
-            NULL, NULL);
-    // if we are low on chunks and no spare, push out early.
-    if (chunks_free < settings.ext_free_memchunks[clsid] && mem_limit_reached)
-        item_age = 0;
 
     it_info.it = NULL;
     lru_pull_tail(clsid, COLD_LRU, 0, LRU_PULL_RETURN_ITEM, 0, &it_info);
@@ -117,6 +107,128 @@ int lru_maintainer_store(void *storage, const int clsid) {
     item_unlock(it_info.hv);
     return did_moves;
 }
+
+static pthread_t storage_write_tid;
+static pthread_mutex_t storage_write_plock;
+#define WRITE_SLEEP_MAX 1000000
+#define WRITE_SLEEP_MIN 500
+
+static void *storage_write_thread(void *arg) {
+    void *storage = arg;
+    // NOTE: ignoring overflow since that would take years of uptime in a
+    // specific load pattern of never going to sleep.
+    unsigned int backoff[MAX_NUMBER_OF_SLAB_CLASSES] = {0};
+    unsigned int counter = 0;
+    useconds_t to_sleep = WRITE_SLEEP_MIN;
+    logger *l = logger_create();
+    if (l == NULL) {
+        fprintf(stderr, "Failed to allocate logger for storage compaction thread\n");
+        abort();
+    }
+
+    pthread_mutex_lock(&storage_write_plock);
+
+    while (1) {
+        // cache per-loop to avoid calls to the slabs_clsid() search loop
+        int min_class = slabs_clsid(settings.ext_item_size);
+        bool do_sleep = true;
+        counter++;
+        if (to_sleep > WRITE_SLEEP_MAX)
+            to_sleep = WRITE_SLEEP_MAX;
+
+        for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
+            bool did_move = false;
+            bool mem_limit_reached = false;
+            unsigned int chunks_free;
+            int item_age;
+            int target = settings.ext_free_memchunks[x];
+            if (min_class > x || (backoff[x] && (counter % backoff[x] != 0))) {
+                // Long sleeps means we should retry classes sooner.
+                if (to_sleep > WRITE_SLEEP_MIN * 10)
+                    backoff[x] /= 2;
+                continue;
+            }
+
+            // Avoid extra slab lock calls during heavy writing.
+            chunks_free = slabs_available_chunks(x, &mem_limit_reached,
+                    NULL, NULL);
+
+            // storage_write() will fail and cut loop after filling write buffer.
+            while (1) {
+                // if we are low on chunks and no spare, push out early.
+                if (chunks_free < target && mem_limit_reached) {
+                    item_age = 0;
+                } else {
+                    item_age = settings.ext_item_age;
+                }
+                if (storage_write(storage, x, item_age)) {
+                    chunks_free++; // Allow stopping if we've done enough this loop
+                    did_move = true;
+                    do_sleep = false;
+                    if (to_sleep > WRITE_SLEEP_MIN)
+                        to_sleep /= 2;
+                } else {
+                    break;
+                }
+            }
+
+            if (!did_move) {
+                backoff[x]++;
+            } else if (backoff[x]) {
+                backoff[x] /= 2;
+            }
+        }
+
+        // flip lock so we can be paused or stopped
+        pthread_mutex_unlock(&storage_write_plock);
+        if (do_sleep) {
+            usleep(to_sleep);
+            to_sleep *= 2;
+        }
+        pthread_mutex_lock(&storage_write_plock);
+    }
+    return NULL;
+}
+
+// TODO
+// logger needs logger_destroy() to exist/work before this is safe.
+/*int stop_storage_write_thread(void) {
+    int ret;
+    pthread_mutex_lock(&lru_maintainer_lock);
+    do_run_lru_maintainer_thread = 0;
+    pthread_mutex_unlock(&lru_maintainer_lock);
+    // WAKEUP SIGNAL
+    if ((ret = pthread_join(lru_maintainer_tid, NULL)) != 0) {
+        fprintf(stderr, "Failed to stop LRU maintainer thread: %s\n", strerror(ret));
+        return -1;
+    }
+    settings.lru_maintainer_thread = false;
+    return 0;
+}*/
+
+void storage_write_pause(void) {
+    pthread_mutex_lock(&storage_write_plock);
+}
+
+void storage_write_resume(void) {
+    pthread_mutex_unlock(&storage_write_plock);
+}
+
+int start_storage_write_thread(void *arg) {
+    int ret;
+
+    pthread_mutex_init(&storage_write_plock, NULL);
+    if ((ret = pthread_create(&storage_write_tid, NULL,
+        storage_write_thread, arg)) != 0) {
+        fprintf(stderr, "Can't create storage_write thread: %s\n",
+            strerror(ret));
+        return -1;
+    }
+
+    return 0;
+}
+
+/*** COMPACTOR ***/
 
 /* Fetch stats from the external storage system and decide to compact.
  * If we're more than half full, start skewing how aggressively to run
