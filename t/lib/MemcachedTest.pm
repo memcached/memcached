@@ -14,11 +14,31 @@ my $builddir = getcwd;
 my @unixsockets = ();
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
-             supports_sasl free_port supports_drop_priv supports_extstore);
+             supports_sasl free_port supports_drop_priv supports_extstore
+             wait_ext_flush);
 
 sub sleep {
     my $n = shift;
     select undef, undef, undef, $n;
+}
+
+# Wait until all items have flushed
+sub wait_ext_flush {
+    my $sock = shift;
+    my $target = shift || 0;
+    my $sum = $target + 1;
+    while ($sum > $target) {
+        my $s = mem_stats($sock, "items");
+        $sum = 0;
+        for my $key (keys %$s) {
+            if ($key =~ m/items:(\d+):number/) {
+                # Ignore classes which can contain extstore items
+                next if $1 < 3;
+                $sum += $s->{$key};
+            }
+        }
+        sleep 1 if $sum > $target;
+    }
 }
 
 sub mem_stats {

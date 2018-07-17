@@ -3401,6 +3401,8 @@ static void process_extstore_stats(ADD_STAT add_stats, conn *c) {
                 (unsigned long long) st.page_data[i].bytes_used);
         APPEND_NUM_STAT(i, "bucket", "%u",
                 st.page_data[i].bucket);
+        APPEND_NUM_STAT(i, "free_bucket", "%u",
+                st.page_data[i].free_bucket);
     }
 }
 #endif
@@ -6262,8 +6264,8 @@ static void usage(void) {
 #endif
 #ifdef EXTSTORE
            "   - ext_path:            file to write to for external storage.\n"
+           "                          ie: ext_path=/mnt/d1/extstore:1G\n"
            "   - ext_page_size:       size in megabytes of storage pages.\n"
-           "   - ext_page_count:      total number of storage pages.\n"
            "   - ext_wbuf_size:       size in megabytes of page write buffers.\n"
            "   - ext_threads:         number of IO threads to run.\n"
            "   - ext_item_size:       store items larger than this (bytes)\n"
@@ -6564,7 +6566,7 @@ int main (int argc, char **argv) {
     bool slab_chunk_size_changed = false;
 #ifdef EXTSTORE
     void *storage = NULL;
-    char *storage_file = NULL;
+    struct extstore_conf_file *storage_file = NULL;
     struct extstore_conf ext_cf;
 #endif
     char *subopts, *subopts_orig;
@@ -6611,7 +6613,6 @@ int main (int argc, char **argv) {
 #endif
 #ifdef EXTSTORE
         EXT_PAGE_SIZE,
-        EXT_PAGE_COUNT,
         EXT_WBUF_SIZE,
         EXT_THREADS,
         EXT_IO_DEPTH,
@@ -6669,7 +6670,6 @@ int main (int argc, char **argv) {
 #endif
 #ifdef EXTSTORE
         [EXT_PAGE_SIZE] = "ext_page_size",
-        [EXT_PAGE_COUNT] = "ext_page_count",
         [EXT_WBUF_SIZE] = "ext_wbuf_size",
         [EXT_THREADS] = "ext_threads",
         [EXT_IO_DEPTH] = "ext_io_depth",
@@ -6709,7 +6709,6 @@ int main (int argc, char **argv) {
     settings.ext_drop_under = 0;
     settings.slab_automove_freeratio = 0.01;
     ext_cf.page_size = 1024 * 1024 * 64;
-    ext_cf.page_count = 64;
     ext_cf.wbuf_size = settings.ext_wbuf_size;
     ext_cf.io_threadcount = 1;
     ext_cf.io_depth = 1;
@@ -7235,16 +7234,6 @@ int main (int argc, char **argv) {
                 }
                 ext_cf.page_size *= 1024 * 1024; /* megabytes */
                 break;
-            case EXT_PAGE_COUNT:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing ext_page_count argument\n");
-                    return 1;
-                }
-                if (!safe_strtoul(subopts_value, &ext_cf.page_count)) {
-                    fprintf(stderr, "could not parse argument to ext_page_count\n");
-                    return 1;
-                }
-                break;
             case EXT_WBUF_SIZE:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ext_wbuf_size argument\n");
@@ -7361,7 +7350,20 @@ int main (int argc, char **argv) {
                 settings.ext_drop_unread = true;
                 break;
             case EXT_PATH:
-                storage_file = strdup(subopts_value);
+                if (subopts_value) {
+                    struct extstore_conf_file *tmp = storage_conf_parse(subopts_value, ext_cf.page_size);
+                    if (tmp == NULL) {
+                        fprintf(stderr, "failed to parse ext_path argument\n");
+                        return 1;
+                    }
+                    if (storage_file != NULL) {
+                        tmp->next = storage_file;
+                    }
+                    storage_file = tmp;
+                } else {
+                    fprintf(stderr, "missing argument to ext_path, ie: ext_path=/d/file:5G\n");
+                    return 1;
+                }
                 break;
 #endif
             case MODERN:
@@ -7635,9 +7637,9 @@ int main (int argc, char **argv) {
     if (storage_file) {
         enum extstore_res eres;
         if (settings.ext_compact_under == 0) {
-            settings.ext_compact_under = ext_cf.page_count / 4;
+            settings.ext_compact_under = storage_file->page_count / 4;
             /* Only rescues non-COLD items if below this threshold */
-            settings.ext_drop_under = ext_cf.page_count / 4;
+            settings.ext_drop_under = storage_file->page_count / 4;
         }
         crc32c_init();
         /* Init free chunks to zero. */

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <ctype.h>
 
 #define PAGE_BUCKET_DEFAULT 0
 #define PAGE_BUCKET_COMPACT 1
@@ -50,7 +51,9 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
             // NOTE: when the item is read back in, the slab mover
             // may see it. Important to have refcount>=2 or ~ITEM_LINKED
             assert(it->refcount >= 2);
-            if (extstore_write_request(storage, bucket, &io) == 0) {
+            // NOTE: write bucket vs free page bucket will disambiguate once
+            // lowttl feature is better understood.
+            if (extstore_write_request(storage, bucket, bucket, &io) == 0) {
                 // cuddle the hash value into the time field so we don't have
                 // to recalculate it.
                 item *buf_it = (item *) io.buf;
@@ -365,7 +368,7 @@ static void storage_compact_readback(void *storage, logger *l,
                 io.len = ntotal;
                 io.mode = OBJ_IO_WRITE;
                 for (tries = 10; tries > 0; tries--) {
-                    if (extstore_write_request(storage, PAGE_BUCKET_COMPACT, &io) == 0) {
+                    if (extstore_write_request(storage, PAGE_BUCKET_COMPACT, PAGE_BUCKET_COMPACT, &io) == 0) {
                         memcpy(io.buf, it, io.len);
                         extstore_write(storage, &io);
                         do_update = true;
@@ -559,6 +562,90 @@ int start_storage_compact_thread(void *arg) {
     }
 
     return 0;
+}
+
+/*** UTILITY ***/
+// /path/to/file:100G:bucket1
+// FIXME: Modifies argument. copy instead?
+struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size) {
+    struct extstore_conf_file *cf = NULL;
+    char *b = NULL;
+    char *p = strtok_r(arg, ":", &b);
+    char unit = 0;
+    uint64_t multiplier = 0;
+    int base_size = 0;
+    if (p == NULL)
+        goto error;
+    // First arg is the filepath.
+    cf = calloc(1, sizeof(struct extstore_conf_file));
+    cf->file = strdup(p);
+
+    p = strtok_r(NULL, ":", &b);
+    if (p == NULL) {
+        fprintf(stderr, "must supply size to ext_path, ie: ext_path=/f/e:64m (M|G|T|P supported)\n");
+        goto error;
+    }
+    unit = tolower(p[strlen(p)-1]);
+    p[strlen(p)-1] = '\0';
+    // sigh.
+    switch (unit) {
+        case 'm':
+            multiplier = 1024 * 1024;
+            break;
+        case 'g':
+            multiplier = 1024 * 1024 * 1024;
+            break;
+        case 't':
+            multiplier = 1024 * 1024;
+            multiplier *= 1024 * 1024;
+            break;
+        case 'p':
+            multiplier = 1024 * 1024;
+            multiplier *= 1024 * 1024 * 1024;
+            break;
+    }
+    base_size = atoi(p);
+    multiplier *= base_size;
+    // page_count is nearest-but-not-larger-than pages * psize
+    cf->page_count = multiplier / page_size;
+    assert(page_size * cf->page_count <= multiplier);
+
+    // final token would be a default free bucket
+    p = strtok_r(NULL, ",", &b);
+    // TODO: We reuse the original DEFINES for now,
+    // but if lowttl gets split up this needs to be its own set.
+    if (p != NULL) {
+        if (strcmp(p, "compact") == 0) {
+            cf->free_bucket = PAGE_BUCKET_COMPACT;
+        } else if (strcmp(p, "lowttl") == 0) {
+            cf->free_bucket = PAGE_BUCKET_LOWTTL;
+        } else if (strcmp(p, "chunked") == 0) {
+            cf->free_bucket = PAGE_BUCKET_CHUNKED;
+        } else if (strcmp(p, "default") == 0) {
+            cf->free_bucket = PAGE_BUCKET_DEFAULT;
+        } else {
+            fprintf(stderr, "Unknown extstore bucket: %s\n", p);
+            goto error;
+        }
+    } else {
+        // TODO: is this necessary?
+        cf->free_bucket = PAGE_BUCKET_DEFAULT;
+    }
+
+    // TODO: disabling until compact algorithm is improved.
+    if (cf->free_bucket != PAGE_BUCKET_DEFAULT) {
+        fprintf(stderr, "ext_path only presently supports the default bucket\n");
+        goto error;
+    }
+
+    return cf;
+error:
+    if (cf) {
+        if (cf->file)
+            free(cf->file);
+        free(cf);
+    }
+    return NULL;
 }
 
 #endif

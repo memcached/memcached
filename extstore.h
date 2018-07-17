@@ -8,6 +8,7 @@ struct extstore_page_data {
     uint64_t version;
     uint64_t bytes_used;
     unsigned int bucket;
+    unsigned int free_bucket;
 };
 
 /* Pages can have objects deleted from them at any time. This creates holes
@@ -43,10 +44,21 @@ struct extstore_conf {
     unsigned int page_size; // ideally 64-256M in size
     unsigned int page_count;
     unsigned int page_buckets; // number of different writeable pages
+    unsigned int free_page_buckets; // buckets of dedicated pages (see code)
     unsigned int wbuf_size; // must divide cleanly into page_size
     unsigned int wbuf_count; // this might get locked to "2 per active page"
     unsigned int io_threadcount;
     unsigned int io_depth; // with normal I/O, hits locks less. req'd for AIO
+};
+
+struct extstore_conf_file {
+    unsigned int page_count;
+    char *file;
+    int fd; // internal usage
+    uint64_t offset; // internal usage
+    unsigned int bucket; // free page bucket
+    unsigned int free_bucket; // specialized free bucket
+    struct extstore_conf_file *next;
 };
 
 enum obj_io_mode {
@@ -87,8 +99,8 @@ enum extstore_res {
 };
 
 const char *extstore_err(enum extstore_res res);
-void *extstore_init(char *fn, struct extstore_conf *cf, enum extstore_res *res);
-int extstore_write_request(void *ptr, unsigned int bucket, obj_io *io);
+void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf, enum extstore_res *res);
+int extstore_write_request(void *ptr, unsigned int bucket, unsigned int free_bucket, obj_io *io);
 void extstore_write(void *ptr, obj_io *io);
 int extstore_submit(void *ptr, obj_io *io);
 /* count are the number of objects being removed, bytes are the original
