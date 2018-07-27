@@ -7,11 +7,11 @@
 
 #include <assert.h>
 
-static int caught = 0;
+volatile sig_atomic_t caught_sig = 0;
 
-static void caught_signal(int which)
+static void signal_handler(int which)
 {
-    caught = which;
+    caught_sig = which;
 }
 
 static int wait_for_process(pid_t pid)
@@ -21,7 +21,7 @@ static int wait_for_process(pid_t pid)
     int i = 0;
     struct sigaction sig_handler;
 
-    sig_handler.sa_handler = caught_signal;
+    sig_handler.sa_handler = signal_handler;
     sig_handler.sa_flags = 0;
 
     sigaction(SIGALRM, &sig_handler, NULL);
@@ -44,8 +44,8 @@ static int wait_for_process(pid_t pid)
             switch (i) {
             case 0:
                 /* On the first iteration, pass the signal through */
-                sig = caught > 0 ? caught : SIGTERM;
-                if (caught == SIGALRM) {
+                sig = caught_sig > 0 ? caught_sig : SIGTERM;
+                if (caught_sig == SIGALRM) {
                    fprintf(stderr, "Timeout.. killing the process\n");
                 }
                 break;
