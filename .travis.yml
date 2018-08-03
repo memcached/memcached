@@ -1,0 +1,17 @@
+sudo: required
+dist: trusty
+language: cpp
+
+compiler:
+    - gcc
+
+install:
+    - sudo apt-get update -y
+    - sudo apt-get install -y build-essential automake1.11 autoconf libevent-dev libseccomp-dev git
+
+script:
+    - ./autogen.sh
+    - ./configure --enable-seccomp
+    - make -j
+    - make test
+
