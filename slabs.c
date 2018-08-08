@@ -380,7 +380,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_
 }
 
 static void do_slabs_free_chunked(item *it, const size_t size) {
-    item_chunk *chunk = (item_chunk *) ITEM_data(it);
+    item_chunk *chunk = (item_chunk *) ITEM_schunk(it);
     slabclass_t *p;
 
     it->it_flags = ITEM_SLABBED;
@@ -404,7 +404,15 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
     p->slots = it;
     p->sl_curr++;
     // TODO: macro
+#ifdef NEED_ALIGN
+    int total = it->nkey + 1 + it->nsuffix + sizeof(item) + sizeof(item_chunk);
+    if (total % 8 != 0) {
+        total += 8 - (total % 8);
+    }
+    p->requested -= total;
+#else
     p->requested -= it->nkey + 1 + it->nsuffix + sizeof(item) + sizeof(item_chunk);
+#endif
     if (settings.use_cas) {
         p->requested -= sizeof(uint64_t);
     }
@@ -1013,7 +1021,7 @@ static int slab_rebalance_move(void) {
                         do_item_replace(it, new_it, hv);
                         /* Need to walk the chunks and repoint head  */
                         if (new_it->it_flags & ITEM_CHUNKED) {
-                            item_chunk *fch = (item_chunk *) ITEM_data(new_it);
+                            item_chunk *fch = (item_chunk *) ITEM_schunk(new_it);
                             fch->next->prev = fch;
                             while (fch) {
                                 fch->head = new_it;

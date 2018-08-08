@@ -1032,7 +1032,7 @@ static int add_iov(conn *c, const void *buf, int len) {
 
 static int add_chunked_item_iovs(conn *c, item *it, int len) {
     assert(it->it_flags & ITEM_CHUNKED);
-    item_chunk *ch = (item_chunk *) ITEM_data(it);
+    item_chunk *ch = (item_chunk *) ITEM_schunk(it);
     while (ch) {
         int todo = (len > ch->used) ? ch->used : len;
         if (add_iov(c, ch->data, todo) != 0) {
@@ -2485,7 +2485,15 @@ static void process_bin_update(conn *c) {
     }
 
     c->item = it;
+#ifdef NEED_ALIGN
+    if (it->it_flags & ITEM_CHUNKED) {
+        c->ritem = ITEM_schunk(it);
+    } else {
+        c->ritem = ITEM_data(it);
+    }
+#else
     c->ritem = ITEM_data(it);
+#endif
     c->rlbytes = vlen;
     conn_set_state(c, conn_nread);
     c->substate = bin_read_set_value;
@@ -2540,7 +2548,15 @@ static void process_bin_append_prepend(conn *c) {
     }
 
     c->item = it;
+#ifdef NEED_ALIGN
+    if (it->it_flags & ITEM_CHUNKED) {
+        c->ritem = ITEM_schunk(it);
+    } else {
+        c->ritem = ITEM_data(it);
+    }
+#else
     c->ritem = ITEM_data(it);
+#endif
     c->rlbytes = vlen;
     conn_set_state(c, conn_nread);
     c->substate = bin_read_set_value;
@@ -2701,7 +2717,7 @@ static void complete_nread(conn *c) {
 /* Destination must always be chunked */
 /* This should be part of item.c */
 static int _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
-    item_chunk *dch = (item_chunk *) ITEM_data(d_it);
+    item_chunk *dch = (item_chunk *) ITEM_schunk(d_it);
     /* Advance dch until we find free space */
     while (dch->size == dch->used) {
         if (dch->next) {
@@ -2713,7 +2729,7 @@ static int _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
 
     if (s_it->it_flags & ITEM_CHUNKED) {
         int remain = len;
-        item_chunk *sch = (item_chunk *) ITEM_data(s_it);
+        item_chunk *sch = (item_chunk *) ITEM_schunk(s_it);
         int copied = 0;
         /* Fills dch's to capacity, not straight copy sch in case data is
          * being added or removed (ie append/prepend)
@@ -3719,7 +3735,7 @@ static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
     if (chunked) {
         unsigned int ciovcnt = 1;
         size_t remain = new_it->nbytes;
-        item_chunk *chunk = (item_chunk *) ITEM_data(new_it);
+        item_chunk *chunk = (item_chunk *) ITEM_schunk(new_it);
         io->io.iov = &c->iov[c->iovused];
         // fill the header so we can get the full data + crc back.
         add_iov(c, new_it, ITEM_ntotal(new_it) - new_it->nbytes);
@@ -4080,7 +4096,15 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     ITEM_set_cas(it, req_cas_id);
 
     c->item = it;
+#ifdef NEED_ALIGN
+    if (it->it_flags & ITEM_CHUNKED) {
+        c->ritem = ITEM_schunk(it);
+    } else {
+        c->ritem = ITEM_data(it);
+    }
+#else
     c->ritem = ITEM_data(it);
+#endif
     c->rlbytes = it->nbytes;
     c->cmd = comm;
     conn_set_state(c, conn_nread);
@@ -5293,7 +5317,6 @@ static int read_into_chunked_item(conn *c) {
 
     while (c->rlbytes > 0) {
         item_chunk *ch = (item_chunk *)c->ritem;
-        assert(ch->used <= ch->size);
         if (ch->size == ch->used) {
             // FIXME: ch->next is currently always 0. remove this?
             if (ch->next) {

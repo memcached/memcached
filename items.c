@@ -285,6 +285,13 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         if (settings.use_cas) {
             htotal += sizeof(uint64_t);
         }
+#ifdef NEED_ALIGN
+        // header chunk needs to be padded on some systems
+        int remain = htotal % 8;
+        if (remain != 0) {
+            htotal += 8 - remain;
+        }
+#endif
         hdr_id = slabs_clsid(htotal);
         it = do_item_alloc_pull(htotal, hdr_id);
         /* setting ITEM_CHUNKED is fine here because we aren't LINKED yet. */
@@ -336,7 +343,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
 
     /* Initialize internal chunk. */
     if (it->it_flags & ITEM_CHUNKED) {
-        item_chunk *chunk = (item_chunk *) ITEM_data(it);
+        item_chunk *chunk = (item_chunk *) ITEM_schunk(it);
 
         chunk->next = 0;
         chunk->prev = 0;

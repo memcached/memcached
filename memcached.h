@@ -524,6 +524,23 @@ typedef struct _strchunk {
     uint8_t          slabs_clsid; /* Same as above. */
     char data[];
 } item_chunk;
+
+#ifdef NEED_ALIGN
+static inline char *ITEM_schunk(item *it) {
+    int offset = it->nkey + 1 + it->nsuffix
+        + ((it->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0);
+    int remain = offset % 8;
+    if (remain != 0) {
+        offset += 8 - remain;
+    }
+    return ((char *) &(it->data)) + offset;
+}
+#else
+#define ITEM_schunk(item) ((char*) &((item)->data) + (item)->nkey + 1 \
+         + (item)->nsuffix \
+         + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
+#endif
+
 #ifdef EXTSTORE
 typedef struct {
     unsigned int page_version; /* from IO header */

@@ -62,7 +62,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
                 // TODO: should be in items.c
                 if (it->it_flags & ITEM_CHUNKED) {
                     // Need to loop through the item and copy
-                    item_chunk *sch = (item_chunk *) ITEM_data(it);
+                    item_chunk *sch = (item_chunk *) ITEM_schunk(it);
                     int remain = orig_ntotal;
                     int copied = 0;
                     // copy original header
