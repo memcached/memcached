@@ -40,7 +40,7 @@ is(scalar <$sock>, "OK\r\n", "did flush_all in future");
 print $sock "set foo 0 0 4\r\n1234\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo = '1234'");
 mem_get_is($sock, "foo", '1234');
-sleep(3);
+sleep(5);
 mem_get_is($sock, "foo", undef);
 
 print $sock "set foo 0 0 5\r\n12345\r\n";
