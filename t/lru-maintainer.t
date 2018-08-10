@@ -68,6 +68,8 @@ for (my $key = 0; $key < 100; $key++) {
             }
             last;
         }
+        $stats = mem_stats($sock, "items");
+        isnt($stats->{"items:31:moves_to_warm"}, 0, "our canary moved to warm");
     }
     print $sock "set key$key 0 0 66560\r\n$value\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key$key");
@@ -76,8 +78,6 @@ for (my $key = 0; $key < 100; $key++) {
 {
     my $stats = mem_stats($sock);
     isnt($stats->{evictions}, 0, "some evictions happened");
-    my $istats = mem_stats($sock, "items");
-    isnt($istats->{"items:31:number_warm"}, 0, "our canary moved to warm");
     use Data::Dumper qw/Dumper/;
 }
 
