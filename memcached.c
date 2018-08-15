@@ -6570,11 +6570,6 @@ int main (int argc, char **argv) {
     char unit = '\0';
     int size_max = 0;
     int retval = EXIT_SUCCESS;
-    /* listening sockets */
-    static int *l_socket = NULL;
-
-    /* udp socket */
-    static int *u_socket = NULL;
     bool protocol_specified = false;
     bool tcp_specified = false;
     bool udp_specified = false;
@@ -7832,10 +7827,6 @@ int main (int argc, char **argv) {
     /* Clean up strdup() call for bind() address */
     if (settings.inter)
       free(settings.inter);
-    if (l_socket)
-      free(l_socket);
-    if (u_socket)
-      free(u_socket);
 
     /* cleanup base */
     event_base_free(main_base);
