@@ -633,7 +633,7 @@ memcache developers.
 General-purpose statistics
 --------------------------
 
-Upon receiving the "stats" command without arguments, the server sents
+Upon receiving the "stats" command without arguments, the server sends
 a number of lines which look like this:
 
 STAT <name> <value>\r\n
