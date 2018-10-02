@@ -3214,6 +3214,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("extstore_bytes_used", "%llu", (unsigned long long)st.bytes_used);
         APPEND_STAT("extstore_bytes_fragmented", "%llu", (unsigned long long)st.bytes_fragmented);
         APPEND_STAT("extstore_limit_maxbytes", "%llu", (unsigned long long)(st.page_count * st.page_size));
+        APPEND_STAT("extstore_io_queue", "%llu", (unsigned long long)(st.io_queue));
     }
 #endif
 }
