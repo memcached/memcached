@@ -76,6 +76,7 @@ for (my $key = 0; $key < 100; $key++) {
 {
     my $stats = mem_stats($sock);
     isnt($stats->{evictions}, 0, "some evictions happened");
+    sleep 1;
     my $istats = mem_stats($sock, "items");
     isnt($istats->{"items:31:number_warm"}, 0, "our canary moved to warm");
     use Data::Dumper qw/Dumper/;
