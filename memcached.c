@@ -4234,6 +4234,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
 #else
     if (it->nbytes <= 2 || (it->it_flags & (ITEM_CHUNKED)) != 0) {
 #endif
+        do_item_remove(it);
         return NON_NUMERIC;
     }
 
