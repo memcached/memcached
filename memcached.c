@@ -3284,6 +3284,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ext_wbuf_size", "%u", settings.ext_wbuf_size);
     APPEND_STAT("ext_compact_under", "%u", settings.ext_compact_under);
     APPEND_STAT("ext_drop_under", "%u", settings.ext_drop_under);
+    APPEND_STAT("ext_max_sleep", "%u", settings.ext_max_sleep);
     APPEND_STAT("ext_max_frag", "%.2f", settings.ext_max_frag);
     APPEND_STAT("slab_automove_freeratio", "%.3f", settings.slab_automove_freeratio);
     APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
@@ -4603,6 +4604,9 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
             ok = false;
     } else if (strcmp(tokens[1].value, "drop_under") == 0) {
         if (!safe_strtoul(tokens[2].value, &settings.ext_drop_under))
+            ok = false;
+    } else if (strcmp(tokens[1].value, "max_sleep") == 0) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_max_sleep))
             ok = false;
     } else if (strcmp(tokens[1].value, "max_frag") == 0) {
         if (!safe_strtod(tokens[2].value, &settings.ext_max_frag))
@@ -6300,6 +6304,7 @@ static void usage(void) {
            "   - ext_recache_rate:    recache an item every N accesses\n"
            "   - ext_compact_under:   compact when fewer than this many free pages\n"
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
+           "   - ext_max_sleep:       max sleep time of background threads in us\n"
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info)\n"
@@ -6643,6 +6648,7 @@ int main (int argc, char **argv) {
         EXT_RECACHE_RATE,
         EXT_COMPACT_UNDER,
         EXT_DROP_UNDER,
+        EXT_MAX_SLEEP,
         EXT_MAX_FRAG,
         EXT_DROP_UNREAD,
         SLAB_AUTOMOVE_FREERATIO,
@@ -6700,6 +6706,7 @@ int main (int argc, char **argv) {
         [EXT_RECACHE_RATE] = "ext_recache_rate",
         [EXT_COMPACT_UNDER] = "ext_compact_under",
         [EXT_DROP_UNDER] = "ext_drop_under",
+        [EXT_MAX_SLEEP] = "ext_max_sleep",
         [EXT_MAX_FRAG] = "ext_max_frag",
         [EXT_DROP_UNREAD] = "ext_drop_unread",
         [SLAB_AUTOMOVE_FREERATIO] = "slab_automove_freeratio",
@@ -6727,6 +6734,7 @@ int main (int argc, char **argv) {
     settings.ext_wbuf_size = 1024 * 1024 * 4;
     settings.ext_compact_under = 0;
     settings.ext_drop_under = 0;
+    settings.ext_max_sleep = 1000000;
     settings.slab_automove_freeratio = 0.01;
     ext_cf.page_size = 1024 * 1024 * 64;
     ext_cf.wbuf_size = settings.ext_wbuf_size;
@@ -7343,6 +7351,16 @@ int main (int argc, char **argv) {
                 }
                 if (!safe_strtoul(subopts_value, &settings.ext_drop_under)) {
                     fprintf(stderr, "could not parse argument to ext_drop_under\n");
+                    return 1;
+                }
+                break;
+            case EXT_MAX_SLEEP:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ext_max_sleep argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ext_max_sleep)) {
+                    fprintf(stderr, "could not parse argument to ext_max_sleep\n");
                     return 1;
                 }
                 break;

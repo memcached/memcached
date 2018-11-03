@@ -9,6 +9,7 @@ struct extstore_page_data {
     uint64_t bytes_used;
     unsigned int bucket;
     unsigned int free_bucket;
+    bool active; // page is actively being written to; ignore it except for tallying.
 };
 
 /* Pages can have objects deleted from them at any time. This creates holes
@@ -117,5 +118,6 @@ void extstore_get_stats(void *ptr, struct extstore_stats *st);
 void extstore_get_page_data(void *ptr, struct extstore_stats *st);
 void extstore_run_maint(void *ptr);
 void extstore_close_page(void *ptr, unsigned int page_id, uint64_t page_version);
+void extstore_evict_page(void *ptr, unsigned int page_id, uint64_t page_version);
 
 #endif

@@ -12,6 +12,8 @@
 #define PAGE_BUCKET_COMPACT 1
 #define PAGE_BUCKET_CHUNKED 2
 #define PAGE_BUCKET_LOWTTL  3
+// Not another bucket; this is the total number of buckets.
+#define PAGE_BUCKET_COUNT   4
 
 /*** WRITE FLUSH THREAD ***/
 
@@ -113,7 +115,6 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
 
 static pthread_t storage_write_tid;
 static pthread_mutex_t storage_write_plock;
-#define WRITE_SLEEP_MAX 1000000
 #define WRITE_SLEEP_MIN 500
 
 static void *storage_write_thread(void *arg) {
@@ -136,8 +137,8 @@ static void *storage_write_thread(void *arg) {
         int min_class = slabs_clsid(settings.ext_item_size);
         bool do_sleep = true;
         counter++;
-        if (to_sleep > WRITE_SLEEP_MAX)
-            to_sleep = WRITE_SLEEP_MAX;
+        if (to_sleep > settings.ext_max_sleep)
+            to_sleep = settings.ext_max_sleep;
 
         for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
             bool did_move = false;
@@ -232,6 +233,17 @@ int start_storage_write_thread(void *arg) {
 }
 
 /*** COMPACTOR ***/
+typedef struct __storage_buk {
+    unsigned int bucket;
+    unsigned int low_page;
+    unsigned int lowest_page;
+    uint64_t low_version;
+    uint64_t lowest_version;
+    unsigned int pages_free;
+    unsigned int pages_used;
+    bool do_compact; // indicate this bucket should do a compaction.
+    bool do_compact_drop;
+} _storage_buk;
 
 /* Fetch stats from the external storage system and decide to compact.
  * If we're more than half full, start skewing how aggressively to run
@@ -241,63 +253,108 @@ static int storage_compact_check(void *storage, logger *l,
         uint32_t *page_id, uint64_t *page_version,
         uint64_t *page_size, bool *drop_unread) {
     struct extstore_stats st;
-    int x;
-    double rate;
+    _storage_buk buckets[PAGE_BUCKET_COUNT];
+    _storage_buk *buk = NULL;
+    _storage_buk *workbuk = NULL; // bucket to do compaction work on.
     uint64_t frag_limit;
-    uint64_t low_version = ULLONG_MAX;
-    uint64_t lowest_version = ULLONG_MAX;
-    unsigned int low_page = 0;
-    unsigned int lowest_page = 0;
     extstore_get_stats(storage, &st);
     if (st.pages_used == 0)
         return 0;
 
-    // lets pick a target "wasted" value and slew.
-    if (st.pages_free > settings.ext_compact_under)
-        return 0;
+    for (int x = 0; x < PAGE_BUCKET_COUNT; x++) {
+        memset(&buckets[x], 0, sizeof(_storage_buk));
+        buckets[x].low_version = ULLONG_MAX;
+        buckets[x].lowest_version = ULLONG_MAX;
+    }
     *drop_unread = false;
 
     // the number of free pages reduces the configured frag limit
     // this allows us to defrag early if pages are very empty.
-    rate = 1.0 - ((double)st.pages_free / st.page_count);
-    rate *= settings.ext_max_frag;
-    frag_limit = st.page_size * rate;
+    frag_limit = st.page_size * settings.ext_max_frag;
     LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_FRAGINFO,
-            NULL, rate, frag_limit);
+            NULL, settings.ext_max_frag, frag_limit);
     st.page_data = calloc(st.page_count, sizeof(struct extstore_page_data));
     extstore_get_page_data(storage, &st);
 
     // find oldest page by version that violates the constraint
-    for (x = 0; x < st.page_count; x++) {
-        if (st.page_data[x].version == 0 ||
-            st.page_data[x].bucket == PAGE_BUCKET_LOWTTL)
+    for (int x = 0; x < st.page_count; x++) {
+        buk = &buckets[st.page_data[x].free_bucket];
+        if (st.page_data[x].version == 0) {
+            buk->pages_free++;
+            // free pages don't contribute after this point.
             continue;
-        if (st.page_data[x].version < lowest_version) {
-            lowest_page = x;
-            lowest_version = st.page_data[x].version;
+        } else {
+            buk->pages_used++;
         }
-        if (st.page_data[x].bytes_used < frag_limit) {
-            if (st.page_data[x].version < low_version) {
-                low_page = x;
-                low_version = st.page_data[x].version;
-            }
+
+        // skip pages actively being used.
+        if (st.page_data[x].active) {
+            continue;
+        }
+
+        if (st.page_data[x].version < buk->lowest_version) {
+            buk->lowest_page = x;
+            buk->lowest_version = st.page_data[x].version;
+        }
+        if (st.page_data[x].bytes_used < frag_limit &&
+            st.page_data[x].version < buk->low_version) {
+            buk->low_page = x;
+            buk->low_version = st.page_data[x].version;
         }
     }
     *page_size = st.page_size;
     free(st.page_data);
 
-    // we have a page + version to attempt to reclaim.
-    if (low_version != ULLONG_MAX) {
-        *page_id = low_page;
-        *page_version = low_version;
-        return 1;
-    } else if (lowest_version != ULLONG_MAX && settings.ext_drop_unread
-            && st.pages_free <= settings.ext_drop_under) {
-        // nothing matched the frag rate barrier, so pick the absolute oldest
-        // version if we're configured to drop items.
-        *page_id = lowest_page;
-        *page_version = lowest_version;
-        *drop_unread = true;
+    // starvation is possible: if DEFAULT is out of pages and this process is
+    // busy, top level flushing will halt. A memory buffer gives some time for
+    // this process to catch up.
+
+    for (int x = 0; x < PAGE_BUCKET_COUNT; x++) {
+        buk = &buckets[x];
+        unsigned int pages_total = buk->pages_used + buk->pages_free;
+        // only process buckets which have pages assigned.
+        if (pages_total == 0)
+            continue;
+        if (buk->pages_free == 0) {
+            extstore_evict_page(storage, buk->lowest_page, buk->lowest_version);
+        } else {
+            // LOWTTL skips compaction.
+            if (x == PAGE_BUCKET_LOWTTL)
+                continue;
+            // FIXME: compact under should be a percentage.
+            /*double compact_under_pct = 0.01;
+            unsigned int compact_under = pages_total * compact_under_pct;
+            if (compact_under < 2)
+                compact_under = 2;*/
+
+            if (buk->pages_free < settings.ext_compact_under) {
+                // We drop COLD items if no pages have enough free space to
+                // simply compact.
+                if (buk->low_version != ULLONG_MAX) {
+                    buk->do_compact = true;
+                } else if (buk->lowest_version != ULLONG_MAX &&
+                    settings.ext_drop_unread) {
+                    buk->do_compact = true;
+                    buk->do_compact_drop = true;
+                }
+
+                // TODO: priority may matter. replace workbuk by prio.
+                if (buk->do_compact && workbuk == NULL) {
+                    workbuk = buk;
+                }
+            }
+        }
+    }
+
+    if (workbuk && workbuk->do_compact) {
+        if (workbuk->do_compact_drop) {
+            *page_id = workbuk->lowest_page;
+            *page_version = workbuk->lowest_version;
+            *drop_unread = true;
+        } else {
+            *page_id = workbuk->low_page;
+            *page_version = workbuk->low_version;
+        }
         return 1;
     }
 
@@ -307,7 +364,6 @@ static int storage_compact_check(void *storage, logger *l,
 static pthread_t storage_compact_tid;
 static pthread_mutex_t storage_compact_plock;
 #define MIN_STORAGE_COMPACT_SLEEP 10000
-#define MAX_STORAGE_COMPACT_SLEEP 2000000
 
 struct storage_compact_wrap {
     obj_io io;
@@ -430,7 +486,7 @@ static void _storage_compact_cb(void *e, obj_io *io, int ret) {
 // I guess it's only COLD. that's probably fine.
 static void *storage_compact_thread(void *arg) {
     void *storage = arg;
-    useconds_t to_sleep = MAX_STORAGE_COMPACT_SLEEP;
+    useconds_t to_sleep = settings.ext_max_sleep;
     bool compacting = false;
     uint64_t page_version = 0;
     uint64_t page_size = 0;
@@ -515,11 +571,11 @@ static void *storage_compact_thread(void *arg) {
             }
             pthread_mutex_unlock(&wrap.lock);
 
-            if (to_sleep > MIN_STORAGE_COMPACT_SLEEP)
-                to_sleep /= 2;
+            // finish actual compaction quickly.
+            to_sleep = MIN_STORAGE_COMPACT_SLEEP;
         } else {
-            if (to_sleep < MAX_STORAGE_COMPACT_SLEEP)
-                to_sleep += MIN_STORAGE_COMPACT_SLEEP;
+            if (to_sleep < settings.ext_max_sleep)
+                to_sleep += settings.ext_max_sleep;
         }
     }
     free(readback_buf);
@@ -633,10 +689,10 @@ struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size)
     }
 
     // TODO: disabling until compact algorithm is improved.
-    if (cf->free_bucket != PAGE_BUCKET_DEFAULT) {
+    /*if (cf->free_bucket != PAGE_BUCKET_DEFAULT) {
         fprintf(stderr, "ext_path only presently supports the default bucket\n");
         goto error;
-    }
+    }*/
 
     return cf;
 error:
