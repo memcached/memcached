@@ -55,6 +55,9 @@
 #include <getopt.h>
 #endif
 
+#if defined(__FreeBSD__)
+#include <sys/sysctl.h>
+#endif
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
 #if defined(__FreeBSD__) || defined(__APPLE__) || defined(__GNU__)
@@ -6492,6 +6495,21 @@ static int enable_large_pages(void) {
         return -1;
     }
     return 0;
+#elif defined(__FreeBSD__)
+    int spages;
+    size_t spagesl = sizeof(spages);
+
+    if (sysctlbyname("vm.pmap.pg_ps_enabled", &spages,
+	&spagesl, NULL, 0) != 0) {
+        fprintf(stderr, "Could not evaluate the presence of superpages features.");
+        return -1;
+    }
+    if (spages != 1) {
+	    fprintf(stderr, "Superpages support not detected.\n");
+	    fprintf(stderr, "Will use default page size.\n");
+	    return -1;
+    }
+    return 0;
 #else
     return -1;
 #endif
@@ -6947,7 +6965,7 @@ int main (int argc, char **argv) {
                 preallocate = true;
             } else {
                 fprintf(stderr, "Cannot enable large pages on this system\n"
-                    "(There is no Linux support as of this version)\n");
+                    "(There is no support as of this version)\n");
                 return 1;
             }
             break;
