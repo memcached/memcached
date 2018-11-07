@@ -6500,14 +6500,14 @@ static int enable_large_pages(void) {
     size_t spagesl = sizeof(spages);
 
     if (sysctlbyname("vm.pmap.pg_ps_enabled", &spages,
-	&spagesl, NULL, 0) != 0) {
+    &spagesl, NULL, 0) != 0) {
         fprintf(stderr, "Could not evaluate the presence of superpages features.");
         return -1;
     }
     if (spages != 1) {
-	    fprintf(stderr, "Superpages support not detected.\n");
-	    fprintf(stderr, "Will use default page size.\n");
-	    return -1;
+        fprintf(stderr, "Superpages support not detected.\n");
+        fprintf(stderr, "Will use default page size.\n");
+        return -1;
     }
     return 0;
 #else
