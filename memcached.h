@@ -19,6 +19,8 @@
 #include <unistd.h>
 #include <assert.h>
 #include <grp.h>
+#include <openssl/ssl.h>
+#include <openssl/crypto.h>
 
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
@@ -368,6 +370,9 @@ struct settings {
     int maxconns;
     int port;
     int udpport;
+    bool ssl_enabled;
+    char *ssl_srv_cert;
+    char *ssl_srv_key;
     char *inter;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
@@ -584,6 +589,8 @@ typedef struct _io_wrap {
  */
 struct conn {
     int    sfd;
+    SSL_CTX* ssl_ctx;
+    SSL*     ssl;
     sasl_conn_t *sasl_conn;
     bool sasl_started;
     bool authenticated;
@@ -676,6 +683,9 @@ struct conn {
     int keylen;
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
+    ssize_t (*read)(void  *arg, void *buf, size_t count);
+    ssize_t (*sendmsg)(void *arg, struct msghdr *msg, int flags);
+    ssize_t (*write)(void *arg, void *buf, size_t count);
 };
 
 /* array of conn structures, indexed by file descriptor */
@@ -719,6 +729,16 @@ enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 void conn_worker_readd(conn *c);
 extern int daemonize(int nochdir, int noclose);
+ssize_t tcp_read(void *arg, void *buf, size_t count);
+ssize_t tcp_sendmsg(void *arg, struct msghdr *msg, int flags);
+ssize_t tcp_write(void *arg, void *buf, size_t count);
+ssize_t ssl_read(void *arg, void *buf, size_t count);
+ssize_t ssl_sendmsg(void *arg, struct msghdr *msg, int flags);
+ssize_t ssl_write(void *arg, void *buf, size_t count);
+
+unsigned long get_thread_id_cb(void);
+void thread_lock_cb(int mode, int which, const char * f, int l);
+int init_ssl_locking(void);
 
 #define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)

@@ -146,6 +146,105 @@ enum transmit_result {
     TRANSMIT_HARD_ERROR  /** Can't write (c->state is set to conn_closing) */
 };
 
+/* Default methods to read from/ write to a socket */
+ssize_t tcp_read(void *arg, void *buf, size_t count) {
+    conn *c = (conn*)arg;
+    return read(c->sfd, buf, count);
+}
+
+ssize_t tcp_sendmsg(void *arg, struct msghdr *msg, int flags) {
+    conn *c = (conn*)arg;
+    return sendmsg(c->sfd, msg, flags);
+}
+
+ssize_t tcp_write(void *arg, void *buf, size_t count) {
+    conn *c = (conn*)arg;
+    return write(c->sfd, buf, count);
+}
+
+/* Read and write methods when SSL is enbled */
+ssize_t ssl_read(void *arg, void *buf, size_t count) {
+    conn *c = (conn*)arg;
+    /* TODO : check the state machine interactions for SSL_read with
+        non-blocking sockets/ SSL re-negotiations
+    */
+    return SSL_read(c->ssl, buf, count);
+}
+
+#define MIN(a,b) (((a)<(b))?(a):(b))
+ssize_t ssl_sendmsg(void *arg, struct msghdr *msg, int flags) {
+    conn *c = (conn*)arg;
+    char *buffer;
+    size_t bytes, to_copy;
+    int i;
+    bytes = 0;
+    for (i = 0; i < msg->msg_iovlen; ++i)
+        bytes += msg->msg_iov[i].iov_len;
+    /* TODO : limit alloca for small allocations and use
+        heap allocations for larger ones.
+    */
+    buffer = (char *) alloca(bytes);
+    if (buffer == NULL)
+        return -1;
+
+    to_copy = bytes;
+    char *bp = buffer;
+    for (i = 0; i < msg->msg_iovlen; ++i) {
+        size_t copy = MIN (to_copy, msg->msg_iov[i].iov_len);
+        memcpy((void*)bp, (void*)msg->msg_iov[i].iov_base, copy);
+        bp +=  copy;
+        to_copy -= copy;
+        if (to_copy == 0)
+            break;
+    }
+    /* TODO : check the state machine interactions for SSL_write with
+        non-blocking sockets/ SSL re-negotiations
+    */
+    return SSL_write(c->ssl, buffer, bytes);
+}
+
+ssize_t ssl_write(void *arg, void *buf, size_t count) {
+    conn *c = (conn*)arg;
+    return SSL_write(c->ssl, buf, count);
+}
+
+/* Standard thread-ID functions required by openssl */
+pthread_mutex_t * ssl_locks;
+int ssl_num_locks;
+
+unsigned long get_thread_id_cb(void) {
+    return (unsigned long)pthread_self();
+}
+
+void thread_lock_cb(int mode, int which, const char * f, int l) {
+    if (which < ssl_num_locks) {
+        if (mode & CRYPTO_LOCK) {
+            pthread_mutex_lock(&(ssl_locks[which]));
+        } else {
+            pthread_mutex_unlock(&(ssl_locks[which]));
+        }
+    }
+}
+
+int init_ssl_locking(void) {
+    int i;
+
+    ssl_num_locks = CRYPTO_num_locks();
+    ssl_locks = malloc(ssl_num_locks * sizeof(pthread_mutex_t));
+    if (ssl_locks == NULL)
+        return -1;
+
+    for (i = 0; i < ssl_num_locks; i++) {
+        pthread_mutex_init(&(ssl_locks[i]), NULL);
+    }
+
+    CRYPTO_set_id_callback(get_thread_id_cb);
+    CRYPTO_set_locking_callback(thread_lock_cb);
+
+    return 0;
+}
+
+
 static enum transmit_result transmit(conn *c);
 
 /* This reduces the latency without adding lots of extra wiring to be able to
@@ -223,6 +322,9 @@ static void settings_init(void) {
     settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 0;
+    settings.ssl_enabled = false;
+    settings.ssl_srv_cert = NULL;
+    settings.ssl_srv_key = NULL;
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -517,7 +619,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             return NULL;
         }
         MEMCACHED_CONN_CREATE(c);
-
+        c->read = tcp_read;
+        c->sendmsg = tcp_sendmsg;
+        c->write = tcp_write;
         c->rbuf = c->wbuf = 0;
         c->ilist = 0;
         c->suffixlist = 0;
@@ -598,6 +702,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         }
     }
 
+    c->ssl_ctx = NULL;
+    c->ssl = NULL;
     c->state = init_state;
     c->rlbytes = 0;
     c->cmd = -1;
@@ -625,6 +731,42 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->item = 0;
 
     c->noreply = false;
+
+    // Setup the SSL context and SSL at each connection level when it's enabled
+    if (IS_TCP(c->transport) &&
+        settings.ssl_enabled &&
+        init_state != conn_listening) {
+        /* TODO use a process level SSL_CTX */
+        c->ssl_ctx = SSL_CTX_new (TLS_server_method());
+        /* TODO use config file/ standardize SSL parameters */
+        if (!SSL_CTX_use_certificate_chain_file(c->ssl_ctx, settings.ssl_srv_cert) ||
+            !SSL_CTX_use_PrivateKey_file(c->ssl_ctx, settings.ssl_srv_key, SSL_FILETYPE_PEM) ||
+            !SSL_CTX_check_private_key(c->ssl_ctx)) {
+            fprintf(stderr, "Error loading/validating certificates\n");
+            return NULL;
+        }
+
+        SSL_CTX_set_options(c->ssl_ctx, SSL_OP_NO_SSLv2);
+        c->ssl = SSL_new(c->ssl_ctx);
+        if (c->ssl == NULL) {
+            fprintf(stderr, "Failed to created the SSL object\n");
+            return NULL;
+        }
+        SSL_set_fd(c->ssl, sfd);
+        int ret = SSL_accept(c->ssl);
+        // Skip client certificate validation for the prototype
+        // implementation
+        if (ret < 0) {
+            int err = SSL_get_error(c->ssl, ret);
+            if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+                fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
+                return NULL;
+            }
+        }
+        c->read = ssl_read;
+        c->sendmsg = ssl_sendmsg;
+        c->write = ssl_write;
+    }
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
@@ -810,8 +952,9 @@ static void conn_close(conn *c) {
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     conn_set_state(c, conn_closed);
+    if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
+    if (c->ssl_ctx) SSL_CTX_free(c->ssl_ctx);
     close(c->sfd);
-
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
     pthread_mutex_unlock(&conn_lock);
@@ -5158,7 +5301,7 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
-        res = read(c->sfd, c->rbuf + c->rbytes, avail);
+        res = c->read(c, c->rbuf + c->rbytes, avail);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
@@ -5262,7 +5405,7 @@ static enum transmit_result transmit(conn *c) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
 
-        res = sendmsg(c->sfd, m, 0);
+        res = c->sendmsg(c, m, 0);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
@@ -5357,7 +5500,7 @@ static int read_into_chunked_item(conn *c) {
             }
         } else {
             /*  now try reading from the socket */
-            res = read(c->sfd, ch->data + ch->used,
+            res = c->read(c, ch->data + ch->used,
                     (unused > c->rlbytes ? c->rlbytes : unused));
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
@@ -5565,7 +5708,7 @@ static void drive_machine(conn *c) {
                 }
 
                 /*  now try reading from the socket */
-                res = read(c->sfd, c->ritem, c->rlbytes);
+                res = c->read(c, c->ritem, c->rlbytes);
                 if (res > 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.bytes_read += res;
@@ -5635,7 +5778,7 @@ static void drive_machine(conn *c) {
             }
 
             /*  now try reading from the socket */
-            res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+            res = c->read(c, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -6745,6 +6888,9 @@ int main (int argc, char **argv) {
     char *shortopts =
           "a:"  /* access mask for unix socket */
           "A"  /* enable admin shutdown command */
+          "Z"   /* enable SSL */
+          "E:"   /* SSL server cert */
+          "e:"   /* SSL server cert key */
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
@@ -6780,6 +6926,9 @@ int main (int argc, char **argv) {
     const struct option longopts[] = {
         {"unix-mask", required_argument, 0, 'a'},
         {"enable-shutdown", no_argument, 0, 'A'},
+        {"enable-ssl", no_argument, 0, 'Z'},
+        {"ssl_server_cert", required_argument, 0, 'E'},
+        {"ssl_server_key", required_argument, 0, 'e'},
         {"port", required_argument, 0, 'p'},
         {"unix-socket", required_argument, 0, 's'},
         {"udp-port", required_argument, 0, 'U'},
@@ -6822,7 +6971,14 @@ int main (int argc, char **argv) {
             /* enables "shutdown" command */
             settings.shutdown_command = true;
             break;
-
+        case 'Z':
+            /* enable secure communication*/
+            settings.ssl_enabled = true;
+            break;
+        case 'E':
+            settings.ssl_srv_cert = strdup(optarg);
+        case 'e':
+            settings.ssl_srv_key = strdup(optarg);
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
             settings.access= strtol(optarg,NULL,8);
@@ -7538,6 +7694,19 @@ int main (int argc, char **argv) {
 
     if (udp_specified && settings.udpport != 0 && !tcp_specified) {
         settings.port = settings.udpport;
+    }
+
+    /*
+     * Setup SSL if enabled
+     */
+    if (settings.ssl_enabled) {
+        if (!settings.port) {
+            fprintf(stderr, "ERROR: You cannot enable SSL without a TCP port.\n");
+            exit(EX_USAGE);
+        }
+        SSL_load_error_strings();
+        SSLeay_add_ssl_algorithms();
+        init_ssl_locking();
     }
 
     if (maxcore != 0) {
