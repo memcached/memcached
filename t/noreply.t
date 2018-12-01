@@ -44,4 +44,3 @@ mem_get_is($sock, "noreply:foo", "7");
 
 print $sock "delete noreply:foo noreply\r\n";
 mem_get_is($sock, "noreply:foo");
-

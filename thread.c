@@ -17,6 +17,10 @@
 #include <atomic.h>
 #endif
 
+#ifdef TLS
+#include <openssl/ssl.h>
+#endif
+
 #define ITEMS_PER_ALLOC 64
 
 /* An item in the connection queue. */
@@ -33,6 +37,7 @@ struct conn_queue_item {
     enum network_transport     transport;
     enum conn_queue_item_modes mode;
     conn *c;
+    void    *ssl;
     CQ_ITEM          *next;
 };
 
@@ -361,6 +366,15 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(EXIT_FAILURE);
     }
 #endif
+#ifdef TLS
+    if (settings.ssl_enabled) {
+        me->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
+        if (me->ssl_wbuf == NULL) {
+            fprintf(stderr, "Failed to allocate the SSL write buffer\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+#endif
 }
 
 /*
@@ -419,7 +433,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
             case queue_new_conn:
                 c = conn_new(item->sfd, item->init_state, item->event_flags,
                                    item->read_buffer_size, item->transport,
-                                   me->base);
+                                   me->base, item->ssl);
                 if (c == NULL) {
                     if (IS_UDP(item->transport)) {
                         fprintf(stderr, "Can't listen for events on UDP socket\n");
@@ -433,6 +447,12 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                     }
                 } else {
                     c->thread = me;
+#ifdef TLS
+                    if (settings.ssl_enabled && c->ssl != NULL) {
+                        assert(c->thread && c->thread->ssl_wbuf);
+                        c->ssl_wbuf = c->thread->ssl_wbuf;
+                    }
+#endif
                 }
                 break;
 
@@ -467,7 +487,7 @@ static int last_thread = -1;
  * of an incoming connection.
  */
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
-                       int read_buffer_size, enum network_transport transport) {
+                       int read_buffer_size, enum network_transport transport, void *ssl) {
     CQ_ITEM *item = cqi_new();
     char buf[1];
     if (item == NULL) {
@@ -489,6 +509,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     item->read_buffer_size = read_buffer_size;
     item->transport = transport;
     item->mode = queue_new_conn;
+    item->ssl = ssl;
 
     cq_push(thread->new_conn_queue, item);
 
@@ -531,6 +552,13 @@ void sidethread_conn_close(conn *c) {
     c->state = conn_closed;
     if (settings.verbose > 1)
         fprintf(stderr, "<%d connection closed from side thread.\n", c->sfd);
+#ifdef TLS
+    if (c->ssl) {
+        c->ssl_wbuf = NULL;
+        SSL_shutdown(c->ssl);
+        SSL_free(c->ssl);
+    }
+#endif
     close(c->sfd);
 
     STATS_LOCK();

@@ -1,5 +1,5 @@
 sudo: required
-dist: trusty
+dist: xenial
 language: cpp
 
 compiler:
@@ -7,11 +7,14 @@ compiler:
 
 install:
     - sudo apt-get update -y
-    - sudo apt-get install -y build-essential automake1.11 autoconf libevent-dev libseccomp-dev git
+    - sudo apt-get install -y build-essential automake1.11 autoconf libevent-dev libseccomp-dev git tar wget libio-socket-ssl-perl
+    - wget https://www.openssl.org/source/openssl-1.1.0g.tar.gz && tar xzvf openssl-1.1.0g.tar.gz
+    - cd openssl-1.1.0g && ./config -Wl,--enable-new-dtags,-rpath,'$(LIBRPATH)' && make && sudo make install && openssl version && cd ../
+    - rm -rf openssl-1.1.0g && rm openssl-1.1.0g.tar.gz*
 
 script:
     - ./autogen.sh
-    - ./configure --enable-seccomp
+    - ./configure --enable-seccomp --enable-tls
     - make -j
     - make test
-
+    - make test_tls

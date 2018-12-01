@@ -31,6 +31,9 @@
 #endif
 
 #include "sasl_defs.h"
+#ifdef TLS
+#include <openssl/ssl.h>
+#endif
 
 /** Maximum length of a key. */
 #define KEY_MAX_LENGTH 250
@@ -433,6 +436,18 @@ struct settings {
     /* per-slab-class free chunk limit */
     unsigned int ext_free_memchunks[MAX_NUMBER_OF_SLAB_CLASSES];
 #endif
+#ifdef TLS
+    bool ssl_enabled; /* indicates whether SSL is enabled */
+    SSL_CTX *ssl_ctx; /* holds the SSL server context which has the server certificate */
+    char *ssl_chain_cert; /* path to the server SSL chain certificate */
+    char *ssl_key; /* path to the server key */
+    int ssl_verify_mode; /* client certificate verify mode */
+    int ssl_keyformat; /* key format , defult is PEM */
+    char *ssl_ciphers; /* list of SSL ciphers */
+    char *ssl_ca_cert; /* certificate with CAs. */
+    rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
+    unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
+#endif
 };
 
 extern struct stats stats;
@@ -563,6 +578,10 @@ typedef struct {
 #endif
     logger *l;                  /* logger buffer */
     void *lru_bump_buf;         /* async LRU bump buffer */
+#ifdef TLS
+    char   *ssl_wbuf;
+#endif
+
 } LIBEVENT_THREAD;
 typedef struct conn conn;
 #ifdef EXTSTORE
@@ -584,6 +603,11 @@ typedef struct _io_wrap {
  */
 struct conn {
     int    sfd;
+#ifdef TLS
+    SSL    *ssl;
+    char   *ssl_wbuf;
+    bool ssl_enabled;
+#endif
     sasl_conn_t *sasl_conn;
     bool sasl_started;
     bool authenticated;
@@ -676,6 +700,9 @@ struct conn {
     int keylen;
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
+    ssize_t (*read)(conn  *c, void *buf, size_t count);
+    ssize_t (*sendmsg)(conn *c, struct msghdr *msg, int flags);
+    ssize_t (*write)(conn *c, void *buf, size_t count);
 };
 
 /* array of conn structures, indexed by file descriptor */
@@ -716,7 +743,9 @@ enum delta_result_type do_add_delta(conn *c, const char *key,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv);
 enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
-conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
+conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size,
+    enum network_transport transport, struct event_base *base, void *ssl);
+
 void conn_worker_readd(conn *c);
 extern int daemonize(int nochdir, int noclose);
 
@@ -740,7 +769,8 @@ extern int daemonize(int nochdir, int noclose);
  */
 void memcached_thread_init(int nthreads, void *arg);
 void redispatch_conn(conn *c);
-void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
+void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size,
+    enum network_transport transport, void *ssl);
 void sidethread_conn_close(conn *c);
 
 /* Lock wrappers for cache functions that are called from main loop. */

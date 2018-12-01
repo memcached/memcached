@@ -55,6 +55,10 @@
 #include <getopt.h>
 #endif
 
+#ifdef TLS
+#include "tls.h"
+#endif
+
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
 #if defined(__FreeBSD__) || defined(__APPLE__) || defined(__GNU__)
@@ -73,6 +77,9 @@
 static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
 static int try_read_command(conn *c);
+static ssize_t tcp_read(conn *arg, void *buf, size_t count);
+static ssize_t tcp_sendmsg(conn *arg, struct msghdr *msg, int flags);
+static ssize_t tcp_write(conn *arg, void *buf, size_t count);
 
 enum try_read_result {
     READ_DATA_RECEIVED,
@@ -145,6 +152,22 @@ enum transmit_result {
     TRANSMIT_SOFT_ERROR, /** Can't write any more right now. */
     TRANSMIT_HARD_ERROR  /** Can't write (c->state is set to conn_closing) */
 };
+
+/* Default methods to read from/ write to a socket */
+ssize_t tcp_read(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
+    return read(c->sfd, buf, count);
+}
+
+ssize_t tcp_sendmsg(conn *c, struct msghdr *msg, int flags) {
+    assert (c != NULL);
+    return sendmsg(c->sfd, msg, flags);
+}
+
+ssize_t tcp_write(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
+    return write(c->sfd, buf, count);
+}
 
 static enum transmit_result transmit(conn *c);
 
@@ -223,6 +246,18 @@ static void settings_init(void) {
     settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 0;
+#ifdef TLS
+    settings.ssl_enabled = false;
+    settings.ssl_ctx = NULL;
+    settings.ssl_chain_cert = NULL;
+    settings.ssl_key = NULL;
+    settings.ssl_verify_mode = SSL_VERIFY_NONE;
+    settings.ssl_keyformat = SSL_FILETYPE_PEM;
+    settings.ssl_ciphers = NULL;
+    settings.ssl_ca_cert = NULL;
+    settings.ssl_last_cert_refresh_time = current_time;
+    settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
+#endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -502,7 +537,7 @@ void conn_worker_readd(conn *c) {
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
-                struct event_base *base) {
+                struct event_base *base, void *ssl) {
     conn *c;
 
     assert(sfd >= 0 && sfd < max_fds);
@@ -517,7 +552,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             return NULL;
         }
         MEMCACHED_CONN_CREATE(c);
-
+        c->read = NULL;
+        c->sendmsg = NULL;
+        c->write = NULL;
         c->rbuf = c->wbuf = 0;
         c->ilist = 0;
         c->suffixlist = 0;
@@ -597,7 +634,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             assert(false);
         }
     }
-
+#ifdef TLS
+    c->ssl = NULL;
+    c->ssl_wbuf = NULL;
+    c->ssl_enabled = false;
+#endif
     c->state = init_state;
     c->rlbytes = 0;
     c->cmd = -1;
@@ -625,6 +666,25 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->item = 0;
 
     c->noreply = false;
+
+#ifdef TLS
+    if (ssl) {
+        c->ssl = (SSL*)ssl;
+        c->read = ssl_read;
+        c->sendmsg = ssl_sendmsg;
+        c->write = ssl_write;
+        c->ssl_enabled = true;
+        SSL_set_info_callback(c->ssl, ssl_callback);
+    } else
+#else
+    // This must be NULL if TLS is not enabled.
+    assert(ssl == NULL);
+#endif
+    {
+        c->read = tcp_read;
+        c->sendmsg = tcp_sendmsg;
+        c->write = tcp_write;
+    }
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
@@ -793,6 +853,11 @@ void conn_free(conn *c) {
             free(c->suffixlist);
         if (c->iov)
             free(c->iov);
+#ifdef TLS
+        if (c->ssl_wbuf)
+            c->ssl_wbuf = NULL;
+#endif
+
         free(c);
     }
 }
@@ -810,8 +875,13 @@ static void conn_close(conn *c) {
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     conn_set_state(c, conn_closed);
+#ifdef TLS
+    if (c->ssl) {
+        SSL_shutdown(c->ssl);
+        SSL_free(c->ssl);
+    }
+#endif
     close(c->sfd);
-
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
     pthread_mutex_unlock(&conn_lock);
@@ -3217,6 +3287,13 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("extstore_io_queue", "%llu", (unsigned long long)(st.io_queue));
     }
 #endif
+#ifdef TLS
+    if (settings.ssl_enabled) {
+        SSL_LOCK();
+        APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
+        SSL_UNLOCK();
+    }
+#endif
 }
 
 static void process_stat_settings(ADD_STAT add_stats, void *c) {
@@ -3287,6 +3364,16 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ext_max_frag", "%.2f", settings.ext_max_frag);
     APPEND_STAT("slab_automove_freeratio", "%.3f", settings.slab_automove_freeratio);
     APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
+#endif
+#ifdef TLS
+    APPEND_STAT("ssl_enabled", "%s", settings.ssl_enabled ? "yes" : "no");
+    APPEND_STAT("ssl_chain_cert", "%s", settings.ssl_chain_cert);
+    APPEND_STAT("ssl_key", "%s", settings.ssl_key);
+    APPEND_STAT("ssl_verify_mode", "%d", settings.ssl_verify_mode);
+    APPEND_STAT("ssl_keyformat", "%d", settings.ssl_keyformat);
+    APPEND_STAT("ssl_ciphers", "%s", settings.ssl_ciphers ? settings.ssl_ciphers : "NULL");
+    APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
+    APPEND_STAT("ssl_wbuf_size", "%u", settings.ssl_wbuf_size);
 #endif
 }
 
@@ -4927,6 +5014,17 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "extstore") == 0) {
         process_extstore_command(c, tokens, ntokens);
 #endif
+#ifdef TLS
+    } else if (ntokens == 2 && strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0) {
+        set_noreply_maybe(c, tokens, ntokens);
+        char *errmsg = NULL;
+        if (refresh_certs(&errmsg)) {
+            out_string(c, "OK");
+        } else {
+            write_and_free(c, errmsg, strlen(errmsg));
+        }
+        return;
+#endif
     } else {
         if (ntokens >= 2 && strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
             conn_set_state(c, conn_closing);
@@ -5158,7 +5256,7 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
-        res = read(c->sfd, c->rbuf + c->rbytes, avail);
+        res = c->read(c, c->rbuf + c->rbytes, avail);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
@@ -5262,7 +5360,7 @@ static enum transmit_result transmit(conn *c) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
 
-        res = sendmsg(c->sfd, m, 0);
+        res = c->sendmsg(c, m, 0);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
@@ -5357,7 +5455,7 @@ static int read_into_chunked_item(conn *c) {
             }
         } else {
             /*  now try reading from the socket */
-            res = read(c->sfd, ch->data + ch->used,
+            res = c->read(c, ch->data + ch->used,
                     (unused > c->rlbytes ? c->rlbytes : unused));
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
@@ -5458,8 +5556,47 @@ static void drive_machine(conn *c) {
                 stats.rejected_conns++;
                 STATS_UNLOCK();
             } else {
+                void *ssl_v = NULL;
+#ifdef TLS
+                SSL *ssl = NULL;
+                if (c->ssl_enabled) {
+                    assert(IS_TCP(c->transport) && settings.ssl_enabled);
+
+                    if (settings.ssl_ctx == NULL) {
+                        if (settings.verbose) {
+                            fprintf(stderr, "SSL context is not initialized\n");
+                        }
+                        close(sfd);
+                        break;
+                    }
+                    SSL_LOCK();
+                    ssl = SSL_new(settings.ssl_ctx);
+                    SSL_UNLOCK();
+                    if (ssl == NULL) {
+                        if (settings.verbose) {
+                            fprintf(stderr, "Failed to created the SSL object\n");
+                        }
+                        close(sfd);
+                        break;
+                    }
+                    SSL_set_fd(ssl, sfd);
+                    int ret = SSL_accept(ssl);
+                    if (ret < 0) {
+                        int err = SSL_get_error(ssl, ret);
+                        if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+                            if (settings.verbose) {
+                                fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
+                            }
+                            close(sfd);
+                            break;
+                        }
+                    }
+                }
+                ssl_v = (void*) ssl;
+#endif
+
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, c->transport);
+                                     DATA_BUFFER_SIZE, c->transport, ssl_v);
             }
 
             stop = true;
@@ -5565,7 +5702,7 @@ static void drive_machine(conn *c) {
                 }
 
                 /*  now try reading from the socket */
-                res = read(c->sfd, c->ritem, c->rlbytes);
+                res = c->read(c, c->ritem, c->rlbytes);
                 if (res > 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.bytes_read += res;
@@ -5635,7 +5772,7 @@ static void drive_machine(conn *c) {
             }
 
             /*  now try reading from the socket */
-            res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+            res = c->read(c, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -5849,7 +5986,7 @@ static void maximize_sndbuf(const int sfd) {
 static int server_socket(const char *interface,
                          int port,
                          enum network_transport transport,
-                         FILE *portnumber_file) {
+                         FILE *portnumber_file, bool ssl_enabled) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
@@ -5972,15 +6109,20 @@ static int server_socket(const char *interface,
                 int per_thread_fd = c ? dup(sfd) : sfd;
                 dispatch_conn_new(per_thread_fd, conn_read,
                                   EV_READ | EV_PERSIST,
-                                  UDP_READ_BUFFER_SIZE, transport);
+                                  UDP_READ_BUFFER_SIZE, transport, NULL);
             }
         } else {
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
                                              EV_READ | EV_PERSIST, 1,
-                                             transport, main_base))) {
+                                             transport, main_base, NULL))) {
                 fprintf(stderr, "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
             }
+#ifdef TLS
+            listen_conn_add->ssl_enabled = ssl_enabled;
+#else
+            assert(ssl_enabled == false);
+#endif
             listen_conn_add->next = listen_conn;
             listen_conn = listen_conn_add;
         }
@@ -5994,8 +6136,15 @@ static int server_socket(const char *interface,
 
 static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
+    bool ssl_enabled = false;
+
+#ifdef TLS
+    const char *notls = "notls";
+    ssl_enabled = settings.ssl_enabled;
+#endif
+
     if (settings.inter == NULL) {
-        return server_socket(settings.inter, port, transport, portnumber_file);
+        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled);
     } else {
         // tokenize them and bind to each one of them..
         char *b;
@@ -6007,9 +6156,21 @@ static int server_sockets(int port, enum network_transport transport,
             return 1;
         }
         for (char *p = strtok_r(list, ";,", &b);
-             p != NULL;
-             p = strtok_r(NULL, ";,", &b)) {
+            p != NULL;
+            p = strtok_r(NULL, ";,", &b)) {
             int the_port = port;
+#ifdef TLS
+            ssl_enabled = settings.ssl_enabled;
+            // "notls" option is valid only when memcached is run with SSL enabled.
+            if (strncmp(p, notls, strlen(notls)) == 0) {
+                if (!settings.ssl_enabled) {
+                    fprintf(stderr, "'notls' option is valid only when SSL is enabled\n");
+                    return 1;
+                }
+                ssl_enabled = false;
+                p += strlen(notls) + 1;
+            }
+#endif
 
             char *h = NULL;
             if (*p == '[') {
@@ -6049,7 +6210,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strcmp(p, "*") == 0) {
                 p = NULL;
             }
-            ret |= server_socket(p, the_port, transport, portnumber_file);
+            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled);
         }
         free(list);
         return ret;
@@ -6126,7 +6287,7 @@ static int server_socket_unix(const char *path, int access_mask) {
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
                                  EV_READ | EV_PERSIST, 1,
-                                 local_transport, main_base))) {
+                                 local_transport, main_base, NULL))) {
         fprintf(stderr, "failed to create listening connection\n");
         exit(EXIT_FAILURE);
     }
@@ -6205,6 +6366,10 @@ static void usage(void) {
            "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
            "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: 0700)\n"
            "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
+#ifdef TLS
+           "                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
+           "                          disable for specific listeners (-l notls:<ip>:<port>) \n"
+#endif
            "-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
@@ -6241,6 +6406,9 @@ static void usage(void) {
 #endif
     printf("-F, --disable-flush-all   disable flush_all command\n");
     printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
+#ifdef TLS
+    printf("-Z, --enable-ssl          enable TLS/SSL\n");
+#endif
     printf("-o, --extended            comma separated list of extended options\n"
            "                          most options have a 'no_' prefix to disable\n"
            "   - maxconns_fast:       immediately close new connections after limit\n"
@@ -6303,6 +6471,17 @@ static void usage(void) {
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info)\n"
+#endif
+#ifdef TLS
+           "   - ssl_chain_cert:      certificate chain file in PEM format\n"
+           "   - ssl_key:             private key, if not part of the -ssl_chain_cert\n"
+           "   - ssl_keyformat:         private key format (PEM, DER or ENGINE) PEM default\n"
+           "   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
+           "                          valid values are 0(None), 1(Request), 2(Require)\n"
+           "                          or 3(Once)\n"
+           "   - ssl_ciphers:         specify cipher list to be used\n"
+           "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
+           "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
 #endif
            );
     return;
@@ -6628,6 +6807,15 @@ int main (int argc, char **argv) {
         NO_LRU_MAINTAINER,
         NO_DROP_PRIVILEGES,
         DROP_PRIVILEGES,
+#ifdef TLS
+        SSL_CERT,
+        SSL_KEY,
+        SSL_VERIFY_MODE,
+        SSL_KEYFORM,
+        SSL_CIPHERS,
+        SSL_CA_CERT,
+        SSL_WBUF_SIZE,
+#endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
@@ -6685,6 +6873,15 @@ int main (int argc, char **argv) {
         [NO_LRU_MAINTAINER] = "no_lru_maintainer",
         [NO_DROP_PRIVILEGES] = "no_drop_privileges",
         [DROP_PRIVILEGES] = "drop_privileges",
+#ifdef TLS
+        [SSL_CERT] = "ssl_chain_cert",
+        [SSL_KEY] = "ssl_key",
+        [SSL_VERIFY_MODE] = "ssl_verify_mode",
+        [SSL_KEYFORM] = "ssl_keyformat",
+        [SSL_CIPHERS] = "ssl_ciphers",
+        [SSL_CA_CERT] = "ssl_ca_cert",
+        [SSL_WBUF_SIZE] = "ssl_wbuf_size",
+#endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
 #endif
@@ -6711,7 +6908,7 @@ int main (int argc, char **argv) {
         return EX_OSERR;
     }
 
-    /* handle SIGINT and SIGTERM */
+    /* handle SIGINT, SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
@@ -6745,6 +6942,7 @@ int main (int argc, char **argv) {
     char *shortopts =
           "a:"  /* access mask for unix socket */
           "A"  /* enable admin shutdown command */
+          "Z"   /* enable SSL */
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
@@ -6780,6 +6978,7 @@ int main (int argc, char **argv) {
     const struct option longopts[] = {
         {"unix-mask", required_argument, 0, 'a'},
         {"enable-shutdown", no_argument, 0, 'A'},
+        {"enable-ssl", no_argument, 0, 'Z'},
         {"port", required_argument, 0, 'p'},
         {"unix-socket", required_argument, 0, 's'},
         {"udp-port", required_argument, 0, 'U'},
@@ -6822,12 +7021,19 @@ int main (int argc, char **argv) {
             /* enables "shutdown" command */
             settings.shutdown_command = true;
             break;
-
+        case 'Z':
+            /* enable secure communication*/
+#ifdef TLS
+            settings.ssl_enabled = true;
+#else
+            fprintf(stderr, "This server is not built with TLS support.\n");
+            exit(EX_USAGE);
+#endif
+            break;
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
             settings.access= strtol(optarg,NULL,8);
             break;
-
         case 'U':
             settings.udpport = atoi(optarg);
             udp_specified = true;
@@ -7242,6 +7448,90 @@ int main (int argc, char **argv) {
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
                 break;
+#ifdef TLS
+            case SSL_CERT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_chain_cert argument\n");
+                    return 1;
+                }
+                settings.ssl_chain_cert = strdup(subopts_value);
+                break;
+            case SSL_KEY:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_key argument\n");
+                    return 1;
+                }
+                settings.ssl_key = strdup(subopts_value);
+                break;
+            case SSL_VERIFY_MODE:
+            {
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_verify_mode argument\n");
+                    return 1;
+                }
+                int verify  = 0;
+                if (!safe_strtol(subopts_value, &verify)) {
+                    fprintf(stderr, "could not parse argument to ssl_verify_mode\n");
+                    return 1;
+                }
+                switch(verify) {
+                    case 0:
+                        settings.ssl_verify_mode = SSL_VERIFY_NONE;
+                        break;
+                    case 1:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER;
+                        break;
+                    case 2:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER |
+                                                    SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+                        break;
+                    case 3:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER |
+                                                    SSL_VERIFY_FAIL_IF_NO_PEER_CERT |
+                                                    SSL_VERIFY_CLIENT_ONCE;
+                        break;
+                    default:
+                        fprintf(stderr, "Invalid ssl_verify_mode. Use help to see valid options.\n");
+                        return 1;
+                }
+                break;
+            }
+            case SSL_KEYFORM:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_keyformat argument\n");
+                    return 1;
+                }
+                if (!safe_strtol(subopts_value, &settings.ssl_keyformat)) {
+                    fprintf(stderr, "could not parse argument to ssl_keyformat\n");
+                    return 1;
+                }
+                break;
+            case SSL_CIPHERS:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_ciphers argument\n");
+                    return 1;
+                }
+                settings.ssl_ciphers = strdup(subopts_value);
+                break;
+            case SSL_CA_CERT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_ca_cert argument\n");
+                    return 1;
+                }
+                settings.ssl_ca_cert = strdup(subopts_value);
+                break;
+            case SSL_WBUF_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_wbuf_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ssl_wbuf_size)) {
+                    fprintf(stderr, "could not parse argument to ssl_wbuf_size\n");
+                    return 1;
+                }
+                settings.ssl_wbuf_size *= 1024; /* kilobytes */
+                break;
+#endif
 #ifdef EXTSTORE
             case EXT_PAGE_SIZE:
                 if (subopts_value == NULL) {
@@ -7539,6 +7829,24 @@ int main (int argc, char **argv) {
     if (udp_specified && settings.udpport != 0 && !tcp_specified) {
         settings.port = settings.udpport;
     }
+
+
+#ifdef TLS
+    /*
+     * Setup SSL if enabled
+     */
+    if (settings.ssl_enabled) {
+        if (!settings.port) {
+            fprintf(stderr, "ERROR: You cannot enable SSL without a TCP port.\n");
+            exit(EX_USAGE);
+        }
+        // openssl init methods.
+        SSL_load_error_strings();
+        SSLeay_add_ssl_algorithms();
+        // Initiate the SSL context.
+        ssl_init();
+    }
+#endif
 
     if (maxcore != 0) {
         struct rlimit rlim_new;

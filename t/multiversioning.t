@@ -24,7 +24,17 @@ mem_get_is($sock, "big", $bigval, "big value got correctly");
 
 print $sock "get big\r\n";
 my $buf;
-is(read($sock, $buf, $size / 2), $size / 2, "read half the answer back");
+my $read = 0;
+my $to_read = $size / 2;
+while ($read < $to_read) {
+    my $read_bytes = $sock->sysread($buf,
+                        ($to_read - $read > MemcachedTest::MAX_READ_WRITE_SIZE ?
+                                MemcachedTest::MAX_READ_WRITE_SIZE : $to_read - $read),
+                        $read);
+    last if ($read_bytes <= 0);
+    $read += $read_bytes;
+}
+is($read, $size / 2, "read half the answer back");
 like($buf, qr/VALUE big/, "buf has big value header in it");
 like($buf, qr/abcdef/, "buf has some data in it");
 unlike($buf, qr/abcde\]/, "buf doesn't yet close");
