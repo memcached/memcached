@@ -269,6 +269,8 @@ struct slab_stats {
     X(get_misses) \
     X(get_expired) \
     X(get_flushed) \
+    X(metaget_cmds) \
+    X(metaget_misses) \
     X(touch_cmds) \
     X(touch_misses) \
     X(delete_misses) \

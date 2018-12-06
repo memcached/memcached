@@ -3126,8 +3126,10 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
     APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
     APPEND_STAT("cmd_touch", "%llu", (unsigned long long)thread_stats.touch_cmds);
+    APPEND_STAT("cmd_metaget", "%llu", (unsigned long long)thread_stats.metaget_cmds);
     APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
+    APPEND_STAT("metaget_misses", "%llu", (unsigned long long)thread_stats.metaget_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
     APPEND_STAT("get_flushed", "%llu", (unsigned long long)thread_stats.get_flushed);
 #ifdef EXTSTORE
@@ -4110,6 +4112,59 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     conn_set_state(c, conn_nread);
 }
 
+static void process_metaget_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    item *it;
+    char key_temp[KEY_MAX_LENGTH + 1];
+    unsigned int len;
+    char *buffer;
+    unsigned int bufcurr = 0;
+    unsigned int memlimit = 3 * KEY_MAX_LENGTH;
+
+    buffer = malloc((size_t)memlimit);
+
+    assert(c != NULL);
+
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    it = limited_get(key, nkey, c, 0, false);
+
+    if (it) {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.metaget_cmds++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        assert(it->nkey <= KEY_MAX_LENGTH);
+        /* Copy the key since it may not be null-terminated in the struct */
+        strncpy(key_temp, ITEM_key(it), it->nkey);
+        key_temp[it->nkey] = 0x00; /* terminate */
+
+        len = snprintf(buffer, memlimit,
+                        "META %s age:unknown;  exptime:%llu; from:unknown\r\nEND\r\n",
+                        key_temp,
+                        it->exptime == 0 ? 0 : (unsigned long long) it->exptime - current_time);
+
+        if (bufcurr + len + 6 > memlimit) /* 6 is END\r\n\0 */
+            return;
+        bufcurr += len;
+        write_and_free(c, buffer, bufcurr);
+
+    } else {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.metaget_cmds++;
+        c->thread->stats.metaget_misses++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+        out_string(c, "END");
+    }
+}
+
 static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
@@ -4687,6 +4742,10 @@ static void process_command(conn *c, char *command) {
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "touch") == 0)) {
 
         process_touch_command(c, tokens, ntokens);
+
+    } else if ((ntokens == 3) && (strcmp(tokens[COMMAND_TOKEN].value, "metaget") == 0)) {
+
+        process_metaget_command(c, tokens, ntokens);
 
     } else if (ntokens >= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "gat") == 0)) {
 
