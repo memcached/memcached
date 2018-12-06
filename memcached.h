@@ -251,6 +251,7 @@ enum delta_result_type {
     X(set_cmds) \
     X(get_hits) \
     X(touch_hits) \
+    X(metaget_hits) \
     X(delete_hits) \
     X(cas_hits) \
     X(cas_badval) \

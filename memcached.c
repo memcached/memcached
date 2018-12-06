@@ -3129,6 +3129,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_metaget", "%llu", (unsigned long long)thread_stats.metaget_cmds);
     APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
+    APPEND_STAT("metaget_hits", "%llu", (unsigned long long)slab_stats.metaget_hits);
     APPEND_STAT("metaget_misses", "%llu", (unsigned long long)thread_stats.metaget_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
     APPEND_STAT("get_flushed", "%llu", (unsigned long long)thread_stats.get_flushed);
@@ -4139,6 +4140,7 @@ static void process_metaget_command(conn *c, token_t *tokens, const size_t ntoke
     if (it) {
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.metaget_cmds++;
+        c->thread->stats.slab_stats[ITEM_clsid(it)].metaget_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         assert(it->nkey <= KEY_MAX_LENGTH);
