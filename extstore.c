@@ -773,11 +773,22 @@ static void *extstore_io_thread(void *arg) {
                     }
                     pthread_mutex_unlock(&p->mutex);
                     if (do_op) {
+#ifdef __APPLE__
+                        ret = lseek(p->fd, SEEK_SET, p->offset + cur_io->offset);
+                        if (ret >= 0) {
+                            if (cur_io->iov == NULL) {
+                                ret = read(p->fd, cur_io->buf, cur_io->len);
+                            } else {
+                                ret = readv(p->fd, cur_io->iov, cur_io->iovcnt);
+                            }
+                        }
+#else
                         if (cur_io->iov == NULL) {
                             ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
                         } else {
                             ret = preadv(p->fd, cur_io->iov, cur_io->iovcnt, p->offset + cur_io->offset);
                         }
+#endif
                     }
                     break;
                 case OBJ_IO_WRITE:
