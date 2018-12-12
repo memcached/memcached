@@ -737,7 +737,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         settings.ssl_enabled &&
         init_state != conn_listening) {
         /* TODO use a process level SSL_CTX */
-        c->ssl_ctx = SSL_CTX_new (TLS_server_method());
+        c->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
         /* TODO use config file/ standardize SSL parameters */
         if (!SSL_CTX_use_certificate_chain_file(c->ssl_ctx, settings.ssl_srv_cert) ||
             !SSL_CTX_use_PrivateKey_file(c->ssl_ctx, settings.ssl_srv_key, SSL_FILETYPE_PEM) ||

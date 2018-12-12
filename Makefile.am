@@ -102,6 +102,9 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.m
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
+test_ssl:
+	$(MAKE) SSL_TEST=1 test
+
 test:	memcached-debug sizes testapp
 	$(srcdir)/sizes
 	$(srcdir)/testapp

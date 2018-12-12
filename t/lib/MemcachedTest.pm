@@ -1,6 +1,7 @@
 package MemcachedTest;
 use strict;
 use IO::Socket::INET;
+use IO::Socket::SSL;
 use IO::Socket::UNIX;
 use Exporter 'import';
 use Carp qw(croak);
@@ -16,6 +17,8 @@ my @unixsockets = ();
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
              supports_sasl free_port supports_drop_priv supports_extstore
              wait_ext_flush);
+
+use constant MAX_READ_WRITE_SIZE => 16384;
 
 sub sleep {
     my $n = shift;
@@ -149,10 +152,18 @@ sub free_port {
     my $port;
     while (!$sock) {
         $port = int(rand(20000)) + 30000;
-        $sock = IO::Socket::INET->new(LocalAddr => '127.0.0.1',
+        if ($ENV{SSL_TEST}) {
+            $sock = IO::Socket::SSL->new(LocalAddr => '127.0.0.1',
+                                      LocalPort => $port,
+                                      Proto     => $type,
+                                      ReuseAddr => 1,
+                                      SSL_verify_mode => SSL_VERIFY_NONE);
+        } else {
+            $sock = IO::Socket::INET->new(LocalAddr => '127.0.0.1',
                                       LocalPort => $port,
                                       Proto     => $type,
                                       ReuseAddr => 1);
+        }
     }
     return $port;
 }
@@ -185,10 +196,16 @@ sub new_memcached {
     my ($args, $passed_port) = @_;
     my $port = $passed_port;
     my $host = '127.0.0.1';
+    my $ssl_enabled  = $ENV{SSL_TEST};
 
     if ($ENV{T_MEMD_USE_DAEMON}) {
         my ($host, $port) = ($ENV{T_MEMD_USE_DAEMON} =~ m/^([^:]+):(\d+)$/);
-        my $conn = IO::Socket::INET->new(PeerAddr => "$host:$port");
+        my $conn;
+        if ($ssl_enabled) {
+            $conn = IO::Socket::SSL->new(PeerAddr => "$host:$port", SSL_verify_mode => SSL_VERIFY_NONE);
+        } else {
+            $conn = IO::Socket::INET->new(PeerAddr => "$host:$port");
+        }
         if ($conn) {
             return Memcached::Handle->new(conn => $conn,
                                           host => $host,
@@ -203,12 +220,17 @@ sub new_memcached {
     $args .= " -o relaxed_privileges";
 
     my $udpport;
-    if ($args =~ /-l (\S+)/) {
+    if ($args =~ /-l (\S+)/ || ($ssl_enabled && ($args !~ /-s (\S+)/))) {
         $port = free_port();
         $udpport = free_port("udp");
         $args .= " -p $port";
         if (supports_udp()) {
             $args .= " -U $udpport";
+        }
+        if ($ssl_enabled) {
+            my $cert = getcwd() . "/t/cert";
+            my $key = getcwd() .  "/t/pkey";
+            $args .= " -Z -E $cert -e $key";
         }
     } elsif ($args !~ /-s (\S+)/) {
         my $num = @unixsockets;
@@ -246,7 +268,13 @@ sub new_memcached {
     # sockets
 
     for (1..20) {
-        my $conn = IO::Socket::INET->new(PeerAddr => "127.0.0.1:$port");
+        my $conn;
+        if ($ssl_enabled) {
+            $conn = IO::Socket::SSL->new(PeerAddr => "127.0.0.1:$port",
+                SSL_verify_mode =>  SSL_VERIFY_NONE);
+        } else {
+            $conn = IO::Socket::INET->new(PeerAddr => "127.0.0.1:$port");
+        }
         if ($conn) {
             return Memcached::Handle->new(pid  => $childpid,
                                           conn => $conn,
@@ -299,6 +327,9 @@ sub new_sock {
     my $self = shift;
     if ($self->{domainsocket}) {
         return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
+    } elsif ($ENV{SSL_TEST}) {
+        return IO::Socket::SSL->new(PeerAddr => "$self->{host}:$self->{port}",
+                                    SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_NONE);
     } else {
         return IO::Socket::INET->new(PeerAddr => "$self->{host}:$self->{port}");
     }

@@ -17,6 +17,8 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <openssl/ssl.h>
+#include <openssl/crypto.h>
 
 #include "config.h"
 #include "cache.h"
@@ -27,10 +29,58 @@
 
 enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 
+struct conn {
+    int sock;
+    SSL_CTX* ssl_ctx;
+    SSL*     ssl;
+    ssize_t (*read)(void  *arg, void *buf, size_t count);
+    ssize_t (*write)(void *arg, const void *buf, size_t count);
+};
+
+
+ssize_t tcp_read(void *arg, void *buf, size_t count);
+ssize_t tcp_write(void *arg, const void *buf, size_t count);
+ssize_t ssl_read(void *arg, void *buf, size_t count);
+ssize_t ssl_write(void *arg, const void *buf, size_t count);
+
+ssize_t tcp_read(void *arg, void *buf, size_t count) {
+    assert(arg != NULL);
+    struct conn* c = (struct conn*) arg;
+    return read(c->sock, buf, count);
+}
+
+ssize_t tcp_write(void *arg, const void *buf, size_t count) {
+    assert(arg != NULL);
+    struct conn* c = (struct conn*) arg;
+    return write(c->sock, buf, count);
+}
+
+ssize_t ssl_read(void *arg, void *buf, size_t count) {
+    assert(arg != NULL);
+    struct conn *c = (struct conn*)arg;
+    return SSL_read(c->ssl, buf, count);
+}
+
+ssize_t ssl_write(void *arg, const void *buf, size_t count) {
+    assert(arg != NULL);
+    struct conn *c = (struct conn*)arg;
+    return SSL_write(c->ssl, buf, count);
+}
+
 static pid_t server_pid;
 static in_port_t port;
-static int sock;
+static struct conn* con = NULL;
 static bool allow_closed_read = false;
+static bool enable_ssl = false;
+
+static void close_conn() {
+    if (con == NULL) return;
+    if (con->ssl) { SSL_shutdown(con->ssl); SSL_free(con->ssl);}
+    if (con->ssl_ctx) SSL_CTX_free(con->ssl_ctx);
+    if (con->sock > 0) close(con->sock);
+    free(con);
+    con = NULL;
+}
 
 static enum test_return cache_create_test(void)
 {
@@ -318,7 +368,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
 
     if (pid == 0) {
         /* Child */
-        char *argv[20];
+        char *argv[24];
         int arg = 0;
         char tmo[24];
         snprintf(tmo, sizeof(tmo), "%u", timeout);
@@ -339,6 +389,14 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
         argv[arg++] = "-1";
         argv[arg++] = "-U";
         argv[arg++] = "0";
+
+        if (enable_ssl) {
+            argv[arg++] = "-Z";
+            argv[arg++] = "-E";
+            argv[arg++] = "t/cert";
+            argv[arg++] = "-e";
+            argv[arg++] = "t/pkey";
+        }
         /* Handle rpmbuild and the like doing this as root */
         if (getuid() == 0) {
             argv[arg++] = "-u";
@@ -445,8 +503,15 @@ static struct addrinfo *lookuphost(const char *hostname, in_port_t port)
     return ai;
 }
 
-static int connect_server(const char *hostname, in_port_t port, bool nonblock)
+static struct conn* connect_server(const char *hostname, in_port_t port,
+                            bool nonblock, const bool ssl)
 {
+    struct conn* c;
+    if (!(c = (struct conn *)calloc(1, sizeof(struct conn)))) {
+        fprintf(stderr, "Failed to allocate the client connection: %s\n",
+                strerror(errno));
+    }
+
     struct addrinfo *ai = lookuphost(hostname, port);
     int sock = -1;
     if (ai != NULL) {
@@ -472,7 +537,40 @@ static int connect_server(const char *hostname, in_port_t port, bool nonblock)
 
        freeaddrinfo(ai);
     }
-    return sock;
+    c->sock = sock;
+    if (sock > 0 && ssl) {
+        c->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+        if (c->ssl_ctx == NULL) {
+            fprintf(stderr, "Failed to create the SSL context: %s\n",
+                strerror(errno));
+            close(sock);
+            sock = -1;
+        }
+        c->ssl = SSL_new(c->ssl_ctx);
+        if (c->ssl == NULL) {
+            fprintf(stderr, "Failed to create the SSL object: %s\n",
+                strerror(errno));
+            close(sock);
+            sock = -1;
+        }
+        SSL_set_fd (c->ssl, c->sock);
+        int ret = SSL_connect(c->ssl);
+        if (ret < 0) {
+            int err = SSL_get_error(c->ssl, ret);
+            if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+                fprintf(stderr, "SSL connection failed with error code : %s\n",
+                    strerror(errno));
+                close(sock);
+                sock = -1;
+            }
+        }
+        c->read = ssl_read;
+        c->write = ssl_write;
+    } else {
+        c->read = tcp_read;
+        c->write = tcp_write;
+    }
+    return c;
 }
 
 static enum test_return test_vperror(void) {
@@ -525,7 +623,7 @@ static void send_ascii_command(const char *buf) {
     size_t len = strlen(buf);
 
     do {
-        ssize_t nw = write(sock, ptr + offset, len - offset);
+        ssize_t nw = con->write((void*)con, ptr + offset, len - offset);
         if (nw == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
@@ -547,7 +645,7 @@ static void read_ascii_response(char *buffer, size_t size) {
     off_t offset = 0;
     bool need_more = true;
     do {
-        ssize_t nr = read(sock, buffer + offset, 1);
+        ssize_t nr = con->read(con, buffer + offset, 1);
         if (nr == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to read: %s\n", strerror(errno));
@@ -568,10 +666,11 @@ static void read_ascii_response(char *buffer, size_t size) {
 static enum test_return test_issue_92(void) {
     char buffer[1024];
 
-    close(sock);
-    sock = connect_server("127.0.0.1", port, false);
+    close_conn();
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
 
     send_ascii_command("stats cachedump 1 0 0\r\n");
+
     read_ascii_response(buffer, sizeof(buffer));
     assert(strncmp(buffer, "END", strlen("END")) == 0);
 
@@ -579,8 +678,8 @@ static enum test_return test_issue_92(void) {
     read_ascii_response(buffer, sizeof(buffer));
     assert(strncmp(buffer, "CLIENT_ERROR", strlen("CLIENT_ERROR")) == 0);
 
-    close(sock);
-    sock = connect_server("127.0.0.1", port, false);
+    close_conn();
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
     return TEST_PASS;
 }
 
@@ -589,14 +688,14 @@ static enum test_return test_issue_102(void) {
     memset(buffer, ' ', sizeof(buffer));
     buffer[sizeof(buffer) - 1] = '\0';
 
-    close(sock);
-    sock = connect_server("127.0.0.1", port, false);
+    close_conn();
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
 
     send_ascii_command(buffer);
     /* verify that the server closed the connection */
-    assert(read(sock, buffer, sizeof(buffer)) == 0);
-    close(sock);
-    sock = connect_server("127.0.0.1", port, false);
+    assert(con->read(con, buffer, sizeof(buffer)) == 0);
+
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
 
     snprintf(buffer, sizeof(buffer), "gets ");
     size_t offset = 5;
@@ -625,22 +724,23 @@ static enum test_return test_issue_102(void) {
     buffer[sizeof(buffer) - 1] = '\0';
     send_ascii_command(buffer);
     /* verify that the server closed the connection */
-    assert(read(sock, buffer, sizeof(buffer)) == 0);
+    assert(con->read(con, buffer, sizeof(buffer)) == 0);
 
-    close(sock);
-    sock = connect_server("127.0.0.1", port, false);
+    close_conn();
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
 
     return TEST_PASS;
 }
 
 static enum test_return start_memcached_server(void) {
     server_pid = start_server(&port, false, 600);
-    sock = connect_server("127.0.0.1", port, false);
+    close_conn();
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
     return TEST_PASS;
 }
 
 static enum test_return stop_memcached_server(void) {
-    close(sock);
+    close_conn();
     if (server_pid != -1) {
         assert(kill(server_pid, SIGTERM) == 0);
     }
@@ -651,14 +751,14 @@ static enum test_return stop_memcached_server(void) {
 static enum test_return shutdown_memcached_server(void) {
     char buffer[1024];
 
-    close(sock);
-    sock = connect_server("127.0.0.1", port, false);
+    close_conn();
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
 
     send_ascii_command("shutdown\r\n");
     /* verify that the server closed the connection */
-    assert(read(sock, buffer, sizeof(buffer)) == 0);
+    assert(con->read(con, buffer, sizeof(buffer)) == 0);
 
-    close(sock);
+    close_conn();
 
     /* We set server_pid to -1 so that we don't later call kill() */
     if (kill(server_pid, 0) == 0) {
@@ -694,8 +794,7 @@ static void safe_send(const void* buf, size_t len, bool hickup)
                 num_bytes = (rand() % 1023) + 1;
             }
         }
-
-        ssize_t nw = write(sock, ptr + offset, num_bytes);
+        ssize_t nw = con->write(con, ptr + offset, num_bytes);
         if (nw == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
@@ -716,7 +815,7 @@ static bool safe_recv(void *buf, size_t len) {
     }
     off_t offset = 0;
     do {
-        ssize_t nr = read(sock, ((char*)buf) + offset, len - offset);
+        ssize_t nr = con->read(con, ((char*)buf) + offset, len - offset);
         if (nr == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to read: %s\n", strerror(errno));
@@ -1064,9 +1163,9 @@ static enum test_return test_binary_quit_impl(uint8_t cmd) {
     }
 
     /* Socket should be closed now, read should return 0 */
-    assert(read(sock, buffer.bytes, sizeof(buffer.bytes)) == 0);
-    close(sock);
-    sock = connect_server("127.0.0.1", port, false);
+    assert(con->read(con, buffer.bytes, sizeof(buffer.bytes)) == 0);
+    close_conn();
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
 
     return TEST_PASS;
 }
@@ -1867,7 +1966,7 @@ static enum test_return test_binary_pipeline_hickup(void)
 static enum test_return test_issue_101(void) {
     enum { max = 2 };
     enum test_return ret = TEST_PASS;
-    int fds[max];
+    struct conn *conns[max];
     int ii = 0;
     pid_t child = 0;
 
@@ -1881,15 +1980,16 @@ static enum test_return test_issue_101(void) {
     server_pid = start_server(&port, false, 1000);
 
     for (ii = 0; ii < max; ++ii) {
-        fds[ii] = connect_server("127.0.0.1", port, true);
-        assert(fds[ii] > 0);
+        conns[ii] = NULL;
+        conns[ii] = connect_server("127.0.0.1", port, true, enable_ssl);
+        assert(conns[ii]->sock > 0);
     }
 
     /* Send command on the connection until it blocks */
     for (ii = 0; ii < max; ++ii) {
         bool more = true;
         do {
-            ssize_t err = write(fds[ii], command, cmdlen);
+            ssize_t err = conns[ii]->write(conns[ii], command, cmdlen);
             if (err == -1) {
                 switch (errno) {
                 case EINTR:
@@ -1916,16 +2016,21 @@ static enum test_return test_issue_101(void) {
         assert(c == child);
         assert(stat == 0);
     } else {
-        sock = connect_server("127.0.0.1", port, false);
+        con = connect_server("127.0.0.1", port, false, enable_ssl);
         ret = test_binary_noop();
-        close(sock);
         exit(0);
     }
 
  cleanup:
     /* close all connections */
     for (ii = 0; ii < max; ++ii) {
-        close(fds[ii]);
+        struct conn* c = conns[ii];
+        if (c == NULL) continue;
+        if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl);}
+        if (c->ssl_ctx) SSL_CTX_free(c->ssl_ctx);
+        if (c->sock > 0) close(c->sock);
+        free(conns[ii]);
+        conns[ii] = NULL;
     }
 
     assert(kill(server_pid, SIGTERM) == 0);
@@ -2000,6 +2105,12 @@ int main(int argc, char **argv)
 {
     int exitcode = 0;
     int ii = 0, num_cases = 0;
+
+    if (getenv("SSL_TEST") != NULL) {
+        SSLeay_add_ssl_algorithms();
+        SSL_load_error_strings();
+        enable_ssl = true;
+    }
 
     for (num_cases = 0; testcases[num_cases].description; num_cases++) {
         /* Just counting */

@@ -1,5 +1,5 @@
 sudo: required
-dist: trusty
+dist: xenial
 language: cpp
 
 compiler:
@@ -7,11 +7,11 @@ compiler:
 
 install:
     - sudo apt-get update -y
-    - sudo apt-get install -y build-essential automake1.11 autoconf libevent-dev libseccomp-dev git
+    - sudo apt-get install -y build-essential automake1.11 autoconf libevent-dev libseccomp-dev git libio-socket-ssl-perl
 
 script:
     - ./autogen.sh
     - ./configure --enable-seccomp
     - make -j
     - make test
-
+    - make test_ssl

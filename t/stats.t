@@ -130,7 +130,13 @@ is('z', $v, 'got the expected value');
 
 my $settings = mem_stats($sock, ' settings');
 is(1024, $settings->{'maxconns'});
-isnt('NULL', $settings->{'domain_socket'});
+# we run SSL tests over TCP; hence the domain_socket
+# is expected to be NULL.
+if ($ENV{SSL_TEST}) {
+    is('NULL', $settings->{'domain_socket'});
+} else {
+    isnt('NULL', $settings->{'domain_socket'});
+}
 is('on', $settings->{'evictions'});
 is('yes', $settings->{'cas_enabled'});
 is('no', $settings->{'auth_enabled_sasl'});
