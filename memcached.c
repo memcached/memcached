@@ -325,6 +325,7 @@ static void settings_init(void) {
     settings.ssl_enabled = false;
     settings.ssl_srv_cert = NULL;
     settings.ssl_srv_key = NULL;
+    settings.ssl_port = 0;
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -619,9 +620,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             return NULL;
         }
         MEMCACHED_CONN_CREATE(c);
-        c->read = tcp_read;
-        c->sendmsg = tcp_sendmsg;
-        c->write = tcp_write;
+        c->read = NULL;
+        c->sendmsg = NULL;
+        c->write = NULL;
         c->rbuf = c->wbuf = 0;
         c->ilist = 0;
         c->suffixlist = 0;
@@ -733,9 +734,16 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->noreply = false;
 
     // Setup the SSL context and SSL at each connection level when it's enabled
+    // at the correct port if ssl_port is specified.
+    struct sockaddr_in peeraddr;
+    socklen_t peeraddrlen = sizeof(peeraddr);
+    getsockname(sfd, (struct sockaddr *)&peeraddr, &peeraddrlen);
+    int port = ntohs(peeraddr.sin_port);
+
     if (IS_TCP(c->transport) &&
         settings.ssl_enabled &&
-        init_state != conn_listening) {
+        init_state != conn_listening &&
+        (settings.ssl_port == 0 || port == settings.ssl_port)) {
         /* TODO use a process level SSL_CTX */
         c->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
         /* TODO use config file/ standardize SSL parameters */
@@ -766,6 +774,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
+    } else {
+        c->read = tcp_read;
+        c->sendmsg = tcp_sendmsg;
+        c->write = tcp_write;
     }
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
@@ -6771,6 +6783,7 @@ int main (int argc, char **argv) {
         NO_LRU_MAINTAINER,
         NO_DROP_PRIVILEGES,
         DROP_PRIVILEGES,
+        SSL_PORT,
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
@@ -6828,6 +6841,7 @@ int main (int argc, char **argv) {
         [NO_LRU_MAINTAINER] = "no_lru_maintainer",
         [NO_DROP_PRIVILEGES] = "no_drop_privileges",
         [DROP_PRIVILEGES] = "drop_privileges",
+        [SSL_PORT] = "ssl_port",
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
 #endif
@@ -7397,6 +7411,9 @@ int main (int argc, char **argv) {
             case NO_LRU_MAINTAINER:
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
+                break;
+            case SSL_PORT:
+                settings.ssl_port = atoi(subopts_value);
                 break;
 #ifdef EXTSTORE
             case EXT_PAGE_SIZE:
