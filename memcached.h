@@ -371,6 +371,7 @@ struct settings {
     int port;
     int udpport;
     bool ssl_enabled;
+    SSL_CTX* ssl_ctx;
     char *ssl_srv_cert;
     char *ssl_srv_key;
     char *inter;
@@ -590,7 +591,6 @@ typedef struct _io_wrap {
  */
 struct conn {
     int    sfd;
-    SSL_CTX* ssl_ctx;
     SSL*     ssl;
     sasl_conn_t *sasl_conn;
     bool sasl_started;
@@ -739,7 +739,7 @@ ssize_t ssl_write(void *arg, void *buf, size_t count);
 
 unsigned long get_thread_id_cb(void);
 void thread_lock_cb(int mode, int which, const char * f, int l);
-int init_ssl_locking(void);
+int ssl_init(struct settings* settings);
 
 #define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)

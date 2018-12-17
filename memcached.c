@@ -226,7 +226,8 @@ void thread_lock_cb(int mode, int which, const char * f, int l) {
     }
 }
 
-int init_ssl_locking(void) {
+int ssl_init(struct settings* settings) {
+    assert(settings->ssl_enabled);
     int i;
 
     ssl_num_locks = CRYPTO_num_locks();
@@ -241,6 +242,16 @@ int init_ssl_locking(void) {
     CRYPTO_set_id_callback(get_thread_id_cb);
     CRYPTO_set_locking_callback(thread_lock_cb);
 
+    settings->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
+    /* TODO use config file/ standardize SSL parameters */
+    if (!SSL_CTX_use_certificate_chain_file(settings->ssl_ctx, settings->ssl_srv_cert) ||
+        !SSL_CTX_use_PrivateKey_file(settings->ssl_ctx, settings->ssl_srv_key, SSL_FILETYPE_PEM) ||
+        !SSL_CTX_check_private_key(settings->ssl_ctx)) {
+        fprintf(stderr, "Error loading/validating certificates\n");
+        exit(EX_USAGE);
+    }
+
+    SSL_CTX_set_options(settings->ssl_ctx, SSL_OP_NO_SSLv2);
     return 0;
 }
 
@@ -323,6 +334,7 @@ static void settings_init(void) {
     settings.port = 11211;
     settings.udpport = 0;
     settings.ssl_enabled = false;
+    settings.ssl_ctx = NULL;
     settings.ssl_srv_cert = NULL;
     settings.ssl_srv_key = NULL;
     settings.ssl_port = 0;
@@ -703,7 +715,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         }
     }
 
-    c->ssl_ctx = NULL;
     c->ssl = NULL;
     c->state = init_state;
     c->rlbytes = 0;
@@ -744,18 +755,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         settings.ssl_enabled &&
         init_state != conn_listening &&
         (settings.ssl_port == 0 || port == settings.ssl_port)) {
-        /* TODO use a process level SSL_CTX */
-        c->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
-        /* TODO use config file/ standardize SSL parameters */
-        if (!SSL_CTX_use_certificate_chain_file(c->ssl_ctx, settings.ssl_srv_cert) ||
-            !SSL_CTX_use_PrivateKey_file(c->ssl_ctx, settings.ssl_srv_key, SSL_FILETYPE_PEM) ||
-            !SSL_CTX_check_private_key(c->ssl_ctx)) {
-            fprintf(stderr, "Error loading/validating certificates\n");
+        if (settings.ssl_ctx == NULL) {
+            fprintf(stderr, "SSL context is not initialized\n");
             return NULL;
         }
-
-        SSL_CTX_set_options(c->ssl_ctx, SSL_OP_NO_SSLv2);
-        c->ssl = SSL_new(c->ssl_ctx);
+        c->ssl = SSL_new(settings.ssl_ctx);
         if (c->ssl == NULL) {
             fprintf(stderr, "Failed to created the SSL object\n");
             return NULL;
@@ -965,7 +969,6 @@ static void conn_close(conn *c) {
     MEMCACHED_CONN_RELEASE(c->sfd);
     conn_set_state(c, conn_closed);
     if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
-    if (c->ssl_ctx) SSL_CTX_free(c->ssl_ctx);
     close(c->sfd);
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
@@ -7723,7 +7726,7 @@ int main (int argc, char **argv) {
         }
         SSL_load_error_strings();
         SSLeay_add_ssl_algorithms();
-        init_ssl_locking();
+        ssl_init(&settings);
     }
 
     if (maxcore != 0) {
