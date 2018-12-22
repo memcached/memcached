@@ -230,7 +230,7 @@ sub new_memcached {
         if ($ssl_enabled) {
             my $cert = getcwd() . "/t/cert";
             my $key = getcwd() .  "/t/pkey";
-            $args .= " -Z -E $cert -e $key";
+            $args .= " -Z -o ssl_chain_cert=$cert -o ssl_key=$key";
         }
     } elsif ($args !~ /-s (\S+)/) {
         my $num = @unixsockets;

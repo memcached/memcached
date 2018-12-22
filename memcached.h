@@ -20,7 +20,6 @@
 #include <assert.h>
 #include <grp.h>
 #include <openssl/ssl.h>
-#include <openssl/crypto.h>
 
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
@@ -370,10 +369,6 @@ struct settings {
     int maxconns;
     int port;
     int udpport;
-    bool ssl_enabled;
-    SSL_CTX* ssl_ctx;
-    char *ssl_srv_cert;
-    char *ssl_srv_key;
     char *inter;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
@@ -425,7 +420,6 @@ struct settings {
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
     bool relaxed_privileges;   /* Relax process restrictions when running testapp */
-    int ssl_port; /* SSL port */
 #ifdef EXTSTORE
     unsigned int ext_item_size; /* minimum size of items to store externally */
     unsigned int ext_item_age; /* max age of tail item before storing ext. */
@@ -440,6 +434,16 @@ struct settings {
     /* per-slab-class free chunk limit */
     unsigned int ext_free_memchunks[MAX_NUMBER_OF_SLAB_CLASSES];
 #endif
+    bool ssl_enabled;
+    SSL_CTX* ssl_ctx;
+    char *ssl_config;
+    char *ssl_chain_cert;
+    char *ssl_key;
+    int ssl_verify_mode;
+    int ssl_keyform;
+    int ssl_port; /* SSL port */
+    char *ssl_cipher;
+    char *ssl_client_ca_cert;
 };
 
 extern struct stats stats;

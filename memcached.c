@@ -242,16 +242,51 @@ int ssl_init(struct settings* settings) {
     CRYPTO_set_id_callback(get_thread_id_cb);
     CRYPTO_set_locking_callback(thread_lock_cb);
 
+    // SSL context for the process. All connections will share one
+    // process level context.
     settings->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
-    /* TODO use config file/ standardize SSL parameters */
-    if (!SSL_CTX_use_certificate_chain_file(settings->ssl_ctx, settings->ssl_srv_cert) ||
-        !SSL_CTX_use_PrivateKey_file(settings->ssl_ctx, settings->ssl_srv_key, SSL_FILETYPE_PEM) ||
-        !SSL_CTX_check_private_key(settings->ssl_ctx)) {
-        fprintf(stderr, "Error loading/validating certificates\n");
+    SSL_CTX_set_options(settings->ssl_ctx, SSL_OP_NO_SSLv2);
+    // The sevrer certificate, private key and validations.
+    if (!SSL_CTX_use_certificate_chain_file(settings->ssl_ctx,
+        settings->ssl_chain_cert)) {
+        fprintf(stderr, "Error loading the certificate chain : %s\n",
+            settings->ssl_chain_cert);
+        exit(EX_USAGE);
+    }
+    if (!SSL_CTX_use_PrivateKey_file(settings->ssl_ctx, settings->ssl_key,
+                                        settings->ssl_keyform)) {
+        fprintf(stderr, "Error loading the key : %s\n", settings->ssl_key);
+        exit(EX_USAGE);
+    }
+    if (!SSL_CTX_check_private_key(settings->ssl_ctx)) {
+        fprintf(stderr, "Error validating the certificate\n");
         exit(EX_USAGE);
     }
 
-    SSL_CTX_set_options(settings->ssl_ctx, SSL_OP_NO_SSLv2);
+    // The verification mode of client certificate, default is SSL_VERIFY_PEER.
+    SSL_CTX_set_verify(settings->ssl_ctx, settings->ssl_verify_mode, NULL);
+    if (settings->ssl_cipher && !SSL_CTX_set_cipher_list(settings->ssl_ctx,
+                                                    settings->ssl_cipher)) {
+        fprintf(stderr, "Error setting the provided cipher(s) : %s\n",
+            settings->ssl_cipher);
+        exit(EX_USAGE);
+    }
+    // List of acceptable CAs for client certificates.
+    const char* client_ca_cert = settings->ssl_client_ca_cert;
+    if (client_ca_cert) {
+        FILE* fp;
+        if ((fp = fopen(client_ca_cert, "r")) == NULL) {
+            fprintf(stderr, "Error opening the client CA cert file %s\n",
+                client_ca_cert);
+            exit(EX_USAGE);
+        }
+        X509 *ca_cert = PEM_read_X509(fp, NULL, NULL, NULL);
+        if (!SSL_CTX_add_client_CA(settings->ssl_ctx, ca_cert)) {
+            fprintf(stderr, "Error adding the client CAs from cert file %s\n",
+                client_ca_cert);
+            exit(EX_USAGE);
+        }
+    }
     return 0;
 }
 
@@ -335,9 +370,14 @@ static void settings_init(void) {
     settings.udpport = 0;
     settings.ssl_enabled = false;
     settings.ssl_ctx = NULL;
-    settings.ssl_srv_cert = NULL;
-    settings.ssl_srv_key = NULL;
+    settings.ssl_config = NULL;
+    settings.ssl_chain_cert = NULL;
+    settings.ssl_key = NULL;
+    settings.ssl_verify_mode = SSL_VERIFY_PEER;
+    settings.ssl_keyform = SSL_FILETYPE_PEM;
     settings.ssl_port = 0;
+    settings.ssl_cipher = NULL;
+    settings.ssl_client_ca_cert = NULL;
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -6786,7 +6826,14 @@ int main (int argc, char **argv) {
         NO_LRU_MAINTAINER,
         NO_DROP_PRIVILEGES,
         DROP_PRIVILEGES,
+        SSL_CONFIG,
+        SSL_CERT,
+        SSL_KEY,
+        SSL_VERIFY_MODE,
+        SSL_KEYFORM,
         SSL_PORT,
+        SSL_CIPHER,
+        SSL_CLIENT_CA_CERT,
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
@@ -6844,7 +6891,14 @@ int main (int argc, char **argv) {
         [NO_LRU_MAINTAINER] = "no_lru_maintainer",
         [NO_DROP_PRIVILEGES] = "no_drop_privileges",
         [DROP_PRIVILEGES] = "drop_privileges",
+        [SSL_CONFIG] = "ssl_config",
+        [SSL_CERT] = "ssl_chain_cert",
+        [SSL_KEY]= "ssl_key",
+        [SSL_VERIFY_MODE] = "ssl_verify_mode",
+        [SSL_KEYFORM] = "ssl_keyform",
         [SSL_PORT] = "ssl_port",
+        [SSL_CIPHER] = "ssl_cipher",
+        [SSL_CLIENT_CA_CERT]= "ssl_client_ca_cert",
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
 #endif
@@ -6992,15 +7046,10 @@ int main (int argc, char **argv) {
             /* enable secure communication*/
             settings.ssl_enabled = true;
             break;
-        case 'E':
-            settings.ssl_srv_cert = strdup(optarg);
-        case 'e':
-            settings.ssl_srv_key = strdup(optarg);
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
             settings.access= strtol(optarg,NULL,8);
             break;
-
         case 'U':
             settings.udpport = atoi(optarg);
             udp_specified = true;
@@ -7415,8 +7464,30 @@ int main (int argc, char **argv) {
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
                 break;
+            case SSL_CONFIG:
+                settings.ssl_config = strdup(subopts_value);
+                break;
+            case SSL_CERT:
+                settings.ssl_chain_cert = strdup(subopts_value);
+                break;
+            case SSL_KEY:
+                settings.ssl_key = strdup(subopts_value);
+                break;
+            case SSL_VERIFY_MODE:
+                // TODO : validate
+                settings.ssl_verify_mode = atoi(subopts_value);
+                break;
+            case SSL_KEYFORM:
+                // TODO : validate
+                settings.ssl_keyform = atoi(subopts_value);
             case SSL_PORT:
                 settings.ssl_port = atoi(subopts_value);
+                break;
+            case SSL_CIPHER:
+                settings.ssl_cipher = strdup(subopts_value);
+                break;
+            case SSL_CLIENT_CA_CERT:
+                settings.ssl_client_ca_cert = strdup(subopts_value);
                 break;
 #ifdef EXTSTORE
             case EXT_PAGE_SIZE:
