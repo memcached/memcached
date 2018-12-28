@@ -210,6 +210,7 @@ ssize_t ssl_write(void *arg, void *buf, size_t count) {
 
 /* Standard thread-ID functions required by openssl */
 pthread_mutex_t * ssl_locks;
+pthread_mutex_t ssl_ctx_lock;
 int ssl_num_locks;
 
 unsigned long get_thread_id_cb(void) {
@@ -226,8 +227,8 @@ void thread_lock_cb(int mode, int which, const char * f, int l) {
     }
 }
 
-int ssl_init(struct settings* settings) {
-    assert(settings->ssl_enabled);
+int ssl_init(void) {
+    assert(settings.ssl_enabled);
     int i;
 
     ssl_num_locks = CRYPTO_num_locks();
@@ -238,41 +239,42 @@ int ssl_init(struct settings* settings) {
     for (i = 0; i < ssl_num_locks; i++) {
         pthread_mutex_init(&(ssl_locks[i]), NULL);
     }
+    pthread_mutex_init(&ssl_ctx_lock, NULL);
 
     CRYPTO_set_id_callback(get_thread_id_cb);
     CRYPTO_set_locking_callback(thread_lock_cb);
 
     // SSL context for the process. All connections will share one
     // process level context.
-    settings->ssl_ctx = SSL_CTX_new (SSLv23_server_method());
-    SSL_CTX_set_options(settings->ssl_ctx, SSL_OP_NO_SSLv2);
+    settings.ssl_ctx = SSL_CTX_new (SSLv23_server_method());
+    SSL_CTX_set_options(settings.ssl_ctx, SSL_OP_NO_SSLv2);
     // The sevrer certificate, private key and validations.
-    if (!SSL_CTX_use_certificate_chain_file(settings->ssl_ctx,
-        settings->ssl_chain_cert)) {
+    if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
+        settings.ssl_chain_cert)) {
         fprintf(stderr, "Error loading the certificate chain : %s\n",
-            settings->ssl_chain_cert);
+            settings.ssl_chain_cert);
         exit(EX_USAGE);
     }
-    if (!SSL_CTX_use_PrivateKey_file(settings->ssl_ctx, settings->ssl_key,
-                                        settings->ssl_keyform)) {
-        fprintf(stderr, "Error loading the key : %s\n", settings->ssl_key);
+    if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
+                                        settings.ssl_keyform)) {
+        fprintf(stderr, "Error loading the key : %s\n", settings.ssl_key);
         exit(EX_USAGE);
     }
-    if (!SSL_CTX_check_private_key(settings->ssl_ctx)) {
+    if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
         fprintf(stderr, "Error validating the certificate\n");
         exit(EX_USAGE);
     }
 
     // The verification mode of client certificate, default is SSL_VERIFY_PEER.
-    SSL_CTX_set_verify(settings->ssl_ctx, settings->ssl_verify_mode, NULL);
-    if (settings->ssl_cipher && !SSL_CTX_set_cipher_list(settings->ssl_ctx,
-                                                    settings->ssl_cipher)) {
+    SSL_CTX_set_verify(settings.ssl_ctx, settings.ssl_verify_mode, NULL);
+    if (settings.ssl_cipher && !SSL_CTX_set_cipher_list(settings.ssl_ctx,
+                                                    settings.ssl_cipher)) {
         fprintf(stderr, "Error setting the provided cipher(s) : %s\n",
-            settings->ssl_cipher);
+            settings.ssl_cipher);
         exit(EX_USAGE);
     }
     // List of acceptable CAs for client certificates.
-    const char* client_ca_cert = settings->ssl_client_ca_cert;
+    const char* client_ca_cert = settings.ssl_client_ca_cert;
     if (client_ca_cert) {
         FILE* fp;
         if ((fp = fopen(client_ca_cert, "r")) == NULL) {
@@ -281,7 +283,7 @@ int ssl_init(struct settings* settings) {
             exit(EX_USAGE);
         }
         X509 *ca_cert = PEM_read_X509(fp, NULL, NULL, NULL);
-        if (!SSL_CTX_add_client_CA(settings->ssl_ctx, ca_cert)) {
+        if (!SSL_CTX_add_client_CA(settings.ssl_ctx, ca_cert)) {
             fprintf(stderr, "Error adding the client CAs from cert file %s\n",
                 client_ca_cert);
             exit(EX_USAGE);
@@ -6626,7 +6628,34 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
+static void refresh_certificates(void) {
+    if (!settings.ssl_enabled) return;
+    const char* not_refreshed = "Certificates are not refreshed";
+
+    pthread_mutex_lock(&(ssl_ctx_lock));
+    if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
+        settings.ssl_chain_cert)) {
+        fprintf(stderr, "Error loading the certificate chain : %s. %s\n",
+            settings.ssl_chain_cert, not_refreshed);
+    }
+    if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
+                                        settings.ssl_keyform)) {
+        fprintf(stderr, "Error loading the key : %s. %s\n", settings.ssl_key,
+            not_refreshed);
+    }
+    if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
+        fprintf(stderr, "Error validating the certificate. %s\n", not_refreshed);
+    }
+    pthread_mutex_unlock(&(ssl_ctx_lock));
+}
+
 static void sig_handler(const int sig) {
+
+    if (sig == SIGUSR1)
+    {
+        refresh_certificates();
+        return;
+    }
     printf("Signal handled: %s.\n", strsignal(sig));
     exit(EXIT_SUCCESS);
 }
@@ -6925,9 +6954,10 @@ int main (int argc, char **argv) {
         return EX_OSERR;
     }
 
-    /* handle SIGINT and SIGTERM */
+    /* handle SIGINT, SIGTERM and SIGUSR1 */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+    signal(SIGUSR1, sig_handler);
 
     /* init settings */
     settings_init();
@@ -7797,7 +7827,7 @@ int main (int argc, char **argv) {
         }
         SSL_load_error_strings();
         SSLeay_add_ssl_algorithms();
-        ssl_init(&settings);
+        ssl_init();
     }
 
     if (maxcore != 0) {

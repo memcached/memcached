@@ -221,7 +221,9 @@ sub new_memcached {
 
     my $udpport;
     if ($args =~ /-l (\S+)/ || ($ssl_enabled && ($args !~ /-s (\S+)/))) {
-        $port = free_port();
+        if (!$port) {
+            $port = free_port();
+        }
         $udpport = free_port("udp");
         $args .= " -p $port";
         if (supports_udp()) {

@@ -743,7 +743,7 @@ ssize_t ssl_write(void *arg, void *buf, size_t count);
 
 unsigned long get_thread_id_cb(void);
 void thread_lock_cb(int mode, int which, const char * f, int l);
-int ssl_init(struct settings* settings);
+int ssl_init(void);
 
 #define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)
