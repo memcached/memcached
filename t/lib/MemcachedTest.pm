@@ -16,7 +16,7 @@ my @unixsockets = ();
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
              supports_sasl free_port supports_drop_priv supports_extstore
-             wait_ext_flush);
+             wait_ext_flush, supports_tls, enabled_tls_testing);
 
 use constant MAX_READ_WRITE_SIZE => 16384;
 
@@ -152,7 +152,7 @@ sub free_port {
     my $port;
     while (!$sock) {
         $port = int(rand(20000)) + 30000;
-        if ($ENV{SSL_TEST}) {
+        if (enabled_tls_testing()) {
             $sock = IO::Socket::SSL->new(LocalAddr => '127.0.0.1',
                                       LocalPort => $port,
                                       Proto     => $type,
@@ -186,6 +186,16 @@ sub supports_extstore {
     return 0;
 }
 
+sub supports_tls {
+    my $output = `$builddir/memcached-debug -h`;
+    return 1 if $output =~ /enable-ssl/i;
+    return 0;
+}
+
+sub enabled_tls_testing {
+    return supports_tls() && $ENV{SSL_TEST};
+}
+
 sub supports_drop_priv {
     my $output = `$builddir/memcached-debug -h`;
     return 1 if $output =~ /no_drop_privileges/i;
@@ -196,7 +206,7 @@ sub new_memcached {
     my ($args, $passed_port) = @_;
     my $port = $passed_port;
     my $host = '127.0.0.1';
-    my $ssl_enabled  = $ENV{SSL_TEST};
+    my $ssl_enabled  = enabled_tls_testing();
 
     if ($ENV{T_MEMD_USE_DAEMON}) {
         my ($host, $port) = ($ENV{T_MEMD_USE_DAEMON} =~ m/^([^:]+):(\d+)$/);
@@ -329,7 +339,7 @@ sub new_sock {
     my $self = shift;
     if ($self->{domainsocket}) {
         return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
-    } elsif ($ENV{SSL_TEST}) {
+    } elsif (MemcachedTest::enabled_tls_testing()) {
         return IO::Socket::SSL->new(PeerAddr => "$self->{host}:$self->{port}",
                                     SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_NONE);
     } else {

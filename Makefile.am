@@ -53,6 +53,10 @@ memcached_SOURCES += extstore.c extstore.h \
                      slab_automove_extstore.c slab_automove_extstore.h
 endif
 
+if ENABLE_TLS
+memcached_SOURCES += tls.c tls.h
+endif
+
 memcached_debug_SOURCES = $(memcached_SOURCES)
 memcached_CPPFLAGS = -DNDEBUG
 memcached_debug_LDADD = @PROFILER_LDFLAGS@
@@ -102,8 +106,12 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.m
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
-test_ssl:
+test_tls:
+if ENABLE_TLS
 	$(MAKE) SSL_TEST=1 test
+else
+	@echo "This server is not built with TLS support."
+endif
 
 test:	memcached-debug sizes testapp
 	$(srcdir)/sizes

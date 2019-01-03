@@ -11,7 +11,7 @@ install:
 
 script:
     - ./autogen.sh
-    - ./configure --enable-seccomp
+    - ./configure --enable-seccomp --enable-tls
     - make -j
     - make test
-    - make test_ssl
+    - make test_tls

@@ -19,7 +19,6 @@
 #include <unistd.h>
 #include <assert.h>
 #include <grp.h>
-#include <openssl/ssl.h>
 
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
@@ -32,6 +31,9 @@
 #endif
 
 #include "sasl_defs.h"
+#ifdef TLS
+#include <openssl/ssl.h>
+#endif
 
 /** Maximum length of a key. */
 #define KEY_MAX_LENGTH 250
@@ -434,9 +436,9 @@ struct settings {
     /* per-slab-class free chunk limit */
     unsigned int ext_free_memchunks[MAX_NUMBER_OF_SLAB_CLASSES];
 #endif
+#ifdef TLS
     bool ssl_enabled;
     SSL_CTX* ssl_ctx;
-    char *ssl_config;
     char *ssl_chain_cert;
     char *ssl_key;
     int ssl_verify_mode;
@@ -444,6 +446,7 @@ struct settings {
     int ssl_port; /* SSL port */
     char *ssl_cipher;
     char *ssl_client_ca_cert;
+#endif
 };
 
 extern struct stats stats;
@@ -595,7 +598,9 @@ typedef struct _io_wrap {
  */
 struct conn {
     int    sfd;
+#ifdef TLS
     SSL*     ssl;
+#endif
     sasl_conn_t *sasl_conn;
     bool sasl_started;
     bool authenticated;
@@ -737,13 +742,6 @@ extern int daemonize(int nochdir, int noclose);
 ssize_t tcp_read(void *arg, void *buf, size_t count);
 ssize_t tcp_sendmsg(void *arg, struct msghdr *msg, int flags);
 ssize_t tcp_write(void *arg, void *buf, size_t count);
-ssize_t ssl_read(void *arg, void *buf, size_t count);
-ssize_t ssl_sendmsg(void *arg, struct msghdr *msg, int flags);
-ssize_t ssl_write(void *arg, void *buf, size_t count);
-
-unsigned long get_thread_id_cb(void);
-void thread_lock_cb(int mode, int which, const char * f, int l);
-int ssl_init(void);
 
 #define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)

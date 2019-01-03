@@ -531,7 +531,9 @@ void sidethread_conn_close(conn *c) {
     c->state = conn_closed;
     if (settings.verbose > 1)
         fprintf(stderr, "<%d connection closed from side thread.\n", c->sfd);
+#ifdef TLS
     if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
+#endif
     close(c->sfd);
 
     STATS_LOCK();

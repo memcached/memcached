@@ -7,7 +7,7 @@ use Socket qw(MSG_PEEK MSG_DONTWAIT);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-if (!$ENV{SSL_TEST} && supports_drop_priv()) {
+if (!enabled_tls_testing() && supports_drop_priv()) {
     plan tests => 1;
 } else {
     plan skip_all => 'Privilege drop not supported';

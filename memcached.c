@@ -55,6 +55,10 @@
 #include <getopt.h>
 #endif
 
+#ifdef TLS
+#include "tls.h"
+#endif
+
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
 #if defined(__FreeBSD__) || defined(__APPLE__) || defined(__GNU__)
@@ -162,137 +166,6 @@ ssize_t tcp_write(void *arg, void *buf, size_t count) {
     return write(c->sfd, buf, count);
 }
 
-/* Read and write methods when SSL is enbled */
-ssize_t ssl_read(void *arg, void *buf, size_t count) {
-    conn *c = (conn*)arg;
-    /* TODO : check the state machine interactions for SSL_read with
-        non-blocking sockets/ SSL re-negotiations
-    */
-    return SSL_read(c->ssl, buf, count);
-}
-
-#define MIN(a,b) (((a)<(b))?(a):(b))
-ssize_t ssl_sendmsg(void *arg, struct msghdr *msg, int flags) {
-    conn *c = (conn*)arg;
-    char *buffer;
-    size_t bytes, to_copy;
-    int i;
-    bytes = 0;
-    for (i = 0; i < msg->msg_iovlen; ++i)
-        bytes += msg->msg_iov[i].iov_len;
-    /* TODO : limit alloca for small allocations and use
-        heap allocations for larger ones.
-    */
-    buffer = (char *) alloca(bytes);
-    if (buffer == NULL)
-        return -1;
-
-    to_copy = bytes;
-    char *bp = buffer;
-    for (i = 0; i < msg->msg_iovlen; ++i) {
-        size_t copy = MIN (to_copy, msg->msg_iov[i].iov_len);
-        memcpy((void*)bp, (void*)msg->msg_iov[i].iov_base, copy);
-        bp +=  copy;
-        to_copy -= copy;
-        if (to_copy == 0)
-            break;
-    }
-    /* TODO : check the state machine interactions for SSL_write with
-        non-blocking sockets/ SSL re-negotiations
-    */
-    return SSL_write(c->ssl, buffer, bytes);
-}
-
-ssize_t ssl_write(void *arg, void *buf, size_t count) {
-    conn *c = (conn*)arg;
-    return SSL_write(c->ssl, buf, count);
-}
-
-/* Standard thread-ID functions required by openssl */
-pthread_mutex_t * ssl_locks;
-pthread_mutex_t ssl_ctx_lock;
-int ssl_num_locks;
-
-unsigned long get_thread_id_cb(void) {
-    return (unsigned long)pthread_self();
-}
-
-void thread_lock_cb(int mode, int which, const char * f, int l) {
-    if (which < ssl_num_locks) {
-        if (mode & CRYPTO_LOCK) {
-            pthread_mutex_lock(&(ssl_locks[which]));
-        } else {
-            pthread_mutex_unlock(&(ssl_locks[which]));
-        }
-    }
-}
-
-int ssl_init(void) {
-    assert(settings.ssl_enabled);
-    int i;
-
-    ssl_num_locks = CRYPTO_num_locks();
-    ssl_locks = malloc(ssl_num_locks * sizeof(pthread_mutex_t));
-    if (ssl_locks == NULL)
-        return -1;
-
-    for (i = 0; i < ssl_num_locks; i++) {
-        pthread_mutex_init(&(ssl_locks[i]), NULL);
-    }
-    pthread_mutex_init(&ssl_ctx_lock, NULL);
-
-    CRYPTO_set_id_callback(get_thread_id_cb);
-    CRYPTO_set_locking_callback(thread_lock_cb);
-
-    // SSL context for the process. All connections will share one
-    // process level context.
-    settings.ssl_ctx = SSL_CTX_new (SSLv23_server_method());
-    SSL_CTX_set_options(settings.ssl_ctx, SSL_OP_NO_SSLv2);
-    // The sevrer certificate, private key and validations.
-    if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
-        settings.ssl_chain_cert)) {
-        fprintf(stderr, "Error loading the certificate chain : %s\n",
-            settings.ssl_chain_cert);
-        exit(EX_USAGE);
-    }
-    if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
-                                        settings.ssl_keyform)) {
-        fprintf(stderr, "Error loading the key : %s\n", settings.ssl_key);
-        exit(EX_USAGE);
-    }
-    if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
-        fprintf(stderr, "Error validating the certificate\n");
-        exit(EX_USAGE);
-    }
-
-    // The verification mode of client certificate, default is SSL_VERIFY_PEER.
-    SSL_CTX_set_verify(settings.ssl_ctx, settings.ssl_verify_mode, NULL);
-    if (settings.ssl_cipher && !SSL_CTX_set_cipher_list(settings.ssl_ctx,
-                                                    settings.ssl_cipher)) {
-        fprintf(stderr, "Error setting the provided cipher(s) : %s\n",
-            settings.ssl_cipher);
-        exit(EX_USAGE);
-    }
-    // List of acceptable CAs for client certificates.
-    const char* client_ca_cert = settings.ssl_client_ca_cert;
-    if (client_ca_cert) {
-        FILE* fp;
-        if ((fp = fopen(client_ca_cert, "r")) == NULL) {
-            fprintf(stderr, "Error opening the client CA cert file %s\n",
-                client_ca_cert);
-            exit(EX_USAGE);
-        }
-        X509 *ca_cert = PEM_read_X509(fp, NULL, NULL, NULL);
-        if (!SSL_CTX_add_client_CA(settings.ssl_ctx, ca_cert)) {
-            fprintf(stderr, "Error adding the client CAs from cert file %s\n",
-                client_ca_cert);
-            exit(EX_USAGE);
-        }
-    }
-    return 0;
-}
-
-
 static enum transmit_result transmit(conn *c);
 
 /* This reduces the latency without adding lots of extra wiring to be able to
@@ -370,9 +243,9 @@ static void settings_init(void) {
     settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 0;
+#ifdef TLS
     settings.ssl_enabled = false;
     settings.ssl_ctx = NULL;
-    settings.ssl_config = NULL;
     settings.ssl_chain_cert = NULL;
     settings.ssl_key = NULL;
     settings.ssl_verify_mode = SSL_VERIFY_PEER;
@@ -380,6 +253,7 @@ static void settings_init(void) {
     settings.ssl_port = 0;
     settings.ssl_cipher = NULL;
     settings.ssl_client_ca_cert = NULL;
+#endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -756,8 +630,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             assert(false);
         }
     }
-
+#ifdef TLS
     c->ssl = NULL;
+#endif
     c->state = init_state;
     c->rlbytes = 0;
     c->cmd = -1;
@@ -786,6 +661,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->noreply = false;
 
+#ifdef TLS
     // Setup the SSL context and SSL at each connection level when it's enabled
     // at the correct port if ssl_port is specified.
     struct sockaddr_in peeraddr;
@@ -801,7 +677,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             fprintf(stderr, "SSL context is not initialized\n");
             return NULL;
         }
+        pthread_mutex_lock(&(ssl_ctx_lock));
         c->ssl = SSL_new(settings.ssl_ctx);
+        pthread_mutex_unlock(&(ssl_ctx_lock));
         if (c->ssl == NULL) {
             fprintf(stderr, "Failed to created the SSL object\n");
             return NULL;
@@ -820,7 +698,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
-    } else {
+    } else
+#endif
+    {
         c->read = tcp_read;
         c->sendmsg = tcp_sendmsg;
         c->write = tcp_write;
@@ -1010,7 +890,9 @@ static void conn_close(conn *c) {
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     conn_set_state(c, conn_closed);
+#ifdef TLS
     if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
+#endif
     close(c->sfd);
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
@@ -6441,6 +6323,9 @@ static void usage(void) {
 #endif
     printf("-F, --disable-flush-all   disable flush_all command\n");
     printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
+#ifdef TLS
+    printf("-Z, --enable-ssl          enable TLS/SSL\n");
+#endif
     printf("-o, --extended            comma separated list of extended options\n"
            "                          most options have a 'no_' prefix to disable\n"
            "   - maxconns_fast:       immediately close new connections after limit\n"
@@ -6503,6 +6388,19 @@ static void usage(void) {
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info)\n"
+#endif
+#ifdef TLS
+           "   - ssl_chain_cert:      certificate chain file in PEM format\n"
+           "   - ssl_key:             private key if not in -ssl_chain_cert\n"
+           "   - ssl_verify_mode:     peer certificate verification mode, default is SSL_VERIFY_PEER\n"
+           "                          SSL_VERIFY_NONE(0), SSL_VERIFY_PEER(1)\n"
+           "                          SSL_VERIFY_FAIL_IF_NO_PEER_CERT(2), VERIFY_CLIENT_ONCE(4)\n"
+           "                          SSL_VERIFY_POST_HANDSHAKE(8)\n"
+           "   - ssl_keyform:         private key format (PEM, DER or ENGINE) PEM default\n"
+           "   - ssl_port:            specific port to enable TLS. If not specified, all TCP ports\n"
+           "                          are secured\n"
+           "   - ssl_cipher:          specify cipher list to be used\n"
+           "   - ssl_client_ca_cert:  PEM format file of acceptable client CA's\n"
 #endif
            );
     return;
@@ -6628,34 +6526,14 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
-static void refresh_certificates(void) {
-    if (!settings.ssl_enabled) return;
-    const char* not_refreshed = "Certificates are not refreshed";
-
-    pthread_mutex_lock(&(ssl_ctx_lock));
-    if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
-        settings.ssl_chain_cert)) {
-        fprintf(stderr, "Error loading the certificate chain : %s. %s\n",
-            settings.ssl_chain_cert, not_refreshed);
-    }
-    if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
-                                        settings.ssl_keyform)) {
-        fprintf(stderr, "Error loading the key : %s. %s\n", settings.ssl_key,
-            not_refreshed);
-    }
-    if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
-        fprintf(stderr, "Error validating the certificate. %s\n", not_refreshed);
-    }
-    pthread_mutex_unlock(&(ssl_ctx_lock));
-}
-
 static void sig_handler(const int sig) {
-
+#ifdef TLS
     if (sig == SIGUSR1)
     {
         refresh_certificates();
         return;
     }
+#endif
     printf("Signal handled: %s.\n", strsignal(sig));
     exit(EXIT_SUCCESS);
 }
@@ -6855,7 +6733,7 @@ int main (int argc, char **argv) {
         NO_LRU_MAINTAINER,
         NO_DROP_PRIVILEGES,
         DROP_PRIVILEGES,
-        SSL_CONFIG,
+#ifdef TLS
         SSL_CERT,
         SSL_KEY,
         SSL_VERIFY_MODE,
@@ -6863,6 +6741,7 @@ int main (int argc, char **argv) {
         SSL_PORT,
         SSL_CIPHER,
         SSL_CLIENT_CA_CERT,
+#endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
@@ -6920,7 +6799,7 @@ int main (int argc, char **argv) {
         [NO_LRU_MAINTAINER] = "no_lru_maintainer",
         [NO_DROP_PRIVILEGES] = "no_drop_privileges",
         [DROP_PRIVILEGES] = "drop_privileges",
-        [SSL_CONFIG] = "ssl_config",
+#ifdef TLS
         [SSL_CERT] = "ssl_chain_cert",
         [SSL_KEY]= "ssl_key",
         [SSL_VERIFY_MODE] = "ssl_verify_mode",
@@ -6928,6 +6807,7 @@ int main (int argc, char **argv) {
         [SSL_PORT] = "ssl_port",
         [SSL_CIPHER] = "ssl_cipher",
         [SSL_CLIENT_CA_CERT]= "ssl_client_ca_cert",
+#endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
 #endif
@@ -6957,7 +6837,9 @@ int main (int argc, char **argv) {
     /* handle SIGINT, SIGTERM and SIGUSR1 */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+#ifdef TLS
     signal(SIGUSR1, sig_handler);
+#endif
 
     /* init settings */
     settings_init();
@@ -6990,8 +6872,6 @@ int main (int argc, char **argv) {
           "a:"  /* access mask for unix socket */
           "A"  /* enable admin shutdown command */
           "Z"   /* enable SSL */
-          "E:"   /* SSL server cert */
-          "e:"   /* SSL server cert key */
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
@@ -7028,8 +6908,6 @@ int main (int argc, char **argv) {
         {"unix-mask", required_argument, 0, 'a'},
         {"enable-shutdown", no_argument, 0, 'A'},
         {"enable-ssl", no_argument, 0, 'Z'},
-        {"ssl_server_cert", required_argument, 0, 'E'},
-        {"ssl_server_key", required_argument, 0, 'e'},
         {"port", required_argument, 0, 'p'},
         {"unix-socket", required_argument, 0, 's'},
         {"udp-port", required_argument, 0, 'U'},
@@ -7074,7 +6952,12 @@ int main (int argc, char **argv) {
             break;
         case 'Z':
             /* enable secure communication*/
+#ifdef TLS
             settings.ssl_enabled = true;
+#else
+            fprintf(stderr, "This server is not built with TLS support.\n");
+            exit(EX_USAGE);
+#endif
             break;
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
@@ -7494,9 +7377,7 @@ int main (int argc, char **argv) {
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
                 break;
-            case SSL_CONFIG:
-                settings.ssl_config = strdup(subopts_value);
-                break;
+#ifdef TLS
             case SSL_CERT:
                 settings.ssl_chain_cert = strdup(subopts_value);
                 break;
@@ -7504,11 +7385,9 @@ int main (int argc, char **argv) {
                 settings.ssl_key = strdup(subopts_value);
                 break;
             case SSL_VERIFY_MODE:
-                // TODO : validate
                 settings.ssl_verify_mode = atoi(subopts_value);
                 break;
             case SSL_KEYFORM:
-                // TODO : validate
                 settings.ssl_keyform = atoi(subopts_value);
             case SSL_PORT:
                 settings.ssl_port = atoi(subopts_value);
@@ -7519,6 +7398,7 @@ int main (int argc, char **argv) {
             case SSL_CLIENT_CA_CERT:
                 settings.ssl_client_ca_cert = strdup(subopts_value);
                 break;
+#endif
 #ifdef EXTSTORE
             case EXT_PAGE_SIZE:
                 if (subopts_value == NULL) {
@@ -7817,6 +7697,8 @@ int main (int argc, char **argv) {
         settings.port = settings.udpport;
     }
 
+
+#ifdef TLS
     /*
      * Setup SSL if enabled
      */
@@ -7829,6 +7711,7 @@ int main (int argc, char **argv) {
         SSLeay_add_ssl_algorithms();
         ssl_init();
     }
+#endif
 
     if (maxcore != 0) {
         struct rlimit rlim_new;

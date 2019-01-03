@@ -8,7 +8,7 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-if (!$ENV{SSL_TEST}) {
+if (!enabled_tls_testing()) {
     plan skip_all => 'SSL testing is not enabled';
     exit 0;
 }

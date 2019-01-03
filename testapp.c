@@ -17,13 +17,14 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
-#include <openssl/ssl.h>
-#include <openssl/crypto.h>
 
 #include "config.h"
 #include "cache.h"
 #include "util.h"
 #include "protocol_binary.h"
+#ifdef TLS
+#include <openssl/ssl.h>
+#endif
 
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 
@@ -31,8 +32,10 @@ enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 
 struct conn {
     int sock;
+#ifdef TLS
     SSL_CTX* ssl_ctx;
     SSL*     ssl;
+#endif
     ssize_t (*read)(void  *arg, void *buf, size_t count);
     ssize_t (*write)(void *arg, const void *buf, size_t count);
 };
@@ -40,8 +43,10 @@ struct conn {
 
 ssize_t tcp_read(void *arg, void *buf, size_t count);
 ssize_t tcp_write(void *arg, const void *buf, size_t count);
+#ifdef TLS
 ssize_t ssl_read(void *arg, void *buf, size_t count);
 ssize_t ssl_write(void *arg, const void *buf, size_t count);
+#endif
 
 ssize_t tcp_read(void *arg, void *buf, size_t count) {
     assert(arg != NULL);
@@ -54,7 +59,7 @@ ssize_t tcp_write(void *arg, const void *buf, size_t count) {
     struct conn* c = (struct conn*) arg;
     return write(c->sock, buf, count);
 }
-
+#ifdef TLS
 ssize_t ssl_read(void *arg, void *buf, size_t count) {
     assert(arg != NULL);
     struct conn *c = (struct conn*)arg;
@@ -66,6 +71,7 @@ ssize_t ssl_write(void *arg, const void *buf, size_t count) {
     struct conn *c = (struct conn*)arg;
     return SSL_write(c->ssl, buf, count);
 }
+#endif
 
 static pid_t server_pid;
 static in_port_t port;
@@ -75,8 +81,10 @@ static bool enable_ssl = false;
 
 static void close_conn() {
     if (con == NULL) return;
+#ifdef TLS
     if (con->ssl) { SSL_shutdown(con->ssl); SSL_free(con->ssl);}
     if (con->ssl_ctx) SSL_CTX_free(con->ssl_ctx);
+#endif
     if (con->sock > 0) close(con->sock);
     free(con);
     con = NULL;
@@ -389,7 +397,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
         argv[arg++] = "-1";
         argv[arg++] = "-U";
         argv[arg++] = "0";
-
+#ifdef TLS
         if (enable_ssl) {
             argv[arg++] = "-Z";
             argv[arg++] = "-o";
@@ -397,6 +405,7 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
             argv[arg++] = "-o";
             argv[arg++] = "ssl_key=t/pkey";
         }
+#endif
         /* Handle rpmbuild and the like doing this as root */
         if (getuid() == 0) {
             argv[arg++] = "-u";
@@ -538,6 +547,7 @@ static struct conn* connect_server(const char *hostname, in_port_t port,
        freeaddrinfo(ai);
     }
     c->sock = sock;
+#ifdef TLS
     if (sock > 0 && ssl) {
         c->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
         if (c->ssl_ctx == NULL) {
@@ -566,7 +576,9 @@ static struct conn* connect_server(const char *hostname, in_port_t port,
         }
         c->read = ssl_read;
         c->write = ssl_write;
-    } else {
+    } else
+#endif
+    {
         c->read = tcp_read;
         c->write = tcp_write;
     }
@@ -2026,8 +2038,10 @@ static enum test_return test_issue_101(void) {
     for (ii = 0; ii < max; ++ii) {
         struct conn* c = conns[ii];
         if (c == NULL) continue;
+#ifdef TLS
         if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl);}
         if (c->ssl_ctx) SSL_CTX_free(c->ssl_ctx);
+#endif
         if (c->sock > 0) close(c->sock);
         free(conns[ii]);
         conns[ii] = NULL;
@@ -2105,12 +2119,13 @@ int main(int argc, char **argv)
 {
     int exitcode = 0;
     int ii = 0, num_cases = 0;
-
+#ifdef TLS
     if (getenv("SSL_TEST") != NULL) {
         SSLeay_add_ssl_algorithms();
         SSL_load_error_strings();
         enable_ssl = true;
     }
+#endif
 
     for (num_cases = 0; testcases[num_cases].description; num_cases++) {
         /* Just counting */
