@@ -4,6 +4,13 @@
 #include "memcached.h"
 #include "tls.h"
 
+#define __MAX_ALLOCA_CUTOFF        65536
+
+static void freebuff(char **ptrp)
+{
+    free (*ptrp);
+}
+
 /* Read and write methods when SSL is enbled */
 ssize_t ssl_read(void *arg, void *buf, size_t count) {
     conn *c = (conn*)arg;
@@ -16,16 +23,19 @@ ssize_t ssl_read(void *arg, void *buf, size_t count) {
 #define MIN(a,b) (((a)<(b))?(a):(b))
 ssize_t ssl_sendmsg(void *arg, struct msghdr *msg, int flags) {
     conn *c = (conn*)arg;
-    char *buffer;
     size_t bytes, to_copy;
     int i;
     bytes = 0;
     for (i = 0; i < msg->msg_iovlen; ++i)
         bytes += msg->msg_iov[i].iov_len;
-    /* TODO : limit alloca for small allocations and use
-        heap allocations for larger ones.
-    */
-    buffer = (char *) alloca(bytes);
+
+    char *buffer;
+    char *malloced_buffer __attribute__ ((__cleanup__ (freebuff))) = NULL;
+    if (bytes < __MAX_ALLOCA_CUTOFF)
+        buffer = (char *) alloca(bytes);
+    else
+        malloced_buffer = buffer = (char *) malloc (bytes);
+
     if (buffer == NULL)
         return -1;
 
