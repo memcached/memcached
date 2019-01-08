@@ -248,11 +248,11 @@ static void settings_init(void) {
     settings.ssl_ctx = NULL;
     settings.ssl_chain_cert = NULL;
     settings.ssl_key = NULL;
-    settings.ssl_verify_mode = SSL_VERIFY_PEER;
+    settings.ssl_verify_mode = SSL_VERIFY_NONE;
     settings.ssl_keyform = SSL_FILETYPE_PEM;
     settings.ssl_port = 0;
     settings.ssl_cipher = NULL;
-    settings.ssl_client_ca_cert = NULL;
+    settings.ssl_ca_cert = NULL;
 #endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
@@ -6392,15 +6392,14 @@ static void usage(void) {
 #ifdef TLS
            "   - ssl_chain_cert:      certificate chain file in PEM format\n"
            "   - ssl_key:             private key if not in -ssl_chain_cert\n"
-           "   - ssl_verify_mode:     peer certificate verification mode, default is SSL_VERIFY_PEER\n"
-           "                          SSL_VERIFY_NONE(0), SSL_VERIFY_PEER(1)\n"
-           "                          SSL_VERIFY_FAIL_IF_NO_PEER_CERT(2), VERIFY_CLIENT_ONCE(4)\n"
-           "                          SSL_VERIFY_POST_HANDSHAKE(8)\n"
+           "   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
+           "                          valid values are 0(None), 1(Request), 2(Require)\n"
+           "                          or 3(Once)\n"
            "   - ssl_keyform:         private key format (PEM, DER or ENGINE) PEM default\n"
            "   - ssl_port:            specific port to enable TLS. If not specified, all TCP ports\n"
            "                          are secured\n"
            "   - ssl_cipher:          specify cipher list to be used\n"
-           "   - ssl_client_ca_cert:  PEM format file of acceptable client CA's\n"
+           "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
 #endif
            );
     return;
@@ -6740,7 +6739,7 @@ int main (int argc, char **argv) {
         SSL_KEYFORM,
         SSL_PORT,
         SSL_CIPHER,
-        SSL_CLIENT_CA_CERT,
+        SSL_CA_CERT,
 #endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
@@ -6806,7 +6805,7 @@ int main (int argc, char **argv) {
         [SSL_KEYFORM] = "ssl_keyform",
         [SSL_PORT] = "ssl_port",
         [SSL_CIPHER] = "ssl_cipher",
-        [SSL_CLIENT_CA_CERT]= "ssl_client_ca_cert",
+        [SSL_CA_CERT]= "ssl_ca_cert",
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
@@ -7385,8 +7384,30 @@ int main (int argc, char **argv) {
                 settings.ssl_key = strdup(subopts_value);
                 break;
             case SSL_VERIFY_MODE:
-                settings.ssl_verify_mode = atoi(subopts_value);
+            {
+                int verify  = atoi(subopts_value);
+                switch(verify) {
+                    case 0:
+                        settings.ssl_verify_mode = SSL_VERIFY_NONE;
+                        break;
+                    case 1:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER;
+                        break;
+                    case 2:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER |
+                                                    SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+                        break;
+                    case 3:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER |
+                                                    SSL_VERIFY_FAIL_IF_NO_PEER_CERT |
+                                                    SSL_VERIFY_CLIENT_ONCE;
+                        break;
+                    default:
+                        fprintf(stderr, "Invalid ssl_verify_mode. Use help to see valid values.\n");
+                        return 1;
+                }
                 break;
+            }
             case SSL_KEYFORM:
                 settings.ssl_keyform = atoi(subopts_value);
             case SSL_PORT:
@@ -7395,8 +7416,8 @@ int main (int argc, char **argv) {
             case SSL_CIPHER:
                 settings.ssl_cipher = strdup(subopts_value);
                 break;
-            case SSL_CLIENT_CA_CERT:
-                settings.ssl_client_ca_cert = strdup(subopts_value);
+            case SSL_CA_CERT:
+                settings.ssl_ca_cert = strdup(subopts_value);
                 break;
 #endif
 #ifdef EXTSTORE

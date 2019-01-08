@@ -13,11 +13,12 @@ if (!enabled_tls_testing()) {
     exit 0;
 }
 
-my $cert = "t/cert";
-my $key = "t/pkey";
+my $cert = "t/". MemcachedTest::SRV_CRT;
+my $key = "t/". MemcachedTest::SRV_KEY;
 my $cert_back = "t/cert_back";
 my $key_back = "t/pkey_back";
 my $new_cert_key = "t/server.pem";
+my $default_crt_ou = "OU=Subunit of Test Organization";
 
 my $server = new_memcached();
 my $stats = mem_stats($server->sock);
@@ -26,8 +27,8 @@ my $pid = $stats->{pid};
 # This connection should return the default server certificate
 # memcached was started with.
 my $cert_details =$server->sock->dump_peer_certificate();
-$cert_details =~ m/(OU=([^\/]*))/;
-is($1, 'OU=TestDev');
+$cert_details =~ m/(OU=([^\/\n]*))/;
+is($1, $default_crt_ou);
 
 # Swap a new certificate with a key
 copy($cert, $cert_back) or die "Cert backup failed: $!";
@@ -42,8 +43,8 @@ $cert_details =~ m/(OU=([^\/]*))/;
 is($1, 'OU=FOR TESTING PURPOSES ONLY');
 # Old connection should use the previous certificate
 $cert_details =$server->sock->dump_peer_certificate();
-$cert_details =~ m/(OU=([^\/]*))/;
-is($1, 'OU=TestDev');
+$cert_details =~ m/(OU=([^\/\n]*))/;
+is($1, $default_crt_ou);
 
 # Restore and ensure previous certificate is back for new connections.
 move($cert_back, $cert) or die "Cert restore failed: $!";
@@ -51,7 +52,7 @@ move($key_back, $key) or die "Key restore failed: $!";
 kill 'SIGUSR1', $pid or die "Couldn't signale the process $pid : $!";
 
 $cert_details = $server->new_sock->dump_peer_certificate();
-$cert_details =~ m/(OU=([^\/]*))/;
-is($1, 'OU=TestDev');
+$cert_details =~ m/(OU=([^\/\n]*))/;
+is($1, $default_crt_ou);
 
 done_testing();

@@ -125,18 +125,14 @@ int ssl_init(void) {
         exit(EX_USAGE);
     }
     // List of acceptable CAs for client certificates.
-    const char* client_ca_cert = settings.ssl_client_ca_cert;
-    if (client_ca_cert) {
-        FILE* fp;
-        if ((fp = fopen(client_ca_cert, "r")) == NULL) {
-            fprintf(stderr, "Error opening the client CA cert file %s\n",
-                client_ca_cert);
-            exit(EX_USAGE);
-        }
-        X509 *ca_cert = PEM_read_X509(fp, NULL, NULL, NULL);
-        if (!SSL_CTX_add_client_CA(settings.ssl_ctx, ca_cert)) {
-            fprintf(stderr, "Error adding the client CAs from cert file %s\n",
-                client_ca_cert);
+    if (settings.ssl_ca_cert)
+    {
+        SSL_CTX_set_client_CA_list(settings.ssl_ctx,
+            SSL_load_client_CA_file(settings.ssl_ca_cert));
+        if (!SSL_CTX_load_verify_locations(settings.ssl_ctx,
+                            settings.ssl_ca_cert, NULL)) {
+            fprintf(stderr, "Error loading the client CA cert (%s)\n",
+                            settings.ssl_ca_cert);
             exit(EX_USAGE);
         }
     }

@@ -19,6 +19,18 @@ my @unixsockets = ();
              wait_ext_flush, supports_tls, enabled_tls_testing);
 
 use constant MAX_READ_WRITE_SIZE => 16384;
+use constant SRV_CRT => "server_crt.pem";
+use constant SRV_KEY => "server_key.pem";
+use constant CLIENT_CRT => "client_crt.pem";
+use constant CLIENT_KEY => "client_key.pem";
+use constant CA_CRT => "cacert.pem";
+
+my $testdir = $builddir . "/t/";
+my $client_crt = $testdir. CLIENT_CRT;
+my $client_key = $testdir. CLIENT_KEY;
+my $server_crt = $testdir . SRV_CRT;
+my $server_key = $testdir . SRV_KEY;
+
 
 sub sleep {
     my $n = shift;
@@ -212,7 +224,10 @@ sub new_memcached {
         my ($host, $port) = ($ENV{T_MEMD_USE_DAEMON} =~ m/^([^:]+):(\d+)$/);
         my $conn;
         if ($ssl_enabled) {
-            $conn = IO::Socket::SSL->new(PeerAddr => "$host:$port", SSL_verify_mode => SSL_VERIFY_NONE);
+            $conn = IO::Socket::SSL->new(PeerAddr => "$host:$port",
+                                        SSL_verify_mode => SSL_VERIFY_NONE,
+                                        SSL_cert_file => $client_crt,
+                                        SSL_key_file => $client_key);
         } else {
             $conn = IO::Socket::INET->new(PeerAddr => "$host:$port");
         }
@@ -240,9 +255,7 @@ sub new_memcached {
             $args .= " -U $udpport";
         }
         if ($ssl_enabled) {
-            my $cert = getcwd() . "/t/cert";
-            my $key = getcwd() .  "/t/pkey";
-            $args .= " -Z -o ssl_chain_cert=$cert -o ssl_key=$key";
+            $args .= " -Z -o ssl_chain_cert=$server_crt -o ssl_key=$server_key";
         }
     } elsif ($args !~ /-s (\S+)/) {
         my $num = @unixsockets;
@@ -283,7 +296,9 @@ sub new_memcached {
         my $conn;
         if ($ssl_enabled) {
             $conn = IO::Socket::SSL->new(PeerAddr => "127.0.0.1:$port",
-                SSL_verify_mode =>  SSL_VERIFY_NONE);
+                                        SSL_verify_mode => SSL_VERIFY_NONE,
+                                        SSL_cert_file => $client_crt,
+                                        SSL_key_file => $client_key);
         } else {
             $conn = IO::Socket::INET->new(PeerAddr => "127.0.0.1:$port");
         }
@@ -341,7 +356,9 @@ sub new_sock {
         return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
     } elsif (MemcachedTest::enabled_tls_testing()) {
         return IO::Socket::SSL->new(PeerAddr => "$self->{host}:$self->{port}",
-                                    SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_NONE);
+                                    SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_NONE,
+                                    SSL_cert_file => $client_crt,
+                                    SSL_key_file => $client_key);
     } else {
         return IO::Socket::INET->new(PeerAddr => "$self->{host}:$self->{port}");
     }

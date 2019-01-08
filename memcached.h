@@ -445,7 +445,7 @@ struct settings {
     int ssl_keyform;
     int ssl_port; /* SSL port */
     char *ssl_cipher;
-    char *ssl_client_ca_cert;
+    char *ssl_ca_cert;
 #endif
 };
 

@@ -401,9 +401,9 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
         if (enable_ssl) {
             argv[arg++] = "-Z";
             argv[arg++] = "-o";
-            argv[arg++] = "ssl_chain_cert=t/cert";
+            argv[arg++] = "ssl_chain_cert=t/server_crt.pem";
             argv[arg++] = "-o";
-            argv[arg++] = "ssl_key=t/pkey";
+            argv[arg++] = "ssl_key=t/server_key.pem";
         }
 #endif
         /* Handle rpmbuild and the like doing this as root */
