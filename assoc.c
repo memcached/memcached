@@ -28,7 +28,11 @@
 static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t maintenance_lock = PTHREAD_MUTEX_INITIALIZER;
 
+#if defined(__LP64__) || defined(_M_IA64)
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
+#else
+typedef uint32_t ub4; /* for 64-bit machine */
+#endif
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
 
 /* how many powers of 2's worth of buckets we use */
