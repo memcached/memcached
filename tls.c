@@ -96,9 +96,14 @@ int ssl_init(void) {
     CRYPTO_set_locking_callback(thread_lock_cb);
 
     // SSL context for the process. All connections will share one
-    // process level context.
+    // process level context. We should use TLS_server_method when we
+    // start using the version 1.1.0
     settings.ssl_ctx = SSL_CTX_new (SSLv23_server_method());
-    SSL_CTX_set_options(settings.ssl_ctx, SSL_OP_NO_SSLv2);
+    // Clients should use at least TLSv1.2
+    int flags = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
+                SSL_OP_NO_TLSv1 |SSL_OP_NO_TLSv1_1;
+    SSL_CTX_set_options(settings.ssl_ctx, flags);
+
     // The sevrer certificate, private key and validations.
     if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
         settings.ssl_chain_cert)) {
