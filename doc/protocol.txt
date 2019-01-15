@@ -346,7 +346,7 @@ The response line to this command can be one of:
   found.
 
 Get And Touch
------
+-------------
 
 The "gat" and "gats" commands are used to fetch items and update the
 expiration time of an existing items.
