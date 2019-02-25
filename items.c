@@ -371,6 +371,20 @@ void item_free(item *it) {
     slabs_free(it, ntotal, clsid);
 }
 
+void do_item_free(item *it) {
+    size_t ntotal = ITEM_ntotal(it);
+    unsigned int clsid;
+    assert((it->it_flags & ITEM_LINKED) == 0);
+    assert(it != heads[it->slabs_clsid]);
+    assert(it != tails[it->slabs_clsid]);
+    assert(it->refcount == 0);
+
+    /* so slab size changer can tell later if item is already free or not */
+    clsid = ITEM_clsid(it);
+    DEBUG_REFCNT(it, 'F');
+    do_slabs_free(it, ntotal, clsid);
+}
+
 /**
  * Returns true if an item will fit in the cache (its size does not exceed
  * the maximum for a cache entry.)
@@ -518,6 +532,37 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
         assoc_delete(ITEM_key(it), it->nkey, hv);
         do_item_unlink_q(it);
         do_item_remove(it);
+    }
+}
+
+/* This unlinks an item from the queue without holding
+ * the slab lock (item removal if the reference count will
+ * be dropped to 0). This is for the slab mover thread so that
+ * it can remove items from LRU queue and cut them off the 
+ * freelist in one go without returning to scan through the slab
+ * one more time (causues considerable slowdown in slab_reassignment */
+void do_item_unlink_noslab_lock(item *it, const uint32_t hv) {
+    MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
+    if ((it->it_flags & ITEM_LINKED) != 0) {
+        it->it_flags &= ~ITEM_LINKED;
+        STATS_LOCK();
+        stats_state.curr_bytes -= ITEM_ntotal(it);
+        stats_state.curr_items -= 1;
+        STATS_UNLOCK();
+        item_stats_sizes_remove(it);
+        assoc_delete(ITEM_key(it), it->nkey, hv);
+        item_unlink_q(it);
+        do_item_remove_noslab_lock(it);
+    }
+}
+
+void do_item_remove_noslab_lock(item *it) {
+    MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->nkey, it->nbytes);
+    assert((it->it_flags & ITEM_SLABBED) == 0);
+    assert(it->refcount > 0);
+
+    if (refcount_decr(it) == 0) {
+        do_item_free(it);
     }
 }
 

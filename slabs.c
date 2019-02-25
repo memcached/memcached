@@ -66,7 +66,6 @@ static pthread_mutex_t slabs_rebalance_lock = PTHREAD_MUTEX_INITIALIZER;
 static int grow_slab_list (const unsigned int id);
 static int do_slabs_newslab(const unsigned int id);
 static void *memory_allocate(size_t size);
-static void do_slabs_free(void *ptr, const size_t size, unsigned int id);
 
 /* Preallocate as many slab pages as possible (called from slabs_init)
    on start-up, so users don't get confused out-of-memory errors when
@@ -439,7 +438,7 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
 }
 
 
-static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
+void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
     item *it;
 
@@ -1051,18 +1050,25 @@ static int slab_rebalance_move(void) {
                         refcount_decr(it);
                         requested_adjust = s_cls->size;
                     }
+                    pthread_mutex_lock(&slabs_lock);
                 } else {
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
                     STORAGE_delete(storage, it);
-                    do_item_unlink(it, hv);
-                    slabs_free(it, ntotal, slab_rebal.s_clsid);
-                    /* Swing around again later to remove it from the freelist. */
-                    slab_rebal.busy_items++;
-                    was_busy++;
+                    /* Swing around again later to remove it from the freelist.
+                     * edit: why not just take care of it now?
+                     *       1. we need to hold the slabs lock while doing
+                     *          the unlink, free, and removing from
+                     *          freelist so that that live items
+                     *          do not sneek into the slab that we are clearing */
+                    pthread_mutex_lock(&slabs_lock);
+                    do_item_unlink_noslab_lock(it, hv);
+                    do_slabs_free(it, ntotal, slab_rebal.s_clsid);
+                    slab_rebalance_cut_free(s_cls, it);
+                    it->refcount = 0;
+                    it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
                 }
                 item_trylock_unlock(hold_lock);
-                pthread_mutex_lock(&slabs_lock);
                 /* Always remove the ntotal, as we added it in during
                  * do_slabs_alloc() when copying the item.
                  */

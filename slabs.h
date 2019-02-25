@@ -26,6 +26,9 @@ void *slabs_alloc(const size_t size, unsigned int id, uint64_t *total_bytes, uns
 
 /** Free previously allocated object */
 void slabs_free(void *ptr, size_t size, unsigned int id);
+/* without lock */
+void do_slabs_free(void *ptr, size_t size, unsigned int id);
+
 
 /** Adjust the stats for memory requested */
 void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal);
