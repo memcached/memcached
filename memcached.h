@@ -437,15 +437,16 @@ struct settings {
     unsigned int ext_free_memchunks[MAX_NUMBER_OF_SLAB_CLASSES];
 #endif
 #ifdef TLS
-    bool ssl_enabled;
-    SSL_CTX* ssl_ctx;
-    char *ssl_chain_cert;
-    char *ssl_key;
-    int ssl_verify_mode;
-    int ssl_keyform;
-    int ssl_port; /* SSL port */
-    char *ssl_cipher;
-    char *ssl_ca_cert;
+    bool ssl_enabled; /* indicates whether SSL is enabled */
+    SSL_CTX* ssl_ctx; /* holds the SSL server context which has the server certificate */
+    char *ssl_chain_cert; /* path to the server SSL chain certificate */
+    char *ssl_key; /* path to the server key */
+    int ssl_verify_mode; /* client certificate verify mode */
+    int ssl_keyform; /* key format , defult is PEM */
+    int ssl_port; /* SSL port, if not the default port */
+    char *ssl_cipher; /* list of SSL ciphers */
+    char *ssl_ca_cert; /* certificate with CAs. */
+    rel_time_t last_cert_refresh; /* time of the last server certificate refresh */
 #endif
 };
 

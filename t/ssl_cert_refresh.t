@@ -28,7 +28,7 @@ my $pid = $stats->{pid};
 # memcached was started with.
 my $cert_details =$server->sock->dump_peer_certificate();
 $cert_details =~ m/(OU=([^\/\n]*))/;
-is($1, $default_crt_ou);
+is($1, $default_crt_ou, 'Got the default cert');
 
 # Swap a new certificate with a key
 copy($cert, $cert_back) or die "Cert backup failed: $!";
@@ -40,19 +40,32 @@ kill 'SIGUSR1', $pid or die "Couldn't signal the process $pid : $!";
 # New connections should use the new certificate
 $cert_details = $server->new_sock->dump_peer_certificate();
 $cert_details =~ m/(OU=([^\/]*))/;
-is($1, 'OU=FOR TESTING PURPOSES ONLY');
+is($1, 'OU=FOR TESTING PURPOSES ONLY','Got the new cert');
 # Old connection should use the previous certificate
 $cert_details =$server->sock->dump_peer_certificate();
 $cert_details =~ m/(OU=([^\/\n]*))/;
-is($1, $default_crt_ou);
+is($1, $default_crt_ou, 'Old connection still has the old cert');
+
+# Just sleep a while to test the time_since_server_cert_refresh as it's counted
+# in seconds.
+sleep 2;
+$stats = mem_stats($server->sock);
 
 # Restore and ensure previous certificate is back for new connections.
 move($cert_back, $cert) or die "Cert restore failed: $!";
 move($key_back, $key) or die "Key restore failed: $!";
 kill 'SIGUSR1', $pid or die "Couldn't signale the process $pid : $!";
 
+
 $cert_details = $server->new_sock->dump_peer_certificate();
 $cert_details =~ m/(OU=([^\/\n]*))/;
-is($1, $default_crt_ou);
+is($1, $default_crt_ou, 'Got the old cert back');
+
+my $stats_after = mem_stats($server->sock);
+
+# We should see last refresh time is reset; hence the new
+# time_since_server_cert_refresh should be less.
+cmp_ok($stats_after->{time_since_server_cert_refresh}, '<',
+    $stats->{time_since_server_cert_refresh}, 'Certs refreshed');
 
 done_testing();

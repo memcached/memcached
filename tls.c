@@ -162,5 +162,6 @@ void refresh_certificates(void) {
     if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
         fprintf(stderr, "Error validating the certificate. %s\n", not_refreshed);
     }
+    settings.last_cert_refresh = current_time;
     pthread_mutex_unlock(&(ssl_ctx_lock));
 }

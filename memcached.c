@@ -3299,6 +3299,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("extstore_io_queue", "%llu", (unsigned long long)(st.io_queue));
     }
 #endif
+#ifdef TLS
+    APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.last_cert_refresh);
+#endif
 }
 
 static void process_stat_settings(ADD_STAT add_stats, void *c) {
@@ -3369,6 +3372,16 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ext_max_frag", "%.2f", settings.ext_max_frag);
     APPEND_STAT("slab_automove_freeratio", "%.3f", settings.slab_automove_freeratio);
     APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
+#endif
+#ifdef TLS
+    APPEND_STAT("ssl_enabled", "%d", settings.ssl_enabled);
+    APPEND_STAT("ssl_chain_cert", "%s", settings.ssl_chain_cert);
+    APPEND_STAT("ssl_key", "%s", settings.ssl_key);
+    APPEND_STAT("ssl_verify_mode", "%d", settings.ssl_verify_mode);
+    APPEND_STAT("ssl_keyform", "%d", settings.ssl_keyform);
+    APPEND_STAT("ssl_port", "%d", settings.ssl_port);
+    APPEND_STAT("ssl_cipher", "%s", settings.ssl_cipher ? settings.ssl_cipher : "NULL");
+    APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
 #endif
 }
 
@@ -7731,6 +7744,7 @@ int main (int argc, char **argv) {
         SSL_load_error_strings();
         SSLeay_add_ssl_algorithms();
         ssl_init();
+        settings.last_cert_refresh = current_time;
     }
 #endif
 
