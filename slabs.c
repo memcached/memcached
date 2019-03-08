@@ -282,7 +282,7 @@ static void set_mmap(void) {
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes) {
+void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes, const char *memory_file) {
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
     bool reuse_mmap = true;
@@ -312,7 +312,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
 #endif
 
         pagesize = getpagesize();
-        mmap_fd = open("/dev/shm/memc_mmap", O_RDWR|O_CREAT, S_IRWXU);
+        mmap_fd = open(memory_file, O_RDWR|O_CREAT, S_IRWXU);
         fprintf(stderr, "mmap_fd: %d\n", mmap_fd);
         if (ftruncate(mmap_fd, mem_limit + pagesize) != 0) {
             perror("ftruncate failed");
