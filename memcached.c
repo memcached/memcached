@@ -77,6 +77,9 @@
 static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
 static int try_read_command(conn *c);
+static ssize_t tcp_read(conn *arg, void *buf, size_t count);
+static ssize_t tcp_sendmsg(conn *arg, struct msghdr *msg, int flags);
+static ssize_t tcp_write(conn *arg, void *buf, size_t count);
 
 enum try_read_result {
     READ_DATA_RECEIVED,
@@ -151,18 +154,18 @@ enum transmit_result {
 };
 
 /* Default methods to read from/ write to a socket */
-ssize_t tcp_read(void *arg, void *buf, size_t count) {
-    conn *c = (conn*)arg;
+ssize_t tcp_read(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
     return read(c->sfd, buf, count);
 }
 
-ssize_t tcp_sendmsg(void *arg, struct msghdr *msg, int flags) {
-    conn *c = (conn*)arg;
+ssize_t tcp_sendmsg(conn *c, struct msghdr *msg, int flags) {
+    assert (c != NULL);
     return sendmsg(c->sfd, msg, flags);
 }
 
-ssize_t tcp_write(void *arg, void *buf, size_t count) {
-    conn *c = (conn*)arg;
+ssize_t tcp_write(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
     return write(c->sfd, buf, count);
 }
 
@@ -251,8 +254,9 @@ static void settings_init(void) {
     settings.ssl_verify_mode = SSL_VERIFY_NONE;
     settings.ssl_keyform = SSL_FILETYPE_PEM;
     settings.ssl_port = 0;
-    settings.ssl_cipher = NULL;
+    settings.ssl_ciphers = NULL;
     settings.ssl_ca_cert = NULL;
+    settings.ssl_last_cert_refresh_time = current_time;
 #endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
@@ -664,10 +668,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 #ifdef TLS
     // Setup the SSL context and SSL at each connection level when it's enabled
     // at the correct port if ssl_port is specified.
-    struct sockaddr_in peeraddr;
-    socklen_t peeraddrlen = sizeof(peeraddr);
-    getsockname(sfd, (struct sockaddr *)&peeraddr, &peeraddrlen);
-    int port = ntohs(peeraddr.sin_port);
+    struct sockaddr_in peer_addr;
+    socklen_t peer_addr_size = sizeof(peer_addr);
+    getsockname(sfd, (struct sockaddr *)&peer_addr, &peer_addr_size);
+    int port = ntohs(peer_addr.sin_port);
 
     if (IS_TCP(c->transport) &&
         settings.ssl_enabled &&
@@ -677,17 +681,15 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             fprintf(stderr, "SSL context is not initialized\n");
             return NULL;
         }
-        pthread_mutex_lock(&(ssl_ctx_lock));
+        SSL_LOCK();
         c->ssl = SSL_new(settings.ssl_ctx);
-        pthread_mutex_unlock(&(ssl_ctx_lock));
+        SSL_UNLOCK();
         if (c->ssl == NULL) {
             fprintf(stderr, "Failed to created the SSL object\n");
             return NULL;
         }
         SSL_set_fd(c->ssl, sfd);
         int ret = SSL_accept(c->ssl);
-        // Skip client certificate validation for the prototype
-        // implementation
         if (ret < 0) {
             int err = SSL_get_error(c->ssl, ret);
             if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
@@ -891,7 +893,10 @@ static void conn_close(conn *c) {
     MEMCACHED_CONN_RELEASE(c->sfd);
     conn_set_state(c, conn_closed);
 #ifdef TLS
-    if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
+    if (c->ssl) {
+        SSL_shutdown(c->ssl);
+        SSL_free(c->ssl);
+    }
 #endif
     close(c->sfd);
     pthread_mutex_lock(&conn_lock);
@@ -3300,7 +3305,11 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     }
 #endif
 #ifdef TLS
-    APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.last_cert_refresh);
+    if (settings.ssl_enabled) {
+        SSL_LOCK();
+        APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
+        SSL_UNLOCK();
+    }
 #endif
 }
 
@@ -3374,13 +3383,13 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
 #endif
 #ifdef TLS
-    APPEND_STAT("ssl_enabled", "%d", settings.ssl_enabled);
+    APPEND_STAT("ssl_enabled", "%s", settings.ssl_enabled ? "yes" : "no");
     APPEND_STAT("ssl_chain_cert", "%s", settings.ssl_chain_cert);
     APPEND_STAT("ssl_key", "%s", settings.ssl_key);
     APPEND_STAT("ssl_verify_mode", "%d", settings.ssl_verify_mode);
     APPEND_STAT("ssl_keyform", "%d", settings.ssl_keyform);
     APPEND_STAT("ssl_port", "%d", settings.ssl_port);
-    APPEND_STAT("ssl_cipher", "%s", settings.ssl_cipher ? settings.ssl_cipher : "NULL");
+    APPEND_STAT("ssl_ciphers", "%s", settings.ssl_ciphers ? settings.ssl_ciphers : "NULL");
     APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
 #endif
 }
@@ -6404,14 +6413,14 @@ static void usage(void) {
 #endif
 #ifdef TLS
            "   - ssl_chain_cert:      certificate chain file in PEM format\n"
-           "   - ssl_key:             private key if not in -ssl_chain_cert\n"
+           "   - ssl_key:             private key, if not part of the -ssl_chain_cert\n"
+           "   - ssl_keyform:         private key format (PEM, DER or ENGINE) PEM default\n"
            "   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
            "                          valid values are 0(None), 1(Request), 2(Require)\n"
            "                          or 3(Once)\n"
-           "   - ssl_keyform:         private key format (PEM, DER or ENGINE) PEM default\n"
-           "   - ssl_port:            specific port to enable TLS. If not specified, all TCP ports\n"
+           "   - ssl_port:            specific port to enable TLS/SSL. If not specified, all TCP ports\n"
            "                          are secured\n"
-           "   - ssl_cipher:          specify cipher list to be used\n"
+           "   - ssl_ciphers:          specify cipher list to be used\n"
            "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
 #endif
            );
@@ -6751,7 +6760,7 @@ int main (int argc, char **argv) {
         SSL_VERIFY_MODE,
         SSL_KEYFORM,
         SSL_PORT,
-        SSL_CIPHER,
+        SSL_CIPHERS,
         SSL_CA_CERT,
 #endif
 #ifdef MEMCACHED_DEBUG
@@ -6817,7 +6826,7 @@ int main (int argc, char **argv) {
         [SSL_VERIFY_MODE] = "ssl_verify_mode",
         [SSL_KEYFORM] = "ssl_keyform",
         [SSL_PORT] = "ssl_port",
-        [SSL_CIPHER] = "ssl_cipher",
+        [SSL_CIPHERS] = "ssl_ciphers",
         [SSL_CA_CERT]= "ssl_ca_cert",
 #endif
 #ifdef MEMCACHED_DEBUG
@@ -7416,7 +7425,7 @@ int main (int argc, char **argv) {
                                                     SSL_VERIFY_CLIENT_ONCE;
                         break;
                     default:
-                        fprintf(stderr, "Invalid ssl_verify_mode. Use help to see valid values.\n");
+                        fprintf(stderr, "Invalid ssl_verify_mode. Use help to see valid options.\n");
                         return 1;
                 }
                 break;
@@ -7426,8 +7435,8 @@ int main (int argc, char **argv) {
             case SSL_PORT:
                 settings.ssl_port = atoi(subopts_value);
                 break;
-            case SSL_CIPHER:
-                settings.ssl_cipher = strdup(subopts_value);
+            case SSL_CIPHERS:
+                settings.ssl_ciphers = strdup(subopts_value);
                 break;
             case SSL_CA_CERT:
                 settings.ssl_ca_cert = strdup(subopts_value);
@@ -7741,10 +7750,11 @@ int main (int argc, char **argv) {
             fprintf(stderr, "ERROR: You cannot enable SSL without a TCP port.\n");
             exit(EX_USAGE);
         }
+        // openssl init methods.
         SSL_load_error_strings();
         SSLeay_add_ssl_algorithms();
+        // Initiate the SSL context.
         ssl_init();
-        settings.last_cert_refresh = current_time;
     }
 #endif
 

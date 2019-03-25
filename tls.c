@@ -1,28 +1,48 @@
+#include "memcached.h"
+
+#ifdef TLS
+
+#include "tls.h"
 #include <string.h>
 #include <sysexits.h>
 
-#include "memcached.h"
-#include "tls.h"
+static pthread_mutex_t ssl_ctx_lock = PTHREAD_MUTEX_INITIALIZER;
 
 #define __MAX_ALLOCA_CUTOFF        65536
+
+#define MIN(a,b) (((a)<(b))?(a):(b))
+
+
+void SSL_LOCK() {
+    pthread_mutex_lock(&(ssl_ctx_lock));
+}
+
+void SSL_UNLOCK(void) {
+    pthread_mutex_unlock(&(ssl_ctx_lock));
+}
 
 static void freebuff(char **ptrp)
 {
     free (*ptrp);
 }
 
-/* Read and write methods when SSL is enbled */
-ssize_t ssl_read(void *arg, void *buf, size_t count) {
-    conn *c = (conn*)arg;
-    /* TODO : check the state machine interactions for SSL_read with
+/*
+ * Reads decrypted data from the underlying BIO read buffers,
+ * which reads from the socket.
+ */
+ssize_t ssl_read(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
+    /* TODO : document the state machine interactions for SSL_read with
         non-blocking sockets/ SSL re-negotiations
     */
     return SSL_read(c->ssl, buf, count);
 }
 
-#define MIN(a,b) (((a)<(b))?(a):(b))
-ssize_t ssl_sendmsg(void *arg, struct msghdr *msg, int flags) {
-    conn *c = (conn*)arg;
+/*
+ * SSL sendmsg implementation. Perform a SSL_write.
+ */
+ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
+    assert (c != NULL);
     size_t bytes, to_copy;
     int i;
     bytes = 0;
@@ -49,18 +69,24 @@ ssize_t ssl_sendmsg(void *arg, struct msghdr *msg, int flags) {
         if (to_copy == 0)
             break;
     }
-    /* TODO : check the state machine interactions for SSL_write with
+    /* TODO : document the state machine interactions for SSL_write with
         non-blocking sockets/ SSL re-negotiations
     */
     return SSL_write(c->ssl, buffer, bytes);
 }
 
-ssize_t ssl_write(void *arg, void *buf, size_t count) {
-    conn *c = (conn*)arg;
+/*
+ * Writes data to the underlying BIO write buffers,
+ * which encrypt and write them to the socket.
+ */
+ssize_t ssl_write(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
     return SSL_write(c->ssl, buf, count);
 }
 
-/* Standard thread-ID functions required by openssl */
+/*
+ * Standard thread-ID functions required by openssl
+ */
 pthread_mutex_t * ssl_locks;
 int ssl_num_locks;
 
@@ -78,6 +104,9 @@ void thread_lock_cb(int mode, int which, const char * f, int l) {
     }
 }
 
+/*
+ * Verify SSL settings and initiates the SSL context.
+ */
 int ssl_init(void) {
     assert(settings.ssl_enabled);
     int i;
@@ -90,7 +119,6 @@ int ssl_init(void) {
     for (i = 0; i < ssl_num_locks; i++) {
         pthread_mutex_init(&(ssl_locks[i]), NULL);
     }
-    pthread_mutex_init(&ssl_ctx_lock, NULL);
 
     CRYPTO_set_id_callback(get_thread_id_cb);
     CRYPTO_set_locking_callback(thread_lock_cb);
@@ -123,10 +151,10 @@ int ssl_init(void) {
 
     // The verification mode of client certificate, default is SSL_VERIFY_PEER.
     SSL_CTX_set_verify(settings.ssl_ctx, settings.ssl_verify_mode, NULL);
-    if (settings.ssl_cipher && !SSL_CTX_set_cipher_list(settings.ssl_ctx,
-                                                    settings.ssl_cipher)) {
+    if (settings.ssl_ciphers && !SSL_CTX_set_cipher_list(settings.ssl_ctx,
+                                                    settings.ssl_ciphers)) {
         fprintf(stderr, "Error setting the provided cipher(s) : %s\n",
-            settings.ssl_cipher);
+            settings.ssl_ciphers);
         exit(EX_USAGE);
     }
     // List of acceptable CAs for client certificates.
@@ -141,14 +169,18 @@ int ssl_init(void) {
             exit(EX_USAGE);
         }
     }
+    settings.ssl_last_cert_refresh_time = current_time;
     return 0;
 }
 
+/*
+ * Re-load server certificate to the SSL context.
+ */
 void refresh_certificates(void) {
     if (!settings.ssl_enabled) return;
     const char* not_refreshed = "Certificates are not refreshed";
 
-    pthread_mutex_lock(&(ssl_ctx_lock));
+    SSL_LOCK();
     if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
         settings.ssl_chain_cert)) {
         fprintf(stderr, "Error loading the certificate chain : %s. %s\n",
@@ -162,6 +194,8 @@ void refresh_certificates(void) {
     if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
         fprintf(stderr, "Error validating the certificate. %s\n", not_refreshed);
     }
-    settings.last_cert_refresh = current_time;
-    pthread_mutex_unlock(&(ssl_ctx_lock));
+    settings.ssl_last_cert_refresh_time = current_time;
+    SSL_UNLOCK();
 }
+
+#endif

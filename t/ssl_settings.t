@@ -19,13 +19,13 @@ my $settings = mem_stats($server->sock, ' settings');
 my $cert = getcwd ."/t/". MemcachedTest::SRV_CRT;
 my $key = getcwd ."/t/". MemcachedTest::SRV_KEY;
 
-is(1, $settings->{'ssl_enabled'});
+is('yes', $settings->{'ssl_enabled'});
 is($cert, $settings->{'ssl_chain_cert'});
 is($key, $settings->{'ssl_key'});
 is(0, $settings->{'ssl_verify_mode'});
 is(1, $settings->{'ssl_keyform'});
 is(0, $settings->{'ssl_port'});
-is('NULL', $settings->{'ssl_cipher'});
+is('NULL', $settings->{'ssl_ciphers'});
 is('NULL', $settings->{'ssl_ca_cert'});
 
 done_testing();

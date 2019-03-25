@@ -36,39 +36,35 @@ struct conn {
     SSL_CTX* ssl_ctx;
     SSL*     ssl;
 #endif
-    ssize_t (*read)(void  *arg, void *buf, size_t count);
-    ssize_t (*write)(void *arg, const void *buf, size_t count);
+    ssize_t (*read)(struct conn  *c, void *buf, size_t count);
+    ssize_t (*write)(struct conn *c, const void *buf, size_t count);
 };
 
 
-ssize_t tcp_read(void *arg, void *buf, size_t count);
-ssize_t tcp_write(void *arg, const void *buf, size_t count);
+static ssize_t tcp_read(struct conn *c, void *buf, size_t count);
+static ssize_t tcp_write(struct conn *c, const void *buf, size_t count);
 #ifdef TLS
-ssize_t ssl_read(void *arg, void *buf, size_t count);
-ssize_t ssl_write(void *arg, const void *buf, size_t count);
+static ssize_t ssl_read(struct conn *c, void *buf, size_t count);
+static ssize_t ssl_write(struct conn *c, const void *buf, size_t count);
 #endif
 
-ssize_t tcp_read(void *arg, void *buf, size_t count) {
-    assert(arg != NULL);
-    struct conn* c = (struct conn*) arg;
+ssize_t tcp_read(struct conn *c, void *buf, size_t count) {
+    assert(c != NULL);
     return read(c->sock, buf, count);
 }
 
-ssize_t tcp_write(void *arg, const void *buf, size_t count) {
-    assert(arg != NULL);
-    struct conn* c = (struct conn*) arg;
+ssize_t tcp_write(struct conn *c, const void *buf, size_t count) {
+    assert(c != NULL);
     return write(c->sock, buf, count);
 }
 #ifdef TLS
-ssize_t ssl_read(void *arg, void *buf, size_t count) {
-    assert(arg != NULL);
-    struct conn *c = (struct conn*)arg;
+ssize_t ssl_read(struct conn *c, void *buf, size_t count) {
+    assert(c != NULL);
     return SSL_read(c->ssl, buf, count);
 }
 
-ssize_t ssl_write(void *arg, const void *buf, size_t count) {
-    assert(arg != NULL);
-    struct conn *c = (struct conn*)arg;
+ssize_t ssl_write(struct conn *c, const void *buf, size_t count) {
+    assert(c != NULL);
     return SSL_write(c->ssl, buf, count);
 }
 #endif
@@ -82,8 +78,12 @@ static bool enable_ssl = false;
 static void close_conn() {
     if (con == NULL) return;
 #ifdef TLS
-    if (con->ssl) { SSL_shutdown(con->ssl); SSL_free(con->ssl);}
-    if (con->ssl_ctx) SSL_CTX_free(con->ssl_ctx);
+    if (con->ssl) {
+        SSL_shutdown(con->ssl);
+        SSL_free(con->ssl);
+    }
+    if (con->ssl_ctx)
+        SSL_CTX_free(con->ssl_ctx);
 #endif
     if (con->sock > 0) close(con->sock);
     free(con);
@@ -2039,8 +2039,12 @@ static enum test_return test_issue_101(void) {
         struct conn* c = conns[ii];
         if (c == NULL) continue;
 #ifdef TLS
-        if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl);}
-        if (c->ssl_ctx) SSL_CTX_free(c->ssl_ctx);
+        if (c->ssl) {
+            SSL_shutdown(c->ssl);
+            SSL_free(c->ssl);
+        }
+        if (c->ssl_ctx)
+            SSL_CTX_free(c->ssl_ctx);
 #endif
         if (c->sock > 0) close(c->sock);
         free(conns[ii]);

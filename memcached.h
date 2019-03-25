@@ -444,9 +444,9 @@ struct settings {
     int ssl_verify_mode; /* client certificate verify mode */
     int ssl_keyform; /* key format , defult is PEM */
     int ssl_port; /* SSL port, if not the default port */
-    char *ssl_cipher; /* list of SSL ciphers */
+    char *ssl_ciphers; /* list of SSL ciphers */
     char *ssl_ca_cert; /* certificate with CAs. */
-    rel_time_t last_cert_refresh; /* time of the last server certificate refresh */
+    rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
 #endif
 };
 
@@ -694,9 +694,9 @@ struct conn {
     int keylen;
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
-    ssize_t (*read)(void  *arg, void *buf, size_t count);
-    ssize_t (*sendmsg)(void *arg, struct msghdr *msg, int flags);
-    ssize_t (*write)(void *arg, void *buf, size_t count);
+    ssize_t (*read)(conn  *c, void *buf, size_t count);
+    ssize_t (*sendmsg)(conn *c, struct msghdr *msg, int flags);
+    ssize_t (*write)(conn *c, void *buf, size_t count);
 };
 
 /* array of conn structures, indexed by file descriptor */
@@ -740,9 +740,6 @@ enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size, enum network_transport transport, struct event_base *base);
 void conn_worker_readd(conn *c);
 extern int daemonize(int nochdir, int noclose);
-ssize_t tcp_read(void *arg, void *buf, size_t count);
-ssize_t tcp_sendmsg(void *arg, struct msghdr *msg, int flags);
-ssize_t tcp_write(void *arg, void *buf, size_t count);
 
 #define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)

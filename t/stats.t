@@ -24,7 +24,7 @@ my $sock = $server->sock;
 my $stats = mem_stats($sock);
 
 # Test number of keys
-if (MemcachedTest::supports_tls()) {
+if (MemcachedTest::enabled_tls_testing()) {
     # when TLS is enabled, stats contains time_since_server_cert_refresh
     is(scalar(keys(%$stats)), 71, "expected count of stats values");
 } else {
