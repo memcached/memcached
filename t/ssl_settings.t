@@ -19,13 +19,19 @@ my $settings = mem_stats($server->sock, ' settings');
 my $cert = getcwd ."/t/". MemcachedTest::SRV_CRT;
 my $key = getcwd ."/t/". MemcachedTest::SRV_KEY;
 
-is('yes', $settings->{'ssl_enabled'});
-is($cert, $settings->{'ssl_chain_cert'});
-is($key, $settings->{'ssl_key'});
-is(0, $settings->{'ssl_verify_mode'});
-is(1, $settings->{'ssl_keyform'});
-is(0, $settings->{'ssl_port'});
-is('NULL', $settings->{'ssl_ciphers'});
-is('NULL', $settings->{'ssl_ca_cert'});
+is($settings->{'ssl_enabled'}, 'yes');
+is($settings->{'ssl_chain_cert'}, $cert);
+is($settings->{'ssl_key'}, $key);
+is($settings->{'ssl_verify_mode'}, 0);
+is($settings->{'ssl_keyform'}, 1);
+is($settings->{'ssl_port'}, 0);
+is($settings->{'ssl_ciphers'}, 'NULL');
+is($settings->{'ssl_ca_cert'}, 'NULL');
+is($settings->{'ssl_wbuf_size'}, 16384);
+
+$server->DESTROY();
+$server = new_memcached("-o ssl_wbuf_size=64");
+$settings = mem_stats($server->sock, ' settings');
+is($settings->{'ssl_wbuf_size'},65536);
 
 done_testing();

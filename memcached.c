@@ -3398,6 +3398,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ssl_port", "%d", settings.ssl_port);
     APPEND_STAT("ssl_ciphers", "%s", settings.ssl_ciphers ? settings.ssl_ciphers : "NULL");
     APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
+    APPEND_STAT("ssl_wbuf_size", "%u", settings.ssl_wbuf_size);
 #endif
 }
 
