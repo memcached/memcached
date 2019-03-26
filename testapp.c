@@ -33,8 +33,8 @@ enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 struct conn {
     int sock;
 #ifdef TLS
-    SSL_CTX* ssl_ctx;
-    SSL*     ssl;
+    SSL_CTX   *ssl_ctx;
+    SSL    *ssl;
 #endif
     ssize_t (*read)(struct conn  *c, void *buf, size_t count);
     ssize_t (*write)(struct conn *c, const void *buf, size_t count);
@@ -71,7 +71,7 @@ ssize_t ssl_write(struct conn *c, const void *buf, size_t count) {
 
 static pid_t server_pid;
 static in_port_t port;
-static struct conn* con = NULL;
+static struct conn *con = NULL;
 static bool allow_closed_read = false;
 static bool enable_ssl = false;
 
@@ -512,10 +512,10 @@ static struct addrinfo *lookuphost(const char *hostname, in_port_t port)
     return ai;
 }
 
-static struct conn* connect_server(const char *hostname, in_port_t port,
+static struct conn *connect_server(const char *hostname, in_port_t port,
                             bool nonblock, const bool ssl)
 {
-    struct conn* c;
+    struct conn *c;
     if (!(c = (struct conn *)calloc(1, sizeof(struct conn)))) {
         fprintf(stderr, "Failed to allocate the client connection: %s\n",
                 strerror(errno));
@@ -2036,7 +2036,7 @@ static enum test_return test_issue_101(void) {
  cleanup:
     /* close all connections */
     for (ii = 0; ii < max; ++ii) {
-        struct conn* c = conns[ii];
+        struct conn *c = conns[ii];
         if (c == NULL) continue;
 #ifdef TLS
         if (c->ssl) {

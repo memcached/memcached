@@ -438,7 +438,7 @@ struct settings {
 #endif
 #ifdef TLS
     bool ssl_enabled; /* indicates whether SSL is enabled */
-    SSL_CTX* ssl_ctx; /* holds the SSL server context which has the server certificate */
+    SSL_CTX *ssl_ctx; /* holds the SSL server context which has the server certificate */
     char *ssl_chain_cert; /* path to the server SSL chain certificate */
     char *ssl_key; /* path to the server key */
     int ssl_verify_mode; /* client certificate verify mode */
@@ -447,6 +447,7 @@ struct settings {
     char *ssl_ciphers; /* list of SSL ciphers */
     char *ssl_ca_cert; /* certificate with CAs. */
     rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
+    unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
 #endif
 };
 
@@ -600,7 +601,8 @@ typedef struct _io_wrap {
 struct conn {
     int    sfd;
 #ifdef TLS
-    SSL*     ssl;
+    SSL    *ssl;
+    char   *ssl_wbuf;
 #endif
     sasl_conn_t *sasl_conn;
     bool sasl_started;

@@ -8,10 +8,7 @@
 
 static pthread_mutex_t ssl_ctx_lock = PTHREAD_MUTEX_INITIALIZER;
 
-#define __MAX_ALLOCA_CUTOFF        65536
-
 #define MIN(a,b) (((a)<(b))?(a):(b))
-
 
 void SSL_LOCK() {
     pthread_mutex_lock(&(ssl_ctx_lock));
@@ -19,11 +16,6 @@ void SSL_LOCK() {
 
 void SSL_UNLOCK(void) {
     pthread_mutex_unlock(&(ssl_ctx_lock));
-}
-
-static void freebuff(char **ptrp)
-{
-    free (*ptrp);
 }
 
 /*
@@ -49,18 +41,11 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     for (i = 0; i < msg->msg_iovlen; ++i)
         bytes += msg->msg_iov[i].iov_len;
 
-    char *buffer;
-    char *malloced_buffer __attribute__ ((__cleanup__ (freebuff))) = NULL;
-    if (bytes < __MAX_ALLOCA_CUTOFF)
-        buffer = (char *) alloca(bytes);
-    else
-        malloced_buffer = buffer = (char *) malloc (bytes);
+    assert(c->ssl_wbuf);
 
-    if (buffer == NULL)
-        return -1;
-
+    bytes = MIN(bytes, settings.ssl_wbuf_size);
     to_copy = bytes;
-    char *bp = buffer;
+    char *bp = c->ssl_wbuf;
     for (i = 0; i < msg->msg_iovlen; ++i) {
         size_t copy = MIN (to_copy, msg->msg_iov[i].iov_len);
         memcpy((void*)bp, (void*)msg->msg_iov[i].iov_base, copy);
@@ -72,7 +57,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     /* TODO : document the state machine interactions for SSL_write with
         non-blocking sockets/ SSL re-negotiations
     */
-    return SSL_write(c->ssl, buffer, bytes);
+    return SSL_write(c->ssl, c->ssl_wbuf, bytes);
 }
 
 /*

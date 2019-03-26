@@ -257,6 +257,7 @@ static void settings_init(void) {
     settings.ssl_ciphers = NULL;
     settings.ssl_ca_cert = NULL;
     settings.ssl_last_cert_refresh_time = current_time;
+    settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
 #endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
@@ -636,6 +637,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     }
 #ifdef TLS
     c->ssl = NULL;
+    c->ssl_wbuf = NULL;
 #endif
     c->state = init_state;
     c->rlbytes = 0;
@@ -697,6 +699,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
                 return NULL;
             }
         }
+        c->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
@@ -875,6 +878,10 @@ void conn_free(conn *c) {
             free(c->suffixlist);
         if (c->iov)
             free(c->iov);
+#ifdef TLS
+        if (c->ssl_wbuf)
+            free(c->ssl_wbuf);
+#endif
         free(c);
     }
 }
@@ -6422,6 +6429,7 @@ static void usage(void) {
            "                          are secured\n"
            "   - ssl_ciphers:          specify cipher list to be used\n"
            "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
+           "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
 #endif
            );
     return;
@@ -6762,6 +6770,7 @@ int main (int argc, char **argv) {
         SSL_PORT,
         SSL_CIPHERS,
         SSL_CA_CERT,
+        SSL_WBUF_SIZE,
 #endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
@@ -6822,12 +6831,13 @@ int main (int argc, char **argv) {
         [DROP_PRIVILEGES] = "drop_privileges",
 #ifdef TLS
         [SSL_CERT] = "ssl_chain_cert",
-        [SSL_KEY]= "ssl_key",
+        [SSL_KEY] = "ssl_key",
         [SSL_VERIFY_MODE] = "ssl_verify_mode",
         [SSL_KEYFORM] = "ssl_keyform",
         [SSL_PORT] = "ssl_port",
         [SSL_CIPHERS] = "ssl_ciphers",
-        [SSL_CA_CERT]= "ssl_ca_cert",
+        [SSL_CA_CERT] = "ssl_ca_cert",
+        [SSL_WBUF_SIZE] = "ssl_wbuf_size",
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
@@ -7400,14 +7410,30 @@ int main (int argc, char **argv) {
                 break;
 #ifdef TLS
             case SSL_CERT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_chain_cert argument\n");
+                    return 1;
+                }
                 settings.ssl_chain_cert = strdup(subopts_value);
                 break;
             case SSL_KEY:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_key argument\n");
+                    return 1;
+                }
                 settings.ssl_key = strdup(subopts_value);
                 break;
             case SSL_VERIFY_MODE:
             {
-                int verify  = atoi(subopts_value);
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_verify_mode argument\n");
+                    return 1;
+                }
+                int verify  = 0;
+                if (!safe_strtol(subopts_value, &verify)) {
+                    fprintf(stderr, "could not parse argument to ssl_verify_mode\n");
+                    return 1;
+                }
                 switch(verify) {
                     case 0:
                         settings.ssl_verify_mode = SSL_VERIFY_NONE;
@@ -7431,15 +7457,49 @@ int main (int argc, char **argv) {
                 break;
             }
             case SSL_KEYFORM:
-                settings.ssl_keyform = atoi(subopts_value);
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_keyform argument\n");
+                    return 1;
+                }
+                if (!safe_strtol(subopts_value, &settings.ssl_keyform)) {
+                    fprintf(stderr, "could not parse argument to ssl_keyform\n");
+                    return 1;
+                }
+                break;
             case SSL_PORT:
-                settings.ssl_port = atoi(subopts_value);
+            if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_port argument\n");
+                    return 1;
+                }
+                if (!safe_strtol(subopts_value, &settings.ssl_port)) {
+                    fprintf(stderr, "could not parse argument to ssl_port\n");
+                    return 1;
+                }
                 break;
             case SSL_CIPHERS:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_ciphers argument\n");
+                    return 1;
+                }
                 settings.ssl_ciphers = strdup(subopts_value);
                 break;
             case SSL_CA_CERT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_ca_cert argument\n");
+                    return 1;
+                }
                 settings.ssl_ca_cert = strdup(subopts_value);
+                break;
+            case SSL_WBUF_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_wbuf_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ssl_wbuf_size)) {
+                    fprintf(stderr, "could not parse argument to ssl_wbuf_size\n");
+                    return 1;
+                }
+                settings.ssl_wbuf_size *= 1024; /* kilobytes */
                 break;
 #endif
 #ifdef EXTSTORE
