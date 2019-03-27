@@ -12,6 +12,9 @@ my $sock = $server->sock;
 
 
 # Test that commands can take 'noreply' parameter.
+if (MemcachedTest::enabled_tls_testing()) {
+    print $sock "refresh_certs noreply\r\n";
+}
 print $sock "flush_all noreply\r\n";
 print $sock "flush_all 0 noreply\r\n";
 
@@ -44,4 +47,3 @@ mem_get_is($sock, "noreply:foo", "7");
 
 print $sock "delete noreply:foo noreply\r\n";
 mem_get_is($sock, "noreply:foo");
-

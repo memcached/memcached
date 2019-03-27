@@ -577,9 +577,17 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->suffixlist = (char **)malloc(sizeof(char *) * c->suffixsize);
         c->iov = (struct iovec *)malloc(sizeof(struct iovec) * c->iovsize);
         c->msglist = (struct msghdr *)malloc(sizeof(struct msghdr) * c->msgsize);
+#ifdef TLS
+        c->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
+#endif
+
 
         if (c->rbuf == 0 || c->wbuf == 0 || c->ilist == 0 || c->iov == 0 ||
-                c->msglist == 0 || c->suffixlist == 0) {
+                c->msglist == 0 || c->suffixlist == 0
+#ifdef TLS
+                || c->ssl_wbuf == 0
+#endif
+            ) {
             conn_free(c);
             STATS_LOCK();
             stats.malloc_fails++;
@@ -637,7 +645,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     }
 #ifdef TLS
     c->ssl = NULL;
-    c->ssl_wbuf = NULL;
 #endif
     c->state = init_state;
     c->rlbytes = 0;
@@ -699,7 +706,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
                 return NULL;
             }
         }
-        c->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
@@ -5039,6 +5045,13 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "extstore") == 0) {
         process_extstore_command(c, tokens, ntokens);
 #endif
+#ifdef TLS
+    } else if (ntokens >= 1 && ntokens <= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0)) {
+        set_noreply_maybe(c, tokens, ntokens);
+        refresh_certificates();
+        out_string(c, "OK");
+        return;
+#endif
     } else {
         if (ntokens >= 2 && strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
             conn_set_state(c, conn_closing);
@@ -6557,13 +6570,6 @@ static void remove_pidfile(const char *pid_file) {
 }
 
 static void sig_handler(const int sig) {
-#ifdef TLS
-    if (sig == SIGUSR1)
-    {
-        refresh_certificates();
-        return;
-    }
-#endif
     printf("Signal handled: %s.\n", strsignal(sig));
     exit(EXIT_SUCCESS);
 }
@@ -6866,12 +6872,9 @@ int main (int argc, char **argv) {
         return EX_OSERR;
     }
 
-    /* handle SIGINT, SIGTERM and SIGUSR1 */
+    /* handle SIGINT, SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
-#ifdef TLS
-    signal(SIGUSR1, sig_handler);
-#endif
 
     /* init settings */
     settings_init();
