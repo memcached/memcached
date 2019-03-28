@@ -106,16 +106,29 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.m
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
-test_tls:
 if ENABLE_TLS
+test_tls:
 	$(MAKE) SSL_TEST=1 test
-else
-	@echo "This server is not built with TLS support."
+
+test_basic_tls:
+	@if test $(SSL_TEST)1 != 1; then \
+	  echo "Running basic tests with TLS"; \
+	  $(srcdir)/testapp; \
+	  prove $(srcdir)/t/binary.t $(srcdir)/t/getset.t $(srcdir)/t/ssl*; \
+	  echo "Finished running basic TLS tests"; \
+	else \
+	  echo "Set SSL_TEST=1 to enable TLS tests"; \
+	fi
 endif
 
 test:	memcached-debug sizes testapp
 	$(srcdir)/sizes
 	$(srcdir)/testapp
+if ENABLE_TLS
+	@if test $(SSL_TEST)1 = 1; then \
+          $(MAKE) SSL_TEST=1  test_basic_tls; \
+	fi
+endif
 	@if test -n "${PARALLEL}"; then \
 	  prove $(srcdir)/t -j ${PARALLEL}; \
 	else \
