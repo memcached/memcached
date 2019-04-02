@@ -41,7 +41,15 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     for (i = 0; i < msg->msg_iovlen; ++i)
         bytes += msg->msg_iov[i].iov_len;
 
+    // ssl_wbuf is pointing to the buffer allocated in the worker thread.
     assert(c->ssl_wbuf);
+    // TODO: allocate a fix buffer in crawler/logger if they start using
+    // the sendmsg method. Also, set c->ssl_wbuf  when the side thread
+    // start owning the connection and reset the pointer in
+    // conn_worker_readd.
+    // Currntly this connection would not be served by a different thread
+    // than the one it's assigned.
+    assert(c->thread->thread_id == get_thread_id_cb());
 
     bytes = MIN(bytes, settings.ssl_wbuf_size);
     to_copy = bytes;

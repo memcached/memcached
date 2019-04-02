@@ -579,6 +579,10 @@ typedef struct {
 #endif
     logger *l;                  /* logger buffer */
     void *lru_bump_buf;         /* async LRU bump buffer */
+#ifdef TLS
+    char   *ssl_wbuf;
+#endif
+
 } LIBEVENT_THREAD;
 typedef struct conn conn;
 #ifdef EXTSTORE

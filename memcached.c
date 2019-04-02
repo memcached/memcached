@@ -577,17 +577,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->suffixlist = (char **)malloc(sizeof(char *) * c->suffixsize);
         c->iov = (struct iovec *)malloc(sizeof(struct iovec) * c->iovsize);
         c->msglist = (struct msghdr *)malloc(sizeof(struct msghdr) * c->msgsize);
-#ifdef TLS
-        c->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
-#endif
-
 
         if (c->rbuf == 0 || c->wbuf == 0 || c->ilist == 0 || c->iov == 0 ||
-                c->msglist == 0 || c->suffixlist == 0
-#ifdef TLS
-                || c->ssl_wbuf == 0
-#endif
-            ) {
+                c->msglist == 0 || c->suffixlist == 0) {
             conn_free(c);
             STATS_LOCK();
             stats.malloc_fails++;
@@ -886,8 +878,9 @@ void conn_free(conn *c) {
             free(c->iov);
 #ifdef TLS
         if (c->ssl_wbuf)
-            free(c->ssl_wbuf);
+            c->ssl_wbuf = NULL;
 #endif
+
         free(c);
     }
 }

@@ -361,6 +361,15 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(EXIT_FAILURE);
     }
 #endif
+#ifdef TLS
+    if (settings.ssl_enabled) {
+        me->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
+        if (me->ssl_wbuf == NULL) {
+            fprintf(stderr, "Failed to create SSL write buffer\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+#endif
 }
 
 /*
@@ -433,6 +442,12 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                     }
                 } else {
                     c->thread = me;
+#ifdef TLS
+                    if (settings.ssl_enabled && c->ssl != NULL) {
+                        assert(c->thread && c->thread->ssl_wbuf);
+                        c->ssl_wbuf = c->thread->ssl_wbuf;
+                    }
+#endif
                 }
                 break;
 
@@ -533,6 +548,7 @@ void sidethread_conn_close(conn *c) {
         fprintf(stderr, "<%d connection closed from side thread.\n", c->sfd);
 #ifdef TLS
     if (c->ssl) {
+        c->ssl_wbuf = NULL;
         SSL_shutdown(c->ssl);
         SSL_free(c->ssl);
     }
