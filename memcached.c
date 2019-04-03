@@ -538,7 +538,11 @@ void conn_worker_readd(conn *c) {
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
-                struct event_base *base) {
+                struct event_base *base
+#ifdef TLS
+                , SSL *ssl
+#endif
+                ) {
     conn *c;
 
     assert(sfd >= 0 && sfd < max_fds);
@@ -667,37 +671,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->noreply = false;
 
 #ifdef TLS
-    // Setup the SSL context and SSL at each connection level when it's enabled
-    // at the correct port if ssl_port is specified.
-    struct sockaddr_in peer_addr;
-    socklen_t peer_addr_size = sizeof(peer_addr);
-    getsockname(sfd, (struct sockaddr *)&peer_addr, &peer_addr_size);
-    int port = ntohs(peer_addr.sin_port);
-
-    if (IS_TCP(c->transport) &&
-        settings.ssl_enabled &&
-        init_state != conn_listening &&
-        (settings.ssl_port == 0 || port == settings.ssl_port)) {
-        if (settings.ssl_ctx == NULL) {
-            fprintf(stderr, "SSL context is not initialized\n");
-            return NULL;
-        }
-        SSL_LOCK();
-        c->ssl = SSL_new(settings.ssl_ctx);
-        SSL_UNLOCK();
-        if (c->ssl == NULL) {
-            fprintf(stderr, "Failed to created the SSL object\n");
-            return NULL;
-        }
-        SSL_set_fd(c->ssl, sfd);
-        int ret = SSL_accept(c->ssl);
-        if (ret < 0) {
-            int err = SSL_get_error(c->ssl, ret);
-            if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
-                fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
-                return NULL;
-            }
-        }
+    if (ssl) {
+        c->ssl = ssl;
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
@@ -5576,8 +5551,51 @@ static void drive_machine(conn *c) {
                 stats.rejected_conns++;
                 STATS_UNLOCK();
             } else {
+#ifdef TLS
+                SSL *ssl = NULL;
+                if (IS_TCP(c->transport) && settings.ssl_enabled) {
+                    // Setup the SSL object at each connection level when it's enabled
+                    // at the correct port if ssl_port is specified.
+                    int port = 0;
+                    if (settings.ssl_port > 0) {
+                        struct sockaddr_in peer_addr;
+                        socklen_t peer_addr_size = sizeof(peer_addr);
+                        getsockname(sfd, (struct sockaddr *)&peer_addr, &peer_addr_size);
+                        port = ntohs(peer_addr.sin_port);
+                    }
+                    if (port == settings.ssl_port) {
+                        if (settings.ssl_ctx == NULL) {
+                            fprintf(stderr, "SSL context is not initialized\n");
+                            close(sfd);
+                            break;
+                        }
+                        SSL_LOCK();
+                        ssl = SSL_new(settings.ssl_ctx);
+                        SSL_UNLOCK();
+                        if (ssl == NULL) {
+                            fprintf(stderr, "Failed to created the SSL object\n");
+                            close(sfd);
+                            break;
+                        }
+                        SSL_set_fd(ssl, sfd);
+                        int ret = SSL_accept(ssl);
+                        if (ret < 0) {
+                            int err = SSL_get_error(ssl, ret);
+                            if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+                                fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
+                                close(sfd);
+                                break;
+                            }
+                        }
+                    }
+                }
+#endif
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, c->transport);
+                                     DATA_BUFFER_SIZE, c->transport
+#ifdef TLS
+                                     , ssl
+#endif
+                                     );
             }
 
             stop = true;
@@ -6090,12 +6108,20 @@ static int server_socket(const char *interface,
                 int per_thread_fd = c ? dup(sfd) : sfd;
                 dispatch_conn_new(per_thread_fd, conn_read,
                                   EV_READ | EV_PERSIST,
-                                  UDP_READ_BUFFER_SIZE, transport);
+                                  UDP_READ_BUFFER_SIZE, transport
+#ifdef TLS
+                                  , NULL
+#endif
+                                  );
             }
         } else {
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
                                              EV_READ | EV_PERSIST, 1,
-                                             transport, main_base))) {
+                                             transport, main_base
+#ifdef TLS
+                                             , NULL
+#endif
+                                             ))) {
                 fprintf(stderr, "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
             }
@@ -6244,7 +6270,11 @@ static int server_socket_unix(const char *path, int access_mask) {
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
                                  EV_READ | EV_PERSIST, 1,
-                                 local_transport, main_base))) {
+                                 local_transport, main_base
+#ifdef TLS
+                                 , NULL
+#endif
+                                 ))) {
         fprintf(stderr, "failed to create listening connection\n");
         exit(EXIT_FAILURE);
     }
