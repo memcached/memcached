@@ -405,7 +405,7 @@ if test "x$enable_tls" = "xyes"; then
       # Can I compile and link it?
       AC_TRY_LINK([#include <sys/time.h>
   #include <sys/types.h>
-  #include <openssl/ssl.h>], [ SSL_CTX* ssl_ctx = SSL_CTX_new (SSLv23_server_method()); ],
+  #include <openssl/ssl.h>], [ SSL_CTX* ssl_ctx = SSL_CTX_new(TLS_server_method()); ],
          [ libssl_linked=yes ], [ libssl_linked=no ])
       if test $libssl_linked = yes; then
          if test ! -z "$ledir" ; then
@@ -426,7 +426,7 @@ if test "x$enable_tls" = "xyes"; then
     LDFLAGS="$saved_LDFLAGS"
     CPPFLAGS="$saved_CPPFLAGS"
     if test $le_found = no ; then
-      AC_MSG_ERROR([libssl is required.  You can get it from $OPENSSL_URL
+      AC_MSG_ERROR([libssl (at least version 1.1.0) is required.  You can get it from $OPENSSL_URL
 
         If it's already installed, specify its path using --with-libssl=/dir/
   ])

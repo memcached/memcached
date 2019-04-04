@@ -1,5 +1,5 @@
 sudo: required
-dist: xenial
+dist: bionic
 language: cpp
 
 compiler:
@@ -7,7 +7,7 @@ compiler:
 
 install:
     - sudo apt-get update -y
-    - sudo apt-get install -y build-essential automake1.11 autoconf libevent-dev libseccomp-dev git libio-socket-ssl-perl
+    - sudo apt-get install -y build-essential automake1.11 autoconf libevent-dev libseccomp-dev git libssl-dev openssl libio-socket-ssl-perl
 
 script:
     - ./autogen.sh

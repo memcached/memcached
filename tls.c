@@ -49,7 +49,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     // conn_worker_readd.
     // Currntly this connection would not be served by a different thread
     // than the one it's assigned.
-    assert(c->thread->thread_id == get_thread_id_cb());
+    assert(c->thread->thread_id == (unsigned long)pthread_self());
 
     bytes = MIN(bytes, settings.ssl_wbuf_size);
     to_copy = bytes;
@@ -78,48 +78,13 @@ ssize_t ssl_write(conn *c, void *buf, size_t count) {
 }
 
 /*
- * Standard thread-ID functions required by openssl
- */
-pthread_mutex_t * ssl_locks;
-int ssl_num_locks;
-
-unsigned long get_thread_id_cb(void) {
-    return (unsigned long)pthread_self();
-}
-
-void thread_lock_cb(int mode, int which, const char * f, int l) {
-    if (which < ssl_num_locks) {
-        if (mode & CRYPTO_LOCK) {
-            pthread_mutex_lock(&(ssl_locks[which]));
-        } else {
-            pthread_mutex_unlock(&(ssl_locks[which]));
-        }
-    }
-}
-
-/*
  * Verify SSL settings and initiates the SSL context.
  */
 int ssl_init(void) {
     assert(settings.ssl_enabled);
-    int i;
-
-    ssl_num_locks = CRYPTO_num_locks();
-    ssl_locks = malloc(ssl_num_locks * sizeof(pthread_mutex_t));
-    if (ssl_locks == NULL)
-        return -1;
-
-    for (i = 0; i < ssl_num_locks; i++) {
-        pthread_mutex_init(&(ssl_locks[i]), NULL);
-    }
-
-    CRYPTO_set_id_callback(get_thread_id_cb);
-    CRYPTO_set_locking_callback(thread_lock_cb);
-
     // SSL context for the process. All connections will share one
-    // process level context. We should use TLS_server_method when we
-    // start using the version 1.1.0
-    settings.ssl_ctx = SSL_CTX_new (SSLv23_server_method());
+    // process level context.
+    settings.ssl_ctx = SSL_CTX_new(TLS_server_method());
     // Clients should use at least TLSv1.2
     int flags = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
                 SSL_OP_NO_TLSv1 |SSL_OP_NO_TLSv1_1;
