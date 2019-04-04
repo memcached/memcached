@@ -2599,6 +2599,7 @@ static void process_bin_flush(conn *c) {
 
 static void process_bin_delete(conn *c) {
     item *it;
+    uint32_t hv;
 
     protocol_binary_request_delete* req = binary_get_request(c);
 
@@ -2620,7 +2621,7 @@ static void process_bin_delete(conn *c) {
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get(key, nkey, c, DONT_UPDATE);
+    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
     if (it) {
         uint64_t cas = ntohll(req->message.header.request.cas);
         if (cas == 0 || cas == ITEM_get_cas(it)) {
@@ -2628,19 +2629,20 @@ static void process_bin_delete(conn *c) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
-            item_unlink(it);
+            do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
             write_bin_response(c, NULL, 0, 0, 0);
         } else {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
         }
-        item_remove(it);      /* release our reference */
+        do_item_remove(it);      /* release our reference */
     } else {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.delete_misses++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
     }
+    item_unlock(hv);
 }
 
 static void complete_nread_binary(conn *c) {
@@ -4325,6 +4327,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     char *key;
     size_t nkey;
     item *it;
+    uint32_t hv;
 
     assert(c != NULL);
 
@@ -4353,7 +4356,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get(key, nkey, c, DONT_UPDATE);
+    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
     if (it) {
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
@@ -4361,9 +4364,9 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        item_unlink(it);
+        do_item_unlink(it, hv);
         STORAGE_delete(c->thread->storage, it);
-        item_remove(it);      /* release our reference */
+        do_item_remove(it);      /* release our reference */
         out_string(c, "DELETED");
     } else {
         pthread_mutex_lock(&c->thread->stats.mutex);
@@ -4372,6 +4375,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
 
         out_string(c, "NOT_FOUND");
     }
+    item_unlock(hv);
 }
 
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {

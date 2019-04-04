@@ -756,6 +756,7 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
 #define DO_UPDATE true
 #define DONT_UPDATE false
 item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update);
+item *item_get_locked(const char *key, const size_t nkey, conn *c, const bool do_update, uint32_t *hv);
 item *item_touch(const char *key, const size_t nkey, uint32_t exptime, conn *c);
 int   item_link(item *it);
 void  item_remove(item *it);

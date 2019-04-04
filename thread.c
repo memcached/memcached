@@ -566,6 +566,17 @@ item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update
     return it;
 }
 
+// returns an item with the item lock held.
+// lock will still be held even if return is NULL, allowing caller to replace
+// an item atomically if desired.
+item *item_get_locked(const char *key, const size_t nkey, conn *c, const bool do_update, uint32_t *hv) {
+    item *it;
+    *hv = hash(key, nkey);
+    item_lock(*hv);
+    it = do_item_get(key, nkey, *hv, c, do_update);
+    return it;
+}
+
 item *item_touch(const char *key, size_t nkey, uint32_t exptime, conn *c) {
     item *it;
     uint32_t hv;
