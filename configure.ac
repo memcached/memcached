@@ -405,7 +405,9 @@ if test "x$enable_tls" = "xyes"; then
       # Can I compile and link it?
       AC_TRY_LINK([#include <sys/time.h>
   #include <sys/types.h>
-  #include <openssl/ssl.h>], [ SSL_CTX* ssl_ctx = SSL_CTX_new(TLS_server_method()); ],
+  #include <assert.h>
+  #include <openssl/ssl.h>], [ SSL_CTX* ssl_ctx = SSL_CTX_new(TLS_server_method());
+                              assert(OPENSSL_VERSION_NUMBER >= 0x10100000L);],
          [ libssl_linked=yes ], [ libssl_linked=no ])
       if test $libssl_linked = yes; then
          if test ! -z "$ledir" ; then
