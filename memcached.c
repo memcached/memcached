@@ -676,6 +676,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
+        SSL_set_info_callback(c->ssl, ssl_callback);
     } else
 #endif
     {

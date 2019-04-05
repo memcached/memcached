@@ -156,4 +156,19 @@ void refresh_certificates(void) {
     SSL_UNLOCK();
 }
 
+/*
+ * This method is registered with each SSL connection and abort the SSL session
+ * if a client initiates a renegotiation.
+ * TODO : Proper way to do this is to set SSL_OP_NO_RENEGOTIATION
+ *       using the SSL_CTX_set_options but that option only available in
+ *       openssl 1.1.0h or above.
+ */
+void ssl_callback(const SSL *s, int where, int ret) {
+    SSL* ssl = (SSL*)s;
+    if (SSL_in_before(ssl)) {
+        SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
+        return;
+    }
+}
+
 #endif
