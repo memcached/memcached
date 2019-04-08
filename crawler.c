@@ -293,8 +293,7 @@ static int lru_crawler_poll(crawler_client_t *c) {
 
     if (to_poll[0].revents & POLLIN) {
         char buf[1];
-        int res = c->c == NULL ? read(c->sfd, buf, 1) :
-                                ((conn*)c->c)->read(c->c, buf, 1);
+        int res = ((conn*)c->c)->read(c->c, buf, 1);
         if (res == 0 || (res == -1 && (errno != EAGAIN && errno != EWOULDBLOCK))) {
             lru_crawler_close_client(c);
             return -1;
@@ -305,8 +304,7 @@ static int lru_crawler_poll(crawler_client_t *c) {
             lru_crawler_close_client(c);
             return -1;
         } else if (to_poll[0].revents & POLLOUT) {
-            int total = c->c == NULL ? write(c->sfd, data, data_size) :
-                                    ((conn*)c->c)->write(c->c, data, data_size);
+            int total = ((conn*)c->c)->write(c->c, data, data_size);
             if (total == -1) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) {
                     lru_crawler_close_client(c);

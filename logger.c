@@ -443,8 +443,7 @@ static int logger_thread_poll_watchers(int force_poll, int watcher) {
          */
         if (watchers_pollfds[nfd].revents & POLLIN) {
             char buf[1];
-            int res = w->c == NULL ? read(w->sfd, buf, 1) :
-                                ((conn*)w->c)->read(w->c, buf, 1);
+            int res = ((conn*)w->c)->read(w->c, buf, 1);
             if (res == 0 || (res == -1 && (errno != EAGAIN && errno != EWOULDBLOCK))) {
                 L_DEBUG("LOGGER: watcher closed remotely\n");
                 logger_thread_close_watcher(w);
@@ -465,8 +464,7 @@ static int logger_thread_poll_watchers(int force_poll, int watcher) {
                         total = fwrite(data, 1, data_size, stderr);
                         break;
                     case LOGGER_WATCHER_CLIENT:
-                        total = w->c == NULL ? write(w->sfd, data, data_size) :
-                                            ((conn*)w->c)->write(w->c, data, data_size);
+                        total = ((conn*)w->c)->write(w->c, data, data_size);
                         break;
                 }
 
