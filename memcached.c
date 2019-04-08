@@ -253,7 +253,6 @@ static void settings_init(void) {
     settings.ssl_key = NULL;
     settings.ssl_verify_mode = SSL_VERIFY_NONE;
     settings.ssl_keyform = SSL_FILETYPE_PEM;
-    settings.ssl_port = 0;
     settings.ssl_ciphers = NULL;
     settings.ssl_ca_cert = NULL;
     settings.ssl_last_cert_refresh_time = current_time;
@@ -637,6 +636,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     }
 #ifdef TLS
     c->ssl = NULL;
+    c->ssl_wbuf = NULL;
+    c->ssl_enabled = false;
 #endif
     c->state = init_state;
     c->rlbytes = 0;
@@ -672,6 +673,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->read = ssl_read;
         c->sendmsg = ssl_sendmsg;
         c->write = ssl_write;
+        c->ssl_enabled = true;
         SSL_set_info_callback(c->ssl, ssl_callback);
     } else
 #else
@@ -3369,7 +3371,6 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ssl_key", "%s", settings.ssl_key);
     APPEND_STAT("ssl_verify_mode", "%d", settings.ssl_verify_mode);
     APPEND_STAT("ssl_keyform", "%d", settings.ssl_keyform);
-    APPEND_STAT("ssl_port", "%d", settings.ssl_port);
     APPEND_STAT("ssl_ciphers", "%s", settings.ssl_ciphers ? settings.ssl_ciphers : "NULL");
     APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
     APPEND_STAT("ssl_wbuf_size", "%u", settings.ssl_wbuf_size);
@@ -5557,39 +5558,30 @@ static void drive_machine(conn *c) {
                 void *ssl_v = NULL;
 #ifdef TLS
                 SSL *ssl = NULL;
-                if (IS_TCP(c->transport) && settings.ssl_enabled) {
-                    // Setup the SSL object at each connection level when it's enabled
-                    // at the correct port if ssl_port is specified.
-                    int port = 0;
-                    if (settings.ssl_port > 0) {
-                        struct sockaddr_in peer_addr;
-                        socklen_t peer_addr_size = sizeof(peer_addr);
-                        getsockname(sfd, (struct sockaddr *)&peer_addr, &peer_addr_size);
-                        port = ntohs(peer_addr.sin_port);
+                if (IS_TCP(c->transport) &&
+                    settings.ssl_enabled &&
+                    c->ssl_enabled) {
+                   if (settings.ssl_ctx == NULL) {
+                        fprintf(stderr, "SSL context is not initialized\n");
+                        close(sfd);
+                        break;
                     }
-                    if (port == settings.ssl_port) {
-                        if (settings.ssl_ctx == NULL) {
-                            fprintf(stderr, "SSL context is not initialized\n");
+                    SSL_LOCK();
+                    ssl = SSL_new(settings.ssl_ctx);
+                    SSL_UNLOCK();
+                    if (ssl == NULL) {
+                        fprintf(stderr, "Failed to created the SSL object\n");
+                        close(sfd);
+                        break;
+                    }
+                    SSL_set_fd(ssl, sfd);
+                    int ret = SSL_accept(ssl);
+                    if (ret < 0) {
+                        int err = SSL_get_error(ssl, ret);
+                        if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+                            fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
                             close(sfd);
                             break;
-                        }
-                        SSL_LOCK();
-                        ssl = SSL_new(settings.ssl_ctx);
-                        SSL_UNLOCK();
-                        if (ssl == NULL) {
-                            fprintf(stderr, "Failed to created the SSL object\n");
-                            close(sfd);
-                            break;
-                        }
-                        SSL_set_fd(ssl, sfd);
-                        int ret = SSL_accept(ssl);
-                        if (ret < 0) {
-                            int err = SSL_get_error(ssl, ret);
-                            if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
-                                fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
-                                close(sfd);
-                                break;
-                            }
                         }
                     }
                 }
@@ -5987,7 +5979,7 @@ static void maximize_sndbuf(const int sfd) {
 static int server_socket(const char *interface,
                          int port,
                          enum network_transport transport,
-                         FILE *portnumber_file) {
+                         FILE *portnumber_file, bool ssl_enabled) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
@@ -6119,6 +6111,11 @@ static int server_socket(const char *interface,
                 fprintf(stderr, "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
             }
+#ifdef TLS
+            listen_conn_add->ssl_enabled = ssl_enabled;
+#else
+            assert(ssl_enabled == false);
+#endif
             listen_conn_add->next = listen_conn;
             listen_conn = listen_conn_add;
         }
@@ -6132,8 +6129,15 @@ static int server_socket(const char *interface,
 
 static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
+    bool ssl_enabled = false;
+
+#ifdef TLS
+    const char *notls ="notls";
+    ssl_enabled = settings.ssl_enabled;
+#endif
+
     if (settings.inter == NULL) {
-        return server_socket(settings.inter, port, transport, portnumber_file);
+        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled);
     } else {
         // tokenize them and bind to each one of them..
         char *b;
@@ -6145,9 +6149,21 @@ static int server_sockets(int port, enum network_transport transport,
             return 1;
         }
         for (char *p = strtok_r(list, ";,", &b);
-             p != NULL;
-             p = strtok_r(NULL, ";,", &b)) {
+            p != NULL;
+            p = strtok_r(NULL, ";,", &b)) {
             int the_port = port;
+#ifdef TLS
+            ssl_enabled = settings.ssl_enabled;
+            // "notls" option is valid only when memcached is run with SSL enabled.
+            if (strncmp(p, notls, strlen(notls)) == 0) {
+                if (!settings.ssl_enabled) {
+                    fprintf(stderr, "'notls' option is valid only when SSL is enabled\n");
+                    return 1;
+                }
+                ssl_enabled = false;
+                p += strlen(notls) + 1;
+            }
+#endif
 
             char *h = NULL;
             if (*p == '[') {
@@ -6187,7 +6203,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strcmp(p, "*") == 0) {
                 p = NULL;
             }
-            ret |= server_socket(p, the_port, transport, portnumber_file);
+            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled);
         }
         free(list);
         return ret;
@@ -6343,6 +6359,10 @@ static void usage(void) {
            "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
            "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: 0700)\n"
            "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
+#ifdef TLS
+           "                          if TLS/SSL is enabled, 'notls' prefix can be used to exclude ports\n"
+           "                          (-l notls:<ip>:<port>) \n"
+#endif
            "-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
@@ -6452,8 +6472,6 @@ static void usage(void) {
            "   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
            "                          valid values are 0(None), 1(Request), 2(Require)\n"
            "                          or 3(Once)\n"
-           "   - ssl_port:            specific port to enable TLS/SSL. If not specified, all TCP ports\n"
-           "                          are secured\n"
            "   - ssl_ciphers:          specify cipher list to be used\n"
            "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
            "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
@@ -6787,7 +6805,6 @@ int main (int argc, char **argv) {
         SSL_KEY,
         SSL_VERIFY_MODE,
         SSL_KEYFORM,
-        SSL_PORT,
         SSL_CIPHERS,
         SSL_CA_CERT,
         SSL_WBUF_SIZE,
@@ -6854,7 +6871,6 @@ int main (int argc, char **argv) {
         [SSL_KEY] = "ssl_key",
         [SSL_VERIFY_MODE] = "ssl_verify_mode",
         [SSL_KEYFORM] = "ssl_keyform",
-        [SSL_PORT] = "ssl_port",
         [SSL_CIPHERS] = "ssl_ciphers",
         [SSL_CA_CERT] = "ssl_ca_cert",
         [SSL_WBUF_SIZE] = "ssl_wbuf_size",
@@ -7480,16 +7496,6 @@ int main (int argc, char **argv) {
                 }
                 if (!safe_strtol(subopts_value, &settings.ssl_keyform)) {
                     fprintf(stderr, "could not parse argument to ssl_keyform\n");
-                    return 1;
-                }
-                break;
-            case SSL_PORT:
-            if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing ssl_port argument\n");
-                    return 1;
-                }
-                if (!safe_strtol(subopts_value, &settings.ssl_port)) {
-                    fprintf(stderr, "could not parse argument to ssl_port\n");
                     return 1;
                 }
                 break;

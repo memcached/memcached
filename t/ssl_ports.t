@@ -16,7 +16,7 @@ if (!enabled_tls_testing()) {
 my $tcp_port = free_port();
 my $ssl_port = free_port();
 
-my $server = new_memcached("-o ssl_port=$ssl_port -l 127.0.0.1:$tcp_port,127.0.0.1:$ssl_port", $ssl_port);
+my $server = new_memcached("-l notls:127.0.0.1:$tcp_port,127.0.0.1:$ssl_port", $ssl_port);
 my $sock = $server->sock;
 
 # Make sure we can talk over SSL
