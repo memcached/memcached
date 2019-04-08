@@ -78,6 +78,32 @@ ssize_t ssl_write(conn *c, void *buf, size_t count) {
 }
 
 /*
+ * Loads server certificates to the SSL context and validate them.
+ * @return whether certificates are successfully loaded and verified or not.
+ */
+bool load_server_certificates() {
+    bool success = true;
+    SSL_LOCK();
+    if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
+        settings.ssl_chain_cert)) {
+        fprintf(stderr, "Error loading the certificate chain : %s\n",
+            settings.ssl_chain_cert);
+        success = false;
+    } else if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
+                                        settings.ssl_keyform)) {
+        fprintf(stderr, "Error loading the key : %s\n", settings.ssl_key);
+        success = false;
+    } else if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
+        fprintf(stderr, "Error validating the certificate\n");
+        success = false;
+    }
+    settings.ssl_last_cert_refresh_time = success ? current_time :
+                                settings.ssl_last_cert_refresh_time;
+    SSL_UNLOCK();
+    return success;
+}
+
+/*
  * Verify SSL settings and initiates the SSL context.
  */
 int ssl_init(void) {
@@ -90,20 +116,8 @@ int ssl_init(void) {
                 SSL_OP_NO_TLSv1 |SSL_OP_NO_TLSv1_1;
     SSL_CTX_set_options(settings.ssl_ctx, flags);
 
-    // The sevrer certificate, private key and validations.
-    if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
-        settings.ssl_chain_cert)) {
-        fprintf(stderr, "Error loading the certificate chain : %s\n",
-            settings.ssl_chain_cert);
-        exit(EX_USAGE);
-    }
-    if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
-                                        settings.ssl_keyform)) {
-        fprintf(stderr, "Error loading the key : %s\n", settings.ssl_key);
-        exit(EX_USAGE);
-    }
-    if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
-        fprintf(stderr, "Error validating the certificate\n");
+    // The server certificate, private key and validations.
+    if (!load_server_certificates()) {
         exit(EX_USAGE);
     }
 
@@ -129,31 +143,6 @@ int ssl_init(void) {
     }
     settings.ssl_last_cert_refresh_time = current_time;
     return 0;
-}
-
-/*
- * Re-load server certificate to the SSL context.
- */
-void refresh_certificates(void) {
-    if (!settings.ssl_enabled) return;
-    const char* not_refreshed = "Certificates are not refreshed";
-
-    SSL_LOCK();
-    if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
-        settings.ssl_chain_cert)) {
-        fprintf(stderr, "Error loading the certificate chain : %s. %s\n",
-            settings.ssl_chain_cert, not_refreshed);
-    }
-    if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
-                                        settings.ssl_keyform)) {
-        fprintf(stderr, "Error loading the key : %s. %s\n", settings.ssl_key,
-            not_refreshed);
-    }
-    if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
-        fprintf(stderr, "Error validating the certificate. %s\n", not_refreshed);
-    }
-    settings.ssl_last_cert_refresh_time = current_time;
-    SSL_UNLOCK();
 }
 
 /*

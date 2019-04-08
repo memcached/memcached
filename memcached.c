@@ -5016,8 +5016,11 @@ static void process_command(conn *c, char *command) {
 #ifdef TLS
     } else if (ntokens >= 1 && ntokens <= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0)) {
         set_noreply_maybe(c, tokens, ntokens);
-        refresh_certificates();
-        out_string(c, "OK");
+        if (load_server_certificates()) {
+            out_string(c, "OK");
+        } else {
+            out_string(c, "ERROR");
+        }
         return;
 #endif
     } else {

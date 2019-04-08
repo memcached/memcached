@@ -10,7 +10,7 @@ ssize_t ssl_write(conn *c, void *buf, size_t count);
 unsigned long get_thread_id_cb(void);
 void thread_lock_cb(int mode, int which, const char * f, int l);
 int ssl_init(void);
-void refresh_certificates(void);
+bool load_server_certificates(void);
 void ssl_callback(const SSL *s, int where, int ret);
 
 #endif
