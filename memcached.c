@@ -5014,7 +5014,7 @@ static void process_command(conn *c, char *command) {
         process_extstore_command(c, tokens, ntokens);
 #endif
 #ifdef TLS
-    } else if (ntokens >= 1 && ntokens <= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0)) {
+    } else if (ntokens == 2 && strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0) {
         set_noreply_maybe(c, tokens, ntokens);
         if (load_server_certificates()) {
             out_string(c, "OK");
