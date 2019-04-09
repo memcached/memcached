@@ -5558,7 +5558,9 @@ static void drive_machine(conn *c) {
                     assert(IS_TCP(c->transport) && settings.ssl_enabled);
 
                     if (settings.ssl_ctx == NULL) {
-                        fprintf(stderr, "SSL context is not initialized\n");
+                        if (settings.verbose) {
+                            fprintf(stderr, "SSL context is not initialized\n");
+                        }
                         close(sfd);
                         break;
                     }
@@ -5566,7 +5568,9 @@ static void drive_machine(conn *c) {
                     ssl = SSL_new(settings.ssl_ctx);
                     SSL_UNLOCK();
                     if (ssl == NULL) {
-                        fprintf(stderr, "Failed to created the SSL object\n");
+                        if (settings.verbose) {
+                            fprintf(stderr, "Failed to created the SSL object\n");
+                        }
                         close(sfd);
                         break;
                     }
@@ -5575,7 +5579,9 @@ static void drive_machine(conn *c) {
                     if (ret < 0) {
                         int err = SSL_get_error(ssl, ret);
                         if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
-                            fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
+                            if (settings.verbose) {
+                                fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
+                            }
                             close(sfd);
                             break;
                         }

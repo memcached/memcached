@@ -171,6 +171,10 @@ int ssl_init(void) {
 void ssl_callback(const SSL *s, int where, int ret) {
     SSL* ssl = (SSL*)s;
     if (SSL_in_before(ssl)) {
+        if (settings.verbose) {
+            fprintf(stderr, "%d: SSL renegotiation is not supported, "
+                    "closing the connection\n", SSL_get_fd(ssl));
+        }
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
         return;
     }
