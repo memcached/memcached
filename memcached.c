@@ -1160,7 +1160,7 @@ static int build_udp_headers(conn *c) {
 }
 
 
-static void out_string(conn *c, const char *str) {
+void out_string(conn *c, const char *str) {
     size_t len;
 
     assert(c != NULL);
@@ -5017,11 +5017,7 @@ static void process_command(conn *c, char *command) {
 #ifdef TLS
     } else if (ntokens == 2 && strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0) {
         set_noreply_maybe(c, tokens, ntokens);
-        if (load_server_certificates()) {
-            out_string(c, "OK");
-        } else {
-            out_string(c, "ERROR");
-        }
+        refresh_certs(c);
         return;
 #endif
     } else {
@@ -5558,10 +5554,10 @@ static void drive_machine(conn *c) {
                 void *ssl_v = NULL;
 #ifdef TLS
                 SSL *ssl = NULL;
-                if (IS_TCP(c->transport) &&
-                    settings.ssl_enabled &&
-                    c->ssl_enabled) {
-                   if (settings.ssl_ctx == NULL) {
+                if (c->ssl_enabled) {
+                    assert(IS_TCP(c->transport) && settings.ssl_enabled);
+
+                    if (settings.ssl_ctx == NULL) {
                         fprintf(stderr, "SSL context is not initialized\n");
                         close(sfd);
                         break;
@@ -6360,8 +6356,8 @@ static void usage(void) {
            "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: 0700)\n"
            "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
 #ifdef TLS
-           "                          if TLS/SSL is enabled, 'notls' prefix can be used to exclude ports\n"
-           "                          (-l notls:<ip>:<port>) \n"
+           "                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
+           "                          disable for specific listeners (-l notls:<ip>:<port>) \n"
 #endif
            "-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"

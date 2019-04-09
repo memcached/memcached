@@ -810,6 +810,7 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
 
 enum store_item_type store_item(item *item, int comm, conn *c);
+void out_string(conn *c, const char *str);
 
 #if HAVE_DROP_PRIVILEGES
 extern void drop_privileges(void);

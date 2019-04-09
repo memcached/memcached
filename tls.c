@@ -5,8 +5,15 @@
 #include "tls.h"
 #include <string.h>
 #include <sysexits.h>
+#include <sys/param.h>
+
+#ifndef MAXPATHLEN
+#define MAXPATHLEN 4096
+#endif
 
 static pthread_mutex_t ssl_ctx_lock = PTHREAD_MUTEX_INITIALIZER;
+
+const unsigned MAX_ERROR_MSG_SIZE = 128;
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
@@ -80,25 +87,26 @@ ssize_t ssl_write(conn *c, void *buf, size_t count) {
 /*
  * Loads server certificates to the SSL context and validate them.
  * @return whether certificates are successfully loaded and verified or not.
+ * @param error_msg contains the error when unsuccessful.
  */
-bool load_server_certificates() {
+static bool load_server_certificates(char *error_msg) {
     bool success = true;
     SSL_LOCK();
     if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
         settings.ssl_chain_cert)) {
-        fprintf(stderr, "Error loading the certificate chain : %s\n",
+        sprintf(error_msg, "Error loading the certificate chain : %s",
             settings.ssl_chain_cert);
         success = false;
     } else if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
                                         settings.ssl_keyform)) {
-        fprintf(stderr, "Error loading the key : %s\n", settings.ssl_key);
+        sprintf(error_msg, "Error loading the key : %s", settings.ssl_key);
         success = false;
     } else if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
-        fprintf(stderr, "Error validating the certificate\n");
+        sprintf(error_msg, "Error validating the certificate");
         success = false;
+    } else {
+        settings.ssl_last_cert_refresh_time = current_time;
     }
-    settings.ssl_last_cert_refresh_time = success ? current_time :
-                                settings.ssl_last_cert_refresh_time;
     SSL_UNLOCK();
     return success;
 }
@@ -117,7 +125,11 @@ int ssl_init(void) {
     SSL_CTX_set_options(settings.ssl_ctx, flags);
 
     // The server certificate, private key and validations.
-    if (!load_server_certificates()) {
+    char error_msg[MAXPATHLEN + MAX_ERROR_MSG_SIZE];
+    if (!load_server_certificates(error_msg)) {
+        if (settings.verbose) {
+            fprintf(stderr, "%s\n", error_msg);
+        }
         exit(EX_USAGE);
     }
 
@@ -125,8 +137,10 @@ int ssl_init(void) {
     SSL_CTX_set_verify(settings.ssl_ctx, settings.ssl_verify_mode, NULL);
     if (settings.ssl_ciphers && !SSL_CTX_set_cipher_list(settings.ssl_ctx,
                                                     settings.ssl_ciphers)) {
-        fprintf(stderr, "Error setting the provided cipher(s) : %s\n",
-            settings.ssl_ciphers);
+        if (settings.verbose) {
+            fprintf(stderr, "Error setting the provided cipher(s) : %s\n",
+                    settings.ssl_ciphers);
+        }
         exit(EX_USAGE);
     }
     // List of acceptable CAs for client certificates.
@@ -136,8 +150,10 @@ int ssl_init(void) {
             SSL_load_client_CA_file(settings.ssl_ca_cert));
         if (!SSL_CTX_load_verify_locations(settings.ssl_ctx,
                             settings.ssl_ca_cert, NULL)) {
-            fprintf(stderr, "Error loading the client CA cert (%s)\n",
-                            settings.ssl_ca_cert);
+            if (settings.verbose) {
+                fprintf(stderr, "Error loading the client CA cert (%s)\n",
+                        settings.ssl_ca_cert);
+            }
             exit(EX_USAGE);
         }
     }
@@ -160,4 +176,14 @@ void ssl_callback(const SSL *s, int where, int ret) {
     }
 }
 
+void refresh_certs(void *c) {
+    assert(c);
+    conn *con = (conn*)c;
+    char error_msg[MAXPATHLEN + MAX_ERROR_MSG_SIZE];
+    if (load_server_certificates(error_msg)) {
+        out_string(con, "OK");
+    } else {
+        out_string(con, error_msg);
+    }
+}
 #endif
