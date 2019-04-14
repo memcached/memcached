@@ -23,6 +23,7 @@ sleep(1);
 # check if the socket is dead now
 my $buff;
 my $ret = recv($sock, $buff, 1, MSG_PEEK | MSG_DONTWAIT);
-is($ret, undef, "did not allow misbehaving");
+# ret = 0 means read 0 bytes, which means a closed socket
+ok($ret == 0, "did not allow misbehaving");
 
 $server->DESTROY();
