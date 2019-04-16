@@ -15,7 +15,7 @@ my @unixsockets = ();
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
              supports_sasl free_port supports_drop_priv supports_extstore
-             wait_ext_flush, supports_tls, enabled_tls_testing);
+             wait_ext_flush supports_tls enabled_tls_testing);
 
 use constant MAX_READ_WRITE_SIZE => 16384;
 use constant SRV_CRT => "server_crt.pem";
