@@ -57,13 +57,15 @@ We started with the first option, create SSL objects with the socket and only in
           |<-------------------------------->|       |<------------------->|
           |         encrypted bytes          |       |  unencrypted bytes  |
 
+                      Figure 1 : Network sockets, BIO buffers and SSL_read/SSL_write
+
 (reference:  https://gist.github.com/darrenjs/4645f115d10aa4b5cebf57483ec82eca)
 
 Memcached uses non blocking sockets and implements a rather complex state machine for
 network IO. A listener thread does the TCP handshake and initiates the SSL handshake after
-creating an SSL object the new connection based on the SSL Context object. If there are no
-fatal errors, the listner thread hands over the socket to a worker thread.
-A worker completes the SSL handshake.
+creating an SSL object based on the SSL Context object of the server. If there are no
+fatal errors, the listener thread hands over the socket to a worker thread. A worker completes
+the SSL handshake.
 
 -----------                       ----------------------
           |                       |
@@ -102,6 +104,9 @@ A worker completes the SSL handshake.
           |                       |   SSL_write)     |
 -----------                       -------------------------
 
+                      Figure 2 : The initial SSL handshake
+
+
 Setting-up callbacks when the socket is ready for reading/writing is the same
 for both TLS and non-TLS connections. When the socket is ready, the state machine kicks off
 and issues a SSL_read/ SSL_write. Note that we implement a SSL_sendmsg wrapper on top of
@@ -110,13 +115,12 @@ This way we don't explicitly use BIO buffers or do BIO_write/BIO_read, but let O
 library to do it on our behalf. Existing state machine takes care of reading the correct amount
 of bytes and do the error handling when needed.
 
-As a best practice server certificates and keys are periodically refreshed by the PKI.
-When this happen we want server to use the new certificate without restarting the process.
+As a best practice, server certificates and keys are periodically refreshed by the PKI.
+When this happens we want server to use the new certificate without restarting the process.
 Memcached is a cache and restarting servers affects the latency of applications. We implement
 the automatic certificate refresh through a command. Upon receiving the "refresh_certs" command,
-the server reloads the certificates and key to the SSL Context object.
-Existing connection won't be interrupted but new connections will
-use the new certificate.
+the server reloads the certificates and key to the SSL Context object. Existing connection won't be
+interrupted but new connections will use the new certificate.
 
 We understand not all users want to use TLS or have the OpenSSL dependency. Therefore
 it's an optional module at the compile time. We can build a TLS capable Memcached server with
