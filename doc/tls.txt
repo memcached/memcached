@@ -42,7 +42,7 @@ for encryption, and session handshake among other things.
 
 There are two ways to do network IO over TLS, either only use SSL_read/SSL_write with a network socket or
 use the API along with an output/input buffer pair. These buffers are referred as BIO
-(Basic Input Output) and read/write from socket is done by the server not by the SSL library.
+(Basic Input Output) buffers.
 
 We started with the first option, create SSL objects with the socket and only interact with SSL_read/SSL_write.
 
