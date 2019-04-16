@@ -99,12 +99,13 @@ if ($mode eq 'dump') {
         # key=foo exp=2147483647 la=1521046038 cas=717111 fetch=no cls=13 size=1232
         if (/^key=(\S+) exp=(-?\d+) .*/) {
             my $k = $1;
+            my $exp = $2;
             $k =~ s/%(.{2})/chr hex $1/eg;
 
-            if ($2 == -1) {
+            if ($exp == -1) {
                 $keyexp{$k} = 0;
             } else {
-                $keyexp{$k} = $2;
+                $keyexp{$k} = $exp;
             }
         }
         $keycount++;
