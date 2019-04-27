@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 #if defined(__sun)
 #include <atomic.h>
