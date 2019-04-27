@@ -7556,6 +7556,10 @@ int main (int argc, char **argv) {
 #endif
 #ifdef EXTSTORE
             case EXT_PAGE_SIZE:
+                if (storage_file) {
+                    fprintf(stderr, "Must specify ext_page_size before any ext_path arguments\n");
+                    return 1;
+                }
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ext_page_size argument\n");
                     return 1;
