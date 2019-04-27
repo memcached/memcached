@@ -200,6 +200,9 @@ const char *extstore_err(enum extstore_res res) {
         case EXTSTORE_INIT_PAGE_WBUF_ALIGNMENT:
             rv = "page_size and wbuf_size must be divisible by 1024*1024*2";
             break;
+        case EXTSTORE_INIT_TOO_MANY_PAGES:
+            rv = "page_count must total to < 65536. Increase page_size or lower path sizes";
+            break;
         case EXTSTORE_INIT_OOM:
             rv = "failed calloc for engine";
             break;
@@ -247,6 +250,7 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     }
 
     e->page_size = cf->page_size;
+    uint64_t temp_page_count = 0;
     for (f = fh; f != NULL; f = f->next) {
         f->fd = open(f->file, O_RDWR | O_CREAT | O_TRUNC, 0644);
         if (f->fd < 0) {
@@ -257,9 +261,16 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
             free(e);
             return NULL;
         }
-        e->page_count += f->page_count;
+        temp_page_count += f->page_count;
         f->offset = 0;
     }
+
+    if (temp_page_count >= UINT16_MAX) {
+        *res = EXTSTORE_INIT_TOO_MANY_PAGES;
+        free(e);
+        return NULL;
+    }
+    e->page_count = temp_page_count;
 
     e->pages = calloc(e->page_count, sizeof(store_page));
     if (e->pages == NULL) {
