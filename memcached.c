@@ -6407,7 +6407,7 @@ static void usage(void) {
     printf("-b, --listen-backlog=<num> set the backlog queue limit (default: 1024)\n");
     printf("-B, --protocol=<name>     protocol - one of ascii, binary, or auto (default)\n");
     printf("-I, --max-item-size=<num> adjusts max item size\n"
-           "                          (default: 1mb, min: 1k, max: 128m)\n");
+           "                          (default: 1mb, min: 1k, max: 1024m)\n");
 #ifdef ENABLE_SASL
     printf("-S, --enable-sasl         turn on Sasl authentication\n");
 #endif
