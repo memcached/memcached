@@ -4632,7 +4632,7 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
                 out_string(c, "OK");
             }
         }
-    } else if (strcmp(tokens[1].value, "mode") == 0 && ntokens >= 3 &&
+    } else if (strcmp(tokens[1].value, "mode") == 0 && ntokens >= 4 &&
                settings.lru_maintainer_thread) {
         if (strcmp(tokens[2].value, "flat") == 0) {
             settings.lru_segmented = false;
@@ -4643,7 +4643,7 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
         } else {
             out_string(c, "ERROR");
         }
-    } else if (strcmp(tokens[1].value, "temp_ttl") == 0 && ntokens >= 3 &&
+    } else if (strcmp(tokens[1].value, "temp_ttl") == 0 && ntokens >= 4 &&
                settings.lru_maintainer_thread) {
         if (!safe_strtol(tokens[2].value, &ttl)) {
             out_string(c, "ERROR");
