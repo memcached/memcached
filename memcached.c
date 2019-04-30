@@ -4210,6 +4210,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     unsigned int i = 0;
     int32_t rtokens = 0; // remaining tokens available.
     struct _mget_flags of = {0}; // option bitflags.
+    bool failed = false;
 
     assert(c != NULL);
 
@@ -4357,19 +4358,67 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         add_iov(c, c->wbuf, p - c->wbuf);
 
         if (of.value) {
-            fprintf(stderr, "err: no value yet\n");
+#ifdef EXTSTORE
+            if (it->it_flags & ITEM_HDR) {
+                // this bizarre interface is instructing _get_extstore() to
+                // "walk back and zero out" this many iovec's on an internal
+                // miss. kills the VALUE + key + header stitched above.
+                int iovcnt = 4;
+                int iovst = c->iovused - 3;
+                // TODO: no no-return-key option yet.
+                /*if (!should_return_key) {
+                    iovcnt = 3;
+                    iovst = c->iovused - 2;
+                }*/
+
+                if (_get_extstore(c, it, iovst, iovcnt) != 0) {
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.get_oom_extstore++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+
+                    failed = true;
+                }
+            } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                add_iov(c, ITEM_data(it), it->nbytes);
+            } else {
+                add_chunked_item_iovs(c, it, it->nbytes);
+            }
+#else
+            if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                add_iov(c, ITEM_data(it), it->nbytes);
+            } else {
+                add_chunked_item_iovs(c, it, it->nbytes);
+            }
+#endif
         }
 
         add_iov(c, "END\r\n", 5);
 
         // need to hold the ref at least because of the key above.
+#ifdef EXTSTORE
+        if (!failed) {
+            if ((it->it_flags & ITEM_HDR) != 0 && of.value) {
+                // Only have extstore clean if header and returning value.
+                c->item = NULL;
+            } else {
+                c->item = it;
+            }
+        } else {
+            item_remove(it);
+        }
+#else
         c->item = it;
+#endif
+    } else {
+        failed = true;
+    }
 
+    if (!failed) {
         conn_set_state(c, conn_write);
         c->write_and_go = conn_new_cmd;
     } else {
         // TODO: stats miss bump
-        out_string(c, "END\r\n");
+        out_string(c, "END");
     }
 
 }
