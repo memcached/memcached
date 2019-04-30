@@ -3749,12 +3749,12 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
 }
 
 #define IT_REFCOUNT_LIMIT 60000
-static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch) {
+static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch, bool do_update) {
     item *it;
     if (should_touch) {
         it = item_touch(key, nkey, exptime, c);
     } else {
-        it = item_get(key, nkey, c, DO_UPDATE);
+        it = item_get(key, nkey, c, do_update);
     }
     if (it && it->refcount > IT_REFCOUNT_LIMIT) {
         item_remove(it);
@@ -4048,7 +4048,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 goto stop;
             }
 
-            it = limited_get(key, nkey, c, exptime, should_touch);
+            it = limited_get(key, nkey, c, exptime, should_touch, DO_UPDATE);
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
@@ -4189,6 +4189,189 @@ stop:
         conn_set_state(c, conn_mwrite);
         c->msgcurr = 0;
     }
+}
+
+struct _mget_flags {
+    unsigned int ttl :1;
+    unsigned int size :1;
+    unsigned int cas :1;
+    unsigned int value :1;
+    unsigned int flags :1;
+    unsigned int no_update :1;
+};
+
+// TODO: command requires !settings.inline_ascii_response (ie; modern)
+static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    item *it;
+    char *opts;
+    size_t olen;
+    unsigned int i = 0;
+    int32_t rtokens = 0; // remaining tokens available.
+    struct _mget_flags of = {0}; // option bitflags.
+
+    assert(c != NULL);
+
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    // NOTE: final token has length == 0.
+    // KEY_TOKEN == 1. 0 is command.
+    rtokens = ntokens - 3; // cmd, key, final.
+
+    // no args: return full metadata string and no value.
+    // also, don't ping LRU.
+    // This is slow. great for debugging.
+    // TODO: move to outside function.
+    if (rtokens == 0) {
+        it = limited_get(key, nkey, c, 0, false, DONT_UPDATE);
+        if (it) {
+            size_t total = 0;
+            size_t ret;
+            // similar to out_string().
+            memcpy(c->wbuf, "META ", 5);
+            total += 5;
+            memcpy(c->wbuf + total, ITEM_key(it), it->nkey);
+            total += it->nkey;
+            c->wbuf[total] = ' ';
+            total++;
+
+            ret = snprintf(c->wbuf + total, c->wsize - (it->nkey + 12),
+                    "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\nEND\r\n",
+                    (it->exptime == 0) ? -1 : (current_time - it->exptime),
+                    (unsigned long long)(current_time - it->time),
+                    (unsigned long long)ITEM_get_cas(it),
+                    (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
+                    ITEM_clsid(it),
+                    (unsigned long) ITEM_ntotal(it));
+
+            item_remove(it);
+            c->wbytes = total + ret;
+            c->wcurr = c->wbuf;
+            conn_set_state(c, conn_write);
+            c->write_and_go = conn_new_cmd;
+        } else {
+            out_string(c, "END\r\n");
+        }
+        // etc
+        return;
+    }
+
+    // need to parse out the options.
+    opts = tokens[KEY_TOKEN + 1].value;
+    olen = tokens[KEY_TOKEN + 1].length;
+    rtokens--;
+
+    // NOTE: for each needed token, track the number here. bail if not enough
+    // remaining tokens.
+    // loop through the supplied options, set any feature flags for how to
+    // grab and respond with the item.
+    for (i = 0; i < olen; i++) {
+        switch (opts[i]) {
+            case 'u':
+                of.no_update = 1;
+                break;
+            case 's':
+                of.size = 1;
+                break;
+            case 't':
+                of.ttl = 1;
+                break;
+            case 'c':
+                of.cas = 1;
+                break;
+            case 'v':
+                of.value = 1;
+                break;
+            case 'f':
+                of.flags = 1;
+                break;
+            default:
+                fprintf(stderr, "Unknown option: %c\n", opts[i]);
+                break;
+        }
+    }
+
+    // NOTE: need a limited_get_locked()
+    // also need to indicate if the item was overflowed or not.
+    it = limited_get(key, nkey, c, 0, false, of.no_update ? DONT_UPDATE : DO_UPDATE);
+
+    // don't have to check result of add_iov() since the iov size defaults are
+    // enough.
+    if (it) {
+        char *p = c->wbuf;
+        // TODO: stats hit bump
+
+        // NOTE: effectively the same as iterating through a bit field with a
+        // big case statement. Not sure which I like more aesthetically.
+        add_iov(c, "VALUE ", 6);
+        add_iov(c, ITEM_key(it), it->nkey);
+
+        // METADATA ORDER:
+        // flags size cas ttl
+        // Now we abuse c->wbuf and our itoa's to fill requested fields.
+        if (of.flags) {
+            *p = ' ';
+            if (it->nsuffix == 0) {
+                *(p+1) = '0';
+                p += 2;
+            } else {
+                p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p+1);
+            }
+        }
+
+        if (of.size) {
+            *p = ' ';
+            p = itoa_u32(it->nbytes-2, p+1);
+        }
+
+        if (of.cas) {
+            *p = ' ';
+            p = itoa_u64(ITEM_get_cas(it), p+1);
+        }
+
+        // TTL remaining as of this request.
+        // needs to be relative because server clocks may not be in sync.
+        if (of.ttl) {
+            *p = ' ';
+            if (it->exptime == 0) {
+                *(p+1) = '-';
+                *(p+2) = '1';
+                p += 3;
+            } else {
+                p = itoa_u32(it->exptime - current_time, p+1);
+            }
+        }
+
+        *p = '\r';
+        *(p+1) = '\n';
+        *(p+2) = '\0';
+        p += 2;
+        // finally, chain in the buffer.
+        add_iov(c, c->wbuf, p - c->wbuf);
+
+        if (of.value) {
+            fprintf(stderr, "err: no value yet\n");
+        }
+
+        add_iov(c, "END\r\n", 5);
+
+        // need to hold the ref at least because of the key above.
+        c->item = it;
+
+        conn_set_state(c, conn_write);
+        c->write_and_go = conn_new_cmd;
+    } else {
+        // TODO: stats miss bump
+        out_string(c, "END\r\n");
+    }
+
 }
 
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
@@ -4863,6 +5046,8 @@ static void process_command(conn *c, char *command) {
 
         process_get_command(c, tokens, ntokens, true, false);
 
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mget") == 0)) {
+        process_mget_command(c, tokens, ntokens);
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
         process_arithmetic_command(c, tokens, ntokens, 0);
