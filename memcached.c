@@ -4229,17 +4229,23 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
     pthread_mutex_unlock(&c->thread->stats.mutex);
 }
 
+// TODO: I can't think of a reason for optimized mode to have a class-id
+// return? maybe if not in strict ordering (so there's no perf hit) we can add
+// it anyway.
 struct _mget_flags {
     unsigned int ttl :1;
     unsigned int size :1;
     unsigned int cas :1;
     unsigned int value :1;
     unsigned int flags :1;
+    unsigned int la :1;
+    unsigned int hit :1;
     unsigned int no_update :1;
     unsigned int set_ttl :1;
 };
 
 // TODO: command requires !settings.inline_ascii_response (ie; modern)
+// could just make that setting a no-op during the release for this? it's been deprecated for a year.
 static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
@@ -4301,6 +4307,12 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             case 'f':
                 of.flags = 1;
                 break;
+            case 'l':
+                of.la = 1;
+                break;
+            case 'h':
+                of.hit = 1;
+                break;
             default:
                 fprintf(stderr, "Unknown option: %c\n", opts[i]);
                 break;
@@ -4355,6 +4367,24 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                 p += 3;
             } else {
                 p = itoa_u32(it->exptime - current_time, p+1);
+            }
+        }
+
+        // Last Access time of this request, relative time.
+        // FIXME: this will be _now_ unless paired with 'u'. allow get command to pass back
+        // pre-existing last-access time?
+        if (of.la) {
+            *p = ' ';
+            p = itoa_u32(current_time - it->time, p+1);
+        }
+
+        // "fetched", or has been hit before.
+        if (of.hit) {
+            *p = ' ';
+            if (it->it_flags & ITEM_FETCHED) {
+                *(p+1) = '1';
+            } else {
+                *(p+1) = '0';
             }
         }
 
