@@ -282,6 +282,7 @@ struct slab_stats {
     X(incr_misses) \
     X(decr_misses) \
     X(cas_misses) \
+    X(mget_cmds) \
     X(bytes_read) \
     X(bytes_written) \
     X(flush_cmds) \

@@ -3249,6 +3249,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
     APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
     APPEND_STAT("cmd_touch", "%llu", (unsigned long long)thread_stats.touch_cmds);
+    APPEND_STAT("cmd_mget", "%llu", (unsigned long long)thread_stats.mget_cmds);
     APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
@@ -4191,6 +4192,43 @@ stop:
     }
 }
 
+// helper function for metaget.
+// slow snprintf for debugging purposes.
+static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
+    item *it = limited_get(key, nkey, c, 0, false, DONT_UPDATE);
+    if (it) {
+        size_t total = 0;
+        size_t ret;
+        // similar to out_string().
+        memcpy(c->wbuf, "META ", 5);
+        total += 5;
+        memcpy(c->wbuf + total, ITEM_key(it), it->nkey);
+        total += it->nkey;
+        c->wbuf[total] = ' ';
+        total++;
+
+        ret = snprintf(c->wbuf + total, c->wsize - (it->nkey + 12),
+                "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\nEND\r\n",
+                (it->exptime == 0) ? -1 : (current_time - it->exptime),
+                (unsigned long long)(current_time - it->time),
+                (unsigned long long)ITEM_get_cas(it),
+                (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
+                ITEM_clsid(it),
+                (unsigned long) ITEM_ntotal(it));
+
+        item_remove(it);
+        c->wbytes = total + ret;
+        c->wcurr = c->wbuf;
+        conn_set_state(c, conn_write);
+        c->write_and_go = conn_new_cmd;
+    } else {
+        out_string(c, "END\r\n");
+    }
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.mget_cmds++;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
+}
+
 struct _mget_flags {
     unsigned int ttl :1;
     unsigned int size :1;
@@ -4198,6 +4236,7 @@ struct _mget_flags {
     unsigned int value :1;
     unsigned int flags :1;
     unsigned int no_update :1;
+    unsigned int set_ttl :1;
 };
 
 // TODO: command requires !settings.inline_ascii_response (ie; modern)
@@ -4228,39 +4267,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // no args: return full metadata string and no value.
     // also, don't ping LRU.
-    // This is slow. great for debugging.
-    // TODO: move to outside function.
     if (rtokens == 0) {
-        it = limited_get(key, nkey, c, 0, false, DONT_UPDATE);
-        if (it) {
-            size_t total = 0;
-            size_t ret;
-            // similar to out_string().
-            memcpy(c->wbuf, "META ", 5);
-            total += 5;
-            memcpy(c->wbuf + total, ITEM_key(it), it->nkey);
-            total += it->nkey;
-            c->wbuf[total] = ' ';
-            total++;
-
-            ret = snprintf(c->wbuf + total, c->wsize - (it->nkey + 12),
-                    "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\nEND\r\n",
-                    (it->exptime == 0) ? -1 : (current_time - it->exptime),
-                    (unsigned long long)(current_time - it->time),
-                    (unsigned long long)ITEM_get_cas(it),
-                    (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
-                    ITEM_clsid(it),
-                    (unsigned long) ITEM_ntotal(it));
-
-            item_remove(it);
-            c->wbytes = total + ret;
-            c->wcurr = c->wbuf;
-            conn_set_state(c, conn_write);
-            c->write_and_go = conn_new_cmd;
-        } else {
-            out_string(c, "END\r\n");
-        }
-        // etc
+        _mget_out_fullmeta(c, key, nkey);
         return;
     }
 
@@ -4413,11 +4421,32 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         failed = true;
     }
 
+    // we count this command as a normal one if we've gotten this far.
     if (!failed) {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (of.set_ttl) {
+            c->thread->stats.touch_cmds++;
+            c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+        } else {
+            c->thread->stats.lru_hits[it->slabs_clsid]++;
+            c->thread->stats.get_cmds++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         conn_set_state(c, conn_write);
         c->write_and_go = conn_new_cmd;
     } else {
-        // TODO: stats miss bump
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (of.set_ttl) {
+            c->thread->stats.touch_cmds++;
+            c->thread->stats.touch_misses++;
+        } else {
+            c->thread->stats.get_misses++;
+            c->thread->stats.get_cmds++;
+        }
+        MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
         out_string(c, "END");
     }
 
