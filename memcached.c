@@ -3764,6 +3764,21 @@ static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptim
     return it;
 }
 
+// Semantics are different than limited_get; since the item is returned
+// locked, caller can directly change what it needs.
+// though it might eventually be a better interface to sink it all into
+// items.c.
+static inline item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32_t *hv) {
+    item *it;
+    it = item_get_locked(key, nkey, c, do_update, hv);
+    if (it && it->refcount > IT_REFCOUNT_LIMIT) {
+        do_item_remove(it);
+        it = NULL;
+        item_unlock(*hv);
+    }
+    return it;
+}
+
 static inline int _ascii_get_expand_ilist(conn *c, int i) {
     if (i >= c->isize) {
         item **new_list = realloc(c->ilist, sizeof(item *) * c->isize * 2);
@@ -4255,7 +4270,9 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     unsigned int i = 0;
     int32_t rtokens = 0; // remaining tokens available.
     struct _mget_flags of = {0}; // option bitflags.
+    uint32_t hv; // cached hash value for unlocking an item.
     bool failed = false;
+    bool item_locked = false;
 
     assert(c != NULL);
 
@@ -4298,6 +4315,11 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             case 't':
                 of.ttl = 1;
                 break;
+            case 'T':
+                of.set_ttl = 1;
+                item_locked = true;
+                rtokens--;
+                break;
             case 'c':
                 of.cas = 1;
                 break;
@@ -4319,9 +4341,19 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         }
     }
 
-    // NOTE: need a limited_get_locked()
-    // also need to indicate if the item was overflowed or not.
-    it = limited_get(key, nkey, c, 0, false, of.no_update ? DONT_UPDATE : DO_UPDATE);
+    // FIXME: make string more clear and add key to response
+    if (rtokens < 0) {
+        out_string(c, "CLIENT_ERROR not enough tokens given to mget command");
+    }
+    // FIXME: repurposing variable?
+    rtokens = KEY_TOKEN + 2;
+
+    // TODO: need to indicate if the item was overflowed or not.
+    if (!item_locked) {
+        it = limited_get(key, nkey, c, 0, false, of.no_update ? DONT_UPDATE : DO_UPDATE);
+    } else {
+        it = limited_get_locked(key, nkey, c, of.no_update ? DONT_UPDATE : DO_UPDATE, &hv);
+    }
 
     // don't have to check result of add_iov() since the iov size defaults are
     // enough.
@@ -4368,6 +4400,17 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             } else {
                 p = itoa_u32(it->exptime - current_time, p+1);
             }
+        }
+
+        // now that we've read off the old TTL, we can update the new one.
+        if (of.set_ttl) {
+            int32_t exptime_int = 0;
+            if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                // FIXME: add key.
+                out_string(c, "CLIENT_ERROR bad command line format");
+            }
+            it->exptime = realtime(exptime_int);
+            rtokens++;
         }
 
         // Last Access time of this request, relative time.
@@ -4442,13 +4485,21 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                 c->item = it;
             }
         } else {
-            item_remove(it);
+            if (item_locked) {
+                do_item_remove(it);
+            } else {
+                item_remove(it);
+            }
         }
 #else
         c->item = it;
 #endif
     } else {
         failed = true;
+    }
+
+    if (item_locked) {
+        item_unlock(hv);
     }
 
     // we count this command as a normal one if we've gotten this far.
