@@ -4257,6 +4257,7 @@ struct _mget_flags {
     unsigned int hit :1;
     unsigned int no_update :1;
     unsigned int set_ttl :1;
+    unsigned int autovivify :1;
 };
 
 // TODO: command requires !settings.inline_ascii_response (ie; modern)
@@ -4334,6 +4335,11 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                 break;
             case 'h':
                 of.hit = 1;
+                break;
+            case 'N':
+                of.autovivify = 1;
+                item_locked = true;
+                rtokens--;
                 break;
             default:
                 fprintf(stderr, "Unknown option: %c\n", opts[i]);
@@ -4496,6 +4502,36 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 #endif
     } else {
         failed = true;
+
+        // FIXME: this also needs to take client flags.
+        if (of.autovivify) {
+            int32_t exptime_int = 0;
+            if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                // FIXME: add key.
+                out_string(c, "CLIENT_ERROR bad command line format");
+            }
+            rtokens++;
+            it = item_alloc(key, nkey, 0, realtime(exptime_int), 2);
+            memcpy(ITEM_data(it), "\r\n", 2);
+            // We don't actually need any of do_store_item's logic:
+            // - already fetched and missed an existing item.
+            // - lock is still held.
+            // - not append/prepend/replace
+            // - not testing CAS
+            if (it != NULL) {
+                do_item_link(it, hv);
+                // NOTE: for binprot I think c->cas needs to get set here.
+            }
+            // MAYBE: copy key to wbuf and unlock?
+            add_iov(c, "WIN ", 4);
+            add_iov(c, ITEM_key(it), it->nkey);
+            // size and result
+            add_iov(c, " 0\r\nEND\r\n", 9);
+
+            c->item = it;
+            conn_set_state(c, conn_write);
+            c->write_and_go = conn_new_cmd;
+        }
     }
 
     if (item_locked) {
@@ -4528,7 +4564,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        out_string(c, "END");
+        if (!of.autovivify)
+            out_string(c, "END");
     }
 
 }
