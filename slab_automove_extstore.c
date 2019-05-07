@@ -80,6 +80,7 @@ void *slab_automove_extstore_init(struct settings *settings) {
 void slab_automove_extstore_free(void *arg) {
     slab_automove *a = (slab_automove *)arg;
     free(a->window_data);
+    free(a->window_global);
     free(a);
 }
 
