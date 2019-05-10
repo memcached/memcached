@@ -4244,6 +4244,19 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
     pthread_mutex_unlock(&c->thread->stats.mutex);
 }
 
+// helper function for mget, two character atoi.
+// TODO: restrict to numeric? else it just gives the wrong number anyway.
+/*static uint8_t _mget_atoi(token_t *t) {
+    int x = t->length > 2 ? 2 : t->length;
+    uint8_t v = 0;
+    char *p = t->value;
+    for (; x >= 0; x--) {
+        v *= 10 + (*p - '0');
+        p++;
+    }
+    return v;
+}*/
+
 // TODO: I can't think of a reason for optimized mode to have a class-id
 // return? maybe if not in strict ordering (so there's no perf hit) we can add
 // it anyway.
@@ -4274,6 +4287,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     uint32_t hv; // cached hash value for unlocking an item.
     bool failed = false;
     bool item_locked = false;
+    bool item_created = false;
+    bool update = DO_UPDATE;
 
     assert(c != NULL);
 
@@ -4308,7 +4323,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     for (i = 0; i < olen; i++) {
         switch (opts[i]) {
             case 'u':
-                of.no_update = 1;
+                update = DONT_UPDATE;
                 break;
             case 's':
                 of.size = 1;
@@ -4350,15 +4365,42 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
         out_string(c, "CLIENT_ERROR not enough tokens given to mget command");
+        return;
     }
     // FIXME: repurposing variable?
     rtokens = KEY_TOKEN + 2;
 
     // TODO: need to indicate if the item was overflowed or not.
     if (!item_locked) {
-        it = limited_get(key, nkey, c, 0, false, of.no_update ? DONT_UPDATE : DO_UPDATE);
+        it = limited_get(key, nkey, c, 0, false, update);
     } else {
-        it = limited_get_locked(key, nkey, c, of.no_update ? DONT_UPDATE : DO_UPDATE, &hv);
+        it = limited_get_locked(key, nkey, c, update, &hv);
+    }
+
+    // FIXME: this also needs to take client flags.
+    // or client flag bit to flip?
+    if (it == NULL && of.autovivify) {
+        // TODO: Settings for default autovivification TTL.
+        // for users with extremely strict byte-on-wire budgets?
+        int32_t exptime_int = 0;
+        if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+            // FIXME: add key.
+            out_string(c, "CLIENT_ERROR bad command line format");
+        }
+        rtokens++;
+        it = item_alloc(key, nkey, 0, realtime(exptime_int), 2);
+        // We don't actually need any of do_store_item's logic:
+        // - already fetched and missed an existing item.
+        // - lock is still held.
+        // - not append/prepend/replace
+        // - not testing CAS
+        if (it != NULL) {
+            // I look forward to the day I get rid of this :)
+            memcpy(ITEM_data(it), "\r\n", 2);
+            do_item_link(it, hv);
+            item_created = true;
+            // NOTE: for binprot I think c->cas needs to get set here.
+        }
     }
 
     // don't have to check result of add_iov() since the iov size defaults are
@@ -4369,7 +4411,11 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
         // NOTE: effectively the same as iterating through a bit field with a
         // big case statement. Not sure which I like more aesthetically.
-        add_iov(c, "VALUE ", 6);
+        if (item_created) {
+            add_iov(c, "WIN ", 4);
+        } else {
+            add_iov(c, "VALUE ", 6);
+        }
         add_iov(c, ITEM_key(it), it->nkey);
 
         // METADATA ORDER:
@@ -4502,36 +4548,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 #endif
     } else {
         failed = true;
-
-        // FIXME: this also needs to take client flags.
-        if (of.autovivify) {
-            int32_t exptime_int = 0;
-            if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
-                // FIXME: add key.
-                out_string(c, "CLIENT_ERROR bad command line format");
-            }
-            rtokens++;
-            it = item_alloc(key, nkey, 0, realtime(exptime_int), 2);
-            memcpy(ITEM_data(it), "\r\n", 2);
-            // We don't actually need any of do_store_item's logic:
-            // - already fetched and missed an existing item.
-            // - lock is still held.
-            // - not append/prepend/replace
-            // - not testing CAS
-            if (it != NULL) {
-                do_item_link(it, hv);
-                // NOTE: for binprot I think c->cas needs to get set here.
-            }
-            // MAYBE: copy key to wbuf and unlock?
-            add_iov(c, "WIN ", 4);
-            add_iov(c, ITEM_key(it), it->nkey);
-            // size and result
-            add_iov(c, " 0\r\nEND\r\n", 9);
-
-            c->item = it;
-            conn_set_state(c, conn_write);
-            c->write_and_go = conn_new_cmd;
-        }
     }
 
     if (item_locked) {
@@ -4539,6 +4555,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     }
 
     // we count this command as a normal one if we've gotten this far.
+    // TODO: for autovivify case, miss never happens. Is this okay?
     if (!failed) {
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (of.set_ttl) {
@@ -4564,8 +4581,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        if (!of.autovivify)
-            out_string(c, "END");
+        out_string(c, "END");
     }
 
 }
