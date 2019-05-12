@@ -262,7 +262,7 @@ sub new_memcached {
         }
         $udpport = free_port("udp");
         $args .= " -p $port";
-        if (supports_udp()) {
+        if (supports_udp() && $args !~ /-U (\S+)/) {
             $args .= " -U $udpport";
         }
         if ($ssl_enabled) {

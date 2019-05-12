@@ -17,6 +17,7 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
+#include "authfile.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -79,7 +80,6 @@
  */
 static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
-static int try_read_command(conn *c);
 static ssize_t tcp_read(conn *arg, void *buf, size_t count);
 static ssize_t tcp_sendmsg(conn *arg, struct msghdr *msg, int flags);
 static ssize_t tcp_write(conn *arg, void *buf, size_t count);
@@ -90,6 +90,12 @@ enum try_read_result {
     READ_ERROR,            /** an error occurred (on the socket) (or client closed connection) */
     READ_MEMORY_ERROR      /** failed to allocate more memory */
 };
+
+static int try_read_command_negotiate(conn *c);
+static int try_read_command_udp(conn *c);
+static int try_read_command_binary(conn *c);
+static int try_read_command_ascii(conn *c);
+static int try_read_command_asciiauth(conn *c);
 
 static enum try_read_result try_read_network(conn *c);
 static enum try_read_result try_read_udp(conn *c);
@@ -270,6 +276,7 @@ static void settings_init(void) {
     settings.oldest_cas = 0;          /* supplements accuracy of oldest_live */
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
     settings.socketpath = NULL;       /* by default, not using a unix socket */
+    settings.auth_file = NULL;        /* by default, not using ASCII authentication tokens */
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
     settings.num_threads = 4;         /* N workers */
@@ -637,6 +644,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             assert(false);
         }
     }
+
 #ifdef TLS
     c->ssl = NULL;
     c->ssl_wbuf = NULL;
@@ -657,7 +665,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->msgcurr = 0;
     c->msgused = 0;
     c->sasl_started = false;
-    c->authenticated = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
 #ifdef EXTSTORE
     c->io_wraplist = NULL;
@@ -687,6 +694,30 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->read = tcp_read;
         c->sendmsg = tcp_sendmsg;
         c->write = tcp_write;
+    }
+
+    if (IS_UDP(transport)) {
+        c->try_read_command = try_read_command_udp;
+    } else {
+        switch (c->protocol) {
+            case ascii_prot:
+                if (settings.auth_file == NULL) {
+                    c->authenticated = true;
+                    c->try_read_command = try_read_command_ascii;
+                } else {
+                    c->authenticated = false;
+                    c->try_read_command = try_read_command_asciiauth;
+                }
+                break;
+            case binary_prot:
+                // binprot handles its own authentication via SASL parsing.
+                c->authenticated = false;
+                c->try_read_command = try_read_command_binary;
+                break;
+            case negotiating_prot:
+                c->try_read_command = try_read_command_negotiate;
+                break;
+        }
     }
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
@@ -3327,6 +3358,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("binding_protocol", "%s",
                 prot_text(settings.binding_protocol));
     APPEND_STAT("auth_enabled_sasl", "%s", settings.sasl ? "yes" : "no");
+    APPEND_STAT("auth_enabled_ascii", "%s", settings.auth_file ? settings.auth_file : "no");
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
@@ -5042,138 +5074,255 @@ static void process_command(conn *c, char *command) {
     return;
 }
 
-/*
- * if we have a complete line in the buffer, process it.
- */
-static int try_read_command(conn *c) {
+static int try_read_command_negotiate(conn *c) {
+    assert(c->protocol == negotiating_prot);
     assert(c != NULL);
     assert(c->rcurr <= (c->rbuf + c->rsize));
     assert(c->rbytes > 0);
 
-    if (c->protocol == negotiating_prot || c->transport == udp_transport)  {
-        if ((unsigned char)c->rbuf[0] == (unsigned char)PROTOCOL_BINARY_REQ) {
-            c->protocol = binary_prot;
-        } else {
-            c->protocol = ascii_prot;
-        }
-
-        if (settings.verbose > 1) {
-            fprintf(stderr, "%d: Client using the %s protocol\n", c->sfd,
-                    prot_text(c->protocol));
-        }
+    if ((unsigned char)c->rbuf[0] == (unsigned char)PROTOCOL_BINARY_REQ) {
+        c->protocol = binary_prot;
+        c->try_read_command = try_read_command_binary;
+    } else {
+        // authentication doesn't work with negotiated protocol.
+        c->protocol = ascii_prot;
+        c->try_read_command = try_read_command_ascii;
     }
 
-    if (c->protocol == binary_prot) {
-        /* Do we have the complete packet header? */
-        if (c->rbytes < sizeof(c->binary_header)) {
-            /* need more data! */
-            return 0;
-        } else {
-#ifdef NEED_ALIGN
-            if (((long)(c->rcurr)) % 8 != 0) {
-                /* must realign input buffer */
-                memmove(c->rbuf, c->rcurr, c->rbytes);
-                c->rcurr = c->rbuf;
-                if (settings.verbose > 1) {
-                    fprintf(stderr, "%d: Realign input buffer\n", c->sfd);
-                }
-            }
-#endif
-            protocol_binary_request_header* req;
-            req = (protocol_binary_request_header*)c->rcurr;
+    if (settings.verbose > 1) {
+        fprintf(stderr, "%d: Client using the %s protocol\n", c->sfd,
+                prot_text(c->protocol));
+    }
 
-            if (settings.verbose > 1) {
-                /* Dump the packet before we convert it to host order */
-                int ii;
-                fprintf(stderr, "<%d Read binary protocol data:", c->sfd);
-                for (ii = 0; ii < sizeof(req->bytes); ++ii) {
-                    if (ii % 4 == 0) {
-                        fprintf(stderr, "\n<%d   ", c->sfd);
-                    }
-                    fprintf(stderr, " 0x%02x", req->bytes[ii]);
-                }
-                fprintf(stderr, "\n");
-            }
+    return c->try_read_command(c);
+}
 
-            c->binary_header = *req;
-            c->binary_header.request.keylen = ntohs(req->request.keylen);
-            c->binary_header.request.bodylen = ntohl(req->request.bodylen);
-            c->binary_header.request.cas = ntohll(req->request.cas);
+static int try_read_command_udp(conn *c) {
+    assert(c != NULL);
+    assert(c->rcurr <= (c->rbuf + c->rsize));
+    assert(c->rbytes > 0);
 
-            if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
-                if (settings.verbose) {
-                    fprintf(stderr, "Invalid magic:  %x\n",
-                            c->binary_header.request.magic);
-                }
-                conn_set_state(c, conn_closing);
-                return -1;
-            }
-
-            c->msgcurr = 0;
-            c->msgused = 0;
-            c->iovused = 0;
-            if (add_msghdr(c) != 0) {
-                out_of_memory(c,
-                        "SERVER_ERROR Out of memory allocating headers");
-                return 0;
-            }
-
-            c->cmd = c->binary_header.request.opcode;
-            c->keylen = c->binary_header.request.keylen;
-            c->opaque = c->binary_header.request.opaque;
-            /* clear the returned cas value */
-            c->cas = 0;
-
-            c->last_cmd_time = current_time;
-            dispatch_bin_command(c);
-
-            c->rbytes -= sizeof(c->binary_header);
-            c->rcurr += sizeof(c->binary_header);
-        }
+    if ((unsigned char)c->rbuf[0] == (unsigned char)PROTOCOL_BINARY_REQ) {
+        c->protocol = binary_prot;
+        return try_read_command_binary(c);
     } else {
-        char *el, *cont;
+        c->protocol = ascii_prot;
+        return try_read_command_ascii(c);
+    }
+}
 
-        if (c->rbytes == 0)
+static int try_read_command_binary(conn *c) {
+    /* Do we have the complete packet header? */
+    if (c->rbytes < sizeof(c->binary_header)) {
+        /* need more data! */
+        return 0;
+    } else {
+#ifdef NEED_ALIGN
+        if (((long)(c->rcurr)) % 8 != 0) {
+            /* must realign input buffer */
+            memmove(c->rbuf, c->rcurr, c->rbytes);
+            c->rcurr = c->rbuf;
+            if (settings.verbose > 1) {
+                fprintf(stderr, "%d: Realign input buffer\n", c->sfd);
+            }
+        }
+#endif
+        protocol_binary_request_header* req;
+        req = (protocol_binary_request_header*)c->rcurr;
+
+        if (settings.verbose > 1) {
+            /* Dump the packet before we convert it to host order */
+            int ii;
+            fprintf(stderr, "<%d Read binary protocol data:", c->sfd);
+            for (ii = 0; ii < sizeof(req->bytes); ++ii) {
+                if (ii % 4 == 0) {
+                    fprintf(stderr, "\n<%d   ", c->sfd);
+                }
+                fprintf(stderr, " 0x%02x", req->bytes[ii]);
+            }
+            fprintf(stderr, "\n");
+        }
+
+        c->binary_header = *req;
+        c->binary_header.request.keylen = ntohs(req->request.keylen);
+        c->binary_header.request.bodylen = ntohl(req->request.bodylen);
+        c->binary_header.request.cas = ntohll(req->request.cas);
+
+        if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
+            if (settings.verbose) {
+                fprintf(stderr, "Invalid magic:  %x\n",
+                        c->binary_header.request.magic);
+            }
+            conn_set_state(c, conn_closing);
+            return -1;
+        }
+
+        c->msgcurr = 0;
+        c->msgused = 0;
+        c->iovused = 0;
+        if (add_msghdr(c) != 0) {
+            out_of_memory(c,
+                    "SERVER_ERROR Out of memory allocating headers");
+            return 0;
+        }
+
+        c->cmd = c->binary_header.request.opcode;
+        c->keylen = c->binary_header.request.keylen;
+        c->opaque = c->binary_header.request.opaque;
+        /* clear the returned cas value */
+        c->cas = 0;
+
+        c->last_cmd_time = current_time;
+        dispatch_bin_command(c);
+
+        c->rbytes -= sizeof(c->binary_header);
+        c->rcurr += sizeof(c->binary_header);
+    }
+
+    return 1;
+}
+
+static int try_read_command_asciiauth(conn *c) {
+    token_t tokens[MAX_TOKENS];
+    size_t ntokens;
+    char *cont = NULL;
+
+    // TODO: move to another function.
+    if (!c->sasl_started) {
+        char *el;
+        uint32_t size = 0;
+
+        // impossible for the auth command to be this short.
+        if (c->rbytes < 2)
             return 0;
 
         el = memchr(c->rcurr, '\n', c->rbytes);
+
+        // If no newline after 1k, getting junk data, close out.
         if (!el) {
             if (c->rbytes > 1024) {
-                /*
-                 * We didn't have a '\n' in the first k. This _has_ to be a
-                 * large multiget, if not we should just nuke the connection.
-                 */
-                char *ptr = c->rcurr;
-                while (*ptr == ' ') { /* ignore leading whitespaces */
-                    ++ptr;
-                }
-
-                if (ptr - c->rcurr > 100 ||
-                    (strncmp(ptr, "get ", 4) && strncmp(ptr, "gets ", 5))) {
-
-                    conn_set_state(c, conn_closing);
-                    return 1;
-                }
+                conn_set_state(c, conn_closing);
+                return 1;
             }
-
             return 0;
         }
-        cont = el + 1;
-        if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
-            el--;
-        }
+
+        // Looking for: "set foo 0 0 N\r\nuser pass\r\n"
+        // key, flags, and ttl are ignored. N is used to see if we have the rest.
+
+        // so tokenize doesn't walk past into the value.
+        // it's fine to leave the \r in, as strtoul will stop at it.
         *el = '\0';
 
-        assert(cont <= (c->rcurr + c->rbytes));
+        ntokens = tokenize_command(c->rcurr, tokens, MAX_TOKENS);
+        // ensure the buffer is consumed.
+        c->rbytes -= (el - c->rcurr) + 1;
+        c->rcurr += (el - c->rcurr) + 1;
 
-        c->last_cmd_time = current_time;
-        process_command(c, c->rcurr);
+        // final token is a NULL ender, so we have one more than expected.
+        if (ntokens < 6
+                || strcmp(tokens[0].value, "set") != 0
+                || !safe_strtoul(tokens[4].value, &size)) {
+            out_string(c, "CLIENT_ERROR unauthenticated");
+            return 1;
+        }
 
-        c->rbytes -= (cont - c->rcurr);
-        c->rcurr = cont;
+        // we don't actually care about the key at all; it can be anything.
+        // we do care about the size of the remaining read.
+        c->rlbytes = size + 2;
 
-        assert(c->rcurr <= (c->rbuf + c->rsize));
+        c->sasl_started = true; // reuse from binprot sasl, but not sasl :)
     }
+
+    if (c->rbytes < c->rlbytes) {
+        // need more bytes.
+        return 0;
+    }
+
+    cont = c->rcurr;
+    // advance buffer. no matter what we're stopping.
+    c->rbytes -= c->rlbytes;
+    c->rcurr += c->rlbytes;
+    c->sasl_started = false;
+
+    // must end with \r\n
+    // NB: I thought ASCII sets also worked with just \n, but according to
+    // complete_nread_ascii only \r\n is valid.
+    if (strncmp(cont + c->rlbytes - 2, "\r\n", 2) != 0) {
+        out_string(c, "CLIENT_ERROR bad command line termination");
+        return 1;
+    }
+
+    // payload should be "user pass", so we can use the tokenizer.
+    cont[c->rlbytes - 2] = '\0';
+    ntokens = tokenize_command(cont, tokens, MAX_TOKENS);
+
+    if (ntokens < 3) {
+        out_string(c, "CLIENT_ERROR bad authentication token format");
+        return 1;
+    }
+
+    if (authfile_check(tokens[0].value, tokens[1].value) == 1) {
+        out_string(c, "STORED");
+        c->authenticated = true;
+        c->try_read_command = try_read_command_ascii;
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.auth_cmds++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+    } else {
+        out_string(c, "CLIENT_ERROR authentication failure");
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.auth_cmds++;
+        c->thread->stats.auth_errors++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+    }
+
+    return 1;
+}
+
+static int try_read_command_ascii(conn *c) {
+    char *el, *cont;
+
+    if (c->rbytes == 0)
+        return 0;
+
+    el = memchr(c->rcurr, '\n', c->rbytes);
+    if (!el) {
+        if (c->rbytes > 1024) {
+            /*
+             * We didn't have a '\n' in the first k. This _has_ to be a
+             * large multiget, if not we should just nuke the connection.
+             */
+            char *ptr = c->rcurr;
+            while (*ptr == ' ') { /* ignore leading whitespaces */
+                ++ptr;
+            }
+
+            if (ptr - c->rcurr > 100 ||
+                (strncmp(ptr, "get ", 4) && strncmp(ptr, "gets ", 5))) {
+
+                conn_set_state(c, conn_closing);
+                return 1;
+            }
+        }
+
+        return 0;
+    }
+    cont = el + 1;
+    if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
+        el--;
+    }
+    *el = '\0';
+
+    assert(cont <= (c->rcurr + c->rbytes));
+
+    c->last_cmd_time = current_time;
+    process_command(c, c->rcurr);
+
+    c->rbytes -= (cont - c->rcurr);
+    c->rcurr = cont;
+
+    assert(c->rcurr <= (c->rbuf + c->rsize));
 
     return 1;
 }
@@ -5642,7 +5791,7 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_parse_cmd :
-            if (try_read_command(c) == 0) {
+            if (c->try_read_command(c) == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
             }
@@ -6345,6 +6494,13 @@ static void clock_handler(const int fd, const short which, void *arg) {
     // While we're here, check for hash table expansion.
     // This function should be quick to avoid delaying the timer.
     assoc_start_expand(stats_state.curr_items);
+    // also, if HUP'ed we need to do some maintenance.
+    // for now that's just the authfile reload.
+    if (settings.sig_hup) {
+        settings.sig_hup = false;
+
+        authfile_load(settings.auth_file);
+    }
 
     evtimer_set(&clockevent, clock_handler, 0);
     event_base_set(main_base, &clockevent);
@@ -6414,6 +6570,8 @@ static void usage(void) {
 #endif
     printf("-F, --disable-flush-all   disable flush_all command\n");
     printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
+    printf("-Y, --auth-file=<file>    (EXPERIMENTAL) enable ASCII protocol authentication. format:\n"
+           "                          user:pass\\nuser2:pass2\\n\n");
 #ifdef TLS
     printf("-Z, --enable-ssl          enable TLS/SSL\n");
 #endif
@@ -6618,6 +6776,10 @@ static void remove_pidfile(const char *pid_file) {
 static void sig_handler(const int sig) {
     printf("Signal handled: %s.\n", strsignal(sig));
     exit(EXIT_SUCCESS);
+}
+
+static void sighup_handler(const int sig) {
+    settings.sig_hup = true;
 }
 
 #ifndef HAVE_SIGIGNORE
@@ -6934,6 +7096,7 @@ int main (int argc, char **argv) {
     /* handle SIGINT, SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+    signal(SIGHUP, sighup_handler);
 
     /* init settings */
     settings_init();
@@ -6993,6 +7156,7 @@ int main (int argc, char **argv) {
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
           "X"   /* Disable dump commands */
+          "Y:"   /* Enable token auth */
           "o:"  /* Extended generic options */
           ;
 
@@ -7030,6 +7194,7 @@ int main (int argc, char **argv) {
         {"enable-sasl", no_argument, 0, 'S'},
         {"disable-flush-all", no_argument, 0, 'F'},
         {"disable-dumping", no_argument, 0, 'X'},
+        {"auth-file", required_argument, 0, 'Y'},
         {"extended", required_argument, 0, 'o'},
         {0, 0, 0, 0}
     };
@@ -7230,6 +7395,10 @@ int main (int argc, char **argv) {
             break;
        case 'X' :
             settings.dump_enabled = false;
+            break;
+       case 'Y' :
+            // dupe the file path now just in case the options get mangled.
+            settings.auth_file = strdup(optarg);
             break;
         case 'o': /* It's sub-opts time! */
             subopts_orig = subopts = strdup(optarg); /* getsubopt() changes the original args */
@@ -7853,6 +8022,17 @@ int main (int argc, char **argv) {
         }
     }
 
+    if (settings.auth_file) {
+        if (!protocol_specified) {
+            settings.binding_protocol = ascii_prot;
+        } else {
+            if (settings.binding_protocol != ascii_prot) {
+                fprintf(stderr, "ERROR: You cannot allow the BINARY protocol while using ascii authentication tokens.\n");
+                exit(EX_USAGE);
+            }
+        }
+    }
+
     if (udp_specified && settings.udpport != 0 && !tcp_specified) {
         settings.port = settings.udpport;
     }
@@ -7980,6 +8160,32 @@ int main (int argc, char **argv) {
     /* Otherwise, use older API */
     main_base = event_init();
 #endif
+
+    /* Load initial auth file if required */
+    if (settings.auth_file) {
+        if (settings.udpport) {
+            fprintf(stderr, "Cannot use UDP with ascii authentication enabled (-U 0 to disable)\n");
+            exit(EX_USAGE);
+        }
+
+        switch (authfile_load(settings.auth_file)) {
+            case AUTHFILE_MISSING: // fall through.
+            case AUTHFILE_OPENFAIL:
+                vperror("Could not open authfile [%s] for reading", settings.auth_file);
+                exit(EXIT_FAILURE);
+                break;
+            case AUTHFILE_OOM:
+                fprintf(stderr, "Out of memory reading password file: %s", settings.auth_file);
+                exit(EXIT_FAILURE);
+                break;
+            case AUTHFILE_MALFORMED:
+                fprintf(stderr, "Authfile [%s] has a malformed entry. Should be 'user:password'", settings.auth_file);
+                exit(EXIT_FAILURE);
+                break;
+            case AUTHFILE_OK:
+                break;
+        }
+    }
 
     /* initialize other stuff */
     logger_init();

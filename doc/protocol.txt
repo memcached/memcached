@@ -123,6 +123,23 @@ In the descriptions of individual commands below, these error lines
 are not again specifically mentioned, but clients must allow for their
 possibility.
 
+Authentication
+--------------
+
+Optional username/password token authentication (see -Y option). Used by
+sending a fake "set" command with any key:
+
+set <key> <flags> <exptime> <bytes>\r\n
+username password\r\n
+
+key, flags, and exptime are ignored for authentication. Bytes is the length
+of the username/password payload.
+
+- "STORED\r\n" indicates success. After this point any command should work
+  normally.
+
+- "CLIENT_ERROR [message]\r\n" will be returned if authentication fails for
+  any reason.
 
 Storage commands
 ----------------

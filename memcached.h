@@ -377,6 +377,7 @@ struct settings {
     uint64_t oldest_cas; /* ignore existing items with CAS values lower than this */
     int evict_to_free;
     char *socketpath;   /* path to unix socket if using local socket */
+    char *auth_file;    /* path to user authentication file */
     int access;  /* access mask (a la chmod) for unix domain socket */
     double factor;          /* chunk size growth factor */
     int chunk_size;
@@ -392,6 +393,7 @@ struct settings {
     int item_size_max;        /* Maximum item size */
     int slab_chunk_size_max;  /* Upper end for chunks within slab pages. */
     int slab_page_size;     /* Slab's page units. */
+    bool sig_hup;           /* a HUP signal was received but not yet handled */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
     bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
@@ -700,6 +702,7 @@ struct conn {
     int keylen;
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
+    int (*try_read_command)(conn *c); /* pointer for top level input parser */
     ssize_t (*read)(conn  *c, void *buf, size_t count);
     ssize_t (*sendmsg)(conn *c, struct msghdr *msg, int flags);
     ssize_t (*write)(conn *c, void *buf, size_t count);
