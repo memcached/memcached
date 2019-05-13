@@ -5124,6 +5124,7 @@ static int try_read_command(conn *c) {
             /* clear the returned cas value */
             c->cas = 0;
 
+            c->last_cmd_time = current_time;
             dispatch_bin_command(c);
 
             c->rbytes -= sizeof(c->binary_header);
