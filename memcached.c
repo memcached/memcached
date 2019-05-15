@@ -4237,7 +4237,7 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
         conn_set_state(c, conn_write);
         c->write_and_go = conn_new_cmd;
     } else {
-        out_string(c, "END\r\n");
+        out_string(c, "END");
     }
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.mget_cmds++;
@@ -4423,7 +4423,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         // Now we abuse c->wbuf and our itoa's to fill requested fields.
         if (of.flags) {
             *p = ' ';
-            if (it->nsuffix == 0) {
+            if (FLAGS_SIZE(it) == 0) {
                 *(p+1) = '0';
                 p += 2;
             } else {
