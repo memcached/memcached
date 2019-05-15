@@ -116,11 +116,12 @@
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_data(item) ((char*) &((item)->data) + (item)->nkey + 1 \
-         + (item)->nsuffix \
+         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0) \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
-         + (item)->nsuffix + (item)->nbytes \
+         + (item)->nbytes \
+         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0) \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_clsid(item) ((item)->slabs_clsid & ~(3<<6))
@@ -146,12 +147,14 @@
 
 /** Item client flag conversion */
 #define FLAGS_CONV(it, flag) { \
-    if ((it)->nsuffix > 0) { \
+    if ((it)->it_flags & ITEM_CFLAGS) { \
         flag = *((uint32_t *)ITEM_suffix((it))); \
     } else { \
         flag = 0; \
     } \
 }
+
+#define FLAGS_SIZE(item) (((item)->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0)
 
 /**
  * Callback for any function producing stats.
@@ -465,10 +468,11 @@ extern struct settings settings;
 /* If an item's storage are chained chunks. */
 #define ITEM_CHUNKED 32
 #define ITEM_CHUNK 64
-#ifdef EXTSTORE
 /* ITEM_data bulk is external to item */
 #define ITEM_HDR 128
-#endif
+/* additional 4 bytes for item client flags */
+#define ITEM_CFLAGS 256
+/* 7 bits free! */
 
 /**
  * Structure for storing items within memcached.
@@ -483,8 +487,7 @@ typedef struct _stritem {
     rel_time_t      exptime;    /* expire time */
     int             nbytes;     /* size of data */
     unsigned short  refcount;
-    uint8_t         nsuffix;    /* length of flags-and-length string */
-    uint8_t         it_flags;   /* ITEM_* above */
+    uint16_t        it_flags;   /* ITEM_* above */
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
     /* this odd type prevents type-punning issues when we do
@@ -512,8 +515,7 @@ typedef struct {
     rel_time_t      exptime;    /* expire time */
     int             nbytes;     /* size of data */
     unsigned short  refcount;
-    uint8_t         nsuffix;    /* length of flags-and-length string */
-    uint8_t         it_flags;   /* ITEM_* above */
+    uint16_t        it_flags;   /* ITEM_* above */
     uint8_t         slabs_clsid;/* which slab class we're in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
     uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
@@ -531,15 +533,16 @@ typedef struct _strchunk {
     int              used;      /* chunk space used */
     int              nbytes;    /* used. */
     unsigned short   refcount;  /* used? */
-    uint8_t          orig_clsid; /* For obj hdr chunks slabs_clsid is fake. */
-    uint8_t          it_flags;  /* ITEM_* above. */
+    uint16_t         it_flags;  /* ITEM_* above. */
     uint8_t          slabs_clsid; /* Same as above. */
+    uint8_t          orig_clsid; /* For obj hdr chunks slabs_clsid is fake. */
     char data[];
 } item_chunk;
 
 #ifdef NEED_ALIGN
 static inline char *ITEM_schunk(item *it) {
-    int offset = it->nkey + 1 + it->nsuffix
+    int offset = it->nkey + 1
+        + ((it->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0)
         + ((it->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0);
     int remain = offset % 8;
     if (remain != 0) {
@@ -549,7 +552,7 @@ static inline char *ITEM_schunk(item *it) {
 }
 #else
 #define ITEM_schunk(item) ((char*) &((item)->data) + (item)->nkey + 1 \
-         + (item)->nsuffix \
+         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0) \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 #endif
 

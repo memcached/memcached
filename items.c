@@ -325,12 +325,12 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
 
     DEBUG_REFCNT(it, '*');
     it->it_flags |= settings.use_cas ? ITEM_CAS : 0;
+    it->it_flags |= nsuffix != 0 ? ITEM_CFLAGS : 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
     memcpy(ITEM_key(it), key, nkey);
     it->exptime = exptime;
     memcpy(ITEM_suffix(it), &flags, sizeof(flags));
-    it->nsuffix = nsuffix;
 
     /* Initialize internal chunk. */
     if (it->it_flags & ITEM_CHUNKED) {

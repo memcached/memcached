@@ -3601,12 +3601,12 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
-/* nsuffix == 0 means use no storage for client flags */
+/* client flags == 0 means use no storage for client flags */
 static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas, int nbytes) {
     char *p = suffix;
     *p = ' ';
     p++;
-    if (it->nsuffix == 0) {
+    if (FLAGS_SIZE(it) == 0) {
         *p = '0';
         p++;
     } else {

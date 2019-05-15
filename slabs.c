@@ -405,13 +405,13 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
     p->sl_curr++;
     // TODO: macro
 #ifdef NEED_ALIGN
-    int total = it->nkey + 1 + it->nsuffix + sizeof(item) + sizeof(item_chunk);
+    int total = it->nkey + 1 + FLAGS_SIZE(it) + sizeof(item) + sizeof(item_chunk);
     if (total % 8 != 0) {
         total += 8 - (total % 8);
     }
     p->requested -= total;
 #else
-    p->requested -= it->nkey + 1 + it->nsuffix + sizeof(item) + sizeof(item_chunk);
+    p->requested -= it->nkey + 1 + FLAGS_SIZE(it) + sizeof(item) + sizeof(item_chunk);
 #endif
     if (settings.use_cas) {
         p->requested -= sizeof(uint64_t);
