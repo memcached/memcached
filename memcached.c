@@ -300,7 +300,6 @@ static void settings_init(void) {
     settings.warm_lru_pct = 40;
     settings.hot_max_factor = 0.2;
     settings.warm_max_factor = 2.0;
-    settings.inline_ascii_response = false;
     settings.temp_lru = false;
     settings.temporary_ttl = 61;
     settings.idle_timeout = 0; /* disabled */
@@ -1756,7 +1755,7 @@ static void process_bin_get_or_touch(conn *c) {
         rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
 
         // add the flags
-        FLAGS_CONV(settings.inline_ascii_response, it, rsp->message.body.flags);
+        FLAGS_CONV(it, rsp->message.body.flags);
         rsp->message.body.flags = htonl(rsp->message.body.flags);
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
@@ -2999,7 +2998,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
                 /* flags was already lost - so recover them from ITEM_suffix(it) */
-                FLAGS_CONV(settings.inline_ascii_response, old_it, flags);
+                FLAGS_CONV(old_it, flags);
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
                 /* copy data from it and old_it to new_it */
@@ -3386,7 +3385,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
-    APPEND_STAT("inline_ascii_response", "%s", settings.inline_ascii_response ? "yes" : "no");
+    APPEND_STAT("inline_ascii_response", "%s", "no"); // setting is dead, cannot be yes.
 #ifdef HAVE_DROP_PRIVILEGES
     APPEND_STAT("drop_privileges", "%s", settings.drop_privileges ? "yes" : "no");
 #endif
@@ -3637,24 +3636,22 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 /* nsuffix == 0 means use no storage for client flags */
 static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas, int nbytes) {
     char *p = suffix;
-    if (!settings.inline_ascii_response) {
-        *p = ' ';
+    *p = ' ';
+    p++;
+    if (it->nsuffix == 0) {
+        *p = '0';
         p++;
-        if (it->nsuffix == 0) {
-            *p = '0';
-            p++;
-        } else {
-            p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
-        }
-        *p = ' ';
-        p = itoa_u32(nbytes-2, p+1);
     } else {
-        p = suffix;
+        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
     }
+    *p = ' ';
+    p = itoa_u32(nbytes-2, p+1);
+
     if (return_cas) {
         *p = ' ';
         p = itoa_u64(ITEM_get_cas(it), p+1);
     }
+
     *p = '\r';
     *(p+1) = '\n';
     *(p+2) = '\0';
@@ -3831,7 +3828,7 @@ static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
     if (ntotal > settings.slab_chunk_size_max) {
         // Pull a chunked item header.
         uint32_t flags;
-        FLAGS_CONV(settings.inline_ascii_response, it, flags);
+        FLAGS_CONV(it, flags);
         new_it = item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, it->nbytes);
         assert(new_it == NULL || (new_it->it_flags & ITEM_CHUNKED));
         chunked = true;
@@ -3979,7 +3976,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                  *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
                  */
 
-                if (return_cas || !settings.inline_ascii_response)
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
@@ -3994,7 +3990,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   int suffix_len = make_ascii_get_suffix(suffix, it, return_cas, nbytes);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      (settings.inline_ascii_response && add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0) ||
                       add_iov(c, suffix, suffix_len) != 0)
                       {
                           item_remove(it);
@@ -4020,30 +4015,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       goto stop;
                   }
                 }
-                else
-                {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                                        it->nbytes, ITEM_get_cas(it));
-                  if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, ITEM_key(it), it->nkey) != 0)
-                      {
-                          item_remove(it);
-                          goto stop;
-                      }
-                  if ((it->it_flags & ITEM_CHUNKED) == 0)
-                      {
-                          if (add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
-                          {
-                              item_remove(it);
-                              goto stop;
-                          }
-                      } else if (add_iov(c, ITEM_suffix(it), it->nsuffix) != 0 ||
-                                 add_chunked_item_iovs(c, it, it->nbytes) != 0) {
-                          item_remove(it);
-                          goto stop;
-                      }
-                }
-
 
                 if (settings.verbose > 1) {
                     int ii;
@@ -4104,10 +4075,8 @@ stop:
 
     c->icurr = c->ilist;
     c->ileft = i;
-    if (return_cas || !settings.inline_ascii_response) {
-        c->suffixcurr = c->suffixlist;
-        c->suffixleft = si;
-    }
+    c->suffixcurr = c->suffixlist;
+    c->suffixleft = si;
 
     if (settings.verbose > 1)
         fprintf(stderr, ">%d END\n", c->sfd);
@@ -4414,7 +4383,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     } else if (it->refcount > 1) {
         item *new_it;
         uint32_t flags;
-        FLAGS_CONV(settings.inline_ascii_response, it, flags);
+        FLAGS_CONV(it, flags);
         new_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, res + 2);
         if (new_it == 0) {
             do_item_remove(it);
@@ -6606,9 +6575,6 @@ static void usage(void) {
            "   - worker_logbuf_size:  size in kilobytes of per-worker-thread buffer\n"
            "                          read by background thread, then written to watchers.\n"
            "   - track_sizes:         enable dynamic reports for 'stats sizes' command.\n"
-           "   - no_inline_ascii_resp: save up to 24 bytes per item.\n"
-           "                           small perf hit in ASCII, no perf difference in\n"
-           "                           binary protocol. speeds up all sets.\n"
            "   - no_hashexpand:       disables hash table expansion (dangerous)\n"
            "   - modern:              enables options which will be default in future.\n"
            "             currently: nothing\n"
@@ -7615,10 +7581,8 @@ int main (int argc, char **argv) {
                 item_stats_sizes_init();
                 break;
             case NO_INLINE_ASCII_RESP:
-                settings.inline_ascii_response = false;
                 break;
             case INLINE_ASCII_RESP:
-                settings.inline_ascii_response = true;
                 break;
             case NO_CHUNKED_ITEMS:
                 settings.slab_chunk_size_max = settings.slab_page_size;
@@ -7882,7 +7846,6 @@ int main (int argc, char **argv) {
                 settings.slab_reassign = false;
                 settings.slab_automove = 0;
                 settings.maxconns_fast = false;
-                settings.inline_ascii_response = true;
                 settings.lru_segmented = false;
                 hash_type = JENKINS_HASH;
                 start_lru_crawler = false;
@@ -7954,15 +7917,6 @@ int main (int argc, char **argv) {
         if (settings.item_size_max > ext_cf.wbuf_size) {
             fprintf(stderr, "-I (item_size_max: %d) cannot be larger than ext_wbuf_size: %d\n",
                 settings.item_size_max, ext_cf.wbuf_size);
-            exit(EX_USAGE);
-        }
-
-        /* This is due to the suffix header being generated with the wrong length
-         * value for the ITEM_HDR replacement. The cuddled nbytes no longer
-         * matches, so we end up losing a few bytes on readback.
-         */
-        if (settings.inline_ascii_response) {
-            fprintf(stderr, "Cannot use inline_ascii_response with extstore enabled\n");
             exit(EX_USAGE);
         }
 

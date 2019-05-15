@@ -145,10 +145,8 @@
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
 /** Item client flag conversion */
-#define FLAGS_CONV(iar, it, flag) { \
-    if ((iar)) { \
-        flag = (uint32_t) strtoul(ITEM_suffix((it)), (char **) NULL, 10); \
-    } else if ((it)->nsuffix > 0) { \
+#define FLAGS_CONV(it, flag) { \
+    if ((it)->nsuffix > 0) { \
         flag = *((uint32_t *)ITEM_suffix((it))); \
     } else { \
         flag = 0; \
@@ -416,7 +414,6 @@ struct settings {
     double hot_max_factor; /* HOT tail age relative to COLD tail */
     double warm_max_factor; /* WARM tail age relative to COLD tail */
     int crawls_persleep; /* Number of LRU crawls to run before sleeping */
-    bool inline_ascii_response; /* pre-format the VALUE line for ASCII responses */
     bool temp_lru; /* TTL < temporary_ttl uses TEMP_LRU */
     uint32_t temporary_ttl; /* temporary LRU threshold */
     int idle_timeout;       /* Number of seconds to let connections idle */

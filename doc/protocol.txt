@@ -863,9 +863,7 @@ other stats command.
 | track_sizes       | bool     | If yes, a "stats sizes" histogram is being   |
 |                   |          | dynamically tracked.                         |
 | inline_ascii_response                                                       |
-|                   | bool     | If yes, stores numbers from VALUE response   |
-|                   |          | inside an item, using up to 24 bytes.        |
-|                   |          | Small slowdown for ASCII get, faster sets.   |
+|                   | bool     | Does nothing as of 1.5.15                    |
 | drop_privileges   | bool     | If yes, and available, drop unused syscalls  |
 |                   |          | (see seccomp on Linux, pledge on OpenBSD)    |
 |-------------------+----------+----------------------------------------------|

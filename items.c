@@ -168,15 +168,10 @@ unsigned int do_get_lru_size(uint32_t id) {
  */
 static size_t item_make_header(const uint8_t nkey, const unsigned int flags, const int nbytes,
                      char *suffix, uint8_t *nsuffix) {
-    if (settings.inline_ascii_response) {
-        /* suffix is defined at 40 chars elsewhere.. */
-        *nsuffix = (uint8_t) snprintf(suffix, 40, " %u %d\r\n", flags, nbytes - 2);
+    if (flags == 0) {
+        *nsuffix = 0;
     } else {
-        if (flags == 0) {
-            *nsuffix = 0;
-        } else {
-            *nsuffix = sizeof(flags);
-        }
+        *nsuffix = sizeof(flags);
     }
     return sizeof(item) + nkey + *nsuffix + nbytes;
 }
@@ -334,11 +329,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     it->nbytes = nbytes;
     memcpy(ITEM_key(it), key, nkey);
     it->exptime = exptime;
-    if (settings.inline_ascii_response) {
-        memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
-    } else if (nsuffix > 0) {
-        memcpy(ITEM_suffix(it), &flags, sizeof(flags));
-    }
+    memcpy(ITEM_suffix(it), &flags, sizeof(flags));
     it->nsuffix = nsuffix;
 
     /* Initialize internal chunk. */
