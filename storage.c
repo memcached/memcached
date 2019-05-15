@@ -33,7 +33,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
     uint32_t flags;
     if ((it->it_flags & ITEM_HDR) == 0 &&
             (item_age == 0 || current_time - it->time > item_age)) {
-        FLAGS_CONV(settings.inline_ascii_response, it, flags);
+        FLAGS_CONV(it, flags);
         item *hdr_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, sizeof(item_hdr));
         /* Run the storage write understanding the start of the item is dirty.
          * We will fill it (time/exptime/etc) from the header item on read.
