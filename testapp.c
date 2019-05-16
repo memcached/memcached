@@ -707,6 +707,7 @@ static enum test_return test_issue_102(void) {
     /* verify that the server closed the connection */
     assert(con->read(con, buffer, sizeof(buffer)) == 0);
 
+    close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
 
     snprintf(buffer, sizeof(buffer), "gets ");
