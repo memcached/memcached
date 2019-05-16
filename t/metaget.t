@@ -46,6 +46,7 @@ my $sock = $server->sock;
 # - C (token): compare CAS value
 # - S (token): item size
 # - T (token): TTL
+# - I: invalid. set-to-invalid if CAS is older than it should be.
 #
 # mdelete [key] [flags] [tokens]\r\n
 # response:
@@ -53,6 +54,7 @@ my $sock = $server->sock;
 # flags:
 # - q: noreply
 # - T (token): updates TTL
+# - C (token): compare CAS value
 # - I: invalidate. mark as stale, bumps CAS.
 
 # metaget tests
@@ -98,14 +100,155 @@ my $sock = $server->sock;
 # - have a set/cas fail
 # - have a cas succeed
 # - repeat for "triggered on TTL"
+# - test just modifying the TTL (touch)
+# - test fetching without value
+{
+    my $res = mget($sock, 'needwin', 'stcvN 30');
+    like($res->{flags}, qr/stcvN/, "got main flags back");
+    like($res->{flags}, qr/W/, "got a win result");
+    unlike($res->{flags}, qr/Z/, "no token already sent warning");
 
-# need mset past here
+    # asked for size and TTL. size should be 0, TTL should be > 0 and < 30
+    is($res->{tokens}->[0], 0, "got zero size: autovivified response");
+    my $ttl = $res->{tokens}->[1];
+    ok($ttl > 0 && $ttl <= 30, "auto TTL is within requested window");
+
+    # try to fail this time.
+    {
+        my $res = mget($sock, 'needwin', 'stcvN 30');
+        ok(keys %$res, "got a non-empty response");
+        unlike($res->{flags}, qr/W/, "not a win result");
+        like($res->{flags}, qr/Z/, "object already sent win result");
+    }
+
+    # set back with the wrong CAS
+    print $sock "mset needwin CST 5000 2 120\r\nnu\r\n";
+    like(scalar <$sock>, qr/^NOT_STORED/, "failed to SET: CAS didn't match");
+
+    # again, but succeed.
+    # TODO: the actual CAS command should work here too?
+    my $cas = $res->{tokens}->[2];
+    print $sock "mset needwin CST $cas 2 120\r\nmu\r\n";
+    like(scalar <$sock>, qr/^STORED/, "SET: CAS matched");
+
+    # now we repeat the original mget, but the data should be different.
+    $res = mget($sock, 'needwin', 'stcvN 30');
+    ok(keys %$res, "not a miss");
+    like($res->{flags}, qr/stcvN/, "got main flags back");
+    unlike($res->{flags}, qr/[WZ]/, "not a win or token result");
+    is($res->{key}, 'needwin', "key matches");
+    $ttl = $res->{tokens}->[1];
+    ok($ttl > 100 && $ttl <= 120, "TTL is within requested window");
+    is($res->{val}, "mu", "value matches");
+
+    # now we do the whole routine again, but for "triggered on TTL being low"
+    # TTL was set to 120 just now, so anything lower than this should trigger.
+    $res = mget($sock, 'needwin', 'stcvNR 30 130');
+    like($res->{flags}, qr/stcvNR/, "got main flags back");
+    like($res->{flags}, qr/W/, "got a win result");
+    unlike($res->{flags}, qr/Z/, "no token already sent warning");
+    is($res->{key}, 'needwin', "key matches");
+    is($res->{val}, "mu", "value matches");
+
+    # try to fail this time.
+    {
+        my $res = mget($sock, 'needwin', 'stcvNR 30 130');
+        ok(keys %$res, "got a non-empty response");
+        unlike($res->{flags}, qr/W/, "not a win result");
+        like($res->{flags}, qr/Z/, "object already sent win result");
+        is($res->{key}, 'needwin', "key matches");
+        is($res->{val}, "mu", "value matches");
+    }
+
+    # again, but succeed.
+    $cas = $res->{tokens}->[2];
+    print $sock "mset needwin CST $cas 4 300\r\nzuuu\r\n";
+    like(scalar <$sock>, qr/^STORED/, "SET: CAS matched");
+
+    # now we repeat the original mget, but the data should be different.
+    $res = mget($sock, 'needwin', 'stcvN 30');
+    ok(keys %$res, "not a miss");
+    like($res->{flags}, qr/stcvN/, "got main flags back");
+    unlike($res->{flags}, qr/[WZ]/, "not a win or token result");
+    is($res->{key}, 'needwin', "key matches");
+    $ttl = $res->{tokens}->[1];
+    ok($ttl > 250 && $ttl <= 300, "TTL is within requested window");
+    ok($res->{tokens}->[0] == 4, "Size returned correctly");
+    is($res->{val}, "zuuu", "value matches");
+
+    # test TOUCH mode
+    # test no-value mode
+}
 
 # high level tests:
 # - mget + mset with serve-stale
+# - set a value
+# - mget it back. should be no XZW tokens
 # - invalidate via mdelete and mget/revalidate with mset
 #   - remember failure scenarios!
-#   - also test re-setting as stale (extra double-bit dance)
+#     - TTL timed out?
+#     - CAS too high?
+#   - also test re-setting as stale (CAS is below requested)
+#     - this should probably be conditional.
+
+{
+    my ($ttl, $cas, $res);
+    print $sock "set toinv 0 0 3\r\nmoo\r\n";
+    is(scalar <$sock>, "STORED\r\n");
+
+    $res = mget($sock, 'toinv', 's');
+    unlike($res->{flags}, qr/[XWZ]/, "no extra flags");
+
+    # Lets mark the sucker as invalid, and drop its TTL to 30s
+    print $sock "mdelete toinv IT 30\r\n";
+
+    # TODO: decid e on if we need an explicit flag for "if I fetched a stale
+    # value, does winning matter?
+    # I think it's probably fine. clients can always ignore the win, or we can
+    # add an option later to "don't try to revalidate if stale", perhaps.
+    $res = mget($sock, 'toinv', 'stcv');
+    ok(keys %$res, "not a miss");
+    like($res->{flags}, qr/stcv/, "got main flags back");
+    like($res->{flags}, qr/W/, "won the recache");
+    like($res->{flags}, qr/X/, "item is marked stale");
+    is($res->{key}, 'toinv', "key matches");
+    $ttl = $res->{tokens}->[1];
+    ok($ttl > 0 && $ttl <= 30, "TTL is within requested window");
+    ok($res->{tokens}->[0] == 3, "Size returned correctly");
+    is($res->{val}, "moo", "value matches");
+
+    # Try and fail to set a too-low CAS.
+    print $sock "mset toinv STC 1 90 0\r\nf\r\n";
+    like(scalar <$sock>, qr/^NOT_STORED/, "failed to SET: low CAS didn't match");
+
+    print $sock "mset toinv SITC 1 90 0\r\nf\r\n";
+    like(scalar <$sock>, qr/^STORED/, "SET an invalid/stale item");
+
+    # confirm we're still stale, and TTL wasn't raised.
+    $res = mget($sock, 'toinv', 'stc');
+    like($res->{flags}, qr/X/, "item is marked stale");
+    like($res->{flags}, qr/Z/, "win token already sent");
+    unlike($res->{flags}, qr/W/, "didn't win: token already sent");
+    $ttl = $res->{tokens}->[1];
+    ok($ttl > 0 && $ttl <= 30, "TTL wasn't modified");
+
+    # TODO: CAS too high?
+
+    # Now set for real.
+    $cas = $res->{token}->[2];
+    print $sock "mset toinv STC 1 90 0\r\ng\r\n";
+    like(scalar <$sock>, qr/^STORED/, "SET over the stale item");
+
+    $res = mget($sock, 'toinv', 'stc');
+    ok(keys %$res, "not a miss");
+    unlike($res->{flags}, qr/[WXZ]/, "no stale, win, or tokens");
+
+    $ttl = $res->{tokens}->[1];
+    ok($ttl > 30 && $ttl <= 90, "TTL was modified");
+    ok($cas != $res->{token}->[2], "CAS was updated");
+    is($res->{token}->[0], 1, "size updated");
+    is($res->{val}, "g", "value was updated");
+}
 
 ###
 
