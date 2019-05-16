@@ -4244,6 +4244,8 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
     pthread_mutex_unlock(&c->thread->stats.mutex);
 }
 
+#define MGET_MAX_OPT_LENGTH 20
+
 // helper function for mget, two character atoi.
 // TODO: restrict to numeric? else it just gives the wrong number anyway.
 /*static uint8_t _mget_atoi(token_t *t) {
@@ -4261,20 +4263,54 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
 // return? maybe if not in strict ordering (so there's no perf hit) we can add
 // it anyway.
 struct _mget_flags {
-    unsigned int ttl :1;
-    unsigned int size :1;
-    unsigned int cas :1;
-    unsigned int value :1;
-    unsigned int flags :1;
+    unsigned int no_update :1;
+    unsigned int locked :1;
+    unsigned int vivify :1;
     unsigned int la :1;
     unsigned int hit :1;
-    unsigned int no_update :1;
-    unsigned int set_ttl :1;
-    unsigned int autovivify :1;
+    unsigned int value :1;
 };
 
-// TODO: command requires !settings.inline_ascii_response (ie; modern)
-// could just make that setting a no-op during the release for this? it's been deprecated for a year.
+static int _mget_flag_preparse(char *opts, size_t olen, struct _mget_flags *of) {
+    unsigned int i;
+    // FIXME: just need a bit field, not full numbers.
+    uint8_t seen[127] = {0};
+    // also count how many tokens should be necessary to parse.
+    int tokens = 0;
+    for (i = 0; i < olen; i++) {
+        uint8_t o = (uint8_t)opts[i];
+        // zero out repeat flags so we don't over-parse for return data.
+        if (o >= 127 || seen[o] != 0) {
+            opts[i] = 0;
+            continue;
+        }
+        seen[o] = 1;
+        switch (opts[i]) {
+            case 'N':
+                of->locked = 1;
+                of->vivify = 1;
+                tokens++;
+                break;
+            case 'T':
+                tokens++;
+                of->locked = 1;
+                break;
+            case 'R':
+                of->locked = 1;
+                tokens++;
+                break;
+            case 'l':
+                of->la = 1;
+                break;
+            case 'u':
+                of->no_update = 1;
+                break;
+        }
+    }
+
+    return tokens;
+}
+
 static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
@@ -4286,8 +4322,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     struct _mget_flags of = {0}; // option bitflags.
     uint32_t hv; // cached hash value for unlocking an item.
     bool failed = false;
-    bool item_locked = false;
     bool item_created = false;
+    bool ttl_set = false;
     bool update = DO_UPDATE;
 
     assert(c != NULL);
@@ -4316,51 +4352,15 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     olen = tokens[KEY_TOKEN + 1].length;
     rtokens--;
 
-    // NOTE: for each needed token, track the number here. bail if not enough
-    // remaining tokens.
-    // loop through the supplied options, set any feature flags for how to
-    // grab and respond with the item.
-    for (i = 0; i < olen; i++) {
-        switch (opts[i]) {
-            case 'u':
-                update = DONT_UPDATE;
-                break;
-            case 's':
-                of.size = 1;
-                break;
-            case 't':
-                of.ttl = 1;
-                break;
-            case 'T':
-                of.set_ttl = 1;
-                item_locked = true;
-                rtokens--;
-                break;
-            case 'c':
-                of.cas = 1;
-                break;
-            case 'v':
-                of.value = 1;
-                break;
-            case 'f':
-                of.flags = 1;
-                break;
-            case 'l':
-                of.la = 1;
-                break;
-            case 'h':
-                of.hit = 1;
-                break;
-            case 'N':
-                of.autovivify = 1;
-                item_locked = true;
-                rtokens--;
-                break;
-            default:
-                fprintf(stderr, "Unknown option: %c\n", opts[i]);
-                break;
-        }
+    if (olen > MGET_MAX_OPT_LENGTH) {
+        out_string(c, "CLIENT_ERROR options flags too long");
+        return;
     }
+
+    // TODO: Copy opts into wbuf and advance pointer.
+
+    // scrubs duplicated options and sets flags for how to load the item.
+    rtokens -= _mget_flag_preparse(opts, olen, &of);
 
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
@@ -4370,8 +4370,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // FIXME: repurposing variable?
     rtokens = KEY_TOKEN + 2;
 
-    // TODO: need to indicate if the item was overflowed or not.
-    if (!item_locked) {
+    // TODO: need to indicate if the item was overflowed or not?
+    if (!of.locked) {
         it = limited_get(key, nkey, c, 0, false, update);
     } else {
         it = limited_get_locked(key, nkey, c, update, &hv);
@@ -4379,16 +4379,9 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // FIXME: this also needs to take client flags.
     // or client flag bit to flip?
-    if (it == NULL && of.autovivify) {
-        // TODO: Settings for default autovivification TTL.
-        // for users with extremely strict byte-on-wire budgets?
-        int32_t exptime_int = 0;
-        if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
-            // FIXME: add key.
-            out_string(c, "CLIENT_ERROR bad command line format");
-        }
-        rtokens++;
-        it = item_alloc(key, nkey, 0, realtime(exptime_int), 2);
+    if (it == NULL && of.vivify) {
+        // Fill in the exptime during parsing later.
+        it = item_alloc(key, nkey, 0, realtime(0), 2);
         // We don't actually need any of do_store_item's logic:
         // - already fetched and missed an existing item.
         // - lock is still held.
@@ -4397,91 +4390,97 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         if (it != NULL) {
             // I look forward to the day I get rid of this :)
             memcpy(ITEM_data(it), "\r\n", 2);
+            // NOTE: This initializes the CAS value.
             do_item_link(it, hv);
             item_created = true;
-            // NOTE: for binprot I think c->cas needs to get set here.
+            // TODO: extra ITEM_* flags?
+            // TODO: mark a win?
         }
     }
 
     // don't have to check result of add_iov() since the iov size defaults are
     // enough.
     if (it) {
+        int32_t exptime_int = 0;
         char *p = c->wbuf;
-        // TODO: stats hit bump
 
-        // NOTE: effectively the same as iterating through a bit field with a
-        // big case statement. Not sure which I like more aesthetically.
+        for (i = 0; i < olen; i++) {
+            switch (opts[i]) {
+                case 'T':
+                    ttl_set = true;
+                case 'N': // fallthrough. handled the same way here.
+                    if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                        // FIXME: add key.
+                        // FIXME: jump to error handling.
+                        out_string(c, "CLIENT_ERROR bad command line format");
+                    }
+                    it->exptime = realtime(exptime_int);
+                    rtokens++;
+                    break;
+                case 'R':
+                    // If we haven't autovivified and supplied token is less
+                    // than current TTL, mark a win.
+                    break;
+                case 's':
+                    *p = ' ';
+                    p = itoa_u32(it->nbytes-2, p+1);
+                    break;
+                case 't':
+                    // TODO: ensure this is correct for autoviv case.
+                    // or, I guess users can put N before t?
+                    // TTL remaining as of this request.
+                    // needs to be relative because server clocks may not be in sync.
+                    *p = ' ';
+                    if (it->exptime == 0) {
+                        *(p+1) = '-';
+                        *(p+2) = '1';
+                        p += 3;
+                    } else {
+                        p = itoa_u32(it->exptime - current_time, p+1);
+                    }
+                    break;
+                case 'c':
+                    *p = ' ';
+                    p = itoa_u64(ITEM_get_cas(it), p+1);
+                    break;
+                case 'v':
+                    of.value = 1;
+                    break;
+                case 'f':
+                    *p = ' ';
+                    if (FLAGS_SIZE(it) == 0) {
+                        *(p+1) = '0';
+                        p += 2;
+                    } else {
+                        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p+1);
+                    }
+                    break;
+                case 'l':
+                    // FIXME: this will be _now_ unless paired with 'u'. allow get command to pass back
+                    // pre-existing last-access time?
+                    *p = ' ';
+                    p = itoa_u32(current_time - it->time, p+1);
+                    break;
+                case 'h':
+                    *p = ' ';
+                    if (it->it_flags & ITEM_FETCHED) {
+                        *(p+1) = '1';
+                    } else {
+                        *(p+1) = '0';
+                    }
+                    break;
+                default:
+                    fprintf(stderr, "Unknown option: %c\n", opts[i]);
+                    break;
+            }
+        }
+
         if (item_created) {
             add_iov(c, "WIN ", 4);
         } else {
             add_iov(c, "VALUE ", 6);
         }
         add_iov(c, ITEM_key(it), it->nkey);
-
-        // METADATA ORDER:
-        // flags size cas ttl
-        // Now we abuse c->wbuf and our itoa's to fill requested fields.
-        if (of.flags) {
-            *p = ' ';
-            if (FLAGS_SIZE(it) == 0) {
-                *(p+1) = '0';
-                p += 2;
-            } else {
-                p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p+1);
-            }
-        }
-
-        if (of.size) {
-            *p = ' ';
-            p = itoa_u32(it->nbytes-2, p+1);
-        }
-
-        if (of.cas) {
-            *p = ' ';
-            p = itoa_u64(ITEM_get_cas(it), p+1);
-        }
-
-        // TTL remaining as of this request.
-        // needs to be relative because server clocks may not be in sync.
-        if (of.ttl) {
-            *p = ' ';
-            if (it->exptime == 0) {
-                *(p+1) = '-';
-                *(p+2) = '1';
-                p += 3;
-            } else {
-                p = itoa_u32(it->exptime - current_time, p+1);
-            }
-        }
-
-        // now that we've read off the old TTL, we can update the new one.
-        if (of.set_ttl) {
-            int32_t exptime_int = 0;
-            if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
-                // FIXME: add key.
-                out_string(c, "CLIENT_ERROR bad command line format");
-            }
-            it->exptime = realtime(exptime_int);
-            rtokens++;
-        }
-
-        // Last Access time of this request, relative time.
-        // FIXME: this will be _now_ unless paired with 'u'. allow get command to pass back
-        // pre-existing last-access time?
-        if (of.la) {
-            *p = ' ';
-            p = itoa_u32(current_time - it->time, p+1);
-        }
-
-        // "fetched", or has been hit before.
-        if (of.hit) {
-            *p = ' ';
-            if (it->it_flags & ITEM_FETCHED) {
-                *(p+1) = '1';
-            } else {
-                *(p+1) = '0';
-            }
-        }
 
         *p = '\r';
         *(p+1) = '\n';
@@ -4537,7 +4536,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                 c->item = it;
             }
         } else {
-            if (item_locked) {
+            if (of.locked) {
                 do_item_remove(it);
             } else {
                 item_remove(it);
@@ -4550,7 +4549,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         failed = true;
     }
 
-    if (item_locked) {
+    if (of.locked) {
         item_unlock(hv);
     }
 
@@ -4558,7 +4557,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // TODO: for autovivify case, miss never happens. Is this okay?
     if (!failed) {
         pthread_mutex_lock(&c->thread->stats.mutex);
-        if (of.set_ttl) {
+        if (ttl_set) {
             c->thread->stats.touch_cmds++;
             c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
         } else {
@@ -4571,7 +4570,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         c->write_and_go = conn_new_cmd;
     } else {
         pthread_mutex_lock(&c->thread->stats.mutex);
-        if (of.set_ttl) {
+        if (ttl_set) {
             c->thread->stats.touch_cmds++;
             c->thread->stats.touch_misses++;
         } else {
