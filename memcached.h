@@ -478,7 +478,12 @@ extern struct settings settings;
 #define ITEM_HDR 128
 /* additional 4 bytes for item client flags */
 #define ITEM_CFLAGS 256
-/* 7 bits free! */
+/* item has sent out a token already */
+#define ITEM_TOKEN_SENT 512
+/* reserved, in case tokens should be a 2-bit count in future */
+#define ITEM_TOKEN_RESERVED 1024
+/* if item has been marked as a stale value */
+#define ITEM_STALE 2048
 
 /**
  * Structure for storing items within memcached.

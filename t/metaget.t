@@ -105,8 +105,8 @@ my $sock = $server->sock;
 # - test just modifying the TTL (touch)
 # - test fetching without value
 {
-    my $res = mget($sock, 'needwin', 'stcvN 30');
-    like($res->{flags}, qr/stcvN/, "got main flags back");
+    my $res = mget($sock, 'needwin', 'scvNt 30');
+    like($res->{flags}, qr/scvNt/, "got main flags back");
     like($res->{flags}, qr/W/, "got a win result");
     unlike($res->{flags}, qr/Z/, "no token already sent warning");
 
@@ -323,7 +323,7 @@ sub mget_res {
     my $resp = shift;
     my %r = ();
 
-    if ($resp =~ m/^VALUE (.*) (.*) (.*)\r\n(.*)\r\n/gm) {
+    if ($resp =~ m/^VALUE ([^\s]+) ([^\s]+) ([^\r]+)\r\n(.*)\r\n/gm) {
         $r{key} = $1;
         $r{flags} = $2;
         $r{val} = $4;

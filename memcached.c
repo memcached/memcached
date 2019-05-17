@@ -4316,6 +4316,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     size_t nkey;
     item *it;
     char *opts;
+    char *fp = NULL;
+    char *p = c->wbuf;
     size_t olen;
     unsigned int i = 0;
     int32_t rtokens = 0; // remaining tokens available.
@@ -4323,6 +4325,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     uint32_t hv; // cached hash value for unlocking an item.
     bool failed = false;
     bool item_created = false;
+    bool won_token = false;
     bool ttl_set = false;
     bool update = DO_UPDATE;
 
@@ -4357,7 +4360,16 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         return;
     }
 
-    // TODO: Copy opts into wbuf and advance pointer.
+    // Copy opts into wbuf and advance pointer.
+    // We return the initial options + extra indicator flags.
+    // we reserve 4 bytes in front of the buffer, for up to three extra flags
+    // we can tag plus the initial space.
+    // This could be simpler by adding two iov's for the header line, but this
+    // is a hot path so trying to keep those to a minimum.
+    fp = c->wbuf + 4;
+    memcpy(fp, opts, olen);
+    p = fp + olen;
+    fp--; // next token, or final space, goes here.
 
     // scrubs duplicated options and sets flags for how to load the item.
     rtokens -= _mget_flag_preparse(opts, olen, &of);
@@ -4394,7 +4406,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             do_item_link(it, hv);
             item_created = true;
             // TODO: extra ITEM_* flags?
-            // TODO: mark a win?
+
         }
     }
 
@@ -4402,24 +4414,43 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // enough.
     if (it) {
         int32_t exptime_int = 0;
-        char *p = c->wbuf;
+
+        // Has this item already sent a token?
+        // Important to do this here so we don't send W with Z.
+        // Isn't critical, but easier for client authors to understand.
+        if (it->it_flags & ITEM_TOKEN_SENT) {
+            *fp = 'Z';
+            fp--;
+        }
+        if (it->it_flags & ITEM_STALE) {
+            *fp = 'X';
+            fp--;
+        }
 
         for (i = 0; i < olen; i++) {
             switch (opts[i]) {
                 case 'T':
                     ttl_set = true;
                 case 'N': // fallthrough. handled the same way here.
-                    if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
-                        // FIXME: add key.
-                        // FIXME: jump to error handling.
-                        out_string(c, "CLIENT_ERROR bad command line format");
+                    if (item_created) {
+                        if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                            // FIXME: add key.
+                            // FIXME: jump to error handling.
+                            out_string(c, "CLIENT_ERROR bad command line format");
+                        }
+                        it->exptime = realtime(exptime_int);
+                        rtokens++;
+                        won_token = true;
                     }
-                    it->exptime = realtime(exptime_int);
-                    rtokens++;
                     break;
                 case 'R':
+                    // TODO: implementation.
                     // If we haven't autovivified and supplied token is less
                     // than current TTL, mark a win.
+                    if (!item_created) {
+                        // Can't trigger if we just created the item.
+                        won_token = true;
+                    }
                     break;
                 case 's':
                     *p = ' ';
@@ -4475,19 +4506,26 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             }
         }
 
-        if (item_created) {
-            add_iov(c, "WIN ", 4);
-        } else {
-            add_iov(c, "VALUE ", 6);
+        if (won_token) {
+            // Mark a win into the flag buffer.
+            *fp = 'W';
+            fp--; // walk backwards for next token.
+            it->it_flags |= ITEM_TOKEN_SENT;
         }
+
+        add_iov(c, "VALUE ", 6);
         add_iov(c, ITEM_key(it), it->nkey);
 
         *p = '\r';
         *(p+1) = '\n';
         *(p+2) = '\0';
         p += 2;
+        // tag initial space to the front of the buffer, ahead of any extra
+        // flags that were added.
+        *fp = ' ';
         // finally, chain in the buffer.
-        add_iov(c, c->wbuf, p - c->wbuf);
+        // fp includes the flags.
+        add_iov(c, fp, p - fp);
 
         if (of.value) {
 #ifdef EXTSTORE
