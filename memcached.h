@@ -38,6 +38,9 @@
 /** Maximum length of a key. */
 #define KEY_MAX_LENGTH 250
 
+/** Maximum length of a uri encoded key. */
+#define KEY_MAX_URI_ENCODED_LENGTH (KEY_MAX_LENGTH  * 3 + 1)
+
 /** Size of an incr buf. */
 #define INCR_MAX_STORAGE_LEN 24
 

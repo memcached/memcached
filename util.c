@@ -29,7 +29,7 @@ bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dst
     int x;
     size_t d = 0;
     for (x = 0; x < srclen; x++) {
-        if (d + 4 >= dstlen)
+        if (d + 4 > dstlen)
             return false;
         if (uriencode_map[(unsigned char) src[x]] != NULL) {
             memcpy(&dst[d], uriencode_map[(unsigned char) src[x]], 3);

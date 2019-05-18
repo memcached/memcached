@@ -174,7 +174,7 @@ static void logger_set_flags(void) {
 static int _logger_thread_parse_ise(logentry *e, char *scratch) {
     int total;
     const char *cmd = "na";
-    char keybuf[KEY_MAX_LENGTH * 3 + 1];
+    char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
     struct logentry_item_store *le = (struct logentry_item_store *) e->data;
     const char * const status_map[] = {
         "not_stored", "stored", "exists", "not_found", "too_large", "no_memory" };
@@ -184,7 +184,7 @@ static int _logger_thread_parse_ise(logentry *e, char *scratch) {
     if (le->cmd <= 5)
         cmd = cmd_map[le->cmd];
 
-    uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
             "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u clsid=%u\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
@@ -195,11 +195,11 @@ static int _logger_thread_parse_ise(logentry *e, char *scratch) {
 static int _logger_thread_parse_ige(logentry *e, char *scratch) {
     int total;
     struct logentry_item_get *le = (struct logentry_item_get *) e->data;
-    char keybuf[KEY_MAX_LENGTH * 3 + 1];
+    char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
     const char * const was_found_map[] = {
         "not_found", "found", "flushed", "expired" };
 
-    uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
             "ts=%d.%d gid=%llu type=item_get key=%s status=%s clsid=%u\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
@@ -209,9 +209,9 @@ static int _logger_thread_parse_ige(logentry *e, char *scratch) {
 
 static int _logger_thread_parse_ee(logentry *e, char *scratch) {
     int total;
-    char keybuf[KEY_MAX_LENGTH * 3 + 1];
+    char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
     struct logentry_eviction *le = (struct logentry_eviction *) e->data;
-    uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
             "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d clsid=%u\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
@@ -223,9 +223,9 @@ static int _logger_thread_parse_ee(logentry *e, char *scratch) {
 #ifdef EXTSTORE
 static int _logger_thread_parse_extw(logentry *e, char *scratch) {
     int total;
-    char keybuf[KEY_MAX_LENGTH * 3 + 1];
+    char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
     struct logentry_ext_write *le = (struct logentry_ext_write *) e->data;
-    uriencode(le->key, keybuf, le->nkey, LOGGER_PARSE_SCRATCH);
+    uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
             "ts=%d.%d gid=%llu type=extwrite key=%s fetch=%s ttl=%lld la=%d clsid=%u bucket=%u\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
