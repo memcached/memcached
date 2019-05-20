@@ -34,8 +34,8 @@ Summary:        High Performance, Distributed Memory Object Cache
 
 Group:          System Environment/Daemons
 License:        BSD
-URL:            http://memcached.org
-Source0:        http://memcached.org/files/%{name}-%{version}.tar.gz
+URL:            https://memcached.org
+Source0:        https://memcached.org/files/%{name}-%{version}.tar.gz
 Source1:        memcached.sysconfig
 Source2:        memcached.service
 Source3:        memcached@.service
