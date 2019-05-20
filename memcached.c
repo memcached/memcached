@@ -4363,7 +4363,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     }
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
-    snprintf(buf, INCR_MAX_STORAGE_LEN, "%llu", (unsigned long long)value);
+    itoa_u64(value, buf);
     res = strlen(buf);
     /* refcount == 2 means we are the only ones holding the item, and it is
      * linked. We hold the item's lock in this function, so refcount cannot
