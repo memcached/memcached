@@ -1,0 +1,12 @@
+FROM fedora:latest
+
+RUN dnf install -y perl automake autoconf libseccomp-devel libevent-devel gcc make git
+
+ADD . /src
+WORKDIR /src
+
+RUN aclocal && autoheader && automake --foreign --add-missing && autoconf
+RUN ./configure --enable-seccomp
+RUN make -j
+
+CMD make test
