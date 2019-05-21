@@ -682,6 +682,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->msgcurr = 0;
     c->msgused = 0;
     c->sasl_started = false;
+    c->set_stale = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
 #ifdef EXTSTORE
     c->io_wraplist = NULL;
@@ -2937,7 +2938,7 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
 
 /*
  * Stores an item in the cache according to the semantics of one of the set
- * commands. In threaded mode, this is protected by the cache lock.
+ * commands. Protected by the item lock.
  *
  * Returns the state of storage.
  */
@@ -2958,7 +2959,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         /* replace only replaces an existing value; don't store */
     } else if (comm == NREAD_CAS) {
         /* validate cas operation */
-        if(old_it == NULL) {
+        if (old_it == NULL) {
             // LRU expired
             stored = NOT_FOUND;
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -2969,6 +2970,24 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             // cas validates
             // it and old_it may belong to different classes.
             // I'm updating the stats for the one that's getting pushed out
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
+            STORAGE_delete(c->thread->storage, old_it);
+            item_replace(old_it, it, hv);
+            stored = STORED;
+        } else if (c->set_stale && ITEM_get_cas(it) < ITEM_get_cas(old_it)) {
+            // if we're allowed to set a stale value, CAS must be lower than
+            // the current item's CAS.
+            // This replaces the value, but should preserve TTL, and stale
+            // item marker bit + token sent if exists.
+            it->exptime = old_it->exptime;
+            it->it_flags |= ITEM_STALE;
+            if (old_it->it_flags & ITEM_TOKEN_SENT) {
+                it->it_flags |= ITEM_TOKEN_SENT;
+            }
+
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -3015,7 +3034,6 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
 #endif
             if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
-                /* flags was already lost - so recover them from ITEM_suffix(it) */
                 FLAGS_CONV(old_it, flags);
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
@@ -3057,6 +3075,8 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it), c->sfd);
 
+    // always force this to be off again just in case.
+    c->set_stale = false;
     return stored;
 }
 
@@ -4244,34 +4264,22 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
     pthread_mutex_unlock(&c->thread->stats.mutex);
 }
 
-#define MGET_MAX_OPT_LENGTH 20
-
-// helper function for mget, two character atoi.
-// TODO: restrict to numeric? else it just gives the wrong number anyway.
-/*static uint8_t _mget_atoi(token_t *t) {
-    int x = t->length > 2 ? 2 : t->length;
-    uint8_t v = 0;
-    char *p = t->value;
-    for (; x >= 0; x--) {
-        v *= 10 + (*p - '0');
-        p++;
-    }
-    return v;
-}*/
+#define MFLAG_MAX_OPT_LENGTH 20
 
 // TODO: I can't think of a reason for optimized mode to have a class-id
 // return? maybe if not in strict ordering (so there's no perf hit) we can add
 // it anyway.
-struct _mget_flags {
+struct _meta_flags {
     unsigned int no_update :1;
     unsigned int locked :1;
     unsigned int vivify :1;
     unsigned int la :1;
     unsigned int hit :1;
     unsigned int value :1;
+    unsigned int set_stale :1;
 };
 
-static int _mget_flag_preparse(char *opts, size_t olen, struct _mget_flags *of) {
+static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) {
     unsigned int i;
     // FIXME: just need a bit field, not full numbers.
     uint8_t seen[127] = {0};
@@ -4305,6 +4313,15 @@ static int _mget_flag_preparse(char *opts, size_t olen, struct _mget_flags *of) 
             case 'u':
                 of->no_update = 1;
                 break;
+            // mset-related.
+            case 'F':
+            case 'S':
+            case 'C':
+                tokens++;
+                break;
+            case 'I':
+                of->set_stale = 1;
+                break;
         }
     }
 
@@ -4321,7 +4338,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     size_t olen;
     unsigned int i = 0;
     int32_t rtokens = 0; // remaining tokens available.
-    struct _mget_flags of = {0}; // option bitflags.
+    struct _meta_flags of = {0}; // option bitflags.
     uint32_t hv; // cached hash value for unlocking an item.
     bool failed = false;
     bool item_created = false;
@@ -4355,7 +4372,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     olen = tokens[KEY_TOKEN + 1].length;
     rtokens--;
 
-    if (olen > MGET_MAX_OPT_LENGTH) {
+    if (olen > MFLAG_MAX_OPT_LENGTH) {
         out_string(c, "CLIENT_ERROR options flags too long");
         return;
     }
@@ -4372,7 +4389,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     fp--; // next token, or final space, goes here.
 
     // scrubs duplicated options and sets flags for how to load the item.
-    rtokens -= _mget_flag_preparse(opts, olen, &of);
+    rtokens -= _meta_flag_preparse(opts, olen, &of);
 
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
@@ -4389,8 +4406,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         it = limited_get_locked(key, nkey, c, update, &hv);
     }
 
-    // FIXME: this also needs to take client flags.
-    // or client flag bit to flip?
     if (it == NULL && of.vivify) {
         // Fill in the exptime during parsing later.
         it = item_alloc(key, nkey, 0, realtime(0), 2);
@@ -4405,8 +4420,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             // NOTE: This initializes the CAS value.
             do_item_link(it, hv);
             item_created = true;
-            // TODO: extra ITEM_* flags?
-
         }
     }
 
@@ -4438,19 +4451,27 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                             // FIXME: jump to error handling.
                             out_string(c, "CLIENT_ERROR bad command line format");
                         }
+                        // FIXME: check for < 0, or stoul and cast here.
                         it->exptime = realtime(exptime_int);
-                        rtokens++;
                         won_token = true;
                     }
+                    rtokens++; // always consume the token.
                     break;
                 case 'R':
-                    // TODO: implementation.
                     // If we haven't autovivified and supplied token is less
                     // than current TTL, mark a win.
-                    if (!item_created) {
-                        // Can't trigger if we just created the item.
-                        won_token = true;
+                    if ((it->it_flags & ITEM_TOKEN_SENT) == 0
+                            && !item_created
+                            && it->exptime != 0) {
+                        if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                            // FIXME: error handling
+                        }
+
+                        if (it->exptime - current_time < exptime_int) {
+                            won_token = true;
+                        }
                     }
+                    rtokens++;
                     break;
                 case 's':
                     *p = ' ';
@@ -4621,6 +4642,163 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         out_string(c, "END");
     }
 
+}
+
+static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    unsigned int flags = 0;
+    uint32_t exptime_int = 0;
+    uint64_t req_cas_id = 0;
+    time_t exptime;
+    int vlen = 0;
+    int rtokens;
+    item *it;
+    char *opts;
+    int olen, i;
+    short comm = NREAD_SET;
+    struct _meta_flags of = {0}; // option bitflags.
+
+    assert(c != NULL);
+
+    // TODO: most of this is identical to mget.
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    rtokens = ntokens - 3; // cmd, key, final.
+
+    // TODO: error: need to know what to do with the item.
+    if (rtokens == 0) {
+
+    }
+
+    opts = tokens[KEY_TOKEN + 1].value;
+    olen = tokens[KEY_TOKEN + 1].length;
+    rtokens--;
+
+    if (olen > MFLAG_MAX_OPT_LENGTH) {
+        out_string(c, "CLIENT_ERROR options flags too long");
+        return;
+    }
+
+    // scrubs duplicated options and sets flags for how to load the item.
+    // TODO: I, E, APL?
+    rtokens -= _meta_flag_preparse(opts, olen, &of);
+
+    // FIXME: make string more clear and add key to response
+    if (rtokens < 0) {
+        out_string(c, "CLIENT_ERROR not enough tokens given to mset command");
+        return;
+    }
+    // FIXME: repurposing variable?
+    rtokens = KEY_TOKEN + 2;
+
+    // TODO: Do we need to return the tokens?
+    // since NOT_STORED and so on are far away from this (past a read), if we
+    // need to store the tokens it would have to be stowed with the connection
+    // structure
+
+    for (i = 0; i < olen; i++) {
+        switch (opts[i]) {
+            case 'F':
+                if (!safe_strtoul(tokens[rtokens].value, &flags)) {
+                    // FIXME: error
+                }
+                rtokens++;
+                break;
+            case 'C':
+                if (!safe_strtoull(tokens[rtokens].value, &req_cas_id)) {
+                    // FIXME: error
+                }
+                comm = NREAD_CAS;
+                rtokens++;
+                break;
+            case 'S':
+                if (!safe_strtol(tokens[rtokens].value, &vlen)) {
+                    // FIXME: error
+                }
+                rtokens++;
+                break;
+            case 'T':
+                if (!safe_strtoul(tokens[rtokens].value, &exptime_int)) {
+                    // FIXME: error
+                }
+                rtokens++;
+                break;
+        }
+    }
+
+    /* Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
+    exptime = exptime_int;
+
+    /* Negative exptimes can underflow and end up immortal. realtime() will
+       immediately expire values that are greater than REALTIME_MAXDELTA, but less
+       than process_started, so lets aim for that. */
+    if (exptime < 0)
+        exptime = REALTIME_MAXDELTA + 1;
+
+    // TODO: can we treat vlen as unsigned? :(
+    if (vlen < 0 || vlen > (INT_MAX - 2)) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+    vlen += 2;
+
+    it = item_alloc(key, nkey, flags, realtime(exptime), vlen);
+
+    if (it == 0) {
+        uint32_t hv;
+        enum store_item_type status;
+        // FIXME: correct the error handling
+        if (! item_size_ok(nkey, flags, vlen)) {
+            out_string(c, "SERVER_ERROR object too large for cache");
+            status = TOO_LARGE;
+        } else {
+            out_of_memory(c, "SERVER_ERROR out of memory storing object");
+            status = NO_MEMORY;
+        }
+        // FIXME: LOGGER_LOG specific to mset, include options.
+        LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
+                NULL, status, comm, key, nkey, 0, 0);
+        /* swallow the data line */
+        c->write_and_go = conn_swallow;
+        c->sbytes = vlen;
+
+        /* Avoid stale data persisting in cache because we failed alloc. */
+        it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+        if (it) {
+            do_item_unlink(it, hv);
+            STORAGE_delete(c->thread->storage, it);
+            do_item_remove(it);
+        }
+        item_unlock(hv);
+
+        return;
+    }
+    ITEM_set_cas(it, req_cas_id);
+
+    c->item = it;
+#ifdef NEED_ALIGN
+    if (it->it_flags & ITEM_CHUNKED) {
+        c->ritem = ITEM_schunk(it);
+    } else {
+        c->ritem = ITEM_data(it);
+    }
+#else
+    c->ritem = ITEM_data(it);
+#endif
+    c->rlbytes = it->nbytes;
+    // TODO: Could support other modes (append/prepend/replace/add)
+    c->cmd = comm;
+    if (of.set_stale && comm == NREAD_CAS) {
+        c->set_stale = true;
+    }
+    conn_set_state(c, conn_nread);
 }
 
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
@@ -5297,6 +5475,8 @@ static void process_command(conn *c, char *command) {
 
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mget") == 0)) {
         process_mget_command(c, tokens, ntokens);
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mset") == 0)) {
+        process_mset_command(c, tokens, ntokens);
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
         process_arithmetic_command(c, tokens, ntokens, 0);

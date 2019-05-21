@@ -25,7 +25,8 @@ my $sock = $server->sock;
 # - f: client flags
 # - l: last access time TODO: test
 # - h: whether item has been hit before TODO: test
-# - q: noreply semantics.
+# - q: noreply semantics. TODO: tests.
+# - u: don't bump the item (TODO: how to test? via last-access time?)
 # updaters:
 # - N (token): vivify on miss, takes TTL as a argument
 # - R (token): if token is less than item TTL win for recache
@@ -49,6 +50,11 @@ my $sock = $server->sock;
 # - S (token): item size
 # - T (token): TTL
 # - I: invalid. set-to-invalid if CAS is older than it should be.
+# - E: add if not exists (influences other options)
+# - A: append (exclusive)
+# - P: prepend (exclusive)
+# - L: replace (exclusive)
+# - incr/decr? pushing it, I guess.
 #
 # mdelete [key] [flags] [tokens]\r\n
 # response:
@@ -125,11 +131,11 @@ my $sock = $server->sock;
 
     # set back with the wrong CAS
     print $sock "mset needwin CST 5000 2 120\r\nnu\r\n";
-    like(scalar <$sock>, qr/^NOT_STORED/, "failed to SET: CAS didn't match");
+    like(scalar <$sock>, qr/^EXISTS/, "failed to SET: CAS didn't match");
 
     # again, but succeed.
     # TODO: the actual CAS command should work here too?
-    my $cas = $res->{tokens}->[2];
+    my $cas = $res->{tokens}->[1];
     print $sock "mset needwin CST $cas 2 120\r\nmu\r\n";
     like(scalar <$sock>, qr/^STORED/, "SET: CAS matched");
 
@@ -140,7 +146,7 @@ my $sock = $server->sock;
     unlike($res->{flags}, qr/[WZ]/, "not a win or token result");
     is($res->{key}, 'needwin', "key matches");
     $ttl = $res->{tokens}->[1];
-    ok($ttl > 100 && $ttl <= 120, "TTL is within requested window");
+    ok($ttl > 100 && $ttl <= 120, "TTL is within requested window: $ttl");
     is($res->{val}, "mu", "value matches");
 
     # now we do the whole routine again, but for "triggered on TTL being low"
@@ -176,7 +182,7 @@ my $sock = $server->sock;
     $ttl = $res->{tokens}->[1];
     ok($ttl > 250 && $ttl <= 300, "TTL is within requested window");
     ok($res->{tokens}->[0] == 4, "Size returned correctly");
-    is($res->{val}, "zuuu", "value matches");
+    is($res->{val}, "zuuu", "value matches: " . $res->{val});
 
     # test TOUCH mode
     # test no-value mode
@@ -196,9 +202,9 @@ my $sock = $server->sock;
 {
     my ($ttl, $cas, $res);
     print $sock "set toinv 0 0 3\r\nmoo\r\n";
-    is(scalar <$sock>, "STORED\r\n");
+    is(scalar <$sock>, "STORED\r\n", "stored key 'toinv'");
 
-    $res = mget($sock, 'toinv', 's');
+    $res = mget($sock, 'toinv', 'sv');
     unlike($res->{flags}, qr/[XWZ]/, "no extra flags");
 
     # Lets mark the sucker as invalid, and drop its TTL to 30s
@@ -304,6 +310,7 @@ sub mget_is {
     return {};
 }
 
+# FIXME: skip value if no v in tokens!
 sub mget {
     my $s = shift;
     my $key = shift;

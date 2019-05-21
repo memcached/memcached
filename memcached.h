@@ -613,15 +613,16 @@ typedef struct _io_wrap {
  * The structure representing a connection into memcached.
  */
 struct conn {
+    sasl_conn_t *sasl_conn;
     int    sfd;
+    bool sasl_started;
+    bool authenticated;
+    bool set_stale;
 #ifdef TLS
     SSL    *ssl;
     char   *ssl_wbuf;
     bool ssl_enabled;
 #endif
-    sasl_conn_t *sasl_conn;
-    bool sasl_started;
-    bool authenticated;
     enum conn_states  state;
     enum bin_substates substate;
     rel_time_t last_cmd_time;
