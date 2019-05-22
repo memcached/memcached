@@ -4438,11 +4438,17 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         if (it->it_flags & ITEM_STALE) {
             *fp = 'X';
             fp--;
+            // FIXME: think hard about this. is this a default, or a flag?
+            if ((it->it_flags & ITEM_TOKEN_SENT) == 0) {
+                // If we're stale but no token already sent, now send one.
+                won_token = true;
+            }
         }
 
         for (i = 0; i < olen; i++) {
             switch (opts[i]) {
                 case 'T':
+                    // FIXME: I broke this.
                     ttl_set = true;
                 case 'N': // fallthrough. handled the same way here.
                     if (item_created) {
@@ -4800,6 +4806,133 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     }
     conn_set_state(c, conn_nread);
 }
+
+static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    uint32_t exptime_int = 0;
+    uint64_t req_cas_id = 0;
+    int rtokens;
+    item *it;
+    char *opts;
+    int olen, i;
+    uint32_t hv;
+    struct _meta_flags of = {0}; // option bitflags.
+
+    assert(c != NULL);
+
+    // TODO: most of this is identical to mget.
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    rtokens = ntokens - 3; // cmd, key, final.
+
+    // TODO: error: need to know what to do with the item.
+    if (rtokens == 0) {
+
+    }
+
+    opts = tokens[KEY_TOKEN + 1].value;
+    olen = tokens[KEY_TOKEN + 1].length;
+    rtokens--;
+
+    if (olen > MFLAG_MAX_OPT_LENGTH) {
+        out_string(c, "CLIENT_ERROR options flags too long");
+        return;
+    }
+
+    // scrubs duplicated options and sets flags for how to load the item.
+    rtokens -= _meta_flag_preparse(opts, olen, &of);
+
+    // FIXME: make string more clear and add key to response
+    if (rtokens < 0) {
+        out_string(c, "CLIENT_ERROR not enough tokens given to mdelete command");
+        return;
+    }
+    // FIXME: repurposing variable?
+    rtokens = KEY_TOKEN + 2;
+
+    assert(c != NULL);
+
+    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+    if (it) {
+        bool new_ttl = false;
+        MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
+
+        for (i = 0; i < olen; i++) {
+            switch (opts[i]) {
+                case 'C':
+                    if (!safe_strtoull(tokens[rtokens].value, &req_cas_id)) {
+                        // FIXME: error
+                    }
+                    rtokens++;
+                    break;
+                case 'T':
+                    if (!safe_strtoul(tokens[rtokens].value, &exptime_int)) {
+                        // FIXME: error
+                    }
+                    new_ttl = true;
+                    rtokens++;
+                    break;
+            }
+        }
+
+        // allow only deleting/marking if a CAS value matches.
+        if (req_cas_id != 0 && ITEM_get_cas(it) != req_cas_id) {
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.delete_misses++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
+            // FIXME: key return.
+            out_string(c, "EXISTS");
+            do_item_remove(it);
+            goto cleanup;
+        }
+
+        // If we're to set this item as stale, we don't actually want to
+        // delete it. We mark the stale bit, bump CAS, and update exptime if
+        // we were supplied a new TTL.
+        if (of.set_stale) {
+            if (new_ttl) {
+                it->exptime = realtime(exptime_int);
+            }
+            it->it_flags |= ITEM_STALE;
+            // FIXME: I think we also have to remove ITEM_TOKEN_SENT ?
+
+            // FIXME: this ends up double checking; if ITEM_CAS exists and
+            // use_cas is set. Can use_cas ever change at run time?
+            // if not, collapse into a single branch test?
+            ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+            do_item_remove(it);      /* release our reference */
+            // FIXME: add key.
+            out_string(c, "DELETED");
+        } else {
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
+            do_item_unlink(it, hv);
+            STORAGE_delete(c->thread->storage, it);
+            do_item_remove(it);      /* release our reference */
+            // FIXME: add key.
+            out_string(c, "DELETED");
+        }
+    } else {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.delete_misses++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        out_string(c, "NOT_FOUND");
+    }
+cleanup:
+    item_unlock(hv);
+}
+
 
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
     char *key;
@@ -5477,6 +5610,8 @@ static void process_command(conn *c, char *command) {
         process_mget_command(c, tokens, ntokens);
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mset") == 0)) {
         process_mset_command(c, tokens, ntokens);
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mdelete") == 0)) {
+        process_mdelete_command(c, tokens, ntokens);
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
         process_arithmetic_command(c, tokens, ntokens, 0);

@@ -91,11 +91,11 @@ my $sock = $server->sock;
 # - autovivify and bit-win
 
 {
-    print $sock "set foo2 0 90 2\r\nho\r\n";    
+    print $sock "set foo2 0 90 2\r\nho\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored test value");
 
-    mget_is({ sock => $sock, 
-              flags => 'sv', 
+    mget_is({ sock => $sock,
+              flags => 'sv',
               etokens => [2] },
             'foo2', 'ho', "retrieved test value");
 
@@ -200,6 +200,7 @@ my $sock = $server->sock;
 #     - this should probably be conditional.
 
 {
+    diag "starting serve stale with mdelete";
     my ($ttl, $cas, $res);
     print $sock "set toinv 0 0 3\r\nmoo\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key 'toinv'");
@@ -208,9 +209,11 @@ my $sock = $server->sock;
     unlike($res->{flags}, qr/[XWZ]/, "no extra flags");
 
     # Lets mark the sucker as invalid, and drop its TTL to 30s
+    diag "running mdelete";
     print $sock "mdelete toinv IT 30\r\n";
+    like(scalar <$sock>, qr/^DELETED/, "mdelete'd key");
 
-    # TODO: decid e on if we need an explicit flag for "if I fetched a stale
+    # TODO: decide on if we need an explicit flag for "if I fetched a stale
     # value, does winning matter?
     # I think it's probably fine. clients can always ignore the win, or we can
     # add an option later to "don't try to revalidate if stale", perhaps.
@@ -225,15 +228,15 @@ my $sock = $server->sock;
     ok($res->{tokens}->[0] == 3, "Size returned correctly");
     is($res->{val}, "moo", "value matches");
 
-    # Try and fail to set a too-low CAS.
+    diag "trying to fail then stale set via mset";
     print $sock "mset toinv STC 1 90 0\r\nf\r\n";
-    like(scalar <$sock>, qr/^NOT_STORED/, "failed to SET: low CAS didn't match");
+    like(scalar <$sock>, qr/^EXISTS/, "failed to SET: low CAS didn't match");
 
     print $sock "mset toinv SITC 1 90 0\r\nf\r\n";
     like(scalar <$sock>, qr/^STORED/, "SET an invalid/stale item");
 
-    # confirm we're still stale, and TTL wasn't raised.
-    $res = mget($sock, 'toinv', 'stc');
+    diag "confirm item still stale, and TTL wasn't raised.";
+    $res = mget($sock, 'toinv', 'stcv');
     like($res->{flags}, qr/X/, "item is marked stale");
     like($res->{flags}, qr/Z/, "win token already sent");
     unlike($res->{flags}, qr/W/, "didn't win: token already sent");
@@ -242,19 +245,19 @@ my $sock = $server->sock;
 
     # TODO: CAS too high?
 
-    # Now set for real.
-    $cas = $res->{token}->[2];
-    print $sock "mset toinv STC 1 90 0\r\ng\r\n";
+    diag "do valid mset";
+    $cas = $res->{tokens}->[2];
+    print $sock "mset toinv STC 1 90 $cas\r\ng\r\n";
     like(scalar <$sock>, qr/^STORED/, "SET over the stale item");
 
-    $res = mget($sock, 'toinv', 'stc');
+    $res = mget($sock, 'toinv', 'stcv');
     ok(keys %$res, "not a miss");
     unlike($res->{flags}, qr/[WXZ]/, "no stale, win, or tokens");
 
     $ttl = $res->{tokens}->[1];
     ok($ttl > 30 && $ttl <= 90, "TTL was modified");
-    ok($cas != $res->{token}->[2], "CAS was updated");
-    is($res->{token}->[0], 1, "size updated");
+    ok($cas != $res->{tokens}->[2], "CAS was updated");
+    is($res->{tokens}->[0], 1, "size updated");
     is($res->{val}, "g", "value was updated");
 }
 
