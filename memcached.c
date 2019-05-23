@@ -4277,6 +4277,7 @@ struct _meta_flags {
     unsigned int hit :1;
     unsigned int value :1;
     unsigned int set_stale :1;
+    unsigned int no_reply :1;
 };
 
 static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) {
@@ -4312,6 +4313,9 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
                 break;
             case 'u':
                 of->no_update = 1;
+                break;
+            case 'q':
+                of->no_reply = 1;
                 break;
             // mset-related.
             case 'F':
@@ -4390,6 +4394,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // scrubs duplicated options and sets flags for how to load the item.
     rtokens -= _meta_flag_preparse(opts, olen, &of);
+    c->noreply = of.no_reply;
 
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
@@ -4695,6 +4700,9 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     // scrubs duplicated options and sets flags for how to load the item.
     // TODO: I, E, APL?
     rtokens -= _meta_flag_preparse(opts, olen, &of);
+    // FIXME: should this go after the token requirement? else people might
+    // become bewildered...
+    c->noreply = of.no_reply;
 
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
@@ -4848,6 +4856,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
     // scrubs duplicated options and sets flags for how to load the item.
     rtokens -= _meta_flag_preparse(opts, olen, &of);
+    c->noreply = of.no_reply;
 
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {

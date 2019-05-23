@@ -261,6 +261,19 @@ my $sock = $server->sock;
     is($res->{val}, "g", "value was updated");
 }
 
+# Quiet flag suppresses most output. Badly invalid commands will still
+# generate something. Not weird to parse like 'noreply' token was...
+# mget's with hits should return real data.
+{
+    diag "testing quiet flag";
+    print $sock "mset quiet Sq 2\r\nmo\r\n";
+    print $sock "mdelete quiet q\r\n";
+    print $sock "mget quiet svq\r\n";
+    diag "now purposefully cause an error\r\n";
+    print $sock "mset quiet S\r\n";
+    like(scalar <$sock>, qr/^CLIENT_ERROR/, "resp not STORED, DELETED, or END");
+}
+
 ###
 
 # takes hash:
