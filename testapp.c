@@ -519,6 +519,7 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
     if (!(c = (struct conn *)calloc(1, sizeof(struct conn)))) {
         fprintf(stderr, "Failed to allocate the client connection: %s\n",
                 strerror(errno));
+        return NULL;
     }
 
     struct addrinfo *ai = lookuphost(hostname, port);
@@ -680,6 +681,7 @@ static enum test_return test_issue_92(void) {
 
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
+    assert(con);
 
     send_ascii_command("stats cachedump 1 0 0\r\n");
 
@@ -692,6 +694,7 @@ static enum test_return test_issue_92(void) {
 
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
+    assert(con);
     return TEST_PASS;
 }
 
@@ -702,6 +705,7 @@ static enum test_return test_issue_102(void) {
 
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
+    assert(con);
 
     send_ascii_command(buffer);
     /* verify that the server closed the connection */
@@ -709,6 +713,7 @@ static enum test_return test_issue_102(void) {
 
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
+    assert(con);
 
     snprintf(buffer, sizeof(buffer), "gets ");
     size_t offset = 5;
@@ -741,6 +746,7 @@ static enum test_return test_issue_102(void) {
 
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
+    assert(con);
 
     return TEST_PASS;
 }
@@ -749,6 +755,7 @@ static enum test_return start_memcached_server(void) {
     server_pid = start_server(&port, false, 600);
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
+    assert(con);
     return TEST_PASS;
 }
 
@@ -766,6 +773,7 @@ static enum test_return shutdown_memcached_server(void) {
 
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
+    assert(con);
 
     send_ascii_command("shutdown\r\n");
     /* verify that the server closed the connection */
@@ -1179,6 +1187,7 @@ static enum test_return test_binary_quit_impl(uint8_t cmd) {
     assert(con->read(con, buffer.bytes, sizeof(buffer.bytes)) == 0);
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
+    assert(con);
 
     return TEST_PASS;
 }
@@ -1954,6 +1963,7 @@ static enum test_return test_binary_pipeline_hickup(void)
     if ((ret = pthread_create(&tid, NULL,
                               binary_hickup_recv_verification_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
+        free(buffer);
         return TEST_FAIL;
     }
 
@@ -1995,6 +2005,7 @@ static enum test_return test_issue_101(void) {
     for (ii = 0; ii < max; ++ii) {
         conns[ii] = NULL;
         conns[ii] = connect_server("127.0.0.1", port, true, enable_ssl);
+        assert(conns[ii]);
         assert(conns[ii]->sock > 0);
     }
 
@@ -2030,6 +2041,7 @@ static enum test_return test_issue_101(void) {
         assert(stat == 0);
     } else {
         con = connect_server("127.0.0.1", port, false, enable_ssl);
+        assert(con);
         ret = test_binary_noop();
         exit(0);
     }
