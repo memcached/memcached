@@ -1211,6 +1211,52 @@ static int build_udp_headers(conn *c) {
     return 0;
 }
 
+// For metaget-style ASCII commands. Ignores noreply, requires key or opaque.
+static void out_errstring(conn *c, const char *code,
+        const char *str,
+        const char *key,
+        const size_t klen) {
+    size_t clen, len;
+    char *p = c->wbuf;
+
+    assert(c != NULL);
+
+    /* Nuke a partial output... */
+    c->msgcurr = 0;
+    c->msgused = 0;
+    c->iovused = 0;
+    add_msghdr(c);
+
+    clen = strlen(code);
+    len = strlen(str);
+    if ((len + clen + klen + 4) > c->wsize) {
+        /* ought to be always enough. just fail for simplicity */
+        code = "SERVER_ERROR";
+        str = "output line too long";
+        clen = strlen(code);
+        len = strlen(str);
+    }
+
+    memcpy(p, code, clen);
+    p += clen;
+    *p = ' ';
+    p++;
+    memcpy(p, key, klen);
+    p += klen;
+    if (len) {
+        *p = ' ';
+        p++;
+        memcpy(p, str, len);
+        p += len;
+    }
+    memcpy(p, "\r\n", 2);
+    c->wbytes = p - c->wbuf + 2;
+    c->wcurr = c->wbuf;
+
+    conn_set_state(c, conn_write);
+    c->write_and_go = conn_new_cmd;
+    return;
+}
 
 static void out_string(conn *c, const char *str) {
     size_t len;
@@ -4349,6 +4395,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     bool won_token = false;
     bool ttl_set = false;
     bool update = DO_UPDATE;
+    char *errcode = "CLIENT_ERROR";
+    char *errstr;
 
     assert(c != NULL);
 
@@ -4377,7 +4425,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     rtokens--;
 
     if (olen > MFLAG_MAX_OPT_LENGTH) {
-        out_string(c, "CLIENT_ERROR options flags too long");
+        out_string(c, "CLIENT_ERROR options flags are too long");
         return;
     }
 
@@ -4398,13 +4446,13 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
-        out_string(c, "CLIENT_ERROR not enough tokens given to mget command");
+        out_string(c, "CLIENT_ERROR not enough tokens supplied");
         return;
     }
-    // FIXME: repurposing variable?
     rtokens = KEY_TOKEN + 2;
 
     // TODO: need to indicate if the item was overflowed or not?
+    // I think we do, since an overflow shouldn't trigger an alloc/replace.
     if (!of.locked) {
         it = limited_get(key, nkey, c, 0, false, update);
     } else {
@@ -4458,9 +4506,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                 case 'N': // fallthrough. handled the same way here.
                     if (item_created) {
                         if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
-                            // FIXME: add key.
-                            // FIXME: jump to error handling.
-                            out_string(c, "CLIENT_ERROR bad command line format");
+                            errstr = "bad tokens in command line format";
+                            goto error;
                         }
                         // FIXME: check for < 0, or stoul and cast here.
                         it->exptime = realtime(exptime_int);
@@ -4475,7 +4522,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                             && !item_created
                             && it->exptime != 0) {
                         if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
-                            // FIXME: error handling
+                            errstr = "bad tokens in command line format";
+                            goto error;
                         }
 
                         if (it->exptime - current_time < exptime_int) {
@@ -4652,7 +4700,12 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
         out_string(c, "END");
     }
-
+    return;
+error:
+    if (it && of.locked) {
+        item_unlock(hv);
+    }
+    out_errstring(c, errcode, errstr, key, nkey);
 }
 
 static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4669,6 +4722,9 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     int olen, i;
     short comm = NREAD_SET;
     struct _meta_flags of = {0}; // option bitflags.
+    char *errcode = "CLIENT_ERROR";
+    char *errstr = "bad command line format";
+    uint32_t hv;
 
     assert(c != NULL);
 
@@ -4683,9 +4739,9 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
     rtokens = ntokens - 3; // cmd, key, final.
 
-    // TODO: error: need to know what to do with the item.
     if (rtokens == 0) {
-
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
     }
 
     opts = tokens[KEY_TOKEN + 1].value;
@@ -4700,16 +4756,15 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     // scrubs duplicated options and sets flags for how to load the item.
     // TODO: I, E, APL?
     rtokens -= _meta_flag_preparse(opts, olen, &of);
-    // FIXME: should this go after the token requirement? else people might
-    // become bewildered...
-    c->noreply = of.no_reply;
 
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
-        out_string(c, "CLIENT_ERROR not enough tokens given to mset command");
+        out_string(c, "CLIENT_ERROR not enough tokens supplied");
         return;
     }
-    // FIXME: repurposing variable?
+
+    // Set noreply after tokens are generally understood to be clear to users.
+    c->noreply = of.no_reply;
     rtokens = KEY_TOKEN + 2;
 
     // TODO: Do we need to return the tokens?
@@ -4721,26 +4776,26 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
         switch (opts[i]) {
             case 'F':
                 if (!safe_strtoul(tokens[rtokens].value, &flags)) {
-                    // FIXME: error
+                    goto error;
                 }
                 rtokens++;
                 break;
             case 'C':
                 if (!safe_strtoull(tokens[rtokens].value, &req_cas_id)) {
-                    // FIXME: error
+                    goto error;
                 }
                 comm = NREAD_CAS;
                 rtokens++;
                 break;
             case 'S':
                 if (!safe_strtol(tokens[rtokens].value, &vlen)) {
-                    // FIXME: error
+                    goto error;
                 }
                 rtokens++;
                 break;
             case 'T':
                 if (!safe_strtoul(tokens[rtokens].value, &exptime_int)) {
-                    // FIXME: error
+                    goto error;
                 }
                 rtokens++;
                 break;
@@ -4758,30 +4813,25 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // TODO: can we treat vlen as unsigned? :(
     if (vlen < 0 || vlen > (INT_MAX - 2)) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
+        goto error;
     }
     vlen += 2;
 
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen);
 
     if (it == 0) {
-        uint32_t hv;
         enum store_item_type status;
-        // FIXME: correct the error handling
+        errcode = "SERVER_ERROR";
         if (! item_size_ok(nkey, flags, vlen)) {
-            out_string(c, "SERVER_ERROR object too large for cache");
+            errstr = "object too large for cache";
             status = TOO_LARGE;
         } else {
-            out_of_memory(c, "SERVER_ERROR out of memory storing object");
+            errstr = "out of memory storing object";
             status = NO_MEMORY;
         }
         // FIXME: LOGGER_LOG specific to mset, include options.
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
                 NULL, status, comm, key, nkey, 0, 0);
-        /* swallow the data line */
-        c->write_and_go = conn_swallow;
-        c->sbytes = vlen;
 
         /* Avoid stale data persisting in cache because we failed alloc. */
         it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
@@ -4792,7 +4842,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
         }
         item_unlock(hv);
 
-        return;
+        goto error;
     }
     ITEM_set_cas(it, req_cas_id);
 
@@ -4813,6 +4863,15 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
         c->set_stale = true;
     }
     conn_set_state(c, conn_nread);
+    return;
+error:
+    /* swallow the data line */
+    c->write_and_go = conn_swallow;
+    c->sbytes = vlen;
+
+    // Note: no errors possible after the item was successfully allocated.
+    // So we're just looking at dumping error codes and returning.
+    out_errstring(c, errcode, errstr, key, nkey);
 }
 
 static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4821,11 +4880,13 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     uint32_t exptime_int = 0;
     uint64_t req_cas_id = 0;
     int rtokens;
-    item *it;
+    item *it = NULL;
     char *opts;
     int olen, i;
     uint32_t hv;
     struct _meta_flags of = {0}; // option bitflags.
+    char *errcode = "CLIENT_ERROR";
+    char *errstr = "bad command line format";
 
     assert(c != NULL);
 
@@ -4842,7 +4903,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
     // TODO: error: need to know what to do with the item.
     if (rtokens == 0) {
-
+        goto error;
     }
 
     opts = tokens[KEY_TOKEN + 1].value;
@@ -4858,12 +4919,10 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     rtokens -= _meta_flag_preparse(opts, olen, &of);
     c->noreply = of.no_reply;
 
-    // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
-        out_string(c, "CLIENT_ERROR not enough tokens given to mdelete command");
+        out_string(c, "CLIENT_ERROR not enough tokens supplied");
         return;
     }
-    // FIXME: repurposing variable?
     rtokens = KEY_TOKEN + 2;
 
     assert(c != NULL);
@@ -4877,13 +4936,13 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             switch (opts[i]) {
                 case 'C':
                     if (!safe_strtoull(tokens[rtokens].value, &req_cas_id)) {
-                        // FIXME: error
+                        goto error;
                     }
                     rtokens++;
                     break;
                 case 'T':
                     if (!safe_strtoul(tokens[rtokens].value, &exptime_int)) {
-                        // FIXME: error
+                        goto error;
                     }
                     new_ttl = true;
                     rtokens++;
@@ -4897,9 +4956,9 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             c->thread->stats.delete_misses++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
-            // FIXME: key return.
-            out_string(c, "EXISTS");
-            do_item_remove(it);
+            // Need to ensure client gets this response.
+            errcode = "EXISTS";
+            errstr = "";
             goto cleanup;
         }
 
@@ -4917,7 +4976,6 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             // use_cas is set. Can use_cas ever change at run time?
             // if not, collapse into a single branch test?
             ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
-            do_item_remove(it);      /* release our reference */
             // FIXME: add key.
             out_string(c, "DELETED");
         } else {
@@ -4927,19 +4985,25 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
             do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
-            do_item_remove(it);      /* release our reference */
             // FIXME: add key.
             out_string(c, "DELETED");
         }
+        goto cleanup;
     } else {
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.delete_misses++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         out_string(c, "NOT_FOUND");
+        goto cleanup;
     }
+error:
+    out_errstring(c, errcode, errstr, key, nkey);
 cleanup:
-    item_unlock(hv);
+    if (it) {
+        do_item_remove(it);
+        item_unlock(hv);
+    }
 }
 
 

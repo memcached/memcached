@@ -331,11 +331,14 @@ sub mget {
     my $s = shift;
     my $key = shift;
     my $flags = shift;
-    my @tokens = @_;
+    my $tokens = join(' ', @_);
 
-    print $s "mget $key $flags ", join(' ', @tokens), "\r\n";
+    print $s "mget $key $flags ", $tokens, "\r\n";
     my $header = scalar(<$s>);
-    my $val = scalar(<$s>);
+    my $val;
+    if ($flags =~ m/v/) {
+        $val = scalar(<$s>);
+    }
     my $end = scalar(<$s>);
 
     return mget_res($header . $val);
