@@ -181,7 +181,7 @@ static int _logger_thread_parse_ise(logentry *e, char *scratch) {
     const char * const cmd_map[] = {
         "null", "add", "set", "replace", "append", "prepend", "cas" };
 
-    if (le->cmd <= 5)
+    if (le->cmd <= 6)
         cmd = cmd_map[le->cmd];
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);

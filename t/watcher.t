@@ -5,7 +5,7 @@ use strict;
 use warnings;
 use Socket qw/SO_RCVBUF/;
 
-use Test::More tests => 10;
+use Test::More tests => 12;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -102,4 +102,16 @@ if ($res eq "STORED\r\n") {
     }
     is($found_log, 1, "found rawcmd log entry");
     is($found_ev, 1, "found eviction log entry");
+}
+
+# test cas command logs
+{
+    $watcher = $server->new_sock;
+    print $watcher "watch mutations\n";
+    $res = <$watcher>;
+    is($res, "OK\r\n", "mutations watcher enabled");
+
+    print $client "cas cas_watch_key 0 0 5 0\r\nvalue\r\n";
+    my $log = <$watcher>;
+    like($log, qr/cmd=cas/, "correctly logged cas command");
 }
