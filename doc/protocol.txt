@@ -900,6 +900,7 @@ number_temp            Number of items presently stored in the TEMPORARY LRU.
 age_hot                Age of the oldest item in HOT LRU.
 age_warm               Age of the oldest item in WARM LRU.
 age                    Age of the oldest item in the LRU.
+mem_requested          Number of bytes requested to be stored in this LRU[*]
 evicted                Number of times an item had to be evicted from the LRU
                        before it expired.
 evicted_nonzero        Number of times an item which had an explicit expire
@@ -939,6 +940,12 @@ hits_to_temp           Number of get_hits to each sub-LRU.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.
+
+* Items are stored in a slab that is the same size or larger than the
+  item.  mem_requested shows the size of all items within a
+  slab. (total_chunks * chunk_size) - mem_requested shows memory
+  wasted in a slab class.  If you see a lot of waste, consider tuning
+  the slab factor.
 
 
 Item size statistics
@@ -1038,16 +1045,9 @@ END\r\n
 | free_chunks     | Chunks not yet allocated to items, or freed via delete.  |
 | free_chunks_end | Number of free chunks at the end of the last allocated   |
 |                 | page.                                                    |
-| mem_requested   | Number of bytes requested to be stored in this slab[*].  |
 | active_slabs    | Total number of slab classes allocated.                  |
 | total_malloced  | Total amount of memory allocated to slab pages.          |
 |-----------------+----------------------------------------------------------|
-
-* Items are stored in a slab that is the same size or larger than the
-  item.  mem_requested shows the size of all items within a
-  slab. (total_chunks * chunk_size) - mem_requested shows memory
-  wasted in a slab class.  If you see a lot of waste, consider tuning
-  the slab factor.
 
 
 Connection statistics

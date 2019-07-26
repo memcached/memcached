@@ -48,6 +48,7 @@ typedef struct {
     uint64_t hits_to_warm;
     uint64_t hits_to_cold;
     uint64_t hits_to_temp;
+    uint64_t mem_requested;
     rel_time_t evicted_time;
 } itemstats_t;
 
@@ -128,16 +129,6 @@ int item_is_flushed(item *it) {
     return 0;
 }
 
-static unsigned int temp_lru_size(int slabs_clsid) {
-    int id = CLEAR_LRU(slabs_clsid);
-    id |= TEMP_LRU;
-    unsigned int ret;
-    pthread_mutex_lock(&lru_locks[id]);
-    ret = sizes_bytes[id];
-    pthread_mutex_unlock(&lru_locks[id]);
-    return ret;
-}
-
 /* must be locked before call */
 unsigned int do_get_lru_size(uint32_t id) {
     return sizes[id];
@@ -186,20 +177,19 @@ item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
      * This also gives one fewer code path for slab alloc/free
      */
     for (i = 0; i < 10; i++) {
-        uint64_t total_bytes;
         /* Try to reclaim memory first */
         if (!settings.lru_segmented) {
             lru_pull_tail(id, COLD_LRU, 0, 0, 0, NULL);
         }
-        it = slabs_alloc(ntotal, id, &total_bytes, 0);
-
-        if (settings.temp_lru)
-            total_bytes -= temp_lru_size(id);
+        it = slabs_alloc(ntotal, id, 0);
 
         if (it == NULL) {
-            if (lru_pull_tail(id, COLD_LRU, total_bytes, LRU_PULL_EVICT, 0, NULL) <= 0) {
+            // We send '0' in for "total_bytes" as this routine is always
+            // pulling to evict, or forcing HOT -> COLD migration.
+            // As of this writing, total_bytes isn't at all used with COLD_LRU.
+            if (lru_pull_tail(id, COLD_LRU, 0, LRU_PULL_EVICT, 0, NULL) <= 0) {
                 if (settings.lru_segmented) {
-                    lru_pull_tail(id, HOT_LRU, total_bytes, 0, 0, NULL);
+                    lru_pull_tail(id, HOT_LRU, 0, 0, 0, NULL);
                 } else {
                     break;
                 }
@@ -755,6 +745,7 @@ void item_stats(ADD_STAT add_stats, void *c) {
             totals.moves_to_warm += itemstats[i].moves_to_warm;
             totals.moves_within_lru += itemstats[i].moves_within_lru;
             totals.direct_reclaims += itemstats[i].direct_reclaims;
+            totals.mem_requested += sizes_bytes[i];
             size += sizes[i];
             lru_size_map[x] = sizes[i];
             if (lru_type_map[x] == COLD_LRU && tails[i] != NULL) {
@@ -796,6 +787,7 @@ void item_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_FMT_STAT(fmt, n, "age_warm", "%u", age_warm);
         }
         APPEND_NUM_FMT_STAT(fmt, n, "age", "%u", age);
+        APPEND_NUM_FMT_STAT(fmt, n, "mem_requested", "%llu", (unsigned long long)totals.mem_requested);
         APPEND_NUM_FMT_STAT(fmt, n, "evicted",
                             "%llu", (unsigned long long)totals.evicted);
         APPEND_NUM_FMT_STAT(fmt, n, "evicted_nonzero",
@@ -1363,7 +1355,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
     //unsigned int chunks_free = 0;
     /* TODO: if free_chunks below high watermark, increase aggressiveness */
     slabs_available_chunks(slabs_clsid, NULL,
-            &total_bytes, &chunks_perslab);
+            &chunks_perslab);
     if (settings.temp_lru) {
         /* Only looking for reclaims. Run before we size the LRU. */
         for (i = 0; i < 500; i++) {
@@ -1373,21 +1365,32 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
                 did_moves++;
             }
         }
-        total_bytes -= temp_lru_size(slabs_clsid);
     }
 
     rel_time_t cold_age = 0;
     rel_time_t hot_age = 0;
     rel_time_t warm_age = 0;
-    /* If LRU is in flat mode, force items to drain into COLD via max age */
+    /* If LRU is in flat mode, force items to drain into COLD via max age of 0 */
     if (settings.lru_segmented) {
         pthread_mutex_lock(&lru_locks[slabs_clsid|COLD_LRU]);
         if (tails[slabs_clsid|COLD_LRU]) {
             cold_age = current_time - tails[slabs_clsid|COLD_LRU]->time;
         }
+        // Also build up total_bytes for the classes.
+        total_bytes += sizes_bytes[slabs_clsid|COLD_LRU];
         pthread_mutex_unlock(&lru_locks[slabs_clsid|COLD_LRU]);
+
         hot_age = cold_age * settings.hot_max_factor;
         warm_age = cold_age * settings.warm_max_factor;
+
+        // total_bytes doesn't have to be exact. cache it for the juggles.
+        pthread_mutex_lock(&lru_locks[slabs_clsid|HOT_LRU]);
+        total_bytes += sizes_bytes[slabs_clsid|HOT_LRU];
+        pthread_mutex_unlock(&lru_locks[slabs_clsid|HOT_LRU]);
+
+        pthread_mutex_lock(&lru_locks[slabs_clsid|WARM_LRU]);
+        total_bytes += sizes_bytes[slabs_clsid|WARM_LRU];
+        pthread_mutex_unlock(&lru_locks[slabs_clsid|WARM_LRU]);
     }
 
     /* Juggle HOT/WARM up to N times */

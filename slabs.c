@@ -36,8 +36,6 @@ typedef struct {
 
     void **slab_list;       /* array of slab pointers */
     unsigned int list_size; /* size of prev array */
-
-    size_t requested; /* The number of requested bytes */
 } slabclass_t;
 
 static slabclass_t slabclass[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -331,7 +329,7 @@ static int do_slabs_newslab(const unsigned int id) {
 }
 
 /*@null@*/
-static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_bytes,
+static void *do_slabs_alloc(const size_t size, unsigned int id,
         unsigned int flags) {
     slabclass_t *p;
     void *ret = NULL;
@@ -343,9 +341,6 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_
     }
     p = &slabclass[id];
     assert(p->sl_curr == 0 || ((item *)p->slots)->slabs_clsid == 0);
-    if (total_bytes != NULL) {
-        *total_bytes = p->requested;
-    }
 
     assert(size <= p->size);
     /* fail unless we have space at the end of a recently allocated page,
@@ -370,7 +365,6 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_
     }
 
     if (ret) {
-        p->requested += size;
         MEMCACHED_SLABS_ALLOCATE(size, id, p->size, ret);
     } else {
         MEMCACHED_SLABS_ALLOCATE_FAILED(size, id);
@@ -403,19 +397,6 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
     if (it->next) it->next->prev = it;
     p->slots = it;
     p->sl_curr++;
-    // TODO: macro
-#ifdef NEED_ALIGN
-    int total = it->nkey + 1 + FLAGS_SIZE(it) + sizeof(item) + sizeof(item_chunk);
-    if (total % 8 != 0) {
-        total += 8 - (total % 8);
-    }
-    p->requested -= total;
-#else
-    p->requested -= it->nkey + 1 + FLAGS_SIZE(it) + sizeof(item) + sizeof(item_chunk);
-#endif
-    if (settings.use_cas) {
-        p->requested -= sizeof(uint64_t);
-    }
 
     item_chunk *next_chunk;
     while (chunk) {
@@ -430,7 +411,6 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
         if (chunk->next) chunk->next->prev = chunk;
         p->slots = chunk;
         p->sl_curr++;
-        p->requested -= chunk->size + sizeof(item_chunk);
 
         chunk = next_chunk;
     }
@@ -452,9 +432,6 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
 
     it = (item *)ptr;
     if ((it->it_flags & ITEM_CHUNKED) == 0) {
-#ifdef EXTSTORE
-        bool is_hdr = it->it_flags & ITEM_HDR;
-#endif
         it->it_flags = ITEM_SLABBED;
         it->slabs_clsid = 0;
         it->prev = 0;
@@ -463,15 +440,6 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
         p->slots = it;
 
         p->sl_curr++;
-#ifdef EXTSTORE
-        if (!is_hdr) {
-            p->requested -= size;
-        } else {
-            p->requested -= (size - it->nbytes) + sizeof(item_hdr);
-        }
-#else
-        p->requested -= size;
-#endif
     } else {
         do_slabs_free_chunked(it, size);
     }
@@ -508,46 +476,6 @@ unsigned int global_page_pool_size(bool *mem_flag) {
     return ret;
 }
 
-static int nz_strcmp(int nzlength, const char *nz, const char *z) {
-    int zlength=strlen(z);
-    return (zlength == nzlength) && (strncmp(nz, z, zlength) == 0) ? 0 : -1;
-}
-
-bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
-    bool ret = true;
-
-    if (add_stats != NULL) {
-        if (!stat_type) {
-            /* prepare general statistics for the engine */
-            STATS_LOCK();
-            APPEND_STAT("bytes", "%llu", (unsigned long long)stats_state.curr_bytes);
-            APPEND_STAT("curr_items", "%llu", (unsigned long long)stats_state.curr_items);
-            APPEND_STAT("total_items", "%llu", (unsigned long long)stats.total_items);
-            STATS_UNLOCK();
-            pthread_mutex_lock(&slabs_lock);
-            APPEND_STAT("slab_global_page_pool", "%u", slabclass[SLAB_GLOBAL_PAGE_POOL].slabs);
-            pthread_mutex_unlock(&slabs_lock);
-            item_stats_totals(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
-            item_stats(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
-            slabs_stats(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
-            item_stats_sizes(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "sizes_enable") == 0) {
-            item_stats_sizes_enable(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "sizes_disable") == 0) {
-            item_stats_sizes_disable(add_stats, c);
-        } else {
-            ret = false;
-        }
-    } else {
-        ret = false;
-    }
-
-    return ret;
-}
-
 /*@null@*/
 static void do_slabs_stats(ADD_STAT add_stats, void *c) {
     int i, total;
@@ -576,8 +504,6 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
             APPEND_NUM_STAT(i, "free_chunks", "%u", p->sl_curr);
             /* Stat is dead, but displaying zero instead of removing it. */
             APPEND_NUM_STAT(i, "free_chunks_end", "%u", 0);
-            APPEND_NUM_STAT(i, "mem_requested", "%llu",
-                            (unsigned long long)p->requested);
             APPEND_NUM_STAT(i, "get_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].get_hits);
             APPEND_NUM_STAT(i, "cmd_set", "%llu",
@@ -651,12 +577,12 @@ static void memory_release() {
     }
 }
 
-void *slabs_alloc(size_t size, unsigned int id, uint64_t *total_bytes,
+void *slabs_alloc(size_t size, unsigned int id,
         unsigned int flags) {
     void *ret;
 
     pthread_mutex_lock(&slabs_lock);
-    ret = do_slabs_alloc(size, id, total_bytes, flags);
+    ret = do_slabs_alloc(size, id, flags);
     pthread_mutex_unlock(&slabs_lock);
     return ret;
 }
@@ -692,22 +618,8 @@ bool slabs_adjust_mem_limit(size_t new_mem_limit) {
     return ret;
 }
 
-void slabs_adjust_mem_requested(unsigned int id, size_t old, size_t ntotal)
-{
-    pthread_mutex_lock(&slabs_lock);
-    slabclass_t *p;
-    if (id < POWER_SMALLEST || id > power_largest) {
-        fprintf(stderr, "Internal error! Invalid slab class\n");
-        abort();
-    }
-
-    p = &slabclass[id];
-    p->requested = p->requested - old + ntotal;
-    pthread_mutex_unlock(&slabs_lock);
-}
-
 unsigned int slabs_available_chunks(const unsigned int id, bool *mem_flag,
-        uint64_t *total_bytes, unsigned int *chunks_perslab) {
+        unsigned int *chunks_perslab) {
     unsigned int ret;
     slabclass_t *p;
 
@@ -716,8 +628,6 @@ unsigned int slabs_available_chunks(const unsigned int id, bool *mem_flag,
     ret = p->sl_curr;
     if (mem_flag != NULL)
         *mem_flag = mem_malloced >= mem_limit ? true : false;
-    if (total_bytes != NULL)
-        *total_bytes = p->requested;
     if (chunks_perslab != NULL)
         *chunks_perslab = p->perslab;
     pthread_mutex_unlock(&slabs_lock);
@@ -808,7 +718,7 @@ static void *slab_rebalance_alloc(const size_t size, unsigned int id) {
     item *new_it = NULL;
 
     for (x = 0; x < s_cls->perslab; x++) {
-        new_it = do_slabs_alloc(size, id, NULL, SLABS_ALLOC_NO_NEWPAGE);
+        new_it = do_slabs_alloc(size, id, SLABS_ALLOC_NO_NEWPAGE);
         /* check that memory isn't within the range to clear */
         if (new_it == NULL) {
             break;
@@ -818,7 +728,6 @@ static void *slab_rebalance_alloc(const size_t size, unsigned int id) {
             /* Pulled something we intend to free. Mark it as freed since
              * we've already done the work of unlinking it from the freelist.
              */
-            s_cls->requested -= size;
             new_it->refcount = 0;
             new_it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
 #ifdef DEBUG_SLAB_MOVER
@@ -1006,7 +915,6 @@ static int slab_rebalance_move(void) {
                     save_item = 1;
                 }
                 pthread_mutex_unlock(&slabs_lock);
-                unsigned int requested_adjust = 0;
                 if (save_item) {
                     if (ch == NULL) {
                         assert((new_it->it_flags & ITEM_CHUNKED) == 0);
@@ -1034,7 +942,6 @@ static int slab_rebalance_move(void) {
                         memcpy(ITEM_key(it), "deadbeef", 8);
 #endif
                         slab_rebal.rescues++;
-                        requested_adjust = ntotal;
                     } else {
                         item_chunk *nch = (item_chunk *) new_it;
                         /* Chunks always have head chunk (the main it) */
@@ -1049,7 +956,6 @@ static int slab_rebalance_move(void) {
                         memcpy(ITEM_key((item *)ch), "deadbeef", 8);
 #endif
                         refcount_decr(it);
-                        requested_adjust = s_cls->size;
                     }
                 } else {
                     /* restore ntotal in case we tried saving a head chunk. */
@@ -1066,7 +972,6 @@ static int slab_rebalance_move(void) {
                 /* Always remove the ntotal, as we added it in during
                  * do_slabs_alloc() when copying the item.
                  */
-                s_cls->requested -= requested_adjust;
                 break;
             case MOVE_FROM_SLAB:
                 it->refcount = 0;
