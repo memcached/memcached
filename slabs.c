@@ -21,7 +21,6 @@
 #include <signal.h>
 #include <assert.h>
 #include <pthread.h>
-#include <sys/mman.h>
 
 //#define DEBUG_SLAB_MOVER
 /* powers-of-N allocation structures */
@@ -39,14 +38,6 @@ typedef struct {
     unsigned int list_size; /* size of prev array */
 } slabclass_t;
 
-// TODO: also start/min size
-typedef struct {
-    void *base_addr;
-    double factor; /* factor from last slab init */
-    char version[255];
-    bool clean; /* set to true during a clean shutdown */
-} slab_mmap_meta;
-
 static slabclass_t slabclass[MAX_NUMBER_OF_SLAB_CLASSES];
 static size_t mem_limit = 0;
 static size_t mem_malloced = 0;
@@ -55,7 +46,6 @@ static size_t mem_malloced = 0;
 static bool mem_limit_reached = false;
 static int power_largest;
 
-int mmap_fd = 0;
 static void *mem_base = NULL;
 static void *mem_current = NULL;
 static size_t mem_avail = 0;
@@ -160,133 +150,48 @@ static void * alloc_large_chunk_linux(const size_t limit)
 }
 #endif
 
-/* Gracefully stop/close the shared memory segment */
-void slabs_mmap_close(void) {
-    slab_mmap_meta *m = (slab_mmap_meta *)((char *)mem_base + mem_limit);
-    m->clean = true;
-    if (munmap(mem_base, mem_limit + getpagesize()) != 0) {
-        perror("failed to munmap shared memory");
-    } else if (close(mmap_fd) != 0) {
-        perror("failed to close shared memory fd");
-    }
-}
+unsigned int slabs_fixup(char *chunk, const int border) {
+    slabclass_t *p;
+    item *it = (item *)chunk;
+    int id = ITEM_clsid(it);
 
-// FIXME: does the free detector work with the global page pool?
-static unsigned int slabs_mmap_fixup(void) {
-    struct timeval tv;
-    uint64_t checked = 0;
-    slab_mmap_meta *m = (slab_mmap_meta *)((char *)mem_base + mem_limit);
-    void *orig_addr = m->base_addr;
-    unsigned int page_remain = settings.slab_page_size;
-    gettimeofday(&tv, NULL);
-    fprintf(stderr, "orig base: [%p] new base: [%p]\n", orig_addr, mem_base);
-    fprintf(stderr, "recovery start [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
-
-    // since chunks don't align with pages, we have to also track page size.
-    while (checked < mem_limit) {
-        //fprintf(stderr, "checked: %lu\n", checked);
-        item *it = (item *)((char *)mem_base + checked);
-        slabclass_t *p;
-        int id = ITEM_clsid(it);
-
-        // memory isn't used yet. shunt to global pool.
-        // (which must be 0)
-        if (id == 0) {
-            assert(checked % settings.slab_page_size == 0);
-            p = &slabclass[0];
-            grow_slab_list(0);
-            p->slab_list[p->slabs++] = (char*)mem_base + checked;
-            assert(page_remain % settings.slab_page_size == 0);
-            assert(page_remain == settings.slab_page_size);
-            checked += page_remain;
-            page_remain = settings.slab_page_size;
-            continue;
-        }
-        p = &slabclass[id];
-
-        // if we're on a page border, add the slab to slab class
-        if (checked % settings.slab_page_size == 0) {
-            grow_slab_list(id);
-            p->slab_list[p->slabs++] = (char*)mem_base + checked;
-        }
-        // increase free count if ITEM_SLABBED
-        if (it->it_flags == ITEM_SLABBED) {
-            // if ITEM_SLABBED and prev stack on freelist
-            if (it->prev == 0)
-                p->slots = it;
-            p->sl_curr++;
-            //fprintf(stderr, "replacing into freelist\n");
-        }
-
-
-        // fixup next/prev links. same for freelist or LRU
-        if (it->next) {
-            it->next = (item *)((uint64_t)it->next - (uint64_t)orig_addr);
-            it->next = (item *)((uint64_t)it->next + (uint64_t)mem_base);
-        }
-        if (it->prev) {
-            it->prev = (item *)((uint64_t)it->prev - (uint64_t)orig_addr);
-            it->prev = (item *)((uint64_t)it->prev + (uint64_t)mem_base);
-        }
-
-        if (it->it_flags & ITEM_LINKED) {
-            p->requested += ITEM_ntotal(it);
-            //fprintf(stderr, "item was linked\n");
-            do_item_link_fixup(it);
-        }
-
-        // next chunk
-        checked += p->size;
-        page_remain -= p->size;
-        if (p->size > page_remain) {
-            //fprintf(stderr, "doot %d\n", page_remain);
-            checked += page_remain;
-            page_remain = settings.slab_page_size;
-        }
-        //assert(checked != 3145728);
-    }
-    mem_malloced = checked;
-
-    gettimeofday(&tv, NULL);
-    fprintf(stderr, "recovery end [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
-    return 0;
-}
-
-// TODO: This hsould be a function external to the slabber.
-static unsigned int check_mmap(void *mem_base) {
-    slab_mmap_meta *m = (slab_mmap_meta *)((char *)mem_base + mem_limit);
-    if (!m->clean) {
-        fprintf(stderr, "mmap not clean\n");
+    // memory isn't used yet. shunt to global pool.
+    // (which must be 0)
+    if (id == 0) {
+        assert(border == 0);
+        p = &slabclass[0];
+        grow_slab_list(0);
+        p->slab_list[p->slabs++] = (char*)chunk;
         return -1;
     }
-    if (m->base_addr == 0) {
-        fprintf(stderr, "base address 0\n");
-        return -2;
-    }
-    if (memcmp(VERSION, m->version, strlen(VERSION)) != 0) {
-        fprintf(stderr, "version doesn't match\n");
-        return -3;
-    }
-    // TODO: check factor/etc important arguments
-    return 0;
-}
+    p = &slabclass[id];
 
-static void set_mmap(void) {
-    slab_mmap_meta *m = (slab_mmap_meta *)((char *)mem_base + mem_limit);
-    m->base_addr = mem_base;
-    m->clean = false;
-    memcpy(m->version, VERSION, strlen(VERSION));
+    // if we're on a page border, add the slab to slab class
+    if (border == 0) {
+        grow_slab_list(id);
+        p->slab_list[p->slabs++] = chunk;
+    }
+
+    // increase free count if ITEM_SLABBED
+    if (it->it_flags == ITEM_SLABBED) {
+        // if ITEM_SLABBED and prev stack on freelist
+        // FIXME: always stack on freelist, ignore/wipe prev/next links.
+        if (it->prev == 0)
+            p->slots = it;
+        p->sl_curr++;
+        //fprintf(stderr, "replacing into freelist\n");
+    }
+
+    return p->size;
 }
 
 /**
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes, const char *memory_file) {
+void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes, void *mem_base_external, bool reuse_mem) {
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
-    bool reuse_mmap = true;
-    int pagesize;
 
     /* Some platforms use runtime transparent hugepages. If for any reason
      * the initial allocation fails, the required settings do not persist
@@ -296,47 +201,38 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
 
     mem_limit = limit;
 
-    if (prealloc) {
-        // FIXME: need option specific for restartable mode.
-        // might be ideal to move these allocs to a different function or file
-        // and pass the pointer and size in here.
+    if (prealloc && mem_base_external == NULL) {
 #if defined(__linux__) && defined(MADV_HUGEPAGE)
-        if (0)
-            mem_base = alloc_large_chunk_linux(mem_limit);
-        //if (mem_base)
+        mem_base = alloc_large_chunk_linux(mem_limit);
+        if (mem_base)
             do_slab_prealloc = true;
 #else
         /* Allocate everything in a big chunk with malloc */
-        //mem_base = malloc(mem_limit);
+        mem_base = malloc(mem_limit);
         do_slab_prealloc = true;
 #endif
 
-        pagesize = getpagesize();
-        mmap_fd = open(memory_file, O_RDWR|O_CREAT, S_IRWXU);
-        fprintf(stderr, "mmap_fd: %d\n", mmap_fd);
-        if (ftruncate(mmap_fd, mem_limit + pagesize) != 0) {
-            perror("ftruncate failed");
-            abort();
-        }
-        /* Allocate everything in a big chunk with malloc */
-        if (mem_limit % pagesize) {
-            fprintf(stderr, "WARNING: mem_limit not divible evenly by pagesize\n");
-        }
-        mem_base = mmap(NULL, mem_limit + pagesize, PROT_READ|PROT_WRITE, MAP_SHARED, mmap_fd, 0);
-        if (mem_base == MAP_FAILED) {
-            perror("failed to mmap, aborting");
-            abort();
-        }
-        if (check_mmap(mem_base) != 0) {
-            fprintf(stderr, "failed to validate mmap, not reusing\n");
-            reuse_mmap = false;
-        }
         if (mem_base != NULL) {
             mem_current = mem_base;
             mem_avail = mem_limit;
         } else {
             fprintf(stderr, "Warning: Failed to allocate requested memory in"
                     " one large chunk.\nWill allocate in smaller chunks\n");
+        }
+    } else if (prealloc && mem_base_external != NULL) {
+        // Can't (yet) mix hugepages with mmap allocations, so separate the
+        // logic from above. Reusable memory also force-preallocates memory
+        // pages into the global pool, which requires turning mem_* variables.
+        do_slab_prealloc = true;
+        mem_base = mem_base_external;
+        // _current shouldn't be used in this case, but we set it to where it
+        // should be anyway.
+        if (reuse_mem) {
+            mem_current = ((char*)mem_base) + mem_limit;
+            mem_avail = 0;
+        } else {
+            mem_current = mem_base;
+            mem_avail = mem_limit;
         }
     }
 
@@ -382,12 +278,8 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
     }
 
     if (prealloc && do_slab_prealloc) {
-        if (!reuse_mmap) {
-            set_mmap();
+        if (!reuse_mem) {
             slabs_preallocate(power_largest);
-        } else {
-            slabs_mmap_fixup();
-            set_mmap();
         }
     }
 }
@@ -541,7 +433,7 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
     slabclass_t *p;
 
     it->it_flags = ITEM_SLABBED;
-    // FIXME: refresh on hos this works?
+    // FIXME: refresh on how this works?
     //it->slabs_clsid = 0;
     it->prev = 0;
     // header object's original classid is stored in chunk.

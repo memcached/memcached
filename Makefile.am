@@ -24,7 +24,8 @@ memcached_SOURCES = memcached.c memcached.h \
                     crawler.c crawler.h \
                     itoa_ljust.c itoa_ljust.h \
                     slab_automove.c slab_automove.h \
-                    authfile.c authfile.h
+                    authfile.c authfile.h \
+                    restart.c restart.h
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c

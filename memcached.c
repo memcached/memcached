@@ -18,6 +18,7 @@
 #include "storage.h"
 #endif
 #include "authfile.h"
+#include "restart.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -8248,11 +8249,17 @@ int main (int argc, char **argv) {
     stats_init();
     assoc_init(settings.hashpower_init);
     conn_init();
+    bool reuse_mem = false;
+    void *mem_base = NULL;
     if (memory_file != NULL) {
         preallocate = true;
+        reuse_mem = restart_mmap_open(settings.maxbytes,
+                        memory_file,
+                        &mem_base);
+        restart_mmap_set();
     }
     slabs_init(settings.maxbytes, settings.factor, preallocate,
-            use_slab_sizes ? slab_sizes : NULL, memory_file);
+            use_slab_sizes ? slab_sizes : NULL, mem_base, reuse_mem);
 #ifdef EXTSTORE
     if (storage_file) {
         enum extstore_res eres;
@@ -8285,6 +8292,10 @@ int main (int argc, char **argv) {
     }
 
     slabs_prefill_global();
+    /* In restartable mode and we've decided to issue a fixup on memory */
+    if (memory_file != NULL && reuse_mem) {
+        restart_fixup();
+    }
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
@@ -8438,8 +8449,10 @@ int main (int argc, char **argv) {
             conn_close(conns[i]);
         }
     }
-    fprintf(stderr, "Closing mmap\n");
-    slabs_mmap_close();
+    if (memory_file != NULL) {
+        fprintf(stderr, "Closing mmap\n");
+        restart_mmap_close();
+    }
 
     /* remove the PID file if we're a daemon */
     if (do_daemonize)
