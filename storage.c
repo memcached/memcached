@@ -154,7 +154,7 @@ static void *storage_write_thread(void *arg) {
 
             // Avoid extra slab lock calls during heavy writing.
             chunks_free = slabs_available_chunks(x, &mem_limit_reached,
-                    NULL, NULL);
+                    NULL);
 
             // storage_write() will fail and cut loop after filling write buffer.
             while (1) {

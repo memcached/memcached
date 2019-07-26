@@ -18,8 +18,9 @@ for ($key = 0; $key < $key_count; $key++) {
 }
 
 my $stats = mem_stats($sock, "slabs");
-my $req = $stats->{"1:mem_requested"};
+my $stats2 = mem_stats($sock, "items");
+my $req = $stats2->{"items:1:mem_requested"};
 my $top = $stats->{"1:chunk_size"} * $key_count;
 # unreasonable for the result to be < 500 bytes (min item header is 48), but
 # should be less than the maximum potential number.
-ok ($req > 500 && $req < $top, "Check allocated size");
+ok ($req > 500 && $req < $top, "Check allocated size: $req $top");
