@@ -293,7 +293,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         return NULL;
     }
 
-    assert(it->it_flags == 0);
+    assert(it->it_flags == 0 || it->it_flags == ITEM_CHUNKED);
     //assert(it != heads[id]);
 
     /* Refcount is seeded to 1 by slabs_alloc() */

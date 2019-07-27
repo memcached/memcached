@@ -8251,8 +8251,11 @@ int main (int argc, char **argv) {
     conn_init();
     bool reuse_mem = false;
     void *mem_base = NULL;
+    bool prefill = false;
     if (memory_file != NULL) {
         preallocate = true;
+        // Easier to manage memory if we prefill the global pool when reusing.
+        prefill = true;
         reuse_mem = restart_mmap_open(settings.maxbytes,
                         memory_file,
                         &mem_base);
@@ -8284,6 +8287,7 @@ int main (int argc, char **argv) {
         }
         ext_storage = storage;
         /* page mover algorithm for extstore needs memory prefilled */
+        prefill = true;
     }
 #endif
 
@@ -8291,7 +8295,8 @@ int main (int argc, char **argv) {
         setup_privilege_violations_handler();
     }
 
-    slabs_prefill_global();
+    if (prefill)
+        slabs_prefill_global();
     /* In restartable mode and we've decided to issue a fixup on memory */
     if (memory_file != NULL && reuse_mem) {
         restart_fixup();

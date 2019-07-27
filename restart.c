@@ -119,7 +119,7 @@ unsigned int restart_fixup(void) {
     gettimeofday(&tv, NULL);
     fprintf(stderr, "orig base: [%p] new base: [%p]\n", orig_addr, mmap_base);
     fprintf(stderr, "recovery start [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
- 
+
     // since chunks don't align with pages, we have to also track page size.
     while (checked < slabmem_limit) {
         //fprintf(stderr, "checked: %lu\n", checked);
