@@ -136,18 +136,17 @@ unsigned int restart_fixup(void *orig_addr) {
             continue;
         }
 
-        // FIXME: only do this if linked.
-        // fixup next/prev links. same for freelist or LRU
-        if (it->next) {
-            it->next = (item *)((uint64_t)it->next - (uint64_t)orig_addr);
-            it->next = (item *)((uint64_t)it->next + (uint64_t)mmap_base);
-        }
-        if (it->prev) {
-            it->prev = (item *)((uint64_t)it->prev - (uint64_t)orig_addr);
-            it->prev = (item *)((uint64_t)it->prev + (uint64_t)mmap_base);
-        }
-
         if (it->it_flags & ITEM_LINKED) {
+            // fixup next/prev links while on LRU.
+            if (it->next) {
+                it->next = (item *)((uint64_t)it->next - (uint64_t)orig_addr);
+                it->next = (item *)((uint64_t)it->next + (uint64_t)mmap_base);
+            }
+            if (it->prev) {
+                it->prev = (item *)((uint64_t)it->prev - (uint64_t)orig_addr);
+                it->prev = (item *)((uint64_t)it->prev + (uint64_t)mmap_base);
+            }
+
             //fprintf(stderr, "item was linked\n");
             do_item_link_fixup(it);
         }

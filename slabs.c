@@ -174,10 +174,13 @@ unsigned int slabs_fixup(char *chunk, const int border) {
 
     // increase free count if ITEM_SLABBED
     if (it->it_flags == ITEM_SLABBED) {
-        // if ITEM_SLABBED and prev stack on freelist
-        // FIXME: always stack on freelist, ignore/wipe prev/next links.
-        if (it->prev == 0)
-            p->slots = it;
+        // if ITEM_SLABBED re-stack on freelist.
+        // don't have to run pointer fixups.
+        it->prev = 0;
+        it->next = p->slots;
+        if (it->next) it->next->prev = it;
+        p->slots = it;
+
         p->sl_curr++;
         //fprintf(stderr, "replacing into freelist\n");
     }
