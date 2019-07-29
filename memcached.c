@@ -8251,6 +8251,7 @@ int main (int argc, char **argv) {
     conn_init();
     bool reuse_mem = false;
     void *mem_base = NULL;
+    void *old_base = NULL;
     bool prefill = false;
     if (memory_file != NULL) {
         preallocate = true;
@@ -8258,7 +8259,8 @@ int main (int argc, char **argv) {
         prefill = true;
         reuse_mem = restart_mmap_open(settings.maxbytes,
                         memory_file,
-                        &mem_base);
+                        &mem_base,
+                        &old_base);
         restart_mmap_set();
     }
     slabs_init(settings.maxbytes, settings.factor, preallocate,
@@ -8299,7 +8301,7 @@ int main (int argc, char **argv) {
         slabs_prefill_global();
     /* In restartable mode and we've decided to issue a fixup on memory */
     if (memory_file != NULL && reuse_mem) {
-        restart_fixup();
+        restart_fixup(old_base);
     }
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we

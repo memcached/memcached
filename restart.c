@@ -30,7 +30,7 @@ static void *mmap_base = NULL;
 static size_t slabmem_limit = 0;
 
 // TODO: This should be a function external to the slabber.
-static unsigned int check_mmap(void *mem_base) {
+static unsigned int check_mmap(void *mem_base, void **old_base) {
     slab_mmap_meta *m = (slab_mmap_meta *)((char *)mem_base + slabmem_limit);
     if (!m->clean) {
         fprintf(stderr, "mmap not clean\n");
@@ -44,6 +44,7 @@ static unsigned int check_mmap(void *mem_base) {
         fprintf(stderr, "version doesn't match\n");
         return -3;
     }
+    *old_base = m->base_addr;
     // TODO: check factor/etc important arguments
     return 0;
 }
@@ -58,7 +59,7 @@ void restart_mmap_set(void) {
     memcpy(m->version, VERSION, strlen(VERSION));
 }
 
-bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
+bool restart_mmap_open(const size_t limit, const char *file, void **mem_base, void **old_base) {
     bool reuse_mmap = true;
 
     pagesize = getpagesize();
@@ -80,7 +81,8 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     }
     // Set the limit before calling check_mmap, so we can find the meta page..
     slabmem_limit = limit;
-    if (check_mmap(mmap_base) != 0) {
+    *old_base = NULL;
+    if (check_mmap(mmap_base, old_base) != 0) {
         fprintf(stderr, "failed to validate mmap, not reusing\n");
         reuse_mmap = false;
     }
@@ -108,11 +110,9 @@ void restart_mmap_close(void) {
 // given memory base, quickly walk memory and do pointer fixup.
 // do this once on startup to avoid having to do pointer fixup on every
 // reference from hash table or LRU.
-unsigned int restart_fixup(void) {
+unsigned int restart_fixup(void *orig_addr) {
     struct timeval tv;
     uint64_t checked = 0;
-    slab_mmap_meta *m = (slab_mmap_meta *)((char *)mmap_base + slabmem_limit);
-    void *orig_addr = m->base_addr;
     const unsigned int page_size = settings.slab_page_size;
     unsigned int page_remain = page_size;
 

@@ -350,6 +350,11 @@ sub stop {
     kill 15, $self->{pid};
 }
 
+sub graceful_stop {
+    my $self = shift;
+    kill 'SIGUSR1', $self->{pid};
+}
+
 sub host { $_[0]{host} }
 sub port { $_[0]{port} }
 sub udpport { $_[0]{udpport} }

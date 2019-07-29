@@ -27,6 +27,7 @@ static int wait_for_process(pid_t pid)
     sigaction(SIGALRM, &sig_handler, NULL);
     sigaction(SIGHUP, &sig_handler, NULL);
     sigaction(SIGINT, &sig_handler, NULL);
+    sigaction(SIGUSR1, &sig_handler, NULL);
     sigaction(SIGTERM, &sig_handler, NULL);
     sigaction(SIGPIPE, &sig_handler, NULL);
 
