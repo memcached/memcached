@@ -127,6 +127,7 @@ unsigned int restart_fixup(void *orig_addr) {
 
         int size = slabs_fixup((char *)mmap_base + checked,
                 checked % settings.slab_page_size);
+        //fprintf(stderr, "id: %d, size: %d\n", it->slabs_clsid, size);
         // slabber gobbled an entire page, skip and move on.
         if (size == -1) {
             assert(page_remain % page_size == 0);
@@ -149,6 +150,34 @@ unsigned int restart_fixup(void *orig_addr) {
 
             //fprintf(stderr, "item was linked\n");
             do_item_link_fixup(it);
+        }
+
+        if (it->it_flags & (ITEM_CHUNKED|ITEM_CHUNK)) {
+            item_chunk *ch;
+            if (it->it_flags & ITEM_CHUNKED) {
+                ch = (item_chunk *) ITEM_schunk(it);
+                // Sigh. Chunked items are a hack; the clsid is the clsid of
+                // the full object (always the largest slab class) rather than
+                // the actual chunk.
+                // I bet this is fixable :(
+                size = slabs_size(ch->orig_clsid);
+                //fprintf(stderr, "fixing chunked item header [%d]\n", size);
+            } else {
+                //fprintf(stderr, "fixing item chunk [%d]\n", size);
+                ch = (item_chunk *) it;
+            }
+            if (ch->next) {
+                ch->next = (item_chunk *)((uint64_t)ch->next - (uint64_t)orig_addr);
+                ch->next = (item_chunk *)((uint64_t)ch->next + (uint64_t)mmap_base);
+            }
+            if (ch->prev) {
+                ch->prev = (item_chunk *)((uint64_t)ch->prev - (uint64_t)orig_addr);
+                ch->prev = (item_chunk *)((uint64_t)ch->prev + (uint64_t)mmap_base);
+            }
+            if (ch->head) {
+                ch->head = (item *)((uint64_t)it->prev - (uint64_t)orig_addr);
+                ch->head = (item *)((uint64_t)it->prev + (uint64_t)mmap_base);
+            }
         }
 
         // next chunk

@@ -97,6 +97,10 @@ unsigned int slabs_clsid(const size_t size) {
     return res;
 }
 
+unsigned int slabs_size(const int clsid) {
+    return slabclass[clsid].size;
+}
+
 // TODO: could this work with the restartable memory?
 // Docs say hugepages only work with private shm allocs.
 #if defined(__linux__) && defined(MADV_HUGEPAGE)
@@ -158,7 +162,7 @@ unsigned int slabs_fixup(char *chunk, const int border) {
     // memory isn't used yet. shunt to global pool.
     // (which must be 0)
     if (id == 0) {
-        assert(border == 0);
+        //assert(border == 0);
         p = &slabclass[0];
         grow_slab_list(0);
         p->slab_list[p->slabs++] = (char*)chunk;

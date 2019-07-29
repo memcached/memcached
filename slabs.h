@@ -19,6 +19,7 @@ void slabs_prefill_global(void);
  */
 
 unsigned int slabs_clsid(const size_t size);
+unsigned int slabs_size(const int clsid);
 
 /** Allocate object of given length. 0 on error */ /*@null@*/
 #define SLABS_ALLOC_NO_NEWPAGE 1

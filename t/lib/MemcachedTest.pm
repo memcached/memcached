@@ -282,6 +282,7 @@ sub new_memcached {
     croak("memcached binary not executable\n") unless -x _;
 
     unless ($childpid) {
+        #print STDERR "RUN: $exe $args\n";
         exec "$builddir/timedrun 600 $exe $args";
         exit; # never gets here.
     }
