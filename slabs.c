@@ -1055,18 +1055,27 @@ static int slab_rebalance_move(void) {
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
                     STORAGE_delete(storage, it);
-                    /* Swing around again later to remove it from the freelist.
-                     * edit: why not just take care of it now?
+                    /* Remove from freelist now. Greatly improves reassignment time.
+                     * See MEMSYS'19 - Faster Slab Reassignment in memcached
                      *       1. we need to hold the slabs lock while doing
                      *          the unlink, free, and removing from
                      *          freelist so that that live items
                      *          do not sneek into the slab that we are clearing */
                     pthread_mutex_lock(&slabs_lock);
                     do_item_unlink_noslab_lock(it, hv);
-                    do_slabs_free(it, ntotal, slab_rebal.s_clsid);
-                    slab_rebalance_cut_free(s_cls, it);
-                    it->refcount = 0;
-                    it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
+                    if (refcount_decr(it) == 0)
+                    {
+                        do_slabs_free(it, ntotal, slab_rebal.s_clsid, it->gen);
+                        slab_rebalance_cut_free(s_cls, it);
+                        it->refcount = 0;
+                        it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
+                    }
+                    else
+                    {
+                        slab_rebal.busy_items++;
+                        was_busy++;
+                    }
+
                 }
                 item_trylock_unlock(hold_lock);
                 /* Always remove the ntotal, as we added it in during
