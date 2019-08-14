@@ -84,6 +84,7 @@ struct logentry_item_get {
     uint8_t was_found;
     uint8_t nkey;
     uint8_t clsid;
+    int sfd;
     char key[];
 };
 
@@ -93,6 +94,7 @@ struct logentry_item_store {
     rel_time_t ttl;
     uint8_t nkey;
     uint8_t clsid;
+    int sfd;
     char key[];
 };
 
