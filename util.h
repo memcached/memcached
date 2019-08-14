@@ -12,6 +12,7 @@ bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dst
  * returns true if conversion succeeded.
  */
 bool safe_strtoull(const char *str, uint64_t *out);
+bool safe_strtoull_hex(const char *str, uint64_t *out);
 bool safe_strtoll(const char *str, int64_t *out);
 bool safe_strtoul(const char *str, uint32_t *out);
 bool safe_strtol(const char *str, int32_t *out);

@@ -6984,6 +6984,75 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
     return true;
 }
 
+struct _mc_meta_data {
+    void *mmap_base;
+    uint64_t old_base;
+};
+
+// We need to remember a combination of configuration settings and global
+// state for restart viability and resumption of internal services.
+// Compared to the number of tunables and state values, relatively little
+// does need to be remembered.
+// Time is the hardest; we have to assume the sys clock is correct and re-sync for
+// the lost time after restart.
+static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
+    struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
+
+    // Settings to remember.
+    restart_set_kv(ctx, "version", "%s", VERSION);
+    // TODO: instead of remembering "factor", can we remember the size of each
+    // slab class? It's not reliable to serialize floats.
+    restart_set_kv(ctx, "factor", "%f", settings.factor);
+    restart_set_kv(ctx, "maxbytes", "%llu", (unsigned long long) settings.maxbytes);
+    restart_set_kv(ctx, "chunk_size", "%d", settings.chunk_size);
+    restart_set_kv(ctx, "item_size_max", "%d", settings.item_size_max);
+    restart_set_kv(ctx, "slab_chunk_size_max", "%d", settings.slab_chunk_size_max);
+    restart_set_kv(ctx, "slab_page_size", "%d", settings.slab_page_size);
+    restart_set_kv(ctx, "use_cas", "%s", settings.use_cas ? "true" : "false");
+    restart_set_kv(ctx, "slab_reassign", "%s", settings.slab_reassign ? "true" : "false");
+
+    // Online state to remember.
+
+    // TODO: 'current_time' is a tough one.
+    // restart_set_kv(ctx, "current_time", "", );
+    // Might as well just fetch the next CAS value to use than tightly
+    // coupling the internal variable into the restart system.
+    restart_set_kv(ctx, "current_cas", "%llu", (unsigned long long) get_cas_id());
+    restart_set_kv(ctx, "oldest_cas", "%llu", (unsigned long long) settings.oldest_cas);
+    // TODO: static -> unstatic from logger.c
+    // or... give the logger a restart callback.
+    //restart_set_kv(ctx, "logger_id", "%llu", );
+    restart_set_kv(ctx, "hashpower", "%u", stats_state.hash_power_level);
+    // NOTE: oldest_live is a rel_time_t, which aliases for unsigned int.
+    // should future proof this with a 64bit upcast, or fetch value from a
+    // converter function/macro?
+    restart_set_kv(ctx, "oldest_live", "%u", settings.oldest_live);
+    // FIXME: use uintptr_t etc? is it portable enough?
+    restart_set_kv(ctx, "mmap_oldbase", "%p", meta->mmap_base);
+
+    return 0;
+}
+
+static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
+    struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
+    char *key;
+    char *val;
+    bool reuse_mmap = -1;
+
+    while (restart_get_kv(ctx, &key, &val) == 0) {
+        if (strcmp(key, "mmap_oldbase") == 0) {
+            if (!safe_strtoull_hex(val, &meta->old_base)) {
+                fprintf(stderr, "failed to parse mmap_oldbase: %s\n", val);
+                abort();
+            }
+            reuse_mmap = 0;
+        }
+        fprintf(stderr, "LOAD READBACK: %s - %s\n", key, val);
+    }
+
+    return reuse_mmap;
+}
+
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
@@ -8249,19 +8318,25 @@ int main (int argc, char **argv) {
     stats_init();
     assoc_init(settings.hashpower_init);
     conn_init();
+    struct _mc_meta_data *meta = malloc(sizeof(struct _mc_meta_data));
     bool reuse_mem = false;
     void *mem_base = NULL;
-    void *old_base = NULL;
     bool prefill = false;
     if (memory_file != NULL) {
         preallocate = true;
         // Easier to manage memory if we prefill the global pool when reusing.
         prefill = true;
+        restart_register("main", _mc_meta_load_cb, _mc_meta_save_cb, meta);
         reuse_mem = restart_mmap_open(settings.maxbytes,
                         memory_file,
-                        &mem_base,
-                        &old_base);
-        restart_mmap_set();
+                        &mem_base);
+        // The "save" callback gets called when we're closing out the mmap,
+        // but we don't know what the mmap_base is until after we call open.
+        // So we pass the struct above but have to fill it in here so the
+        // data's available during the save routine.
+        meta->mmap_base = mem_base;
+        // Also, the callbacks for load() run before _open returns, so we
+        // should have the old base in 'meta' as of here.
     }
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL, mem_base, reuse_mem);
@@ -8301,7 +8376,11 @@ int main (int argc, char **argv) {
         slabs_prefill_global();
     /* In restartable mode and we've decided to issue a fixup on memory */
     if (memory_file != NULL && reuse_mem) {
-        restart_fixup(old_base);
+        // TODO: must be a more canonical way of serializing/deserializing
+        // pointers? passing through uint64_t should work, and we're not
+        // annotating the pointer with anything, but it's still slightly
+        // insane.
+        restart_fixup((void *)meta->old_base);
     }
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we

@@ -9,60 +9,278 @@
 #include <fcntl.h>
 #include <string.h>
 
-// TODO: allocating from the _front_ (or using a different file?)
-// makes it easier to do dynamic memory limits again.
-// downside is having to track potential hugepage alignment for the slab
-// memory.
-// tracking data at the end of the memory base makes this easier.
+typedef struct _restart_data_cb restart_data_cb;
 
-// TODO: also start/min size
-typedef struct {
-    void *base_addr;
-    double factor; /* factor from last slab init */
-    char version[255];
-    bool clean; /* set to true during a clean shutdown */
-} slab_mmap_meta;
+struct _restart_data_cb {
+    void *data; // user supplied opaque data.
+    struct _restart_data_cb *next; // callbacks are ordered stack
+    restart_check_cb ccb;
+    restart_save_cb scb;
+    char tag[RESTART_TAG_MAXLEN];
+};
 
 // TODO: struct to hand back to caller.
 static int mmap_fd = 0;
 static int pagesize = 0;
 static void *mmap_base = NULL;
 static size_t slabmem_limit = 0;
+char *memory_file = NULL;
 
-// TODO: This should be a function external to the slabber.
-static unsigned int check_mmap(void *mem_base, void **old_base) {
-    slab_mmap_meta *m = (slab_mmap_meta *)((char *)mem_base + slabmem_limit);
-    if (!m->clean) {
-        fprintf(stderr, "mmap not clean\n");
+static restart_data_cb *cb_stack = NULL;
+
+// Allows submodules and engines to have independent check and save metadata
+// routines for the restart code.
+void restart_register(const char *tag, restart_check_cb ccb, restart_save_cb scb, void *data) {
+    restart_data_cb *cb = calloc(1, sizeof(restart_data_cb));
+
+    // Handle first time call initialization inline so we don't need separate
+    // API call.
+    if (cb_stack == NULL) {
+        cb_stack = cb;
+    } else {
+        // Ensure we fire the callbacks in registration order.
+        // Someday I'll get a queue.h overhaul.
+        restart_data_cb *finder = cb_stack;
+        while (finder->next != NULL) {
+            finder = finder->next;
+        }
+        finder->next = cb;
+    }
+
+    // TODO: Write a safe_strncpy into util.c and stop using it raw.
+    // or a local strlcpy.
+    strncpy(cb->tag, tag, RESTART_TAG_MAXLEN);
+    cb->tag[RESTART_TAG_MAXLEN-1] = '\0';
+    cb->data = data;
+    cb->ccb = *ccb;
+    cb->scb = *scb;
+}
+
+typedef struct {
+    FILE *f;
+    restart_data_cb *cb;
+    char *line;
+    bool done;
+} restart_cb_ctx;
+
+// NEW check code:
+// x check for metadata file
+// x open metadata file
+// - look for final line with checksum
+// - checksum entire file (up until final line)
+// - seek to start
+// x read line-by-line:
+//   x find tag, switch context
+//   x call callback
+//   [callbacks themselves request next line]
+// x check return code. bail upstream if screwed.
+// TODO: error string from cb?
+
+static int restart_check(const char *file) {
+    // metadata is kept in a separate file.
+    size_t flen = strlen(file);
+    const char *ext = ".meta";
+    char *metafile = malloc(flen + strlen(ext));
+    memcpy(metafile, file, flen);
+    memcpy(metafile+flen, ext, strlen(ext));
+
+    FILE *f = fopen(metafile, "r");
+    if (f == NULL) {
         return -1;
     }
-    if (m->base_addr == 0) {
-        fprintf(stderr, "base address 0\n");
-        return -2;
+
+    restart_cb_ctx ctx;
+
+    ctx.f = f;
+    ctx.line = NULL;
+    ctx.done = false;
+    if (restart_get_kv(&ctx, NULL, NULL) != -1) {
+        // First line must be a tag, so read it in and set up the proper
+        // callback here.
+        fprintf(stderr, "restart: corrupt metadata file\n");
+        // TODO: this should probably just return -1 and skip the reuse.
+        abort();
     }
-    if (memcmp(VERSION, m->version, strlen(VERSION)) != 0) {
-        fprintf(stderr, "version doesn't match\n");
-        return -3;
+
+    // loop call the callback, check result code.
+    bool failed = false;
+    while (!ctx.done) {
+        restart_data_cb *cb = ctx.cb;
+        if (cb->ccb(cb->tag, &ctx, cb->data) != 0) {
+            // FIXME: real error.
+            fprintf(stderr, "RESTART: CHECK FAILED\n");
+            failed = true;
+            break;
+        }
     }
-    *old_base = m->base_addr;
-    // TODO: check factor/etc important arguments
+
+    if (ctx.line)
+        free(ctx.line);
+
+    fclose(f);
+
+    unlink(metafile);
+    free(metafile);
+
+    return failed ? -1 : 0;
+}
+
+// This function advances the file read while being called directly from the
+// callback.
+// The control inversion here (callback calling in which might change the next
+// callback) allows the callbacks to set up proper loops or sequences for
+// reading data back, avoiding an event model.
+int restart_get_kv(void *ctx, char **key, char **val) {
+    char *line = NULL;
+    size_t len = 0;
+    restart_data_cb *cb = NULL;
+    restart_cb_ctx *c = (restart_cb_ctx *) ctx;
+    // free previous line.
+    // we could just pass it into getline, but it can randomly realloc so we'd
+    // have to re-assign it into the structure anyway.
+    if (c->line != NULL) {
+        free(c->line);
+    }
+
+    if (getline(&line, &len, c->f) != -1) {
+        // First char is an indicator:
+        // T for TAG, changing the callback we use.
+        // K for key/value, to ship to the active callback.
+        char *p = line;
+        while (*p != '\n') {
+            p++;
+        }
+        *p = '\0';
+        fprintf(stderr, "got line: [l:%lu] %s\n", len, line);
+
+        if (line[0] == 'T') {
+            cb = cb_stack;
+            while (cb != NULL) {
+                // NOTE: len is allocated size, not line len. need to chomp \n
+                fprintf(stderr, "checking: [%lu] %s:\n", len, cb->tag);
+                if (strcmp(cb->tag, line+1) == 0) {
+                    break;
+                }
+                cb = cb->next;
+            }
+            if (cb == NULL) {
+                fprintf(stderr, "RESTART ERROR: handler for tag not found: %s:\n", line+1);
+                return -1;
+            }
+            c->cb = cb;
+        } else if (line[0] == 'K') {
+            char *p = line+1; // start just ahead of the token.
+            // tokenize the string and return the pointers?
+            if (key != NULL) {
+                *key = p;
+            }
+
+            // turn key into a normal NULL terminated string.
+            while (*p != ' ' && (p - line < len)) {
+                p++;
+            }
+            *p = '\0';
+            p++;
+
+            // value _should_ run until where the newline was, which is \0 now
+            if (val != NULL) {
+                *val = p;
+            }
+            c->line = line;
+
+            return 0;
+        } else {
+            // FIXME: proper error chain.
+            fprintf(stderr, "RESTART ERROR: invalid line:\n\n%s\n", line);
+            return -1;
+        }
+    } else {
+        // EOF or error in read.
+        c->done = true;
+    }
+
+    return -1;
+}
+
+// SAVE code:
+// x create metadata file
+// x loop callbacks:
+//   x write tag line [lol]
+//   x call callback
+//   [callbacks call _set() for key/values]
+// - rolling checksum along with the writes.
+// - write final line + checksum + byte count or w/e.
+// x close file
+
+static int restart_save(const char *file) {
+    // metadata is kept in a separate file.
+    // FIXME: function.
+    size_t flen = strlen(file);
+    const char *ext = ".meta";
+    char *metafile = malloc(flen + strlen(ext));
+    memcpy(metafile, file, flen);
+    memcpy(metafile+flen, ext, strlen(ext));
+
+    // restrictive permissions for the metadata file.
+    // TODO: also for the mmap file eh? :P
+    mode_t oldmask = umask(~(S_IRUSR | S_IWUSR));
+    FILE *f = fopen(metafile, "w");
+    umask(oldmask);
+    if (f == NULL) {
+        // FIXME: correct error handling.
+        perror("failed to write metadata file");
+        return -1;
+    }
+
+    restart_data_cb *cb = cb_stack;
+    restart_cb_ctx ctx;
+    ctx.f = f;
+    while (cb != NULL) {
+        // Plugins/engines in the metadata file are separated by tag lines.
+        fprintf(f, "T%s\n", cb->tag);
+        if (cb->scb(cb->tag, &ctx, cb->data) != 0) {
+            return -1;
+        }
+
+        cb = cb->next;
+    }
+
+    fclose(f);
+    free(metafile);
+
     return 0;
 }
 
-// NOTE: must be called _after_ main code fixup?
-// else: m->base_addr is only set during close.
-// else: set m->clean = false here but set rest on close...
-void restart_mmap_set(void) {
-    slab_mmap_meta *m = (slab_mmap_meta *)((char *)mmap_base + slabmem_limit);
-    m->base_addr = mmap_base;
-    m->clean = false;
-    memcpy(m->version, VERSION, strlen(VERSION));
+// Keys and values must not contain spaces or newlines.
+// Could offer an interface that uriencodes values for the caller, however
+// nothing currently would use it, so add when necessary.
+#define SET_VAL_MAX 4096
+void restart_set_kv(void *ctx, const char *key, const char *fmt, ...) {
+    va_list ap;
+    restart_cb_ctx *c = (restart_cb_ctx *) ctx;
+    char valbuf[SET_VAL_MAX];
+
+    va_start(ap, fmt);
+    int vlen = vsnprintf(valbuf, SET_VAL_MAX-1, fmt, ap);
+    va_end(ap);
+    // This is heavy handed. We need to protect against corrupt data as much
+    // as possible. The buffer is large and these values are currently small,
+    // it will take a significant mistake to land here.
+    if (vlen >= SET_VAL_MAX) {
+        fprintf(stderr, "FATAL while saving metadata state, value too long for: %s %s",
+                key, valbuf);
+        abort();
+    }
+
+    fprintf(c->f, "K%s %s\n", key, valbuf);
+    // TODO: update crc32c
 }
 
-bool restart_mmap_open(const size_t limit, const char *file, void **mem_base, void **old_base) {
+bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     bool reuse_mmap = true;
 
     pagesize = getpagesize();
+    memory_file = strdup(file);
     mmap_fd = open(file, O_RDWR|O_CREAT, S_IRWXU);
     fprintf(stderr, "mmap_fd: %d\n", mmap_fd);
     if (ftruncate(mmap_fd, limit + pagesize) != 0) {
@@ -81,30 +299,28 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base, vo
     }
     // Set the limit before calling check_mmap, so we can find the meta page..
     slabmem_limit = limit;
-    *old_base = NULL;
-    if (check_mmap(mmap_base, old_base) != 0) {
+    if (restart_check(file) != 0) {
         fprintf(stderr, "failed to validate mmap, not reusing\n");
         reuse_mmap = false;
     }
     *mem_base = mmap_base;
 
-    // save metadata snapshot.
-    // TODO: just have to mark it as not clean here.
-    //restart_set_mmap();
     return reuse_mmap;
 }
 
-// TODO: meta at start vs end of memory.
 /* Gracefully stop/close the shared memory segment */
 void restart_mmap_close(void) {
-    slab_mmap_meta *m = (slab_mmap_meta *)((char *)mmap_base + slabmem_limit);
-    m->clean = true;
-    m->base_addr = mmap_base;
+    if (restart_save(memory_file) != 0) {
+        fprintf(stderr, "failed to save restart metadata");
+    }
+
     if (munmap(mmap_base, slabmem_limit + pagesize) != 0) {
         perror("failed to munmap shared memory");
     } else if (close(mmap_fd) != 0) {
         perror("failed to close shared memory fd");
     }
+
+    free(memory_file);
 }
 
 // given memory base, quickly walk memory and do pointer fixup.
