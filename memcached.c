@@ -7566,7 +7566,7 @@ int main (int argc, char **argv) {
                 }
                 settings.logger_buf_size *= 1024; /* kilobytes */
             case SLAB_SIZES:
-                slab_sizes_unparsed = subopts_value;
+                slab_sizes_unparsed = strdup(subopts_value);
                 break;
             case SLAB_CHUNK_MAX:
                 if (subopts_value == NULL) {
