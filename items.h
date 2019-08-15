@@ -8,6 +8,7 @@
 
 /* See items.c */
 uint64_t get_cas_id(void);
+void set_cas_id(uint64_t new_cas);
 
 /*@null@*/
 item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags, const rel_time_t exptime, const int nbytes);

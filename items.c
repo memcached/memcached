@@ -60,6 +60,7 @@ static uint64_t sizes_bytes[LARGEST_ID];
 static unsigned int *stats_sizes_hist = NULL;
 static uint64_t stats_sizes_cas_min = 0;
 static int stats_sizes_buckets = 0;
+static uint64_t cas_id = 0;
 
 static volatile int do_run_lru_maintainer_thread = 0;
 static int lru_maintainer_initialized = 0;
@@ -109,11 +110,16 @@ static uint64_t lru_total_bumps_dropped(void);
 /* Get the next CAS id for a new item. */
 /* TODO: refactor some atomics for this. */
 uint64_t get_cas_id(void) {
-    static uint64_t cas_id = 0;
     pthread_mutex_lock(&cas_id_lock);
     uint64_t next_id = ++cas_id;
     pthread_mutex_unlock(&cas_id_lock);
     return next_id;
+}
+
+void set_cas_id(uint64_t new_cas) {
+    pthread_mutex_lock(&cas_id_lock);
+    cas_id = new_cas;
+    pthread_mutex_unlock(&cas_id_lock);
 }
 
 int item_is_flushed(item *it) {

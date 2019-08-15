@@ -6999,9 +6999,14 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
 
     // Settings to remember.
+    // TODO: should get a version of version which is numeric, else
+    // comparisons for compat reasons are difficult.
+    // it may be possible to punt on this for now; since we can test for the
+    // absense of another key... such as the new numeric version.
     restart_set_kv(ctx, "version", "%s", VERSION);
-    // TODO: instead of remembering "factor", can we remember the size of each
-    // slab class? It's not reliable to serialize floats.
+    // TODO: actually... if we hold the original factor or subopts _strings_
+    // they can be directly compared without roundtripping through floats or
+    // serializing/deserializing the long options list.
     restart_set_kv(ctx, "factor", "%f", settings.factor);
     restart_set_kv(ctx, "maxbytes", "%llu", (unsigned long long) settings.maxbytes);
     restart_set_kv(ctx, "chunk_size", "%d", settings.chunk_size);
@@ -7015,6 +7020,7 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
 
     // TODO: 'current_time' is a tough one.
     // restart_set_kv(ctx, "current_time", "", );
+
     // Might as well just fetch the next CAS value to use than tightly
     // coupling the internal variable into the restart system.
     restart_set_kv(ctx, "current_cas", "%llu", (unsigned long long) get_cas_id());
@@ -7027,27 +7033,150 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     // should future proof this with a 64bit upcast, or fetch value from a
     // converter function/macro?
     restart_set_kv(ctx, "oldest_live", "%u", settings.oldest_live);
-    // FIXME: use uintptr_t etc? is it portable enough?
+    // TODO: use uintptr_t etc? is it portable enough?
     restart_set_kv(ctx, "mmap_oldbase", "%p", meta->mmap_base);
 
     return 0;
 }
 
+// With this callback we make a decision on if the current configuration
+// matches up enough to allow reusing the cache.
+// We also re-load important runtime information.
 static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
     struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
     char *key;
     char *val;
-    bool reuse_mmap = -1;
+    int reuse_mmap = 0;
+
+    // TODO: not sure this is any better than just doing an if/else tree with
+    // strcmp's...
+    enum {
+        R_MMAP_OLDBASE = 0,
+        R_MAXBYTES,
+        R_CHUNK_SIZE,
+        R_ITEM_SIZE_MAX,
+        R_SLAB_CHUNK_SIZE_MAX,
+        R_SLAB_PAGE_SIZE,
+        R_USE_CAS,
+        R_SLAB_REASSIGN,
+        R_CURRENT_CAS,
+        R_OLDEST_CAS,
+        R_OLDEST_LIVE,
+    };
+
+    const char *opts[] = {
+        [R_MMAP_OLDBASE] = "mmap_oldbase",
+        [R_MAXBYTES] = "maxbytes",
+        [R_CHUNK_SIZE] = "chunk_size",
+        [R_ITEM_SIZE_MAX] = "item_size_max",
+        [R_SLAB_CHUNK_SIZE_MAX] = "slab_chunk_size_max",
+        [R_SLAB_PAGE_SIZE] = "slab_page_size",
+        [R_USE_CAS] = "use_cas",
+        [R_SLAB_REASSIGN] = "slab_reassign",
+        [R_CURRENT_CAS] = "current_cas",
+        [R_OLDEST_CAS] = "oldest_cas",
+        [R_OLDEST_LIVE] = "oldest_live",
+        NULL
+    };
 
     while (restart_get_kv(ctx, &key, &val) == 0) {
-        if (strcmp(key, "mmap_oldbase") == 0) {
-            if (!safe_strtoull_hex(val, &meta->old_base)) {
-                fprintf(stderr, "failed to parse mmap_oldbase: %s\n", val);
-                abort();
-            }
-            reuse_mmap = 0;
+        int type = 0;
+        int32_t val_int = 0;
+        uint32_t val_uint = 0;
+        int64_t bigval_int = 0;
+        uint64_t bigval_uint = 0;
+
+        while (opts[type] != NULL && strcmp(key, opts[type]) != 0) {
+            type++;
         }
-        fprintf(stderr, "LOAD READBACK: %s - %s\n", key, val);
+        if (opts[type] == NULL) {
+            fprintf(stderr, "RESTART: unknown/unhandled key: %s\n", key);
+            continue;
+        }
+
+        // helper for any boolean checkers.
+        bool val_bool = false;
+        bool is_bool = true;
+        if (strcmp(val, "false") == 0) {
+            val_bool = false;
+        } else if (strcmp(val, "true") == 0) {
+            val_bool = true;
+        } else {
+            is_bool = false;
+        }
+
+        switch (type) {
+        case R_MMAP_OLDBASE:
+            if (!safe_strtoull_hex(val, &meta->old_base)) {
+                fprintf(stderr, "failed to parse %s: %s\n", key, val);
+                reuse_mmap = -1;
+            }
+            break;
+        case R_MAXBYTES:
+            if (!safe_strtoll(val, &bigval_int) || settings.maxbytes != bigval_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_CHUNK_SIZE:
+            if (!safe_strtol(val, &val_int) || settings.chunk_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_ITEM_SIZE_MAX:
+            if (!safe_strtol(val, &val_int) || settings.item_size_max != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_CHUNK_SIZE_MAX:
+            if (!safe_strtol(val, &val_int) || settings.slab_chunk_size_max != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_PAGE_SIZE:
+            if (!safe_strtol(val, &val_int) || settings.slab_page_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_USE_CAS:
+            if (!is_bool || settings.use_cas != val_bool) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_REASSIGN:
+            if (!is_bool || settings.slab_reassign != val_bool) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_CURRENT_CAS:
+            // FIXME: do we need to fail if these values _aren't_ found?
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                set_cas_id(bigval_uint);
+            }
+            break;
+        case R_OLDEST_CAS:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.oldest_cas = bigval_uint;
+            }
+            break;
+        case R_OLDEST_LIVE:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.oldest_live = val_uint;
+            }
+            break;
+        default:
+            fprintf(stderr, "RESTART: unhandled key: %s\n", key);
+        }
+
+        if (reuse_mmap != 0) {
+            fprintf(stderr, "RESTART: restart imcompatible due to setting for [%s] [old value: %s]\n", key, val);
+            break;
+        }
     }
 
     return reuse_mmap;
