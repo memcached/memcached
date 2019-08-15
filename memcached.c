@@ -107,7 +107,8 @@ static int start_conn_timeout_thread();
 static void stats_init(void);
 static void server_stats(ADD_STAT add_stats, conn *c);
 static void process_stat_settings(ADD_STAT add_stats, void *c);
-static void conn_to_str(const conn *c, char *buf);
+static void conn_to_str(const conn *c, char *addr, char *svr_addr);
+
 /** Return a datum for stats in binary protocol */
 static bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 
@@ -3456,19 +3457,68 @@ static bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void 
     return ret;
 }
 
-static void conn_to_str(const conn *c, char *buf) {
+static inline void get_conn_text(const conn *c, const int af,
+                char* addr, struct sockaddr *sock_addr) {
     char addr_text[MAXPATHLEN];
+    addr_text[0] = '\0';
+    const char *protoname = "?";
+    unsigned short port = 0;
 
-    if (!c) {
-        strcpy(buf, "<null>");
-    } else if (c->state == conn_closed) {
-        strcpy(buf, "<closed>");
+    switch (af) {
+        case AF_INET:
+            (void) inet_ntop(af,
+                    &((struct sockaddr_in *)sock_addr)->sin_addr,
+                    addr_text,
+                    sizeof(addr_text) - 1);
+            port = ntohs(((struct sockaddr_in *)sock_addr)->sin_port);
+            protoname = IS_UDP(c->transport) ? "udp" : "tcp";
+            break;
+
+        case AF_INET6:
+            addr_text[0] = '[';
+            addr_text[1] = '\0';
+            if (inet_ntop(af,
+                    &((struct sockaddr_in6 *)sock_addr)->sin6_addr,
+                    addr_text + 1,
+                    sizeof(addr_text) - 2)) {
+                strcat(addr_text, "]");
+            }
+            port = ntohs(((struct sockaddr_in6 *)sock_addr)->sin6_port);
+            protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
+            break;
+
+        case AF_UNIX:
+            strncpy(addr_text,
+                    ((struct sockaddr_un *)sock_addr)->sun_path,
+                    sizeof(addr_text) - 1);
+            addr_text[sizeof(addr_text)-1] = '\0';
+            protoname = "unix";
+            break;
+    }
+
+    if (strlen(addr_text) < 2) {
+        /* Most likely this is a connected UNIX-domain client which
+         * has no peer socket address, but there's no portable way
+         * to tell for sure.
+         */
+        sprintf(addr_text, "<AF %d>", af);
+    }
+
+    if (port) {
+        sprintf(addr, "%s:%s:%u", protoname, addr_text, port);
     } else {
-        const char *protoname = "?";
+        sprintf(addr, "%s:%s", protoname, addr_text);
+    }
+}
+
+static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
+    if (!c) {
+        strcpy(addr, "<null>");
+    } else if (c->state == conn_closed) {
+        strcpy(addr, "<closed>");
+    } else {
         struct sockaddr_in6 local_addr;
-        struct sockaddr *addr = (void *)&c->request_addr;
-        int af;
-        unsigned short port = 0;
+        struct sockaddr *sock_addr = (void *)&c->request_addr;
 
         /* For listen ports and idle UDP ports, show listen address */
         if (c->state == conn_listening ||
@@ -3479,57 +3529,17 @@ static void conn_to_str(const conn *c, char *buf) {
             if (getsockname(c->sfd,
                         (struct sockaddr *)&local_addr,
                         &local_addr_len) == 0) {
-                addr = (struct sockaddr *)&local_addr;
+                sock_addr = (struct sockaddr *)&local_addr;
             }
         }
+        get_conn_text(c, sock_addr->sa_family, addr, sock_addr);
 
-        af = addr->sa_family;
-        addr_text[0] = '\0';
-
-        switch (af) {
-            case AF_INET:
-                (void) inet_ntop(af,
-                        &((struct sockaddr_in *)addr)->sin_addr,
-                        addr_text,
-                        sizeof(addr_text) - 1);
-                port = ntohs(((struct sockaddr_in *)addr)->sin_port);
-                protoname = IS_UDP(c->transport) ? "udp" : "tcp";
-                break;
-
-            case AF_INET6:
-                addr_text[0] = '[';
-                addr_text[1] = '\0';
-                if (inet_ntop(af,
-                        &((struct sockaddr_in6 *)addr)->sin6_addr,
-                        addr_text + 1,
-                        sizeof(addr_text) - 2)) {
-                    strcat(addr_text, "]");
-                }
-                port = ntohs(((struct sockaddr_in6 *)addr)->sin6_port);
-                protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
-                break;
-
-            case AF_UNIX:
-                strncpy(addr_text,
-                        ((struct sockaddr_un *)addr)->sun_path,
-                        sizeof(addr_text) - 1);
-                addr_text[sizeof(addr_text)-1] = '\0';
-                protoname = "unix";
-                break;
-        }
-
-        if (strlen(addr_text) < 2) {
-            /* Most likely this is a connected UNIX-domain client which
-             * has no peer socket address, but there's no portable way
-             * to tell for sure.
-             */
-            sprintf(addr_text, "<AF %d>", af);
-        }
-
-        if (port) {
-            sprintf(buf, "%s:%s:%u", protoname, addr_text, port);
-        } else {
-            sprintf(buf, "%s:%s", protoname, addr_text);
+        if (c->state != conn_listening && !(IS_UDP(c->transport) &&
+                 c->state == conn_read)) {
+            struct sockaddr_storage svr_sock_addr;
+            socklen_t svr_addr_len = sizeof(svr_sock_addr);
+            getsockname(c->sfd, (struct sockaddr *)&svr_sock_addr, &svr_addr_len);
+            get_conn_text(c, svr_sock_addr.ss_family, svr_addr, (struct sockaddr *)&svr_sock_addr);
         }
     }
 }
@@ -3538,7 +3548,9 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
     char val_str[STAT_VAL_LEN];
-    char conn_name[MAXPATHLEN + sizeof("unix:") + sizeof("65535")];
+    size_t extras_len = sizeof("unix:") + sizeof("65535");
+    char addr[MAXPATHLEN + extras_len];
+    char svr_addr[MAXPATHLEN + extras_len];
     int klen = 0, vlen = 0;
 
     assert(add_stats);
@@ -3550,10 +3562,17 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
              * output -- not worth the complexity of the locking that'd be
              * required to prevent it.
              */
+            if (IS_UDP(conns[i]->transport)) {
+                APPEND_NUM_STAT(i, "UDP", "%s", "UDP");
+            }
             if (conns[i]->state != conn_closed) {
-                conn_to_str(conns[i], conn_name);
+                conn_to_str(conns[i], addr, svr_addr);
 
-                APPEND_NUM_STAT(i, "addr", "%s", conn_name);
+                APPEND_NUM_STAT(i, "addr", "%s", addr);
+                if (conns[i]->state != conn_listening &&
+                    !(IS_UDP(conns[i]->transport) && conns[i]->state == conn_read)) {
+                    APPEND_NUM_STAT(i, "listen_addr", "%s", svr_addr);
+                }
                 APPEND_NUM_STAT(i, "state", "%s",
                         state_text(conns[i]->state));
                 APPEND_NUM_STAT(i, "secs_since_last_cmd", "%d",
