@@ -3633,6 +3633,31 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
+static void process_close_connection(conn *c, token_t *tokens,
+    const size_t ntokens) {
+    set_noreply_maybe(c, tokens, ntokens);
+    uint32_t connid;
+
+    if (!safe_strtoul(tokens[1].value, &connid) || connid >= max_fds) {
+        out_string(c, "ERROR Invalid connection id");
+        return;
+    }
+
+    conn* conn = conns[connid];
+    if (conn == NULL) {
+        out_string(c, "ERROR Connection not found");
+    } else if (conn->state == conn_listening) {
+        out_string(c, "ERROR Listening connection");
+    } else if (IS_UDP(conn->transport) && conn->state == conn_read) {
+        out_string(c, "ERROR UDP connection");
+    } else if (conn->sfd == c->sfd) {
+        out_string(c, "ERROR Current connection");
+    } else {
+        conn_close(conn);
+        out_string(c, "OK");
+    }
+}
+
 /* client flags == 0 means use no storage for client flags */
 static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas, int nbytes) {
     char *p = suffix;
@@ -5036,6 +5061,8 @@ static void process_command(conn *c, char *command) {
     } else {
         if (ntokens >= 2 && strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
             conn_set_state(c, conn_closing);
+        } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "close_conn") == 0) {
+            process_close_connection(c, tokens, ntokens);
         } else {
             out_string(c, "ERROR");
         }
