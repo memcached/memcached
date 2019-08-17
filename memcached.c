@@ -502,8 +502,9 @@ static const char *prot_text(enum protocol prot) {
     return rv;
 }
 
-void conn_close_idle(conn *c) {
-    if (settings.idle_timeout > 0 &&
+void close_connection(conn *c, bool is_idle_connection) {
+    if (is_idle_connection &&
+        settings.idle_timeout > 0 &&
         (current_time - c->last_cmd_time) > settings.idle_timeout) {
         if (c->state != conn_new_cmd && c->state != conn_read) {
             if (settings.verbose > 1)
@@ -511,15 +512,13 @@ void conn_close_idle(conn *c) {
                     "fd %d wants to timeout, but isn't in read state", c->sfd);
             return;
         }
-
         if (settings.verbose > 1)
             fprintf(stderr, "Closing idle fd %d\n", c->sfd);
 
         c->thread->stats.idle_kicks++;
-
-        conn_set_state(c, conn_closing);
-        drive_machine(c);
     }
+    conn_set_state(c, conn_closing);
+    drive_machine(c);
 }
 
 /* bring conn back from a sidethread. could have had its event base moved. */
@@ -3644,6 +3643,9 @@ static void process_close_connection(conn *c, token_t *tokens,
     }
 
     conn* conn = conns[connid];
+    const int buf_size = 1 + sizeof(int);
+    char buf[buf_size];
+
     if (conn == NULL) {
         out_string(c, "ERROR Connection not found");
     } else if (conn->state == conn_listening) {
@@ -3653,7 +3655,13 @@ static void process_close_connection(conn *c, token_t *tokens,
     } else if (conn->sfd == c->sfd) {
         out_string(c, "ERROR Current connection");
     } else {
-        conn_close(conn);
+        buf[0] = 'd';
+        memcpy(&buf[1], &connid, sizeof(int));
+        if (write(conn->thread->notify_send_fd, buf, buf_size)
+                    != buf_size) {
+            out_string(c, "ERROR Failed to write close request to the notify pipe");
+            return;
+        }
         out_string(c, "OK");
     }
 }

@@ -406,8 +406,8 @@ static void *worker_libevent(void *arg) {
 
 
 /*
- * Processes an incoming "handle a new connection" item. This is called when
- * input arrives on the libevent wakeup pipe.
+ * Processes commands such as an incoming "handle a new connection".
+ * This is called when input arrives on the libevent wakeup pipe.
  */
 static void thread_libevent_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
@@ -415,6 +415,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     char buf[1];
     conn *c;
     unsigned int timeout_fd;
+    int close_fd;
 
     if (read(fd, buf, 1) != 1) {
         if (settings.verbose > 0)
@@ -473,7 +474,16 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                 fprintf(stderr, "Can't read timeout fd from libevent pipe\n");
             return;
         }
-        conn_close_idle(conns[timeout_fd]);
+        close_connection(conns[timeout_fd], true);
+        break;
+    /* drop/close a client socket */
+    case 'd':
+        if (read(fd, &close_fd, sizeof(close_fd)) != sizeof(close_fd)) {
+            if (settings.verbose > 0)
+                fprintf(stderr, "Can't read close fd request from libevent pipe\n");
+            return;
+        }
+        close_connection(conns[close_fd], false);
         break;
     }
 }
