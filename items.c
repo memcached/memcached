@@ -609,6 +609,7 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
 
     buffer = malloc((size_t)memlimit);
     if (buffer == 0) {
+        pthread_mutex_unlock(&lru_locks[id]);
         return NULL;
     }
     bufcurr = 0;
