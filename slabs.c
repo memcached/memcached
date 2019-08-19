@@ -1051,7 +1051,7 @@ static int slab_rebalance_move(void) {
                         requested_adjust = s_cls->size;
                     }
                     pthread_mutex_lock(&slabs_lock);
-                } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                } else { //if ((it->it_flags & ITEM_CHUNKED) == 0) {
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
                     STORAGE_delete(storage, it);
@@ -1062,6 +1062,14 @@ static int slab_rebalance_move(void) {
                      *          freelist so that that live items
                      *          do not sneek into the slab that we are clearing */
                     pthread_mutex_lock(&slabs_lock);
+
+                    if (it->it_flags & ITEM_CHUNKED)
+                    {
+                        item_chunk *ch = (item_chunk*)it;
+                        if (ch->prev)
+                            ch->prev->next = ch->next;
+                    }
+
                     do_item_unlink_noslab_lock(it, hv);
                     if (refcount_decr(it) == 0)
                     {
@@ -1077,20 +1085,7 @@ static int slab_rebalance_move(void) {
                     }
 
                 }
-                else
-                {
 
-            /* restore ntotal in case we tried saving a head chunk. */
-                    ntotal = ITEM_ntotal(it);
-                    STORAGE_delete(storage, it);
-                    do_item_unlink(it, hv);
-                    slabs_free(it, ntotal, slab_rebal.s_clsid);
-                    /* Swing around again later to remove it from the freelist. */
-                    slab_rebal.busy_items++;
-            was_busy++;
-                    pthread_mutex_lock(&slabs_lock);
-
-                }
                 item_trylock_unlock(hold_lock);
                 /* Always remove the ntotal, as we added it in during
                  * do_slabs_alloc() when copying the item.
