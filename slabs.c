@@ -1065,7 +1065,7 @@ static int slab_rebalance_move(void) {
                     do_item_unlink_noslab_lock(it, hv);
                     if (refcount_decr(it) == 0)
                     {
-                        do_slabs_free(it, ntotal, slab_rebal.s_clsid, it->gen);
+                        do_slabs_free(it, ntotal, slab_rebal.s_clsid);
                         slab_rebalance_cut_free(s_cls, it);
                         it->refcount = 0;
                         it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
