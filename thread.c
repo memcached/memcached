@@ -474,7 +474,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                 fprintf(stderr, "Can't read timeout fd from libevent pipe\n");
             return;
         }
-        close_connection(conns[timeout_fd], true);
+        close_idle_connection(conns[timeout_fd]);
         break;
     /* drop/close a client socket */
     case 'd':
@@ -483,7 +483,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                 fprintf(stderr, "Can't read close fd request from libevent pipe\n");
             return;
         }
-        close_connection(conns[close_fd], false);
+        close_connection(conns[close_fd]);
         break;
     }
 }

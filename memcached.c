@@ -502,9 +502,8 @@ static const char *prot_text(enum protocol prot) {
     return rv;
 }
 
-void close_connection(conn *c, bool is_idle_connection) {
-    if (is_idle_connection &&
-        settings.idle_timeout > 0 &&
+void close_idle_connection(conn *c) {
+    if (settings.idle_timeout > 0 &&
         (current_time - c->last_cmd_time) > settings.idle_timeout) {
         if (c->state != conn_new_cmd && c->state != conn_read) {
             if (settings.verbose > 1)
@@ -517,6 +516,12 @@ void close_connection(conn *c, bool is_idle_connection) {
 
         c->thread->stats.idle_kicks++;
     }
+    close_connection(c);
+}
+
+void close_connection(conn *c) {
+    if (settings.verbose > 1)
+        fprintf(stderr, "Closing fd %d\n", c->sfd);
     conn_set_state(c, conn_closing);
     drive_machine(c);
 }
