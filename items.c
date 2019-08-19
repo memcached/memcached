@@ -538,7 +538,7 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
 /* This unlinks an item from the queue without holding
  * the slab lock (item removal if the reference count will
  * be dropped to 0). This is for the slab mover thread so that
- * it can remove items from LRU queue and cut them off the 
+ * it can remove items from LRU queue and cut them off the
  * freelist in one go without returning to scan through the slab
  * one more time (causues considerable slowdown in slab_reassignment */
 void do_item_unlink_noslab_lock(item *it, const uint32_t hv) {
