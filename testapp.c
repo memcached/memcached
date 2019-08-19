@@ -589,6 +589,7 @@ static struct conn *connect_server(const char *hostname, in_port_t port,
 static enum test_return test_vperror(void) {
     int rv = 0;
     int oldstderr = dup(STDERR_FILENO);
+    assert(oldstderr >= 0);
     char tmpl[sizeof(TMP_TEMPLATE)+1];
     strncpy(tmpl, TMP_TEMPLATE, sizeof(TMP_TEMPLATE)+1);
 

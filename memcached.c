@@ -465,6 +465,10 @@ static int start_conn_timeout_thread() {
 static void conn_init(void) {
     /* We're unlikely to see an FD much higher than maxconns. */
     int next_fd = dup(1);
+    if (next_fd < 0) {
+        perror("Failed to duplicate file descriptor\n");
+        exit(1);
+    }
     int headroom = 10;      /* account for extra unexpected open FDs */
     struct rlimit rl;
 
@@ -6271,7 +6275,16 @@ static int server_socket(const char *interface,
                  * among threads, so this is guaranteed to assign one
                  * FD to each thread.
                  */
-                int per_thread_fd = c ? dup(sfd) : sfd;
+                int per_thread_fd;
+                if (c == 0) {
+                    per_thread_fd = sfd;
+                } else {
+                    per_thread_fd = dup(sfd);
+                    if (per_thread_fd < 0) {
+                        perror("Failed to duplicate file descriptor");
+                        exit(EXIT_FAILURE);
+                    }
+                }
                 dispatch_conn_new(per_thread_fd, conn_read,
                                   EV_READ | EV_PERSIST,
                                   UDP_READ_BUFFER_SIZE, transport, NULL);
