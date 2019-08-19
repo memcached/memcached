@@ -1051,7 +1051,7 @@ static int slab_rebalance_move(void) {
                         requested_adjust = s_cls->size;
                     }
                     pthread_mutex_lock(&slabs_lock);
-                } else {
+                } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
                     STORAGE_delete(storage, it);
@@ -1075,6 +1075,20 @@ static int slab_rebalance_move(void) {
                         slab_rebal.busy_items++;
                         was_busy++;
                     }
+
+                }
+                else
+                {
+
+            /* restore ntotal in case we tried saving a head chunk. */
+                    ntotal = ITEM_ntotal(it);
+                    STORAGE_delete(storage, it);
+                    do_item_unlink(it, hv);
+                    slabs_free(it, ntotal, slab_rebal.s_clsid);
+                    /* Swing around again later to remove it from the freelist. */
+                    slab_rebal.busy_items++;
+            was_busy++;
+                    pthread_mutex_lock(&slabs_lock);
 
                 }
                 item_trylock_unlock(hold_lock);
