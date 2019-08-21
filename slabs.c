@@ -1051,7 +1051,8 @@ static int slab_rebalance_move(void) {
                         requested_adjust = s_cls->size;
                     }
                     pthread_mutex_lock(&slabs_lock);
-                } else { //if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                } else {
+                    pthread_mutex_lock(&slabs_lock);
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
                     STORAGE_delete(storage, it);
@@ -1061,29 +1062,21 @@ static int slab_rebalance_move(void) {
                      *          the unlink, free, and removing from
                      *          freelist so that that live items
                      *          do not sneek into the slab that we are clearing */
-                    pthread_mutex_lock(&slabs_lock);
-
-                    if (it->it_flags & ITEM_CHUNKED)
-                    {
-                        item_chunk *ch = (item_chunk*)it;
-                        if (ch->prev)
-                            ch->prev->next = ch->next;
-                    }
-
                     do_item_unlink_noslab_lock(it, hv);
-                    if (refcount_decr(it) == 0)
-                    {
+                    if (refcount_decr(it) == 0) {
                         do_slabs_free(it, ntotal, slab_rebal.s_clsid);
+                        /* if the item was a chunk head we need to
+                         * get back to the current slot in the slab */
+                        if (ch)
+                            it = (item*)slab_rebal.slab_pos;
                         slab_rebalance_cut_free(s_cls, it);
                         it->refcount = 0;
                         it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
                     }
-                    else
-                    {
+                    else {
                         slab_rebal.busy_items++;
                         was_busy++;
                     }
-
                 }
 
                 item_trylock_unlock(hold_lock);
