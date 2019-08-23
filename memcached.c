@@ -6987,6 +6987,7 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 struct _mc_meta_data {
     void *mmap_base;
     uint64_t old_base;
+    char *slab_config; // string containing either factor or custom slab list.
 };
 
 // We need to remember a combination of configuration settings and global
@@ -7004,10 +7005,10 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     // it may be possible to punt on this for now; since we can test for the
     // absense of another key... such as the new numeric version.
     restart_set_kv(ctx, "version", "%s", VERSION);
-    // TODO: actually... if we hold the original factor or subopts _strings_
-    // they can be directly compared without roundtripping through floats or
+    // We hold the original factor or subopts _string_
+    // it can be directly compared without roundtripping through floats or
     // serializing/deserializing the long options list.
-    restart_set_kv(ctx, "factor", "%f", settings.factor);
+    restart_set_kv(ctx, "slab_config", "%s", meta->slab_config);
     restart_set_kv(ctx, "maxbytes", "%llu", (unsigned long long) settings.maxbytes);
     restart_set_kv(ctx, "chunk_size", "%d", settings.chunk_size);
     restart_set_kv(ctx, "item_size_max", "%d", settings.item_size_max);
@@ -7057,6 +7058,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         R_ITEM_SIZE_MAX,
         R_SLAB_CHUNK_SIZE_MAX,
         R_SLAB_PAGE_SIZE,
+        R_SLAB_CONFIG,
         R_USE_CAS,
         R_SLAB_REASSIGN,
         R_CURRENT_CAS,
@@ -7071,6 +7073,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         [R_ITEM_SIZE_MAX] = "item_size_max",
         [R_SLAB_CHUNK_SIZE_MAX] = "slab_chunk_size_max",
         [R_SLAB_PAGE_SIZE] = "slab_page_size",
+        [R_SLAB_CONFIG] = "slab_config",
         [R_USE_CAS] = "use_cas",
         [R_SLAB_REASSIGN] = "slab_reassign",
         [R_CURRENT_CAS] = "current_cas",
@@ -7134,6 +7137,11 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
             break;
         case R_SLAB_PAGE_SIZE:
             if (!safe_strtol(val, &val_int) || settings.slab_page_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_CONFIG:
+            if (strcmp(val, meta->slab_config) != 0) {
                 reuse_mmap = -1;
             }
             break;
@@ -7209,6 +7217,10 @@ int main (int argc, char **argv) {
     bool use_slab_sizes = false;
     char *slab_sizes_unparsed = NULL;
     bool slab_chunk_size_changed = false;
+    // struct for restart code. Initialized up here so we can curry
+    // important settings to save or validate.
+    struct _mc_meta_data *meta = malloc(sizeof(struct _mc_meta_data));
+    meta->slab_config = NULL;
 #ifdef EXTSTORE
     void *storage = NULL;
     struct extstore_conf_file *storage_file = NULL;
@@ -7571,6 +7583,7 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "Factor must be greater than 1\n");
                 return 1;
             }
+            meta->slab_config = strdup(optarg);
             break;
         case 'n':
             settings.chunk_size = atoi(optarg);
@@ -8234,11 +8247,20 @@ int main (int argc, char **argv) {
     }*/
 
     if (slab_sizes_unparsed != NULL) {
+        // want the unedited string for restart code.
+        char *temp = strdup(slab_sizes_unparsed);
         if (_parse_slab_sizes(slab_sizes_unparsed, slab_sizes)) {
             use_slab_sizes = true;
+            if (meta->slab_config) {
+                free(meta->slab_config);
+            }
+            meta->slab_config = temp;
         } else {
             exit(EX_USAGE);
         }
+    } else if (!meta->slab_config) {
+        // using the default factor.
+        meta->slab_config = "1.25";
     }
 
     if (settings.hot_lru_pct + settings.warm_lru_pct > 80) {
@@ -8447,7 +8469,6 @@ int main (int argc, char **argv) {
     stats_init();
     assoc_init(settings.hashpower_init);
     conn_init();
-    struct _mc_meta_data *meta = malloc(sizeof(struct _mc_meta_data));
     bool reuse_mem = false;
     void *mem_base = NULL;
     bool prefill = false;
