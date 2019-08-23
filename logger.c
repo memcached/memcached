@@ -88,8 +88,8 @@ static int logger_thread_poll_watchers(int force_poll, int watcher);
 
 /* Logger GID's can be used by watchers to put logs back into strict order
  */
-static uint64_t logger_get_gid(void) {
-    static uint64_t logger_gid = 0;
+static uint64_t logger_gid = 0;
+uint64_t logger_get_gid(void) {
 #ifdef HAVE_GCC_64ATOMICS
     return __sync_add_and_fetch(&logger_gid, 1);
 #elif defined(__sun)
@@ -99,6 +99,18 @@ static uint64_t logger_get_gid(void) {
     uint64_t res = ++logger_gid;
     mutex_unlock(&logger_atomics_mutex);
     return res;
+#endif
+}
+
+void logger_set_gid(uint64_t gid) {
+#ifdef HAVE_GCC_64ATOMICS
+    __sync_add_and_fetch(&logger_gid, gid);
+#elif defined(__sun)
+    atomic_add_64(&logger_gid);
+#else
+    mutex_lock(&logger_atomics_mutex);
+    logger_gid = gid;
+    mutex_unlock(&logger_atomics_mutex);
 #endif
 }
 

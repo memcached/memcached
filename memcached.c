@@ -7026,9 +7026,7 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     // coupling the internal variable into the restart system.
     restart_set_kv(ctx, "current_cas", "%llu", (unsigned long long) get_cas_id());
     restart_set_kv(ctx, "oldest_cas", "%llu", (unsigned long long) settings.oldest_cas);
-    // TODO: static -> unstatic from logger.c
-    // or... give the logger a restart callback.
-    //restart_set_kv(ctx, "logger_id", "%llu", );
+    restart_set_kv(ctx, "logger_id", "%llu", logger_get_gid());
     restart_set_kv(ctx, "hashpower", "%u", stats_state.hash_power_level);
     // NOTE: oldest_live is a rel_time_t, which aliases for unsigned int.
     // should future proof this with a 64bit upcast, or fetch value from a
@@ -7064,6 +7062,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         R_CURRENT_CAS,
         R_OLDEST_CAS,
         R_OLDEST_LIVE,
+        R_LOGGER_GID,
     };
 
     const char *opts[] = {
@@ -7079,6 +7078,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         [R_CURRENT_CAS] = "current_cas",
         [R_OLDEST_CAS] = "oldest_cas",
         [R_OLDEST_LIVE] = "oldest_live",
+        [R_LOGGER_GID] = "logger_gid",
         NULL
     };
 
@@ -7175,6 +7175,13 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
                 reuse_mmap = -1;
             } else {
                 settings.oldest_live = val_uint;
+            }
+            break;
+        case R_LOGGER_GID:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                logger_set_gid(bigval_uint);
             }
             break;
         default:

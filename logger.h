@@ -190,4 +190,8 @@ enum logger_add_watcher_ret {
 
 enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t f);
 
+/* functions used by restart system */
+uint64_t logger_get_gid(void);
+void logger_set_gid(uint64_t gid);
+
 #endif
