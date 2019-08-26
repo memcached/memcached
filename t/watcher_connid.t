@@ -23,8 +23,8 @@ while (<$client_first>) {
     last if /^(\.|END)/;
     $stats = $_;
 }
-my $connid_first  =(split(':', $stats))[0];
-$connid_first =~ s/[^0-9]//g;
+my $cfd_first  =(split(':', $stats))[0];
+$cfd_first =~ s/[^0-9]//g;
 
 # start watching fetchers and mutations
 my $watcher = $server->new_sock;
@@ -38,12 +38,12 @@ print $client_first "set foo 0 0 5 noreply\r\nhello\r\n";
 # ensure client's connection id is correct
 $res = <$watcher>;
 print $res;
-like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_get key=foo status=not_found clsid=\d+ connid=$connid_first/,
-    "Saw a miss with the connection id $connid_first");
+like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_get key=foo status=not_found clsid=\d+ cfd=$cfd_first/,
+    "Saw a miss with the connection id $cfd_first");
 $res = <$watcher>;
 print $res;
-like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_store key=foo status=stored cmd=set ttl=\d+ clsid=\d+ connid=$connid_first/,
-    "Saw a set with the connection id $connid_first");
+like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_store key=foo status=stored cmd=set ttl=\d+ clsid=\d+ cfd=$cfd_first/,
+    "Saw a set with the connection id $cfd_first");
 
 # get the second client's connection id
 my $client_second = $server->new_sock;
@@ -52,8 +52,8 @@ while (<$client_second>) {
     last if /^(\.|END)/;
     $stats = $_;
 }
-my $connid_second  =(split(':', $stats))[0];
-$connid_second =~ s/[^0-9]//g;
+my $cfd_second  =(split(':', $stats))[0];
+$cfd_second =~ s/[^0-9]//g;
 
 # second client does a get
 print $client_second "get foo\r\n";
@@ -61,6 +61,6 @@ print $client_second "get foo\r\n";
 # now we should see second client's connection id
 $res = <$watcher>;
 print $res;
-like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_get key=foo status=found clsid=\d+ connid=$connid_second/,
-    "Saw a get with the connection id $connid_second");
+like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_get key=foo status=found clsid=\d+ cfd=$cfd_second/,
+    "Saw a get with the connection id $cfd_second");
 
