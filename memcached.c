@@ -8644,7 +8644,7 @@ int main (int argc, char **argv) {
         struct timespec ts;
         if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
             monotonic = true;
-            monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
+            monotonic_start = ts.tv_sec;
             // Monotonic clock needs special handling for restarts.
             // We get a start time at an arbitrary place, so we need to
             // restore the original time delta, which is always "now" - _start
@@ -8652,6 +8652,8 @@ int main (int argc, char **argv) {
                 // the running timespan at stop time + the time we think we
                 // were stopped.
                 monotonic_start -= meta->current_time + meta->time_delta;
+            } else {
+                monotonic_start -= ITEM_UPDATE_INTERVAL + 2;
             }
         }
     }

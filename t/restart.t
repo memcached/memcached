@@ -12,8 +12,8 @@ my $mem_path = "/dev/shm/mc_restart.$$";
 my $server = new_memcached("-m 128 -e $mem_path -I 2m");
 my $sock = $server->sock;
 
+diag "Set some values, various sizes.";
 {
-    # Set some values, various sizes.
     my $cur = 2;
     my $cnt = 0;
     my $end = 2**20;
@@ -26,15 +26,31 @@ my $sock = $server->sock;
     }
 }
 
+diag "Data that should expire while stopped.";
+{
+    print $sock "set low1 0 8 2\r\nbo\r\n";
+    like(scalar <$sock>, qr/STORED/, "stored low ttl item");
+    # This one should stay.
+    print $sock "set low2 0 20 2\r\nmo\r\n";
+    like(scalar <$sock>, qr/STORED/, "stored low ttl item");
+}
+
 $server->graceful_stop();
 diag "killed, waiting";
-# TODO: should add way to wait for server to fully exit..
-sleep 5;
+# TODO: add way to wait for server to fully exit..
+sleep 10;
 
 {
     $server = new_memcached("-m 128 -e $mem_path -I 2m");
     $sock = $server->sock;
     diag "reconnected";
+}
+
+diag "low TTL item should be gone";
+{
+    mem_get_is($sock, 'low1', undef);
+    # but this one should exist.
+    mem_get_is($sock, 'low2', 'mo');
 }
 
 {
