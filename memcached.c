@@ -6522,6 +6522,10 @@ static int server_socket_unix(const char *path, int access_mask) {
  */
 volatile rel_time_t current_time;
 static struct event clockevent;
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+static bool monotonic = false;
+static int64_t monotonic_start;
+#endif
 
 /* libevent uses a monotonic clock when available for event scheduling. Aside
  * from jitter, simply ticking our internal timer here is accurate enough.
@@ -6530,25 +6534,12 @@ static struct event clockevent;
 static void clock_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 1, .tv_usec = 0};
     static bool initialized = false;
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
-    static bool monotonic = false;
-    static time_t monotonic_start;
-#endif
 
     if (initialized) {
         /* only delete the event if it's actually there. */
         evtimer_del(&clockevent);
     } else {
         initialized = true;
-        /* process_started is initialized to time() - 2. We initialize to 1 so
-         * flush_all won't underflow during tests. */
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
-        struct timespec ts;
-        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-            monotonic = true;
-            monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
-        }
-#endif
     }
 
     // While we're here, check for hash table expansion.
@@ -6988,6 +6979,9 @@ struct _mc_meta_data {
     void *mmap_base;
     uint64_t old_base;
     char *slab_config; // string containing either factor or custom slab list.
+    int64_t time_delta;
+    uint64_t process_started;
+    uint32_t current_time;
 };
 
 // We need to remember a combination of configuration settings and global
@@ -7019,14 +7013,26 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
 
     // Online state to remember.
 
-    // TODO: 'current_time' is a tough one.
-    // restart_set_kv(ctx, "current_time", "", );
+    // current time is tough. we need to rely on the clock being correct to
+    // pull the delta between stop and start times. we also need to know the
+    // delta between start time and now to restore monotonic clocks.
+    // for non-monotonic clocks (some OS?), process_started is the only
+    // important one.
+    restart_set_kv(ctx, "current_time", "%u", current_time);
+    // types are great until... this. some systems time_t could be big, but
+    // I'm assuming never negative.
+    restart_set_kv(ctx, "process_started", "%llu", (unsigned long long) process_started);
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        restart_set_kv(ctx, "stop_time", "%lu", tv.tv_sec);
+    }
 
     // Might as well just fetch the next CAS value to use than tightly
     // coupling the internal variable into the restart system.
     restart_set_kv(ctx, "current_cas", "%llu", (unsigned long long) get_cas_id());
     restart_set_kv(ctx, "oldest_cas", "%llu", (unsigned long long) settings.oldest_cas);
-    restart_set_kv(ctx, "logger_id", "%llu", logger_get_gid());
+    restart_set_kv(ctx, "logger_gid", "%llu", logger_get_gid());
     restart_set_kv(ctx, "hashpower", "%u", stats_state.hash_power_level);
     // NOTE: oldest_live is a rel_time_t, which aliases for unsigned int.
     // should future proof this with a 64bit upcast, or fetch value from a
@@ -7046,6 +7052,9 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
     char *key;
     char *val;
     int reuse_mmap = 0;
+    meta->process_started = 0;
+    meta->time_delta = 0;
+    meta->current_time = 0;
 
     // TODO: not sure this is any better than just doing an if/else tree with
     // strcmp's...
@@ -7063,6 +7072,9 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         R_OLDEST_CAS,
         R_OLDEST_LIVE,
         R_LOGGER_GID,
+        R_CURRENT_TIME,
+        R_STOP_TIME,
+        R_PROCESS_STARTED,
     };
 
     const char *opts[] = {
@@ -7079,6 +7091,9 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         [R_OLDEST_CAS] = "oldest_cas",
         [R_OLDEST_LIVE] = "oldest_live",
         [R_LOGGER_GID] = "logger_gid",
+        [R_CURRENT_TIME] = "current_time",
+        [R_STOP_TIME] = "stop_time",
+        [R_PROCESS_STARTED] = "process_started",
         NULL
     };
 
@@ -7182,6 +7197,36 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
                 reuse_mmap = -1;
             } else {
                 logger_set_gid(bigval_uint);
+            }
+            break;
+        case R_PROCESS_STARTED:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                meta->process_started = bigval_uint;
+            }
+            break;
+        case R_CURRENT_TIME:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                meta->current_time = val_uint;
+            }
+            break;
+        case R_STOP_TIME:
+            if (!safe_strtoll(val, &bigval_int)) {
+                reuse_mmap = -1;
+            } else {
+                struct timeval t;
+                gettimeofday(&t, NULL);
+                meta->time_delta = t.tv_sec - bigval_int;
+                // clock has done something crazy.
+                // there are _lots_ of ways the clock can go wrong here, but
+                // this is a safe sanity check since there's nothing else we
+                // can realistically do.
+                if (meta->time_delta <= 0) {
+                    reuse_mmap = -1;
+                }
             }
             break;
         default:
@@ -8533,6 +8578,8 @@ int main (int argc, char **argv) {
         slabs_prefill_global();
     /* In restartable mode and we've decided to issue a fixup on memory */
     if (memory_file != NULL && reuse_mem) {
+        // should've pulled in process_started from meta file.
+        process_started = meta->process_started;
         // TODO: must be a more canonical way of serializing/deserializing
         // pointers? passing through uint64_t should work, and we're not
         // annotating the pointer with anything, but it's still slightly
@@ -8592,6 +8639,23 @@ int main (int argc, char **argv) {
     }
 
     /* initialise clock event */
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+    {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+            monotonic = true;
+            monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
+            // Monotonic clock needs special handling for restarts.
+            // We get a start time at an arbitrary place, so we need to
+            // restore the original time delta, which is always "now" - _start
+            if (reuse_mem) {
+                // the running timespan at stop time + the time we think we
+                // were stopped.
+                monotonic_start -= meta->current_time + meta->time_delta;
+            }
+        }
+    }
+#endif
     clock_handler(0, 0, 0);
 
     /* create unix mode sockets after dropping privileges */
