@@ -151,13 +151,11 @@ int restart_get_kv(void *ctx, char **key, char **val) {
             p++;
         }
         *p = '\0';
-        fprintf(stderr, "got line: [l:%lu] %s\n", len, line);
 
         if (line[0] == 'T') {
             cb = cb_stack;
             while (cb != NULL) {
                 // NOTE: len is allocated size, not line len. need to chomp \n
-                fprintf(stderr, "checking: [%lu] %s:\n", len, cb->tag);
                 if (strcmp(cb->tag, line+1) == 0) {
                     break;
                 }
@@ -282,7 +280,6 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     pagesize = getpagesize();
     memory_file = strdup(file);
     mmap_fd = open(file, O_RDWR|O_CREAT, S_IRWXU);
-    fprintf(stderr, "mmap_fd: %d\n", mmap_fd);
     if (ftruncate(mmap_fd, limit + pagesize) != 0) {
         perror("ftruncate failed");
         abort();
@@ -333,8 +330,10 @@ unsigned int restart_fixup(void *orig_addr) {
     unsigned int page_remain = page_size;
 
     gettimeofday(&tv, NULL);
-    fprintf(stderr, "orig base: [%p] new base: [%p]\n", orig_addr, mmap_base);
-    fprintf(stderr, "recovery start [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
+    if (settings.verbose > 0) {
+        fprintf(stderr, "orig base: [%p] new base: [%p]\n", orig_addr, mmap_base);
+        fprintf(stderr, "recovery start [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
+    }
 
     // since chunks don't align with pages, we have to also track page size.
     while (checked < slabmem_limit) {
@@ -407,8 +406,10 @@ unsigned int restart_fixup(void *orig_addr) {
         //assert(checked != 3145728);
     }
 
-    gettimeofday(&tv, NULL);
-    fprintf(stderr, "recovery end [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
+    if (settings.verbose > 0) {
+        gettimeofday(&tv, NULL);
+        fprintf(stderr, "recovery end [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
+    }
 
     return 0;
 }

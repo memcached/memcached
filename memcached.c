@@ -8749,7 +8749,7 @@ int main (int argc, char **argv) {
         }
     }
 
-    fprintf(stderr, "STOPPING\n");
+    fprintf(stderr, "Gracefully stopping\n");
     stop_threads();
     int i;
     // FIXME: make a function callable from threads.c
@@ -8759,7 +8759,6 @@ int main (int argc, char **argv) {
         }
     }
     if (memory_file != NULL) {
-        fprintf(stderr, "Closing mmap\n");
         restart_mmap_close();
     }
 

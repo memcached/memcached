@@ -197,9 +197,11 @@ void stop_threads(void) {
 
     // assoc can call pause_threads(), so we have to stop it first.
     stop_assoc_maintenance_thread();
-    fprintf(stderr, "stopped assoc\n");
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped assoc\n");
 
-    fprintf(stderr, "asking workers to stop\n");
+    if (settings.verbose > 0)
+        fprintf(stderr, "asking workers to stop\n");
     buf[0] = 's';
     pthread_mutex_lock(&init_lock);
     init_count = 0;
@@ -212,23 +214,28 @@ void stop_threads(void) {
     wait_for_thread_registration(settings.num_threads);
     pthread_mutex_unlock(&init_lock);
 
-    fprintf(stderr, "asking background threads to stop\n");
+    if (settings.verbose > 0)
+        fprintf(stderr, "asking background threads to stop\n");
 
     // stop each side thread.
     // TODO: Verify these all work if the threads are already stopped
     stop_item_crawler_thread(true);
-    fprintf(stderr, "stopped lru crawler\n");
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped lru crawler\n");
     stop_lru_maintainer_thread();
-    fprintf(stderr, "stopped maintainer\n");
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped maintainer\n");
     stop_slab_maintenance_thread();
-    fprintf(stderr, "stopped slab mover\n");
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped slab mover\n");
     logger_stop();
-    fprintf(stderr, "stopped logger thread\n");
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped logger thread\n");
 
-    fprintf(stderr, "done\n");
+    if (settings.verbose > 0)
+        fprintf(stderr, "all background threads stopped\n");
 
-    // At this point, everything is stopped. If we're using shared memory,
-    // note that it's clean and close the file.
+    // At this point, every background thread must be stopped.
 }
 
 /*
