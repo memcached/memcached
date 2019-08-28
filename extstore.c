@@ -611,7 +611,7 @@ int extstore_submit(void *ptr, obj_io *io) {
     obj_io *tio = io;
     while (tio != NULL) {
         t->depth++;
-    tio = tio->next;
+        tio = tio->next;
     }
     pthread_mutex_unlock(&t->mutex);
 
