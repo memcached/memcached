@@ -16,3 +16,7 @@ void drop_privileges() {
         exit(EXIT_FAILURE);
     }
 }
+
+void setup_privilege_violations_handler(void) {
+   // not needed
+}

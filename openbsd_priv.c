@@ -27,5 +27,6 @@ void drop_privileges() {
      }
 }
 
-void drop_worker_privileges(void) {
+void setup_privilege_violations_handler(void) {
+   // not needed
 }
