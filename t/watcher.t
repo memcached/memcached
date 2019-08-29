@@ -112,6 +112,11 @@ if ($res eq "STORED\r\n") {
     is($res, "OK\r\n", "mutations watcher enabled");
 
     print $client "cas cas_watch_key 0 0 5 0\r\nvalue\r\n";
-    my $log = <$watcher>;
-    like($log, qr/cmd=cas/, "correctly logged cas command");
+    my $tries = 30;
+    my $found_cas = 0;
+    while (my $log = <$watcher>) {
+        $found_cas = 1 if ($log =~ m/cmd=cas/ && $log =~ m/cas_watch_key/);
+        last if ($tries-- == 0 || $found_cas);
+    }
+    is($found_cas, 1, "correctly logged cas command");
 }
