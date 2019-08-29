@@ -3571,7 +3571,7 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
                 APPEND_NUM_STAT(i, "addr", "%s", addr);
                 if (conns[i]->state != conn_listening &&
                     !(IS_UDP(conns[i]->transport) && conns[i]->state == conn_read)) {
-                    APPEND_NUM_STAT(i, "server_addr", "%s", svr_addr);
+                    APPEND_NUM_STAT(i, "listen_addr", "%s", svr_addr);
                 }
                 APPEND_NUM_STAT(i, "state", "%s",
                         state_text(conns[i]->state));

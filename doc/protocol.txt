@@ -1071,6 +1071,8 @@ The following "stat" keywords may be present:
 |                     | sockets this is the listen address. Note that some   |
 |                     | socket types (such as UNIX-domain) don't have        |
 |                     | meaningful remote addresses.                         |
+| listen_addr         | The address of the server. This field is absent      |
+|                     | for listening sockets.                               |
 | state               | The current state of the connection. See below.      |
 | secs_since_last_cmd | The number of seconds since the most recently        |
 |                     | issued command on the connection. This measures      |
