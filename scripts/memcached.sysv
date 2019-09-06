@@ -29,7 +29,7 @@ prog="memcached"
 
 start () {
     echo -n $"Starting $prog: "
-    # insure that /var/run/memcached has proper permissions
+    # ensure that /var/run/memcached has proper permissions
     chown $USER /var/run/memcached
     daemon memcached -d -p $PORT -u $USER  -m $CACHESIZE -c $MAXCONN -P /var/run/memcached/memcached.pid $OPTIONS
     RETVAL=$?
