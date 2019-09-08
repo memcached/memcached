@@ -7075,6 +7075,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         R_CURRENT_TIME,
         R_STOP_TIME,
         R_PROCESS_STARTED,
+        R_HASHPOWER,
     };
 
     const char *opts[] = {
@@ -7094,6 +7095,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         [R_CURRENT_TIME] = "current_time",
         [R_STOP_TIME] = "stop_time",
         [R_PROCESS_STARTED] = "process_started",
+        [R_HASHPOWER] = "hashpower",
         NULL
     };
 
@@ -7227,6 +7229,13 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
                 if (meta->time_delta <= 0) {
                     reuse_mmap = -1;
                 }
+            }
+            break;
+        case R_HASHPOWER:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.hashpower_init = val_uint;
             }
             break;
         default:
@@ -8519,7 +8528,6 @@ int main (int argc, char **argv) {
     /* initialize other stuff */
     logger_init();
     stats_init();
-    assoc_init(settings.hashpower_init);
     conn_init();
     bool reuse_mem = false;
     void *mem_base = NULL;
@@ -8540,6 +8548,11 @@ int main (int argc, char **argv) {
         // Also, the callbacks for load() run before _open returns, so we
         // should have the old base in 'meta' as of here.
     }
+    // Initialize the hash table _after_ checking restart metadata.
+    // We override the hash table start argument with what was live
+    // previously, to avoid filling a huge set of items into a tiny hash
+    // table.
+    assoc_init(settings.hashpower_init);
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL, mem_base, reuse_mem);
 #ifdef EXTSTORE

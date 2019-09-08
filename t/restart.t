@@ -26,6 +26,36 @@ diag "Set some values, various sizes.";
     }
 }
 
+diag "load enough items to change hash power level";
+{
+    my $stats = mem_stats($sock);
+    is($stats->{hash_power_level}, 16, "starting hash level is 16");
+    my $todo = 2**17;
+    my $good = 1;
+    while ($todo--) {
+        print $sock "set z${todo} 0 0 0\r\n\r\n";
+        my $res = <$sock>;
+        $good = 0 if ($res !~ m/STORED/);
+    }
+
+    is($good, 1, "set responses were all STORED");
+    sleep 3; # sigh.
+    $stats = mem_stats($sock);
+    is($stats->{hash_power_level}, 17, "new hash power level is 17");
+
+    # Now delete all these items, so the auto-restore won't cause the hash
+    # table to re-inflate, but the restart code should restore the hash table
+    # to where it was regardless.
+    $todo = 2**17;
+    $good = 1;
+    while ($todo--) {
+        print $sock "delete z${todo}\r\n";
+        my $res = <$sock>;
+        $good = 0 if ($res !~ m/DELETED/);
+    }
+    is($good, 1, "delete responses were all DELETED");
+}
+
 diag "Data that should expire while stopped.";
 {
     print $sock "set low1 0 8 2\r\nbo\r\n";
@@ -44,6 +74,9 @@ sleep 10;
     $server = new_memcached("-m 128 -e $mem_path -I 2m");
     $sock = $server->sock;
     diag "reconnected";
+
+    my $stats = mem_stats($sock);
+    is($stats->{hash_power_level}, 17, "restarted hash power level is 17");
 }
 
 diag "low TTL item should be gone";
