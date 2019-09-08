@@ -21,7 +21,6 @@ struct _restart_data_cb {
 
 // TODO: struct to hand back to caller.
 static int mmap_fd = 0;
-static int pagesize = 0;
 static void *mmap_base = NULL;
 static size_t slabmem_limit = 0;
 char *memory_file = NULL;
@@ -277,10 +276,10 @@ void restart_set_kv(void *ctx, const char *key, const char *fmt, ...) {
 bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     bool reuse_mmap = true;
 
-    pagesize = getpagesize();
+    int pagesize = getpagesize();
     memory_file = strdup(file);
     mmap_fd = open(file, O_RDWR|O_CREAT, S_IRWXU);
-    if (ftruncate(mmap_fd, limit + pagesize) != 0) {
+    if (ftruncate(mmap_fd, limit) != 0) {
         perror("ftruncate failed");
         abort();
     }
@@ -289,7 +288,7 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
         // FIXME: what was I smoking? is this an error?
         fprintf(stderr, "WARNING: mem_limit not divible evenly by pagesize\n");
     }
-    mmap_base = mmap(NULL, limit + pagesize, PROT_READ|PROT_WRITE, MAP_SHARED, mmap_fd, 0);
+    mmap_base = mmap(NULL, limit, PROT_READ|PROT_WRITE, MAP_SHARED, mmap_fd, 0);
     if (mmap_base == MAP_FAILED) {
         perror("failed to mmap, aborting");
         abort();
@@ -311,7 +310,7 @@ void restart_mmap_close(void) {
         fprintf(stderr, "failed to save restart metadata");
     }
 
-    if (munmap(mmap_base, slabmem_limit + pagesize) != 0) {
+    if (munmap(mmap_base, slabmem_limit) != 0) {
         perror("failed to munmap shared memory");
     } else if (close(mmap_fd) != 0) {
         perror("failed to close shared memory fd");
