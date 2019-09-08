@@ -517,6 +517,8 @@ static void logger_thread_sum_stats(struct logger_stats *ls) {
 static void *logger_thread(void *arg) {
     useconds_t to_sleep = MIN_LOGGER_SLEEP;
     L_DEBUG("LOGGER: Starting logger thread\n");
+    // TODO: If we ever have item references in the logger code, will need to
+    // ensure everything is dequeued before stopping the thread.
     while (do_run_logger_thread) {
         int found_logs = 0;
         logger *l;

@@ -111,7 +111,6 @@ typedef struct _logentry {
     struct timeval tv; /* not monotonic! */
     int size;
     union {
-        void *entry; /* unused, possibly an item */
         char end;
     } data[];
 } logentry;
