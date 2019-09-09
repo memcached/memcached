@@ -6834,7 +6834,7 @@ static void sighup_handler(const int sig) {
 }
 
 static void sig_usrhandler(const int sig) {
-    printf("USR1 handled: %s.\n", strsignal(sig));
+    printf("Graceful shutdown signal handled: %s.\n", strsignal(sig));
     stop_main_loop = true;
 }
 
@@ -7113,7 +7113,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
             type++;
         }
         if (opts[type] == NULL) {
-            fprintf(stderr, "RESTART: unknown/unhandled key: %s\n", key);
+            fprintf(stderr, "[restart] unknown/unhandled key: %s\n", key);
             continue;
         }
 
@@ -7131,7 +7131,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         switch (type) {
         case R_MMAP_OLDBASE:
             if (!safe_strtoull_hex(val, &meta->old_base)) {
-                fprintf(stderr, "failed to parse %s: %s\n", key, val);
+                fprintf(stderr, "[restart] failed to parse %s: %s\n", key, val);
                 reuse_mmap = -1;
             }
             break;
@@ -7242,11 +7242,11 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
             }
             break;
         default:
-            fprintf(stderr, "RESTART: unhandled key: %s\n", key);
+            fprintf(stderr, "[restart] unhandled key: %s\n", key);
         }
 
         if (reuse_mmap != 0) {
-            fprintf(stderr, "RESTART: restart incompatible due to setting for [%s] [old value: %s]\n", key, val);
+            fprintf(stderr, "[restart] restart incompatible due to setting for [%s] [old value: %s]\n", key, val);
             break;
         }
     }
@@ -8558,7 +8558,7 @@ int main (int argc, char **argv) {
     assoc_init(settings.hashpower_init);
 #ifdef EXTSTORE
     if (storage_file && reuse_mem) {
-        fprintf(stderr, "RESTART: memory restart with extstore not presently supported.\n");
+        fprintf(stderr, "[restart] memory restart with extstore not presently supported.\n");
         reuse_mem = false;
     }
 #endif

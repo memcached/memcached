@@ -88,7 +88,7 @@ static int restart_check(const char *file) {
     if (restart_get_kv(&ctx, NULL, NULL) != -1) {
         // First line must be a tag, so read it in and set up the proper
         // callback here.
-        fprintf(stderr, "restart: corrupt metadata file\n");
+        fprintf(stderr, "[restart] corrupt metadata file\n");
         // TODO: this should probably just return -1 and skip the reuse.
         abort();
     }
@@ -98,8 +98,6 @@ static int restart_check(const char *file) {
     while (!ctx.done) {
         restart_data_cb *cb = ctx.cb;
         if (cb->ccb(cb->tag, &ctx, cb->data) != 0) {
-            // FIXME: real error.
-            fprintf(stderr, "RESTART: CHECK FAILED\n");
             failed = true;
             break;
         }
@@ -153,7 +151,7 @@ int restart_get_kv(void *ctx, char **key, char **val) {
                 cb = cb->next;
             }
             if (cb == NULL) {
-                fprintf(stderr, "RESTART ERROR: handler for tag not found: %s:\n", line+1);
+                fprintf(stderr, "[restart] internal handler for metadata tag not found: %s:\n", line+1);
                 return -1;
             }
             c->cb = cb;
@@ -180,7 +178,7 @@ int restart_get_kv(void *ctx, char **key, char **val) {
             return 0;
         } else {
             // FIXME: proper error chain.
-            fprintf(stderr, "RESTART ERROR: invalid line:\n\n%s\n", line);
+            fprintf(stderr, "[restart] invalid metadata line:\n\n%s\n", line);
             return -1;
         }
     } else {
@@ -250,7 +248,7 @@ void restart_set_kv(void *ctx, const char *key, const char *fmt, ...) {
     // as possible. The buffer is large and these values are currently small,
     // it will take a significant mistake to land here.
     if (vlen >= SET_VAL_MAX) {
-        fprintf(stderr, "FATAL while saving metadata state, value too long for: %s %s",
+        fprintf(stderr, "[restart] fatal error while saving metadata state, value too long for: %s %s",
                 key, valbuf);
         abort();
     }
@@ -271,8 +269,10 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     }
     /* Allocate everything in a big chunk with malloc */
     if (limit % pagesize) {
-        // FIXME: what was I smoking? is this an error?
-        fprintf(stderr, "WARNING: mem_limit not divisible evenly by pagesize\n");
+        // This is a sanity check; shouldn't ever be possible since we
+        // increase memory by whole megabytes.
+        fprintf(stderr, "[restart] memory limit not divisible evenly by pagesize (please report bug)\n");
+        abort();
     }
     mmap_base = mmap(NULL, limit, PROT_READ|PROT_WRITE, MAP_SHARED, mmap_fd, 0);
     if (mmap_base == MAP_FAILED) {
@@ -282,7 +282,7 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     // Set the limit before calling check_mmap, so we can find the meta page..
     slabmem_limit = limit;
     if (restart_check(file) != 0) {
-        fprintf(stderr, "failed to validate mmap, not reusing\n");
+        fprintf(stderr, "[restart] failed to valiate metadata, not reusing item memory\n");
         reuse_mmap = false;
     }
     *mem_base = mmap_base;
@@ -293,13 +293,13 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
 /* Gracefully stop/close the shared memory segment */
 void restart_mmap_close(void) {
     if (restart_save(memory_file) != 0) {
-        fprintf(stderr, "failed to save restart metadata");
+        fprintf(stderr, "[restart] failed to save metadata");
     }
 
     if (munmap(mmap_base, slabmem_limit) != 0) {
-        perror("failed to munmap shared memory");
+        perror("[restart] failed to munmap shared memory");
     } else if (close(mmap_fd) != 0) {
-        perror("failed to close shared memory fd");
+        perror("[restart] failed to close shared memory fd");
     }
 
     free(memory_file);
@@ -316,8 +316,8 @@ unsigned int restart_fixup(void *orig_addr) {
 
     gettimeofday(&tv, NULL);
     if (settings.verbose > 0) {
-        fprintf(stderr, "orig base: [%p] new base: [%p]\n", orig_addr, mmap_base);
-        fprintf(stderr, "recovery start [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
+        fprintf(stderr, "[restart] original memory base: [%p] new base: [%p]\n", orig_addr, mmap_base);
+        fprintf(stderr, "[restart] recovery start [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
     }
 
     // since chunks don't align with pages, we have to also track page size.
@@ -393,7 +393,7 @@ unsigned int restart_fixup(void *orig_addr) {
 
     if (settings.verbose > 0) {
         gettimeofday(&tv, NULL);
-        fprintf(stderr, "recovery end [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
+        fprintf(stderr, "[restart] recovery end [%d.%d]\n", (int)tv.tv_sec, (int)tv.tv_usec);
     }
 
     return 0;
