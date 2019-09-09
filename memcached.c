@@ -151,7 +151,7 @@ volatile int slab_rebalance_signal;
 /* hoping this is temporary; I'd prefer to cut globals, but will complete this
  * battle another day.
  */
-void *ext_storage;
+void *ext_storage = NULL;
 #endif
 /** file scope variables **/
 static conn *listen_conn = NULL;
@@ -8556,6 +8556,12 @@ int main (int argc, char **argv) {
     // previously, to avoid filling a huge set of items into a tiny hash
     // table.
     assoc_init(settings.hashpower_init);
+#ifdef EXTSTORE
+    if (storage_file && reuse_mem) {
+        fprintf(stderr, "RESTART: memory restart with extstore not presently supported.\n");
+        reuse_mem = false;
+    }
+#endif
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL, mem_base, reuse_mem);
 #ifdef EXTSTORE
