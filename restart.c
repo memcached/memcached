@@ -62,18 +62,10 @@ typedef struct {
     bool done;
 } restart_cb_ctx;
 
-// NEW check code:
-// x check for metadata file
-// x open metadata file
+// TODO: error string from cb?
 // - look for final line with checksum
 // - checksum entire file (up until final line)
 // - seek to start
-// x read line-by-line:
-//   x find tag, switch context
-//   x call callback
-//   [callbacks themselves request next line]
-// x check return code. bail upstream if screwed.
-// TODO: error string from cb?
 
 static int restart_check(const char *file) {
     // metadata is kept in a separate file.
@@ -199,15 +191,9 @@ int restart_get_kv(void *ctx, char **key, char **val) {
     return -1;
 }
 
-// SAVE code:
-// x create metadata file
-// x loop callbacks:
-//   x write tag line [lol]
-//   x call callback
-//   [callbacks call _set() for key/values]
+// TODO:
 // - rolling checksum along with the writes.
 // - write final line + checksum + byte count or w/e.
-// x close file
 
 static int restart_save(const char *file) {
     // metadata is kept in a separate file.
@@ -286,7 +272,7 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     /* Allocate everything in a big chunk with malloc */
     if (limit % pagesize) {
         // FIXME: what was I smoking? is this an error?
-        fprintf(stderr, "WARNING: mem_limit not divible evenly by pagesize\n");
+        fprintf(stderr, "WARNING: mem_limit not divisible evenly by pagesize\n");
     }
     mmap_base = mmap(NULL, limit, PROT_READ|PROT_WRITE, MAP_SHARED, mmap_fd, 0);
     if (mmap_base == MAP_FAILED) {

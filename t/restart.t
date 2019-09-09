@@ -65,6 +65,14 @@ diag "Data that should expire while stopped.";
     like(scalar <$sock>, qr/STORED/, "stored low ttl item");
 }
 
+# make sure it's okay to stop with a logger watcher enabled.
+{
+    my $wsock = $server->new_sock;
+    print $wsock "watch fetchers mutations\n";
+    my $res = <$wsock>;
+    is($res, "OK\r\n", "watcher enabled");
+}
+
 $server->graceful_stop();
 diag "killed, waiting";
 # TODO: add way to wait for server to fully exit..

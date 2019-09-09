@@ -189,8 +189,10 @@ void pause_threads(enum pause_thread_types type) {
     pthread_mutex_unlock(&init_lock);
 }
 
-/* Must not be called with any deeper locks held */
-/* MUST be called only by parent thread */
+// MUST not be called with any deeper locks held
+// MUST be called only by parent thread
+// Note: listener thread is the "main" event base, which has exited its
+// loop in order to call this function.
 void stop_threads(void) {
     char buf[1];
     int i;
@@ -219,7 +221,7 @@ void stop_threads(void) {
 
     // stop each side thread.
     // TODO: Verify these all work if the threads are already stopped
-    stop_item_crawler_thread(true);
+    stop_item_crawler_thread(CRAWLER_WAIT);
     if (settings.verbose > 0)
         fprintf(stderr, "stopped lru crawler\n");
     stop_lru_maintainer_thread();

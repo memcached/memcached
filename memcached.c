@@ -5075,7 +5075,7 @@ static void process_command(conn *c, char *command) {
                     out_string(c, "ERROR failed to start lru crawler thread");
                 }
             } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
-                if (stop_item_crawler_thread(false) == 0) {
+                if (stop_item_crawler_thread(CRAWLER_NOWAIT) == 0) {
                     out_string(c, "OK");
                 } else {
                     out_string(c, "ERROR failed to stop lru crawler thread");
@@ -6623,6 +6623,9 @@ static void usage(void) {
     printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
     printf("-Y, --auth-file=<file>    (EXPERIMENTAL) enable ASCII protocol authentication. format:\n"
            "                          user:pass\\nuser2:pass2\\n\n");
+    printf("-e, --memory-file=<file>  (EXPERIMENTAL) mmap a file for item memory.\n"
+           "                          use only in ram disks or persistent memory mounts!\n"
+           "                          enables restartable cache (stop with SIGUSR1)\n");
 #ifdef TLS
     printf("-Z, --enable-ssl          enable TLS/SSL\n");
 #endif
@@ -6998,7 +7001,7 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     // comparisons for compat reasons are difficult.
     // it may be possible to punt on this for now; since we can test for the
     // absense of another key... such as the new numeric version.
-    restart_set_kv(ctx, "version", "%s", VERSION);
+    //restart_set_kv(ctx, "version", "%s", VERSION);
     // We hold the original factor or subopts _string_
     // it can be directly compared without roundtripping through floats or
     // serializing/deserializing the long options list.
@@ -7243,7 +7246,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         }
 
         if (reuse_mmap != 0) {
-            fprintf(stderr, "RESTART: restart imcompatible due to setting for [%s] [old value: %s]\n", key, val);
+            fprintf(stderr, "RESTART: restart incompatible due to setting for [%s] [old value: %s]\n", key, val);
             break;
         }
     }

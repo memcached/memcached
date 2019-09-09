@@ -402,7 +402,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id,
         return NULL;
     }
     p = &slabclass[id];
-    //assert(p->sl_curr == 0 || ((item *)p->slots)->slabs_clsid == 0);
+    assert(p->sl_curr == 0 || (((item *)p->slots)->it_flags & ITEM_SLABBED));
 
     assert(size <= p->size);
     /* fail unless we have space at the end of a recently allocated page,
