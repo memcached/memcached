@@ -56,6 +56,20 @@ diag "load enough items to change hash power level";
     is($good, 1, "delete responses were all DELETED");
 }
 
+diag "Load a couple chunked items";
+{
+    my $cur = 768000;
+    my $cnt = 0;
+    my $end = $cur + 1024;
+    while ($cur <= $end) {
+        my $val = 'x' x $cur;
+        print $sock "set chunk${cnt} 0 0 $cur\r\n$val\r\n";
+        like(scalar <$sock>, qr/STORED/, "stored $cur size item");
+        $cur += 50;
+        $cnt++;
+    }
+}
+
 diag "Data that should expire while stopped.";
 {
     print $sock "set low1 0 8 2\r\nbo\r\n";
@@ -94,6 +108,7 @@ diag "low TTL item should be gone";
     mem_get_is($sock, 'low2', 'mo');
 }
 
+# initially inserted items.
 {
     my $cur = 2;
     my $cnt = 0;
@@ -102,6 +117,19 @@ diag "low TTL item should be gone";
         my $val = 'x' x $cur;
         mem_get_is($sock, 'foo' . $cnt, $val);
         $cur *= 2;
+        $cnt++;
+    }
+}
+
+# chunked items.
+{
+    my $cur = 768000;
+    my $cnt = 0;
+    my $end = $cur + 1024;
+    while ($cur <= $end) {
+        my $val = 'x' x $cur;
+        mem_get_is($sock, 'chunk' . $cnt, $val);
+        $cur += 50;
         $cnt++;
     }
 }
