@@ -7112,7 +7112,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         NULL
     };
 
-    while (restart_get_kv(ctx, &key, &val) == 0) {
+    while (restart_get_kv(ctx, &key, &val) == RESTART_OK) {
         int type = 0;
         int32_t val_int = 0;
         uint32_t val_uint = 0;

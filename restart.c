@@ -82,7 +82,7 @@ static int restart_check(const char *file) {
     ctx.f = f;
     ctx.line = NULL;
     ctx.done = false;
-    if (restart_get_kv(&ctx, NULL, NULL) != -1) {
+    if (restart_get_kv(&ctx, NULL, NULL) != RESTART_DONE) {
         // First line must be a tag, so read it in and set up the proper
         // callback here.
         fprintf(stderr, "[restart] corrupt metadata file\n");
@@ -116,7 +116,7 @@ static int restart_check(const char *file) {
 // The control inversion here (callback calling in which might change the next
 // callback) allows the callbacks to set up proper loops or sequences for
 // reading data back, avoiding an event model.
-int restart_get_kv(void *ctx, char **key, char **val) {
+enum restart_get_kv_ret restart_get_kv(void *ctx, char **key, char **val) {
     char *line = NULL;
     size_t len = 0;
     restart_data_cb *cb = NULL;
@@ -149,7 +149,7 @@ int restart_get_kv(void *ctx, char **key, char **val) {
             }
             if (cb == NULL) {
                 fprintf(stderr, "[restart] internal handler for metadata tag not found: %s:\n", line+1);
-                return -1;
+                return RESTART_NOTAG;
             }
             c->cb = cb;
         } else if (line[0] == 'K') {
@@ -172,18 +172,18 @@ int restart_get_kv(void *ctx, char **key, char **val) {
             }
             c->line = line;
 
-            return 0;
+            return RESTART_OK;
         } else {
             // FIXME: proper error chain.
             fprintf(stderr, "[restart] invalid metadata line:\n\n%s\n", line);
-            return -1;
+            return RESTART_BADLINE;
         }
     } else {
         // EOF or error in read.
         c->done = true;
     }
 
-    return -1;
+    return RESTART_DONE;
 }
 
 // TODO:
