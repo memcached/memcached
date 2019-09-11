@@ -376,6 +376,7 @@ extern pthread_mutex_t conn_lock;
 
 /* Connection timeout thread bits */
 static pthread_t conn_timeout_tid;
+static int do_run_conn_timeout_thread;
 
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
@@ -387,7 +388,7 @@ static void *conn_timeout_thread(void *arg) {
     int sleep_time;
     useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
 
-    while(1) {
+    while(do_run_conn_timeout_thread) {
         if (settings.verbose > 2)
             fprintf(stderr, "idle timeout thread at top of connection list\n");
 
@@ -445,6 +446,7 @@ static int start_conn_timeout_thread() {
     if (settings.idle_timeout == 0)
         return -1;
 
+    do_run_conn_timeout_thread = 1;
     if ((ret = pthread_create(&conn_timeout_tid, NULL,
         conn_timeout_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create idle connection timeout thread: %s\n",
@@ -452,6 +454,14 @@ static int start_conn_timeout_thread() {
         return -1;
     }
 
+    return 0;
+}
+
+int stop_conn_timeout_thread(void) {
+    if (!do_run_conn_timeout_thread)
+        return -1;
+    do_run_conn_timeout_thread = 0;
+    pthread_join(conn_timeout_tid, NULL);
     return 0;
 }
 

@@ -233,6 +233,9 @@ void stop_threads(void) {
     logger_stop();
     if (settings.verbose > 0)
         fprintf(stderr, "stopped logger thread\n");
+    stop_conn_timeout_thread();
+    if (settings.verbose > 0)
+        fprintf(stderr, "stopped idle timeout thread\n");
 
     if (settings.verbose > 0)
         fprintf(stderr, "all background threads stopped\n");
