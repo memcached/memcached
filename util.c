@@ -181,6 +181,27 @@ bool safe_strtod(const char *str, double *out) {
     return false;
 }
 
+// slow, safe function for copying null terminated buffers.
+// ensures null terminator set on destination buffer. copies at most dstmax-1
+// non-null bytes.
+// returns true if src was fully copied.
+// returns false if src was truncated into dst.
+bool safe_strcpy(char *dst, const char *src, const size_t dstmax) {
+   size_t x;
+
+   for (x = 0; x < dstmax - 1 && src[x] != '\0'; x++) {
+        dst[x] = src[x];
+   }
+
+   dst[x] = '\0';
+
+   if (src[x] == '\0') {
+       return true;
+   } else {
+       return false;
+   }
+}
+
 void vperror(const char *fmt, ...) {
     int old_errno = errno;
     char buf[1024];

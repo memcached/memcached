@@ -46,10 +46,7 @@ void restart_register(const char *tag, restart_check_cb ccb, restart_save_cb scb
         finder->next = cb;
     }
 
-    // TODO: Write a safe_strncpy into util.c and stop using it raw.
-    // or a local strlcpy.
-    strncpy(cb->tag, tag, RESTART_TAG_MAXLEN);
-    cb->tag[RESTART_TAG_MAXLEN-1] = '\0';
+    safe_strcpy(cb->tag, tag, RESTART_TAG_MAXLEN);
     cb->data = data;
     cb->ccb = *ccb;
     cb->scb = *scb;

@@ -284,7 +284,7 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
 
     }
 
-    if (prealloc && do_slab_prealloc) {
+    if (do_slab_prealloc) {
         if (!reuse_mem) {
             slabs_preallocate(power_largest);
         }

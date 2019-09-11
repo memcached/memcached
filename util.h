@@ -17,6 +17,7 @@ bool safe_strtoll(const char *str, int64_t *out);
 bool safe_strtoul(const char *str, uint32_t *out);
 bool safe_strtol(const char *str, int32_t *out);
 bool safe_strtod(const char *str, double *out);
+bool safe_strcpy(char *dst, const char *src, const size_t dstmax);
 
 #ifndef HAVE_HTONLL
 extern uint64_t htonll(uint64_t);

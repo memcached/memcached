@@ -591,13 +591,6 @@ void logger_init(void) {
         abort();
     }
 
-    /* This can be removed once the global stats initializer is improved */
-    STATS_LOCK();
-    stats.log_worker_dropped = 0;
-    stats.log_worker_written = 0;
-    stats.log_watcher_skipped = 0;
-    stats.log_watcher_sent = 0;
-    STATS_UNLOCK();
     /* This is what adding a STDERR watcher looks like. should replace old
      * "verbose" settings. */
     //logger_add_watcher(NULL, 0);
