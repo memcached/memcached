@@ -7057,6 +7057,13 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     return 0;
 }
 
+// We must see at least this number of checked lines. Else empty/missing lines
+// could cause a false-positive.
+// TODO: Once crc32'ing of the metadata file is done this could be ensured better by
+// the restart module itself (crc32 + count of lines must match on the
+// backend)
+#define RESTART_REQUIRED_META 17
+
 // With this callback we make a decision on if the current configuration
 // matches up enough to allow reusing the cache.
 // We also re-load important runtime information.
@@ -7068,6 +7075,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
     meta->process_started = 0;
     meta->time_delta = 0;
     meta->current_time = 0;
+    int lines_seen = 0;
 
     // TODO: not sure this is any better than just doing an if/else tree with
     // strcmp's...
@@ -7126,6 +7134,7 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
             fprintf(stderr, "[restart] unknown/unhandled key: %s\n", key);
             continue;
         }
+        lines_seen++;
 
         // helper for any boolean checkers.
         bool val_bool = false;
@@ -7259,6 +7268,11 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
             fprintf(stderr, "[restart] restart incompatible due to setting for [%s] [old value: %s]\n", key, val);
             break;
         }
+    }
+
+    if (lines_seen < RESTART_REQUIRED_META) {
+        fprintf(stderr, "[restart] missing some metadata lines\n");
+        reuse_mmap = -1;
     }
 
     return reuse_mmap;
