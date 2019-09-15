@@ -64,7 +64,6 @@ static int stats_sizes_buckets = 0;
 static volatile int do_run_lru_maintainer_thread = 0;
 static int lru_maintainer_initialized = 0;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t stats_sizes_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void item_stats_reset(void) {
@@ -107,13 +106,9 @@ static bool lru_bump_async(lru_bump_buf *b, item *it, uint32_t hv);
 static uint64_t lru_total_bumps_dropped(void);
 
 /* Get the next CAS id for a new item. */
-/* TODO: refactor some atomics for this. */
 uint64_t get_cas_id(void) {
-    static uint64_t cas_id = 0;
-    pthread_mutex_lock(&cas_id_lock);
-    uint64_t next_id = ++cas_id;
-    pthread_mutex_unlock(&cas_id_lock);
-    return next_id;
+    static volatile uint64_t cas_id = 0;
+    return __sync_fetch_and_add(&cas_id, 1) + 1;
 }
 
 int item_is_flushed(item *it) {
