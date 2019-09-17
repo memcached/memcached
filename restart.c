@@ -74,6 +74,7 @@ static int restart_check(const char *file) {
 
     FILE *f = fopen(metafile, "r");
     if (f == NULL) {
+        fprintf(stderr, "[restart] no metadata save file, starting with a clean cache\n");
         return -1;
     }
 
@@ -108,7 +109,12 @@ static int restart_check(const char *file) {
     unlink(metafile);
     free(metafile);
 
-    return failed ? -1 : 0;
+    if (failed) {
+        fprintf(stderr, "[restart] failed to valiate metadata, starting with a clean cache\n");
+        return -1;
+    } else {
+        return 0;
+    }
 }
 
 // This function advances the file read while being called directly from the
@@ -279,7 +285,6 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     // Set the limit before calling check_mmap, so we can find the meta page..
     slabmem_limit = limit;
     if (restart_check(file) != 0) {
-        fprintf(stderr, "[restart] failed to valiate metadata, not reusing item memory\n");
         reuse_mmap = false;
     }
     *mem_base = mmap_base;
