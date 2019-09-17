@@ -260,10 +260,19 @@ void restart_set_kv(void *ctx, const char *key, const char *fmt, ...) {
     // TODO: update crc32c
 }
 
+static long _find_pagesize(void) {
+#if defined(HAVE_SYSCONF) && defined(_SC_PAGESIZE)
+    return sysconf(_SC_PAGESIZE);
+#else
+    // A good guess.
+    return 4096;
+#endif
+}
+
 bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     bool reuse_mmap = true;
 
-    int pagesize = getpagesize();
+    long pagesize = _find_pagesize();
     memory_file = strdup(file);
     mmap_fd = open(file, O_RDWR|O_CREAT, S_IRWXU);
     if (ftruncate(mmap_fd, limit) != 0) {
