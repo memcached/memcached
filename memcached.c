@@ -8475,7 +8475,6 @@ int main (int argc, char **argv) {
         }
         if (setgroups(0, NULL) < 0) {
             fprintf(stderr, "failed to drop supplementary groups\n");
-            exit(EX_OSERR);
         }
         if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
             fprintf(stderr, "failed to assume identity of user %s\n", username);
