@@ -8624,13 +8624,16 @@ int main (int argc, char **argv) {
         slabs_prefill_global();
     /* In restartable mode and we've decided to issue a fixup on memory */
     if (memory_file != NULL && reuse_mem) {
+        mc_ptr_t old_base = meta->old_base;
+        assert(old_base == meta->old_base);
+
         // should've pulled in process_started from meta file.
         process_started = meta->process_started;
         // TODO: must be a more canonical way of serializing/deserializing
         // pointers? passing through uint64_t should work, and we're not
         // annotating the pointer with anything, but it's still slightly
         // insane.
-        restart_fixup((void *)meta->old_base);
+        restart_fixup((void *)old_base);
     }
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we

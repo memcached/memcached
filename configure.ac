@@ -268,6 +268,20 @@ return sizeof(void*) == 8 ? 0 : 1;
     ])
 fi
 
+dnl If data pointer is 64bit or not.
+AC_RUN_IFELSE(
+  [AC_LANG_PROGRAM([], [dnl
+return sizeof(void*) == 8 ? 0 : 1;
+  ])
+],[
+  have_64bit_ptr=yes
+],[
+])
+
+if test $have_64bit_ptr = yes; then
+  AC_DEFINE(HAVE_64BIT_PTR, 1, [data pointer is 64bit])
+fi
+
 # Issue 213: Search for clock_gettime to help people linking
 #            with a static version of libevent
 AC_SEARCH_LIBS(clock_gettime, rt)

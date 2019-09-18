@@ -3,6 +3,13 @@
 
 #define RESTART_TAG_MAXLEN 255
 
+// Track the pointer size for restart fiddling.
+#ifdef HAVE_64BIT_PTR
+    typedef uint64_t mc_ptr_t;
+#else
+    typedef uint32_t mc_ptr_t;
+#endif
+
 enum restart_get_kv_ret {
     RESTART_OK=0, RESTART_NOTAG, RESTART_BADLINE, RESTART_DONE
 };

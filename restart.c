@@ -68,7 +68,7 @@ static int restart_check(const char *file) {
     // metadata is kept in a separate file.
     size_t flen = strlen(file);
     const char *ext = ".meta";
-    char *metafile = malloc(flen + strlen(ext));
+    char *metafile = calloc(1, flen + strlen(ext) + 1);
     memcpy(metafile, file, flen);
     memcpy(metafile+flen, ext, strlen(ext));
 
@@ -201,7 +201,7 @@ static int restart_save(const char *file) {
     // FIXME: function.
     size_t flen = strlen(file);
     const char *ext = ".meta";
-    char *metafile = malloc(flen + strlen(ext));
+    char *metafile = calloc(1, flen + strlen(ext) + 1);
     memcpy(metafile, file, flen);
     memcpy(metafile+flen, ext, strlen(ext));
 
@@ -351,12 +351,12 @@ unsigned int restart_fixup(void *orig_addr) {
         if (it->it_flags & ITEM_LINKED) {
             // fixup next/prev links while on LRU.
             if (it->next) {
-                it->next = (item *)((uint64_t)it->next - (uint64_t)orig_addr);
-                it->next = (item *)((uint64_t)it->next + (uint64_t)mmap_base);
+                it->next = (item *)((mc_ptr_t)it->next - (mc_ptr_t)orig_addr);
+                it->next = (item *)((mc_ptr_t)it->next + (mc_ptr_t)mmap_base);
             }
             if (it->prev) {
-                it->prev = (item *)((uint64_t)it->prev - (uint64_t)orig_addr);
-                it->prev = (item *)((uint64_t)it->prev + (uint64_t)mmap_base);
+                it->prev = (item *)((mc_ptr_t)it->prev - (mc_ptr_t)orig_addr);
+                it->prev = (item *)((mc_ptr_t)it->prev + (mc_ptr_t)mmap_base);
             }
 
             //fprintf(stderr, "item was linked\n");
@@ -378,16 +378,16 @@ unsigned int restart_fixup(void *orig_addr) {
                 ch = (item_chunk *) it;
             }
             if (ch->next) {
-                ch->next = (item_chunk *)((uint64_t)ch->next - (uint64_t)orig_addr);
-                ch->next = (item_chunk *)((uint64_t)ch->next + (uint64_t)mmap_base);
+                ch->next = (item_chunk *)((mc_ptr_t)ch->next - (mc_ptr_t)orig_addr);
+                ch->next = (item_chunk *)((mc_ptr_t)ch->next + (mc_ptr_t)mmap_base);
             }
             if (ch->prev) {
-                ch->prev = (item_chunk *)((uint64_t)ch->prev - (uint64_t)orig_addr);
-                ch->prev = (item_chunk *)((uint64_t)ch->prev + (uint64_t)mmap_base);
+                ch->prev = (item_chunk *)((mc_ptr_t)ch->prev - (mc_ptr_t)orig_addr);
+                ch->prev = (item_chunk *)((mc_ptr_t)ch->prev + (mc_ptr_t)mmap_base);
             }
             if (ch->head) {
-                ch->head = (item *)((uint64_t)it->prev - (uint64_t)orig_addr);
-                ch->head = (item *)((uint64_t)it->prev + (uint64_t)mmap_base);
+                ch->head = (item *)((mc_ptr_t)ch->head - (mc_ptr_t)orig_addr);
+                ch->head = (item *)((mc_ptr_t)ch->head + (mc_ptr_t)mmap_base);
             }
         }
 
