@@ -8474,8 +8474,18 @@ int main (int argc, char **argv) {
             exit(EX_NOUSER);
         }
         if (setgroups(0, NULL) < 0) {
-            fprintf(stderr, "failed to drop supplementary groups\n");
-            exit(EX_OSERR);
+            /* setgroups may fail with EPERM, indicating we are already in a
+             * minimally-privileged state. In that case we continue. For all
+             * other failure codes we exit.
+             *
+             * Note that errno is stored here because fprintf may change it.
+             */
+            bool should_exit = errno != EPERM;
+            fprintf(stderr, "failed to drop supplementary groups: %s\n",
+                    strerror(errno));
+            if (should_exit) {
+                exit(EX_OSERR);
+            }
         }
         if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
             fprintf(stderr, "failed to assume identity of user %s\n", username);
