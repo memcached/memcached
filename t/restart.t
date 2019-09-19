@@ -7,7 +7,10 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $mem_path = "/dev/shm/mc_restart.$$";
+# NOTE: Do not use this feature on top of a filesystem, please use a ram disk!
+# These tests use /tmp/ as some systems do not have or have a weirdly small
+# /dev/shm.
+my $mem_path = "/tmp/mc_restart.$$";
 
 my $server = new_memcached("-m 128 -e $mem_path -I 2m");
 my $sock = $server->sock;
