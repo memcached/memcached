@@ -303,6 +303,8 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
 
 /* Gracefully stop/close the shared memory segment */
 void restart_mmap_close(void) {
+    msync(mmap_base, slabmem_limit, MS_SYNC);
+
     if (restart_save(memory_file) != 0) {
         fprintf(stderr, "[restart] failed to save metadata");
     }
