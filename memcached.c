@@ -1414,6 +1414,7 @@ static void complete_nread_ascii(conn *c) {
 
     }
 
+    c->set_stale = false; /* force flag to be off just in case */
     item_remove(c->item);       /* release the c->item reference */
     c->item = 0;
 }
@@ -3121,8 +3122,6 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it), c->sfd);
 
-    // always force this to be off again just in case.
-    c->set_stale = false;
     return stored;
 }
 
@@ -6780,6 +6779,10 @@ static void drive_machine(conn *c) {
                 out_of_memory(c, "SERVER_ERROR Out of memory during read");
                 c->sbytes = c->rlbytes;
                 c->write_and_go = conn_swallow;
+                // Ensure this flag gets cleared. It gets killed on conn_new()
+                // so any conn_closing is fine, calling complete_nread is
+                // fine. This swallow semms to be the only other case.
+                c->set_stale = false;
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */
