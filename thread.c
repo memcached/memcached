@@ -500,6 +500,12 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                             fprintf(stderr, "Can't listen for events on fd %d\n",
                                 item->sfd);
                         }
+#ifdef TLS
+                        if (item->ssl) {
+                            SSL_shutdown(item->ssl);
+                            SSL_free(item->ssl);
+                        }
+#endif
                         close(item->sfd);
                     }
                 } else {
