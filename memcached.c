@@ -5805,6 +5805,7 @@ static void drive_machine(conn *c) {
                             if (settings.verbose) {
                                 fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
                             }
+                            SSL_free(ssl);
                             close(sfd);
                             break;
                         }
