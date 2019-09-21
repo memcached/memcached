@@ -3342,9 +3342,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
-        SSL_LOCK();
         APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
-        SSL_UNLOCK();
     }
 #endif
 }

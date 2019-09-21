@@ -107,11 +107,20 @@ static bool load_server_certificates(char **errmsg) {
     } else if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
         snprintf(error_msg, errmax, "Error validating the certificate\r\n");
         success = false;
-    } else {
-        settings.ssl_last_cert_refresh_time = current_time;
+    } else if (settings.ssl_ca_cert) {
+        if (!SSL_CTX_load_verify_locations(settings.ssl_ctx,
+          settings.ssl_ca_cert, NULL)) {
+            snprintf(error_msg, errmax,
+              "Error loading the CA certificate: %s\r\n", settings.ssl_ca_cert);
+            success = false;
+        } else {
+            SSL_CTX_set_client_CA_list(settings.ssl_ctx,
+              SSL_load_client_CA_file(settings.ssl_ca_cert));
+        }
     }
     SSL_UNLOCK();
     if (success) {
+        settings.ssl_last_cert_refresh_time = current_time;
         free(error_msg);
     } else {
         *errmsg = error_msg;
@@ -152,21 +161,7 @@ int ssl_init(void) {
         }
         exit(EX_USAGE);
     }
-    // List of acceptable CAs for client certificates.
-    if (settings.ssl_ca_cert)
-    {
-        SSL_CTX_set_client_CA_list(settings.ssl_ctx,
-            SSL_load_client_CA_file(settings.ssl_ca_cert));
-        if (!SSL_CTX_load_verify_locations(settings.ssl_ctx,
-                            settings.ssl_ca_cert, NULL)) {
-            if (settings.verbose) {
-                fprintf(stderr, "Error loading the client CA cert (%s)\n",
-                        settings.ssl_ca_cert);
-            }
-            exit(EX_USAGE);
-        }
-    }
-    settings.ssl_last_cert_refresh_time = current_time;
+
     return 0;
 }
 
