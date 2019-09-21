@@ -184,9 +184,26 @@ my $sock = $server->sock;
     ok($res->{tokens}->[0] == 4, "Size returned correctly");
     is($res->{val}, "zuuu", "value matches: " . $res->{val});
 
-    # test TOUCH mode
-    # test no-value mode
 }
+
+# test get-and-touch mode
+{
+    # Set key with lower initial TTL.
+    print $sock "mset gatkey ST 4 100\r\nooom\r\n";
+    like(scalar <$sock>, qr/^STORED/, "set gatkey");
+
+    # Coolish side feature and/or bringer of bugs: 't' before 'T' gives TTL
+    # before adjustment. 'T' before 't' gives TTL after adjustment.
+    # Here we want 'T' before 't' to ensure we did adjust the value.
+    my $res = mget($sock, 'gatkey', 'svTt 300');
+    ok(keys %$res, "not a miss");
+    unlike($res->{flags}, qr/[WZ]/, "not a win or token result");
+    is($res->{key}, 'gatkey', "key matches");
+    my $ttl = $res->{tokens}->[1];
+    ok($ttl > 280 && $ttl <= 300, "TTL is within requested window: $ttl");
+}
+
+# test no-value mode
 
 # high level tests:
 # - mget + mset with serve-stale

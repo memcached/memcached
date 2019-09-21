@@ -4500,9 +4500,16 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         for (i = 0; i < olen; i++) {
             switch (opts[i]) {
                 case 'T':
-                    // FIXME: I broke this.
                     ttl_set = true;
-                case 'N': // fallthrough. handled the same way here.
+                    if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                        errstr = "bad tokens in command line format";
+                        goto error;
+                    }
+                    // FIXME: check for < 0, or stoul and cast here.
+                    it->exptime = realtime(exptime_int);
+                    rtokens++;
+                    break;
+                case 'N':
                     if (item_created) {
                         if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
                             errstr = "bad tokens in command line format";
