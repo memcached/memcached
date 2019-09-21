@@ -154,7 +154,6 @@ unsigned int do_get_lru_size(uint32_t id) {
 /**
  * Generates the variable-sized part of the header for an object.
  *
- * key     - The key
  * nkey    - The length of the key
  * flags   - key flags
  * nbytes  - Number of bytes to hold value and addition CRLF terminator
