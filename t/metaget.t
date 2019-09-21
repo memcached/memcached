@@ -204,6 +204,20 @@ my $sock = $server->sock;
 }
 
 # test no-value mode
+{
+    # Set key with lower initial TTL.
+    print $sock "mset hidevalue ST 4 100\r\nhide\r\n";
+    like(scalar <$sock>, qr/^STORED/, "set hidevalue");
+
+    my $res = mget($sock, 'hidevalue', 'st');
+    ok(keys %$res, "not a miss");
+    is($res->{val}, '', "no value returned");
+
+    $res = mget($sock, 'hidevalue', 'stv');
+    ok(keys %$res, "not a miss");
+    is($res->{val}, 'hide', "real value returned");
+
+}
 
 # high level tests:
 # - mget + mset with serve-stale
@@ -352,7 +366,7 @@ sub mget {
 
     print $s "mget $key $flags ", $tokens, "\r\n";
     my $header = scalar(<$s>);
-    my $val;
+    my $val = "\r\n";
     if ($flags =~ m/v/) {
         $val = scalar(<$s>);
     }
