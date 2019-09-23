@@ -756,6 +756,9 @@ static int slab_rebalance_start(void) {
         slab_rebal.done = 1;
     }
 
+    // Bit-vector to keep track of completed chunks
+    slab_rebal.completed = (uint8_t*)calloc(s_cls->perslab,sizeof(uint8_t));
+
     slab_rebalance_signal = 2;
 
     if (settings.verbose > 1) {
@@ -856,8 +859,13 @@ static int slab_rebalance_move(void) {
         hv = 0;
         hold_lock = NULL;
         item *it = slab_rebal.slab_pos;
+
+        // the offset to check if completed or not
+        int offset = ((char*)slab_rebal.slab_pos-(char*)slab_rebal.slab_start)/(s_cls->size);
+
         item_chunk *ch = NULL;
         status = MOVE_PASS;
+
         if (it->it_flags & ITEM_CHUNK) {
             /* This chunk is a chained part of a larger item. */
             ch = (item_chunk *) it;
@@ -871,7 +879,8 @@ static int slab_rebalance_move(void) {
         /* ITEM_FETCHED when ITEM_SLABBED is overloaded to mean we've cleared
          * the chunk for move. Only these two flags should exist.
          */
-        if (it->it_flags != (ITEM_SLABBED|ITEM_FETCHED)) {
+        if ( (slab_rebal.completed[offset] == 0)
+              && (it->it_flags != (ITEM_SLABBED|ITEM_FETCHED)) ) {
             /* ITEM_SLABBED can only be added/removed under the slabs_lock */
             if (it->it_flags & ITEM_SLABBED) {
                 assert(ch == NULL);
@@ -1018,15 +1027,25 @@ static int slab_rebalance_move(void) {
 #endif
                         refcount_decr(it);
                     }
+                    slab_rebal.completed[offset] = 1;
                 } else {
-                    /* restore ntotal in case we tried saving a head chunk. */
-                    ntotal = ITEM_ntotal(it);
+                    /* unlink and mark as done if it's not
+                     * a chunked item as they require more book-keeping) */
                     STORAGE_delete(storage, it);
-                    do_item_unlink(it, hv);
-                    slabs_free(it, ntotal, slab_rebal.s_clsid);
-                    /* Swing around again later to remove it from the freelist. */
-                    slab_rebal.busy_items++;
-                    was_busy++;
+                    if (!ch) {
+                        do_item_unlink(it, hv);
+                        it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
+                        it->refcount = 0;
+                        slab_rebal.completed[offset] = 1;
+                    } else {
+                        ntotal = ITEM_ntotal(it);
+                        do_item_unlink(it, hv);
+                        slabs_free(it, ntotal, slab_rebal.s_clsid);
+                        /* Swing around again later to remove it from the freelist. */
+                        slab_rebal.busy_items++;
+                        was_busy++;
+                    }
+
                 }
                 item_trylock_unlock(hold_lock);
                 pthread_mutex_lock(&slabs_lock);
@@ -1035,6 +1054,7 @@ static int slab_rebalance_move(void) {
                  */
                 break;
             case MOVE_FROM_SLAB:
+                slab_rebal.completed[offset] = 1;
                 it->refcount = 0;
                 it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
 #ifdef DEBUG_SLAB_MOVER
@@ -1146,6 +1166,7 @@ static void slab_rebalance_finish(void) {
 
     slab_rebalance_signal = 0;
 
+    free(slab_rebal.completed);
     pthread_mutex_unlock(&slabs_lock);
 
     STATS_LOCK();
@@ -1168,6 +1189,8 @@ static void slab_rebalance_finish(void) {
  */
 static void *slab_rebalance_thread(void *arg) {
     int was_busy = 0;
+    int backoff_timer = 1;
+    int backoff_max = 1000;
     /* So we first pass into cond_wait with the mutex held */
     mutex_lock(&slabs_rebalance_lock);
 
@@ -1189,7 +1212,10 @@ static void *slab_rebalance_thread(void *arg) {
         } else if (was_busy) {
             /* Stuck waiting for some items to unlock, so slow down a bit
              * to give them a chance to free up */
-            usleep(1000);
+            usleep(backoff_timer);
+            backoff_timer = backoff_timer * 2;
+            if (backoff_timer > backoff_max)
+                backoff_timer = backoff_max;
         }
 
         if (slab_rebalance_signal == 0) {

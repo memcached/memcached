@@ -742,6 +742,7 @@ struct slab_rebalance {
     uint32_t busy_deletes;
     uint32_t busy_loops;
     uint8_t done;
+    uint8_t *completed;
 };
 
 extern struct slab_rebalance slab_rebal;
