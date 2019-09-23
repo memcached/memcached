@@ -2,7 +2,7 @@
 /*
  *  memcached - memory caching daemon
  *
- *       http://www.memcached.org/
+ *       https://www.memcached.org/
  *
  *  Copyright 2003 Danga Interactive, Inc.  All rights reserved.
  *
@@ -17,6 +17,8 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
+#include "authfile.h"
+#include "restart.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -55,6 +57,13 @@
 #include <getopt.h>
 #endif
 
+#ifdef TLS
+#include "tls.h"
+#endif
+
+#if defined(__FreeBSD__)
+#include <sys/sysctl.h>
+#endif
 /* FreeBSD 4.x doesn't have IOV_MAX exposed. */
 #ifndef IOV_MAX
 #if defined(__FreeBSD__) || defined(__APPLE__) || defined(__GNU__)
@@ -72,7 +81,9 @@
  */
 static void drive_machine(conn *c);
 static int new_socket(struct addrinfo *ai);
-static int try_read_command(conn *c);
+static ssize_t tcp_read(conn *arg, void *buf, size_t count);
+static ssize_t tcp_sendmsg(conn *arg, struct msghdr *msg, int flags);
+static ssize_t tcp_write(conn *arg, void *buf, size_t count);
 
 enum try_read_result {
     READ_DATA_RECEIVED,
@@ -80,6 +91,12 @@ enum try_read_result {
     READ_ERROR,            /** an error occurred (on the socket) (or client closed connection) */
     READ_MEMORY_ERROR      /** failed to allocate more memory */
 };
+
+static int try_read_command_negotiate(conn *c);
+static int try_read_command_udp(conn *c);
+static int try_read_command_binary(conn *c);
+static int try_read_command_ascii(conn *c);
+static int try_read_command_asciiauth(conn *c);
 
 static enum try_read_result try_read_network(conn *c);
 static enum try_read_result try_read_udp(conn *c);
@@ -91,8 +108,10 @@ static int start_conn_timeout_thread();
 static void stats_init(void);
 static void server_stats(ADD_STAT add_stats, conn *c);
 static void process_stat_settings(ADD_STAT add_stats, void *c);
-static void conn_to_str(const conn *c, char *buf);
+static void conn_to_str(const conn *c, char *addr, char *svr_addr);
 
+/** Return a datum for stats in binary protocol */
+static bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 
 /* defaults */
 static void settings_init(void);
@@ -132,7 +151,7 @@ volatile int slab_rebalance_signal;
 /* hoping this is temporary; I'd prefer to cut globals, but will complete this
  * battle another day.
  */
-void *ext_storage;
+void *ext_storage = NULL;
 #endif
 /** file scope variables **/
 static conn *listen_conn = NULL;
@@ -146,6 +165,22 @@ enum transmit_result {
     TRANSMIT_HARD_ERROR  /** Can't write (c->state is set to conn_closing) */
 };
 
+/* Default methods to read from/ write to a socket */
+ssize_t tcp_read(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
+    return read(c->sfd, buf, count);
+}
+
+ssize_t tcp_sendmsg(conn *c, struct msghdr *msg, int flags) {
+    assert (c != NULL);
+    return sendmsg(c->sfd, msg, flags);
+}
+
+ssize_t tcp_write(conn *c, void *buf, size_t count) {
+    assert (c != NULL);
+    return write(c->sfd, buf, count);
+}
+
 static enum transmit_result transmit(conn *c);
 
 /* This reduces the latency without adding lots of extra wiring to be able to
@@ -154,6 +189,7 @@ static enum transmit_result transmit(conn *c);
  * can block the listener via a condition.
  */
 static volatile bool allow_new_conns = true;
+static bool stop_main_loop = false;
 static struct event maxconnsevent;
 static void maxconns_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
@@ -223,6 +259,18 @@ static void settings_init(void) {
     settings.access = 0700;
     settings.port = 11211;
     settings.udpport = 0;
+#ifdef TLS
+    settings.ssl_enabled = false;
+    settings.ssl_ctx = NULL;
+    settings.ssl_chain_cert = NULL;
+    settings.ssl_key = NULL;
+    settings.ssl_verify_mode = SSL_VERIFY_NONE;
+    settings.ssl_keyformat = SSL_FILETYPE_PEM;
+    settings.ssl_ciphers = NULL;
+    settings.ssl_ca_cert = NULL;
+    settings.ssl_last_cert_refresh_time = current_time;
+    settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
+#endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
     settings.maxbytes = 64 * 1024 * 1024; /* default is 64MB */
@@ -232,6 +280,7 @@ static void settings_init(void) {
     settings.oldest_cas = 0;          /* supplements accuracy of oldest_live */
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
     settings.socketpath = NULL;       /* by default, not using a unix socket */
+    settings.auth_file = NULL;        /* by default, not using ASCII authentication tokens */
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
     settings.num_threads = 4;         /* N workers */
@@ -255,7 +304,6 @@ static void settings_init(void) {
     settings.warm_lru_pct = 40;
     settings.hot_max_factor = 0.2;
     settings.warm_max_factor = 2.0;
-    settings.inline_ascii_response = false;
     settings.temp_lru = false;
     settings.temporary_ttl = 61;
     settings.idle_timeout = 0; /* disabled */
@@ -328,6 +376,7 @@ extern pthread_mutex_t conn_lock;
 
 /* Connection timeout thread bits */
 static pthread_t conn_timeout_tid;
+static int do_run_conn_timeout_thread;
 
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
@@ -339,7 +388,7 @@ static void *conn_timeout_thread(void *arg) {
     int sleep_time;
     useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
 
-    while(1) {
+    while(do_run_conn_timeout_thread) {
         if (settings.verbose > 2)
             fprintf(stderr, "idle timeout thread at top of connection list\n");
 
@@ -397,6 +446,7 @@ static int start_conn_timeout_thread() {
     if (settings.idle_timeout == 0)
         return -1;
 
+    do_run_conn_timeout_thread = 1;
     if ((ret = pthread_create(&conn_timeout_tid, NULL,
         conn_timeout_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create idle connection timeout thread: %s\n",
@@ -404,6 +454,14 @@ static int start_conn_timeout_thread() {
         return -1;
     }
 
+    return 0;
+}
+
+int stop_conn_timeout_thread(void) {
+    if (!do_run_conn_timeout_thread)
+        return -1;
+    do_run_conn_timeout_thread = 0;
+    pthread_join(conn_timeout_tid, NULL);
     return 0;
 }
 
@@ -420,6 +478,10 @@ static int start_conn_timeout_thread() {
 static void conn_init(void) {
     /* We're unlikely to see an FD much higher than maxconns. */
     int next_fd = dup(1);
+    if (next_fd < 0) {
+        perror("Failed to duplicate file descriptor\n");
+        exit(1);
+    }
     int headroom = 10;      /* account for extra unexpected open FDs */
     struct rlimit rl;
 
@@ -502,7 +564,7 @@ void conn_worker_readd(conn *c) {
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
-                struct event_base *base) {
+                struct event_base *base, void *ssl) {
     conn *c;
 
     assert(sfd >= 0 && sfd < max_fds);
@@ -517,7 +579,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             return NULL;
         }
         MEMCACHED_CONN_CREATE(c);
-
+        c->read = NULL;
+        c->sendmsg = NULL;
+        c->write = NULL;
         c->rbuf = c->wbuf = 0;
         c->ilist = 0;
         c->suffixlist = 0;
@@ -598,6 +662,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         }
     }
 
+#ifdef TLS
+    c->ssl = NULL;
+    c->ssl_wbuf = NULL;
+    c->ssl_enabled = false;
+#endif
     c->state = init_state;
     c->rlbytes = 0;
     c->cmd = -1;
@@ -613,7 +682,6 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->msgcurr = 0;
     c->msgused = 0;
     c->sasl_started = false;
-    c->authenticated = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
 #ifdef EXTSTORE
     c->io_wraplist = NULL;
@@ -625,6 +693,49 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->item = 0;
 
     c->noreply = false;
+
+#ifdef TLS
+    if (ssl) {
+        c->ssl = (SSL*)ssl;
+        c->read = ssl_read;
+        c->sendmsg = ssl_sendmsg;
+        c->write = ssl_write;
+        c->ssl_enabled = true;
+        SSL_set_info_callback(c->ssl, ssl_callback);
+    } else
+#else
+    // This must be NULL if TLS is not enabled.
+    assert(ssl == NULL);
+#endif
+    {
+        c->read = tcp_read;
+        c->sendmsg = tcp_sendmsg;
+        c->write = tcp_write;
+    }
+
+    if (IS_UDP(transport)) {
+        c->try_read_command = try_read_command_udp;
+    } else {
+        switch (c->protocol) {
+            case ascii_prot:
+                if (settings.auth_file == NULL) {
+                    c->authenticated = true;
+                    c->try_read_command = try_read_command_ascii;
+                } else {
+                    c->authenticated = false;
+                    c->try_read_command = try_read_command_asciiauth;
+                }
+                break;
+            case binary_prot:
+                // binprot handles its own authentication via SASL parsing.
+                c->authenticated = false;
+                c->try_read_command = try_read_command_binary;
+                break;
+            case negotiating_prot:
+                c->try_read_command = try_read_command_negotiate;
+                break;
+        }
+    }
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
@@ -793,6 +904,11 @@ void conn_free(conn *c) {
             free(c->suffixlist);
         if (c->iov)
             free(c->iov);
+#ifdef TLS
+        if (c->ssl_wbuf)
+            c->ssl_wbuf = NULL;
+#endif
+
         free(c);
     }
 }
@@ -810,8 +926,13 @@ static void conn_close(conn *c) {
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     conn_set_state(c, conn_closed);
+#ifdef TLS
+    if (c->ssl) {
+        SSL_shutdown(c->ssl);
+        SSL_free(c->ssl);
+    }
+#endif
     close(c->sfd);
-
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
     pthread_mutex_unlock(&conn_lock);
@@ -1652,7 +1773,7 @@ static void process_bin_get_or_touch(conn *c) {
         rsp->message.header.response.cas = htonll(ITEM_get_cas(it));
 
         // add the flags
-        FLAGS_CONV(settings.inline_ascii_response, it, rsp->message.body.flags);
+        FLAGS_CONV(it, rsp->message.body.flags);
         rsp->message.body.flags = htonl(rsp->message.body.flags);
         add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
 
@@ -2446,7 +2567,7 @@ static void process_bin_update(conn *c) {
         /* FIXME: losing c->cmd since it's translated below. refactor? */
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
                 NULL, status, 0, key, nkey, req->message.body.expiration,
-                ITEM_clsid(it));
+                ITEM_clsid(it), c->sfd);
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
@@ -2599,6 +2720,7 @@ static void process_bin_flush(conn *c) {
 
 static void process_bin_delete(conn *c) {
     item *it;
+    uint32_t hv;
 
     protocol_binary_request_delete* req = binary_get_request(c);
 
@@ -2620,7 +2742,7 @@ static void process_bin_delete(conn *c) {
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get(key, nkey, c, DONT_UPDATE);
+    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
     if (it) {
         uint64_t cas = ntohll(req->message.header.request.cas);
         if (cas == 0 || cas == ITEM_get_cas(it)) {
@@ -2628,19 +2750,20 @@ static void process_bin_delete(conn *c) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
-            item_unlink(it);
+            do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
             write_bin_response(c, NULL, 0, 0, 0);
         } else {
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
         }
-        item_remove(it);      /* release our reference */
+        do_item_remove(it);      /* release our reference */
     } else {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.delete_misses++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
     }
+    item_unlock(hv);
 }
 
 static void complete_nread_binary(conn *c) {
@@ -2893,7 +3016,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
                 /* flags was already lost - so recover them from ITEM_suffix(it) */
-                FLAGS_CONV(settings.inline_ascii_response, old_it, flags);
+                FLAGS_CONV(old_it, flags);
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
                 /* copy data from it and old_it to new_it */
@@ -2932,7 +3055,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         c->cas = ITEM_get_cas(it);
     }
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
-            stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
+            stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it), c->sfd);
 
     return stored;
 }
@@ -3217,6 +3340,13 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("extstore_io_queue", "%llu", (unsigned long long)(st.io_queue));
     }
 #endif
+#ifdef TLS
+    if (settings.ssl_enabled) {
+        SSL_LOCK();
+        APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
+        SSL_UNLOCK();
+    }
+#endif
 }
 
 static void process_stat_settings(ADD_STAT add_stats, void *c) {
@@ -3245,6 +3375,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("binding_protocol", "%s",
                 prot_text(settings.binding_protocol));
     APPEND_STAT("auth_enabled_sasl", "%s", settings.sasl ? "yes" : "no");
+    APPEND_STAT("auth_enabled_ascii", "%s", settings.auth_file ? settings.auth_file : "no");
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
@@ -3272,7 +3403,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
-    APPEND_STAT("inline_ascii_response", "%s", settings.inline_ascii_response ? "yes" : "no");
+    APPEND_STAT("inline_ascii_response", "%s", "no"); // setting is dead, cannot be yes.
 #ifdef HAVE_DROP_PRIVILEGES
     APPEND_STAT("drop_privileges", "%s", settings.drop_privileges ? "yes" : "no");
 #endif
@@ -3288,21 +3419,136 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("slab_automove_freeratio", "%.3f", settings.slab_automove_freeratio);
     APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
 #endif
+#ifdef TLS
+    APPEND_STAT("ssl_enabled", "%s", settings.ssl_enabled ? "yes" : "no");
+    APPEND_STAT("ssl_chain_cert", "%s", settings.ssl_chain_cert);
+    APPEND_STAT("ssl_key", "%s", settings.ssl_key);
+    APPEND_STAT("ssl_verify_mode", "%d", settings.ssl_verify_mode);
+    APPEND_STAT("ssl_keyformat", "%d", settings.ssl_keyformat);
+    APPEND_STAT("ssl_ciphers", "%s", settings.ssl_ciphers ? settings.ssl_ciphers : "NULL");
+    APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
+    APPEND_STAT("ssl_wbuf_size", "%u", settings.ssl_wbuf_size);
+#endif
 }
 
-static void conn_to_str(const conn *c, char *buf) {
-    char addr_text[MAXPATHLEN];
+static int nz_strcmp(int nzlength, const char *nz, const char *z) {
+    int zlength=strlen(z);
+    return (zlength == nzlength) && (strncmp(nz, z, zlength) == 0) ? 0 : -1;
+}
 
-    if (!c) {
-        strcpy(buf, "<null>");
-    } else if (c->state == conn_closed) {
-        strcpy(buf, "<closed>");
+static bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
+    bool ret = true;
+
+    if (add_stats != NULL) {
+        if (!stat_type) {
+            /* prepare general statistics for the engine */
+            STATS_LOCK();
+            APPEND_STAT("bytes", "%llu", (unsigned long long)stats_state.curr_bytes);
+            APPEND_STAT("curr_items", "%llu", (unsigned long long)stats_state.curr_items);
+            APPEND_STAT("total_items", "%llu", (unsigned long long)stats.total_items);
+            STATS_UNLOCK();
+            APPEND_STAT("slab_global_page_pool", "%u", global_page_pool_size(NULL));
+            item_stats_totals(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
+            item_stats(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
+            slabs_stats(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
+            item_stats_sizes(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes_enable") == 0) {
+            item_stats_sizes_enable(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes_disable") == 0) {
+            item_stats_sizes_disable(add_stats, c);
+        } else {
+            ret = false;
+        }
     } else {
-        const char *protoname = "?";
+        ret = false;
+    }
+
+    return ret;
+}
+
+static inline void get_conn_text(const conn *c, const int af,
+                char* addr, struct sockaddr *sock_addr) {
+    char addr_text[MAXPATHLEN];
+    addr_text[0] = '\0';
+    const char *protoname = "?";
+    unsigned short port = 0;
+    size_t pathlen = 0;
+
+    switch (af) {
+        case AF_INET:
+            (void) inet_ntop(af,
+                    &((struct sockaddr_in *)sock_addr)->sin_addr,
+                    addr_text,
+                    sizeof(addr_text) - 1);
+            port = ntohs(((struct sockaddr_in *)sock_addr)->sin_port);
+            protoname = IS_UDP(c->transport) ? "udp" : "tcp";
+            break;
+
+        case AF_INET6:
+            addr_text[0] = '[';
+            addr_text[1] = '\0';
+            if (inet_ntop(af,
+                    &((struct sockaddr_in6 *)sock_addr)->sin6_addr,
+                    addr_text + 1,
+                    sizeof(addr_text) - 2)) {
+                strcat(addr_text, "]");
+            }
+            port = ntohs(((struct sockaddr_in6 *)sock_addr)->sin6_port);
+            protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
+            break;
+
+        case AF_UNIX:
+            // this strncpy call originally could piss off an address
+            // sanitizer; we supplied the size of the dest buf as a limiter,
+            // but optimized versions of strncpy could read past the end of
+            // *src while looking for a null terminator. Since buf and
+            // sun_path here are both on the stack they could even overlap,
+            // which is "undefined". In all OSS versions of strncpy I could
+            // find this has no effect; it'll still only copy until the first null
+            // terminator is found. Thus it's possible to get the OS to
+            // examine past the end of sun_path but it's unclear to me if this
+            // can cause any actual problem.
+            //
+            // We need a safe_strncpy util function but I'll punt on figuring
+            // that out for now.
+            pathlen = sizeof(((struct sockaddr_un *)sock_addr)->sun_path);
+            if (MAXPATHLEN <= pathlen) {
+                pathlen = MAXPATHLEN - 1;
+            }
+            strncpy(addr_text,
+                    ((struct sockaddr_un *)sock_addr)->sun_path,
+                    pathlen);
+            addr_text[pathlen] = '\0';
+            protoname = "unix";
+            break;
+    }
+
+    if (strlen(addr_text) < 2) {
+        /* Most likely this is a connected UNIX-domain client which
+         * has no peer socket address, but there's no portable way
+         * to tell for sure.
+         */
+        sprintf(addr_text, "<AF %d>", af);
+    }
+
+    if (port) {
+        sprintf(addr, "%s:%s:%u", protoname, addr_text, port);
+    } else {
+        sprintf(addr, "%s:%s", protoname, addr_text);
+    }
+}
+
+static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
+    if (!c) {
+        strcpy(addr, "<null>");
+    } else if (c->state == conn_closed) {
+        strcpy(addr, "<closed>");
+    } else {
         struct sockaddr_in6 local_addr;
-        struct sockaddr *addr = (void *)&c->request_addr;
-        int af;
-        unsigned short port = 0;
+        struct sockaddr *sock_addr = (void *)&c->request_addr;
 
         /* For listen ports and idle UDP ports, show listen address */
         if (c->state == conn_listening ||
@@ -3313,57 +3559,17 @@ static void conn_to_str(const conn *c, char *buf) {
             if (getsockname(c->sfd,
                         (struct sockaddr *)&local_addr,
                         &local_addr_len) == 0) {
-                addr = (struct sockaddr *)&local_addr;
+                sock_addr = (struct sockaddr *)&local_addr;
             }
         }
+        get_conn_text(c, sock_addr->sa_family, addr, sock_addr);
 
-        af = addr->sa_family;
-        addr_text[0] = '\0';
-
-        switch (af) {
-            case AF_INET:
-                (void) inet_ntop(af,
-                        &((struct sockaddr_in *)addr)->sin_addr,
-                        addr_text,
-                        sizeof(addr_text) - 1);
-                port = ntohs(((struct sockaddr_in *)addr)->sin_port);
-                protoname = IS_UDP(c->transport) ? "udp" : "tcp";
-                break;
-
-            case AF_INET6:
-                addr_text[0] = '[';
-                addr_text[1] = '\0';
-                if (inet_ntop(af,
-                        &((struct sockaddr_in6 *)addr)->sin6_addr,
-                        addr_text + 1,
-                        sizeof(addr_text) - 2)) {
-                    strcat(addr_text, "]");
-                }
-                port = ntohs(((struct sockaddr_in6 *)addr)->sin6_port);
-                protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
-                break;
-
-            case AF_UNIX:
-                strncpy(addr_text,
-                        ((struct sockaddr_un *)addr)->sun_path,
-                        sizeof(addr_text) - 1);
-                addr_text[sizeof(addr_text)-1] = '\0';
-                protoname = "unix";
-                break;
-        }
-
-        if (strlen(addr_text) < 2) {
-            /* Most likely this is a connected UNIX-domain client which
-             * has no peer socket address, but there's no portable way
-             * to tell for sure.
-             */
-            sprintf(addr_text, "<AF %d>", af);
-        }
-
-        if (port) {
-            sprintf(buf, "%s:%s:%u", protoname, addr_text, port);
-        } else {
-            sprintf(buf, "%s:%s", protoname, addr_text);
+        if (c->state != conn_listening && !(IS_UDP(c->transport) &&
+                 c->state == conn_read)) {
+            struct sockaddr_storage svr_sock_addr;
+            socklen_t svr_addr_len = sizeof(svr_sock_addr);
+            getsockname(c->sfd, (struct sockaddr *)&svr_sock_addr, &svr_addr_len);
+            get_conn_text(c, svr_sock_addr.ss_family, svr_addr, (struct sockaddr *)&svr_sock_addr);
         }
     }
 }
@@ -3372,7 +3578,9 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
     char val_str[STAT_VAL_LEN];
-    char conn_name[MAXPATHLEN + sizeof("unix:") + sizeof("65535")];
+    size_t extras_len = sizeof("unix:") + sizeof("65535");
+    char addr[MAXPATHLEN + extras_len];
+    char svr_addr[MAXPATHLEN + extras_len];
     int klen = 0, vlen = 0;
 
     assert(add_stats);
@@ -3384,10 +3592,17 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
              * output -- not worth the complexity of the locking that'd be
              * required to prevent it.
              */
+            if (IS_UDP(conns[i]->transport)) {
+                APPEND_NUM_STAT(i, "UDP", "%s", "UDP");
+            }
             if (conns[i]->state != conn_closed) {
-                conn_to_str(conns[i], conn_name);
+                conn_to_str(conns[i], addr, svr_addr);
 
-                APPEND_NUM_STAT(i, "addr", "%s", conn_name);
+                APPEND_NUM_STAT(i, "addr", "%s", addr);
+                if (conns[i]->state != conn_listening &&
+                    !(IS_UDP(conns[i]->transport) && conns[i]->state == conn_read)) {
+                    APPEND_NUM_STAT(i, "listen_addr", "%s", svr_addr);
+                }
                 APPEND_NUM_STAT(i, "state", "%s",
                         state_text(conns[i]->state));
                 APPEND_NUM_STAT(i, "secs_since_last_cmd", "%d",
@@ -3510,27 +3725,25 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
-/* nsuffix == 0 means use no storage for client flags */
+/* client flags == 0 means use no storage for client flags */
 static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas, int nbytes) {
     char *p = suffix;
-    if (!settings.inline_ascii_response) {
-        *p = ' ';
+    *p = ' ';
+    p++;
+    if (FLAGS_SIZE(it) == 0) {
+        *p = '0';
         p++;
-        if (it->nsuffix == 0) {
-            *p = '0';
-            p++;
-        } else {
-            p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
-        }
-        *p = ' ';
-        p = itoa_u32(nbytes-2, p+1);
     } else {
-        p = suffix;
+        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
     }
+    *p = ' ';
+    p = itoa_u32(nbytes-2, p+1);
+
     if (return_cas) {
         *p = ' ';
         p = itoa_u64(ITEM_get_cas(it), p+1);
     }
+
     *p = '\r';
     *(p+1) = '\n';
     *(p+2) = '\0';
@@ -3707,7 +3920,7 @@ static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt) {
     if (ntotal > settings.slab_chunk_size_max) {
         // Pull a chunked item header.
         uint32_t flags;
-        FLAGS_CONV(settings.inline_ascii_response, it, flags);
+        FLAGS_CONV(it, flags);
         new_it = item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, it->nbytes);
         assert(new_it == NULL || (new_it->it_flags & ITEM_CHUNKED));
         chunked = true;
@@ -3855,7 +4068,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                  *   " " + flags + " " + data length + "\r\n" + data (with \r\n)
                  */
 
-                if (return_cas || !settings.inline_ascii_response)
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
@@ -3870,7 +4082,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   int suffix_len = make_ascii_get_suffix(suffix, it, return_cas, nbytes);
                   if (add_iov(c, "VALUE ", 6) != 0 ||
                       add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      (settings.inline_ascii_response && add_iov(c, ITEM_suffix(it), it->nsuffix - 2) != 0) ||
                       add_iov(c, suffix, suffix_len) != 0)
                       {
                           item_remove(it);
@@ -3896,30 +4107,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                       goto stop;
                   }
                 }
-                else
-                {
-                  MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
-                                        it->nbytes, ITEM_get_cas(it));
-                  if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, ITEM_key(it), it->nkey) != 0)
-                      {
-                          item_remove(it);
-                          goto stop;
-                      }
-                  if ((it->it_flags & ITEM_CHUNKED) == 0)
-                      {
-                          if (add_iov(c, ITEM_suffix(it), it->nsuffix + it->nbytes) != 0)
-                          {
-                              item_remove(it);
-                              goto stop;
-                          }
-                      } else if (add_iov(c, ITEM_suffix(it), it->nsuffix) != 0 ||
-                                 add_chunked_item_iovs(c, it, it->nbytes) != 0) {
-                          item_remove(it);
-                          goto stop;
-                      }
-                }
-
 
                 if (settings.verbose > 1) {
                     int ii;
@@ -3980,10 +4167,8 @@ stop:
 
     c->icurr = c->ilist;
     c->ileft = i;
-    if (return_cas || !settings.inline_ascii_response) {
-        c->suffixcurr = c->suffixlist;
-        c->suffixleft = si;
-    }
+    c->suffixcurr = c->suffixlist;
+    c->suffixleft = si;
 
     if (settings.verbose > 1)
         fprintf(stderr, ">%d END\n", c->sfd);
@@ -4076,7 +4261,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
             status = NO_MEMORY;
         }
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
-                NULL, status, comm, key, nkey, 0, 0);
+                NULL, status, comm, key, nkey, 0, 0, c->sfd);
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         c->sbytes = vlen;
@@ -4270,7 +4455,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     }
     pthread_mutex_unlock(&c->thread->stats.mutex);
 
-    snprintf(buf, INCR_MAX_STORAGE_LEN, "%llu", (unsigned long long)value);
+    itoa_u64(value, buf);
     res = strlen(buf);
     /* refcount == 2 means we are the only ones holding the item, and it is
      * linked. We hold the item's lock in this function, so refcount cannot
@@ -4290,7 +4475,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     } else if (it->refcount > 1) {
         item *new_it;
         uint32_t flags;
-        FLAGS_CONV(settings.inline_ascii_response, it, flags);
+        FLAGS_CONV(it, flags);
         new_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, res + 2);
         if (new_it == 0) {
             do_item_remove(it);
@@ -4325,6 +4510,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     char *key;
     size_t nkey;
     item *it;
+    uint32_t hv;
 
     assert(c != NULL);
 
@@ -4353,7 +4539,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get(key, nkey, c, DONT_UPDATE);
+    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
     if (it) {
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
@@ -4361,9 +4547,9 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        item_unlink(it);
+        do_item_unlink(it, hv);
         STORAGE_delete(c->thread->storage, it);
-        item_remove(it);      /* release our reference */
+        do_item_remove(it);      /* release our reference */
         out_string(c, "DELETED");
     } else {
         pthread_mutex_lock(&c->thread->stats.mutex);
@@ -4372,6 +4558,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
 
         out_string(c, "NOT_FOUND");
     }
+    item_unlock(hv);
 }
 
 static void process_verbosity_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4538,7 +4725,7 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
                 out_string(c, "OK");
             }
         }
-    } else if (strcmp(tokens[1].value, "mode") == 0 && ntokens >= 3 &&
+    } else if (strcmp(tokens[1].value, "mode") == 0 && ntokens >= 4 &&
                settings.lru_maintainer_thread) {
         if (strcmp(tokens[2].value, "flat") == 0) {
             settings.lru_segmented = false;
@@ -4549,7 +4736,7 @@ static void process_lru_command(conn *c, token_t *tokens, const size_t ntokens) 
         } else {
             out_string(c, "ERROR");
         }
-    } else if (strcmp(tokens[1].value, "temp_ttl") == 0 && ntokens >= 3 &&
+    } else if (strcmp(tokens[1].value, "temp_ttl") == 0 && ntokens >= 4 &&
                settings.lru_maintainer_thread) {
         if (!safe_strtol(tokens[2].value, &ttl)) {
             out_string(c, "ERROR");
@@ -4898,7 +5085,7 @@ static void process_command(conn *c, char *command) {
                     out_string(c, "ERROR failed to start lru crawler thread");
                 }
             } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
-                if (stop_item_crawler_thread() == 0) {
+                if (stop_item_crawler_thread(CRAWLER_NOWAIT) == 0) {
                     out_string(c, "OK");
                 } else {
                     out_string(c, "ERROR failed to stop lru crawler thread");
@@ -4927,6 +5114,17 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens >= 3 && strcmp(tokens[COMMAND_TOKEN].value, "extstore") == 0) {
         process_extstore_command(c, tokens, ntokens);
 #endif
+#ifdef TLS
+    } else if (ntokens == 2 && strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0) {
+        set_noreply_maybe(c, tokens, ntokens);
+        char *errmsg = NULL;
+        if (refresh_certs(&errmsg)) {
+            out_string(c, "OK");
+        } else {
+            write_and_free(c, errmsg, strlen(errmsg));
+        }
+        return;
+#endif
     } else {
         if (ntokens >= 2 && strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
             conn_set_state(c, conn_closing);
@@ -4937,137 +5135,255 @@ static void process_command(conn *c, char *command) {
     return;
 }
 
-/*
- * if we have a complete line in the buffer, process it.
- */
-static int try_read_command(conn *c) {
+static int try_read_command_negotiate(conn *c) {
+    assert(c->protocol == negotiating_prot);
     assert(c != NULL);
     assert(c->rcurr <= (c->rbuf + c->rsize));
     assert(c->rbytes > 0);
 
-    if (c->protocol == negotiating_prot || c->transport == udp_transport)  {
-        if ((unsigned char)c->rbuf[0] == (unsigned char)PROTOCOL_BINARY_REQ) {
-            c->protocol = binary_prot;
-        } else {
-            c->protocol = ascii_prot;
-        }
-
-        if (settings.verbose > 1) {
-            fprintf(stderr, "%d: Client using the %s protocol\n", c->sfd,
-                    prot_text(c->protocol));
-        }
+    if ((unsigned char)c->rbuf[0] == (unsigned char)PROTOCOL_BINARY_REQ) {
+        c->protocol = binary_prot;
+        c->try_read_command = try_read_command_binary;
+    } else {
+        // authentication doesn't work with negotiated protocol.
+        c->protocol = ascii_prot;
+        c->try_read_command = try_read_command_ascii;
     }
 
-    if (c->protocol == binary_prot) {
-        /* Do we have the complete packet header? */
-        if (c->rbytes < sizeof(c->binary_header)) {
-            /* need more data! */
-            return 0;
-        } else {
-#ifdef NEED_ALIGN
-            if (((long)(c->rcurr)) % 8 != 0) {
-                /* must realign input buffer */
-                memmove(c->rbuf, c->rcurr, c->rbytes);
-                c->rcurr = c->rbuf;
-                if (settings.verbose > 1) {
-                    fprintf(stderr, "%d: Realign input buffer\n", c->sfd);
-                }
-            }
-#endif
-            protocol_binary_request_header* req;
-            req = (protocol_binary_request_header*)c->rcurr;
+    if (settings.verbose > 1) {
+        fprintf(stderr, "%d: Client using the %s protocol\n", c->sfd,
+                prot_text(c->protocol));
+    }
 
-            if (settings.verbose > 1) {
-                /* Dump the packet before we convert it to host order */
-                int ii;
-                fprintf(stderr, "<%d Read binary protocol data:", c->sfd);
-                for (ii = 0; ii < sizeof(req->bytes); ++ii) {
-                    if (ii % 4 == 0) {
-                        fprintf(stderr, "\n<%d   ", c->sfd);
-                    }
-                    fprintf(stderr, " 0x%02x", req->bytes[ii]);
-                }
-                fprintf(stderr, "\n");
-            }
+    return c->try_read_command(c);
+}
 
-            c->binary_header = *req;
-            c->binary_header.request.keylen = ntohs(req->request.keylen);
-            c->binary_header.request.bodylen = ntohl(req->request.bodylen);
-            c->binary_header.request.cas = ntohll(req->request.cas);
+static int try_read_command_udp(conn *c) {
+    assert(c != NULL);
+    assert(c->rcurr <= (c->rbuf + c->rsize));
+    assert(c->rbytes > 0);
 
-            if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
-                if (settings.verbose) {
-                    fprintf(stderr, "Invalid magic:  %x\n",
-                            c->binary_header.request.magic);
-                }
-                conn_set_state(c, conn_closing);
-                return -1;
-            }
-
-            c->msgcurr = 0;
-            c->msgused = 0;
-            c->iovused = 0;
-            if (add_msghdr(c) != 0) {
-                out_of_memory(c,
-                        "SERVER_ERROR Out of memory allocating headers");
-                return 0;
-            }
-
-            c->cmd = c->binary_header.request.opcode;
-            c->keylen = c->binary_header.request.keylen;
-            c->opaque = c->binary_header.request.opaque;
-            /* clear the returned cas value */
-            c->cas = 0;
-
-            dispatch_bin_command(c);
-
-            c->rbytes -= sizeof(c->binary_header);
-            c->rcurr += sizeof(c->binary_header);
-        }
+    if ((unsigned char)c->rbuf[0] == (unsigned char)PROTOCOL_BINARY_REQ) {
+        c->protocol = binary_prot;
+        return try_read_command_binary(c);
     } else {
-        char *el, *cont;
+        c->protocol = ascii_prot;
+        return try_read_command_ascii(c);
+    }
+}
 
-        if (c->rbytes == 0)
+static int try_read_command_binary(conn *c) {
+    /* Do we have the complete packet header? */
+    if (c->rbytes < sizeof(c->binary_header)) {
+        /* need more data! */
+        return 0;
+    } else {
+#ifdef NEED_ALIGN
+        if (((long)(c->rcurr)) % 8 != 0) {
+            /* must realign input buffer */
+            memmove(c->rbuf, c->rcurr, c->rbytes);
+            c->rcurr = c->rbuf;
+            if (settings.verbose > 1) {
+                fprintf(stderr, "%d: Realign input buffer\n", c->sfd);
+            }
+        }
+#endif
+        protocol_binary_request_header* req;
+        req = (protocol_binary_request_header*)c->rcurr;
+
+        if (settings.verbose > 1) {
+            /* Dump the packet before we convert it to host order */
+            int ii;
+            fprintf(stderr, "<%d Read binary protocol data:", c->sfd);
+            for (ii = 0; ii < sizeof(req->bytes); ++ii) {
+                if (ii % 4 == 0) {
+                    fprintf(stderr, "\n<%d   ", c->sfd);
+                }
+                fprintf(stderr, " 0x%02x", req->bytes[ii]);
+            }
+            fprintf(stderr, "\n");
+        }
+
+        c->binary_header = *req;
+        c->binary_header.request.keylen = ntohs(req->request.keylen);
+        c->binary_header.request.bodylen = ntohl(req->request.bodylen);
+        c->binary_header.request.cas = ntohll(req->request.cas);
+
+        if (c->binary_header.request.magic != PROTOCOL_BINARY_REQ) {
+            if (settings.verbose) {
+                fprintf(stderr, "Invalid magic:  %x\n",
+                        c->binary_header.request.magic);
+            }
+            conn_set_state(c, conn_closing);
+            return -1;
+        }
+
+        c->msgcurr = 0;
+        c->msgused = 0;
+        c->iovused = 0;
+        if (add_msghdr(c) != 0) {
+            out_of_memory(c,
+                    "SERVER_ERROR Out of memory allocating headers");
+            return 0;
+        }
+
+        c->cmd = c->binary_header.request.opcode;
+        c->keylen = c->binary_header.request.keylen;
+        c->opaque = c->binary_header.request.opaque;
+        /* clear the returned cas value */
+        c->cas = 0;
+
+        c->last_cmd_time = current_time;
+        dispatch_bin_command(c);
+
+        c->rbytes -= sizeof(c->binary_header);
+        c->rcurr += sizeof(c->binary_header);
+    }
+
+    return 1;
+}
+
+static int try_read_command_asciiauth(conn *c) {
+    token_t tokens[MAX_TOKENS];
+    size_t ntokens;
+    char *cont = NULL;
+
+    // TODO: move to another function.
+    if (!c->sasl_started) {
+        char *el;
+        uint32_t size = 0;
+
+        // impossible for the auth command to be this short.
+        if (c->rbytes < 2)
             return 0;
 
         el = memchr(c->rcurr, '\n', c->rbytes);
+
+        // If no newline after 1k, getting junk data, close out.
         if (!el) {
             if (c->rbytes > 1024) {
-                /*
-                 * We didn't have a '\n' in the first k. This _has_ to be a
-                 * large multiget, if not we should just nuke the connection.
-                 */
-                char *ptr = c->rcurr;
-                while (*ptr == ' ') { /* ignore leading whitespaces */
-                    ++ptr;
-                }
-
-                if (ptr - c->rcurr > 100 ||
-                    (strncmp(ptr, "get ", 4) && strncmp(ptr, "gets ", 5))) {
-
-                    conn_set_state(c, conn_closing);
-                    return 1;
-                }
+                conn_set_state(c, conn_closing);
+                return 1;
             }
-
             return 0;
         }
-        cont = el + 1;
-        if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
-            el--;
-        }
+
+        // Looking for: "set foo 0 0 N\r\nuser pass\r\n"
+        // key, flags, and ttl are ignored. N is used to see if we have the rest.
+
+        // so tokenize doesn't walk past into the value.
+        // it's fine to leave the \r in, as strtoul will stop at it.
         *el = '\0';
 
-        assert(cont <= (c->rcurr + c->rbytes));
+        ntokens = tokenize_command(c->rcurr, tokens, MAX_TOKENS);
+        // ensure the buffer is consumed.
+        c->rbytes -= (el - c->rcurr) + 1;
+        c->rcurr += (el - c->rcurr) + 1;
 
-        c->last_cmd_time = current_time;
-        process_command(c, c->rcurr);
+        // final token is a NULL ender, so we have one more than expected.
+        if (ntokens < 6
+                || strcmp(tokens[0].value, "set") != 0
+                || !safe_strtoul(tokens[4].value, &size)) {
+            out_string(c, "CLIENT_ERROR unauthenticated");
+            return 1;
+        }
 
-        c->rbytes -= (cont - c->rcurr);
-        c->rcurr = cont;
+        // we don't actually care about the key at all; it can be anything.
+        // we do care about the size of the remaining read.
+        c->rlbytes = size + 2;
 
-        assert(c->rcurr <= (c->rbuf + c->rsize));
+        c->sasl_started = true; // reuse from binprot sasl, but not sasl :)
     }
+
+    if (c->rbytes < c->rlbytes) {
+        // need more bytes.
+        return 0;
+    }
+
+    cont = c->rcurr;
+    // advance buffer. no matter what we're stopping.
+    c->rbytes -= c->rlbytes;
+    c->rcurr += c->rlbytes;
+    c->sasl_started = false;
+
+    // must end with \r\n
+    // NB: I thought ASCII sets also worked with just \n, but according to
+    // complete_nread_ascii only \r\n is valid.
+    if (strncmp(cont + c->rlbytes - 2, "\r\n", 2) != 0) {
+        out_string(c, "CLIENT_ERROR bad command line termination");
+        return 1;
+    }
+
+    // payload should be "user pass", so we can use the tokenizer.
+    cont[c->rlbytes - 2] = '\0';
+    ntokens = tokenize_command(cont, tokens, MAX_TOKENS);
+
+    if (ntokens < 3) {
+        out_string(c, "CLIENT_ERROR bad authentication token format");
+        return 1;
+    }
+
+    if (authfile_check(tokens[0].value, tokens[1].value) == 1) {
+        out_string(c, "STORED");
+        c->authenticated = true;
+        c->try_read_command = try_read_command_ascii;
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.auth_cmds++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+    } else {
+        out_string(c, "CLIENT_ERROR authentication failure");
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.auth_cmds++;
+        c->thread->stats.auth_errors++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+    }
+
+    return 1;
+}
+
+static int try_read_command_ascii(conn *c) {
+    char *el, *cont;
+
+    if (c->rbytes == 0)
+        return 0;
+
+    el = memchr(c->rcurr, '\n', c->rbytes);
+    if (!el) {
+        if (c->rbytes > 1024) {
+            /*
+             * We didn't have a '\n' in the first k. This _has_ to be a
+             * large multiget, if not we should just nuke the connection.
+             */
+            char *ptr = c->rcurr;
+            while (*ptr == ' ') { /* ignore leading whitespaces */
+                ++ptr;
+            }
+
+            if (ptr - c->rcurr > 100 ||
+                (strncmp(ptr, "get ", 4) && strncmp(ptr, "gets ", 5))) {
+
+                conn_set_state(c, conn_closing);
+                return 1;
+            }
+        }
+
+        return 0;
+    }
+    cont = el + 1;
+    if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
+        el--;
+    }
+    *el = '\0';
+
+    assert(cont <= (c->rcurr + c->rbytes));
+
+    c->last_cmd_time = current_time;
+    process_command(c, c->rcurr);
+
+    c->rbytes -= (cont - c->rcurr);
+    c->rcurr = cont;
+
+    assert(c->rcurr <= (c->rbuf + c->rsize));
 
     return 1;
 }
@@ -5158,7 +5474,7 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
-        res = read(c->sfd, c->rbuf + c->rbytes, avail);
+        res = c->read(c, c->rbuf + c->rbytes, avail);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
@@ -5262,7 +5578,7 @@ static enum transmit_result transmit(conn *c) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
 
-        res = sendmsg(c->sfd, m, 0);
+        res = c->sendmsg(c, m, 0);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
@@ -5357,7 +5673,7 @@ static int read_into_chunked_item(conn *c) {
             }
         } else {
             /*  now try reading from the socket */
-            res = read(c->sfd, ch->data + ch->used,
+            res = c->read(c, ch->data + ch->used,
                     (unused > c->rlbytes ? c->rlbytes : unused));
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
@@ -5458,8 +5774,47 @@ static void drive_machine(conn *c) {
                 stats.rejected_conns++;
                 STATS_UNLOCK();
             } else {
+                void *ssl_v = NULL;
+#ifdef TLS
+                SSL *ssl = NULL;
+                if (c->ssl_enabled) {
+                    assert(IS_TCP(c->transport) && settings.ssl_enabled);
+
+                    if (settings.ssl_ctx == NULL) {
+                        if (settings.verbose) {
+                            fprintf(stderr, "SSL context is not initialized\n");
+                        }
+                        close(sfd);
+                        break;
+                    }
+                    SSL_LOCK();
+                    ssl = SSL_new(settings.ssl_ctx);
+                    SSL_UNLOCK();
+                    if (ssl == NULL) {
+                        if (settings.verbose) {
+                            fprintf(stderr, "Failed to created the SSL object\n");
+                        }
+                        close(sfd);
+                        break;
+                    }
+                    SSL_set_fd(ssl, sfd);
+                    int ret = SSL_accept(ssl);
+                    if (ret < 0) {
+                        int err = SSL_get_error(ssl, ret);
+                        if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+                            if (settings.verbose) {
+                                fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
+                            }
+                            close(sfd);
+                            break;
+                        }
+                    }
+                }
+                ssl_v = (void*) ssl;
+#endif
+
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, c->transport);
+                                     DATA_BUFFER_SIZE, c->transport, ssl_v);
             }
 
             stop = true;
@@ -5497,7 +5852,7 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_parse_cmd :
-            if (try_read_command(c) == 0) {
+            if (c->try_read_command(c) == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
             }
@@ -5565,7 +5920,7 @@ static void drive_machine(conn *c) {
                 }
 
                 /*  now try reading from the socket */
-                res = read(c->sfd, c->ritem, c->rlbytes);
+                res = c->read(c, c->ritem, c->rlbytes);
                 if (res > 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.bytes_read += res;
@@ -5635,7 +5990,7 @@ static void drive_machine(conn *c) {
             }
 
             /*  now try reading from the socket */
-            res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+            res = c->read(c, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -5849,7 +6204,7 @@ static void maximize_sndbuf(const int sfd) {
 static int server_socket(const char *interface,
                          int port,
                          enum network_transport transport,
-                         FILE *portnumber_file) {
+                         FILE *portnumber_file, bool ssl_enabled) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
@@ -5969,18 +6324,32 @@ static int server_socket(const char *interface,
                  * among threads, so this is guaranteed to assign one
                  * FD to each thread.
                  */
-                int per_thread_fd = c ? dup(sfd) : sfd;
+                int per_thread_fd;
+                if (c == 0) {
+                    per_thread_fd = sfd;
+                } else {
+                    per_thread_fd = dup(sfd);
+                    if (per_thread_fd < 0) {
+                        perror("Failed to duplicate file descriptor");
+                        exit(EXIT_FAILURE);
+                    }
+                }
                 dispatch_conn_new(per_thread_fd, conn_read,
                                   EV_READ | EV_PERSIST,
-                                  UDP_READ_BUFFER_SIZE, transport);
+                                  UDP_READ_BUFFER_SIZE, transport, NULL);
             }
         } else {
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
                                              EV_READ | EV_PERSIST, 1,
-                                             transport, main_base))) {
+                                             transport, main_base, NULL))) {
                 fprintf(stderr, "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
             }
+#ifdef TLS
+            listen_conn_add->ssl_enabled = ssl_enabled;
+#else
+            assert(ssl_enabled == false);
+#endif
             listen_conn_add->next = listen_conn;
             listen_conn = listen_conn_add;
         }
@@ -5994,8 +6363,15 @@ static int server_socket(const char *interface,
 
 static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
+    bool ssl_enabled = false;
+
+#ifdef TLS
+    const char *notls = "notls";
+    ssl_enabled = settings.ssl_enabled;
+#endif
+
     if (settings.inter == NULL) {
-        return server_socket(settings.inter, port, transport, portnumber_file);
+        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled);
     } else {
         // tokenize them and bind to each one of them..
         char *b;
@@ -6007,9 +6383,21 @@ static int server_sockets(int port, enum network_transport transport,
             return 1;
         }
         for (char *p = strtok_r(list, ";,", &b);
-             p != NULL;
-             p = strtok_r(NULL, ";,", &b)) {
+            p != NULL;
+            p = strtok_r(NULL, ";,", &b)) {
             int the_port = port;
+#ifdef TLS
+            ssl_enabled = settings.ssl_enabled;
+            // "notls" option is valid only when memcached is run with SSL enabled.
+            if (strncmp(p, notls, strlen(notls)) == 0) {
+                if (!settings.ssl_enabled) {
+                    fprintf(stderr, "'notls' option is valid only when SSL is enabled\n");
+                    return 1;
+                }
+                ssl_enabled = false;
+                p += strlen(notls) + 1;
+            }
+#endif
 
             char *h = NULL;
             if (*p == '[') {
@@ -6049,7 +6437,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strcmp(p, "*") == 0) {
                 p = NULL;
             }
-            ret |= server_socket(p, the_port, transport, portnumber_file);
+            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled);
         }
         free(list);
         return ret;
@@ -6126,7 +6514,7 @@ static int server_socket_unix(const char *path, int access_mask) {
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
                                  EV_READ | EV_PERSIST, 1,
-                                 local_transport, main_base))) {
+                                 local_transport, main_base, NULL))) {
         fprintf(stderr, "failed to create listening connection\n");
         exit(EXIT_FAILURE);
     }
@@ -6144,6 +6532,10 @@ static int server_socket_unix(const char *path, int access_mask) {
  */
 volatile rel_time_t current_time;
 static struct event clockevent;
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+static bool monotonic = false;
+static int64_t monotonic_start;
+#endif
 
 /* libevent uses a monotonic clock when available for event scheduling. Aside
  * from jitter, simply ticking our internal timer here is accurate enough.
@@ -6152,30 +6544,24 @@ static struct event clockevent;
 static void clock_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 1, .tv_usec = 0};
     static bool initialized = false;
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
-    static bool monotonic = false;
-    static time_t monotonic_start;
-#endif
 
     if (initialized) {
         /* only delete the event if it's actually there. */
         evtimer_del(&clockevent);
     } else {
         initialized = true;
-        /* process_started is initialized to time() - 2. We initialize to 1 so
-         * flush_all won't underflow during tests. */
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
-        struct timespec ts;
-        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-            monotonic = true;
-            monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
-        }
-#endif
     }
 
     // While we're here, check for hash table expansion.
     // This function should be quick to avoid delaying the timer.
     assoc_start_expand(stats_state.curr_items);
+    // also, if HUP'ed we need to do some maintenance.
+    // for now that's just the authfile reload.
+    if (settings.sig_hup) {
+        settings.sig_hup = false;
+
+        authfile_load(settings.auth_file);
+    }
 
     evtimer_set(&clockevent, clock_handler, 0);
     event_base_set(main_base, &clockevent);
@@ -6205,6 +6591,10 @@ static void usage(void) {
            "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
            "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: 0700)\n"
            "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
+#ifdef TLS
+           "                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
+           "                          disable for specific listeners (-l notls:<ip>:<port>) \n"
+#endif
            "-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
@@ -6235,12 +6625,20 @@ static void usage(void) {
     printf("-b, --listen-backlog=<num> set the backlog queue limit (default: 1024)\n");
     printf("-B, --protocol=<name>     protocol - one of ascii, binary, or auto (default)\n");
     printf("-I, --max-item-size=<num> adjusts max item size\n"
-           "                          (default: 1mb, min: 1k, max: 128m)\n");
+           "                          (default: 1mb, min: 1k, max: 1024m)\n");
 #ifdef ENABLE_SASL
     printf("-S, --enable-sasl         turn on Sasl authentication\n");
 #endif
     printf("-F, --disable-flush-all   disable flush_all command\n");
     printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
+    printf("-Y, --auth-file=<file>    (EXPERIMENTAL) enable ASCII protocol authentication. format:\n"
+           "                          user:pass\\nuser2:pass2\\n\n");
+    printf("-e, --memory-file=<file>  (EXPERIMENTAL) mmap a file for item memory.\n"
+           "                          use only in ram disks or persistent memory mounts!\n"
+           "                          enables restartable cache (stop with SIGUSR1)\n");
+#ifdef TLS
+    printf("-Z, --enable-ssl          enable TLS/SSL\n");
+#endif
     printf("-o, --extended            comma separated list of extended options\n"
            "                          most options have a 'no_' prefix to disable\n"
            "   - maxconns_fast:       immediately close new connections after limit\n"
@@ -6272,9 +6670,6 @@ static void usage(void) {
            "   - worker_logbuf_size:  size in kilobytes of per-worker-thread buffer\n"
            "                          read by background thread, then written to watchers.\n"
            "   - track_sizes:         enable dynamic reports for 'stats sizes' command.\n"
-           "   - no_inline_ascii_resp: save up to 24 bytes per item.\n"
-           "                           small perf hit in ASCII, no perf difference in\n"
-           "                           binary protocol. speeds up all sets.\n"
            "   - no_hashexpand:       disables hash table expansion (dangerous)\n"
            "   - modern:              enables options which will be default in future.\n"
            "             currently: nothing\n"
@@ -6303,6 +6698,17 @@ static void usage(void) {
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info)\n"
+#endif
+#ifdef TLS
+           "   - ssl_chain_cert:      certificate chain file in PEM format\n"
+           "   - ssl_key:             private key, if not part of the -ssl_chain_cert\n"
+           "   - ssl_keyformat:         private key format (PEM, DER or ENGINE) PEM default\n"
+           "   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
+           "                          valid values are 0(None), 1(Request), 2(Require)\n"
+           "                          or 3(Once)\n"
+           "   - ssl_ciphers:         specify cipher list to be used\n"
+           "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
+           "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
 #endif
            );
     return;
@@ -6433,6 +6839,15 @@ static void sig_handler(const int sig) {
     exit(EXIT_SUCCESS);
 }
 
+static void sighup_handler(const int sig) {
+    settings.sig_hup = true;
+}
+
+static void sig_usrhandler(const int sig) {
+    printf("Graceful shutdown signal handled: %s.\n", strsignal(sig));
+    stop_main_loop = true;
+}
+
 #ifndef HAVE_SIGIGNORE
 static int sigignore(int sig) {
     struct sigaction sa = { .sa_handler = SIG_IGN, .sa_flags = 0 };
@@ -6489,6 +6904,21 @@ static int enable_large_pages(void) {
     int ret = stat("/sys/kernel/mm/transparent_hugepage/enabled", &st);
     if (ret || !(st.st_mode & S_IFREG)) {
         fprintf(stderr, "Transparent huge pages support not detected.\n");
+        fprintf(stderr, "Will use default page size.\n");
+        return -1;
+    }
+    return 0;
+#elif defined(__FreeBSD__)
+    int spages;
+    size_t spagesl = sizeof(spages);
+
+    if (sysctlbyname("vm.pmap.pg_ps_enabled", &spages,
+    &spagesl, NULL, 0) != 0) {
+        fprintf(stderr, "Could not evaluate the presence of superpages features.");
+        return -1;
+    }
+    if (spages != 1) {
+        fprintf(stderr, "Superpages support not detected.\n");
         fprintf(stderr, "Will use default page size.\n");
         return -1;
     }
@@ -6558,6 +6988,296 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
     return true;
 }
 
+struct _mc_meta_data {
+    void *mmap_base;
+    uint64_t old_base;
+    char *slab_config; // string containing either factor or custom slab list.
+    int64_t time_delta;
+    uint64_t process_started;
+    uint32_t current_time;
+};
+
+// We need to remember a combination of configuration settings and global
+// state for restart viability and resumption of internal services.
+// Compared to the number of tunables and state values, relatively little
+// does need to be remembered.
+// Time is the hardest; we have to assume the sys clock is correct and re-sync for
+// the lost time after restart.
+static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
+    struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
+
+    // Settings to remember.
+    // TODO: should get a version of version which is numeric, else
+    // comparisons for compat reasons are difficult.
+    // it may be possible to punt on this for now; since we can test for the
+    // absense of another key... such as the new numeric version.
+    //restart_set_kv(ctx, "version", "%s", VERSION);
+    // We hold the original factor or subopts _string_
+    // it can be directly compared without roundtripping through floats or
+    // serializing/deserializing the long options list.
+    restart_set_kv(ctx, "slab_config", "%s", meta->slab_config);
+    restart_set_kv(ctx, "maxbytes", "%llu", (unsigned long long) settings.maxbytes);
+    restart_set_kv(ctx, "chunk_size", "%d", settings.chunk_size);
+    restart_set_kv(ctx, "item_size_max", "%d", settings.item_size_max);
+    restart_set_kv(ctx, "slab_chunk_size_max", "%d", settings.slab_chunk_size_max);
+    restart_set_kv(ctx, "slab_page_size", "%d", settings.slab_page_size);
+    restart_set_kv(ctx, "use_cas", "%s", settings.use_cas ? "true" : "false");
+    restart_set_kv(ctx, "slab_reassign", "%s", settings.slab_reassign ? "true" : "false");
+
+    // Online state to remember.
+
+    // current time is tough. we need to rely on the clock being correct to
+    // pull the delta between stop and start times. we also need to know the
+    // delta between start time and now to restore monotonic clocks.
+    // for non-monotonic clocks (some OS?), process_started is the only
+    // important one.
+    restart_set_kv(ctx, "current_time", "%u", current_time);
+    // types are great until... this. some systems time_t could be big, but
+    // I'm assuming never negative.
+    restart_set_kv(ctx, "process_started", "%llu", (unsigned long long) process_started);
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        restart_set_kv(ctx, "stop_time", "%lu", tv.tv_sec);
+    }
+
+    // Might as well just fetch the next CAS value to use than tightly
+    // coupling the internal variable into the restart system.
+    restart_set_kv(ctx, "current_cas", "%llu", (unsigned long long) get_cas_id());
+    restart_set_kv(ctx, "oldest_cas", "%llu", (unsigned long long) settings.oldest_cas);
+    restart_set_kv(ctx, "logger_gid", "%llu", logger_get_gid());
+    restart_set_kv(ctx, "hashpower", "%u", stats_state.hash_power_level);
+    // NOTE: oldest_live is a rel_time_t, which aliases for unsigned int.
+    // should future proof this with a 64bit upcast, or fetch value from a
+    // converter function/macro?
+    restart_set_kv(ctx, "oldest_live", "%u", settings.oldest_live);
+    // TODO: use uintptr_t etc? is it portable enough?
+    restart_set_kv(ctx, "mmap_oldbase", "%p", meta->mmap_base);
+
+    return 0;
+}
+
+// We must see at least this number of checked lines. Else empty/missing lines
+// could cause a false-positive.
+// TODO: Once crc32'ing of the metadata file is done this could be ensured better by
+// the restart module itself (crc32 + count of lines must match on the
+// backend)
+#define RESTART_REQUIRED_META 17
+
+// With this callback we make a decision on if the current configuration
+// matches up enough to allow reusing the cache.
+// We also re-load important runtime information.
+static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
+    struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
+    char *key;
+    char *val;
+    int reuse_mmap = 0;
+    meta->process_started = 0;
+    meta->time_delta = 0;
+    meta->current_time = 0;
+    int lines_seen = 0;
+
+    // TODO: not sure this is any better than just doing an if/else tree with
+    // strcmp's...
+    enum {
+        R_MMAP_OLDBASE = 0,
+        R_MAXBYTES,
+        R_CHUNK_SIZE,
+        R_ITEM_SIZE_MAX,
+        R_SLAB_CHUNK_SIZE_MAX,
+        R_SLAB_PAGE_SIZE,
+        R_SLAB_CONFIG,
+        R_USE_CAS,
+        R_SLAB_REASSIGN,
+        R_CURRENT_CAS,
+        R_OLDEST_CAS,
+        R_OLDEST_LIVE,
+        R_LOGGER_GID,
+        R_CURRENT_TIME,
+        R_STOP_TIME,
+        R_PROCESS_STARTED,
+        R_HASHPOWER,
+    };
+
+    const char *opts[] = {
+        [R_MMAP_OLDBASE] = "mmap_oldbase",
+        [R_MAXBYTES] = "maxbytes",
+        [R_CHUNK_SIZE] = "chunk_size",
+        [R_ITEM_SIZE_MAX] = "item_size_max",
+        [R_SLAB_CHUNK_SIZE_MAX] = "slab_chunk_size_max",
+        [R_SLAB_PAGE_SIZE] = "slab_page_size",
+        [R_SLAB_CONFIG] = "slab_config",
+        [R_USE_CAS] = "use_cas",
+        [R_SLAB_REASSIGN] = "slab_reassign",
+        [R_CURRENT_CAS] = "current_cas",
+        [R_OLDEST_CAS] = "oldest_cas",
+        [R_OLDEST_LIVE] = "oldest_live",
+        [R_LOGGER_GID] = "logger_gid",
+        [R_CURRENT_TIME] = "current_time",
+        [R_STOP_TIME] = "stop_time",
+        [R_PROCESS_STARTED] = "process_started",
+        [R_HASHPOWER] = "hashpower",
+        NULL
+    };
+
+    while (restart_get_kv(ctx, &key, &val) == RESTART_OK) {
+        int type = 0;
+        int32_t val_int = 0;
+        uint32_t val_uint = 0;
+        int64_t bigval_int = 0;
+        uint64_t bigval_uint = 0;
+
+        while (opts[type] != NULL && strcmp(key, opts[type]) != 0) {
+            type++;
+        }
+        if (opts[type] == NULL) {
+            fprintf(stderr, "[restart] unknown/unhandled key: %s\n", key);
+            continue;
+        }
+        lines_seen++;
+
+        // helper for any boolean checkers.
+        bool val_bool = false;
+        bool is_bool = true;
+        if (strcmp(val, "false") == 0) {
+            val_bool = false;
+        } else if (strcmp(val, "true") == 0) {
+            val_bool = true;
+        } else {
+            is_bool = false;
+        }
+
+        switch (type) {
+        case R_MMAP_OLDBASE:
+            if (!safe_strtoull_hex(val, &meta->old_base)) {
+                fprintf(stderr, "[restart] failed to parse %s: %s\n", key, val);
+                reuse_mmap = -1;
+            }
+            break;
+        case R_MAXBYTES:
+            if (!safe_strtoll(val, &bigval_int) || settings.maxbytes != bigval_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_CHUNK_SIZE:
+            if (!safe_strtol(val, &val_int) || settings.chunk_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_ITEM_SIZE_MAX:
+            if (!safe_strtol(val, &val_int) || settings.item_size_max != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_CHUNK_SIZE_MAX:
+            if (!safe_strtol(val, &val_int) || settings.slab_chunk_size_max != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_PAGE_SIZE:
+            if (!safe_strtol(val, &val_int) || settings.slab_page_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_CONFIG:
+            if (strcmp(val, meta->slab_config) != 0) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_USE_CAS:
+            if (!is_bool || settings.use_cas != val_bool) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_REASSIGN:
+            if (!is_bool || settings.slab_reassign != val_bool) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_CURRENT_CAS:
+            // FIXME: do we need to fail if these values _aren't_ found?
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                set_cas_id(bigval_uint);
+            }
+            break;
+        case R_OLDEST_CAS:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.oldest_cas = bigval_uint;
+            }
+            break;
+        case R_OLDEST_LIVE:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.oldest_live = val_uint;
+            }
+            break;
+        case R_LOGGER_GID:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                logger_set_gid(bigval_uint);
+            }
+            break;
+        case R_PROCESS_STARTED:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                meta->process_started = bigval_uint;
+            }
+            break;
+        case R_CURRENT_TIME:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                meta->current_time = val_uint;
+            }
+            break;
+        case R_STOP_TIME:
+            if (!safe_strtoll(val, &bigval_int)) {
+                reuse_mmap = -1;
+            } else {
+                struct timeval t;
+                gettimeofday(&t, NULL);
+                meta->time_delta = t.tv_sec - bigval_int;
+                // clock has done something crazy.
+                // there are _lots_ of ways the clock can go wrong here, but
+                // this is a safe sanity check since there's nothing else we
+                // can realistically do.
+                if (meta->time_delta <= 0) {
+                    reuse_mmap = -1;
+                }
+            }
+            break;
+        case R_HASHPOWER:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.hashpower_init = val_uint;
+            }
+            break;
+        default:
+            fprintf(stderr, "[restart] unhandled key: %s\n", key);
+        }
+
+        if (reuse_mmap != 0) {
+            fprintf(stderr, "[restart] restart incompatible due to setting for [%s] [old value: %s]\n", key, val);
+            break;
+        }
+    }
+
+    if (lines_seen < RESTART_REQUIRED_META) {
+        fprintf(stderr, "[restart] missing some metadata lines\n");
+        reuse_mmap = -1;
+    }
+
+    return reuse_mmap;
+}
+
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
@@ -6566,6 +7286,7 @@ int main (int argc, char **argv) {
     int maxcore = 0;
     char *username = NULL;
     char *pid_file = NULL;
+    char *memory_file = NULL;
     struct passwd *pw;
     struct rlimit rlim;
     char *buf;
@@ -6584,6 +7305,10 @@ int main (int argc, char **argv) {
     bool use_slab_sizes = false;
     char *slab_sizes_unparsed = NULL;
     bool slab_chunk_size_changed = false;
+    // struct for restart code. Initialized up here so we can curry
+    // important settings to save or validate.
+    struct _mc_meta_data *meta = malloc(sizeof(struct _mc_meta_data));
+    meta->slab_config = NULL;
 #ifdef EXTSTORE
     void *storage = NULL;
     struct extstore_conf_file *storage_file = NULL;
@@ -6628,6 +7353,15 @@ int main (int argc, char **argv) {
         NO_LRU_MAINTAINER,
         NO_DROP_PRIVILEGES,
         DROP_PRIVILEGES,
+#ifdef TLS
+        SSL_CERT,
+        SSL_KEY,
+        SSL_VERIFY_MODE,
+        SSL_KEYFORM,
+        SSL_CIPHERS,
+        SSL_CA_CERT,
+        SSL_WBUF_SIZE,
+#endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
@@ -6685,6 +7419,15 @@ int main (int argc, char **argv) {
         [NO_LRU_MAINTAINER] = "no_lru_maintainer",
         [NO_DROP_PRIVILEGES] = "no_drop_privileges",
         [DROP_PRIVILEGES] = "drop_privileges",
+#ifdef TLS
+        [SSL_CERT] = "ssl_chain_cert",
+        [SSL_KEY] = "ssl_key",
+        [SSL_VERIFY_MODE] = "ssl_verify_mode",
+        [SSL_KEYFORM] = "ssl_keyformat",
+        [SSL_CIPHERS] = "ssl_ciphers",
+        [SSL_CA_CERT] = "ssl_ca_cert",
+        [SSL_WBUF_SIZE] = "ssl_wbuf_size",
+#endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
 #endif
@@ -6711,9 +7454,11 @@ int main (int argc, char **argv) {
         return EX_OSERR;
     }
 
-    /* handle SIGINT and SIGTERM */
+    /* handle SIGINT, SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+    signal(SIGHUP, sighup_handler);
+    signal(SIGUSR1, sig_usrhandler);
 
     /* init settings */
     settings_init();
@@ -6745,6 +7490,7 @@ int main (int argc, char **argv) {
     char *shortopts =
           "a:"  /* access mask for unix socket */
           "A"  /* enable admin shutdown command */
+          "Z"   /* enable SSL */
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
@@ -6772,6 +7518,8 @@ int main (int argc, char **argv) {
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
           "X"   /* Disable dump commands */
+          "Y:"   /* Enable token auth */
+          "e:"  /* mmap path for external item memory */
           "o:"  /* Extended generic options */
           ;
 
@@ -6780,6 +7528,7 @@ int main (int argc, char **argv) {
     const struct option longopts[] = {
         {"unix-mask", required_argument, 0, 'a'},
         {"enable-shutdown", no_argument, 0, 'A'},
+        {"enable-ssl", no_argument, 0, 'Z'},
         {"port", required_argument, 0, 'p'},
         {"unix-socket", required_argument, 0, 's'},
         {"udp-port", required_argument, 0, 'U'},
@@ -6808,6 +7557,8 @@ int main (int argc, char **argv) {
         {"enable-sasl", no_argument, 0, 'S'},
         {"disable-flush-all", no_argument, 0, 'F'},
         {"disable-dumping", no_argument, 0, 'X'},
+        {"auth-file", required_argument, 0, 'Y'},
+        {"memory-file", required_argument, 0, 'e'},
         {"extended", required_argument, 0, 'o'},
         {0, 0, 0, 0}
     };
@@ -6822,12 +7573,19 @@ int main (int argc, char **argv) {
             /* enables "shutdown" command */
             settings.shutdown_command = true;
             break;
-
+        case 'Z':
+            /* enable secure communication*/
+#ifdef TLS
+            settings.ssl_enabled = true;
+#else
+            fprintf(stderr, "This server is not built with TLS support.\n");
+            exit(EX_USAGE);
+#endif
+            break;
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
             settings.access= strtol(optarg,NULL,8);
             break;
-
         case 'U':
             settings.udpport = atoi(optarg);
             udp_specified = true;
@@ -6904,12 +7662,16 @@ int main (int argc, char **argv) {
         case 'P':
             pid_file = optarg;
             break;
+        case 'e':
+            memory_file = optarg;
+            break;
         case 'f':
             settings.factor = atof(optarg);
             if (settings.factor <= 1.0) {
                 fprintf(stderr, "Factor must be greater than 1\n");
                 return 1;
             }
+            meta->slab_config = strdup(optarg);
             break;
         case 'n':
             settings.chunk_size = atoi(optarg);
@@ -6948,7 +7710,7 @@ int main (int argc, char **argv) {
                 preallocate = true;
             } else {
                 fprintf(stderr, "Cannot enable large pages on this system\n"
-                    "(There is no Linux support as of this version)\n");
+                    "(There is no support as of this version)\n");
                 return 1;
             }
             break;
@@ -7001,6 +7763,10 @@ int main (int argc, char **argv) {
             break;
        case 'X' :
             settings.dump_enabled = false;
+            break;
+       case 'Y' :
+            // dupe the file path now just in case the options get mangled.
+            settings.auth_file = strdup(optarg);
             break;
         case 'o': /* It's sub-opts time! */
             subopts_orig = subopts = strdup(optarg); /* getsubopt() changes the original args */
@@ -7202,7 +7968,7 @@ int main (int argc, char **argv) {
                 }
                 settings.logger_buf_size *= 1024; /* kilobytes */
             case SLAB_SIZES:
-                slab_sizes_unparsed = subopts_value;
+                slab_sizes_unparsed = strdup(subopts_value);
                 break;
             case SLAB_CHUNK_MAX:
                 if (subopts_value == NULL) {
@@ -7217,10 +7983,8 @@ int main (int argc, char **argv) {
                 item_stats_sizes_init();
                 break;
             case NO_INLINE_ASCII_RESP:
-                settings.inline_ascii_response = false;
                 break;
             case INLINE_ASCII_RESP:
-                settings.inline_ascii_response = true;
                 break;
             case NO_CHUNKED_ITEMS:
                 settings.slab_chunk_size_max = settings.slab_page_size;
@@ -7242,8 +8006,96 @@ int main (int argc, char **argv) {
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
                 break;
+#ifdef TLS
+            case SSL_CERT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_chain_cert argument\n");
+                    return 1;
+                }
+                settings.ssl_chain_cert = strdup(subopts_value);
+                break;
+            case SSL_KEY:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_key argument\n");
+                    return 1;
+                }
+                settings.ssl_key = strdup(subopts_value);
+                break;
+            case SSL_VERIFY_MODE:
+            {
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_verify_mode argument\n");
+                    return 1;
+                }
+                int verify  = 0;
+                if (!safe_strtol(subopts_value, &verify)) {
+                    fprintf(stderr, "could not parse argument to ssl_verify_mode\n");
+                    return 1;
+                }
+                switch(verify) {
+                    case 0:
+                        settings.ssl_verify_mode = SSL_VERIFY_NONE;
+                        break;
+                    case 1:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER;
+                        break;
+                    case 2:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER |
+                                                    SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+                        break;
+                    case 3:
+                        settings.ssl_verify_mode = SSL_VERIFY_PEER |
+                                                    SSL_VERIFY_FAIL_IF_NO_PEER_CERT |
+                                                    SSL_VERIFY_CLIENT_ONCE;
+                        break;
+                    default:
+                        fprintf(stderr, "Invalid ssl_verify_mode. Use help to see valid options.\n");
+                        return 1;
+                }
+                break;
+            }
+            case SSL_KEYFORM:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_keyformat argument\n");
+                    return 1;
+                }
+                if (!safe_strtol(subopts_value, &settings.ssl_keyformat)) {
+                    fprintf(stderr, "could not parse argument to ssl_keyformat\n");
+                    return 1;
+                }
+                break;
+            case SSL_CIPHERS:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_ciphers argument\n");
+                    return 1;
+                }
+                settings.ssl_ciphers = strdup(subopts_value);
+                break;
+            case SSL_CA_CERT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_ca_cert argument\n");
+                    return 1;
+                }
+                settings.ssl_ca_cert = strdup(subopts_value);
+                break;
+            case SSL_WBUF_SIZE:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing ssl_wbuf_size argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.ssl_wbuf_size)) {
+                    fprintf(stderr, "could not parse argument to ssl_wbuf_size\n");
+                    return 1;
+                }
+                settings.ssl_wbuf_size *= 1024; /* kilobytes */
+                break;
+#endif
 #ifdef EXTSTORE
             case EXT_PAGE_SIZE:
+                if (storage_file) {
+                    fprintf(stderr, "Must specify ext_page_size before any ext_path arguments\n");
+                    return 1;
+                }
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing ext_page_size argument\n");
                     return 1;
@@ -7396,7 +8248,6 @@ int main (int argc, char **argv) {
                 settings.slab_reassign = false;
                 settings.slab_automove = 0;
                 settings.maxconns_fast = false;
-                settings.inline_ascii_response = true;
                 settings.lru_segmented = false;
                 hash_type = JENKINS_HASH;
                 start_lru_crawler = false;
@@ -7471,15 +8322,6 @@ int main (int argc, char **argv) {
             exit(EX_USAGE);
         }
 
-        /* This is due to the suffix header being generated with the wrong length
-         * value for the ITEM_HDR replacement. The cuddled nbytes no longer
-         * matches, so we end up losing a few bytes on readback.
-         */
-        if (settings.inline_ascii_response) {
-            fprintf(stderr, "Cannot use inline_ascii_response with extstore enabled\n");
-            exit(EX_USAGE);
-        }
-
         if (settings.udpport) {
             fprintf(stderr, "Cannot use UDP with extstore enabled (-U 0 to disable)\n");
             exit(EX_USAGE);
@@ -7493,11 +8335,20 @@ int main (int argc, char **argv) {
     }*/
 
     if (slab_sizes_unparsed != NULL) {
+        // want the unedited string for restart code.
+        char *temp = strdup(slab_sizes_unparsed);
         if (_parse_slab_sizes(slab_sizes_unparsed, slab_sizes)) {
             use_slab_sizes = true;
+            if (meta->slab_config) {
+                free(meta->slab_config);
+            }
+            meta->slab_config = temp;
         } else {
             exit(EX_USAGE);
         }
+    } else if (!meta->slab_config) {
+        // using the default factor.
+        meta->slab_config = "1.25";
     }
 
     if (settings.hot_lru_pct + settings.warm_lru_pct > 80) {
@@ -7536,9 +8387,38 @@ int main (int argc, char **argv) {
         }
     }
 
+    if (settings.auth_file) {
+        if (!protocol_specified) {
+            settings.binding_protocol = ascii_prot;
+        } else {
+            if (settings.binding_protocol != ascii_prot) {
+                fprintf(stderr, "ERROR: You cannot allow the BINARY protocol while using ascii authentication tokens.\n");
+                exit(EX_USAGE);
+            }
+        }
+    }
+
     if (udp_specified && settings.udpport != 0 && !tcp_specified) {
         settings.port = settings.udpport;
     }
+
+
+#ifdef TLS
+    /*
+     * Setup SSL if enabled
+     */
+    if (settings.ssl_enabled) {
+        if (!settings.port) {
+            fprintf(stderr, "ERROR: You cannot enable SSL without a TCP port.\n");
+            exit(EX_USAGE);
+        }
+        // openssl init methods.
+        SSL_load_error_strings();
+        SSLeay_add_ssl_algorithms();
+        // Initiate the SSL context.
+        ssl_init();
+    }
+#endif
 
     if (maxcore != 0) {
         struct rlimit rlim_new;
@@ -7646,13 +8526,68 @@ int main (int argc, char **argv) {
     main_base = event_init();
 #endif
 
+    /* Load initial auth file if required */
+    if (settings.auth_file) {
+        if (settings.udpport) {
+            fprintf(stderr, "Cannot use UDP with ascii authentication enabled (-U 0 to disable)\n");
+            exit(EX_USAGE);
+        }
+
+        switch (authfile_load(settings.auth_file)) {
+            case AUTHFILE_MISSING: // fall through.
+            case AUTHFILE_OPENFAIL:
+                vperror("Could not open authfile [%s] for reading", settings.auth_file);
+                exit(EXIT_FAILURE);
+                break;
+            case AUTHFILE_OOM:
+                fprintf(stderr, "Out of memory reading password file: %s", settings.auth_file);
+                exit(EXIT_FAILURE);
+                break;
+            case AUTHFILE_MALFORMED:
+                fprintf(stderr, "Authfile [%s] has a malformed entry. Should be 'user:password'", settings.auth_file);
+                exit(EXIT_FAILURE);
+                break;
+            case AUTHFILE_OK:
+                break;
+        }
+    }
+
     /* initialize other stuff */
     logger_init();
     stats_init();
-    assoc_init(settings.hashpower_init);
     conn_init();
+    bool reuse_mem = false;
+    void *mem_base = NULL;
+    bool prefill = false;
+    if (memory_file != NULL) {
+        preallocate = true;
+        // Easier to manage memory if we prefill the global pool when reusing.
+        prefill = true;
+        restart_register("main", _mc_meta_load_cb, _mc_meta_save_cb, meta);
+        reuse_mem = restart_mmap_open(settings.maxbytes,
+                        memory_file,
+                        &mem_base);
+        // The "save" callback gets called when we're closing out the mmap,
+        // but we don't know what the mmap_base is until after we call open.
+        // So we pass the struct above but have to fill it in here so the
+        // data's available during the save routine.
+        meta->mmap_base = mem_base;
+        // Also, the callbacks for load() run before _open returns, so we
+        // should have the old base in 'meta' as of here.
+    }
+    // Initialize the hash table _after_ checking restart metadata.
+    // We override the hash table start argument with what was live
+    // previously, to avoid filling a huge set of items into a tiny hash
+    // table.
+    assoc_init(settings.hashpower_init);
+#ifdef EXTSTORE
+    if (storage_file && reuse_mem) {
+        fprintf(stderr, "[restart] memory restart with extstore not presently supported.\n");
+        reuse_mem = false;
+    }
+#endif
     slabs_init(settings.maxbytes, settings.factor, preallocate,
-            use_slab_sizes ? slab_sizes : NULL);
+            use_slab_sizes ? slab_sizes : NULL, mem_base, reuse_mem);
 #ifdef EXTSTORE
     if (storage_file) {
         enum extstore_res eres;
@@ -7677,9 +8612,29 @@ int main (int argc, char **argv) {
         }
         ext_storage = storage;
         /* page mover algorithm for extstore needs memory prefilled */
-        slabs_prefill_global();
+        prefill = true;
     }
 #endif
+
+    if (settings.drop_privileges) {
+        setup_privilege_violations_handler();
+    }
+
+    if (prefill)
+        slabs_prefill_global();
+    /* In restartable mode and we've decided to issue a fixup on memory */
+    if (memory_file != NULL && reuse_mem) {
+        mc_ptr_t old_base = meta->old_base;
+        assert(old_base == meta->old_base);
+
+        // should've pulled in process_started from meta file.
+        process_started = meta->process_started;
+        // TODO: must be a more canonical way of serializing/deserializing
+        // pointers? passing through uint64_t should work, and we're not
+        // annotating the pointer with anything, but it's still slightly
+        // insane.
+        restart_fixup((void *)old_base);
+    }
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
@@ -7733,6 +8688,25 @@ int main (int argc, char **argv) {
     }
 
     /* initialise clock event */
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+    {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+            monotonic = true;
+            monotonic_start = ts.tv_sec;
+            // Monotonic clock needs special handling for restarts.
+            // We get a start time at an arbitrary place, so we need to
+            // restore the original time delta, which is always "now" - _start
+            if (reuse_mem) {
+                // the running timespan at stop time + the time we think we
+                // were stopped.
+                monotonic_start -= meta->current_time + meta->time_delta;
+            } else {
+                monotonic_start -= ITEM_UPDATE_INTERVAL + 2;
+            }
+        }
+    }
+#endif
     clock_handler(0, 0, 0);
 
     /* create unix mode sockets after dropping privileges */
@@ -7817,11 +8791,25 @@ int main (int argc, char **argv) {
     uriencode_init();
 
     /* enter the event loop */
-    if (event_base_loop(main_base, 0) != 0) {
-        retval = EXIT_FAILURE;
+    while (!stop_main_loop) {
+        if (event_base_loop(main_base, EVLOOP_ONCE) != 0) {
+            retval = EXIT_FAILURE;
+            break;
+        }
     }
 
-    stop_assoc_maintenance_thread();
+    fprintf(stderr, "Gracefully stopping\n");
+    stop_threads();
+    int i;
+    // FIXME: make a function callable from threads.c
+    for (i = 0; i < max_fds; i++) {
+        if (conns[i] && conns[i]->state != conn_closed) {
+            conn_close(conns[i]);
+        }
+    }
+    if (memory_file != NULL) {
+        restart_mmap_close();
+    }
 
     /* remove the PID file if we're a daemon */
     if (do_daemonize)

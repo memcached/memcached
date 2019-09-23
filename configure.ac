@@ -100,6 +100,8 @@ AC_ARG_ENABLE(sasl_pwdb,
 AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
       [enable_sasl=yes ])
 
+AC_ARG_ENABLE(tls,
+  [AS_HELP_STRING([--enable-tls], [Enable Transport Layer Security EXPERIMENTAL ])])
 
 
 dnl **********************************************************************
@@ -190,6 +192,10 @@ if test "x$enable_extstore" = "xyes"; then
     AC_DEFINE([EXTSTORE],1,[Set to nonzero if you want to enable extstore])
 fi
 
+if test "x$enable_tls" = "xyes"; then
+    AC_DEFINE([TLS],1,[Set to nonzero if you want to enable TLS])
+fi
+
 if test "x$enable_arm_crc32" = "xyes"; then
     AC_DEFINE([ARM_CRC32],1,[Set to nonzero if you want to enable ARMv8 crc32])
 fi
@@ -199,6 +205,8 @@ AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
 AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" = "yes"])
 AM_CONDITIONAL([ENABLE_ARM_CRC32],[test "$enable_arm_crc32" = "yes"])
+AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
+
 
 AC_SUBST(DTRACE)
 AC_SUBST(DTRACEFLAGS)
@@ -260,6 +268,20 @@ return sizeof(void*) == 8 ? 0 : 1;
     ])
 fi
 
+dnl If data pointer is 64bit or not.
+AC_RUN_IFELSE(
+  [AC_LANG_PROGRAM([], [dnl
+return sizeof(void*) == 8 ? 0 : 1;
+  ])
+],[
+  have_64bit_ptr=yes
+],[
+])
+
+if test $have_64bit_ptr = yes; then
+  AC_DEFINE(HAVE_64BIT_PTR, 1, [data pointer is 64bit])
+fi
+
 # Issue 213: Search for clock_gettime to help people linking
 #            with a static version of libevent
 AC_SEARCH_LIBS(clock_gettime, rt)
@@ -281,7 +303,7 @@ AC_ARG_WITH(libevent,
 dnl ------------------------------------------------------
 dnl libevent detection.  swiped from Tor.  modified a bit.
 
-LIBEVENT_URL=http://www.monkey.org/~provos/libevent/
+LIBEVENT_URL=https://www.monkey.org/~provos/libevent/
 
 AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
   saved_LIBS="$LIBS"
@@ -351,6 +373,95 @@ if test $ac_cv_libevent_dir != "(system)"; then
     CPPFLAGS="-I$ac_cv_libevent_dir/include $CPPFLAGS"
   else
     CPPFLAGS="-I$ac_cv_libevent_dir $CPPFLAGS"
+  fi
+fi
+
+trylibssldir=""
+AC_ARG_WITH(libssl,
+       [  --with-libssl=PATH     Specify path to libssl installation ],
+       [
+                if test "x$withval" != "xno" ; then
+                        trylibssldir=$withval
+                fi
+       ]
+)
+
+dnl ----------------------------------------------------------------------------
+dnl libssl detection.  swiped from libevent.  modified for openssl detection.
+
+OPENSSL_URL=https://www.openssl.org/
+if test "x$enable_tls" = "xyes"; then
+  AC_CACHE_CHECK([for libssl directory], ac_cv_libssl_dir, [
+    saved_LIBS="$LIBS"
+    saved_LDFLAGS="$LDFLAGS"
+    saved_CPPFLAGS="$CPPFLAGS"
+    le_found=no
+    for ledir in $trylibssldir "" $prefix /usr/local ; do
+      LDFLAGS="$saved_LDFLAGS"
+      LIBS="-lssl -lcrypto $saved_LIBS"
+
+      # Skip the directory if it isn't there.
+      if test ! -z "$ledir" -a ! -d "$ledir" ; then
+         continue;
+      fi
+      if test ! -z "$ledir" ; then
+        if test -d "$ledir/lib" ; then
+          LDFLAGS="-L$ledir/lib $LDFLAGS"
+        else
+          LDFLAGS="-L$ledir $LDFLAGS"
+        fi
+        if test -d "$ledir/include" ; then
+          CPPFLAGS="-I$ledir/include $CPPFLAGS"
+        else
+          CPPFLAGS="-I$ledir $CPPFLAGS"
+        fi
+      fi
+      # Can I compile and link it?
+      AC_TRY_LINK([#include <sys/time.h>
+  #include <sys/types.h>
+  #include <assert.h>
+  #include <openssl/ssl.h>], [ SSL_CTX* ssl_ctx = SSL_CTX_new(TLS_server_method());
+                              assert(OPENSSL_VERSION_NUMBER >= 0x10100000L);],
+         [ libssl_linked=yes ], [ libssl_linked=no ])
+      if test $libssl_linked = yes; then
+         if test ! -z "$ledir" ; then
+           ac_cv_libssl_dir=$ledir
+           _myos=`echo $target_os | cut -f 1 -d .`
+           AS_IF(test "$SUNCC" = "yes" -o "x$_myos" = "xsolaris2",
+                 [saved_LDFLAGS="$saved_LDFLAGS -Wl,-R$ledir/lib"],
+                 [AS_IF(test "$GCC" = "yes",
+                       [saved_LDFLAGS="$saved_LDFLAGS -Wl,-rpath,$ledir/lib"])])
+         else
+           ac_cv_libssl_dir="(system)"
+         fi
+         le_found=yes
+         break
+      fi
+    done
+    LIBS="$saved_LIBS"
+    LDFLAGS="$saved_LDFLAGS"
+    CPPFLAGS="$saved_CPPFLAGS"
+    if test $le_found = no ; then
+      AC_MSG_ERROR([libssl (at least version 1.1.0) is required.  You can get it from $OPENSSL_URL
+
+        If it's already installed, specify its path using --with-libssl=/dir/
+  ])
+    fi
+  ])
+  LIBS="-lssl -lcrypto $LIBS"
+  if test $ac_cv_libssl_dir != "(system)"; then
+    if test -d "$ac_cv_libssl_dir/lib" ; then
+      LDFLAGS="-L$ac_cv_libssl_dir/lib $LDFLAGS"
+      le_libdir="$ac_cv_libssl_dir/lib"
+    else
+      LDFLAGS="-L$ac_cv_libssl_dir $LDFLAGS"
+      le_libdir="$ac_cv_libssl_dir"
+    fi
+    if test -d "$ac_cv_libssl_dir/include" ; then
+      CPPFLAGS="-I$ac_cv_libssl_dir/include $CPPFLAGS"
+    else
+      CPPFLAGS="-I$ac_cv_libssl_dir $CPPFLAGS"
+    fi
   fi
 fi
 
@@ -516,6 +627,7 @@ fi
 
 AC_CHECK_FUNCS(mlockall)
 AC_CHECK_FUNCS(getpagesizes)
+AC_CHECK_FUNCS(sysconf)
 AC_CHECK_FUNCS(memcntl)
 AC_CHECK_FUNCS(sigignore)
 AC_CHECK_FUNCS(clock_gettime)
@@ -629,9 +741,19 @@ AC_CHECK_FUNCS(pledge, [
    ], [])
 ],[])
 
+AC_CHECK_FUNCS(cap_enter, [
+   AC_CHECK_HEADER(sys/capsicum.h, [
+      AC_DEFINE([HAVE_DROP_PRIVILEGES], 1,
+         [Define this if you have an implementation of drop_privileges()])
+      build_freebsd_privs=yes
+   ], [])
+],[])
+
+
 AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
 AM_CONDITIONAL([BUILD_LINUX_PRIVS],[test "$build_linux_privs" = "yes"])
 AM_CONDITIONAL([BUILD_OPENBSD_PRIVS],[test "$build_openbsd_privs" = "yes"])
+AM_CONDITIONAL([BUILD_FREEBSD_PRIVS],[test "$build_freebsd_privs" = "yes"])
 
 AC_CHECK_HEADER(umem.h, [
    AC_DEFINE([HAVE_UMEM_H], 1,

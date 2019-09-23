@@ -1,0 +1,133 @@
+Securing Memcached with TLS
+
+Requirements
+------------
+We are required to encrypt Memcached network traffic as we deploy our servers in public cloud
+environments. We decided to implement SSL/TLS for TCP at the network layer of Memcached
+using OpenSSL libraries. This provides following benefits with the expense of added latency
+and reduced throughput (to be quantified).
+
+# Encryption :Data is encrypted on the wire between Memcached client and server.
+# Authentication : Optionally, both server and client authenticate each other.
+# Integrity: Data is not tampered or altered when transmitted between client and server
+
+Following are a few additional features.
+# Certificate refresh: when the server gets a new certificate, new connections
+will use new certificates without a need of re-starting the server process.
+
+# Multiple ports with and without TLS : by default all TCP ports are secured. Optionally we can setup
+the server to secure a specific TCP port.
+
+Note that initial implementation does not support session resumption or renegotiation.
+
+Design
+------
+We experimented two options for implementing TLS, with SSL buffered events and directly using
+OpenSSL API.
+
+Bufferevents can use the OpenSSL library to implement SSL/TLS. Our experiment used
+a socket-based bufferevent that tells OpenSSL to communicate with the network directly over.
+Unlike a worker thread sets callback on the socket, this uses a “bufferevent” object for
+callbacks. Memcached still has to setup the SSL Context but SSL handshake and object
+management is done via the “bufferevent_” API. While this was fairly easy to implement,
+we noticed a higher memory usage as we don’t have much control over allocating evbuffer
+objects in bufferevents. More over there is a discussion on removing the libevent dependency
+from Memcached; hence this option was not chosen.
+
+OpenSSL library provides APIs for us to directly read/write from a socket. With this option,
+we create an SSL Context and many SSL objects. The SSL Context object, created at the process level,
+holds certificates, a private key, and options regarding the TLS protocol and algorithms.
+SSL objects, created at the connection level, represents SSL sessions. SSL objects are responsible
+for encryption, and session handshake among other things.
+
+There are two ways to do network IO over TLS, either only use SSL_read/SSL_write with a network socket or
+use the API along with an output/input buffer pair. These buffers are referred as BIO
+(Basic Input Output) buffers.
+
+We started with the first option, create SSL objects with the socket and only interact with SSL_read/SSL_write.
+
+  +------+                                    +-----+
+  |......|--> read(fd) --> BIO_write(rbio) -->|.....|--> SSL_read(ssl)  --> IN
+  |......|                                    |.....|
+  |.sock.|                                    |.SSL.|
+  |......|                                    |.....|
+  |......|<-- write(fd) <-- BIO_read(wbio) <--|.....|<-- SSL_write(ssl) <-- OUT
+  +------+                                    +-----+
+          |                                  |       |                     |
+          |<-------------------------------->|       |<------------------->|
+          |         encrypted bytes          |       |  unencrypted bytes  |
+
+                      Figure 1 : Network sockets, BIO buffers and SSL_read/SSL_write
+
+(reference:  https://gist.github.com/darrenjs/4645f115d10aa4b5cebf57483ec82eca)
+
+Memcached uses non blocking sockets and implements a rather complex state machine for
+network IO. A listener thread does the TCP handshake and initiates the SSL handshake after
+creating an SSL object based on the SSL Context object of the server. If there are no
+fatal errors, the listener thread hands over the socket to a worker thread. A worker completes
+the SSL handshake.
+
+-----------                       ----------------------
+          |                       |
+  Client  |                       |  Memcached Server
+          |                       |
+          |                       |---------------------
+          |                       |   Listener thread  |
+          |     TCP connect       |                    |
+          |---------------------> | (accept)           |
+          |    ClientHello        |                    |
+          |---------------------> | (SSL_accept)       |
+          |                       |                    |
+          |    ServerHello and    |                    |
+          |    Certificate,       |                    |
+          |    ServerHelloDone    |                    |
+          | <---------------------|                    |
+          |                       |---------------------
+          |                       |         |
+          |                       |         V
+          |                       |-------------------
+          |                       |  Worker thread   |
+          | ClientKeyExchange,    |                  |
+          | ChangeCipherSpec,     |                  |
+          | Finished              |                  |
+          |---------------------> | (SSL_read)       |
+          |                       |                  |
+          |                       |                  |
+          | NewSessionTicket,     |                  |
+          | ChangeCipherSpec,     |                  |
+          | Finished              |                  |
+          | <---------------------|                  |
+          |                       |                  |
+          | Memcached request/    |                  |
+          |    response           |                  |
+          | <-------------------> | (SSL_read/       |
+          |                       |   SSL_write)     |
+-----------                       -------------------------
+
+                      Figure 2 : The initial SSL handshake
+
+
+Setting-up callbacks when the socket is ready for reading/writing is the same
+for both TLS and non-TLS connections. When the socket is ready, the state machine kicks off
+and issues a SSL_read/ SSL_write. Note that we implement a SSL_sendmsg wrapper on top of
+SSL_write to simulate the sendmsg API.
+This way we don't explicitly use BIO buffers or do BIO_write/BIO_read, but let OpenSSL
+library to do it on our behalf. Existing state machine takes care of reading the correct amount
+of bytes and do the error handling when needed.
+
+As a best practice, server certificates and keys are periodically refreshed by the PKI.
+When this happens we want server to use the new certificate without restarting the process.
+Memcached is a cache and restarting servers affects the latency of applications. We implement
+the automatic certificate refresh through a command. Upon receiving the "refresh_certs" command,
+the server reloads the certificates and key to the SSL Context object. Existing connection won't be
+interrupted but new connections will use the new certificate.
+
+We understand not all users want to use TLS or have the OpenSSL dependency. Therefore
+it's an optional module at the compile time. We can build a TLS capable Memcached server with
+"./configure --enable-tls". Once the server is built with TLS support, we can enabled it with
+"-Z" flag or "--enable-ssl". Certificate (-o ssl_chain_cert) and (-o ssl_key) are required
+parameters while others are optional. Supported options can be listed through "memcached -h".
+
+Developers need to have libio-socket-ssl-perl installed for running unit tests. When the server is
+built with TLS support, we can use "test_tls" make target to run all existing tests over TLS and some
+additional TLS specific tests. The minimum required OpenSSL version is 1.1.0g.

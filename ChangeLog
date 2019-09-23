@@ -419,7 +419,7 @@
 	* Steven Grimm <sgrimm@facebook.com>:  big bunch of changes:
 	  big CPU reduction work, UDP-based interface, increased memory
 	  efficiency.  (intertwined patch, committed all together)
-	  <http://lists.danga.com/pipermail/memcached/2006-May/002164.html>
+	  <https://lists.danga.com/pipermail/memcached/2006-May/002164.html>
 	  or see svn commit logs
 
 2006-04-30

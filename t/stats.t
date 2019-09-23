@@ -24,7 +24,12 @@ my $sock = $server->sock;
 my $stats = mem_stats($sock);
 
 # Test number of keys
-is(scalar(keys(%$stats)), 70, "expected count of stats values");
+if (MemcachedTest::enabled_tls_testing()) {
+    # when TLS is enabled, stats contains time_since_server_cert_refresh
+    is(scalar(keys(%$stats)), 71, "expected count of stats values");
+} else {
+    is(scalar(keys(%$stats)), 70, "expected count of stats values");
+}
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses get_expired
@@ -130,7 +135,13 @@ is('z', $v, 'got the expected value');
 
 my $settings = mem_stats($sock, ' settings');
 is(1024, $settings->{'maxconns'});
-isnt('NULL', $settings->{'domain_socket'});
+# we run SSL tests over TCP; hence the domain_socket
+# is expected to be NULL.
+if (enabled_tls_testing()) {
+    is('NULL', $settings->{'domain_socket'});
+} else {
+    isnt('NULL', $settings->{'domain_socket'});
+}
 is('on', $settings->{'evictions'});
 is('yes', $settings->{'cas_enabled'});
 is('no', $settings->{'auth_enabled_sasl'});

@@ -1,3 +1,14 @@
+%bcond_with arm_crc32
+%bcond_with extstore
+%bcond_with seccomp
+%bcond_with sasl
+%bcond_with sasl_pwdb
+%bcond_with dtrace
+%bcond_with 64bit
+%bcond_without option_checking
+%bcond_without coverage
+%bcond_without docs
+
 # Set with_systemd on distros that use it, so we can install the service
 # file, otherwise the sysvinit script will be installed
 %if 0%{?fedora} >= 14 || 0%{?rhel} >= 7 || 0%{?suse_version} >= 1210
@@ -23,8 +34,8 @@ Summary:        High Performance, Distributed Memory Object Cache
 
 Group:          System Environment/Daemons
 License:        BSD
-URL:            http://memcached.org
-Source0:        http://memcached.org/files/%{name}-%{version}.tar.gz
+URL:            https://memcached.org
+Source0:        https://memcached.org/files/%{name}-%{version}.tar.gz
 Source1:        memcached.sysconfig
 Source2:        memcached.service
 Source3:        memcached@.service
@@ -54,7 +65,17 @@ web applications by alleviating database load.
 
 
 %build
-%configure
+%configure \
+  %{?with_arm_crc32:--enable-arm-crc32} \
+  %{?with_extstore:--enable-extstore} \
+  %{?with_seccomp:--enable-seccomp} \
+  %{?with_sasl:--enable-sasl} \
+  %{?with_sasl_pwdb:--enable-pwdb} \
+  %{?with_dtrace:--enable-dtrace} \
+  %{?with_64bit:--enable-64bit} \
+  %{!?with_option_checking:--disable-option-checking}
+  %{!?with_coverage:--disable-coverage} \
+  %{!?with_docs:--disable-docs}
 
 make %{?_smp_mflags}
 

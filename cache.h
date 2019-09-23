@@ -34,8 +34,7 @@ typedef int cache_constructor_t(void* obj, void* notused1, int notused2);
  * returned to the operating system.
  *
  * @param obj pointer to the object to clean up.
- * @param notused1 This parameter is currently not used.
- * @param notused2 This parameter is currently not used.
+ * @param notused This parameter is currently not used.
  * @return you should return 0, but currently this is not checked
  */
 typedef void cache_destructor_t(void* obj, void* notused);

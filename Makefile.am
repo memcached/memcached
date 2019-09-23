@@ -23,7 +23,9 @@ memcached_SOURCES = memcached.c memcached.h \
                     logger.c logger.h \
                     crawler.c crawler.h \
                     itoa_ljust.c itoa_ljust.h \
-                    slab_automove.c slab_automove.h
+                    slab_automove.c slab_automove.h \
+                    authfile.c authfile.h \
+                    restart.c restart.h
 
 if BUILD_CACHE
 memcached_SOURCES += cache.c
@@ -42,6 +44,10 @@ if BUILD_OPENBSD_PRIVS
 memcached_SOURCES += openbsd_priv.c
 endif
 
+if BUILD_FREEBSD_PRIVS
+memcached_SOURCES += freebsd_priv.c
+endif
+
 if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
@@ -51,6 +57,10 @@ memcached_SOURCES += extstore.c extstore.h \
                      crc32c.c crc32c.h \
                      storage.c storage.h \
                      slab_automove_extstore.c slab_automove_extstore.h
+endif
+
+if ENABLE_TLS
+memcached_SOURCES += tls.c tls.h
 endif
 
 memcached_debug_SOURCES = $(memcached_SOURCES)
@@ -102,9 +112,29 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.m
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 
+if ENABLE_TLS
+test_tls:
+	$(MAKE) SSL_TEST=1 test
+
+test_basic_tls:
+	@if test $(SSL_TEST)1 != 1; then \
+	  echo "Running basic tests with TLS"; \
+	  $(srcdir)/testapp; \
+	  prove $(srcdir)/t/binary.t $(srcdir)/t/getset.t $(srcdir)/t/ssl*; \
+	  echo "Finished running basic TLS tests"; \
+	else \
+	  echo "Set SSL_TEST=1 to enable TLS tests"; \
+	fi
+endif
+
 test:	memcached-debug sizes testapp
 	$(srcdir)/sizes
 	$(srcdir)/testapp
+if ENABLE_TLS
+	@if test $(SSL_TEST)1 = 1; then \
+          $(MAKE) SSL_TEST=1  test_basic_tls; \
+	fi
+endif
 	@if test -n "${PARALLEL}"; then \
 	  prove $(srcdir)/t -j ${PARALLEL}; \
 	else \

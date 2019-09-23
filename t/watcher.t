@@ -5,7 +5,7 @@ use strict;
 use warnings;
 use Socket qw/SO_RCVBUF/;
 
-use Test::More tests => 8;
+use Test::More tests => 12;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -53,6 +53,25 @@ while (my $log = <$watcher>) {
 $res = <$watcher>;
 like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_get/, "saw a real log line after a skip");
 
+# testing the longest uri encoded key length
+{
+my $new_watcher = $server->new_sock;
+print $new_watcher "watch mutations\n";
+my $watch_res = <$new_watcher>;
+my $key = "";
+my $max_keylen = 250;
+for (1 .. $max_keylen) { $key .= "#"; }
+print $client "set $key 0 0 9\r\nmemcached\r\n";
+$res = <$client>;
+is ($res, "STORED\r\n", "stored the long key");
+if ($res eq "STORED\r\n") {
+    $watch_res = <$new_watcher>;
+    my $max_uri_keylen = $max_keylen * 3 + length("key=");
+    my @tab = split(/\s+/, $watch_res);
+    is (length($tab[3]), $max_uri_keylen, "got the correct uri encoded key length");;
+}
+}
+
 # test combined logs
 # fill to evictions, then enable watcher, set again, and look for both lines
 
@@ -83,4 +102,21 @@ like($res, qr/ts=\d+\.\d+\ gid=\d+ type=item_get/, "saw a real log line after a 
     }
     is($found_log, 1, "found rawcmd log entry");
     is($found_ev, 1, "found eviction log entry");
+}
+
+# test cas command logs
+{
+    $watcher = $server->new_sock;
+    print $watcher "watch mutations\n";
+    $res = <$watcher>;
+    is($res, "OK\r\n", "mutations watcher enabled");
+
+    print $client "cas cas_watch_key 0 0 5 0\r\nvalue\r\n";
+    my $tries = 30;
+    my $found_cas = 0;
+    while (my $log = <$watcher>) {
+        $found_cas = 1 if ($log =~ m/cmd=cas/ && $log =~ m/cas_watch_key/);
+        last if ($tries-- == 0 || $found_cas);
+    }
+    is($found_cas, 1, "correctly logged cas command");
 }

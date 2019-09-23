@@ -123,6 +123,23 @@ In the descriptions of individual commands below, these error lines
 are not again specifically mentioned, but clients must allow for their
 possibility.
 
+Authentication
+--------------
+
+Optional username/password token authentication (see -Y option). Used by
+sending a fake "set" command with any key:
+
+set <key> <flags> <exptime> <bytes>\r\n
+username password\r\n
+
+key, flags, and exptime are ignored for authentication. Bytes is the length
+of the username/password payload.
+
+- "STORED\r\n" indicates success. After this point any command should work
+  normally.
+
+- "CLIENT_ERROR [message]\r\n" will be returned if authentication fails for
+  any reason.
 
 Storage commands
 ----------------
@@ -346,7 +363,7 @@ The response line to this command can be one of:
   found.
 
 Get And Touch
------
+-------------
 
 The "gat" and "gats" commands are used to fetch items and update the
 expiration time of an existing items.
@@ -633,7 +650,7 @@ memcache developers.
 General-purpose statistics
 --------------------------
 
-Upon receiving the "stats" command without arguments, the server sents
+Upon receiving the "stats" command without arguments, the server sends
 a number of lines which look like this:
 
 STAT <name> <value>\r\n
@@ -846,9 +863,7 @@ other stats command.
 | track_sizes       | bool     | If yes, a "stats sizes" histogram is being   |
 |                   |          | dynamically tracked.                         |
 | inline_ascii_response                                                       |
-|                   | bool     | If yes, stores numbers from VALUE response   |
-|                   |          | inside an item, using up to 24 bytes.        |
-|                   |          | Small slowdown for ASCII get, faster sets.   |
+|                   | bool     | Does nothing as of 1.5.15                    |
 | drop_privileges   | bool     | If yes, and available, drop unused syscalls  |
 |                   |          | (see seccomp on Linux, pledge on OpenBSD)    |
 |-------------------+----------+----------------------------------------------|
@@ -885,6 +900,7 @@ number_temp            Number of items presently stored in the TEMPORARY LRU.
 age_hot                Age of the oldest item in HOT LRU.
 age_warm               Age of the oldest item in WARM LRU.
 age                    Age of the oldest item in the LRU.
+mem_requested          Number of bytes requested to be stored in this LRU[*]
 evicted                Number of times an item had to be evicted from the LRU
                        before it expired.
 evicted_nonzero        Number of times an item which had an explicit expire
@@ -924,6 +940,12 @@ hits_to_temp           Number of get_hits to each sub-LRU.
 
 Note this will only display information about slabs which exist, so an empty
 cache will return an empty set.
+
+* Items are stored in a slab that is the same size or larger than the
+  item.  mem_requested shows the size of all items within a
+  slab. (total_chunks * chunk_size) - mem_requested shows memory
+  wasted in a slab class.  If you see a lot of waste, consider tuning
+  the slab factor.
 
 
 Item size statistics
@@ -1023,16 +1045,9 @@ END\r\n
 | free_chunks     | Chunks not yet allocated to items, or freed via delete.  |
 | free_chunks_end | Number of free chunks at the end of the last allocated   |
 |                 | page.                                                    |
-| mem_requested   | Number of bytes requested to be stored in this slab[*].  |
 | active_slabs    | Total number of slab classes allocated.                  |
 | total_malloced  | Total amount of memory allocated to slab pages.          |
 |-----------------+----------------------------------------------------------|
-
-* Items are stored in a slab that is the same size or larger than the
-  item.  mem_requested shows the size of all items within a
-  slab. (total_chunks * chunk_size) - mem_requested shows memory
-  wasted in a slab class.  If you see a lot of waste, consider tuning
-  the slab factor.
 
 
 Connection statistics
@@ -1056,6 +1071,8 @@ The following "stat" keywords may be present:
 |                     | sockets this is the listen address. Note that some   |
 |                     | socket types (such as UNIX-domain) don't have        |
 |                     | meaningful remote addresses.                         |
+| listen_addr         | The address of the server. This field is absent      |
+|                     | for listening sockets.                               |
 | state               | The current state of the connection. See below.      |
 | secs_since_last_cmd | The number of seconds since the most recently        |
 |                     | issued command on the connection. This measures      |

@@ -238,7 +238,7 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
 
 static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, int i) {
     //int slab_id = CLEAR_LRU(i);
-    char keybuf[KEY_MAX_LENGTH * 3 + 1];
+    char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
     int is_flushed = item_is_flushed(it);
     /* Ignore expired content. */
     if ((it->exptime != 0 && it->exptime < current_time)
@@ -247,7 +247,7 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
         return;
     }
     // TODO: uriencode directly into the buffer.
-    uriencode(ITEM_key(it), keybuf, it->nkey, KEY_MAX_LENGTH * 3 + 1);
+    uriencode(ITEM_key(it), keybuf, it->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     int total = snprintf(cm->c.cbuf, 4096,
             "key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu\n",
             keybuf,
@@ -293,7 +293,7 @@ static int lru_crawler_poll(crawler_client_t *c) {
 
     if (to_poll[0].revents & POLLIN) {
         char buf[1];
-        int res = read(c->sfd, buf, 1);
+        int res = ((conn*)c->c)->read(c->c, buf, 1);
         if (res == 0 || (res == -1 && (errno != EAGAIN && errno != EWOULDBLOCK))) {
             lru_crawler_close_client(c);
             return -1;
@@ -304,7 +304,7 @@ static int lru_crawler_poll(crawler_client_t *c) {
             lru_crawler_close_client(c);
             return -1;
         } else if (to_poll[0].revents & POLLOUT) {
-            int total = write(c->sfd, data, data_size);
+            int total = ((conn*)c->c)->write(c->c, data, data_size);
             if (total == -1) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) {
                     lru_crawler_close_client(c);
@@ -460,23 +460,27 @@ static void *item_crawler_thread(void *arg) {
     pthread_mutex_unlock(&lru_crawler_lock);
     if (settings.verbose > 2)
         fprintf(stderr, "LRU crawler thread stopping\n");
+    settings.lru_crawler = false;
 
     return NULL;
 }
 
 static pthread_t item_crawler_tid;
 
-int stop_item_crawler_thread(void) {
+int stop_item_crawler_thread(bool wait) {
     int ret;
     pthread_mutex_lock(&lru_crawler_lock);
+    if (do_run_lru_crawler_thread == 0) {
+        pthread_mutex_unlock(&lru_crawler_lock);
+        return 0;
+    }
     do_run_lru_crawler_thread = 0;
     pthread_cond_signal(&lru_crawler_cond);
     pthread_mutex_unlock(&lru_crawler_lock);
-    if ((ret = pthread_join(item_crawler_tid, NULL)) != 0) {
+    if (wait && (ret = pthread_join(item_crawler_tid, NULL)) != 0) {
         fprintf(stderr, "Failed to stop LRU crawler thread: %s\n", strerror(ret));
         return -1;
     }
-    settings.lru_crawler = false;
     return 0;
 }
 
@@ -584,6 +588,11 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
     STATS_LOCK();
     is_running = stats_state.lru_crawler_running;
     STATS_UNLOCK();
+    if (do_run_lru_crawler_thread == 0) {
+        pthread_mutex_unlock(&lru_crawler_lock);
+        return -2;
+    }
+
     if (is_running &&
             !(type == CRAWLER_AUTOEXPIRE && active_crawler_type == CRAWLER_AUTOEXPIRE)) {
         pthread_mutex_unlock(&lru_crawler_lock);
