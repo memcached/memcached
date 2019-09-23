@@ -1004,9 +1004,9 @@ static int slab_rebalance_move(void) {
                     /* Was whatever it was, and we have memory for it. */
                     save_item = 1;
                 }
-                pthread_mutex_unlock(&slabs_lock);
                 unsigned int requested_adjust = 0;
                 if (save_item) {
+                    pthread_mutex_unlock(&slabs_lock);
                     if (ch == NULL) {
                         assert((new_it->it_flags & ITEM_CHUNKED) == 0);
                         /* if free memory, memcpy. clear prev/next/h_bucket */
@@ -1052,7 +1052,6 @@ static int slab_rebalance_move(void) {
                     }
                     pthread_mutex_lock(&slabs_lock);
                 } else {
-                    pthread_mutex_lock(&slabs_lock);
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
                     STORAGE_delete(storage, it);
@@ -1063,10 +1062,18 @@ static int slab_rebalance_move(void) {
                      *          freelist so that that live items
                      *          do not sneek into the slab that we are clearing */
                     do_item_unlink_noslab_lock(it, hv);
+                    do_slabs_free(it, ntotal, slab_rebal.s_clsid);
+                    /* if the item was a chunk head we need to
+                     * get back to the current slot in the slab */
+                    if (ch)
+                        it = (item*)slab_rebal.slab_pos;
+                    slab_rebalance_cut_free(s_cls, it);
+                    it->refcount = 0;
+                    it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
+
+                    /*
                     if (refcount_decr(it) == 0) {
                         do_slabs_free(it, ntotal, slab_rebal.s_clsid);
-                        /* if the item was a chunk head we need to
-                         * get back to the current slot in the slab */
                         if (ch)
                             it = (item*)slab_rebal.slab_pos;
                         slab_rebalance_cut_free(s_cls, it);
@@ -1077,6 +1084,7 @@ static int slab_rebalance_move(void) {
                         slab_rebal.busy_items++;
                         was_busy++;
                     }
+                    */
                 }
 
                 item_trylock_unlock(hold_lock);
