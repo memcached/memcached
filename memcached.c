@@ -4327,7 +4327,9 @@ struct _meta_flags {
 
 static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) {
     unsigned int i;
-    // FIXME: just need a bit field, not full numbers.
+    // NOTE: 'seen' is one of those need-to-microbench situation to do this via bit vector or
+    // simple 8 bit array; need two divs and a shift vs a bit more memory.
+    // Leave it simple for now, optimize later.
     uint8_t seen[127] = {0};
     // also count how many tokens should be necessary to parse.
     int tokens = 0;
@@ -4355,6 +4357,10 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
                 break;
             case 'l':
                 of->la = 1;
+                of->locked = 1; // need locked to delay LRU bump
+                break;
+            case 'h':
+                of->locked = 1; // need locked to delay LRU bump
                 break;
             case 'u':
                 of->no_update = 1;
@@ -4393,7 +4399,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     bool item_created = false;
     bool won_token = false;
     bool ttl_set = false;
-    bool update = DO_UPDATE;
     char *errcode = "CLIENT_ERROR";
     char *errstr;
 
@@ -4441,7 +4446,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // scrubs duplicated options and sets flags for how to load the item.
     rtokens -= _meta_flag_preparse(opts, olen, &of);
-    c->noreply = of.no_reply;
 
     // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
@@ -4449,13 +4453,14 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         return;
     }
     rtokens = KEY_TOKEN + 2;
+    c->noreply = of.no_reply;
 
     // TODO: need to indicate if the item was overflowed or not?
     // I think we do, since an overflow shouldn't trigger an alloc/replace.
     if (!of.locked) {
-        it = limited_get(key, nkey, c, 0, false, update);
+        it = limited_get(key, nkey, c, 0, false, !of.no_update);
     } else {
-        it = limited_get_locked(key, nkey, c, update, &hv);
+        it = limited_get_locked(key, nkey, c, !of.no_update, &hv);
     }
 
     if (it == NULL && of.vivify) {
@@ -4585,6 +4590,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                     } else {
                         *(p+1) = '0';
                     }
+                    p += 2;
                     break;
                 default:
                     fprintf(stderr, "Unknown option: %c\n", opts[i]);
@@ -4598,6 +4604,10 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             fp--; // walk backwards for next token.
             it->it_flags |= ITEM_TOKEN_SENT;
         }
+
+        // TODO: Benchmark unlocking here vs later. _get_extstore() could be
+        // intensive so probably better to unlock here after we're done
+        // fiddling with the item header.
 
         add_iov(c, "VALUE ", 6);
         add_iov(c, ITEM_key(it), it->nkey);
@@ -4923,13 +4933,13 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
     // scrubs duplicated options and sets flags for how to load the item.
     rtokens -= _meta_flag_preparse(opts, olen, &of);
-    c->noreply = of.no_reply;
 
     if (rtokens < 0) {
         out_string(c, "CLIENT_ERROR not enough tokens supplied");
         return;
     }
     rtokens = KEY_TOKEN + 2;
+    c->noreply = of.no_reply;
 
     assert(c != NULL);
 

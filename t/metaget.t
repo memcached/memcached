@@ -219,6 +219,21 @@ my $sock = $server->sock;
 
 }
 
+# test hit-before? flag
+# NOTE: maybe sucks. can't tell if it was hit before without 'u' flag.
+{
+    print $sock "mset hitflag ST 3 100\r\nhit\r\n";
+    like(scalar <$sock>, qr/^STORED/, "set hitflag");
+
+    my $res = mget($sock, 'hitflag', 'usth');
+    ok(keys %$res, "not a miss");
+    is($res->{tokens}->[2], 0, "not been hit before");
+
+    $res = mget($sock, 'hitflag', 'sth');
+    ok(keys %$res, "not a miss");
+    is($res->{tokens}->[2], 1, "been hit before");
+}
+
 # high level tests:
 # - mget + mset with serve-stale
 # - set a value
