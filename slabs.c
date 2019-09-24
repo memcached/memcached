@@ -756,9 +756,8 @@ static int slab_rebalance_start(void) {
         slab_rebal.done = 1;
     }
 
-    //bit-vector to keep track of completed chunks
-    slab_rebal.completed = (uint8_t*)malloc(
-            sizeof(uint8_t)*s_cls->perslab);
+    // Bit-vector to keep track of completed chunks
+    slab_rebal.completed = (uint8_t*)calloc(s_cls->perslab,sizeof(uint8_t));
     memset(slab_rebal.completed,0,sizeof(uint8_t)*s_cls->perslab);
 
     slab_rebalance_signal = 2;
@@ -1036,9 +1035,9 @@ static int slab_rebalance_move(void) {
                     if (!ch) {
                         do_item_unlink(it, hv);
                         it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
+                        it->refcount = 0;
                         slab_rebal.completed[offset] = 1;
-                    }
-                    else {
+                    } else {
                         ntotal = ITEM_ntotal(it);
                         STORAGE_delete(storage, it);
                         do_item_unlink(it, hv);
