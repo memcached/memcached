@@ -24,7 +24,7 @@ my $sock = $server->sock;
 # - t: return item TTL remaining (-1 for unlimited)
 # - f: client flags
 # - l: last access time TODO: test
-# - h: whether item has been hit before TODO: test
+# - h: whether item has been hit before
 # - q: noreply semantics. TODO: tests.
 # - u: don't bump the item (TODO: how to test? via last-access time?)
 # updaters:
@@ -220,18 +220,32 @@ my $sock = $server->sock;
 }
 
 # test hit-before? flag
-# NOTE: maybe sucks. can't tell if it was hit before without 'u' flag.
 {
     print $sock "mset hitflag ST 3 100\r\nhit\r\n";
     like(scalar <$sock>, qr/^STORED/, "set hitflag");
 
-    my $res = mget($sock, 'hitflag', 'usth');
+    my $res = mget($sock, 'hitflag', 'sth');
     ok(keys %$res, "not a miss");
     is($res->{tokens}->[2], 0, "not been hit before");
 
     $res = mget($sock, 'hitflag', 'sth');
     ok(keys %$res, "not a miss");
     is($res->{tokens}->[2], 1, "been hit before");
+}
+
+# test last-access time
+{
+    print $sock "mset la_test ST 2 100\r\nla\r\n";
+    like(scalar <$sock>, qr/^STORED/, "set la_test");
+    sleep 2;
+
+    my $res = mget($sock, 'la_test', 'stl');
+    ok(keys %$res, "not a miss");
+    print STDERR "Last access is: ", $res->{tokens}->[2], "\n";
+    isnt($res->{tokens}->[2], 0, "been over a second since most recently accessed");
+
+    # TODO: Can't test re-accessing since it requires a long wait right now.
+    # I want to adjust the LA time accuracy in a deliberate change.
 }
 
 # high level tests:

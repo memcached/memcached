@@ -1034,30 +1034,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             was_found = 3;
         } else {
             if (do_update) {
-                /* We update the hit markers only during fetches.
-                 * An item needs to be hit twice overall to be considered
-                 * ACTIVE, but only needs a single hit to maintain activity
-                 * afterward.
-                 * FETCHED tells if an item has ever been active.
-                 */
-                if (settings.lru_segmented) {
-                    if ((it->it_flags & ITEM_ACTIVE) == 0) {
-                        if ((it->it_flags & ITEM_FETCHED) == 0) {
-                            it->it_flags |= ITEM_FETCHED;
-                        } else {
-                            it->it_flags |= ITEM_ACTIVE;
-                            if (ITEM_lruid(it) != COLD_LRU) {
-                                do_item_update(it); // bump LA time
-                            } else if (!lru_bump_async(c->thread->lru_bump_buf, it, hv)) {
-                                // add flag before async bump to avoid race.
-                                it->it_flags &= ~ITEM_ACTIVE;
-                            }
-                        }
-                    }
-                } else {
-                    it->it_flags |= ITEM_FETCHED;
-                    do_item_update(it);
-                }
+                do_item_bump(c, it, hv);
             }
             DEBUG_REFCNT(it, '+');
         }
@@ -1070,6 +1047,36 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
                (it) ? ITEM_clsid(it) : 0, c->sfd);
 
     return it;
+}
+
+// Requires lock held for item.
+// Split out of do_item_get() to allow mget functions to look through header
+// data before losing state modified via the bump function.
+void do_item_bump(conn *c, item *it, const uint32_t hv) {
+    /* We update the hit markers only during fetches.
+     * An item needs to be hit twice overall to be considered
+     * ACTIVE, but only needs a single hit to maintain activity
+     * afterward.
+     * FETCHED tells if an item has ever been active.
+     */
+    if (settings.lru_segmented) {
+        if ((it->it_flags & ITEM_ACTIVE) == 0) {
+            if ((it->it_flags & ITEM_FETCHED) == 0) {
+                it->it_flags |= ITEM_FETCHED;
+            } else {
+                it->it_flags |= ITEM_ACTIVE;
+                if (ITEM_lruid(it) != COLD_LRU) {
+                    do_item_update(it); // bump LA time
+                } else if (!lru_bump_async(c->thread->lru_bump_buf, it, hv)) {
+                    // add flag before async bump to avoid race.
+                    it->it_flags &= ~ITEM_ACTIVE;
+                }
+            }
+        }
+    } else {
+        it->it_flags |= ITEM_FETCHED;
+        do_item_update(it);
+    }
 }
 
 item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,

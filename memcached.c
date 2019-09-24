@@ -4460,7 +4460,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     if (!of.locked) {
         it = limited_get(key, nkey, c, 0, false, !of.no_update);
     } else {
-        it = limited_get_locked(key, nkey, c, !of.no_update, &hv);
+        // If we had to lock the item, we're doing our own bump later.
+        it = limited_get_locked(key, nkey, c, DONT_UPDATE, &hv);
     }
 
     if (it == NULL && of.vivify) {
@@ -4684,6 +4685,14 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     }
 
     if (of.locked) {
+        // Delayed bump so we could get fetched/last access time/etc.
+        // TODO: before segmented LRU, last-access time would only update
+        // every 60 seconds. Currently it doesn't update at all if an item is
+        // marked as ACTIVE. I believe this is a bug... in segmented mode
+        // there's no reason to avoid bumping la on every access.
+        if (!of.no_update && it != NULL) {
+            do_item_bump(c, it, hv);
+        }
         item_unlock(hv);
     }
 
