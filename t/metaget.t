@@ -25,6 +25,7 @@ my $sock = $server->sock;
 # - f: client flags
 # - l: last access time
 # - h: whether item has been hit before
+# - o: opaque to copy back.
 # - q: noreply semantics. TODO: tests.
 # - u: don't bump the item (TODO: test via 'h' flag)
 # updaters:
@@ -332,6 +333,16 @@ my $sock = $server->sock;
     diag "now purposefully cause an error\r\n";
     print $sock "mset quiet S\r\n";
     like(scalar <$sock>, qr/^CLIENT_ERROR/, "resp not STORED, DELETED, or END");
+}
+
+{
+    my $k = 'otest';
+    diag "testing mget opaque";
+    print $sock "mset $k ST 2 100\r\nra\r\n";
+    like(scalar <$sock>, qr/^STORED/, "set $k");
+
+    my $res = mget($sock, $k, 'stvo opaque');
+    is($res->{tokens}->[2], 'opaque', "o flag returned opaque");
 }
 
 ###

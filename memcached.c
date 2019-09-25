@@ -4310,6 +4310,7 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
 }
 
 #define MFLAG_MAX_OPT_LENGTH 20
+#define MFLAG_MAX_OPAQUE_LENGTH 32
 
 // TODO: I can't think of a reason for optimized mode to have a class-id
 // return? maybe if not in strict ordering (so there's no perf hit) we can add
@@ -4323,6 +4324,7 @@ struct _meta_flags {
     unsigned int value :1;
     unsigned int set_stale :1;
     unsigned int no_reply :1;
+    unsigned int opaque :1;
 };
 
 static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) {
@@ -4341,6 +4343,7 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
             continue;
         }
         seen[o] = 1;
+        // FIXME: alphabetize.
         switch (opts[i]) {
             case 'N':
                 of->locked = 1;
@@ -4358,6 +4361,10 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
             case 'l':
                 of->la = 1;
                 of->locked = 1; // need locked to delay LRU bump
+                break;
+            case 'o':
+                of->opaque = 1;
+                tokens++;
                 break;
             case 'h':
                 of->locked = 1; // need locked to delay LRU bump
@@ -4578,8 +4585,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                     }
                     break;
                 case 'l':
-                    // FIXME: this will be _now_ unless paired with 'u'. allow get command to pass back
-                    // pre-existing last-access time?
                     *p = ' ';
                     p = itoa_u32(current_time - it->time, p+1);
                     break;
@@ -4591,6 +4596,15 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                         *(p+1) = '0';
                     }
                     p += 2;
+                    break;
+                case 'o':
+                    if (tokens[rtokens].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                        errstr = "opaque token too long";
+                        goto error;
+                    }
+                    *p = ' ';
+                    memcpy(p+1, tokens[rtokens].value, tokens[rtokens].length);
+                    p += tokens[rtokens].length + 1;
                     break;
             }
         }
