@@ -4447,7 +4447,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // scrubs duplicated options and sets flags for how to load the item.
     rtokens -= _meta_flag_preparse(opts, olen, &of);
 
-    // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
         out_string(c, "CLIENT_ERROR not enough tokens supplied");
         return;
@@ -4593,9 +4592,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                     }
                     p += 2;
                     break;
-                default:
-                    fprintf(stderr, "Unknown option: %c\n", opts[i]);
-                    break;
             }
         }
 
@@ -4659,6 +4655,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 #endif
         }
 
+        // FIXME: if noreply mode, skip END? would look like ascii multiget.
         add_iov(c, "END\r\n", 5);
 
         // need to hold the ref at least because of the key above.
@@ -4723,6 +4720,9 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
+        // FIXME: what happens with noreply here?
+        // a miss will look like air here...
+        // so a nop command would be needed to append an END on purpose.
         out_string(c, "END");
     }
     return;
@@ -4782,13 +4782,12 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     // TODO: I, E, APL?
     rtokens -= _meta_flag_preparse(opts, olen, &of);
 
-    // FIXME: make string more clear and add key to response
     if (rtokens < 0) {
         out_string(c, "CLIENT_ERROR not enough tokens supplied");
         return;
     }
 
-    // Set noreply after tokens are generally understood to be clear to users.
+    // Set noreply after tokens are understood.
     c->noreply = of.no_reply;
     rtokens = KEY_TOKEN + 2;
 
@@ -4838,6 +4837,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // TODO: can we treat vlen as unsigned? :(
     if (vlen < 0 || vlen > (INT_MAX - 2)) {
+        // TODO: specific error.
         goto error;
     }
     vlen += 2;
@@ -4926,9 +4926,11 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
     rtokens = ntokens - 3; // cmd, key, final.
 
-    // TODO: error: need to know what to do with the item.
+    // TODO: rtokens == 0 acts like a normal delete?
+    // else have to add an explicit token for "immediately delete"
     if (rtokens == 0) {
-        goto error;
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
     }
 
     opts = tokens[KEY_TOKEN + 1].value;
@@ -5019,16 +5021,18 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         c->thread->stats.delete_misses++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        out_string(c, "NOT_FOUND");
-        goto cleanup;
+        errcode = "NOT_FOUND";
+        errstr = "";
+        goto error;
     }
 error:
     out_errstring(c, errcode, errstr, key, nkey);
 cleanup:
     if (it) {
         do_item_remove(it);
-        item_unlock(hv);
     }
+    // Item is always returned locked, even if missing.
+    item_unlock(hv);
 }
 
 

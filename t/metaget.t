@@ -23,10 +23,10 @@ my $sock = $server->sock;
 # - c: return item cas
 # - t: return item TTL remaining (-1 for unlimited)
 # - f: client flags
-# - l: last access time TODO: test
+# - l: last access time
 # - h: whether item has been hit before
 # - q: noreply semantics. TODO: tests.
-# - u: don't bump the item (TODO: how to test? via last-access time?)
+# - u: don't bump the item (TODO: test via 'h' flag)
 # updaters:
 # - N (token): vivify on miss, takes TTL as a argument
 # - R (token): if token is less than item TTL win for recache
