@@ -27,7 +27,7 @@ my $sock = $server->sock;
 # - h: whether item has been hit before
 # - o: opaque to copy back.
 # - q: noreply semantics. TODO: tests.
-# - u: don't bump the item (TODO: test via 'h' flag)
+# - u: don't bump the item
 # updaters:
 # - N (token): vivify on miss, takes TTL as a argument
 # - R (token): if token is less than item TTL win for recache
@@ -232,6 +232,24 @@ my $sock = $server->sock;
     $res = mget($sock, 'hitflag', 'sth');
     ok(keys %$res, "not a miss");
     is($res->{tokens}->[2], 1, "been hit before");
+}
+
+# test no-update flag
+{
+    print $sock "mset noupdate ST 3 100\r\nhit\r\n";
+    like(scalar <$sock>, qr/^STORED/, "set noupdate");
+
+    my $res = mget($sock, 'noupdate', 'stuh');
+    ok(keys %$res, "not a miss");
+    is($res->{tokens}->[2], 0, "not been hit before");
+
+    # _next_ request should show a hit.
+    # gets modified here but returns previous state.
+    $res = mget($sock, 'noupdate', 'sth');
+    is($res->{tokens}->[2], 0, "still not a hit");
+
+    $res = mget($sock, 'noupdate', 'stuh');
+    is($res->{tokens}->[2], 1, "finally a hit");
 }
 
 # test last-access time
