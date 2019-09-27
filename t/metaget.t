@@ -11,7 +11,7 @@ my $server = new_memcached();
 my $sock = $server->sock;
 
 # command syntax:
-# mget [key] [flags] [tokens]\r\n
+# mg [key] [flags] [tokens]\r\n
 # response:
 # VA [flags] [tokens]\r\n
 # data\r\n
@@ -39,7 +39,7 @@ my $sock = $server->sock;
 # - X: object is stale
 # - Z: object has sent a winning token
 #
-# mset [key] [flags] [tokens]\r\n
+# ms [key] [flags] [tokens]\r\n
 # value\r\n
 # response:
 # ST [flags] [tokens]\r\n
@@ -61,7 +61,7 @@ my $sock = $server->sock;
 # - L: replace (exclusive)
 # - incr/decr? pushing it, I guess.
 #
-# mdelete [key] [flags] [tokens]\r\n
+# md [key] [flags] [tokens]\r\n
 # response:
 # DE [flags] [tokens]
 # flags:
@@ -71,6 +71,10 @@ my $sock = $server->sock;
 # - I: invalidate. mark as stale, bumps CAS.
 # - O: opaque to copy back.
 # - k: return key
+#
+# mn\r\n
+# response:
+# EN
 
 # metaget tests
 
