@@ -5793,12 +5793,15 @@ static void process_command(conn *c, char *command) {
 
         process_get_command(c, tokens, ntokens, true, false);
 
-    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mget") == 0)) {
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mg") == 0)) {
         process_mget_command(c, tokens, ntokens);
-    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mset") == 0)) {
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "ms") == 0)) {
         process_mset_command(c, tokens, ntokens);
-    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mdelete") == 0)) {
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "md") == 0)) {
         process_mdelete_command(c, tokens, ntokens);
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mn") == 0)) {
+        out_string(c, "END");
+        return;
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
         process_arithmetic_command(c, tokens, ntokens, 0);

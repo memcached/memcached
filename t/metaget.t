@@ -83,10 +83,10 @@ my $sock = $server->sock;
     print $sock "set foo 0 0 2\r\nhi\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored test value");
 
-    print $sock "mget none\r\n";
+    print $sock "mg none\r\n";
     is(scalar <$sock>, "END\r\n", "raw mget miss");
 
-    print $sock "mget foo\r\n";
+    print $sock "mg foo\r\n";
     like(scalar <$sock>, qr/^META foo /, "raw mget result");
     # bleed the END off the socket.
     my $dud = scalar <$sock>;
@@ -137,13 +137,13 @@ my $sock = $server->sock;
     }
 
     # set back with the wrong CAS
-    print $sock "mset needwin CST 5000 2 120\r\nnu\r\n";
+    print $sock "ms needwin CST 5000 2 120\r\nnu\r\n";
     like(scalar <$sock>, qr/^EX /, "failed to SET: CAS didn't match");
 
     # again, but succeed.
     # TODO: the actual CAS command should work here too?
     my $cas = $res->{tokens}->[1];
-    print $sock "mset needwin CST $cas 2 120\r\nmu\r\n";
+    print $sock "ms needwin CST $cas 2 120\r\nmu\r\n";
     like(scalar <$sock>, qr/^ST /, "SET: CAS matched");
 
     # now we repeat the original mget, but the data should be different.
@@ -175,7 +175,7 @@ my $sock = $server->sock;
 
     # again, but succeed.
     $cas = $res->{tokens}->[2];
-    print $sock "mset needwin CST $cas 4 300\r\nzuuu\r\n";
+    print $sock "ms needwin CST $cas 4 300\r\nzuuu\r\n";
     like(scalar <$sock>, qr/^ST /, "SET: CAS matched");
 
     # now we repeat the original mget, but the data should be different.
@@ -193,7 +193,7 @@ my $sock = $server->sock;
 # test get-and-touch mode
 {
     # Set key with lower initial TTL.
-    print $sock "mset gatkey ST 4 100\r\nooom\r\n";
+    print $sock "ms gatkey ST 4 100\r\nooom\r\n";
     like(scalar <$sock>, qr/^ST /, "set gatkey");
 
     # Coolish side feature and/or bringer of bugs: 't' before 'T' gives TTL
@@ -209,7 +209,7 @@ my $sock = $server->sock;
 # test no-value mode
 {
     # Set key with lower initial TTL.
-    print $sock "mset hidevalue ST 4 100\r\nhide\r\n";
+    print $sock "ms hidevalue ST 4 100\r\nhide\r\n";
     like(scalar <$sock>, qr/^ST /, "set hidevalue");
 
     my $res = mget($sock, 'hidevalue', 'st');
@@ -224,7 +224,7 @@ my $sock = $server->sock;
 
 # test hit-before? flag
 {
-    print $sock "mset hitflag ST 3 100\r\nhit\r\n";
+    print $sock "ms hitflag ST 3 100\r\nhit\r\n";
     like(scalar <$sock>, qr/^ST /, "set hitflag");
 
     my $res = mget($sock, 'hitflag', 'sth');
@@ -238,7 +238,7 @@ my $sock = $server->sock;
 
 # test no-update flag
 {
-    print $sock "mset noupdate ST 3 100\r\nhit\r\n";
+    print $sock "ms noupdate ST 3 100\r\nhit\r\n";
     like(scalar <$sock>, qr/^ST /, "set noupdate");
 
     my $res = mget($sock, 'noupdate', 'stuh');
@@ -256,7 +256,7 @@ my $sock = $server->sock;
 
 # test last-access time
 {
-    print $sock "mset la_test ST 2 100\r\nla\r\n";
+    print $sock "ms la_test ST 2 100\r\nla\r\n";
     like(scalar <$sock>, qr/^ST /, "set la_test");
     sleep 2;
 
@@ -291,7 +291,7 @@ my $sock = $server->sock;
 
     # Lets mark the sucker as invalid, and drop its TTL to 30s
     diag "running mdelete";
-    print $sock "mdelete toinv IT 30\r\n";
+    print $sock "md toinv IT 30\r\n";
     like(scalar <$sock>, qr/^DE /, "mdelete'd key");
 
     # TODO: decide on if we need an explicit flag for "if I fetched a stale
@@ -309,10 +309,10 @@ my $sock = $server->sock;
     is($res->{val}, "moo", "value matches");
 
     diag "trying to fail then stale set via mset";
-    print $sock "mset toinv STC 1 90 0\r\nf\r\n";
+    print $sock "ms toinv STC 1 90 0\r\nf\r\n";
     like(scalar <$sock>, qr/^EX /, "failed to SET: low CAS didn't match");
 
-    print $sock "mset toinv SITC 1 90 0\r\nf\r\n";
+    print $sock "ms toinv SITC 1 90 0\r\nf\r\n";
     like(scalar <$sock>, qr/^ST /, "SET an invalid/stale item");
 
     diag "confirm item still stale, and TTL wasn't raised.";
@@ -327,7 +327,7 @@ my $sock = $server->sock;
 
     diag "do valid mset";
     $cas = $res->{tokens}->[2];
-    print $sock "mset toinv STC 1 90 $cas\r\ng\r\n";
+    print $sock "ms toinv STC 1 90 $cas\r\ng\r\n";
     like(scalar <$sock>, qr/^ST /, "SET over the stale item");
 
     $res = mget($sock, 'toinv', 'stcv');
@@ -346,18 +346,18 @@ my $sock = $server->sock;
 # mget's with hits should return real data.
 {
     diag "testing quiet flag";
-    print $sock "mset quiet Sq 2\r\nmo\r\n";
-    print $sock "mdelete quiet q\r\n";
-    print $sock "mget quiet svq\r\n";
+    print $sock "ms quiet Sq 2\r\nmo\r\n";
+    print $sock "md quiet q\r\n";
+    print $sock "mg quiet svq\r\n";
     diag "now purposefully cause an error\r\n";
-    print $sock "mset quiet S\r\n";
+    print $sock "ms quiet S\r\n";
     like(scalar <$sock>, qr/^CLIENT_ERROR/, "resp not ST, DE, or END");
 }
 
 {
     my $k = 'otest';
     diag "testing mget opaque";
-    print $sock "mset $k ST 2 100\r\nra\r\n";
+    print $sock "ms $k ST 2 100\r\nra\r\n";
     like(scalar <$sock>, qr/^ST /, "set $k");
 
     my $res = mget($sock, $k, 'stvO opaque');
@@ -394,7 +394,7 @@ sub mget_is {
     my $tokens = exists $o->{tokens} ? join(' ', @{$o->{tokens}}) : '';
     my $etokens = exists $o->{etokens} ? join(' ', @{$o->{etokens}}) : '';
 
-    print $s "mget $key $flags $tokens\r\n";
+    print $s "mg $key $flags $tokens\r\n";
     if (! defined $val) {
         my $line = scalar <$s>;
         if ($line =~ /^VALUE/) {
@@ -422,7 +422,7 @@ sub mget {
     my $flags = shift;
     my $tokens = join(' ', @_);
 
-    print $s "mget $key $flags ", $tokens, "\r\n";
+    print $s "mg $key $flags ", $tokens, "\r\n";
     my $header = scalar(<$s>);
     my $val = "\r\n";
     if ($flags =~ m/v/) {
