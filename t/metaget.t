@@ -13,7 +13,7 @@ my $sock = $server->sock;
 # command syntax:
 # mget [key] [flags] [tokens]\r\n
 # response:
-# VALUE [key] [flags] [tokens]\r\n
+# VA [flags] [tokens]\r\n
 # data\r\n
 # END\r\n
 #
@@ -25,7 +25,8 @@ my $sock = $server->sock;
 # - f: client flags
 # - l: last access time
 # - h: whether item has been hit before
-# - o: opaque to copy back.
+# - O: opaque to copy back.
+# - k: return key
 # - q: noreply semantics. TODO: tests.
 # - u: don't bump the item
 # updaters:
@@ -41,8 +42,8 @@ my $sock = $server->sock;
 # mset [key] [flags] [tokens]\r\n
 # value\r\n
 # response:
-# STORED, NOT_STORED, etc
-# FIXME: STORED [key] [tokens] ?
+# ST [flags] [tokens]\r\n
+# ST STORED, NS NOT_STORED, EX EXISTS, NF NOT_FOUND
 #
 # flags:
 # - q: noreply
@@ -50,7 +51,10 @@ my $sock = $server->sock;
 # - C (token): compare CAS value
 # - S (token): item size
 # - T (token): TTL
+# - O: opaque to copy back.
+# - k: return key
 # - I: invalid. set-to-invalid if CAS is older than it should be.
+# Not implemented:
 # - E: add if not exists (influences other options)
 # - A: append (exclusive)
 # - P: prepend (exclusive)
@@ -59,12 +63,14 @@ my $sock = $server->sock;
 #
 # mdelete [key] [flags] [tokens]\r\n
 # response:
-# FIXME
+# DE [flags] [tokens]
 # flags:
 # - q: noreply
 # - T (token): updates TTL
 # - C (token): compare CAS value
 # - I: invalidate. mark as stale, bumps CAS.
+# - O: opaque to copy back.
+# - k: return key
 
 # metaget tests
 
@@ -132,21 +138,21 @@ my $sock = $server->sock;
 
     # set back with the wrong CAS
     print $sock "mset needwin CST 5000 2 120\r\nnu\r\n";
-    like(scalar <$sock>, qr/^EXISTS/, "failed to SET: CAS didn't match");
+    like(scalar <$sock>, qr/^EX /, "failed to SET: CAS didn't match");
 
     # again, but succeed.
     # TODO: the actual CAS command should work here too?
     my $cas = $res->{tokens}->[1];
     print $sock "mset needwin CST $cas 2 120\r\nmu\r\n";
-    like(scalar <$sock>, qr/^STORED/, "SET: CAS matched");
+    like(scalar <$sock>, qr/^ST /, "SET: CAS matched");
 
     # now we repeat the original mget, but the data should be different.
-    $res = mget($sock, 'needwin', 'stcvN 30');
+    $res = mget($sock, 'needwin', 'sktcvN 30');
     ok(keys %$res, "not a miss");
-    like($res->{flags}, qr/stcvN/, "got main flags back");
+    like($res->{flags}, qr/sktcvN/, "got main flags back");
     unlike($res->{flags}, qr/[WZ]/, "not a win or token result");
-    is($res->{key}, 'needwin', "key matches");
-    $ttl = $res->{tokens}->[1];
+    is($res->{tokens}->[1], 'needwin', "key matches");
+    $ttl = $res->{tokens}->[2];
     ok($ttl > 100 && $ttl <= 120, "TTL is within requested window: $ttl");
     is($res->{val}, "mu", "value matches");
 
@@ -156,7 +162,6 @@ my $sock = $server->sock;
     like($res->{flags}, qr/stcvNR/, "got main flags back");
     like($res->{flags}, qr/W/, "got a win result");
     unlike($res->{flags}, qr/Z/, "no token already sent warning");
-    is($res->{key}, 'needwin', "key matches");
     is($res->{val}, "mu", "value matches");
 
     # try to fail this time.
@@ -165,21 +170,19 @@ my $sock = $server->sock;
         ok(keys %$res, "got a non-empty response");
         unlike($res->{flags}, qr/W/, "not a win result");
         like($res->{flags}, qr/Z/, "object already sent win result");
-        is($res->{key}, 'needwin', "key matches");
         is($res->{val}, "mu", "value matches");
     }
 
     # again, but succeed.
     $cas = $res->{tokens}->[2];
     print $sock "mset needwin CST $cas 4 300\r\nzuuu\r\n";
-    like(scalar <$sock>, qr/^STORED/, "SET: CAS matched");
+    like(scalar <$sock>, qr/^ST /, "SET: CAS matched");
 
     # now we repeat the original mget, but the data should be different.
     $res = mget($sock, 'needwin', 'stcvN 30');
     ok(keys %$res, "not a miss");
     like($res->{flags}, qr/stcvN/, "got main flags back");
     unlike($res->{flags}, qr/[WZ]/, "not a win or token result");
-    is($res->{key}, 'needwin', "key matches");
     $ttl = $res->{tokens}->[1];
     ok($ttl > 250 && $ttl <= 300, "TTL is within requested window");
     ok($res->{tokens}->[0] == 4, "Size returned correctly");
@@ -191,7 +194,7 @@ my $sock = $server->sock;
 {
     # Set key with lower initial TTL.
     print $sock "mset gatkey ST 4 100\r\nooom\r\n";
-    like(scalar <$sock>, qr/^STORED/, "set gatkey");
+    like(scalar <$sock>, qr/^ST /, "set gatkey");
 
     # Coolish side feature and/or bringer of bugs: 't' before 'T' gives TTL
     # before adjustment. 'T' before 't' gives TTL after adjustment.
@@ -199,7 +202,6 @@ my $sock = $server->sock;
     my $res = mget($sock, 'gatkey', 'svTt 300');
     ok(keys %$res, "not a miss");
     unlike($res->{flags}, qr/[WZ]/, "not a win or token result");
-    is($res->{key}, 'gatkey', "key matches");
     my $ttl = $res->{tokens}->[1];
     ok($ttl > 280 && $ttl <= 300, "TTL is within requested window: $ttl");
 }
@@ -208,7 +210,7 @@ my $sock = $server->sock;
 {
     # Set key with lower initial TTL.
     print $sock "mset hidevalue ST 4 100\r\nhide\r\n";
-    like(scalar <$sock>, qr/^STORED/, "set hidevalue");
+    like(scalar <$sock>, qr/^ST /, "set hidevalue");
 
     my $res = mget($sock, 'hidevalue', 'st');
     ok(keys %$res, "not a miss");
@@ -223,7 +225,7 @@ my $sock = $server->sock;
 # test hit-before? flag
 {
     print $sock "mset hitflag ST 3 100\r\nhit\r\n";
-    like(scalar <$sock>, qr/^STORED/, "set hitflag");
+    like(scalar <$sock>, qr/^ST /, "set hitflag");
 
     my $res = mget($sock, 'hitflag', 'sth');
     ok(keys %$res, "not a miss");
@@ -237,7 +239,7 @@ my $sock = $server->sock;
 # test no-update flag
 {
     print $sock "mset noupdate ST 3 100\r\nhit\r\n";
-    like(scalar <$sock>, qr/^STORED/, "set noupdate");
+    like(scalar <$sock>, qr/^ST /, "set noupdate");
 
     my $res = mget($sock, 'noupdate', 'stuh');
     ok(keys %$res, "not a miss");
@@ -255,7 +257,7 @@ my $sock = $server->sock;
 # test last-access time
 {
     print $sock "mset la_test ST 2 100\r\nla\r\n";
-    like(scalar <$sock>, qr/^STORED/, "set la_test");
+    like(scalar <$sock>, qr/^ST /, "set la_test");
     sleep 2;
 
     my $res = mget($sock, 'la_test', 'stl');
@@ -290,7 +292,7 @@ my $sock = $server->sock;
     # Lets mark the sucker as invalid, and drop its TTL to 30s
     diag "running mdelete";
     print $sock "mdelete toinv IT 30\r\n";
-    like(scalar <$sock>, qr/^DELETED/, "mdelete'd key");
+    like(scalar <$sock>, qr/^DE /, "mdelete'd key");
 
     # TODO: decide on if we need an explicit flag for "if I fetched a stale
     # value, does winning matter?
@@ -301,7 +303,6 @@ my $sock = $server->sock;
     like($res->{flags}, qr/stcv/, "got main flags back");
     like($res->{flags}, qr/W/, "won the recache");
     like($res->{flags}, qr/X/, "item is marked stale");
-    is($res->{key}, 'toinv', "key matches");
     $ttl = $res->{tokens}->[1];
     ok($ttl > 0 && $ttl <= 30, "TTL is within requested window");
     ok($res->{tokens}->[0] == 3, "Size returned correctly");
@@ -309,10 +310,10 @@ my $sock = $server->sock;
 
     diag "trying to fail then stale set via mset";
     print $sock "mset toinv STC 1 90 0\r\nf\r\n";
-    like(scalar <$sock>, qr/^EXISTS/, "failed to SET: low CAS didn't match");
+    like(scalar <$sock>, qr/^EX /, "failed to SET: low CAS didn't match");
 
     print $sock "mset toinv SITC 1 90 0\r\nf\r\n";
-    like(scalar <$sock>, qr/^STORED/, "SET an invalid/stale item");
+    like(scalar <$sock>, qr/^ST /, "SET an invalid/stale item");
 
     diag "confirm item still stale, and TTL wasn't raised.";
     $res = mget($sock, 'toinv', 'stcv');
@@ -327,7 +328,7 @@ my $sock = $server->sock;
     diag "do valid mset";
     $cas = $res->{tokens}->[2];
     print $sock "mset toinv STC 1 90 $cas\r\ng\r\n";
-    like(scalar <$sock>, qr/^STORED/, "SET over the stale item");
+    like(scalar <$sock>, qr/^ST /, "SET over the stale item");
 
     $res = mget($sock, 'toinv', 'stcv');
     ok(keys %$res, "not a miss");
@@ -350,17 +351,17 @@ my $sock = $server->sock;
     print $sock "mget quiet svq\r\n";
     diag "now purposefully cause an error\r\n";
     print $sock "mset quiet S\r\n";
-    like(scalar <$sock>, qr/^CLIENT_ERROR/, "resp not STORED, DELETED, or END");
+    like(scalar <$sock>, qr/^CLIENT_ERROR/, "resp not ST, DE, or END");
 }
 
 {
     my $k = 'otest';
     diag "testing mget opaque";
     print $sock "mset $k ST 2 100\r\nra\r\n";
-    like(scalar <$sock>, qr/^STORED/, "set $k");
+    like(scalar <$sock>, qr/^ST /, "set $k");
 
-    my $res = mget($sock, $k, 'stvo opaque');
-    is($res->{tokens}->[2], 'opaque', "o flag returned opaque");
+    my $res = mget($sock, $k, 'stvO opaque');
+    is($res->{tokens}->[2], 'opaque', "O flag returned opaque");
 }
 
 ###
@@ -403,7 +404,7 @@ sub mget_is {
     } else {
         my $len = length($val);
         my $body = scalar(<$s>);
-        my $expected = "VALUE $key $eflags $etokens\r\n$val\r\nEND\r\n";
+        my $expected = "VA $eflags $etokens\r\n$val\r\nEND\r\n";
         if (!$body || $body =~ /^END/) {
             Test::More::is($body, $expected, $msg);
             return;
@@ -415,7 +416,6 @@ sub mget_is {
     return {};
 }
 
-# FIXME: skip value if no v in tokens!
 sub mget {
     my $s = shift;
     my $key = shift;
@@ -438,11 +438,10 @@ sub mget_res {
     my $resp = shift;
     my %r = ();
 
-    if ($resp =~ m/^VALUE ([^\s]+) ([^\s]+) ([^\r]+)\r\n(.*)\r\n/gm) {
-        $r{key} = $1;
-        $r{flags} = $2;
-        $r{val} = $4;
-        $r{tokens} = [split(/ /, $3)];
+    if ($resp =~ m/^VA ([^\s]+) ([^\r]+)\r\n(.*)\r\n/gm) {
+        $r{flags} = $1;
+        $r{val} = $3;
+        $r{tokens} = [split(/ /, $2)];
     }
 
     return \%r;

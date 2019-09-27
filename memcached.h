@@ -618,6 +618,7 @@ struct conn {
     bool sasl_started;
     bool authenticated;
     bool set_stale;
+    bool mset_res; /** uses mset format for return code */
 #ifdef TLS
     SSL    *ssl;
     char   *ssl_wbuf;
