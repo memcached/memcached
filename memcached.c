@@ -4295,8 +4295,8 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
         size_t total = 0;
         size_t ret;
         // similar to out_string().
-        memcpy(c->wbuf, "META ", 5);
-        total += 5;
+        memcpy(c->wbuf, "ME ", 3);
+        total += 3;
         memcpy(c->wbuf + total, ITEM_key(it), it->nkey);
         total += it->nkey;
         c->wbuf[total] = ' ';
@@ -4317,7 +4317,7 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
         conn_set_state(c, conn_write);
         c->write_and_go = conn_new_cmd;
     } else {
-        out_string(c, "END");
+        out_string(c, "EN");
     }
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.mget_cmds++;
@@ -4684,7 +4684,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
         // FIXME: is extstore counting this? I don't believe it is.
         if (!c->noreply) {
-            add_iov(c, "END\r\n", 5);
+            add_iov(c, "EN\r\n", 4);
         }
 
         // need to hold the ref at least because of the key above.
@@ -4749,10 +4749,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        // FIXME: what happens with noreply here?
-        // a miss will look like air here...
-        // so a nop command would be needed to append an END on purpose.
-        out_string(c, "END");
+        // This gets elided in noreply mode.
+        out_string(c, "EN");
     }
     return;
 error:
@@ -5799,8 +5797,8 @@ static void process_command(conn *c, char *command) {
         process_mset_command(c, tokens, ntokens);
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "md") == 0)) {
         process_mdelete_command(c, tokens, ntokens);
-    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mn") == 0)) {
-        out_string(c, "END");
+    } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "mn") == 0)) {
+        out_string(c, "EN");
         return;
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 

@@ -15,7 +15,7 @@ my $sock = $server->sock;
 # response:
 # VA [flags] [tokens]\r\n
 # data\r\n
-# END\r\n
+# EN\r\n
 #
 # flags:
 # - s: item size
@@ -27,7 +27,7 @@ my $sock = $server->sock;
 # - h: whether item has been hit before
 # - O: opaque to copy back.
 # - k: return key
-# - q: noreply semantics. TODO: tests.
+# - q: noreply semantics.
 # - u: don't bump the item
 # updaters:
 # - N (token): vivify on miss, takes TTL as a argument
@@ -84,11 +84,11 @@ my $sock = $server->sock;
     is(scalar <$sock>, "STORED\r\n", "stored test value");
 
     print $sock "mg none\r\n";
-    is(scalar <$sock>, "END\r\n", "raw mget miss");
+    is(scalar <$sock>, "EN\r\n", "raw mget miss");
 
     print $sock "mg foo\r\n";
-    like(scalar <$sock>, qr/^META foo /, "raw mget result");
-    # bleed the END off the socket.
+    like(scalar <$sock>, qr/^ME foo /, "raw mget result");
+    # bleed the EN off the socket.
     my $dud = scalar <$sock>;
 }
 
@@ -219,7 +219,6 @@ my $sock = $server->sock;
     $res = mget($sock, 'hidevalue', 'stv');
     ok(keys %$res, "not a miss");
     is($res->{val}, 'hide', "real value returned");
-
 }
 
 # test hit-before? flag
@@ -351,7 +350,17 @@ my $sock = $server->sock;
     print $sock "mg quiet svq\r\n";
     diag "now purposefully cause an error\r\n";
     print $sock "ms quiet S\r\n";
-    like(scalar <$sock>, qr/^CLIENT_ERROR/, "resp not ST, DE, or END");
+    like(scalar <$sock>, qr/^CLIENT_ERROR/, "resp not ST, DE, or EN");
+
+    # Now try a pipelined get. Throw an mnop at the end
+    print $sock "ms quiet Sq 2\r\nbo\r\n";
+    print $sock "mg quiet svq\r\nmg quiet svq\r\nmg quietmiss svq\r\nmn\r\n";
+    # Should get back VA/data/VA/data/EN
+    like(scalar <$sock>, qr/^VA svq 2/, "get response");
+    like(scalar <$sock>, qr/^bo/, "get value");
+    like(scalar <$sock>, qr/^VA svq 2/, "get response");
+    like(scalar <$sock>, qr/^bo/, "get value");
+    like(scalar <$sock>, qr/^EN/, "end token");
 }
 
 {
@@ -400,12 +409,12 @@ sub mget_is {
         if ($line =~ /^VALUE/) {
             $line .= scalar(<$s>) . scalar(<$s>);
         }
-        Test::More::is($line, "END\r\n", $msg);
+        Test::More::is($line, "EN\r\n", $msg);
     } else {
         my $len = length($val);
         my $body = scalar(<$s>);
-        my $expected = "VA $eflags $etokens\r\n$val\r\nEND\r\n";
-        if (!$body || $body =~ /^END/) {
+        my $expected = "VA $eflags $etokens\r\n$val\r\nEN\r\n";
+        if (!$body || $body =~ /^EN/) {
             Test::More::is($body, $expected, $msg);
             return;
         }
