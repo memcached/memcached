@@ -117,6 +117,9 @@ For example, a metaget with flags of 'st' would return tokens for "size" and
 Syntax errors are handled the same as noted under 'Error strings' section
 below.
 
+For usage examples beyond basic syntax, please see the wiki:
+https://github.com/memcached/memcached/wiki/MetaCommands
+
 Expiration times
 ----------------
 
@@ -610,8 +613,6 @@ When combined with the X flag, or the client N or R flags, this extra response
 flag indicates to a client that a different client is responsible for
 recaching this item. If there is data supplied it may use it, or the client
 may decide to retry later or take some other action.
-
-[TODO: link to wiki for use case examples]
 
 Meta Set
 --------
