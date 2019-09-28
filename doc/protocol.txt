@@ -59,7 +59,7 @@ key. The client sends a command line, and then a data block; after
 that the client expects one line of response, which will indicate
 success or failure.
 
-Retrieval commands (there are two: "get" and "gets") ask the server to
+Retrieval commands ("get", "gets", "gat", and "gats") ask the server to
 retrieve data corresponding to a set of keys (one or more keys in one
 request). The client sends a command line, which includes all the
 requested keys; after that for each item the server finds it sends to
@@ -75,6 +75,47 @@ ending with "END" on the last line.
 A command line always starts with the name of the command, followed by
 parameters (if any) delimited by whitespace. Command names are
 lower-case and are case-sensitive.
+
+Meta Commands [EXPERIMENTAL: MAY CHANGE]
+-------------
+
+Meta commands are a set of new ASCII-based commands. They follow the same
+structure of the basic commands but have a new flexible feature set.
+Meta commands incorporate most features available in the binary protocol, as
+well as a flag system to make the commands flexible rather than having a
+large number of high level commands. These commands completely replace the
+usage of basic Storage and Retrieval commands.
+
+Meta commands are EXPERIMENTAL and may change syntax as of this writing. They
+are documented below the basic commands.
+
+These work mixed with normal protocol commands on the same connection. All
+existing commands continue to work. The meta commands will not replace
+specialized commands that do not sit in the Storage or Retrieval categories
+noted in the 'Commands' section above.
+
+All meta commands follow a basic syntax:
+
+cm <key> <flags> <token1> <token2> <...>\r\n
+
+Where 'cm' is a 2 character command code. The number of tokens supplied is
+based off of the flags used.
+
+Responses look like:
+
+RC <flags> <token1> <token2> <...>\r\n
+
+Where 'rc' is a 2 character return code. The number of tokens returned are
+based off of the flags used.
+
+Flags are single character codes, ie 'q' or 'k' or 'I', which adjust the
+behavior of the command. The flags are reflected in the response. The order of
+which tokens are consumed or returned depend on the order of the flags given.
+For example, a metaget with flags of 'st' would return tokens for "size" and
+"TTL remaining" in that order. 'ts' would return "TTL remaining" then "size".
+
+Syntax errors are handled the same as noted under 'Error strings' section
+below.
 
 Expiration times
 ----------------
@@ -400,6 +441,186 @@ VALUE <key> <flags> <bytes> [<cas unique>]\r\n
 
 - <data block> is the data for this item.
 
+Meta Get
+--------
+
+The meta get command is the generic command for retrieving key data from
+memcached. Based on the flags supplied, it can replace all of the commands:
+"get", "gets", "gat", "gats", "touch", as well as adding new options.
+
+mg <key> <flags> <tokens>*\r\n
+
+- <key> means one key string. Unlike "get" metaget can only take a single key.
+
+- <flags> are a set of single character codes ended with a space or newline.
+
+- <tokens>* means zero or more tokens, based on the flags supplied. They are
+  consumed in order specified by the flags.
+
+After this command, the client expects an item to be returned, received as a
+text line followed by an optional data block. After the item is transferred,
+the server sends the string
+
+"EN\r\n"
+
+to indicate the end of the response.
+
+If a response line appearing in a retrieval request is not sent back
+by the server this means that the server does not
+have the item (because it was never stored, or stored
+but deleted to make space for more items, or expired, or explicitly
+deleted by a client).
+
+An item sent by the server looks like:
+
+VA <flags> <tokens>*\r\n
+<data block>\r\n
+
+- <flags> are a reflection of the flags sent to the server. Extra flags can be
+  added to the response based on the execution of the command.
+
+- <tokens>* are tokens returned by the server, based on the flags supplied.
+  They are added in order specified by the flags sent.
+
+- <data block> is the data for this item. Note that the data black is
+  optional, requiring the 'v' flag to be supplied.
+
+The flags used by the 'mg' command are:
+
+- c: return item cas token
+- f: return client flags token
+- h: return whether item has been hit before as a 0 or 1
+- k: return key as a token
+- l: return time since item was last accessed in seconds
+- O (token): consumes a token and copies back with response
+- q: use noreply semantics for return codes.
+- s: return item size token
+- t: return item TTL remaining in seconds (-1 for unlimited)
+- u: don't bump the item in the LRU
+- v: return item value in <data block>
+
+These flags can modify the item:
+- N (token): vivify on miss, takes TTL as a argument
+- R (token): if token is less than remaining TTL win for recache
+- T (token): update remaining TTL
+
+These extra flags can be added to the response:
+- W: client has "won" the recache flag
+- X: item is stale
+- Z: tem has already sent a winning flag
+
+The flags are now repeated with detailed information where useful:
+
+- h: return whether item has been hit before as a 0 or 1
+- l: return time since item was last accessed in seconds
+
+The above two flags return the value of "hit before?" and "last access time"
+before the command was processed. Otherwise this would always show a 1 for hit or
+always show an access time of "0" unless combined with the "u" flag.
+
+- O (token): consumes a token and copies back with response
+
+The O (opaque) token is used by this and other commands to allow easier
+pipelining of requests while saving bytes on the wire for responses. For
+example: if pipelining three get commands together, you may not know which
+response belongs to which without also retrieving the key. If the key is very
+long this can generate a lot of traffic, especially if the data block is very
+small. Instead, you can supply an "O" flag for each mg with tokens of "1" "2"
+and "3", to match up responses to the request.
+
+Opaque tokens may be up to 32 bytes in length, and are a string similar to
+keys.
+
+- q: use noreply semantics for return codes.
+
+Noreply is a method of reducing the amount of data sent back by memcached to
+the client for normal responses. In the case of metaget, if an item is not
+available the "VA" line is normally not sent, and the response is terminated by
+"EN\r\n".
+
+With noreply enabled, the "EN\r\n" marker is suppressed. This allows you to
+pipeline several mg's together and read all of the responses without the
+"EN\r\n" lines in the middle.
+
+Errors are always returned.
+
+- u: don't bump the item in the LRU
+
+It is possible to access an item without causing it to be "bumped" to the head
+of the LRU. This also avoids marking an item as being hit or updating its last
+access time.
+
+- v: return item value in <data block>
+
+The data block for a metaget response is optional, requiring this flag to be
+passed in.
+
+These flags can modify the item:
+- N (token): vivify on miss, takes TTL as a argument
+
+Used to help with so called "dog piling" problems with recaching of popular
+items. If supplied, and metaget does not find the item in cache, it will
+create a stub item with the key and TTL as supplied. If such an item is
+created a 'W' flag is added to the response to indicate to a client that they
+have "won" the right to recache an item.
+
+The automatically created item has 0 bytes of data.
+
+Further requests will see a 'Z' flag to indicate that another client has
+already received the win flag.
+
+Can be combined with CAS flags to gate the update further.
+
+- R (token): if token is less than remaining TTL win for recache
+
+Similar to and can be combined with 'N'. If the remaining TTL of an item is
+below the supplied token, return a 'W' flag to indicate the client has "won"
+the right to recache an item. This allows refreshing an item before it leads to
+a miss.
+
+- T (token): update remaining TTL
+
+Similar to "touch" and "gat" commands, updates the remaining TTL of an item if
+hit.
+
+These extra flags can be added to the response:
+- W: client has "won" the recache flag
+
+When combined with N or R flags, a client may be informed they have "won"
+ownership of a cache item. This allows a single client to be atomically
+notified that it should cache or update an item. Further clients requesting
+the item can use the existing data block (if valid or stale), retry, wait, or
+take some other action while the item is missing.
+
+This is used when the act of recaching an item can cause undue load on another
+system (CPU, database accesses, time, and so on).
+
+- X: item is stale
+
+Items can be marked as stale by the metadelete command. This indicates to the
+client that an object needs to be updated, and that it should make a decision
+o if potentially stale data is safe to use.
+
+This is used when you want to convince clients to recache an item, but it's
+safe to use pre-existing data while the recache happens.
+
+- Z: item has already sent a winning flag
+
+When combined with the X flag, or the client N or R flags, this extra response
+flag indicates to a client that a different client is responsible for
+recaching this item. If there is data supplied it may use it, or the client
+may decide to retry later or take some other action.
+
+[TODO: link to wiki for use case examples]
+
+Meta Set
+--------
+
+Meta Delete
+-----------
+
+Meta No-Op
+----------
 
 Slabs Reassign
 --------------
