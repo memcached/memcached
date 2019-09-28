@@ -4336,7 +4336,6 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
 #define MFLAG_MAX_OPT_LENGTH 20
 #define MFLAG_MAX_OPAQUE_LENGTH 32
 
-// TODO: I can't think of a reason for optimized mode to have class-id?
 struct _meta_flags {
     unsigned int no_update :1;
     unsigned int locked :1;
@@ -4831,11 +4830,6 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     // Set noreply after tokens are understood.
     c->noreply = of.no_reply;
     rtokens = KEY_TOKEN + 2;
-
-    // TODO: Do we need to return the tokens?
-    // since NOT_STORED and so on are far away from this (past a read), if we
-    // need to store the tokens it would have to be stowed with the connection
-    // structure
 
     for (i = 0; i < olen; i++) {
         switch (opts[i]) {
