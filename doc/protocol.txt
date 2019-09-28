@@ -461,7 +461,7 @@ ME <key> <k>=<v>*\r\nEN\r\n
 Each of the keys and values are the internal data for the item.
 
 exp   = expiration time
-la    = last access time
+la    = time in seconds since last access
 cas   = CAS ID
 fetch = whether an item has been fetched before
 cls   = slab class id
