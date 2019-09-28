@@ -3329,7 +3329,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
     APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
     APPEND_STAT("cmd_touch", "%llu", (unsigned long long)thread_stats.touch_cmds);
-    APPEND_STAT("cmd_mget", "%llu", (unsigned long long)thread_stats.mget_cmds);
+    APPEND_STAT("cmd_meta", "%llu", (unsigned long long)thread_stats.meta_cmds);
     APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
@@ -4329,7 +4329,7 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
         out_string(c, "EN");
     }
     pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.mget_cmds++;
+    c->thread->stats.meta_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
 }
 
