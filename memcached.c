@@ -4987,16 +4987,15 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
     rtokens = ntokens - 3; // cmd, key, final.
 
-    // TODO: rtokens == 0 acts like a normal delete?
-    // else have to add an explicit token for "immediately delete"
+    // rtokens == 0 acts like a normal immediate delete
     if (rtokens == 0) {
-        out_string(c, "CLIENT_ERROR bad command line format");
-        return;
+        opts = "";
+        olen = 0;
+    } else {
+        opts = tokens[KEY_TOKEN + 1].value;
+        olen = tokens[KEY_TOKEN + 1].length;
+        rtokens--;
     }
-
-    opts = tokens[KEY_TOKEN + 1].value;
-    olen = tokens[KEY_TOKEN + 1].length;
-    rtokens--;
 
     if (olen > MFLAG_MAX_OPT_LENGTH) {
         out_string(c, "CLIENT_ERROR options flags too long");
@@ -5081,15 +5080,13 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
                 it->exptime = realtime(exptime_int);
             }
             it->it_flags |= ITEM_STALE;
-            // FIXME: I think we also have to remove ITEM_TOKEN_SENT ?
+            // Also need to remove TOKEN_SENT, so next client can win.
+            it->it_flags &= ~ITEM_TOKEN_SENT;
 
-            // FIXME: this ends up double checking; if ITEM_CAS exists and
-            // use_cas is set. Can use_cas ever change at run time?
-            // if not, collapse into a single branch test?
             ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
 
             memcpy(c->wbuf, "DE ", 3);
-            // FIXME: just use two diff funcs? :|
+            // TODO: just use two diff funcs? :|
             // also, take len for arg?
             c->wbytes = p - c->wbuf;
             out_mstring(c, ALLOW_NOREPLY);
