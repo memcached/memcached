@@ -87,10 +87,10 @@ my $sock = $server->sock;
     print $sock "set foo 0 0 2\r\nhi\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored test value");
 
-    print $sock "mg none\r\n";
+    print $sock "me none\r\n";
     is(scalar <$sock>, "EN\r\n", "raw mget miss");
 
-    print $sock "mg foo\r\n";
+    print $sock "me foo\r\n";
     like(scalar <$sock>, qr/^ME foo /, "raw mget result");
     # bleed the EN off the socket.
     my $dud = scalar <$sock>;

@@ -4287,9 +4287,18 @@ stop:
     }
 }
 
-// helper function for metaget.
 // slow snprintf for debugging purposes.
-static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
+static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens) {
+    assert(c != NULL);
+
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    char *key = tokens[KEY_TOKEN].value;
+    size_t nkey = tokens[KEY_TOKEN].length;
+
     item *it = limited_get(key, nkey, c, 0, false, DONT_UPDATE);
     if (it) {
         size_t total = 0;
@@ -4303,7 +4312,7 @@ static void _mget_out_fullmeta(conn *c, char *key, size_t nkey) {
         total++;
 
         ret = snprintf(c->wbuf + total, c->wsize - (it->nkey + 12),
-                "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\nEND\r\n",
+                "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\nEN\r\n",
                 (it->exptime == 0) ? -1 : (current_time - it->exptime),
                 (unsigned long long)(current_time - it->time),
                 (unsigned long long)ITEM_get_cas(it),
@@ -4435,17 +4444,16 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // KEY_TOKEN == 1. 0 is command.
     rtokens = ntokens - 3; // cmd, key, final.
 
-    // no args: return full metadata string and no value.
-    // also, don't ping LRU.
     if (rtokens == 0) {
-        _mget_out_fullmeta(c, key, nkey);
-        return;
+        // Default flag options. Might not be the best idea.
+        opts = "sftv";
+        olen = 4;
+    } else {
+        // need to parse out the options.
+        opts = tokens[KEY_TOKEN + 1].value;
+        olen = tokens[KEY_TOKEN + 1].length;
+        rtokens--;
     }
-
-    // need to parse out the options.
-    opts = tokens[KEY_TOKEN + 1].value;
-    olen = tokens[KEY_TOKEN + 1].length;
-    rtokens--;
 
     if (olen > MFLAG_MAX_OPT_LENGTH) {
         out_errstring(c, "CLIENT_ERROR options flags are too long");
@@ -5799,6 +5807,9 @@ static void process_command(conn *c, char *command) {
         process_mdelete_command(c, tokens, ntokens);
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "mn") == 0)) {
         out_string(c, "EN");
+        return;
+    } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "me") == 0)) {
+        process_meta_command(c, tokens, ntokens);
         return;
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
