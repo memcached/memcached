@@ -543,8 +543,8 @@ The flags are now repeated with detailed information where useful:
 - l: return time since item was last accessed in seconds
 
 The above two flags return the value of "hit before?" and "last access time"
-before the command was processed. Otherwise this would always show a 1 for hit or
-always show an access time of "0" unless combined with the "u" flag.
+before the command was processed. Otherwise this would always show a 1 for
+hit or always show an access time of "0" unless combined with the "u" flag.
 
 - O (token): opaque value, consumes a token and copies back with response
 
