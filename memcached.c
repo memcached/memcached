@@ -4441,9 +4441,9 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // NOTE: final token has length == 0.
     // KEY_TOKEN == 1. 0 is command.
-    rtokens = ntokens - 3; // cmd, key, final.
+    rtokens = 3; // cmd, key, final.
 
-    if (rtokens == 0) {
+    if (ntokens == 3) {
         // Default flag options. Might not be the best idea.
         opts = "sftv";
         olen = 4;
@@ -4451,7 +4451,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         // need to parse out the options.
         opts = tokens[KEY_TOKEN + 1].value;
         olen = tokens[KEY_TOKEN + 1].length;
-        rtokens--;
+        rtokens++;
     }
 
     if (olen > MFLAG_MAX_OPT_LENGTH) {
@@ -4471,10 +4471,10 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     fp--; // next token, or final space, goes here.
 
     // scrubs duplicated options and sets flags for how to load the item.
-    rtokens -= _meta_flag_preparse(opts, olen, &of);
+    int mfres = _meta_flag_preparse(opts, olen, &of);
 
-    if (rtokens < 0) {
-        out_errstring(c, "CLIENT_ERROR not enough tokens supplied");
+    if (mfres + rtokens != ntokens) {
+        out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
         return;
     }
     rtokens = KEY_TOKEN + 2;
@@ -4795,16 +4795,16 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    rtokens = ntokens - 3; // cmd, key, final.
+    rtokens = 3; // cmd, key, final.
 
-    if (rtokens == 0) {
+    if (ntokens == 3) {
         out_errstring(c, "CLIENT_ERROR bad command line format");
         return;
     }
 
     opts = tokens[KEY_TOKEN + 1].value;
     olen = tokens[KEY_TOKEN + 1].length;
-    rtokens--;
+    rtokens++;
 
     if (olen > MFLAG_MAX_OPT_LENGTH) {
         out_errstring(c, "CLIENT_ERROR options flags too long");
@@ -4819,10 +4819,10 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // scrubs duplicated options and sets flags for how to load the item.
     // TODO: I, E, APL?
-    rtokens -= _meta_flag_preparse(opts, olen, &of);
+    int mfres = _meta_flag_preparse(opts, olen, &of);
 
-    if (rtokens < 0) {
-        out_errstring(c, "CLIENT_ERROR not enough tokens supplied");
+    if (mfres + rtokens != ntokens) {
+        out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
         return;
     }
 
@@ -4978,16 +4978,16 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    rtokens = ntokens - 3; // cmd, key, final.
+    rtokens = 3; // cmd, key, final.
 
     // rtokens == 0 acts like a normal immediate delete
-    if (rtokens == 0) {
+    if (ntokens == 3) {
         opts = "";
         olen = 0;
     } else {
         opts = tokens[KEY_TOKEN + 1].value;
         olen = tokens[KEY_TOKEN + 1].length;
-        rtokens--;
+        rtokens++;
     }
 
     if (olen > MFLAG_MAX_OPT_LENGTH) {
@@ -5002,10 +5002,10 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     p += olen;
 
     // scrubs duplicated options and sets flags for how to load the item.
-    rtokens -= _meta_flag_preparse(opts, olen, &of);
+    int mfres = _meta_flag_preparse(opts, olen, &of);
 
-    if (rtokens < 0) {
-        out_string(c, "CLIENT_ERROR not enough tokens supplied");
+    if (mfres + rtokens != ntokens) {
+        out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
         return;
     }
     rtokens = KEY_TOKEN + 2;
