@@ -544,21 +544,6 @@ void do_item_remove(item *it) {
     }
 }
 
-/* Copy/paste to avoid adding two extra branches for all common calls, since
- * _nolock is only used in an uncommon case where we want to relink. */
-void do_item_update_nolock(item *it) {
-    MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
-    if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
-        assert((it->it_flags & ITEM_SLABBED) == 0);
-
-        if ((it->it_flags & ITEM_LINKED) != 0) {
-            do_item_unlink_q(it);
-            it->time = current_time;
-            do_item_link_q(it);
-        }
-    }
-}
-
 /* Bump the last accessed time, or relink if we're in compat mode */
 void do_item_update(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
@@ -574,7 +559,7 @@ void do_item_update(item *it) {
                 it->slabs_clsid |= WARM_LRU;
                 it->it_flags &= ~ITEM_ACTIVE;
                 item_link_q_warm(it);
-            } else if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
+            } else {
                 it->time = current_time;
             }
         }
@@ -1066,7 +1051,7 @@ void do_item_bump(conn *c, item *it, const uint32_t hv) {
             } else {
                 it->it_flags |= ITEM_ACTIVE;
                 if (ITEM_lruid(it) != COLD_LRU) {
-                    do_item_update(it); // bump LA time
+                    it->time = current_time; // only need to bump time.
                 } else if (!lru_bump_async(c->thread->lru_bump_buf, it, hv)) {
                     // add flag before async bump to avoid race.
                     it->it_flags &= ~ITEM_ACTIVE;
@@ -1182,7 +1167,8 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                     removed++;
                     if (cur_lru == WARM_LRU) {
                         itemstats[id].moves_within_lru++;
-                        do_item_update_nolock(search);
+                        do_item_unlink_q(search);
+                        do_item_link_q(search);
                         do_item_remove(search);
                         item_trylock_unlock(hold_lock);
                     } else {
