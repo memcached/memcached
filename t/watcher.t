@@ -117,6 +117,7 @@ if ($res eq "STORED\r\n") {
     while (my $log = <$watcher>) {
         $found_cas = 1 if ($log =~ m/cmd=cas/ && $log =~ m/cas_watch_key/);
         last if ($tries-- == 0 || $found_cas);
+        sleep 1;
     }
     is($found_cas, 1, "correctly logged cas command");
 }
