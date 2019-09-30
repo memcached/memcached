@@ -377,6 +377,16 @@ my $sock = $server->sock;
     is($res->{tokens}->[2], 'opaque', "O flag returned opaque");
 }
 
+{
+    diag "flag and token count errors";
+    print $sock "mg foo sv extratoken\r\n";
+    like(scalar <$sock>, qr/^CLIENT_ERROR incorrect number of tokens/, "too many tokens");
+    print $sock "mg foo svN\r\n";
+    like(scalar <$sock>, qr/^CLIENT_ERROR incorrect number of tokens/, "too few tokens");
+    print $sock "mg foo mooooo\r\n";
+    like(scalar <$sock>, qr/^CLIENT_ERROR invalid or duplicate flag/, "gone silly with flags");
+}
+
 # TODO: move wait_for_ext into Memcached.pm
 sub wait_for_ext {
     my $sock = shift;
