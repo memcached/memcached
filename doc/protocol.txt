@@ -757,7 +757,7 @@ The flags used by the 'md' command are:
 - k: return key
 - O: opaque to copy back.
 - q: noreply
-- T (token): updates TTL
+- T (token): updates TTL, only when paired with the 'I' flag
 
 The flags are now repeated with detailed information where useful:
 
@@ -780,7 +780,7 @@ See description under 'Meta Get'
 See description under 'Meta Set'. In the case of meta delete, this will hide
 response lines with the code "DE". It will still return any other responses.
 
-- T (token): updates TTL
+- T (token): updates TTL, only when paired with the 'I' flag
 
 When marking an item as stale with 'I', the 'T' flag can be used to update the
 TTL as well; limiting the amount of time an item will live while stale and
