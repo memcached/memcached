@@ -4689,7 +4689,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 #endif
         }
 
-        // FIXME: is extstore counting this? I don't believe it is.
         if (!c->noreply) {
             add_iov(c, "EN\r\n", 4);
         }
@@ -6516,7 +6515,7 @@ static enum transmit_result transmit(conn *c) {
         struct msghdr *m = &c->msglist[c->msgcurr];
 
         res = c->sendmsg(c, m, 0);
-        if (res > 0) {
+        if (res >= 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -6546,7 +6545,7 @@ static enum transmit_result transmit(conn *c) {
             }
             return TRANSMIT_SOFT_ERROR;
         }
-        /* if res == 0 or res == -1 and error is not EAGAIN or EWOULDBLOCK,
+        /* if res == -1 and error is not EAGAIN or EWOULDBLOCK,
            we have a real error, on which we close the connection */
         if (settings.verbose > 0)
             perror("Failed to write, and not due to blocking");

@@ -377,6 +377,74 @@ my $sock = $server->sock;
     is($res->{tokens}->[2], 'opaque', "O flag returned opaque");
 }
 
+# TODO: move wait_for_ext into Memcached.pm
+sub wait_for_ext {
+    my $sock = shift;
+    my $target = shift || 0;
+    my $sum = $target + 1;
+    while ($sum > $target) {
+        my $s = mem_stats($sock, "items");
+        $sum = 0;
+        for my $key (keys %$s) {
+            if ($key =~ m/items:(\d+):number/) {
+                # Ignore classes which can contain extstore items
+                next if $1 < 3;
+                $sum += $s->{$key};
+            }
+        }
+        sleep 1 if $sum > $target;
+    }
+}
+
+my $ext_path;
+# Do a basic extstore test if enabled.
+if (supports_extstore()) {
+    diag "mget + extstore tests";
+    $ext_path = "/tmp/extstore.$$";
+    my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=0,ext_compact_under=1,no_lru_crawler");
+    my $sock = $server->sock;
+
+    my $value;
+    {
+        my @chars = ("C".."Z");
+        for (1 .. 20000) {
+            $value .= $chars[rand @chars];
+        }
+    }
+
+    my $keycount = 10;
+    for (1 .. $keycount) {
+        print $sock "set nfoo$_ 0 0 20000 noreply\r\n$value\r\n";
+    }
+
+    wait_for_ext($sock);
+    mget_is({ sock => $sock,
+              flags => 'sv',
+              etokens => [20000] },
+            'nfoo1', $value, "retrieved test value");
+    my $stats = mem_stats($sock);
+    cmp_ok($stats->{get_extstore}, '>', 0, 'one object was fetched');
+
+    my $ovalue = $value;
+    for (1 .. 4) {
+        $value .= $ovalue;
+    }
+    # Fill to eviction.
+    $keycount = 1000;
+    for (1 .. $keycount) {
+        print $sock "set mfoo$_ 0 0 100000 noreply\r\n$value\r\n";
+        # wait to avoid memory evictions
+        wait_for_ext($sock, 1) if ($_ % 500 == 0);
+    }
+
+    print $sock "mg mfoo1 sv\r\n";
+    is(scalar <$sock>, "EN\r\n");
+    print $sock "mg mfoo1 svq\r\nmn\r\n";
+    is(scalar <$sock>, "EN\r\n");
+    $stats = mem_stats($sock);
+    cmp_ok($stats->{miss_from_extstore}, '>', 0, 'at least one miss');
+}
+
 ###
 
 # takes hash:
@@ -410,7 +478,7 @@ sub mget_is {
     print $s "mg $key $flags $tokens\r\n";
     if (! defined $val) {
         my $line = scalar <$s>;
-        if ($line =~ /^VALUE/) {
+        if ($line =~ /^VA/) {
             $line .= scalar(<$s>) . scalar(<$s>);
         }
         Test::More::is($line, "EN\r\n", $msg);
@@ -422,7 +490,7 @@ sub mget_is {
             Test::More::is($body, $expected, $msg);
             return;
         }
-        $body .= scalar(<$sock>) . scalar(<$sock>);
+        $body .= scalar(<$s>) . scalar(<$s>);
         Test::More::is($body, $expected, $msg);
         return mget_res($body);
     }
@@ -461,3 +529,7 @@ sub mget_res {
 }
 
 done_testing();
+
+END {
+    unlink $ext_path if $ext_path;
+}
