@@ -4359,8 +4359,7 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
         uint8_t o = (uint8_t)opts[i];
         // zero out repeat flags so we don't over-parse for return data.
         if (o >= 127 || seen[o] != 0) {
-            opts[i] = 0;
-            continue;
+            return -1;
         }
         seen[o] = 1;
         // FIXME: alphabetize.
@@ -4385,7 +4384,12 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
             case 'O':
                 tokens++;
                 break;
-            case 'k':
+            case 'k': // known but no special handling
+            case 's':
+            case 't':
+            case 'c':
+            case 'v':
+            case 'f':
                 break;
             case 'h':
                 of->locked = 1; // need locked to delay LRU bump
@@ -4405,6 +4409,8 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
             case 'I':
                 of->set_stale = 1;
                 break;
+            default: // unknown flag, bail.
+                return -1;
         }
     }
 
@@ -4474,7 +4480,11 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     int mfres = _meta_flag_preparse(opts, olen, &of);
 
     if (mfres + rtokens != ntokens) {
-        out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        if (mfres == -1) {
+            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
+        } else {
+            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        }
         return;
     }
     rtokens = KEY_TOKEN + 2;
@@ -4822,7 +4832,11 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     int mfres = _meta_flag_preparse(opts, olen, &of);
 
     if (mfres + rtokens != ntokens) {
-        out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        if (mfres == -1) {
+            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
+        } else {
+            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        }
         return;
     }
 
@@ -5005,7 +5019,11 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     int mfres = _meta_flag_preparse(opts, olen, &of);
 
     if (mfres + rtokens != ntokens) {
-        out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        if (mfres == -1) {
+            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
+        } else {
+            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        }
         return;
     }
     rtokens = KEY_TOKEN + 2;
@@ -5039,7 +5057,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
                 p += tokens[rtokens].length + 1;
                 rtokens++;
                 break;
-            case 'K':
+            case 'k':
                 *p = ' ';
                 memcpy(p+1, key, nkey);
                 p += nkey + 1;
