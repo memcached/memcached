@@ -444,7 +444,7 @@ if (supports_extstore()) {
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 100000 noreply\r\n$value\r\n";
         # wait to avoid memory evictions
-        wait_for_ext($sock, 1) if ($_ % 500 == 0);
+        wait_for_ext($sock, 1) if ($_ % 250 == 0);
     }
 
     print $sock "mg mfoo1 sv\r\n";
