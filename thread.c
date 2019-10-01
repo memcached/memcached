@@ -580,7 +580,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 
     cq_push(thread->new_conn_queue, item);
 
-    MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
+    MEMCACHED_CONN_DISPATCH(sfd, (int64_t)thread->thread_id);
     buf[0] = 'c';
     if (write(thread->notify_send_fd, buf, 1) != 1) {
         perror("Writing to thread notify pipe");

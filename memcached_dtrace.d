@@ -57,7 +57,7 @@ provider memcached {
     * @param connid the connection id
     * @param threadid the thread id
     */
-   probe conn__dispatch(int connid, int threadid);
+   probe conn__dispatch(int connid, int64_t threadid);
 
    /**
     * Allocate memory from the slab allocator.
