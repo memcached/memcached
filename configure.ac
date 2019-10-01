@@ -172,12 +172,11 @@ if test "x$enable_dtrace" = "xyes"; then
   if test "x$DTRACE" != "xno"; then
     AC_DEFINE([ENABLE_DTRACE],1,[Set to nonzero if you want to include DTRACE])
     build_dtrace=yes
-    # DTrace on MacOSX does not use -G option
-    $DTRACE -G -o conftest.$$ -s memcached_dtrace.d 2>/dev/zero
+    $DTRACE -h -o conftest.h -s memcached_dtrace.d 2>/dev/zero
     if test $? -eq 0
     then
         dtrace_instrument_obj=yes
-        rm conftest.$$
+        rm conftest.h
     fi
 
     if test "`which tr`" = "/usr/ucb/tr"; then
