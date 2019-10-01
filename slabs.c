@@ -1032,6 +1032,7 @@ static int slab_rebalance_move(void) {
                 } else {
                     /* unlink and mark as done if it's not
                      * a chunked item as they require more book-keeping) */
+                    STORAGE_delete(storage, it);
                     if (!ch) {
                         do_item_unlink(it, hv);
                         it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
@@ -1039,7 +1040,6 @@ static int slab_rebalance_move(void) {
                         slab_rebal.completed[offset] = 1;
                     } else {
                         ntotal = ITEM_ntotal(it);
-                        STORAGE_delete(storage, it);
                         do_item_unlink(it, hv);
                         slabs_free(it, ntotal, slab_rebal.s_clsid);
                         /* Swing around again later to remove it from the freelist. */
