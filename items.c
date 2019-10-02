@@ -3,7 +3,7 @@
 #include "bipbuffer.h"
 #include "slab_automove.h"
 #ifdef EXTSTORE
-#include "storage.h"
+#include <storage_engine/storage_engine.h>
 #include "slab_automove_extstore.h"
 #endif
 #include <sys/stat.h>
@@ -67,6 +67,13 @@ static int lru_maintainer_initialized = 0;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t stats_sizes_lock = PTHREAD_MUTEX_INITIALIZER;
+
+#ifdef EXTSTORE
+static storage_engine *engine;
+void items_set_storage(void *arg) {
+    engine = (storage_engine *)arg;
+}
+#endif
 
 void item_stats_reset(void) {
     int i;
@@ -324,6 +331,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     it->nkey = nkey;
     it->nbytes = nbytes;
     memcpy(ITEM_key(it), key, nkey);
+    ITEM_key(it)[nkey] = '\0';  // null-terminated key
     it->exptime = exptime;
     if (nsuffix > 0) {
         memcpy(ITEM_suffix(it), &flags, sizeof(flags));
@@ -419,7 +427,7 @@ static void do_item_link_q(item *it) { /* item is the new head */
     sizes[it->slabs_clsid]++;
 #ifdef EXTSTORE
     if (it->it_flags & ITEM_HDR) {
-        sizes_bytes[it->slabs_clsid] += (ITEM_ntotal(it) - it->nbytes) + sizeof(item_hdr);
+        sizes_bytes[it->slabs_clsid] += (ITEM_ntotal(it) - it->nbytes) + engine->locator_size;
     } else {
         sizes_bytes[it->slabs_clsid] += ITEM_ntotal(it);
     }
@@ -464,7 +472,7 @@ static void do_item_unlink_q(item *it) {
     sizes[it->slabs_clsid]--;
 #ifdef EXTSTORE
     if (it->it_flags & ITEM_HDR) {
-        sizes_bytes[it->slabs_clsid] -= (ITEM_ntotal(it) - it->nbytes) + sizeof(item_hdr);
+        sizes_bytes[it->slabs_clsid] -= (ITEM_ntotal(it) - it->nbytes) + engine->locator_size;
     } else {
         sizes_bytes[it->slabs_clsid] -= ITEM_ntotal(it);
     }
@@ -995,7 +1003,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
         was_found = 1;
         if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
-            STORAGE_delete(c->thread->storage, it);
+            STORAGE_delete(engine, it);
             do_item_remove(it);
             it = NULL;
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -1007,7 +1015,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
             was_found = 2;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
             do_item_unlink(it, hv);
-            STORAGE_delete(c->thread->storage, it);
+            STORAGE_delete(engine, it);
             do_item_remove(it);
             it = NULL;
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -1126,7 +1134,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                 itemstats[id].tailrepairs++;
                 search->refcount = 1;
                 /* This will call item_remove -> item_free since refcnt is 1 */
-                STORAGE_delete(ext_storage, search);
+                STORAGE_delete(engine, search);
                 do_item_unlink_nolock(search, hv);
                 item_trylock_unlock(hold_lock);
                 continue;
@@ -1142,7 +1150,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
             }
             /* refcnt 2 -> 1 */
             do_item_unlink_nolock(search, hv);
-            STORAGE_delete(ext_storage, search);
+            STORAGE_delete(engine, search);
             /* refcnt 1 -> 0 -> item_free */
             do_item_remove(search);
             item_trylock_unlock(hold_lock);
@@ -1209,7 +1217,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                         itemstats[id].evicted_active++;
                     }
                     LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EVICTION, search);
-                    STORAGE_delete(ext_storage, search);
+                    STORAGE_delete(engine, search);
                     do_item_unlink_nolock(search, hv);
                     removed++;
                     if (settings.slab_automove == 2) {
@@ -1673,6 +1681,7 @@ static void *lru_maintainer_thread(void *arg) {
     pthread_mutex_unlock(&lru_maintainer_lock);
     sam->free(am);
     // LRU crawler *must* be stopped.
+    pthread_mutex_destroy(&cdata->lock);
     free(cdata);
     if (settings.verbose > 2)
         fprintf(stderr, "LRU maintainer thread stopping\n");

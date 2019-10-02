@@ -24,6 +24,15 @@ locate_binary() {
   return 1
 }
 
+echo "libtoolize..."
+if test x$LIBTOOLIZE = x; then
+  LIBTOOLIZE=`locate_binary libtoolize`
+  if test x$LIBTOOLIZE = x; then
+    die "Did not find a supported libtoolize"
+  fi
+fi
+$LIBTOOLIZE || exit 1
+
 echo "aclocal..."
 if test x$ACLOCAL = x; then
   ACLOCAL=`locate_binary aclocal-1.14 aclocal-1.13 aclocal-1.12 aclocal-1.11 aclocal-1.10 aclocal-1.9 aclocal19 aclocal-1.7 aclocal17 aclocal-1.5 aclocal15 aclocal`

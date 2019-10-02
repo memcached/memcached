@@ -797,5 +797,9 @@ then
   CFLAGS="$CFLAGS -errfmt=error -errwarn -errshort=tags"
 fi
 
+LT_INIT
 AC_CONFIG_FILES(Makefile doc/Makefile)
+AM_COND_IF([ENABLE_EXTSTORE],
+           [AC_CONFIG_FILES([extstore/Makefile])])
+
 AC_OUTPUT

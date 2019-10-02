@@ -6,6 +6,9 @@
 
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include "memcached.h"
+#ifdef EXTSTORE
+#include <storage_engine/storage_engine.h>
+#endif
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
@@ -98,7 +101,7 @@ static pthread_mutex_t lru_crawler_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  lru_crawler_cond = PTHREAD_COND_INITIALIZER;
 #ifdef EXTSTORE
 /* TODO: pass this around */
-static void *storage;
+static storage_engine *engine;
 #endif
 
 /* Will crawl all slab classes a minimum of once per hour */
@@ -186,8 +189,7 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
 #ifdef EXTSTORE
     bool is_valid = true;
     if (search->it_flags & ITEM_HDR) {
-        item_hdr *hdr = (item_hdr *)ITEM_data(search);
-        if (extstore_check(storage, hdr->page_id, hdr->page_version) != 0)
+        if (engine->check_item(search, ITEM_data(search)) != 0)
             is_valid = false;
     }
 #endif
@@ -214,7 +216,7 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
             crawlers[i].unfetched++;
         }
 #ifdef EXTSTORE
-        STORAGE_delete(storage, search);
+        STORAGE_delete(engine, search);
 #endif
         do_item_unlink_nolock(search, hv);
         do_item_remove(search);
@@ -694,7 +696,7 @@ void lru_crawler_resume(void) {
 int init_lru_crawler(void *arg) {
     if (lru_crawler_initialized == 0) {
 #ifdef EXTSTORE
-        storage = arg;
+        engine = (storage_engine *)arg;
 #endif
         if (pthread_cond_init(&lru_crawler_cond, NULL) != 0) {
             fprintf(stderr, "Can't initialize lru crawler condition\n");

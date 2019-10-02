@@ -1,3 +1,12 @@
+#ifdef HAVE_CONFIG_H
+#ifndef _GNU_SOURCE
+#include "config.h"
+#endif
+#endif
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+
 /* fast-enough functions for uriencoding strings. */
 void uriencode_init(void);
 bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dstlen);

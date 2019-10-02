@@ -21,15 +21,15 @@ enum log_entry_type {
     LOGGER_CRAWLER_STATUS,
     LOGGER_SLAB_MOVE,
 #ifdef EXTSTORE
-    LOGGER_EXTSTORE_WRITE,
-    LOGGER_COMPACT_START,
-    LOGGER_COMPACT_ABORT,
-    LOGGER_COMPACT_READ_START,
-    LOGGER_COMPACT_READ_END,
-    LOGGER_COMPACT_END,
-    LOGGER_COMPACT_FRAGINFO,
+    LOGGER_STORAGE_WRITE,
 #endif
 };
+
+#ifdef EXTSTORE
+#define NUM_LOG_ENTRY_TYPES 7
+#else
+#define NUM_LOG_ENTRY_TYPES 6
+#endif
 
 enum log_entry_subtype {
     LOGGER_TEXT_ENTRY = 0,
@@ -166,7 +166,7 @@ extern pthread_key_t logger_key;
 
 /* public functions */
 
-void logger_init(void);
+void logger_init(void *arg);
 void logger_stop(void);
 logger *logger_create(void);
 
@@ -180,6 +180,7 @@ logger *logger_create(void);
     } while (0)
 
 enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, const void *entry, ...);
+enum logger_ret_type logger_log_args(logger *l, const enum log_entry_type event, const void *entry, va_list args);
 
 enum logger_add_watcher_ret {
     LOGGER_ADD_WATCHER_TOO_MANY = 0,

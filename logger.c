@@ -15,6 +15,10 @@
 #include "memcached.h"
 #include "bipbuffer.h"
 
+#ifdef EXTSTORE
+#include <storage_engine/storage_engine.h>
+#endif
+
 #ifdef LOGGER_DEBUG
 #define L_DEBUG(...) \
     do { \
@@ -45,7 +49,8 @@ struct pollfd watchers_pollfds[20];
 int watcher_count = 0;
 
 /* Should this go somewhere else? */
-static const entry_details default_entries[] = {
+static entry_details *default_entries;
+static const entry_details default_entries_core[] = {
     [LOGGER_ASCII_CMD] = {LOGGER_TEXT_ENTRY, 512, LOG_RAWCMDS, "<%d %s"},
     [LOGGER_EVICTION] = {LOGGER_EVICTION_ENTRY, 512, LOG_EVICTIONS, NULL},
     [LOGGER_ITEM_GET] = {LOGGER_ITEM_GET_ENTRY, 512, LOG_FETCHERS, NULL},
@@ -57,25 +62,7 @@ static const entry_details default_entries[] = {
         "type=slab_move src=%d dst=%d"
     },
 #ifdef EXTSTORE
-    [LOGGER_EXTSTORE_WRITE] = {LOGGER_EXT_WRITE_ENTRY, 512, LOG_EVICTIONS, NULL},
-    [LOGGER_COMPACT_START] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "type=compact_start id=%lu version=%llu"
-    },
-    [LOGGER_COMPACT_ABORT] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "type=compact_abort id=%lu"
-    },
-    [LOGGER_COMPACT_READ_START] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "type=compact_read_start id=%lu offset=%llu"
-    },
-    [LOGGER_COMPACT_READ_END] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "type=compact_read_end id=%lu offset=%llu rescues=%lu lost=%lu skipped=%lu"
-    },
-    [LOGGER_COMPACT_END] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "type=compact_end id=%lu"
-    },
-    [LOGGER_COMPACT_FRAGINFO] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
-        "type=compact_fraginfo ratio=%.2f bytes=%lu"
-    },
+    [LOGGER_STORAGE_WRITE] = {LOGGER_EXT_WRITE_ENTRY, 512, LOG_EVICTIONS, NULL},
 #endif
 };
 
@@ -578,7 +565,7 @@ static int stop_logger_thread(void) {
  *************************/
 
 /* Global logger thread start/init */
-void logger_init(void) {
+void logger_init(void *arg) {
     /* TODO: auto destructor when threads exit */
     /* TODO: error handling */
 
@@ -594,6 +581,26 @@ void logger_init(void) {
     /* This is what adding a STDERR watcher looks like. should replace old
      * "verbose" settings. */
     //logger_add_watcher(NULL, 0);
+
+#ifdef EXTSTORE
+    /* Merge engine entries with global entries */
+    storage_engine *engine = (storage_engine *)arg;
+    if (engine) {
+        int num_entry_types = NUM_LOG_ENTRY_TYPES + engine->num_log_entry_types;
+        default_entries = (entry_details *)malloc(num_entry_types*sizeof(entry_details));
+        if(default_entries == NULL) {
+            abort();
+        }
+        memcpy((void *)default_entries, (void *)default_entries_core, NUM_LOG_ENTRY_TYPES*sizeof(entry_details));
+        memcpy((void *)(default_entries+NUM_LOG_ENTRY_TYPES), (void *)engine->log_entry_types, engine->num_log_entry_types*sizeof(entry_details));
+    }
+    else {
+        default_entries = default_entries_core;
+    }
+#else
+    default_entries = default_entries_core;
+#endif
+
     return;
 }
 
@@ -694,6 +701,17 @@ static void _logger_log_item_store(logentry *e, const enum store_item_type statu
  * caller's code.
  */
 enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, const void *entry, ...) {
+    enum logger_ret_type ret = LOGGER_RET_ERR;
+    va_list args;
+
+    va_start(args, entry);
+    ret = logger_log_args(l, event, entry, args);
+    va_end(args);
+
+    return ret;
+}
+
+enum logger_ret_type logger_log_args(logger *l, const enum log_entry_type event, const void *entry, va_list args) {
     bipbuf_t *buf = l->buf;
     bool nospace = false;
     va_list ap;
@@ -725,7 +743,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
 
     switch (d->subtype) {
         case LOGGER_TEXT_ENTRY:
-            va_start(ap, entry);
+            va_copy(ap, args);
             total = vsnprintf((char *) e->data, reqlen, d->format, ap);
             va_end(ap);
             if (total >= reqlen || total <= 0) {
@@ -740,14 +758,14 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             break;
 #ifdef EXTSTORE
         case LOGGER_EXT_WRITE_ENTRY:
-            va_start(ap, entry);
+            va_copy(ap, args);
             int ew_bucket = va_arg(ap, int);
             va_end(ap);
             _logger_log_ext_write(e, (item *)entry, ew_bucket);
             break;
 #endif
         case LOGGER_ITEM_GET_ENTRY:
-            va_start(ap, entry);
+            va_copy(ap, args);
             int was_found = va_arg(ap, int);
             char *key = va_arg(ap, char *);
             size_t nkey = va_arg(ap, size_t);
@@ -757,7 +775,7 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             va_end(ap);
             break;
         case LOGGER_ITEM_STORE_ENTRY:
-            va_start(ap, entry);
+            va_copy(ap, args);
             enum store_item_type status = va_arg(ap, enum store_item_type);
             int comm = va_arg(ap, int);
             char *skey = va_arg(ap, char *);
