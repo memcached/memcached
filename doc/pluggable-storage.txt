@@ -1,0 +1,203 @@
+Pluggable Storage
+-----------------
+
+The pluggable storage API generalizes the functionality provided by extstore and allows development of other storage engines.
+Storage engines will be distributed as shared libraries. The user can select a storage engine at launch time through command line options.
+
+For the following overview, we will differentiate Memcached "core" (in-memory data management, request handling...) from the storage engine.
+
+
+
+1. API
+------
+
+The API has 6 main parts
+- Initialization
+- Thread management
+- Storage
+- Configuration
+- Statistics
+- Logging
+
+Utility functions are also provided to assist in the development and testing of storage engines.
+
+
+1.1 Initialization
+--------------------
+
+The storage engine to load is specified through the "storage_engine_path" suboption, which takes a path to a shared library.
+If the option is not specified, extstore is loaded by default. Extstore is built as a shared library but still distributed as part of Memcached.
+
+Initialization steps
+- Memcached core parses the storage_engine_path option and dynamically loads the engine.
+- It then calls the engine's "create_engine" function.
+- The create_engine function returns a "storage_engine" instance with all the information needed to run the engine. All the engine function called by Memcached from here on are exposed through the storage_engine instance.
+
+The create_engine function is the only one exposed by the shared library. All the other engine functions are exposed through the storage_engine struct. 
+A plugin must implement all functions in storage_engine. Function bodies can be empty/returning default value if not implemented.
+
+After obtaining the storage_engine instance, Memcached calls in order
+- apply_defaults: apply default settings to the engine.
+- read_config: while reading the command-line options, Memcached passes the engine-specific ones to the engine itself.
+- check_config: after all the settings are loaded, the engine verifies all are consistent.
+- init: engine initialization. Memcached passes a "core_handle" with pointers to core functions that may be needed by the engine.
+- start_threads: if the engine creates additional threads, they will be started here.
+
+
+1.2 Thread Management
+-----------------------
+
+If the engine creates additional threads, their lifecycle should be managed through these functions.
+- start_threads
+- pause_threads
+- resume_threads
+
+
+1.3 Storage
+-------------
+
+It includes functions to access items. 
+
+The architecture is the same as for extstore. At a high level:
+- A storage thread moves items to storage.
+- After an item is moved to storage, the metadata and key are kept in memory for fast lookup.
+- The item value in memory is replaced by a "locator", which is later used to retrieve the item from storage.
+
+A locator is basically a key to retrieve the item from the storage engine and a generalization of extstore's approach.
+- It could be the item key itself or an engine-specific locator (e.g., a pointer). For extstore, the locator is a file page/offset.
+- Memcached core treats the locator as opaque (it just knows the size through the locator_size field in storage_engine).
+
+
+write_item
+- From the storage thread, Memcached passes an item to the engine.
+- The engine writes the item and provides a locator (as described above). The locator becomes the value of the item in memory.
+
+read_item
+- Given a locator, the engine retrieves an item.
+
+delete_item
+- Given a locator, the engine deletes an item.
+
+check_item
+- The engine verifies that the item in storage is still present/valid (if required by the engine).
+
+submit
+- Needed if the engine executes read requests on separate threads (like extstore does). 
+- In that case, the read_item function queues read requests. The submit function wakes up the thread(s) to execute those requests.
+
+
+1.4 Configuration
+-------------------
+
+It includes functions related to engine's settings. Some of the functions were already mentioned as part of the initialization steps.
+
+apply_defaults
+- The engine applies its default configuration.
+
+read_config
+- While reading the command-line options, Memcached passes the engine-specific ones to the engine itself to parse.
+
+check_config
+- After all the settings are loaded, the engine verifies all are consistent.
+
+usage
+- The engine provides the list options it accepts and explanations for them. They are printed in response to the -h flag when storage_engine_path is specified.
+
+process_storage_command
+- To apply engine settings at runtime through the "storage" command.
+- Generalization of the "extstore" command (still available as an alias).
+
+set_recache_rate
+get_recache_rate
+set_item_age
+get_item_age
+- All engines implement the recache_rate and item_age options, with the same meaning as for extstore.
+- These options are parsed by Memcached (so the code is shared by all engines) and applied to the engine.
+
+
+1.5 Statistics
+--------------
+
+get_storage_stats
+- The engine provides statistics in response to the "stats" command
+
+get_command_stats
+- The engine provides more detailed statistics in response to the "stats storage" command (generalization of the "stats extstore" command, which is still available as an alias).
+
+get_settings_stats
+- The engine provides its settings' values in response to the "stats settings" command.
+
+
+1.6 Logging
+-----------
+
+The engine can define custom log entry types, which will be combined with the Memcached core types.
+
+
+
+2. Storage Engine SDK
+---------------------
+
+All the dependencies required for the development of a storage engine are in the storage_engine directory.
+
+storage_engine directory
+- memcached_engine.h: subset of memcached.h containing only the definitions required by storage engines.
+- logger_engine.h: same as above, but for logger.h.
+- storage_engine.h: API definition.
+- storage_utilities.h/c: utility function to simplify engine development (experimental). More details below.
+
+storage_engine/test directory (experimental)
+- test_helper.h/c: utility functions for engine unit tests (e.g., generate dummy items and requests)
+- test/item_access_tests.h/c: simple read/write/delete tests, implemented using test_helper functions.
+- main.c: sample test program
+- runtest.sh and engine_test.t: basic integration test, in which the engine is loaded in Memcached and exercised. Derived from extstore.t.
+
+
+2.1 Utility Functions
+---------------------
+
+core_handle (storage_engine.h)
+- queue_storage_read: queues the storage_read request
+- respond_storage_read: it prepares the response for a storage_read request
+- complete_storage_read: mark the request as complete
+
+storage_utilities.h
+- item_consolidate_chunks: takes a chunked item and consolidates it (into a contiguous memory block). Useful during writes.
+- data_consolidate_chunks: same as above, but it only consolidates the item data (the header is removed). Useful during writes if the engine saves only item values, rather than full items.
+- item_populate_chunks: reverse of consolidation. If the item retrieved from storage needs to be chunked, populate the chunks provided by Memcached core.
+- data_populate_chunks: same as above, but for item data only.
+
+
+Example: read implementation (run on Memcached worker thread, no separate engine thread)
+- read_item
+  - queue_storage_read
+  - if an item needs to be chunked, populate the chunks (preallocated by Memcached) using item_populate_chunks or data_populate_chunks (depending on whether the engine stores full items or only their values).
+  - respond_storage_read
+  - complete_storage_read
+- submit
+  - empty
+
+Example: read implementation (separate thread in engine)
+- read_item (queues the read)
+  - queue_storage_read
+- submit
+  - wake up engine thread
+- engine thread
+  - if an item needs to be chunked, populate the chunks (preallocated by Memcached) using item_populate_chunks or data_populate_chunks (depending on whether the engine stores full items or only their values).
+  - respond_storage_read
+  - complete_storage_read
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

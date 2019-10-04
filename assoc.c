@@ -256,9 +256,9 @@ static void *assoc_maintenance_thread(void *arg) {
              * wait times.
              */
             if (do_run_maintenance_thread) {
-                pause_threads(PAUSE_ALL_THREADS);
+                pause_threads(PAUSE_ALL_THREADS, arg);
                 assoc_expand();
-                pause_threads(RESUME_ALL_THREADS);
+                pause_threads(RESUME_ALL_THREADS, arg);
             }
         }
     }
@@ -268,7 +268,7 @@ static void *assoc_maintenance_thread(void *arg) {
 
 static pthread_t maintenance_tid;
 
-int start_assoc_maintenance_thread() {
+int start_assoc_maintenance_thread(void *arg) {
     int ret;
     char *env = getenv("MEMCACHED_HASH_BULK_MOVE");
     if (env != NULL) {
@@ -279,7 +279,7 @@ int start_assoc_maintenance_thread() {
     }
     pthread_mutex_init(&maintenance_lock, NULL);
     if ((ret = pthread_create(&maintenance_tid, NULL,
-                              assoc_maintenance_thread, NULL)) != 0) {
+                              assoc_maintenance_thread, arg)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
         return -1;
     }

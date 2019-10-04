@@ -3,7 +3,7 @@ use strict;
 use FindBin qw($Bin);
 chdir "$Bin/.." or die;
 
-my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md);
+my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am extstore/Makefile.am README README.md);
 push(@exempted, glob("doc/*.xml"));
 push(@exempted, glob("doc/*.full"));
 push(@exempted, glob("doc/xml2rfc/*.xsl"));

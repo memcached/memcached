@@ -8,6 +8,9 @@
  * memcached protocol.
  */
 #include "memcached.h"
+#ifdef EXTSTORE
+#include <storage_engine/storage_engine.h>
+#endif
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -50,7 +53,7 @@ static void *mem_base = NULL;
 static void *mem_current = NULL;
 static size_t mem_avail = 0;
 #ifdef EXTSTORE
-static void *storage  = NULL;
+static storage_engine *engine;
 #endif
 /**
  * Access to the slab allocator is protected by this lock
@@ -75,7 +78,7 @@ static void do_slabs_free(void *ptr, const size_t size, unsigned int id);
 static void slabs_preallocate (const unsigned int maxslabs);
 #ifdef EXTSTORE
 void slabs_set_storage(void *arg) {
-    storage = arg;
+    engine = (storage_engine *)arg;
 }
 #endif
 /*
@@ -907,7 +910,7 @@ static int slab_rebalance_move(void) {
                             slab_rebal.busy_deletes++;
                             // Only safe to hold slabs lock because refcount
                             // can't drop to 0 until we release item lock.
-                            STORAGE_delete(storage, it);
+                            STORAGE_delete(engine, it);
                             pthread_mutex_unlock(&slabs_lock);
                             do_item_unlink(it, hv);
                             pthread_mutex_lock(&slabs_lock);
@@ -948,7 +951,7 @@ static int slab_rebalance_move(void) {
                 ntotal = ITEM_ntotal(it);
 #ifdef EXTSTORE
                 if (it->it_flags & ITEM_HDR) {
-                    ntotal = (ntotal - it->nbytes) + sizeof(item_hdr);
+                    ntotal = (ntotal - it->nbytes) + engine->locator_size;
                 }
 #endif
                 /* REQUIRES slabs_lock: CHECK FOR cls->sl_curr > 0 */
@@ -1021,7 +1024,7 @@ static int slab_rebalance_move(void) {
                 } else {
                     /* restore ntotal in case we tried saving a head chunk. */
                     ntotal = ITEM_ntotal(it);
-                    STORAGE_delete(storage, it);
+                    STORAGE_delete(engine, it);
                     do_item_unlink(it, hv);
                     slabs_free(it, ntotal, slab_rebal.s_clsid);
                     /* Swing around again later to remove it from the freelist. */

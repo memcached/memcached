@@ -40,7 +40,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <pthread.h>
-#include "config.h"
+#include "../config.h"
 #if defined(__linux__) && defined(__aarch64__)
 #include <sys/auxv.h>
 #endif

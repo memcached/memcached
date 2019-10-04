@@ -5,6 +5,7 @@
 #include "memcached.h"
 #ifdef EXTSTORE
 #include "storage.h"
+#include <storage_engine/storage_engine.h>
 #endif
 #include <assert.h>
 #include <stdio.h>
@@ -137,9 +138,12 @@ static void register_thread_initialized(void) {
 }
 
 /* Must not be called with any deeper locks held */
-void pause_threads(enum pause_thread_types type) {
+void pause_threads(enum pause_thread_types type, void *arg) {
     char buf[1];
     int i;
+#ifdef EXTSTORE
+    storage_engine *engine = (storage_engine *)arg;
+#endif
 
     buf[0] = 0;
     switch (type) {
@@ -148,7 +152,9 @@ void pause_threads(enum pause_thread_types type) {
             lru_maintainer_pause();
             lru_crawler_pause();
 #ifdef EXTSTORE
-            storage_compact_pause();
+            if (engine) {
+                engine->pause_threads();
+            }
             storage_write_pause();
 #endif
         case PAUSE_WORKER_THREADS:
@@ -160,7 +166,9 @@ void pause_threads(enum pause_thread_types type) {
             lru_maintainer_resume();
             lru_crawler_resume();
 #ifdef EXTSTORE
-            storage_compact_resume();
+            if (engine) {
+                engine->resume_threads();
+            }
             storage_write_resume();
 #endif
         case RESUME_WORKER_THREADS:
@@ -414,7 +422,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(EXIT_FAILURE);
     }
 #ifdef EXTSTORE
-    me->io_cache = cache_create("io", sizeof(io_wrap), sizeof(char*), NULL, NULL);
+    me->io_cache = cache_create("io", sizeof(storage_read), sizeof(char*), NULL, NULL);
     if (me->io_cache == NULL) {
         fprintf(stderr, "Failed to create IO object cache\n");
         exit(EXIT_FAILURE);
@@ -841,7 +849,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
  *
  * nthreads  Number of worker event handler threads to spawn
  */
-void memcached_thread_init(int nthreads, void *arg) {
+void memcached_thread_init(int nthreads) {
     int         i;
     int         power;
 
@@ -906,9 +914,6 @@ void memcached_thread_init(int nthreads, void *arg) {
 
         threads[i].notify_receive_fd = fds[0];
         threads[i].notify_send_fd = fds[1];
-#ifdef EXTSTORE
-        threads[i].storage = arg;
-#endif
         setup_thread(&threads[i]);
         /* Reserve three fds for the libevent base, and two for the pipe */
         stats_state.reserved_fds += 5;

@@ -125,6 +125,23 @@ static _store_wbuf *wbuf_new(size_t size) {
     return b;
 }
 
+// In case of error allocating memory, free buffer and io stacks
+static void free_io_stack(store_engine *e) {
+    _store_wbuf *w = e->wbuf_stack;
+    while (w) {
+        _store_wbuf *next = w->next;
+        free(w);
+        w = next;
+    }
+
+    obj_io *io = e->io_stack;
+    while (io) {
+        obj_io *next = io->next;
+        free(io);
+        io = next;
+    }
+}
+
 static store_io_thread *_get_io_thread(store_engine *e) {
     int tid = -1;
     long long int low = LLONG_MAX;
@@ -307,6 +324,14 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
 
     // free page buckets allows the app to organize devices by use case
     e->free_page_buckets = calloc(cf->page_buckets, sizeof(store_page *));
+    if (e->free_page_buckets == NULL) {
+        *res = EXTSTORE_INIT_OOM;
+        // FIXME: loop-close. make error label
+        free(e->pages);
+        free(e);
+        return NULL;
+    }
+
     e->page_bucketcount = cf->page_buckets;
 
     for (i = e->page_count-1; i > 0; i--) {
@@ -339,7 +364,16 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     for (i = 0; i < cf->wbuf_count; i++) {
         _store_wbuf *w = wbuf_new(cf->wbuf_size);
         obj_io *io = calloc(1, sizeof(obj_io));
-        /* TODO: on error, loop again and free stack. */
+        if (w == NULL || io == NULL) {
+            *res = EXTSTORE_INIT_OOM;
+            // FIXME: loop-close. make error label
+            free_io_stack(e);
+            free(e->page_buckets);
+            free(e->free_page_buckets);
+            free(e->pages);
+            free(e);
+            return NULL;
+        }
         w->next = e->wbuf_stack;
         e->wbuf_stack = w;
         io->next = e->io_stack;
@@ -353,6 +387,27 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
 
     // spawn threads
     e->io_threads = calloc(cf->io_threadcount, sizeof(store_io_thread));
+    e->maint_thread = calloc(1, sizeof(store_maint_thread));
+
+    if (e->io_threads == NULL || e->maint_thread == NULL) {
+        *res = EXTSTORE_INIT_OOM;
+        // FIXME: loop-close. make error label
+        if (e->io_threads != NULL) {
+            free(e->io_threads);
+        }
+        if (e->maint_thread != NULL) {
+            free(e->maint_thread);
+        }
+        pthread_mutex_destroy(&e->stats_mutex);
+        pthread_mutex_destroy(&e->mutex);
+        free_io_stack(e);
+        free(e->page_buckets);
+        free(e->free_page_buckets);
+        free(e->pages);
+        free(e);
+        return NULL;
+    }
+
     for (i = 0; i < cf->io_threadcount; i++) {
         pthread_mutex_init(&e->io_threads[i].mutex, NULL);
         pthread_cond_init(&e->io_threads[i].cond, NULL);
@@ -362,9 +417,7 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     }
     e->io_threadcount = cf->io_threadcount;
 
-    e->maint_thread = calloc(1, sizeof(store_maint_thread));
     e->maint_thread->e = e;
-    // FIXME: error handling
     pthread_mutex_init(&e->maint_thread->mutex, NULL);
     pthread_cond_init(&e->maint_thread->cond, NULL);
     pthread_create(&thread, NULL, extstore_maint_thread, e->maint_thread);

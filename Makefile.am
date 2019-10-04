@@ -53,9 +53,8 @@ memcached_SOURCES += sasl_defs.c
 endif
 
 if ENABLE_EXTSTORE
-memcached_SOURCES += extstore.c extstore.h \
-                     crc32c.c crc32c.h \
-                     storage.c storage.h \
+memcached_SOURCES += storage.c storage.h \
+                     storage_engine/storage_engine.h \
                      slab_automove_extstore.c slab_automove_extstore.h
 endif
 
@@ -72,6 +71,13 @@ memcached_LDADD =
 memcached_DEPENDENCIES =
 memcached_debug_DEPENDENCIES =
 CLEANFILES=
+
+if ENABLE_EXTSTORE
+memcached_LDADD += -ldl
+memcached_debug_LDADD += -ldl
+memcached_LDFLAGS = -Wl,-rpath='$$ORIGIN/extstore/.libs'
+memcached_debug_LDFLAGS = -Wl,-rpath='$$ORIGIN/extstore/.libs'
+endif
 
 if BUILD_LINUX_PRIVS
 memcached_LDADD += -lseccomp
@@ -107,6 +113,9 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 
 
 SUBDIRS = doc
+if ENABLE_EXTSTORE
+SUBDIRS += extstore
+endif
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md LICENSE.bipbuffer
 
