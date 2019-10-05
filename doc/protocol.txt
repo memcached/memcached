@@ -1097,6 +1097,9 @@ integers separated by a colon (treat this as a floating point number).
 | rejected_connections  | 64u     | Conns rejected in maxconns_fast mode      |
 | connection_structures | 32u     | Number of connection structures allocated |
 |                       |         | by the server                             |
+| response_obj_bytes    | 64u     | Number of bytes used for response objects |
+| response_obj_total    | 64u     | Total nummber of response objects         |
+| response_obj_free     | 64u     | Current free cached response objects      |
 | reserved_fds          | 32u     | Number of misc fds used internally        |
 | cmd_get               | 64u     | Cumulative number of retrieval reqs       |
 | cmd_set               | 64u     | Cumulative number of storage reqs         |

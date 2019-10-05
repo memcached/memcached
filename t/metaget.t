@@ -387,6 +387,18 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^CLIENT_ERROR invalid or duplicate flag/, "gone silly with flags");
 }
 
+{
+    diag "pipeline test";
+    print $sock "ms foo ST 2 100\r\nna\r\n";
+    like(scalar <$sock>, qr/^ST /, "set foo");
+    print $sock "mg foo s\r\nmg foo s\r\nquit\r\nmg foo s\r\n";
+    like(scalar <$sock>, qr/^VA /, "got resp");
+    like(scalar <$sock>, qr/^EN/, "got resp");
+    like(scalar <$sock>, qr/^VA /, "got resp");
+    like(scalar <$sock>, qr/^EN/, "got resp");
+    is(scalar <$sock>, undef, "final get didn't run");
+}
+
 # TODO: move wait_for_ext into Memcached.pm
 sub wait_for_ext {
     my $sock = shift;
