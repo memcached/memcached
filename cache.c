@@ -92,6 +92,7 @@ void* do_cache_alloc(cache_t *cache) {
                 free(ret);
                 object = NULL;
             }
+            cache->total++;
         }
     }
 
@@ -148,7 +149,7 @@ void do_cache_free(cache_t *cache, void *ptr) {
                 cache->destructor(ptr, NULL);
             }
             free(ptr);
-
+            cache->total--;
         }
     }
 }

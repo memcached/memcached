@@ -191,6 +191,7 @@ for my $dir (split(/:/, $ENV{PATH}),
         last;
     }
 }
+die "no saslpasswd2 found" unless $saslpasswd_path;
 
 my $sasl_realm = 'memcached.realm';
 
