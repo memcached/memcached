@@ -413,6 +413,12 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         fprintf(stderr, "Failed to create suffix cache\n");
         exit(EXIT_FAILURE);
     }
+
+    me->resp_cache = cache_create("resp", sizeof(mc_resp), sizeof(char *), NULL, NULL);
+    if (me->resp_cache == NULL) {
+        fprintf(stderr, "Failed to create response cache\n");
+        exit(EXIT_FAILURE);
+    }
 #ifdef EXTSTORE
     me->io_cache = cache_create("io", sizeof(io_wrap), sizeof(char*), NULL, NULL);
     if (me->io_cache == NULL) {
