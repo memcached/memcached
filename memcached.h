@@ -640,20 +640,20 @@ typedef struct _io_wrap {
 /**
  * Response objects
  */
+#define MC_RESP_IOVCOUNT 4
 typedef struct _mc_resp {
     struct _mc_resp *next; // choo choo.
     char *wcurr;
-    int wsize;
     int wbytes; // bytes to write out of wbuf
-    int wsent; // bytes sent from the wbuf
-    int ibytes; // bytes to write out of item
-    int isent;  // bytes sent from the item data
+    int tosend; // total bytes to send for this response
     /** which state to go into after finishing current write */
     enum conn_states  write_and_go;
     void *write_and_free; /** free this memory after finishing writing */
 
     item *item; /* item associated with this response object, with reference held */
     item_chunk *item_chunk; /* if processing a chunked item, last chunk used is here */
+    struct iovec iov[MC_RESP_IOVCOUNT]; /* built-in iovecs to simplify network code */
+    uint8_t iovcnt;
 
     /* instruct transmit to skip this response object. used by storage engines
      * to asynchronously kill an object that was queued to write

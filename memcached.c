@@ -947,6 +947,15 @@ static int add_iov(conn *c, const void *buf, int len) {
 }
 #endif
 
+static void resp_add_iov(mc_resp *resp, const void *buf, int len) {
+    assert(resp->iovcnt < MC_RESP_IOVCOUNT);
+    int x = resp->iovcnt;
+    resp->iov[x].iov_base = (void *)buf;
+    resp->iov[x].iov_len = len;
+    resp->iovcnt++;
+    resp->tosend += len;
+}
+
 static int add_chunked_item_iovs(conn *c, item *it, int len) {
     assert(it->it_flags & ITEM_CHUNKED);
     item_chunk *ch = (item_chunk *) ITEM_schunk(it);
@@ -1037,8 +1046,7 @@ static void out_string(conn *c, const char *str) {
 
     memcpy(resp->wbuf, str, len);
     memcpy(resp->wbuf + len, "\r\n", 2);
-    resp->wbytes = len + 2;
-    resp->wcurr = resp->wbuf;
+    resp_add_iov(resp, resp->wbuf, len + 2);
 
     // TODO: so what do we do here? we need to stay in the current state until
     // rbytes is done or we yield.
@@ -4451,9 +4459,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         fp -= 2;
         // finally, chain in the buffer.
         // fp includes the flags.
-        //add_iov(c, fp, p - fp);
-        resp->wcurr = fp;
-        resp->wbytes = p - fp;
+        resp_add_iov(resp, fp, p - fp);
 
         if (of.value) {
 #ifdef EXTSTORE
@@ -4478,8 +4484,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             }
 #else
             if ((it->it_flags & ITEM_CHUNKED) == 0) {
-                //add_iov(c, ITEM_data(it), it->nbytes);
-                resp->item = it;
+                resp_add_iov(resp, ITEM_data(it), it->nbytes);
             } else {
                 add_chunked_item_iovs(c, it, it->nbytes);
             }
@@ -4487,8 +4492,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         }
 
         if (!c->noreply) {
-            // FIXME: I guess we do need a blank iovec?
-            //add_iov(c, "EN\r\n", 4);
+            resp_add_iov(resp, "EN\r\n", 4);
         }
 
         // need to hold the ref at least because of the key above.
@@ -6334,7 +6338,6 @@ void do_accept_new_conns(const bool do_accept) {
 static enum transmit_result transmit(conn *c) {
     assert(c != NULL);
     struct iovec iovs[IOV_MAX];
-    struct iovec *cur_iov = &iovs[0];
     struct msghdr msg;
     mc_resp *resp;
     int iovused = 0;
@@ -6353,23 +6356,11 @@ static enum transmit_result transmit(conn *c) {
             resp = resp->next;
             continue;
         }
-        cur_iov = &iovs[iovused];
-        // add the wbuf, then conditional item bytes.
-        cur_iov->iov_base = resp->wcurr + resp->wsent;
-        cur_iov->iov_len = resp->wbytes - resp->wsent;
-        iovused++;
-        cur_iov = &iovs[iovused];
-        // this part is to reduce copying for large objects.
-        // also reduces memory pressure for returing a lot of data.
-        if (resp->item) {
-            // TODO: chunked items.
-            // chunked items should loop up to IOV_MAX
-            if (resp->ibytes > resp->isent) {
-                cur_iov->iov_base = (char *)ITEM_data(resp->item) + resp->isent;
-                cur_iov->iov_len = resp->item->nbytes - resp->isent;
-            }
-            iovused++;
-        }
+        memcpy(&iovs[iovused], resp->iov, sizeof(struct iovec)*resp->iovcnt);
+        iovused += resp->iovcnt;
+        // TODO: special handling for chunked items.
+        // thinking of a callback handler that'll fill in some iovecs.
+        // since the chunked handler may have to endcap after item data.
 
         // done looking at first response, walk down the chain.
         resp = resp->next;
@@ -6389,31 +6380,30 @@ static enum transmit_result transmit(conn *c) {
            responses from the list of pending writes. */
         resp = c->resp_head;
         while (resp) {
+            int x;
             if (resp->skip) {
                 // TODO: free willy.
                 resp = resp->next;
                 continue;
             }
-            if (resp->wbytes != resp->wsent) {
-                if (res > resp->wbytes - resp->wsent) {
-                    res -= resp->wbytes - resp->wsent;
-                    resp->wsent = resp->wbytes;
+
+            // should be okay if we've zeroed out iov's before.
+            for (x = 0; x < resp->iovcnt; x++) {
+                struct iovec *iov = &resp->iov[x];
+                if (res >= iov->iov_len) {
+                    resp->tosend -= iov->iov_len;
+                    res -= iov->iov_len;
+                    iov->iov_len = 0;
                 } else {
-                    resp->wsent += res;
+                    iov->iov_base = (char *)iov->iov_base + res;
+                    iov->iov_len -= res;
+                    resp->tosend -= res;
                     res = 0;
-                }
-            }
-            if (resp->ibytes != resp->isent) {
-                if (res > resp->ibytes - resp->isent) {
-                    res -= resp->ibytes - resp->wsent;
-                    resp->isent = resp->ibytes;
-                } else {
-                    resp->isent += res;
-                    res = 0;
+                    break;
                 }
             }
             // are we done with this response object?
-            if (resp->wbytes == resp->wsent && resp->ibytes == resp->isent) {
+            if (resp->tosend == 0) {
                 // TODO: free willy.
                 resp = resp->next;
             } else {
