@@ -947,6 +947,22 @@ static int add_iov(conn *c, const void *buf, int len) {
 }
 #endif
 
+/*
+ * response object helper functions
+ */
+static void resp_reset(mc_resp *resp) {
+    if (resp->item) {
+        item_remove(resp->item);
+    }
+    if (resp->write_and_free) {
+        free(resp->write_and_free);
+    }
+    resp->wbytes = 0;
+    resp->tosend = 0;
+    resp->iovcnt = 0;
+    resp->skip = false;
+}
+
 static void resp_add_iov(mc_resp *resp, const void *buf, int len) {
     assert(resp->iovcnt < MC_RESP_IOVCOUNT);
     int x = resp->iovcnt;
@@ -1022,12 +1038,17 @@ static void out_string(conn *c, const char *str) {
     mc_resp *resp = c->resp;
 
     assert(c != NULL);
+    // if response was original filled with something, but we're now writing
+    // out an error or similar, have to reset the object first.
+    // TODO: since this is often redundant with allocation, how many callers
+    // are actually requiring it be reset? Can we fast test by just looking at
+    // tosend and reset if nonzero?
+    resp_reset(resp);
 
     if (c->noreply) {
         // TODO: free willy (kill or skip current response)
         if (settings.verbose > 1)
             fprintf(stderr, ">%d NOREPLY %s\n", c->sfd, str);
-        c->noreply = false;
         conn_set_state(c, conn_new_cmd);
         return;
     }
@@ -1066,29 +1087,6 @@ static void out_errstring(conn *c, const char *str) {
 
 #define ALLOW_NOREPLY true
 #define DISABLE_NOREPLY false
-
-// Works from a string already written into c->wbuf.
-// Called from meta commands. process_command() already zeroes out an output,
-// and this must be used for nominal use cases.
-static void out_mstring(conn *c, bool use_noreply) {
-    assert(c != NULL);
-    mc_resp *resp = c->resp;
-    assert(resp->wbytes != 0);
-
-    if (c->noreply && use_noreply) {
-        c->noreply = false;
-        conn_set_state(c, conn_new_cmd);
-        return;
-    }
-
-    memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
-    resp->wbytes += 2;
-    resp->wcurr = resp->wbuf;
-
-    conn_set_state(c, conn_new_cmd);
-    resp->write_and_go = conn_new_cmd;
-    return;
-}
 
 /*
  * Outputs a protocol-specific "out of memory" error. For ASCII clients,
@@ -1193,23 +1191,26 @@ static void complete_nread_ascii(conn *c) {
 #endif
 
       if (c->mset_res) {
+          // Replace the status code in the response.
+          // Rest was prepared during mset parsing.
           mc_resp *resp = c->resp;
+          conn_set_state(c, conn_new_cmd);
           switch (ret) {
           case STORED:
               memcpy(resp->wbuf, "ST ", 3);
-              out_mstring(c, ALLOW_NOREPLY);
+              // Only place noreply is used for meta cmds is a nominal response.
+              if (c->noreply) {
+                  resp->skip = true;
+              }
               break;
           case EXISTS:
               memcpy(resp->wbuf, "EX ", 3);
-              out_mstring(c, DISABLE_NOREPLY);
               break;
           case NOT_FOUND:
               memcpy(resp->wbuf, "NF ", 3);
-              out_mstring(c, DISABLE_NOREPLY);
               break;
           case NOT_STORED:
               memcpy(resp->wbuf, "NS ", 3);
-              out_mstring(c, DISABLE_NOREPLY);
               break;
           default:
               c->noreply = false;
@@ -4745,19 +4746,23 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     if (of.set_stale && comm == NREAD_CAS) {
         c->set_stale = true;
     }
-    // We've written the status line into wbuf, use wbytes to finalize later.
     resp->wbytes = p - resp->wbuf;
+    memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
+    resp->wbytes += 2;
+    // We've written the status line into wbuf, use wbytes to finalize later.
+    resp_add_iov(resp, resp->wbuf, resp->wbytes);
     c->mset_res = true;
     conn_set_state(c, conn_nread);
     return;
 error:
     /* swallow the data line */
-    resp->write_and_go = conn_swallow;
     c->sbytes = vlen;
 
     // Note: no errors possible after the item was successfully allocated.
     // So we're just looking at dumping error codes and returning.
     out_errstring(c, errstr);
+    // TODO: pass state in? else switching twice meh.
+    conn_set_state(c, conn_swallow);
 }
 
 static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -4870,10 +4875,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             c->thread->stats.delete_misses++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
-            // Need to ensure client gets this response.
             memcpy(resp->wbuf, "EX ", 3);
-            resp->wbytes = p - resp->wbuf;
-            out_mstring(c, DISABLE_NOREPLY);
             goto cleanup;
         }
 
@@ -4890,11 +4892,10 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
             ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
 
+            // Clients can noreply nominal responses.
+            if (c->noreply)
+                resp->skip = true;
             memcpy(resp->wbuf, "DE ", 3);
-            // TODO: just use two diff funcs? :|
-            // also, take len for arg?
-            resp->wbytes = p - resp->wbuf;
-            out_mstring(c, ALLOW_NOREPLY);
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
@@ -4902,9 +4903,9 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
 
             do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
+            if (c->noreply)
+                resp->skip = true;
             memcpy(resp->wbuf, "DE ", 3);
-            resp->wbytes = p - resp->wbuf;
-            out_mstring(c, ALLOW_NOREPLY);
         }
         goto cleanup;
     } else {
@@ -4913,8 +4914,6 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         memcpy(resp->wbuf, "NF ", 3);
-        resp->wbytes = p - resp->wbuf;
-        out_mstring(c, ALLOW_NOREPLY);
         goto cleanup;
     }
 cleanup:
@@ -4923,6 +4922,11 @@ cleanup:
     }
     // Item is always returned locked, even if missing.
     item_unlock(hv);
+    resp->wbytes = p - resp->wbuf;
+    memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
+    resp->wbytes += 2;
+    resp_add_iov(resp, resp->wbuf, resp->wbytes);
+    conn_set_state(c, conn_new_cmd);
     return;
 error:
     out_errstring(c, errstr);
@@ -4999,7 +5003,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
                 NULL, status, comm, key, nkey, 0, 0, c->sfd);
         /* swallow the data line */
-        c->resp->write_and_go = conn_swallow;
+        conn_set_state(c, conn_swallow);
         c->sbytes = vlen;
 
         /* Avoid stale data persisting in cache because we failed alloc.
@@ -6675,7 +6679,8 @@ static void drive_machine(conn *c) {
             }
             break;
 
-        case conn_parse_cmd :
+        case conn_parse_cmd:
+            c->noreply = false;
             if (c->try_read_command(c) == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
@@ -6783,7 +6788,7 @@ static void drive_machine(conn *c) {
             if (res == -2) {
                 out_of_memory(c, "SERVER_ERROR Out of memory during read");
                 c->sbytes = c->rlbytes;
-                c->resp->write_and_go = conn_swallow;
+                conn_set_state(c, conn_swallow);
                 // Ensure this flag gets cleared. It gets killed on conn_new()
                 // so any conn_closing is fine, calling complete_nread is
                 // fine. This swallow semms to be the only other case.
@@ -6849,23 +6854,6 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_write:
-            // TODO: I think this isn't needed anymore.
-            /*
-             * We want to write out a simple response. If we haven't already,
-             * assemble it into a msgbuf list (this will be a single-entry
-             * list for TCP or a two-entry list for UDP).
-             */
-            /*if (c->iovused == 0 || (IS_UDP(c->transport) && c->iovused == 1)) {
-                if (add_iov(c, c->wcurr, c->wbytes) != 0) {
-                    if (settings.verbose > 0)
-                        fprintf(stderr, "Couldn't build response\n");
-                    conn_set_state(c, conn_closing);
-                    break;
-                }
-            }*/
-
-            /* fall through... */
-
         case conn_mwrite:
 #ifdef EXTSTORE
             /* have side IO's that must process before transmit() can run.
