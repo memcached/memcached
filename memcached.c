@@ -974,6 +974,7 @@ static void resp_add_iov(mc_resp *resp, const void *buf, int len) {
 
 static bool resp_start(conn *c) {
     mc_resp *resp = do_cache_alloc(c->thread->resp_cache);
+    //fprintf(stderr, "resp alloc: %d\n", c->thread->resp_cache->total);
     if (!resp) {
         return false;
     }
@@ -990,6 +991,25 @@ static bool resp_start(conn *c) {
         c->resp = resp;
     }
     return true;
+}
+
+// returns next response in chain.
+static mc_resp* resp_finish(conn *c, mc_resp *resp) {
+    mc_resp *next = resp->next;
+    if (resp->item) {
+        // TODO: cache hash value in resp obj?
+        item_remove(resp->item);
+        resp->item = NULL;
+    }
+    if (c->resp_head == resp) {
+        c->resp_head = NULL;
+    }
+    if (c->resp == resp) {
+        c->resp = NULL;
+    }
+    do_cache_free(c->thread->resp_cache, resp);
+    //fprintf(stderr, "resp free: %d\n", c->thread->resp_cache->total);
+    return next;
 }
 
 static int add_chunked_item_iovs(conn *c, item *it, int len) {
@@ -1066,7 +1086,9 @@ static void out_string(conn *c, const char *str) {
     resp_reset(resp);
 
     if (c->noreply) {
-        // TODO: free willy (kill or skip current response)
+        // TODO: just invalidate the response since nothing's been attempted
+        // to send yet?
+        resp->skip = true;
         if (settings.verbose > 1)
             fprintf(stderr, ">%d NOREPLY %s\n", c->sfd, str);
         conn_set_state(c, conn_new_cmd);
@@ -4118,7 +4140,7 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
 
         item_remove(it);
         resp->wbytes = total + ret;
-        resp->wcurr = resp->wbuf;
+        resp_add_iov(resp, resp->wbuf, resp->wbytes);
         conn_set_state(c, conn_mwrite);
         resp->write_and_go = conn_new_cmd;
     } else {
@@ -6344,8 +6366,7 @@ static enum transmit_result transmit(conn *c) {
     resp = c->resp_head;
     while (resp && iovused < IOV_MAX - 1) {
         if (resp->skip) {
-            // TODO: can we free willy here and not check again below?
-            resp = resp->next;
+            resp = resp_finish(c, resp);
             continue;
         }
         memcpy(&iovs[iovused], resp->iov, sizeof(struct iovec)*resp->iovcnt);
@@ -6357,7 +6378,6 @@ static enum transmit_result transmit(conn *c) {
         // done looking at first response, walk down the chain.
         resp = resp->next;
     }
-    // TODO: can we get here without any resp?
 
     // Alright, send.
     ssize_t res;
@@ -6368,16 +6388,11 @@ static enum transmit_result transmit(conn *c) {
         c->thread->stats.bytes_written += res;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        /* We've written some of the data. Remove the completed
-           responses from the list of pending writes. */
+        // We've written some of the data. Remove the completed
+        // responses from the list of pending writes.
         resp = c->resp_head;
         while (resp) {
             int x;
-            if (resp->skip) {
-                // TODO: free willy.
-                resp = resp->next;
-                continue;
-            }
 
             // should be okay if we've zeroed out iov's before.
             for (x = 0; x < resp->iovcnt; x++) {
@@ -6396,8 +6411,7 @@ static enum transmit_result transmit(conn *c) {
             }
             // are we done with this response object?
             if (resp->tosend == 0) {
-                // TODO: free willy.
-                resp = resp->next;
+                resp = resp_finish(c, resp);
             } else {
                 // Jammed up here. This is the new head.
                 break;

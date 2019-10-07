@@ -55,6 +55,8 @@ typedef struct {
     size_t bufsize;
     /** The capacity of the list of elements */
     int freetotal;
+    /** Total malloc'ed objects */
+    int total;
     /** The current number of free elements */
     int freecurr;
     /** The constructor to be called each time we allocate more memory */

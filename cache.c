@@ -92,6 +92,7 @@ void* do_cache_alloc(cache_t *cache) {
                 free(ret);
                 object = NULL;
             }
+            cache->total++;
         }
     }
 
