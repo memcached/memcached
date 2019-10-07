@@ -972,6 +972,26 @@ static void resp_add_iov(mc_resp *resp, const void *buf, int len) {
     resp->tosend += len;
 }
 
+static bool resp_start(conn *c) {
+    mc_resp *resp = do_cache_alloc(c->thread->resp_cache);
+    if (!resp) {
+        return false;
+    }
+    // FIXME: make wbuf indirect or use offsetof or something to zero
+    // this. or a sub struct.
+    memset(resp, 0, 128); // FIXME: this'll zero out wbuf which is large!
+    if (!c->resp_head) {
+        c->resp_head = resp;
+    }
+    if (!c->resp) {
+        c->resp = resp;
+    } else {
+        c->resp->next = resp;
+        c->resp = resp;
+    }
+    return true;
+}
+
 static int add_chunked_item_iovs(conn *c, item *it, int len) {
     assert(it->it_flags & ITEM_CHUNKED);
     item_chunk *ch = (item_chunk *) ITEM_schunk(it);
@@ -1268,28 +1288,12 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
 
     assert(c);
 
-    // Prep the response object for this query.
-    {
-        // TODO: function to add/prep response to connection.
-        resp = do_cache_alloc(c->thread->resp_cache);
-        if (!resp) {
-            // TODO: ... wtf can you even do here?
-            // could write out a static string, but I doubt that'd even work.
-            abort();
-        }
-        // FIXME: make wbuf indirect or use offsetof or something to zero
-        // this. or a sub struct.
-        memset(resp, 0, 128); // FIXME: this'll zero out wbuf which is large!
-        if (!c->resp_head) {
-            c->resp_head = resp;
-        }
-        if (!c->resp) {
-            c->resp = resp;
-        } else {
-            c->resp->next = resp;
-            c->resp = resp;
-        }
+    if (!resp_start(c)) {
+        // TODO: ... wtf can you even do here?
+        // could write out a static string, but I doubt that'd even work.
+        abort();
     }
+    resp = c->resp;
  
     header = (protocol_binary_response_header *)resp->wbuf;
 
@@ -5575,26 +5579,10 @@ static void process_command(conn *c, char *command) {
      */
 
     // Prep the response object for this query.
-    {
-        // TODO: function to add/prep response to connection.
-        mc_resp *resp = do_cache_alloc(c->thread->resp_cache);
-        if (!resp) {
-            // TODO: ... wtf can you even do here?
-            // could write out a static string, but I doubt that'd even work.
-            abort();
-        }
-        // FIXME: make wbuf indirect or use offsetof or something to zero
-        // this. or a sub struct.
-        memset(resp, 0, 128); // FIXME: this'll zero out wbuf which is large!
-        if (!c->resp_head) {
-            c->resp_head = resp;
-        }
-        if (!c->resp) {
-            c->resp = resp;
-        } else {
-            c->resp->next = resp;
-            c->resp = resp;
-        }
+    if (!resp_start(c)) {
+        // TODO: ... wtf can you even do here?
+        // could write out a static string, but I doubt that'd even work.
+        abort();
     }
 
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
