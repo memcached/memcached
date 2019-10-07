@@ -5626,6 +5626,8 @@ static void process_command(conn *c, char *command) {
         process_mdelete_command(c, tokens, ntokens);
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "mn") == 0)) {
         out_string(c, "EN");
+        // mn command forces immediate writeback flush.
+        conn_set_state(c, conn_mwrite);
         return;
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "me") == 0)) {
         process_meta_command(c, tokens, ntokens);
@@ -5706,7 +5708,8 @@ static void process_command(conn *c, char *command) {
 
     } else if (ntokens == 2 && (strcmp(tokens[COMMAND_TOKEN].value, "quit") == 0)) {
 
-        conn_set_state(c, conn_closing);
+        conn_set_state(c, conn_mwrite);
+        c->close_after_write = true;
 
     } else if (ntokens == 2 && (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0)) {
 
