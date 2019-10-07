@@ -632,8 +632,6 @@ typedef struct _mc_resp {
     char *wcurr;
     int wbytes; // bytes to write out of wbuf
     int tosend; // total bytes to send for this response
-    /** which state to go into after finishing current write */
-    enum conn_states  write_and_go;
     void *write_and_free; /** free this memory after finishing writing */
 
     item *item; /* item associated with this response object, with reference held */
@@ -673,6 +671,7 @@ struct conn {
     bool authenticated;
     bool set_stale;
     bool mset_res; /** uses mset format for return code */
+    bool close_after_write; /** flush write then move to close connection */
 #ifdef TLS
     SSL    *ssl;
     char   *ssl_wbuf;
@@ -694,8 +693,6 @@ struct conn {
     mc_resp *resp_head; // first response in current stack.
     char   *ritem;  /** when we read in an item's value, it goes here */
     int    rlbytes;
-
-    /* data for the nread state */
 
     /**
      * item is used to hold an item structure created after reading the command
