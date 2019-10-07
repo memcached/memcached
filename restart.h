@@ -4,7 +4,7 @@
 #define RESTART_TAG_MAXLEN 255
 
 // Track the pointer size for restart fiddling.
-#ifdef HAVE_64BIT_PTR
+#if SIZEOF_VOID_P == 8
     typedef uint64_t mc_ptr_t;
 #else
     typedef uint32_t mc_ptr_t;

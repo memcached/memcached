@@ -263,23 +263,15 @@ return sizeof(void*) == 8 ? 0 : 1;
     ],[
       CFLAGS="-m64 $org_cflags"
     ],[
-    AC_MSG_ERROR([Don't know how to build a 64-bit object.])
+      AC_MSG_ERROR([Don't know how to build a 64-bit object.])
+    ],[
+       dnl cross compile
+       AC_MSG_WARN([Assuming no extra CFLAGS are required for cross-compiling 64bit version.])
     ])
 fi
 
-dnl If data pointer is 64bit or not.
-AC_RUN_IFELSE(
-  [AC_LANG_PROGRAM([], [dnl
-return sizeof(void*) == 8 ? 0 : 1;
-  ])
-],[
-  have_64bit_ptr=yes
-],[
-])
-
-if test $have_64bit_ptr = yes; then
-  AC_DEFINE(HAVE_64BIT_PTR, 1, [data pointer is 64bit])
-fi
+dnl Check if data pointer is 64bit or not
+AC_CHECK_SIZEOF([void *])
 
 # Issue 213: Search for clock_gettime to help people linking
 #            with a static version of libevent
@@ -569,30 +561,10 @@ fi
 AC_C_SOCKLEN_T
 
 dnl Check if we're a little-endian or a big-endian system, needed by hash code
-AC_DEFUN([AC_C_ENDIAN],
-[AC_CACHE_CHECK(for endianness, ac_cv_c_endian,
-[
-  AC_RUN_IFELSE(
-    [AC_LANG_PROGRAM([], [dnl
-        long val = 1;
-        char *c = (char *) &val;
-        exit(*c == 1);
-    ])
-  ],[
-    ac_cv_c_endian=big
-  ],[
-    ac_cv_c_endian=little
-  ])
-])
-if test $ac_cv_c_endian = big; then
-  AC_DEFINE(ENDIAN_BIG, 1, [machine is bigendian])
-fi
-if test $ac_cv_c_endian = little; then
-  AC_DEFINE(ENDIAN_LITTLE, 1, [machine is littleendian])
-fi
-])
-
-AC_C_ENDIAN
+AC_C_BIGENDIAN(
+  [AC_DEFINE(ENDIAN_BIG, 1, [machine is bigendian])],
+  [AC_DEFINE(ENDIAN_LITTLE, 1, [machine is littleendian])],
+  [AC_MSG_ERROR([Cannot detect endianness. Must pass ac_cv_c_bigendian={yes,no} to configure.])])
 
 AC_DEFUN([AC_C_HTONLL],
 [
@@ -669,12 +641,15 @@ AC_DEFUN([AC_C_ALIGNMENT],
   ],[
     ac_cv_c_alignment=need
   ],[
-    ac_cv_c_alignment=need
+    dnl cross compile
+    ac_cv_c_alignment=maybe
   ])
 ])
-if test $ac_cv_c_alignment = need; then
-  AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])
-fi
+AS_IF([test $ac_cv_c_alignment = need],
+  [AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])])
+AS_IF([test $ac_cv_c_alignment = maybe],
+  [AC_MSG_WARN([Assuming aligned access is required when cross-compiling])
+   AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])])
 ])
 
 AC_C_ALIGNMENT
