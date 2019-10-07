@@ -271,35 +271,8 @@ return sizeof(void*) == 8 ? 0 : 1;
     ])
 fi
 
-dnl If data pointer is 64bit or not.
-AC_CHECK_HEADERS([stdint.h])
-AS_IF([test -z "$have_64bit_ptr"],
-  [AC_RUN_IFELSE(
-     [AC_LANG_PROGRAM([], [return sizeof(void*) == 8 ? 0 : 1;])],
-     [have_64bit_ptr=yes ],
-     [have_64bit_ptr=no],
-     [dnl cross compile (this test requires C99)
-      AS_IF([test "x$ac_cv_header_stdint_h" = xyes],
-        [AC_COMPILE_IFELSE(
-           [AC_LANG_PROGRAM([
-              #include <stdint.h>
-              #if UINTPTR_MAX == 0xFFFFFFFFFFFFFFFFUL
-              /* 64 bit pointer */
-              #else
-              #error 32 bit pointer
-              #endif
-            ], [])],
-            [have_64bit_ptr=yes],
-            [have_64bit_ptr=no])],
-        [have_64bit_ptr=unknown])
-     ])
-])
-AS_IF([test "$have_64bit_ptr" = "unknown" ],[
-  AC_MSG_ERROR([Cannot detect pointer size. Must pass have_64bit_ptr={yes,no} to configure.])
-])
-AS_IF([test "$have_64bit_ptr" = yes],[
-  AC_DEFINE(HAVE_64BIT_PTR, 1, [data pointer is 64bit])
-])
+dnl Check if data pointer is 64bit or not
+AC_CHECK_SIZEOF([void *])
 
 # Issue 213: Search for clock_gettime to help people linking
 #            with a static version of libevent
