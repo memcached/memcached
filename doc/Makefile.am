@@ -20,9 +20,10 @@ MOSTLYCLEANFILES += $(SPECIFICATIONS)
 endif
 
 RFC2629_XSL = $(srcdir)/xml2rfc/rfc2629-noinc.xsl
+RFC2629_DTD = $(srcdir)/xml2rfc/rfc2629.dtd
 
-%.txt: %.full
-	@XML2RFC@ -c $(builddir) $< $@
+%.txt: %.full $(RFC2629_DTD)
+	@XML2RFC@ -d $(RFC2629_DTD) -c $(builddir) $< $@
 
 %.full: %.xml $(RFC2629_XSL)
 	@XSLTPROC@ --nonet $(RFC2629_XSL) $< > $@
