@@ -108,8 +108,6 @@ static bool update_event(conn *c, const int new_flags);
 static void complete_nread(conn *c);
 static void process_command(conn *c, char *command);
 static void write_and_free(conn *c, char *buf, int bytes);
-//static int ensure_iov_space(conn *c);
-//static int add_iov(conn *c, const void *buf, int len);
 static int add_chunked_item_iovs(conn *c, item *it, int len);
 static void write_bin_error(conn *c, protocol_binary_response_status err,
                             const char *errstr, int swallow);
@@ -1308,16 +1306,11 @@ static char* binary_get_key(conn *c) {
 
 static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_len, uint32_t body_len) {
     protocol_binary_response_header* header;
-    mc_resp *resp;
+    mc_resp *resp = c->resp;
 
     assert(c);
 
-    if (!resp_start(c)) {
-        // TODO: ... wtf can you even do here?
-        // could write out a static string, but I doubt that'd even work.
-        abort();
-    }
-    resp = c->resp;
+    resp_reset(resp);
  
     header = (protocol_binary_response_header *)resp->wbuf;
 
@@ -1346,6 +1339,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
     }
 
     resp->wbytes = sizeof(header->response);
+    resp_add_iov(resp, resp->wbuf, resp->wbytes);
 }
 
 /**
@@ -1400,8 +1394,7 @@ static void write_bin_error(conn *c, protocol_binary_response_status err,
     len = strlen(errstr);
     add_bin_header(c, err, 0, 0, len);
     if (len > 0) {
-        // FIXME: I broke it.
-        //add_iov(c, errstr, len);
+        resp_add_iov(c->resp, errstr, len);
     }
     if (swallow > 0) {
         c->sbytes = swallow;
@@ -1530,7 +1523,6 @@ static void complete_update_bin(conn *c) {
     assert(c != NULL);
 
     item *it = c->item;
-
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -1613,8 +1605,7 @@ static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
                 0, nkey, nkey);
         char *ofs = c->resp->wbuf + sizeof(protocol_binary_response_header);
         memcpy(ofs, key, nkey);
-        // FIXME: adjust wbytes I think?
-        //add_iov(c, ofs, nkey);
+        resp_add_iov(c->resp, ofs, nkey);
         conn_set_state(c, conn_new_cmd);
     } else {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
@@ -1687,11 +1678,10 @@ static void process_bin_get_or_touch(conn *c) {
         // add the flags
         FLAGS_CONV(it, rsp->message.body.flags);
         rsp->message.body.flags = htonl(rsp->message.body.flags);
-        // FIXME: these need to copy and stuff.
-        //add_iov(c, &rsp->message.body, sizeof(rsp->message.body));
+        resp_add_iov(c->resp, &rsp->message.body, sizeof(rsp->message.body));
 
         if (should_return_key) {
-            //add_iov(c, ITEM_key(it), nkey);
+            resp_add_iov(c->resp, ITEM_key(it), nkey);
         }
 
         if (should_return_value) {
@@ -1706,13 +1696,13 @@ static void process_bin_get_or_touch(conn *c) {
                     failed = true;
                 }
             } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
-                //add_iov(c, ITEM_data(it), it->nbytes - 2);
+                resp_add_iov(c->resp, ITEM_data(it), it->nbytes - 2);
             } else {
                 add_chunked_item_iovs(c, it, it->nbytes - 2);
             }
 #else
             if ((it->it_flags & ITEM_CHUNKED) == 0) {
-                //add_iov(c, ITEM_data(it), it->nbytes - 2);
+                resp_add_iov(c->resp, ITEM_data(it), it->nbytes - 2);
             } else {
                 add_chunked_item_iovs(c, it, it->nbytes - 2);
             }
@@ -1725,12 +1715,12 @@ static void process_bin_get_or_touch(conn *c) {
 #ifdef EXTSTORE
             if ((it->it_flags & ITEM_HDR) != 0 && should_return_value) {
                 // Only have extstore clean if header and returning value.
-                c->item = NULL;
+                c->resp->item = NULL;
             } else {
-                c->item = it;
+                c->resp->item = it;
             }
 #else
-            c->item = it;
+            c->resp->item = it;
 #endif
         } else {
             item_remove(it);
@@ -2104,7 +2094,7 @@ static void process_bin_sasl_auth(conn *c) {
 
 static void process_bin_complete_sasl_auth(conn *c) {
     assert(settings.sasl);
-    //const char *out = NULL;
+    const char *out = NULL;
     unsigned int outlen = 0;
 
     assert(c->item);
@@ -2185,8 +2175,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
     case SASL_CONTINUE:
         add_bin_header(c, PROTOCOL_BINARY_RESPONSE_AUTH_CONTINUE, 0, 0, outlen);
         if (outlen > 0) {
-            // FIXME: do things.
-            //add_iov(c, out, outlen);
+            resp_add_iov(c->resp, out, outlen);
         }
         // Immediately flush our write.
         conn_set_state(c, conn_mwrite);
@@ -5986,15 +5975,11 @@ static int try_read_command_binary(conn *c) {
             return -1;
         }
 
-        // FIXME: Why is binprot doing this twice?
-        /*c->msgcurr = 0;
-        c->msgused = 0;
-        c->iovused = 0;
-        if (add_msghdr(c) != 0) {
-            out_of_memory(c,
-                    "SERVER_ERROR Out of memory allocating headers");
-            return 0;
-        }*/
+        if (!resp_start(c)) {
+            // TODO: ... wtf can you even do here?
+            // could write out a static string, but I doubt that'd even work.
+            abort();
+        }
 
         c->cmd = c->binary_header.request.opcode;
         c->keylen = c->binary_header.request.keylen;
