@@ -10,6 +10,7 @@ BEGIN {
     push(@exempted, glob("doc/*.xml"));
     push(@exempted, glob("doc/*.full"));
     push(@exempted, glob("doc/xml2rfc/*.xsl"));
+    push(@exempted, glob("doc/xml2rfc/*.dtd"));
     push(@exempted, glob("m4/*backport*m4"));
     push(@exempted, glob("*.orig"));
     push(@exempted, glob(".*.swp"));
