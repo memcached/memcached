@@ -108,7 +108,6 @@ static bool update_event(conn *c, const int new_flags);
 static void complete_nread(conn *c);
 static void process_command(conn *c, char *command);
 static void write_and_free(conn *c, char *buf, int bytes);
-static int add_chunked_item_iovs(conn *c, item *it, int len);
 static void write_bin_error(conn *c, protocol_binary_response_status err,
                             const char *errstr, int swallow);
 static void write_bin_miss_response(conn *c, char *key, size_t nkey);
@@ -1014,20 +1013,6 @@ static mc_resp* resp_finish(conn *c, mc_resp *resp) {
     return next;
 }
 
-static int add_chunked_item_iovs(conn *c, item *it, int len) {
-    assert(it->it_flags & ITEM_CHUNKED);
-    item_chunk *ch = (item_chunk *) ITEM_schunk(it);
-    while (ch) {
-        int todo = (len > ch->used) ? ch->used : len;
-        // FIXME: broken.
-        /*if (add_iov(c, ch->data, todo) != 0) {
-            return -1;
-        }*/
-        ch = ch->next;
-        len -= todo;
-    }
-    return 0;
-}
 #ifdef DEAD_CODE
 /*
  * Constructs a set of UDP headers and attaches them to the outgoing messages.
@@ -1698,13 +1683,14 @@ static void process_bin_get_or_touch(conn *c) {
             } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 resp_add_iov(c->resp, ITEM_data(it), it->nbytes - 2);
             } else {
-                add_chunked_item_iovs(c, it, it->nbytes - 2);
+                // Allow transmit handler to find the item and expand iov's
+                resp_add_iov(c->resp, it, it->nbytes - 2);
             }
 #else
             if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 resp_add_iov(c->resp, ITEM_data(it), it->nbytes - 2);
             } else {
-                add_chunked_item_iovs(c, it, it->nbytes - 2);
+                resp_add_iov(c->resp, it, it->nbytes - 2);
             }
 #endif
         }
@@ -4480,13 +4466,13 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 resp_add_iov(resp, ITEM_data(it), it->nbytes);
             } else {
-                add_chunked_item_iovs(c, it, it->nbytes);
+                resp_add_iov(resp, it, it->nbytes);
             }
 #else
             if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 resp_add_iov(resp, ITEM_data(it), it->nbytes);
             } else {
-                add_chunked_item_iovs(c, it, it->nbytes);
+                resp_add_iov(resp, it, it->nbytes);
             }
 #endif
         }
@@ -6335,16 +6321,51 @@ static enum transmit_result transmit(conn *c) {
 
     // Build out our msg from response objects.
     resp = c->resp_head;
-    while (resp && iovused < IOV_MAX - 1) {
+    while (resp && iovused + resp->iovcnt < IOV_MAX-1) {
         if (resp->skip) {
             resp = resp_finish(c, resp);
             continue;
         }
-        memcpy(&iovs[iovused], resp->iov, sizeof(struct iovec)*resp->iovcnt);
-        iovused += resp->iovcnt;
-        // TODO: special handling for chunked items.
-        // thinking of a callback handler that'll fill in some iovecs.
-        // since the chunked handler may have to endcap after item data.
+        if (resp->item && (resp->item->it_flags & ITEM_CHUNKED)) {
+            // Handle chunked items specially.
+            // They spend much more time in send so we can be a bit wasteful
+            // in rebuilding iovecs for them.
+            item_chunk *ch = (item_chunk *) ITEM_schunk(resp->item);
+            int x;
+            for (x = 0; x < resp->iovcnt; x++) {
+                // This iov is tracking how far we've copied so far.
+                if (resp->iov[x].iov_base == resp->item) {
+                    int done = resp->item->nbytes - resp->iov[x].iov_len;
+                    // Start from the len to allow binprot to cut the \r\n
+                    int todo = resp->iov[x].iov_len;
+                    while (ch && todo > 0 && iovused < IOV_MAX-1) {
+                        int to_add = (todo > ch->used) ? ch->used : todo;
+                        // Skip parts we've already sent.
+                        if (done > ch->used) {
+                            done -= ch->used;
+                            ch = ch->next;
+                            continue;
+                        } else if (done) {
+                            done = 0;
+                        }
+                        iovs[iovused].iov_base = ch->data;
+                        iovs[iovused].iov_len = to_add;
+                        iovused++;
+                        ch = ch->next;
+                        todo -= to_add;
+                    }
+                } else {
+                    iovs[iovused].iov_base = resp->iov[x].iov_base;
+                    iovs[iovused].iov_len = resp->iov[x].iov_len;
+                    iovused++;
+                }
+                if (iovused >= IOV_MAX-1)
+                    break;
+            }
+        } else {
+            memcpy(&iovs[iovused], resp->iov, sizeof(struct iovec)*resp->iovcnt);
+            iovused += resp->iovcnt;
+        }
 
         // done looking at first response, walk down the chain.
         resp = resp->next;
@@ -6373,7 +6394,11 @@ static enum transmit_result transmit(conn *c) {
                     res -= iov->iov_len;
                     iov->iov_len = 0;
                 } else {
-                    iov->iov_base = (char *)iov->iov_base + res;
+                    // Dumb special case for chunked items. Currently tracking
+                    // where to inject the chunked item via iov_base.
+                    if (!resp->item || resp->item != iov->iov_base) {
+                        iov->iov_base = (char *)iov->iov_base + res;
+                    }
                     iov->iov_len -= res;
                     resp->tosend -= res;
                     res = 0;

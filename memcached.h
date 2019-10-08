@@ -629,13 +629,12 @@ typedef struct {
 #define MC_RESP_IOVCOUNT 4
 typedef struct _mc_resp {
     struct _mc_resp *next; // choo choo.
-    char *wcurr;
-    int wbytes; // bytes to write out of wbuf
+    char *wcurr; // TODO: nuke. don't think this is used anymore.
+    int wbytes; // bytes to write out of wbuf: might be able to nuke this.
     int tosend; // total bytes to send for this response
     void *write_and_free; /** free this memory after finishing writing */
 
     item *item; /* item associated with this response object, with reference held */
-    item_chunk *item_chunk; /* if processing a chunked item, last chunk used is here */
     struct iovec iov[MC_RESP_IOVCOUNT]; /* built-in iovecs to simplify network code */
     uint8_t iovcnt;
 
