@@ -12,6 +12,15 @@ use MemcachedTest;
 # /dev/shm.
 my $mem_path = "/tmp/mc_restart.$$";
 
+# read a invalid metadata file
+{
+    my $meta_path = "$mem_path.meta";
+    open(my $f, "> $meta_path") || die("Can't open a metadata file.");
+    eval {  new_memcached("-e $mem_path"); };
+    unlink($meta_path);
+    ok($@, "Died with an empty metadata file");
+}
+
 my $server = new_memcached("-m 128 -e $mem_path -I 2m");
 my $sock = $server->sock;
 
