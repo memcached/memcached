@@ -119,7 +119,7 @@ test_tls:
 test_basic_tls:
 	@if test $(SSL_TEST)1 != 1; then \
 	  echo "Running basic tests with TLS"; \
-	  $(srcdir)/testapp; \
+	  $(builddir)/testapp; \
 	  prove $(srcdir)/t/binary.t $(srcdir)/t/getset.t $(srcdir)/t/ssl*; \
 	  echo "Finished running basic TLS tests"; \
 	else \
@@ -128,8 +128,8 @@ test_basic_tls:
 endif
 
 test:	memcached-debug sizes testapp
-	$(srcdir)/sizes
-	$(srcdir)/testapp
+	$(builddir)/sizes
+	$(builddir)/testapp
 if ENABLE_TLS
 	@if test $(SSL_TEST)1 = 1; then \
           $(MAKE) SSL_TEST=1  test_basic_tls; \
