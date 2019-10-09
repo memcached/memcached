@@ -82,6 +82,7 @@ static int restart_check(const char *file) {
     restart_cb_ctx ctx;
 
     ctx.f = f;
+    ctx.cb = NULL;
     ctx.line = NULL;
     ctx.done = false;
     if (restart_get_kv(&ctx, NULL, NULL) != RESTART_DONE) {
@@ -89,6 +90,10 @@ static int restart_check(const char *file) {
         // callback here.
         fprintf(stderr, "[restart] corrupt metadata file\n");
         // TODO: this should probably just return -1 and skip the reuse.
+        abort();
+    }
+    if (ctx.cb == NULL) {
+        fprintf(stderr, "[restart] Failed to read a tag from metadata file\n");
         abort();
     }
 
