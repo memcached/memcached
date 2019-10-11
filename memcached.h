@@ -636,6 +636,7 @@ typedef struct _mc_resp {
 
     item *item; /* item associated with this response object, with reference held */
     struct iovec iov[MC_RESP_IOVCOUNT]; /* built-in iovecs to simplify network code */
+    int chunked_total; /* total amount of chunked item data to send. */
     uint8_t iovcnt;
     uint8_t chunked_data_iov; /* this iov is a pointer to chunked data header */
 

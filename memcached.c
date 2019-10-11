@@ -987,6 +987,7 @@ static void resp_add_iov(mc_resp *resp, const void *buf, int len) {
 // API should be.
 static void resp_add_chunked_iov(mc_resp *resp, const void *buf, int len) {
     resp->chunked_data_iov = resp->iovcnt;
+    resp->chunked_total = len;
     resp_add_iov(resp, buf, len);
 }
 
@@ -3752,18 +3753,23 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
             // than simply writing out a "new" miss response we mangle what's
             // already there.
             if (c->protocol == binary_prot) {
-                // truncate the data response.
-                resp->iov[wrap->iovec_data].iov_len = 0;
-                resp->chunked_data_iov = 0;
-
                 protocol_binary_response_header *header =
                     (protocol_binary_response_header *)resp->wbuf;
 
                 // cut the extra nbytes off of the body_len
                 uint32_t body_len = ntohl(header->response.bodylen);
-                body_len -= wrap->hdr_it->nbytes - 2;
+                uint8_t hdr_len = header->response.extlen;
+                body_len -= resp->iov[wrap->iovec_data].iov_len + hdr_len;
+                resp->tosend -= resp->iov[wrap->iovec_data].iov_len + hdr_len;
+                header->response.extlen = 0;
                 header->response.status = (uint16_t)htons(PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
                 header->response.bodylen = htonl(body_len);
+
+                // truncate the data response.
+                resp->iov[wrap->iovec_data].iov_len = 0;
+                // wipe the extlen iov... wish it was just a flat buffer.
+                resp->iov[wrap->iovec_data-1].iov_len = 0;
+                resp->chunked_data_iov = 0;
             } else {
                 int i;
                 // Wipe the iovecs up through our data injection.
@@ -3773,6 +3779,8 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
                     resp->iov[i].iov_len = 0;
                     resp->iov[i].iov_base = NULL;
                 }
+                resp->chunked_total = 0;
+                resp->chunked_data_iov = 0;
             }
         }
         wrap->miss = true;
@@ -3783,9 +3791,6 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
         if ((read_it->it_flags & ITEM_CHUNKED) == 0) {
             resp->iov[wrap->iovec_data].iov_base = ITEM_data(read_it);
         }
-        // kill \r\n for binprot
-        if (c->protocol == binary_prot)
-            resp->iov[wrap->iovec_data].iov_len -= 2;
         wrap->miss = false;
     }
 
@@ -3841,6 +3846,7 @@ static inline int _get_extstore(conn *c, item *it, mc_resp *resp) {
     // io_wrap owns the reference for this object now.
     io->hdr_it = it;
     io->resp = resp;
+    io->io.iov = NULL;
 
     // FIXME: error handling.
     if (chunked) {
@@ -3883,12 +3889,12 @@ static inline int _get_extstore(conn *c, item *it, mc_resp *resp) {
 
     // Chunked or non chunked we reserve a response iov here.
     io->iovec_data = resp->iovcnt;
+    int iovtotal = (c->protocol == binary_prot) ? it->nbytes - 2 : it->nbytes;
     if (chunked) {
-        resp_add_chunked_iov(resp, (char *)new_it, it->nbytes);
+        resp_add_chunked_iov(resp, new_it, iovtotal);
     } else {
-        resp_add_iov(resp, "", it->nbytes);
+        resp_add_iov(resp, "", iovtotal);
     }
-    io->io.iov = NULL;
 
     io->io.buf = (void *)new_it;
     io->c = c;
@@ -6372,24 +6378,30 @@ static enum transmit_result transmit(conn *c) {
             for (x = 0; x < resp->iovcnt; x++) {
                 // This iov is tracking how far we've copied so far.
                 if (x == resp->chunked_data_iov) {
-                    int done = resp->item->nbytes - resp->iov[x].iov_len;
+                    int done = resp->chunked_total - resp->iov[x].iov_len;
                     // Start from the len to allow binprot to cut the \r\n
                     int todo = resp->iov[x].iov_len;
                     while (ch && todo > 0 && iovused < IOV_MAX-1) {
-                        int to_add = (todo > ch->used) ? ch->used : todo;
+                        int skip = 0;
+                        if (!ch->used) {
+                            ch = ch->next;
+                            continue;
+                        }
                         // Skip parts we've already sent.
-                        if (done > ch->used) {
+                        if (done >= ch->used) {
                             done -= ch->used;
                             ch = ch->next;
                             continue;
                         } else if (done) {
+                            skip = done;
                             done = 0;
                         }
-                        iovs[iovused].iov_base = ch->data;
-                        iovs[iovused].iov_len = to_add;
+                        iovs[iovused].iov_base = ch->data + skip;
+                        // Stupid binary protocol makes this go negative.
+                        iovs[iovused].iov_len = ch->used - skip > todo ? todo : ch->used - skip;
                         iovused++;
+                        todo -= ch->used - skip;
                         ch = ch->next;
-                        todo -= to_add;
                     }
                 } else {
                     iovs[iovused].iov_base = resp->iov[x].iov_base;

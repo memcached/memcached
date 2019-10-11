@@ -32,7 +32,7 @@ for (1..5) {
     my $data = "x" x $size;
     print $sock "set foo$_ 0 0 $size\r\n$data\r\n";
     my $res = <$sock>;
-    is($res, "STORED\r\n", "stored some big items");
+    is($res, "STORED\r\n", "stored some big items: $size");
 }
 
 {
