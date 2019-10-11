@@ -3933,20 +3933,18 @@ static inline int _get_extstore(conn *c, item *it, mc_resp *resp) {
     return 0;
 }
 #endif
-#ifdef DEAD_CODE
+
 /* ntokens is overwritten here... shrug.. */
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens, bool return_cas, bool should_touch) {
     char *key;
     size_t nkey;
-    int i = 0;
-    int si = 0;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
-    char *suffix;
     int32_t exptime_int = 0;
     rel_time_t exptime = 0;
     bool fail_length = false;
     assert(c != NULL);
+    mc_resp *resp = c->resp;
 
     if (should_touch) {
         // For get and touch commands, use first token as exptime
@@ -3974,11 +3972,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
             if (it) {
-                if (_ascii_get_expand_ilist(c, i) != 0) {
-                    item_remove(it);
-                    goto stop;
-                }
-
                 /*
                  * Construct the response. Each hit adds three elements to the
                  * outgoing data list:
@@ -3990,25 +3983,19 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
-                  int nbytes;
-                  suffix = _ascii_get_suffix_buf(c, si);
-                  if (suffix == NULL) {
-                      item_remove(it);
-                      goto stop;
-                  }
-                  si++;
+                  int nbytes = it->nbytes;;
                   nbytes = it->nbytes;
-                  int suffix_len = make_ascii_get_suffix(suffix, it, return_cas, nbytes);
-                  if (add_iov(c, "VALUE ", 6) != 0 ||
-                      add_iov(c, ITEM_key(it), it->nkey) != 0 ||
-                      add_iov(c, suffix, suffix_len) != 0)
-                      {
-                          item_remove(it);
-                          goto stop;
-                      }
+                  char *p = resp->wbuf;
+                  memcpy(p, "VALUE ", 6);
+                  p += 6;
+                  memcpy(p, ITEM_key(it), it->nkey);
+                  p += it->nkey;
+                  p += make_ascii_get_suffix(p, it, return_cas, nbytes);
+                  resp_add_iov(resp, resp->wbuf, p - resp->wbuf);
+
 #ifdef EXTSTORE
                   if (it->it_flags & ITEM_HDR) {
-                      if (_get_extstore(c, it, c->iovused-3, 4) != 0) {
+                      if (_get_extstore(c, it, resp) != 0) {
                           pthread_mutex_lock(&c->thread->stats.mutex);
                           c->thread->stats.get_oom_extstore++;
                           pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -4017,14 +4004,17 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                           goto stop;
                       }
                   } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                      resp_add_iov(resp, ITEM_data(it), it->nbytes);
+                  } else {
+                      resp_add_chunked_iov(resp, it, it->nbytes);
+                  }
 #else
                   if ((it->it_flags & ITEM_CHUNKED) == 0) {
-#endif
-                      add_iov(c, ITEM_data(it), it->nbytes);
-                  } else if (add_chunked_item_iovs(c, it, it->nbytes) != 0) {
-                      item_remove(it);
-                      goto stop;
+                      resp_add_iov(c, ITEM_data(it), it->nbytes);
+                  } else {
+                      resp_add_chunked_iov(resp, it, it->nbytes);
                   }
+#endif
                 }
 
                 if (settings.verbose > 1) {
@@ -4049,12 +4039,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 #ifdef EXTSTORE
                 /* If ITEM_HDR, an io_wrap owns the reference. */
                 if ((it->it_flags & ITEM_HDR) == 0) {
-                    *(c->ilist + i) = it;
-                    i++;
+                    resp->item = it;
                 }
 #else
-                *(c->ilist + i) = it;
-                i++;
+                resp->item = it;
 #endif
             } else {
                 pthread_mutex_lock(&c->thread->stats.mutex);
@@ -4070,24 +4058,25 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             }
 
             key_token++;
+            if (key_token->length != 0) {
+                if (!resp_start(c)) {
+                    // TODO: need a static OOM thinger.
+                    abort();
+                }
+                resp = c->resp;
+            }
         }
 
         /*
          * If the command string hasn't been fully processed, get the next set
          * of tokens.
          */
-        if(key_token->value != NULL) {
+        if (key_token->value != NULL) {
             ntokens = tokenize_command(key_token->value, tokens, MAX_TOKENS);
             key_token = tokens;
         }
-
     } while(key_token->value != NULL);
 stop:
-
-    c->icurr = c->ilist;
-    c->ileft = i;
-    c->suffixcurr = c->suffixlist;
-    c->suffixleft = si;
 
     if (settings.verbose > 1)
         fprintf(stderr, ">%d END\n", c->sfd);
@@ -4097,21 +4086,22 @@ stop:
         reliable to add END\r\n to the buffer, because it might not end
         in \r\n. So we send SERVER_ERROR instead.
     */
-    if (key_token->value != NULL || add_iov(c, "END\r\n", 5) != 0
-        || (IS_UDP(c->transport) && build_udp_headers(c) != 0)) {
+    if (key_token->value != NULL) {
+        // Kill any stacked responses we had.
+        conn_release_items(c);
+        // Start a new response object for the error message.
+        resp_start(c);
         if (fail_length) {
             out_string(c, "CLIENT_ERROR bad command line format");
         } else {
             out_of_memory(c, "SERVER_ERROR out of memory writing get response");
         }
-        conn_release_items(c);
-    }
-    else {
+    } else {
+        // Tag the end token onto the most recent response object.
+        resp_add_iov(resp, "END\r\n", 5);
         conn_set_state(c, conn_mwrite);
-        c->msgcurr = 0;
     }
 }
-#endif
 
 // slow snprintf for debugging purposes.
 static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -5613,7 +5603,7 @@ static void process_command(conn *c, char *command) {
         ((strcmp(tokens[COMMAND_TOKEN].value, "get") == 0) ||
          (strcmp(tokens[COMMAND_TOKEN].value, "bget") == 0))) {
 
-        //process_get_command(c, tokens, ntokens, false, false);
+        process_get_command(c, tokens, ntokens, false, false);
 
     } else if ((ntokens == 6 || ntokens == 7) &&
                ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
@@ -5634,7 +5624,7 @@ static void process_command(conn *c, char *command) {
 
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "gets") == 0)) {
 
-        //process_get_command(c, tokens, ntokens, true, false);
+        process_get_command(c, tokens, ntokens, true, false);
 
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mg") == 0)) {
         process_mget_command(c, tokens, ntokens);
@@ -5664,11 +5654,11 @@ static void process_command(conn *c, char *command) {
 
     } else if (ntokens >= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "gat") == 0)) {
 
-        //process_get_command(c, tokens, ntokens, false, true);
+        process_get_command(c, tokens, ntokens, false, true);
 
     } else if (ntokens >= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "gats") == 0)) {
 
-        //process_get_command(c, tokens, ntokens, true, true);
+        process_get_command(c, tokens, ntokens, true, true);
 
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0)) {
 
