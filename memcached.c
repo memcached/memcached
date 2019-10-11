@@ -6021,6 +6021,10 @@ static int try_read_command_asciiauth(conn *c) {
     size_t ntokens;
     char *cont = NULL;
 
+    if (!c->resp) {
+        resp_start(c);
+    }
+
     // TODO: move to another function.
     if (!c->sasl_started) {
         char *el;
