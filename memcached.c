@@ -88,6 +88,8 @@ static enum try_read_result try_read_udp(conn *c);
 static void conn_set_state(conn *c, enum conn_states state);
 static int start_conn_timeout_thread();
 
+static mc_resp* resp_finish(conn *c, mc_resp *resp);
+
 /* stats */
 static void stats_init(void);
 static void server_stats(ADD_STAT add_stats, conn *c);
@@ -754,6 +756,15 @@ static void conn_release_items(conn *c) {
         c->io_wraplist = NULL;
     }
 #endif
+
+    // Cull any unsent responses.
+    if (c->resp_head) {
+        mc_resp *resp = c->resp_head;
+        // r_f() handles the chain maintenance.
+        while (resp) {
+            resp = resp_finish(c, resp);
+        }
+    }
 }
 
 static void conn_cleanup(conn *c) {
@@ -958,6 +969,7 @@ static void resp_reset(mc_resp *resp) {
     resp->wbytes = 0;
     resp->tosend = 0;
     resp->iovcnt = 0;
+    resp->chunked_data_iov = 0;
     resp->skip = false;
 }
 
@@ -968,6 +980,14 @@ static void resp_add_iov(mc_resp *resp, const void *buf, int len) {
     resp->iov[x].iov_len = len;
     resp->iovcnt++;
     resp->tosend += len;
+}
+
+// Notes that an IOV should be handled as a chunked item header.
+// TODO: I'm hoping this isn't a permanent abstraction while I learn what the
+// API should be.
+static void resp_add_chunked_iov(mc_resp *resp, const void *buf, int len) {
+    resp->chunked_data_iov = resp->iovcnt;
+    resp_add_iov(resp, buf, len);
 }
 
 static bool resp_start(conn *c) {
@@ -1003,7 +1023,7 @@ static mc_resp* resp_finish(conn *c, mc_resp *resp) {
         free(resp->write_and_free);
     }
     if (c->resp_head == resp) {
-        c->resp_head = NULL;
+        c->resp_head = next;
     }
     if (c->resp == resp) {
         c->resp = NULL;
@@ -1684,13 +1704,13 @@ static void process_bin_get_or_touch(conn *c) {
                 resp_add_iov(c->resp, ITEM_data(it), it->nbytes - 2);
             } else {
                 // Allow transmit handler to find the item and expand iov's
-                resp_add_iov(c->resp, it, it->nbytes - 2);
+                resp_add_chunked_iov(c->resp, it, it->nbytes - 2);
             }
 #else
             if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 resp_add_iov(c->resp, ITEM_data(it), it->nbytes - 2);
             } else {
-                resp_add_iov(c->resp, it, it->nbytes - 2);
+                resp_add_chunked_iov(c->resp, it, it->nbytes - 2);
             }
 #endif
         }
@@ -3722,50 +3742,55 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
     }
 
     if (miss) {
-        // TODO: This should be movable to the worker thread.
-        if (c->protocol == binary_prot) {
-            protocol_binary_response_header *header =
-                (protocol_binary_response_header *)resp->wbuf;
-            // this zeroes out the iovecs since binprot never stacks them.
-            // TODO: needs to overwrite specific resp...
-            if (header->response.keylen) {
-                write_bin_miss_response(c, ITEM_key(wrap->hdr_it), wrap->hdr_it->nkey);
-            } else {
-                write_bin_miss_response(c, 0, 0);
-            }
+        if (wrap->noreply) {
+            // In all GET cases, noreply means we send nothing back.
+            resp->skip = true;
         } else {
-            int i;
-            // Wipe the iovecs up through our data injection.
-            // Allows trailers to be returned (EN)
-            for (i = 0; i <= wrap->iovec_data; i++) {
-                resp->tosend -= resp->iov[i].iov_len;
-                resp->iov[i].iov_len = 0;
-                resp->iov[i].iov_base = NULL;
+            // TODO: This should be movable to the worker thread.
+            // Convert the binprot response into a miss response.
+            // The header requires knowing a bunch of stateful crap, so rather
+            // than simply writing out a "new" miss response we mangle what's
+            // already there.
+            if (c->protocol == binary_prot) {
+                // truncate the data response.
+                resp->iov[wrap->iovec_data].iov_len = 0;
+                resp->chunked_data_iov = 0;
+
+                protocol_binary_response_header *header =
+                    (protocol_binary_response_header *)resp->wbuf;
+
+                // cut the extra nbytes off of the body_len
+                uint32_t body_len = ntohl(header->response.bodylen);
+                body_len -= wrap->hdr_it->nbytes - 2;
+                header->response.status = (uint16_t)htons(PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
+                header->response.bodylen = htonl(body_len);
+            } else {
+                int i;
+                // Wipe the iovecs up through our data injection.
+                // Allows trailers to be returned (EN)
+                for (i = 0; i <= wrap->iovec_data; i++) {
+                    resp->tosend -= resp->iov[i].iov_len;
+                    resp->iov[i].iov_len = 0;
+                    resp->iov[i].iov_base = NULL;
+                }
             }
         }
         wrap->miss = true;
     } else {
         assert(read_it->slabs_clsid != 0);
-        // kill \r\n for binprot
-        if (io->iov == NULL) {
+        // TODO: should always use it instead of ITEM_data to kill more
+        // chunked special casing.
+        if ((read_it->it_flags & ITEM_CHUNKED) == 0) {
             resp->iov[wrap->iovec_data].iov_base = ITEM_data(read_it);
-            if (c->protocol == binary_prot)
-                resp->iov[wrap->iovec_data].iov_len -= 2;
-        } else {
-            // FIXME: Might need to go back and ensure chunked binprots don't
-            // ever span two chunks for the final \r\n
-            if (c->protocol == binary_prot) {
-                if (io->iov[io->iovcnt-1].iov_len >= 2) {
-                    io->iov[io->iovcnt-1].iov_len -= 2;
-                } else {
-                    io->iov[io->iovcnt-1].iov_len = 0;
-                    io->iov[io->iovcnt-2].iov_len -= 1;
-                }
-            }
         }
+        // kill \r\n for binprot
+        if (c->protocol == binary_prot)
+            resp->iov[wrap->iovec_data].iov_len -= 2;
         wrap->miss = false;
-        // iov_len is already set
-        // TODO: Should do that here instead and cuddle in the wrap object
+    }
+
+    if (io->iov) {
+        free(io->iov);
     }
     c->io_wrapleft--;
     wrap->active = false;
@@ -3812,40 +3837,58 @@ static inline int _get_extstore(conn *c, item *it, mc_resp *resp) {
     io->active = true;
     io->miss = false;
     io->badcrc = false;
+    io->noreply = c->noreply;
     // io_wrap owns the reference for this object now.
     io->hdr_it = it;
     io->resp = resp;
 
     // FIXME: error handling.
     if (chunked) {
-#ifdef DEAD_CODE
-        unsigned int ciovcnt = 1;
+        unsigned int ciovcnt = 0;
         size_t remain = new_it->nbytes;
         item_chunk *chunk = (item_chunk *) ITEM_schunk(new_it);
-        io->io.iov = &c->iov[c->iovused];
+        // TODO: This might make sense as a _global_ cache vs a per-thread.
+        // but we still can't load objects requiring > IOV_MAX iovs.
+        // In the meantime, these objects are rare/slow enough that
+        // malloc/freeing a statically sized object won't cause us much pain.
+        io->io.iov = malloc(sizeof(struct iovec) * IOV_MAX);
+        if (io->io.iov == NULL) {
+            item_remove(new_it);
+            do_cache_free(c->thread->io_cache, io);
+            return -1;
+        }
+
         // fill the header so we can get the full data + crc back.
-        add_iov(c, new_it, ITEM_ntotal(new_it) - new_it->nbytes);
+        io->io.iov[0].iov_base = new_it;
+        io->io.iov[0].iov_len = ITEM_ntotal(new_it) - new_it->nbytes;
+        ciovcnt++;
+
         while (remain > 0) {
             chunk = do_item_alloc_chunk(chunk, remain);
-            if (chunk == NULL) {
+            // FIXME: _pure evil_, silently erroring if item is too large.
+            if (chunk == NULL || ciovcnt > IOV_MAX-1) {
                 item_remove(new_it);
                 do_cache_free(c->thread->io_cache, io);
                 return -1;
             }
-            add_iov(c, chunk->data, (remain < chunk->size) ? remain : chunk->size);
+            io->io.iov[ciovcnt].iov_base = chunk->data;
+            io->io.iov[ciovcnt].iov_len = (remain < chunk->size) ? remain : chunk->size;
             chunk->used = (remain < chunk->size) ? remain : chunk->size;
             remain -= chunk->size;
             ciovcnt++;
         }
+
         io->io.iovcnt = ciovcnt;
-        // header object was already accounted for, remove one from total
-        io->iovec_count += ciovcnt-1;
-#endif
-    } else {
-        io->iovec_data = resp->iovcnt;
-        resp_add_iov(resp, "", it->nbytes);
-        io->io.iov = NULL;
     }
+
+    // Chunked or non chunked we reserve a response iov here.
+    io->iovec_data = resp->iovcnt;
+    if (chunked) {
+        resp_add_chunked_iov(resp, (char *)new_it, it->nbytes);
+    } else {
+        resp_add_iov(resp, "", it->nbytes);
+    }
+    io->io.iov = NULL;
 
     io->io.buf = (void *)new_it;
     io->c = c;
@@ -4466,13 +4509,13 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 resp_add_iov(resp, ITEM_data(it), it->nbytes);
             } else {
-                resp_add_iov(resp, it, it->nbytes);
+                resp_add_chunked_iov(resp, it, it->nbytes);
             }
 #else
             if ((it->it_flags & ITEM_CHUNKED) == 0) {
                 resp_add_iov(resp, ITEM_data(it), it->nbytes);
             } else {
-                resp_add_iov(resp, it, it->nbytes);
+                resp_add_chunked_iov(resp, it, it->nbytes);
             }
 #endif
         }
@@ -6326,15 +6369,15 @@ static enum transmit_result transmit(conn *c) {
             resp = resp_finish(c, resp);
             continue;
         }
-        if (resp->item && (resp->item->it_flags & ITEM_CHUNKED)) {
+        if (resp->chunked_data_iov) {
             // Handle chunked items specially.
             // They spend much more time in send so we can be a bit wasteful
             // in rebuilding iovecs for them.
-            item_chunk *ch = (item_chunk *) ITEM_schunk(resp->item);
+            item_chunk *ch = (item_chunk *)ITEM_schunk((item *)resp->iov[resp->chunked_data_iov].iov_base);
             int x;
             for (x = 0; x < resp->iovcnt; x++) {
                 // This iov is tracking how far we've copied so far.
-                if (resp->iov[x].iov_base == resp->item) {
+                if (x == resp->chunked_data_iov) {
                     int done = resp->item->nbytes - resp->iov[x].iov_len;
                     // Start from the len to allow binprot to cut the \r\n
                     int todo = resp->iov[x].iov_len;
@@ -6396,7 +6439,9 @@ static enum transmit_result transmit(conn *c) {
                 } else {
                     // Dumb special case for chunked items. Currently tracking
                     // where to inject the chunked item via iov_base.
-                    if (!resp->item || resp->item != iov->iov_base) {
+                    // Extra not-great since chunked items can't be the first
+                    // index, so we have to check for non-zero c_d_iov first.
+                    if (resp->chunked_data_iov && x != resp->chunked_data_iov) {
                         iov->iov_base = (char *)iov->iov_base + res;
                     }
                     iov->iov_len -= res;

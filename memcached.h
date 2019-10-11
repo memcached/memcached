@@ -637,6 +637,7 @@ typedef struct _mc_resp {
     item *item; /* item associated with this response object, with reference held */
     struct iovec iov[MC_RESP_IOVCOUNT]; /* built-in iovecs to simplify network code */
     uint8_t iovcnt;
+    uint8_t chunked_data_iov; /* this iov is a pointer to chunked data header */
 
     /* instruct transmit to skip this response object. used by storage engines
      * to asynchronously kill an object that was queued to write
@@ -655,6 +656,7 @@ typedef struct _io_wrap {
     item *hdr_it;             /* original header item. */
     mc_resp *resp;            /* associated response object */
     unsigned int iovec_data;  /* specific index of data iovec */
+    bool noreply;             /* whether the response had noreply set */
     bool miss;                /* signal a miss to unlink hdr_it */
     bool badcrc;              /* signal a crc failure */
     bool active;              /* tells if IO was dispatched or not */
