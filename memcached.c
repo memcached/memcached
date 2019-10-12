@@ -5818,7 +5818,11 @@ static void process_command(conn *c, char *command) {
                     c, c->sfd, LRU_CRAWLER_CAP_REMAINING);
             switch(rv) {
                 case CRAWLER_OK:
-                    out_string(c, "OK");
+                    // TODO: documentation says this string is returned, but
+                    // it never was before. We never switch to conn_write so
+                    // this o_s call never worked. Need to talk to users and
+                    // decide if removing the OK from docs is fine.
+                    //out_string(c, "OK");
                     // TODO: Don't reuse conn_watch here.
                     conn_set_state(c, conn_watch);
                     event_del(&c->event);
@@ -6447,7 +6451,7 @@ static enum transmit_result transmit(conn *c) {
                     // where to inject the chunked item via iov_base.
                     // Extra not-great since chunked items can't be the first
                     // index, so we have to check for non-zero c_d_iov first.
-                    if (resp->chunked_data_iov && x != resp->chunked_data_iov) {
+                    if (!resp->chunked_data_iov || x != resp->chunked_data_iov) {
                         iov->iov_base = (char *)iov->iov_base + res;
                     }
                     iov->iov_len -= res;
@@ -6464,7 +6468,6 @@ static enum transmit_result transmit(conn *c) {
                 break;
             }
         }
-        c->resp_head = resp;
 
         if (c->resp_head) {
             return TRANSMIT_INCOMPLETE;
