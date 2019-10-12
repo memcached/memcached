@@ -6732,7 +6732,12 @@ static void drive_machine(conn *c) {
             c->noreply = false;
             if (c->try_read_command(c) == 0) {
                 /* wee need more data! */
-                conn_set_state(c, conn_waiting);
+                if (c->resp_head) {
+                    // Buffered responses waiting, flush in the meantime.
+                    conn_set_state(c, conn_mwrite);
+                } else {
+                    conn_set_state(c, conn_waiting);
+                }
             }
 
             break;
