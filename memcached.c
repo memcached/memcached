@@ -1000,9 +1000,6 @@ static void out_string(conn *c, const char *str) {
     memcpy(resp->wbuf + len, "\r\n", 2);
     resp_add_iov(resp, resp->wbuf, len + 2);
 
-    // TODO: so what do we do here? we need to stay in the current state until
-    // rbytes is done or we yield.
-    // I think it's right to bounce through conn_new_cmd.
     conn_set_state(c, conn_new_cmd);
     return;
 }
@@ -3700,7 +3697,6 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
     }
 }
 
-// FIXME: This completely breaks UDP support.
 static inline int _get_extstore(conn *c, item *it, mc_resp *resp) {
 #ifdef NEED_ALIGN
     item_hdr hdr;
@@ -6793,10 +6789,12 @@ static void drive_machine(conn *c) {
             /* Only process nreqs at a time to avoid starving other
                connections */
 
-            // TODO: else if responses -> mwrite
             --nreqs;
             if (nreqs >= 0) {
                 reset_cmd_handler(c);
+            } else if (c->resp_head) {
+                // flush response pipe on yield.
+                conn_set_state(c, conn_mwrite);
             } else {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.conn_yields++;
