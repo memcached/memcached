@@ -62,6 +62,7 @@
 #define INCR_MAX_STORAGE_LEN 24
 
 #define DATA_BUFFER_SIZE 2048
+#define WRITE_BUFFER_SIZE 1024
 #define UDP_READ_BUFFER_SIZE 65536
 #define UDP_MAX_PAYLOAD_SIZE 1400
 #define UDP_HEADER_SIZE 8
@@ -629,7 +630,6 @@ typedef struct {
 #define MC_RESP_IOVCOUNT 4
 typedef struct _mc_resp {
     struct _mc_resp *next; // choo choo.
-    char *wcurr; // TODO: nuke. don't think this is used anymore.
     int wbytes; // bytes to write out of wbuf: might be able to nuke this.
     int tosend; // total bytes to send for this response
     void *write_and_free; /** free this memory after finishing writing */
@@ -650,7 +650,6 @@ typedef struct _mc_resp {
     uint16_t    udp_total; /* total number of packets in sequence */
     struct sockaddr_in6 request_addr; /* udp: Who sent this request */
     socklen_t request_addr_size;
-
 
     // TODO: separate? not always needed, but mostly needed.
     char wbuf[DATA_BUFFER_SIZE];

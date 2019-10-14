@@ -918,7 +918,7 @@ static bool resp_start(conn *c) {
     }
     // FIXME: make wbuf indirect or use offsetof or something to zero
     // this. or a sub struct.
-    memset(resp, 0, 128); // FIXME: this'll zero out wbuf which is large!
+    memset(resp, 0, 128);
     if (!c->resp_head) {
         c->resp_head = resp;
     }
@@ -987,7 +987,7 @@ static void out_string(conn *c, const char *str) {
     // Fill response object with static string.
 
     len = strlen(str);
-    if ((len + 2) > DATA_BUFFER_SIZE) {
+    if ((len + 2) > WRITE_BUFFER_SIZE) {
         /* ought to be always enough. just fail for simplicity */
         str = "SERVER_ERROR output line too long";
         len = strlen(str);
@@ -4018,7 +4018,7 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
         resp->wbuf[total] = ' ';
         total++;
 
-        ret = snprintf(resp->wbuf + total, DATA_BUFFER_SIZE - (it->nkey + 12),
+        ret = snprintf(resp->wbuf + total, WRITE_BUFFER_SIZE - (it->nkey + 12),
                 "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\nEN\r\n",
                 (it->exptime == 0) ? -1 : (current_time - it->exptime),
                 (unsigned long long)(current_time - it->time),
