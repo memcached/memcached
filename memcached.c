@@ -881,14 +881,17 @@ static void conn_set_state(conn *c, enum conn_states state) {
 static void resp_reset(mc_resp *resp) {
     if (resp->item) {
         item_remove(resp->item);
+        resp->item = NULL;
     }
     if (resp->write_and_free) {
         free(resp->write_and_free);
+        resp->write_and_free = NULL;
     }
     resp->wbytes = 0;
     resp->tosend = 0;
     resp->iovcnt = 0;
     resp->chunked_data_iov = 0;
+    resp->chunked_total = 0;
     resp->skip = false;
 }
 
