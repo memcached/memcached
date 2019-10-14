@@ -339,6 +339,9 @@ struct thread_stats {
 #undef X
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
     uint64_t lru_hits[POWER_LARGEST];
+    uint64_t response_obj_bytes;
+    uint64_t response_obj_total;
+    uint64_t response_obj_free;
 };
 
 /**
@@ -652,7 +655,7 @@ typedef struct _mc_resp {
     socklen_t request_addr_size;
 
     // TODO: separate? not always needed, but mostly needed.
-    char wbuf[DATA_BUFFER_SIZE];
+    char wbuf[WRITE_BUFFER_SIZE];
 } mc_resp;
 
 typedef struct conn conn;
