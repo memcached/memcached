@@ -792,6 +792,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
     logger_watcher *w = NULL;
     pthread_mutex_lock(&logger_stack_lock);
     if (watcher_count >= WATCHER_LIMIT) {
+        pthread_mutex_unlock(&logger_stack_lock);
         return LOGGER_ADD_WATCHER_TOO_MANY;
     }
 
