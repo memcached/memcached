@@ -2192,6 +2192,8 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_NOOP:
             if (extlen == 0 && keylen == 0 && bodylen == 0) {
                 write_bin_response(c, NULL, 0, 0, 0);
+                // NOOP forces pipeline flush.
+                conn_set_state(c, conn_mwrite);
             } else {
                 protocol_error = 1;
             }
