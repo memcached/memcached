@@ -3896,7 +3896,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   }
 #else
                   if ((it->it_flags & ITEM_CHUNKED) == 0) {
-                      resp_add_iov(c, ITEM_data(it), it->nbytes);
+                      resp_add_iov(resp, ITEM_data(it), it->nbytes);
                   } else {
                       resp_add_chunked_iov(resp, it, it->nbytes);
                   }
