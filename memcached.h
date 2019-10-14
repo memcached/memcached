@@ -644,6 +644,14 @@ typedef struct _mc_resp {
      * to asynchronously kill an object that was queued to write
      */
     bool skip;
+    // UDP bits. Copied in from the client.
+    uint16_t    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
+    uint16_t    udp_sequence; /* packet counter when transmitting result */
+    uint16_t    udp_total; /* total number of packets in sequence */
+    struct sockaddr_in6 request_addr; /* udp: Who sent this request */
+    socklen_t request_addr_size;
+
+
     // TODO: separate? not always needed, but mostly needed.
     char wbuf[DATA_BUFFER_SIZE];
 } mc_resp;
@@ -720,8 +728,6 @@ struct conn {
     int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
     struct sockaddr_in6 request_addr; /* udp: Who sent the most recent request */
     socklen_t request_addr_size;
-    unsigned char *hdrbuf; /* udp packet headers */
-    int    hdrsize;   /* number of headers' worth of space is allocated */
 
     bool   noreply;   /* True if the reply should not be sent. */
     /* current stats command */

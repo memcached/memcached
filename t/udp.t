@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 48;
+use Test::More tests => 67;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -47,6 +47,27 @@ for my $offt (1, 1, 2) {
     ok($res->{0}, "only got seq number 0");
     is(substr($res->{0}, 8), "VALUE foo 0 6\r\nfooval\r\nEND\r\n");
     is(hexify(substr($res->{0}, 0, 2)), hexify(pack("n", $req)), "udp request number in response ($req) is correct");
+}
+
+my $bvalue;
+my $bsize = 20000;
+{
+    my @chars = ("C".."Z");
+    for (1 .. $bsize) {
+        $bvalue .= $chars[rand @chars];
+    }
+}
+
+# set and test a multi-packet value
+{
+    print $sock "set bigvalue 0 0 $bsize\r\n$bvalue\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored bigvalue");
+    mem_get_is($sock, "bigvalue", $bvalue);
+
+    my $res = send_udp_request($usock, 53, "get bigvalue\r\n");
+    ok($res, "got result");
+    my $resp = construct_udp_message($res);
+    is($resp, "VALUE bigvalue 0 $bsize\r\n$bvalue\r\nEND\r\n");
 }
 
 # op tests

@@ -519,10 +519,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->sendmsg = NULL;
         c->write = NULL;
         c->rbuf = 0;
-        c->hdrbuf = 0;
 
         c->rsize = read_buffer_size;
-        c->hdrsize = 0;
 
         c->rbuf = (char *)malloc((size_t)c->rsize);
 
@@ -793,8 +791,6 @@ void conn_free(conn *c) {
 
         MEMCACHED_CONN_DESTROY(c);
         conns[c->sfd] = NULL;
-        if (c->hdrbuf)
-            free(c->hdrbuf);
         if (c->rbuf)
             free(c->rbuf);
 #ifdef TLS
@@ -879,83 +875,6 @@ static void conn_set_state(conn *c, enum conn_states state) {
     }
 }
 
-#ifdef DEAD_CODE
-// TODO: fix/remove/replace this.
-/*
- * Adds data to the list of pending data that will be written out to a
- * connection.
- *
- * Returns 0 on success, -1 on out-of-memory.
- * Note: This is a hot path for at least ASCII protocol. While there is
- * redundant code in splitting TCP/UDP handling, any reduction in steps has a
- * large impact for TCP connections.
- */
-
-static int add_iov(conn *c, const void *buf, int len) {
-    struct msghdr *m;
-    int leftover;
-
-    assert(c != NULL);
-
-    if (IS_UDP(c->transport)) {
-        do {
-            m = &c->msglist[c->msgused - 1];
-
-            /*
-             * Limit UDP packets to UDP_MAX_PAYLOAD_SIZE bytes.
-             */
-
-            /* We may need to start a new msghdr if this one is full. */
-            if (m->msg_iovlen == IOV_MAX ||
-                (c->msgbytes >= UDP_MAX_PAYLOAD_SIZE)) {
-                add_msghdr(c);
-                m = &c->msglist[c->msgused - 1];
-            }
-
-            if (ensure_iov_space(c) != 0)
-                return -1;
-
-            /* If the fragment is too big to fit in the datagram, split it up */
-            if (len + c->msgbytes > UDP_MAX_PAYLOAD_SIZE) {
-                leftover = len + c->msgbytes - UDP_MAX_PAYLOAD_SIZE;
-                len -= leftover;
-            } else {
-                leftover = 0;
-            }
-
-            m = &c->msglist[c->msgused - 1];
-            m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
-            m->msg_iov[m->msg_iovlen].iov_len = len;
-
-            c->msgbytes += len;
-            c->iovused++;
-            m->msg_iovlen++;
-
-            buf = ((char *)buf) + len;
-            len = leftover;
-        } while (leftover > 0);
-    } else {
-        /* Optimized path for TCP connections */
-        m = &c->msglist[c->msgused - 1];
-        if (m->msg_iovlen == IOV_MAX) {
-            add_msghdr(c);
-            m = &c->msglist[c->msgused - 1];
-        }
-
-        if (ensure_iov_space(c) != 0)
-            return -1;
-
-        m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
-        m->msg_iov[m->msg_iovlen].iov_len = len;
-        c->msgbytes += len;
-        c->iovused++;
-        m->msg_iovlen++;
-    }
-
-    return 0;
-}
-#endif
-
 /*
  * response object helper functions
  */
@@ -1009,6 +928,12 @@ static bool resp_start(conn *c) {
         c->resp->next = resp;
         c->resp = resp;
     }
+    if (IS_UDP(c->transport)) {
+        // need to hold on to some data for async responses.
+        c->resp->request_id = c->request_id;
+        c->resp->request_addr = c->request_addr;
+        c->resp->request_addr_size = c->request_addr_size;
+    }
     return true;
 }
 
@@ -1033,53 +958,6 @@ static mc_resp* resp_finish(conn *c, mc_resp *resp) {
     //fprintf(stderr, "resp free: %d\n", c->thread->resp_cache->total);
     return next;
 }
-
-#ifdef DEAD_CODE
-/*
- * Constructs a set of UDP headers and attaches them to the outgoing messages.
- */
-static int build_udp_headers(conn *c) {
-    int i;
-    unsigned char *hdr;
-
-    assert(c != NULL);
-
-    if (c->msgused > c->hdrsize) {
-        void *new_hdrbuf;
-        if (c->hdrbuf) {
-            new_hdrbuf = realloc(c->hdrbuf, c->msgused * 2 * UDP_HEADER_SIZE);
-        } else {
-            new_hdrbuf = malloc(c->msgused * 2 * UDP_HEADER_SIZE);
-        }
-
-        if (! new_hdrbuf) {
-            STATS_LOCK();
-            stats.malloc_fails++;
-            STATS_UNLOCK();
-            return -1;
-        }
-        c->hdrbuf = (unsigned char *)new_hdrbuf;
-        c->hdrsize = c->msgused * 2;
-    }
-
-    hdr = c->hdrbuf;
-    for (i = 0; i < c->msgused; i++) {
-        c->msglist[i].msg_iov[0].iov_base = (void*)hdr;
-        c->msglist[i].msg_iov[0].iov_len = UDP_HEADER_SIZE;
-        *hdr++ = c->request_id / 256;
-        *hdr++ = c->request_id % 256;
-        *hdr++ = i / 256;
-        *hdr++ = i % 256;
-        *hdr++ = c->msgused / 256;
-        *hdr++ = c->msgused % 256;
-        *hdr++ = 0;
-        *hdr++ = 0;
-        assert((void *) hdr == (caddr_t)c->msglist[i].msg_iov[0].iov_base + UDP_HEADER_SIZE);
-    }
-
-    return 0;
-}
-#endif
 
 static void out_string(conn *c, const char *str) {
     size_t len;
@@ -6344,30 +6222,8 @@ void do_accept_new_conns(const bool do_accept) {
     }
 }
 
-/*
- * Transmit the next chunk of data from our list of msgbuf structures.
- *
- * Returns:
- *   TRANSMIT_COMPLETE   All done writing.
- *   TRANSMIT_INCOMPLETE More data remaining to write.
- *   TRANSMIT_SOFT_ERROR Can't write any more right now.
- *   TRANSMIT_HARD_ERROR Can't write (c->state is set to conn_closing)
- */
-static enum transmit_result transmit(conn *c) {
-    assert(c != NULL);
-    struct iovec iovs[IOV_MAX];
-    struct msghdr msg;
-    mc_resp *resp;
-    int iovused = 0;
-
-    // init the msg.
-    memset(&msg, 0, sizeof(struct msghdr));
-    msg.msg_iov = iovs;
-
-    // TODO: if UDP etc
-
-    // Build out our msg from response objects.
-    resp = c->resp_head;
+static int _transmit_pre(conn *c, struct iovec *iovs, int iovused) {
+    mc_resp *resp = c->resp_head;
     while (resp && iovused + resp->iovcnt < IOV_MAX-1) {
         if (resp->skip) {
             resp = resp_finish(c, resp);
@@ -6423,6 +6279,78 @@ static enum transmit_result transmit(conn *c) {
         // done looking at first response, walk down the chain.
         resp = resp->next;
     }
+    return iovused;
+}
+
+/*
+ * Decrements and completes responses based on how much data was transmitted.
+ * Takes the connection and current result bytes.
+ */
+static void _transmit_post(conn *c, ssize_t res) {
+    // We've written some of the data. Remove the completed
+    // responses from the list of pending writes.
+    mc_resp *resp = c->resp_head;
+    while (resp) {
+        int x;
+        // fastpath check. all small responses should cut here.
+        if (res >= resp->tosend) {
+            res -= resp->tosend;
+            resp = resp_finish(c, resp);
+            continue;
+        }
+
+        // it's fine to re-check iov's that were zeroed out before.
+        for (x = 0; x < resp->iovcnt; x++) {
+            struct iovec *iov = &resp->iov[x];
+            if (res >= iov->iov_len) {
+                resp->tosend -= iov->iov_len;
+                res -= iov->iov_len;
+                iov->iov_len = 0;
+            } else {
+                // Dumb special case for chunked items. Currently tracking
+                // where to inject the chunked item via iov_base.
+                // Extra not-great since chunked items can't be the first
+                // index, so we have to check for non-zero c_d_iov first.
+                if (!resp->chunked_data_iov || x != resp->chunked_data_iov) {
+                    iov->iov_base = (char *)iov->iov_base + res;
+                }
+                iov->iov_len -= res;
+                resp->tosend -= res;
+                res = 0;
+                break;
+            }
+        }
+
+        // are we done with this response object?
+        if (resp->tosend == 0) {
+            resp = resp_finish(c, resp);
+        } else {
+            // Jammed up here. This is the new head.
+            break;
+        }
+    }
+}
+
+/*
+ * Transmit the next chunk of data from our list of msgbuf structures.
+ *
+ * Returns:
+ *   TRANSMIT_COMPLETE   All done writing.
+ *   TRANSMIT_INCOMPLETE More data remaining to write.
+ *   TRANSMIT_SOFT_ERROR Can't write any more right now.
+ *   TRANSMIT_HARD_ERROR Can't write (c->state is set to conn_closing)
+ */
+static enum transmit_result transmit(conn *c) {
+    assert(c != NULL);
+    struct iovec iovs[IOV_MAX];
+    struct msghdr msg;
+    int iovused = 0;
+
+    // init the msg.
+    memset(&msg, 0, sizeof(struct msghdr));
+    msg.msg_iov = iovs;
+
+    iovused = _transmit_pre(c, iovs, iovused);
 
     // Alright, send.
     ssize_t res;
@@ -6433,41 +6361,8 @@ static enum transmit_result transmit(conn *c) {
         c->thread->stats.bytes_written += res;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        // We've written some of the data. Remove the completed
-        // responses from the list of pending writes.
-        resp = c->resp_head;
-        while (resp) {
-            int x;
-
-            // should be okay if we've zeroed out iov's before.
-            for (x = 0; x < resp->iovcnt; x++) {
-                struct iovec *iov = &resp->iov[x];
-                if (res >= iov->iov_len) {
-                    resp->tosend -= iov->iov_len;
-                    res -= iov->iov_len;
-                    iov->iov_len = 0;
-                } else {
-                    // Dumb special case for chunked items. Currently tracking
-                    // where to inject the chunked item via iov_base.
-                    // Extra not-great since chunked items can't be the first
-                    // index, so we have to check for non-zero c_d_iov first.
-                    if (!resp->chunked_data_iov || x != resp->chunked_data_iov) {
-                        iov->iov_base = (char *)iov->iov_base + res;
-                    }
-                    iov->iov_len -= res;
-                    resp->tosend -= res;
-                    res = 0;
-                    break;
-                }
-            }
-            // are we done with this response object?
-            if (resp->tosend == 0) {
-                resp = resp_finish(c, resp);
-            } else {
-                // Jammed up here. This is the new head.
-                break;
-            }
-        }
+        // Decrement any partial IOV's and complete any finished resp's.
+        _transmit_post(c, res);
 
         if (c->resp_head) {
             return TRANSMIT_INCOMPLETE;
@@ -6490,12 +6385,149 @@ static enum transmit_result transmit(conn *c) {
     if (settings.verbose > 0)
         perror("Failed to write, and not due to blocking");
 
-    if (IS_UDP(c->transport))
-        conn_set_state(c, conn_read);
-    else
-        conn_set_state(c, conn_closing);
+    conn_set_state(c, conn_closing);
     return TRANSMIT_HARD_ERROR;
 }
+
+static void build_udp_header(unsigned char *hdr, mc_resp *resp) {
+    // We need to communicate the total number of packets
+    // If this isn't set, it's the first time this response is building a udp
+    // header, so "tosend" must be static.
+    if (!resp->udp_total) {
+        uint32_t total;
+        total = resp->tosend / UDP_MAX_PAYLOAD_SIZE;
+        if (resp->tosend % UDP_MAX_PAYLOAD_SIZE)
+            total++;
+        // The spec doesn't really say what we should do here. It's _probably_
+        // better to bail out?
+        if (total > USHRT_MAX) {
+            total = USHRT_MAX;
+        }
+        resp->udp_total = total;
+    }
+
+    // TODO: why wasn't this hto*'s and casts?
+    // this ends up sending UDP hdr data specifically in host byte order.
+    *hdr++ = resp->request_id / 256;
+    *hdr++ = resp->request_id % 256;
+    *hdr++ = resp->udp_sequence / 256;
+    *hdr++ = resp->udp_sequence % 256;
+    *hdr++ = resp->udp_total / 256;
+    *hdr++ = resp->udp_total % 256;
+    *hdr++ = 0;
+    *hdr++ = 0;
+    resp->udp_sequence++;
+}
+
+/*
+ * UDP specific transmit function. Uses its own function rather than check
+ * IS_UDP() five times. If we ever implement sendmmsg or similar support they
+ * will diverge even more.
+ * Does not use TLS.
+ *
+ * Returns:
+ *   TRANSMIT_COMPLETE   All done writing.
+ *   TRANSMIT_INCOMPLETE More data remaining to write.
+ *   TRANSMIT_SOFT_ERROR Can't write any more right now.
+ *   TRANSMIT_HARD_ERROR Can't write (c->state is set to conn_closing)
+ */
+static enum transmit_result transmit_udp(conn *c) {
+    assert(c != NULL);
+    struct iovec iovs[IOV_MAX];
+    struct msghdr msg;
+    mc_resp *resp;
+    int iovused = 0;
+    unsigned char udp_hdr[UDP_HEADER_SIZE];
+
+    // We only send one UDP packet per call (ugh), so we can only operate on a
+    // single response at a time.
+    resp = c->resp_head;
+
+    if (!resp) {
+        return TRANSMIT_COMPLETE;
+    }
+
+    if (resp->skip) {
+        resp = resp_finish(c, resp);
+        return TRANSMIT_INCOMPLETE;
+    }
+
+    // clear the message and initialize it.
+    memset(&msg, 0, sizeof(struct msghdr));
+    msg.msg_iov = iovs;
+
+    // the UDP source to return to.
+    msg.msg_name = &resp->request_addr;
+    msg.msg_namelen = resp->request_addr_size;
+
+    // First IOV is the custom UDP header.
+    iovs[0].iov_base = udp_hdr;
+    iovs[0].iov_len = UDP_HEADER_SIZE;
+    build_udp_header(udp_hdr, resp);
+    iovused++;
+
+    // Fill the IOV's the standard way.
+    // TODO: might get a small speedup if we let it break early with a length
+    // limit.
+    iovused = _transmit_pre(c, iovs, iovused);
+
+    // Clip the IOV's to the max UDP packet size.
+    // If we add support for send_mmsg, this can be where we split msg's.
+    {
+        int x = 0;
+        int len = 0;
+        for (x = 0; x < iovused; x++) {
+            if (len + iovs[x].iov_len >= UDP_MAX_PAYLOAD_SIZE) {
+                iovs[x].iov_len = UDP_MAX_PAYLOAD_SIZE - len;
+                x++;
+                break;
+            } else {
+                len += iovs[x].iov_len;
+            }
+        }
+        iovused = x;
+    }
+
+    ssize_t res;
+    msg.msg_iovlen = iovused;
+    // NOTE: uses system sendmsg since we have no support for indirect UDP.
+    res = sendmsg(c->sfd, &msg, 0);
+    if (res >= 0) {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.bytes_written += res;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        // Ignore the header size from forwarding the IOV's
+        res -= UDP_HEADER_SIZE;
+
+        // Decrement any partial IOV's and complete any finished resp's.
+        _transmit_post(c, res);
+
+        if (c->resp_head) {
+            return TRANSMIT_INCOMPLETE;
+        } else {
+            return TRANSMIT_COMPLETE;
+        }
+    }
+
+    if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        if (!update_event(c, EV_WRITE | EV_PERSIST)) {
+            if (settings.verbose > 0)
+                fprintf(stderr, "Couldn't update event\n");
+            conn_set_state(c, conn_closing);
+            return TRANSMIT_HARD_ERROR;
+        }
+        return TRANSMIT_SOFT_ERROR;
+    }
+    /* if res == -1 and error is not EAGAIN or EWOULDBLOCK,
+       we have a real error, on which we close the connection */
+    if (settings.verbose > 0)
+        perror("Failed to write, and not due to blocking");
+
+    conn_set_state(c, conn_read);
+    return TRANSMIT_HARD_ERROR;
+}
+
 
 /* Does a looped read to fill data chunks */
 /* TODO: restrict number of times this can loop.
@@ -6929,13 +6961,7 @@ static void drive_machine(conn *c) {
                 break;
             }
 #endif
-          /*if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
-            if (settings.verbose > 0)
-              fprintf(stderr, "Failed to build UDP headers\n");
-            conn_set_state(c, conn_closing);
-            break;
-          }*/
-            switch (transmit(c)) {
+            switch (!IS_UDP(c->transport) ? transmit(c) : transmit_udp(c)) {
             case TRANSMIT_COMPLETE:
                 if (c->state == conn_mwrite) {
                     // Free up IO wraps and any half-uploaded items.
