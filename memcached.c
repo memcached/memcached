@@ -2600,10 +2600,8 @@ static void reset_cmd_handler(conn *c) {
     c->cmd = -1;
     c->substate = bin_no_state;
     if (c->item != NULL) {
-        // FIXME: what route was requiring this?
-        // SASL auth was mistakening using it.
-        fprintf(stderr, "WHY AM I HERE!?!?!?\n");
-        abort();
+        // TODO: Any other way to get here?
+        // SASL auth was mistakenly using it. Nothing else should?
         item_remove(c->item);
         c->item = NULL;
     }
