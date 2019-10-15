@@ -3952,8 +3952,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             key_token++;
             if (key_token->length != 0) {
                 if (!resp_start(c)) {
-                    // TODO: need a static OOM thinger.
-                    abort();
+                    goto stop;
                 }
                 resp = c->resp;
             }
@@ -3982,7 +3981,11 @@ stop:
         // Kill any stacked responses we had.
         conn_release_items(c);
         // Start a new response object for the error message.
-        resp_start(c);
+        if (!resp_start(c)) {
+            // severe out of memory error.
+            conn_set_state(c, conn_closing);
+            return;
+        }
         if (fail_length) {
             out_string(c, "CLIENT_ERROR bad command line format");
         } else {
@@ -5485,9 +5488,12 @@ static void process_command(conn *c, char *command) {
 
     // Prep the response object for this query.
     if (!resp_start(c)) {
-        // TODO: ... wtf can you even do here?
-        // could write out a static string, but I doubt that'd even work.
-        abort();
+        // This is a malloc failure, so nothing we can do.
+        STATS_LOCK();
+        stats.malloc_fails++;
+        STATS_UNLOCK();
+        conn_set_state(c, conn_closing);
+        return;
     }
 
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
@@ -5891,9 +5897,12 @@ static int try_read_command_binary(conn *c) {
         }
 
         if (!resp_start(c)) {
-            // TODO: ... wtf can you even do here?
-            // could write out a static string, but I doubt that'd even work.
-            abort();
+            // This is a malloc failure, so nothing we can do.
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            conn_set_state(c, conn_closing);
+            return -1;
         }
 
         c->cmd = c->binary_header.request.opcode;
@@ -5918,7 +5927,13 @@ static int try_read_command_asciiauth(conn *c) {
     char *cont = NULL;
 
     if (!c->resp) {
-        resp_start(c);
+        if (!resp_start(c)) {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            conn_set_state(c, conn_closing);
+            return 1;
+        }
     }
 
     // TODO: move to another function.
