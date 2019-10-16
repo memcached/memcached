@@ -120,6 +120,16 @@ static inline int _get_extstore(conn *c, item *it, mc_resp *resp);
 #endif
 static void conn_free(conn *c);
 
+/** binprot handlers **/
+static void process_bin_flush(conn *c, char *extbuf);
+static void process_bin_append_prepend(conn *c);
+static void process_bin_update(conn *c, char *extbuf);
+static void process_bin_get_or_touch(conn *c, char *extbuf);
+static void process_bin_delete(conn *c);
+static void complete_incr_bin(conn *c, char *extbuf);
+static void process_bin_stat(conn *c);
+static void process_bin_sasl_auth(conn *c);
+
 /** exported globals **/
 struct stats stats;
 struct stats_state stats_state;
@@ -1199,18 +1209,6 @@ static void complete_nread_ascii(conn *c) {
 }
 
 /**
- * get a pointer to the start of the request struct for the current command
- */
-static void* binary_get_request(conn *c) {
-    char *ret = c->rcurr;
-    ret -= (sizeof(c->binary_header) + c->binary_header.request.keylen +
-            c->binary_header.request.extlen);
-
-    assert(ret >= c->rbuf);
-    return ret;
-}
-
-/**
  * get a pointer to the key in this request
  */
 static char* binary_get_key(conn *c) {
@@ -1331,7 +1329,7 @@ static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen)
     conn_set_state(c, conn_new_cmd);
 }
 
-static void complete_incr_bin(conn *c) {
+static void complete_incr_bin(conn *c, char *extbuf) {
     item *it;
     char *key;
     size_t nkey;
@@ -1340,7 +1338,7 @@ static void complete_incr_bin(conn *c) {
     uint64_t cas = 0;
 
     protocol_binary_response_incr* rsp = (protocol_binary_response_incr*)c->resp->wbuf;
-    protocol_binary_request_incr* req = binary_get_request(c);
+    protocol_binary_request_incr* req = (void *)extbuf;
 
     assert(c != NULL);
     //assert(c->wsize >= sizeof(*rsp));
@@ -1526,7 +1524,7 @@ static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
     }
 }
 
-static void process_bin_get_or_touch(conn *c) {
+static void process_bin_get_or_touch(conn *c, char *extbuf) {
     item *it;
 
     protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->resp->wbuf;
@@ -1547,7 +1545,7 @@ static void process_bin_get_or_touch(conn *c) {
     }
 
     if (should_touch) {
-        protocol_binary_request_touch *t = binary_get_request(c);
+        protocol_binary_request_touch *t = (void *)extbuf;
         time_t exptime = ntohl(t->message.body.expiration);
 
         it = item_touch(key, nkey, realtime(exptime), c);
@@ -1853,58 +1851,6 @@ static void process_bin_stat(conn *c) {
     }
 }
 
-static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
-    assert(c);
-    c->substate = next_substate;
-    c->rlbytes = c->keylen + extra;
-
-    /* Ok... do we have room for the extras and the key in the input buffer? */
-    ptrdiff_t offset = c->rcurr + sizeof(protocol_binary_request_header) - c->rbuf;
-    if (c->rlbytes > c->rsize - offset) {
-        size_t nsize = c->rsize;
-        size_t size = c->rlbytes + sizeof(protocol_binary_request_header);
-
-        while (size > nsize) {
-            nsize *= 2;
-        }
-
-        if (nsize != c->rsize) {
-            if (settings.verbose > 1) {
-                fprintf(stderr, "%d: Need to grow buffer from %lu to %lu\n",
-                        c->sfd, (unsigned long)c->rsize, (unsigned long)nsize);
-            }
-            char *newm = realloc(c->rbuf, nsize);
-            if (newm == NULL) {
-                STATS_LOCK();
-                stats.malloc_fails++;
-                STATS_UNLOCK();
-                if (settings.verbose) {
-                    fprintf(stderr, "%d: Failed to grow buffer.. closing connection\n",
-                            c->sfd);
-                }
-                conn_set_state(c, conn_closing);
-                return;
-            }
-
-            c->rbuf= newm;
-            /* rcurr should point to the same offset in the packet */
-            c->rcurr = c->rbuf + offset - sizeof(protocol_binary_request_header);
-            c->rsize = nsize;
-        }
-        if (c->rbuf != c->rcurr) {
-            memmove(c->rbuf, c->rcurr, c->rbytes);
-            c->rcurr = c->rbuf;
-            if (settings.verbose > 1) {
-                fprintf(stderr, "%d: Repack input buffer\n", c->sfd);
-            }
-        }
-    }
-
-    /* preserve the header in the buffer.. */
-    c->ritem = c->rcurr + sizeof(protocol_binary_request_header);
-    conn_set_state(c, conn_nread);
-}
-
 /* Just write an error message and disconnect the client */
 static void handle_binary_protocol_error(conn *c) {
     write_bin_error(c, PROTOCOL_BINARY_RESPONSE_EINVAL, NULL, 0);
@@ -2127,7 +2073,7 @@ static bool authenticated(conn *c) {
     return rv;
 }
 
-static void dispatch_bin_command(conn *c) {
+static void dispatch_bin_command(conn *c, char *extbuf) {
     int protocol_error = 0;
 
     uint8_t extlen = c->binary_header.request.extlen;
@@ -2212,7 +2158,7 @@ static void dispatch_bin_command(conn *c) {
             break;
         case PROTOCOL_BINARY_CMD_FLUSH:
             if (keylen == 0 && bodylen == extlen && (extlen == 0 || extlen == 4)) {
-                bin_read_key(c, bin_read_flush_exptime, extlen);
+                process_bin_flush(c, extbuf);
             } else {
                 protocol_error = 1;
             }
@@ -2230,7 +2176,7 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_ADD: /* FALLTHROUGH */
         case PROTOCOL_BINARY_CMD_REPLACE:
             if (extlen == 8 && keylen != 0 && bodylen >= (keylen + 8)) {
-                bin_read_key(c, bin_reading_set_header, 8);
+                process_bin_update(c, extbuf);
             } else {
                 protocol_error = 1;
             }
@@ -2240,14 +2186,14 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_GETKQ: /* FALLTHROUGH */
         case PROTOCOL_BINARY_CMD_GETK:
             if (extlen == 0 && bodylen == keylen && keylen > 0) {
-                bin_read_key(c, bin_reading_get_key, 0);
+                process_bin_get_or_touch(c, extbuf);
             } else {
                 protocol_error = 1;
             }
             break;
         case PROTOCOL_BINARY_CMD_DELETE:
             if (keylen > 0 && extlen == 0 && bodylen == keylen) {
-                bin_read_key(c, bin_reading_del_header, extlen);
+                process_bin_delete(c);
             } else {
                 protocol_error = 1;
             }
@@ -2255,7 +2201,7 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_INCREMENT:
         case PROTOCOL_BINARY_CMD_DECREMENT:
             if (keylen > 0 && extlen == 20 && bodylen == (keylen + extlen)) {
-                bin_read_key(c, bin_reading_incr_header, 20);
+                complete_incr_bin(c, extbuf);
             } else {
                 protocol_error = 1;
             }
@@ -2263,14 +2209,14 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_APPEND:
         case PROTOCOL_BINARY_CMD_PREPEND:
             if (keylen > 0 && extlen == 0) {
-                bin_read_key(c, bin_reading_set_header, 0);
+                process_bin_append_prepend(c);
             } else {
                 protocol_error = 1;
             }
             break;
         case PROTOCOL_BINARY_CMD_STAT:
             if (extlen == 0) {
-                bin_read_key(c, bin_reading_stat, 0);
+                process_bin_stat(c);
             } else {
                 protocol_error = 1;
             }
@@ -2294,7 +2240,7 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_SASL_AUTH:
         case PROTOCOL_BINARY_CMD_SASL_STEP:
             if (extlen == 0 && keylen != 0) {
-                bin_read_key(c, bin_reading_sasl_auth, 0);
+                process_bin_sasl_auth(c);
             } else {
                 protocol_error = 1;
             }
@@ -2305,7 +2251,7 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_GATK:
         case PROTOCOL_BINARY_CMD_GATKQ:
             if (extlen == 4 && keylen != 0) {
-                bin_read_key(c, bin_reading_touch_key, 4);
+                process_bin_get_or_touch(c, extbuf);
             } else {
                 protocol_error = 1;
             }
@@ -2319,12 +2265,12 @@ static void dispatch_bin_command(conn *c) {
         handle_binary_protocol_error(c);
 }
 
-static void process_bin_update(conn *c) {
+static void process_bin_update(conn *c, char *extbuf) {
     char *key;
     int nkey;
     int vlen;
     item *it;
-    protocol_binary_request_set* req = binary_get_request(c);
+    protocol_binary_request_set* req = (void *)extbuf;
 
     assert(c != NULL);
 
@@ -2491,9 +2437,9 @@ static void process_bin_append_prepend(conn *c) {
     c->substate = bin_read_set_value;
 }
 
-static void process_bin_flush(conn *c) {
+static void process_bin_flush(conn *c, char *extbuf) {
     time_t exptime = 0;
-    protocol_binary_request_flush* req = binary_get_request(c);
+    protocol_binary_request_flush* req = (void *)extbuf;
     rel_time_t new_oldest = 0;
 
     if (!settings.flush_enabled) {
@@ -2530,8 +2476,6 @@ static void process_bin_delete(conn *c) {
     item *it;
     uint32_t hv;
 
-    protocol_binary_request_delete* req = binary_get_request(c);
-
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
 
@@ -2552,7 +2496,7 @@ static void process_bin_delete(conn *c) {
 
     it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
     if (it) {
-        uint64_t cas = ntohll(req->message.header.request.cas);
+        uint64_t cas = c->binary_header.request.cas;
         if (cas == 0 || cas == ITEM_get_cas(it)) {
             MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -2579,35 +2523,8 @@ static void complete_nread_binary(conn *c) {
     assert(c->cmd >= 0);
 
     switch(c->substate) {
-    case bin_reading_set_header:
-        if (c->cmd == PROTOCOL_BINARY_CMD_APPEND ||
-                c->cmd == PROTOCOL_BINARY_CMD_PREPEND) {
-            process_bin_append_prepend(c);
-        } else {
-            process_bin_update(c);
-        }
-        break;
     case bin_read_set_value:
         complete_update_bin(c);
-        break;
-    case bin_reading_get_key:
-    case bin_reading_touch_key:
-        process_bin_get_or_touch(c);
-        break;
-    case bin_reading_stat:
-        process_bin_stat(c);
-        break;
-    case bin_reading_del_header:
-        process_bin_delete(c);
-        break;
-    case bin_reading_incr_header:
-        complete_incr_bin(c);
-        break;
-    case bin_read_flush_exptime:
-        process_bin_flush(c);
-        break;
-    case bin_reading_sasl_auth:
-        process_bin_sasl_auth(c);
         break;
     case bin_reading_sasl_auth_data:
         process_bin_complete_sasl_auth(c);
@@ -5900,18 +5817,9 @@ static int try_read_command_binary(conn *c) {
         /* need more data! */
         return 0;
     } else {
-#ifdef NEED_ALIGN
-        if (((long)(c->rcurr)) % 8 != 0) {
-            /* must realign input buffer */
-            memmove(c->rbuf, c->rcurr, c->rbytes);
-            c->rcurr = c->rbuf;
-            if (settings.verbose > 1) {
-                fprintf(stderr, "%d: Realign input buffer\n", c->sfd);
-            }
-        }
-#endif
+        memcpy(&c->binary_header, c->rcurr, sizeof(c->binary_header));
         protocol_binary_request_header* req;
-        req = (protocol_binary_request_header*)c->rcurr;
+        req = &c->binary_header;
 
         if (settings.verbose > 1) {
             /* Dump the packet before we convert it to host order */
@@ -5940,6 +5848,14 @@ static int try_read_command_binary(conn *c) {
             return -1;
         }
 
+        uint8_t extlen = c->binary_header.request.extlen;
+        uint16_t keylen = c->binary_header.request.keylen;
+        if (c->rbytes < keylen + extlen + sizeof(c->binary_header)) {
+            // Still need more bytes. Let try_read_network() realign the
+            // read-buffer and fetch more data as necessary.
+            return 0;
+        }
+
         if (!resp_start(c)) {
             // This is a malloc failure, so nothing we can do.
             STATS_LOCK();
@@ -5956,10 +5872,16 @@ static int try_read_command_binary(conn *c) {
         c->cas = 0;
 
         c->last_cmd_time = current_time;
-        dispatch_bin_command(c);
+        // sigh. binprot has no "largest possible extlen" define, and I don't
+        // want to refactor a ton of code either. Header is only ever used out
+        // of c->binary_header, but the extlen stuff is used for the latter
+        // bytes. Just wastes 24 bytes on the stack this way.
+        char extbuf[sizeof(c->binary_header) + BIN_MAX_EXTLEN];
+        memcpy(extbuf + sizeof(c->binary_header), c->rcurr + sizeof(c->binary_header), extlen);
+        c->rbytes -= sizeof(c->binary_header) + extlen + keylen;
+        c->rcurr += sizeof(c->binary_header) + extlen + keylen;
 
-        c->rbytes -= sizeof(c->binary_header);
-        c->rcurr += sizeof(c->binary_header);
+        dispatch_bin_command(c, extbuf);
     }
 
     return 1;
@@ -6903,13 +6825,11 @@ static void drive_machine(conn *c) {
                 break;
             }
 
-            if (!c->item || (((item *)c->item)->it_flags & ITEM_CHUNKED) == 0) {
+            if ((((item *)c->item)->it_flags & ITEM_CHUNKED) == 0) {
                 /* first check if we have leftovers in the conn_read buffer */
                 if (c->rbytes > 0) {
                     int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
-                    if (c->ritem != c->rcurr) {
-                        memmove(c->ritem, c->rcurr, tocopy);
-                    }
+                    memmove(c->ritem, c->rcurr, tocopy);
                     c->ritem += tocopy;
                     c->rlbytes -= tocopy;
                     c->rcurr += tocopy;
