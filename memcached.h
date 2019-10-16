@@ -69,8 +69,7 @@
 #define MAX_SENDBUF_SIZE (256 * 1024 * 1024)
 
 /* Binary protocol stuff */
-#define MIN_BIN_PKT_LENGTH 16
-#define BIN_PKT_HDR_WORDS (MIN_BIN_PKT_LENGTH/sizeof(uint32_t))
+#define BIN_MAX_EXTLEN 20 // length of the _incr command is currently the longest.
 
 /* Initial power multiplier for the hash table */
 #define HASHPOWER_DEFAULT 16
