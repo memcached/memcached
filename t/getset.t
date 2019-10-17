@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 539;
+use Test::More tests => 37991;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -97,3 +97,23 @@ while ($len < 1024*1028) {
     $len += 2048;
 }
 
+{
+    # Test large ASCII multigets.
+    print $sock "set foobarbaz 0 0 2\r\nhi\r\n";
+    is(scalar <$sock>, "STORED\r\n",  "base foo stored");
+
+    my $len = 1024 * 128;
+    my $klist = '';
+    my $kcount = 0;
+    for (my $x = 0; $x < $len; $x += 7) {
+        $klist .= "foobarbaz ";
+        $kcount++;
+    }
+    print $sock "get $klist\r\n";
+
+    while ($kcount--) {
+        is(scalar <$sock>, "VALUE foobarbaz 0 2\r\n", "foo returned");
+        is(scalar <$sock>, "hi\r\n", "foo 'hi' returned");
+    }
+    is(scalar <$sock>, "END\r\n", "foo END seen");
+}

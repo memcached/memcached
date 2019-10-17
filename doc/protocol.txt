@@ -1100,6 +1100,8 @@ integers separated by a colon (treat this as a floating point number).
 | response_obj_bytes    | 64u     | Number of bytes used for response objects |
 | response_obj_total    | 64u     | Total nummber of response objects         |
 | response_obj_free     | 64u     | Current free cached response objects      |
+| read_buf_bytes        | 64u     | Total read buffer bytes allocated         |
+| read_buf_bytes_free   | 64u     | Total read buffer bytes cached for reuse  |
 | reserved_fds          | 32u     | Number of misc fds used internally        |
 | cmd_get               | 64u     | Cumulative number of retrieval reqs       |
 | cmd_set               | 64u     | Cumulative number of storage reqs         |
