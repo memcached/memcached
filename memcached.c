@@ -412,6 +412,57 @@ int stop_conn_timeout_thread(void) {
 }
 
 /*
+ * read buffer cache helper functions
+ */
+static void rbuf_release(conn *c) {
+    if (c->rbuf != NULL && c->rbytes == 0 && !IS_UDP(c->transport)) {
+        if (c->rbuf_malloced) {
+            free(c->rbuf);
+            c->rbuf_malloced = false;
+        } else {
+            do_cache_free(c->thread->rbuf_cache, c->rbuf);
+        }
+        c->rsize = 0;
+        c->rbuf = NULL;
+        c->rcurr = NULL;
+    }
+}
+
+static bool rbuf_alloc(conn *c) {
+    if (c->rbuf == NULL) {
+        c->rbuf = do_cache_alloc(c->thread->rbuf_cache);
+        if (!c->rbuf) {
+            STATS_LOCK();
+            stats.malloc_fails++;
+            STATS_UNLOCK();
+            return false;
+        }
+        c->rsize = READ_BUFFER_SIZE;
+        c->rcurr = c->rbuf;
+    }
+    return true;
+}
+
+// Just for handling huge ASCII multigets.
+// The previous system was essentially the same; realloc'ing until big enough,
+// then realloc'ing back down after the request finished.
+static bool rbuf_switch_to_malloc(conn *c) {
+    // Might as well start with x2 and work from there.
+    size_t size = c->rsize * 2;
+    char *tmp = malloc(size);
+    if (!tmp)
+        return false;
+
+    do_cache_free(c->thread->rbuf_cache, c->rbuf);
+    memcpy(tmp, c->rcurr, c->rbytes);
+
+    c->rcurr = c->rbuf = tmp;
+    c->rsize = size;
+    c->rbuf_malloced = true;
+    return true;
+}
+
+/*
  * Initializes the connections array. We don't actually allocate connection
  * structures until they're needed, so as to avoid wasting memory when the
  * maximum connection count is much higher than the actual number of
@@ -537,13 +588,16 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->read = NULL;
         c->sendmsg = NULL;
         c->write = NULL;
-        c->rbuf = 0;
+        c->rbuf = NULL;
 
         c->rsize = read_buffer_size;
 
-        c->rbuf = (char *)malloc((size_t)c->rsize);
+        // UDP connections use a persistent static buffer.
+        if (c->rsize) {
+            c->rbuf = (char *)malloc((size_t)c->rsize);
+        }
 
-        if (c->rbuf == 0) {
+        if (c->rsize && c->rbuf == NULL) {
             conn_free(c);
             STATS_LOCK();
             stats.malloc_fails++;
@@ -611,6 +665,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->rbytes = 0;
     c->rcurr = c->rbuf;
     c->ritem = 0;
+    c->rbuf_malloced = false;
     c->sasl_started = false;
     c->set_stale = false;
     c->mset_res = false;
@@ -848,6 +903,12 @@ static void conn_close(conn *c) {
         fprintf(stderr, "<%d connection closed.\n", c->sfd);
 
     conn_cleanup(c);
+
+    // force release of read buffer.
+    if (c->thread) {
+        c->rbytes = 0;
+        rbuf_release(c);
+    }
 
     MEMCACHED_CONN_RELEASE(c->sfd);
     conn_set_state(c, conn_closed);
@@ -2995,6 +3056,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("response_obj_bytes", "%llu", (unsigned long long)thread_stats.response_obj_bytes);
     APPEND_STAT("response_obj_total", "%llu", (unsigned long long)thread_stats.response_obj_total);
     APPEND_STAT("response_obj_free", "%llu", (unsigned long long)thread_stats.response_obj_free);
+    APPEND_STAT("read_buf_bytes", "%llu", (unsigned long long)thread_stats.read_buf_bytes);
+    APPEND_STAT("read_buf_bytes_free", "%llu", (unsigned long long)thread_stats.read_buf_bytes_free);
     APPEND_STAT("reserved_fds", "%u", stats_state.reserved_fds);
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
@@ -6019,6 +6082,16 @@ static int try_read_command_ascii(conn *c) {
                 conn_set_state(c, conn_closing);
                 return 1;
             }
+
+            // ASCII multigets are unbound, so our fixed size rbuf may not
+            // work for this particular workload... For backcompat we'll use a
+            // malloc/realloc/free routine just for this.
+            if (!c->rbuf_malloced) {
+                if (!rbuf_switch_to_malloc(c)) {
+                    conn_set_state(c, conn_closing);
+                    return 1;
+                }
+            }
         }
 
         return 0;
@@ -6105,7 +6178,8 @@ static enum try_read_result try_read_network(conn *c) {
     }
 
     while (1) {
-        if (c->rbytes >= c->rsize) {
+        // TODO: move to rbuf_* func?
+        if (c->rbytes >= c->rsize && c->rbuf_malloced) {
             if (num_allocs == 4) {
                 return gotdata;
             }
@@ -6135,7 +6209,8 @@ static enum try_read_result try_read_network(conn *c) {
             pthread_mutex_unlock(&c->thread->stats.mutex);
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
-            if (res == avail) {
+            if (res == avail && c->rbuf_malloced) {
+                // Resize rbuf and try a few times if huge ascii multiget.
                 continue;
             } else {
                 break;
@@ -6727,13 +6802,14 @@ static void drive_machine(conn *c) {
 #endif
 
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     DATA_BUFFER_SIZE, c->transport, ssl_v);
+                                     READ_BUFFER_CACHED, c->transport, ssl_v);
             }
 
             stop = true;
             break;
 
         case conn_waiting:
+            rbuf_release(c);
             if (!update_event(c, EV_READ | EV_PERSIST)) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
@@ -6746,7 +6822,18 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_read:
-            res = IS_UDP(c->transport) ? try_read_udp(c) : try_read_network(c);
+            if (!IS_UDP(c->transport)) {
+                // Assign a read buffer if necessary.
+                if (!rbuf_alloc(c)) {
+                    // TODO: Some way to allow for temporary failures.
+                    conn_set_state(c, conn_closing);
+                    break;
+                }
+                res = try_read_network(c);
+            } else {
+                // UDP connections always have a static buffer.
+                res = try_read_udp(c);
+            }
 
             switch (res) {
             case READ_NO_DATA_RECEIVED:

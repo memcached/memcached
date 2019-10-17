@@ -411,6 +411,13 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         fprintf(stderr, "Failed to create response cache\n");
         exit(EXIT_FAILURE);
     }
+
+    me->rbuf_cache = cache_create("rbuf", READ_BUFFER_SIZE, sizeof(char *), NULL, NULL);
+    if (me->rbuf_cache == NULL) {
+        fprintf(stderr, "Failed to create read buffer cache\n");
+        exit(EXIT_FAILURE);
+    }
+
 #ifdef EXTSTORE
     me->io_cache = cache_create("io", sizeof(io_wrap), sizeof(char*), NULL, NULL);
     if (me->io_cache == NULL) {
@@ -805,6 +812,8 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
         stats->response_obj_bytes += threads[ii].resp_cache->total * sizeof(mc_resp);
         stats->response_obj_total += threads[ii].resp_cache->total;
         stats->response_obj_free += threads[ii].resp_cache->freecurr;
+        stats->read_buf_bytes += threads[ii].rbuf_cache->total * READ_BUFFER_SIZE;
+        stats->read_buf_bytes_free += threads[ii].rbuf_cache->freecurr * READ_BUFFER_SIZE;
         pthread_mutex_unlock(&threads[ii].stats.mutex);
     }
 }
