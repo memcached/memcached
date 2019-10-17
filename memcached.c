@@ -3049,9 +3049,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("rejected_connections", "%llu", (unsigned long long)stats.rejected_conns);
     }
     APPEND_STAT("connection_structures", "%u", stats_state.conn_structs);
-    APPEND_STAT("response_obj_bytes", "%u", thread_stats.response_obj_bytes);
-    APPEND_STAT("response_obj_total", "%u", thread_stats.response_obj_total);
-    APPEND_STAT("response_obj_free", "%u", thread_stats.response_obj_free);
+    APPEND_STAT("response_obj_bytes", "%llu", (unsigned long long)thread_stats.response_obj_bytes);
+    APPEND_STAT("response_obj_total", "%llu", (unsigned long long)thread_stats.response_obj_total);
+    APPEND_STAT("response_obj_free", "%llu", (unsigned long long)thread_stats.response_obj_free);
     APPEND_STAT("reserved_fds", "%u", stats_state.reserved_fds);
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
