@@ -3963,6 +3963,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         if (key_token->value != NULL) {
             ntokens = tokenize_command(key_token->value, tokens, MAX_TOKENS);
             key_token = tokens;
+            if (!resp_start(c)) {
+                goto stop;
+            }
+            resp = c->resp;
         }
     } while(key_token->value != NULL);
 stop:
