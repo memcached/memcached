@@ -2,12 +2,8 @@ man_MANS = memcached.1
 
 SPECIFICATIONS = protocol-binary.txt protocol-binary-range.txt
 
-EXTRA_DIST = new_lru.txt  \
-	     protocol.txt \
-	     readme.txt   \
-	     storage.txt  \
-	     threads.txt  \
-	     tls.txt
+EXTRA_DIST = $(srcdir)/*.txt
+
 # When we make dist always include the generated specifications so people don't
 # have to have xml2rfc and xsltproc installed
 EXTRA_DIST += $(SPECIFICATIONS)
