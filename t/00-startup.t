@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 20;
+use Test::More tests => 21;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -90,3 +90,8 @@ eval {
     my $server = new_memcached("-t 0");
 };
 ok($@, "Died with illegal 0 thread count");
+
+{
+    my $exit_code = run_help();
+    is($exit_code, 0, "Help defaults are fine.");
+};
