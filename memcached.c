@@ -7543,13 +7543,25 @@ static void clock_handler(const int fd, const short which, void *arg) {
     }
 }
 
+static const char* flag_enabled_disabled(bool flag) {
+    return (flag ? "enabled" : "disabled");
+}
+
+static void verify_default(const char* param, bool condition) {
+    if (!condition) {
+        printf("Default value of [%s] has changed."
+            " Modify the help text and default value check.\n", param);
+        exit(EXIT_FAILURE);
+    }
+}
+
 static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
-    printf("-p, --port=<num>          TCP port to listen on (default: 11211)\n"
-           "-U, --udp-port=<num>      UDP port to listen on (default: 0, off)\n"
+    printf("-p, --port=<num>          TCP port to listen on (default: %d)\n"
+           "-U, --udp-port=<num>      UDP port to listen on (default: %d, off)\n"
            "-s, --unix-socket=<file>  UNIX socket to listen on (disables network support)\n"
            "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
-           "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: 0700)\n"
+           "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: %o)\n"
            "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
 #ifdef TLS
            "                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
@@ -7558,9 +7570,9 @@ static void usage(void) {
            "-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
-           "-m, --memory-limit=<num>  item memory in megabytes (default: 64 MB)\n"
+           "-m, --memory-limit=<num>  item memory in megabytes (default: %ld)\n"
            "-M, --disable-evictions   return error on memory exhausted instead of evicting\n"
-           "-c, --conn-limit=<num>    max simultaneous connections (default: 1024)\n"
+           "-c, --conn-limit=<num>    max simultaneous connections (default: %d)\n"
            "-k, --lock-memory         lock down all paged memory\n"
            "-v, --verbose             verbose (print errors/warnings while in event loop)\n"
            "-vv                       very verbose (also print client commands/responses)\n"
@@ -7569,23 +7581,29 @@ static void usage(void) {
            "-i, --license             print memcached and libevent license\n"
            "-V, --version             print version and exit\n"
            "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
-           "-f, --slab-growth-factor=<num> chunk size growth factor (default: 1.25)\n"
-           "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: 48)\n");
+           "-f, --slab-growth-factor=<num> chunk size growth factor (default: %2.2f)\n"
+           "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: %d)\n",
+           settings.port, settings.udpport, settings.access, settings.maxbytes / (1 << 20),
+           settings.maxconns, settings.factor, settings.chunk_size);
+    verify_default("udp-port",settings.udpport == 0);
     printf("-L, --enable-largepages  try to use large memory pages (if available)\n");
     printf("-D <char>     Use <char> as the delimiter between key prefixes and IDs.\n"
            "              This is used for per-prefix stats reporting. The default is\n"
-           "              \":\" (colon). If this option is specified, stats collection\n"
+           "              \"%c\" (colon). If this option is specified, stats collection\n"
            "              is turned on automatically; if not, then it may be turned on\n"
-           "              by sending the \"stats detail on\" command to the server.\n");
-    printf("-t, --threads=<num>       number of threads to use (default: 4)\n");
+           "              by sending the \"stats detail on\" command to the server.\n",
+           settings.prefix_delimiter);
+    printf("-t, --threads=<num>       number of threads to use (default: %d)\n", settings.num_threads);
     printf("-R, --max-reqs-per-event  maximum number of requests per event, limits the\n"
            "                          requests processed per connection to prevent \n"
-           "                          starvation (default: 20)\n");
+           "                          starvation (default: %d)\n", settings.reqs_per_event);
     printf("-C, --disable-cas         disable use of CAS\n");
-    printf("-b, --listen-backlog=<num> set the backlog queue limit (default: 1024)\n");
-    printf("-B, --protocol=<name>     protocol - one of ascii, binary, or auto (default)\n");
+    printf("-b, --listen-backlog=<num> set the backlog queue limit (default: %d)\n", settings.backlog);
+    printf("-B, --protocol=<name>     protocol - one of ascii, binary, or auto (default: %s)\n",
+           prot_text(settings.binding_protocol));
     printf("-I, --max-item-size=<num> adjusts max item size\n"
-           "                          (default: 1mb, min: 1k, max: 1024m)\n");
+           "                          (default: %dm, min: %dk, max: %dm)\n",
+           settings.item_size_max/ (1 << 20), ITEM_SIZE_MAX_LOWER_LIMIT / (1 << 10),  ITEM_SIZE_MAX_UPPER_LIMIT / (1 << 20));
 #ifdef ENABLE_SASL
     printf("-S, --enable-sasl         turn on Sasl authentication\n");
 #endif
@@ -7601,76 +7619,97 @@ static void usage(void) {
 #endif
     printf("-o, --extended            comma separated list of extended options\n"
            "                          most options have a 'no_' prefix to disable\n"
-           "   - maxconns_fast:       immediately close new connections after limit\n"
+           "   - maxconns_fast:       immediately close new connections after limit (default: %s)\n"
            "   - hashpower:           an integer multiplier for how large the hash\n"
-           "                          table should be. normally grows at runtime.\n"
+           "                          table should be. normally grows at runtime. (default starts at: %d)\n"
            "                          set based on \"STAT hash_power_level\"\n"
            "   - tail_repair_time:    time in seconds for how long to wait before\n"
            "                          forcefully killing LRU tail item.\n"
            "                          disabled by default; very dangerous option.\n"
            "   - hash_algorithm:      the hash table algorithm\n"
            "                          default is murmur3 hash. options: jenkins, murmur3\n"
-           "   - lru_crawler:         enable LRU Crawler background thread\n"
+           "   - no_lru_crawler:      disable LRU Crawler background thread.\n"
            "   - lru_crawler_sleep:   microseconds to sleep between items\n"
-           "                          default is 100.\n"
+           "                          default is %d.\n"
            "   - lru_crawler_tocrawl: max items to crawl per slab per run\n"
-           "                          default is 0 (unlimited)\n"
-           "   - lru_maintainer:      enable new LRU system + background thread\n"
+           "                          default is %u (unlimited)\n",
+           flag_enabled_disabled(settings.maxconns_fast), settings.hashpower_init,
+           settings.lru_crawler_sleep, settings.lru_crawler_tocrawl);
+    printf("   - no_lru_maintainer:   disable new LRU system + background thread.\n"
            "   - hot_lru_pct:         pct of slab memory to reserve for hot lru.\n"
-           "                          (requires lru_maintainer)\n"
+           "                          (requires lru_maintainer, default pct: %d)\n"
            "   - warm_lru_pct:        pct of slab memory to reserve for warm lru.\n"
-           "                          (requires lru_maintainer)\n"
-           "   - hot_max_factor:      items idle > cold lru age * drop from hot lru.\n"
-           "   - warm_max_factor:     items idle > cold lru age * this drop from warm.\n"
+           "                          (requires lru_maintainer, default pct: %d)\n"
+           "   - hot_max_factor:      items idle > cold lru age * drop from hot lru. (default: %.2f)\n"
+           "   - warm_max_factor:     items idle > cold lru age * this drop from warm. (default: %.2f)\n"
            "   - temporary_ttl:       TTL's below get separate LRU, can't be evicted.\n"
-           "                          (requires lru_maintainer)\n"
-           "   - idle_timeout:        timeout for idle connections\n"
-           "   - slab_chunk_max:      (EXPERIMENTAL) maximum slab size. use extreme care.\n"
-           "   - watcher_logbuf_size: size in kilobytes of per-watcher write buffer.\n"
+           "                          (requires lru_maintainer, default: %d)\n"
+           "   - idle_timeout:        timeout for idle connections. (default: %d, no timeout)\n",
+           settings.hot_lru_pct, settings.warm_lru_pct, settings.hot_max_factor, settings.warm_max_factor,
+           settings.temporary_ttl, settings.idle_timeout);
+    printf("   - slab_chunk_max:      (EXPERIMENTAL) maximum slab size in kilobytes. use extreme care. (default: %d)\n"
+           "   - watcher_logbuf_size: size in kilobytes of per-watcher write buffer. (default: %u)\n"
            "   - worker_logbuf_size:  size in kilobytes of per-worker-thread buffer\n"
-           "                          read by background thread, then written to watchers.\n"
+           "                          read by background thread, then written to watchers. (default: %u)\n"
            "   - track_sizes:         enable dynamic reports for 'stats sizes' command.\n"
            "   - no_hashexpand:       disables hash table expansion (dangerous)\n"
            "   - modern:              enables options which will be default in future.\n"
-           "             currently: nothing\n"
-           "   - no_modern:           uses defaults of previous major version (1.4.x)\n"
+           "                          currently: nothing\n"
+           "   - no_modern:           uses defaults of previous major version (1.4.x)\n",
+           settings.slab_chunk_size_max / (1 << 10), settings.logger_watcher_buf_size / (1 << 10),
+           settings.logger_buf_size / (1 << 10));
+    verify_default("tail_repair_time", settings.tail_repair_time == TAIL_REPAIR_TIME_DEFAULT);
+    verify_default("lru_crawler_tocrawl", settings.lru_crawler_tocrawl == 0);
+    verify_default("idle_timeout", settings.idle_timeout == 0);
 #ifdef HAVE_DROP_PRIVILEGES
-           "   - drop_privileges:     enable dropping extra syscall privileges\n"
+    printf("   - drop_privileges:     enable dropping extra syscall privileges\n"
            "   - no_drop_privileges:  disable drop_privileges in case it causes issues with\n"
            "                          some customisation.\n"
+           "                          (default is no_drop_privileges)\n");
+    verify_default("drop_privileges", !settings.drop_privileges);
 #ifdef MEMCACHED_DEBUG
-           "   - relaxed_privileges: Running tests requires extra privileges.\n"
+    printf("   - relaxed_privileges:  running tests requires extra privileges. (default: %s)\n",
+           flag_enabled_disabled(settings.relaxed_privileges));
 #endif
 #endif
 #ifdef EXTSTORE
-           "   - ext_path:            file to write to for external storage.\n"
+    printf("   - ext_path:            file to write to for external storage.\n"
            "                          ie: ext_path=/mnt/d1/extstore:1G\n"
-           "   - ext_page_size:       size in megabytes of storage pages.\n"
-           "   - ext_wbuf_size:       size in megabytes of page write buffers.\n"
-           "   - ext_threads:         number of IO threads to run.\n"
-           "   - ext_item_size:       store items larger than this (bytes)\n"
-           "   - ext_item_age:        store items idle at least this long\n"
-           "   - ext_low_ttl:         consider TTLs lower than this specially\n"
-           "   - ext_drop_unread:     don't re-write unread values during compaction\n"
-           "   - ext_recache_rate:    recache an item every N accesses\n"
+           "   - ext_page_size:       size in megabytes of storage pages. (default: %u)\n"
+           "   - ext_wbuf_size:       size in megabytes of page write buffers. (default: %u)\n"
+           "   - ext_threads:         number of IO threads to run. (default: %u)\n"
+           "   - ext_item_size:       store items larger than this (bytes, default %u)\n"
+           "   - ext_item_age:        store items idle at least this long (seconds, default: no age limit)\n"
+           "   - ext_low_ttl:         consider TTLs lower than this specially (default: %u)\n"
+           "   - ext_drop_unread:     don't re-write unread values during compaction (default: %s)\n"
+           "   - ext_recache_rate:    recache an item every N accesses (default: %u)\n"
            "   - ext_compact_under:   compact when fewer than this many free pages\n"
+           "                          (default: 1/4th of the assigned storage)\n"
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
-           "   - ext_max_frag:        max page fragmentation to tolerage\n"
+           "                          (default: 1/4th of the assigned storage)\n"
+           "   - ext_max_frag:        max page fragmentation to tolerage (default: %.2f)\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
-           "                          (see doc/storage.txt for more info)\n"
+           "                          (see doc/storage.txt for more info, default: %.3f)\n",
+           settings.ext_page_size / (1 << 20), settings.ext_wbuf_size / (1 << 20), settings.ext_io_threadcount,
+           settings.ext_item_size, settings.ext_low_ttl,
+           flag_enabled_disabled(settings.ext_drop_unread), settings.ext_recache_rate,
+           settings.ext_max_frag, settings.slab_automove_freeratio);
+    verify_default("ext_item_age", settings.ext_item_age == UINT_MAX);
 #endif
 #ifdef TLS
-           "   - ssl_chain_cert:      certificate chain file in PEM format\n"
+    printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"
            "   - ssl_key:             private key, if not part of the -ssl_chain_cert\n"
-           "   - ssl_keyformat:         private key format (PEM, DER or ENGINE) PEM default\n"
-           "   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
+           "   - ssl_keyformat:       private key format (PEM, DER or ENGINE) (default: PEM)\n");
+    printf("   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
            "                          valid values are 0(None), 1(Request), 2(Require)\n"
-           "                          or 3(Once)\n"
-           "   - ssl_ciphers:         specify cipher list to be used\n"
+           "                          or 3(Once)\n");
+    printf("   - ssl_ciphers:         specify cipher list to be used\n"
            "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
            "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
+           "                          (default: %u)\n", settings.ssl_wbuf_size / (1 << 10));
+    verify_default("ssl_keyformat", settings.ssl_keyformat == SSL_FILETYPE_PEM);
+    verify_default("ssl_verify_mode", settings.ssl_verify_mode == SSL_VERIFY_NONE);
 #endif
-           );
     return;
 }
 
@@ -8422,6 +8461,7 @@ int main (int argc, char **argv) {
 
     /* init settings */
     settings_init();
+    verify_default("hash_algorithm", hash_type == MURMUR3_HASH);
 #ifdef EXTSTORE
     settings.ext_item_size = 512;
     settings.ext_item_age = UINT_MAX;
@@ -8433,9 +8473,11 @@ int main (int argc, char **argv) {
     settings.ext_compact_under = 0;
     settings.ext_drop_under = 0;
     settings.slab_automove_freeratio = 0.01;
-    ext_cf.page_size = 1024 * 1024 * 64;
+    settings.ext_page_size = 1024 * 1024 * 64;
+    settings.ext_io_threadcount = 1;
+    ext_cf.page_size = settings.ext_page_size;
     ext_cf.wbuf_size = settings.ext_wbuf_size;
-    ext_cf.io_threadcount = 1;
+    ext_cf.io_threadcount = settings.ext_io_threadcount;
     ext_cf.io_depth = 1;
     ext_cf.page_buckets = 4;
     ext_cf.wbuf_count = ext_cf.page_buckets;
@@ -9238,7 +9280,7 @@ int main (int argc, char **argv) {
         }
     }
 
-    if (settings.item_size_max < 1024) {
+    if (settings.item_size_max < ITEM_SIZE_MAX_LOWER_LIMIT) {
         fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
         exit(EX_USAGE);
     }
@@ -9246,7 +9288,7 @@ int main (int argc, char **argv) {
         fprintf(stderr, "Cannot set item size limit higher than 1/2 of memory max.\n");
         exit(EX_USAGE);
     }
-    if (settings.item_size_max > (1024 * 1024 * 1024)) {
+    if (settings.item_size_max > (ITEM_SIZE_MAX_UPPER_LIMIT)) {
         fprintf(stderr, "Cannot set item size limit higher than a gigabyte.\n");
         exit(EX_USAGE);
     }
@@ -9567,6 +9609,7 @@ int main (int argc, char **argv) {
     if (storage_file) {
         enum extstore_res eres;
         if (settings.ext_compact_under == 0) {
+            // If changing the default fraction (4), change the help text as well.
             settings.ext_compact_under = storage_file->page_count / 4;
             /* Only rescues non-COLD items if below this threshold */
             settings.ext_drop_under = storage_file->page_count / 4;
