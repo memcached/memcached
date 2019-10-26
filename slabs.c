@@ -103,12 +103,12 @@ unsigned int slabs_size(const int clsid) {
 
 // TODO: could this work with the restartable memory?
 // Docs say hugepages only work with private shm allocs.
-#if defined(__linux__) && defined(MADV_HUGEPAGE)
 /* Function split out for better error path handling */
-static void * alloc_large_chunk_linux(const size_t limit)
+static void * alloc_large_chunk(const size_t limit)
 {
-    size_t pagesize = 0;
     void *ptr = NULL;
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+    size_t pagesize = 0;
     FILE *fp;
     int ret;
 
@@ -149,10 +149,18 @@ static void * alloc_large_chunk_linux(const size_t limit)
         free(ptr);
         ptr = NULL;
     }
-
+#elif defined(__FreeBSD__)
+    size_t align = (sizeof(size_t) * 8 - (__builtin_clzl(4095)));
+    ptr = mmap(NULL, limit, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON | MAP_ALIGNED(align) | MAP_ALIGNED_SUPER, -1, 0);
+    if (ptr == MAP_FAILED) {
+        fprintf(stderr, "Failed to set super pages\n");
+        ptr = NULL;
+    }
+#else
+    ptr = malloc(limit);
+#endif
     return ptr;
 }
-#endif
 
 unsigned int slabs_fixup(char *chunk, const int border) {
     slabclass_t *p;
@@ -209,17 +217,9 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
     mem_limit = limit;
 
     if (prealloc && mem_base_external == NULL) {
-#if defined(__linux__) && defined(MADV_HUGEPAGE)
-        mem_base = alloc_large_chunk_linux(mem_limit);
-        if (mem_base)
+        mem_base = alloc_large_chunk(mem_limit);
+        if (mem_base) {
             do_slab_prealloc = true;
-#else
-        /* Allocate everything in a big chunk with malloc */
-        mem_base = malloc(mem_limit);
-        do_slab_prealloc = true;
-#endif
-
-        if (mem_base != NULL) {
             mem_current = mem_base;
             mem_avail = mem_limit;
         } else {
@@ -381,7 +381,9 @@ static int do_slabs_newslab(const unsigned int id) {
         return 0;
     }
 
+#if !defined(__FreeBSD__)
     memset(ptr, 0, (size_t)len);
+#endif
     split_slab_page_into_freelist(ptr, id);
 
     p->slab_list[p->slabs++] = ptr;
