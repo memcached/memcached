@@ -696,11 +696,6 @@ int init_lru_crawler(void *arg) {
 #ifdef EXTSTORE
         storage = arg;
 #endif
-        if (pthread_cond_init(&lru_crawler_cond, NULL) != 0) {
-            fprintf(stderr, "Can't initialize lru crawler condition\n");
-            return -1;
-        }
-        pthread_mutex_init(&lru_crawler_lock, NULL);
         active_crawler_mod.c.c = NULL;
         active_crawler_mod.mod = NULL;
         active_crawler_mod.data = NULL;

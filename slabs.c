@@ -1316,12 +1316,6 @@ int start_slab_maintenance_thread(void) {
         }
     }
 
-    if (pthread_cond_init(&slab_rebalance_cond, NULL) != 0) {
-        fprintf(stderr, "Can't initialize rebalance condition\n");
-        return -1;
-    }
-    pthread_mutex_init(&slabs_rebalance_lock, NULL);
-
     if ((ret = pthread_create(&rebalance_tid, NULL,
                               slab_rebalance_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create rebal thread: %s\n", strerror(ret));
