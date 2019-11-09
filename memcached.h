@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <grp.h>
+#include <signal.h>
 
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
@@ -398,7 +399,7 @@ struct settings {
     int item_size_max;        /* Maximum item size */
     int slab_chunk_size_max;  /* Upper end for chunks within slab pages. */
     int slab_page_size;     /* Slab's page units. */
-    bool sig_hup;           /* a HUP signal was received but not yet handled */
+    volatile sig_atomic_t sig_hup;  /* a HUP signal was received but not yet handled */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
     bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
