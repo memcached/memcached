@@ -9345,6 +9345,11 @@ int main (int argc, char **argv) {
                 exit(EX_USAGE);
             }
         }
+
+        if (settings.udpport) {
+            fprintf(stderr, "ERROR: Cannot enable UDP while using binary SASL authentication.\n");
+            exit(EX_USAGE);
+        }
     }
 
     if (settings.auth_file) {
