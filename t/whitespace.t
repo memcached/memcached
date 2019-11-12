@@ -5,6 +5,11 @@ our @files;
 
 BEGIN {
     chdir "$Bin/.." or die;
+    unless (-d "$Bin/../.git") {
+        use Test::More;
+        plan skip_all => "Skipping test because this does not appear to be a memcached git working directory";
+        exit 0;
+    }
 
     my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md compile_commands.json);
     push(@exempted, glob("doc/*.xml"));
