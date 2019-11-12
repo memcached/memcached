@@ -320,6 +320,7 @@ static void settings_init(void) {
     settings.logger_watcher_buf_size = LOGGER_WATCHER_BUF_SIZE;
     settings.logger_buf_size = LOGGER_BUF_SIZE;
     settings.drop_privileges = false;
+    settings.no_watch = false;
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
 #endif
@@ -5577,6 +5578,12 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
     assert(c != NULL);
 
     set_noreply_maybe(c, tokens, ntokens);
+    if (settings.no_watch) {
+        // watch is not allowed
+        out_string(c, "CLIENT_ERROR watch commands not allowed");
+        return;
+    }
+
     if (ntokens > 2) {
         for (x = COMMAND_TOKEN + 1; x < ntokens - 1; x++) {
             if ((strcmp(tokens[x].value, "rawcmds") == 0)) {
@@ -7634,6 +7641,7 @@ static void usage(void) {
            "   - modern:              enables options which will be default in future.\n"
            "             currently: nothing\n"
            "   - no_modern:           uses defaults of previous major version (1.4.x)\n"
+           "   - no_watch:            disable watch commands\n"
 #ifdef HAVE_DROP_PRIVILEGES
            "   - drop_privileges:     enable dropping extra syscall privileges\n"
            "   - no_drop_privileges:  disable drop_privileges in case it causes issues with\n"
@@ -8304,6 +8312,7 @@ int main (int argc, char **argv) {
         NO_INLINE_ASCII_RESP,
         MODERN,
         NO_MODERN,
+        NO_WATCH,
         NO_CHUNKED_ITEMS,
         NO_SLAB_REASSIGN,
         NO_SLAB_AUTOMOVE,
@@ -8370,6 +8379,7 @@ int main (int argc, char **argv) {
         [NO_INLINE_ASCII_RESP] = "no_inline_ascii_resp",
         [MODERN] = "modern",
         [NO_MODERN] = "no_modern",
+        [NO_WATCH] = "no_watch",
         [NO_CHUNKED_ITEMS] = "no_chunked_items",
         [NO_SLAB_REASSIGN] = "no_slab_reassign",
         [NO_SLAB_AUTOMOVE] = "no_slab_automove",
@@ -9212,6 +9222,9 @@ int main (int argc, char **argv) {
                 hash_type = JENKINS_HASH;
                 start_lru_crawler = false;
                 start_lru_maintainer = false;
+                break;
+            case NO_WATCH:
+                settings.no_watch = true;
                 break;
             case NO_DROP_PRIVILEGES:
                 settings.drop_privileges = false;
