@@ -320,6 +320,7 @@ static void settings_init(void) {
     settings.logger_watcher_buf_size = LOGGER_WATCHER_BUF_SIZE;
     settings.logger_buf_size = LOGGER_BUF_SIZE;
     settings.drop_privileges = false;
+    settings.watch_enabled = true;
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
 #endif
@@ -5577,6 +5578,11 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
     assert(c != NULL);
 
     set_noreply_maybe(c, tokens, ntokens);
+    if (!settings.watch_enabled) {
+        out_string(c, "CLIENT_ERROR watch commands not allowed");
+        return;
+    }
+
     if (ntokens > 2) {
         for (x = COMMAND_TOKEN + 1; x < ntokens - 1; x++) {
             if ((strcmp(tokens[x].value, "rawcmds") == 0)) {
@@ -7616,6 +7622,7 @@ static void usage(void) {
 #endif
     printf("-F, --disable-flush-all   disable flush_all command\n");
     printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
+    printf("-W  --disable-watch       disable watch commands (live logging)\n");
     printf("-Y, --auth-file=<file>    (EXPERIMENTAL) enable ASCII protocol authentication. format:\n"
            "                          user:pass\\nuser2:pass2\\n\n");
     printf("-e, --memory-file=<file>  (EXPERIMENTAL) mmap a file for item memory.\n"
@@ -8528,6 +8535,7 @@ int main (int argc, char **argv) {
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
           "X"   /* Disable dump commands */
+          "W"   /* Disable watch commands */
           "Y:"   /* Enable token auth */
           "e:"  /* mmap path for external item memory */
           "o:"  /* Extended generic options */
@@ -8567,6 +8575,7 @@ int main (int argc, char **argv) {
         {"enable-sasl", no_argument, 0, 'S'},
         {"disable-flush-all", no_argument, 0, 'F'},
         {"disable-dumping", no_argument, 0, 'X'},
+        {"disable-watch", no_argument, 0, 'W'},
         {"auth-file", required_argument, 0, 'Y'},
         {"memory-file", required_argument, 0, 'e'},
         {"extended", required_argument, 0, 'o'},
@@ -8773,6 +8782,9 @@ int main (int argc, char **argv) {
             break;
        case 'X' :
             settings.dump_enabled = false;
+            break;
+       case 'W' :
+            settings.watch_enabled = false;
             break;
        case 'Y' :
             // dupe the file path now just in case the options get mangled.
