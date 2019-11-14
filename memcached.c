@@ -2879,7 +2879,7 @@ typedef struct token_s {
 #define SUBCOMMAND_TOKEN 1
 #define KEY_TOKEN 1
 
-#define MAX_TOKENS 8
+#define MAX_TOKENS 24
 
 /*
  * Tokenize the command string by replacing whitespace with '\0' and update
@@ -4066,49 +4066,43 @@ struct _meta_flags {
     unsigned int no_reply :1;
 };
 
-static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) {
+static int _meta_flag_preparse(token_t *tokens, const size_t ntokens, struct _meta_flags *of) {
     unsigned int i;
-    // NOTE: 'seen' is one of those need-to-microbench situation to do this via bit vector or
-    // simple 8 bit array; need two divs and a shift vs a bit more memory.
-    // Leave it simple for now, optimize later.
     uint8_t seen[127] = {0};
-    // also count how many tokens should be necessary to parse.
-    int tokens = 0;
-    for (i = 0; i < olen; i++) {
-        uint8_t o = (uint8_t)opts[i];
+    // Start just past the key token. Look at first character of each token.
+    for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+        uint8_t o = (uint8_t)tokens[i].value[0];
         // zero out repeat flags so we don't over-parse for return data.
         if (o >= 127 || seen[o] != 0) {
             return -1;
         }
         seen[o] = 1;
         // FIXME: alphabetize.
-        switch (opts[i]) {
+        switch (o) {
             case 'N':
                 of->locked = 1;
                 of->vivify = 1;
-                tokens++;
                 break;
             case 'T':
-                tokens++;
                 of->locked = 1;
                 break;
             case 'R':
                 of->locked = 1;
-                tokens++;
                 break;
             case 'l':
                 of->la = 1;
                 of->locked = 1; // need locked to delay LRU bump
                 break;
             case 'O':
-                tokens++;
                 break;
             case 'k': // known but no special handling
             case 's':
             case 't':
             case 'c':
-            case 'v':
             case 'f':
+                break;
+            case 'v':
+                of->value = 1;
                 break;
             case 'h':
                 of->locked = 1; // need locked to delay LRU bump
@@ -4123,7 +4117,6 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
             case 'F':
             case 'S':
             case 'C':
-                tokens++;
                 break;
             case 'I':
                 of->set_stale = 1;
@@ -4133,18 +4126,25 @@ static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) 
         }
     }
 
-    return tokens;
+    return 0;
+}
+
+#define META_SPACE(p) { \
+    *p = ' '; \
+    p++; \
+}
+
+#define META_CHAR(p, c) { \
+    *p = ' '; \
+    *(p+1) = c; \
+    p += 2; \
 }
 
 static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
     item *it;
-    char *opts;
-    char *fp = NULL;
-    size_t olen;
     unsigned int i = 0;
-    int32_t rtokens = 0; // remaining tokens available.
     struct _meta_flags of = {0}; // option bitflags.
     uint32_t hv; // cached hash value for unlocking an item.
     bool failed = false;
@@ -4167,47 +4167,21 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // NOTE: final token has length == 0.
     // KEY_TOKEN == 1. 0 is command.
-    rtokens = 3; // cmd, key, final.
 
     if (ntokens == 3) {
-        // Default flag options. Might not be the best idea.
-        opts = "sftv";
-        olen = 4;
-    } else {
-        // need to parse out the options.
-        opts = tokens[KEY_TOKEN + 1].value;
-        olen = tokens[KEY_TOKEN + 1].length;
-        rtokens++;
-    }
-
-    if (olen > MFLAG_MAX_OPT_LENGTH) {
+        // TODO: any way to fix this?
+        out_errstring(c, "CLIENT_ERROR bad command line format");
+    } else if (ntokens > MFLAG_MAX_OPT_LENGTH) {
+        // TODO: ensure the command tokenizer gives us at least this many
         out_errstring(c, "CLIENT_ERROR options flags are too long");
         return;
     }
 
-    // Copy opts into wbuf and advance pointer.
-    // We return the initial options + extra indicator flags.
-    // we reserve 4 bytes in front of the buffer, for up to three extra flags
-    // we can tag plus the initial space.
-    // This could be simpler by adding two iov's for the header line, but this
-    // is a hot path so trying to keep those to a minimum.
-    fp = resp->wbuf + 6;
-    memcpy(fp, opts, olen);
-    p = fp + olen;
-    fp--; // next token, or final space, goes here.
-
     // scrubs duplicated options and sets flags for how to load the item.
-    int mfres = _meta_flag_preparse(opts, olen, &of);
-
-    if (mfres + rtokens != ntokens) {
-        if (mfres == -1) {
-            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
-        } else {
-            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
-        }
+    if (_meta_flag_preparse(tokens, ntokens, &of) != 0) {
+        out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
-    rtokens = KEY_TOKEN + 2;
     c->noreply = of.no_reply;
 
     // TODO: need to indicate if the item was overflowed or not?
@@ -4241,38 +4215,28 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     if (it) {
         int32_t exptime_int = 0;
 
-        // Has this item already sent a token?
-        // Important to do this here so we don't send W with Z.
-        // Isn't critical, but easier for client authors to understand.
-        if (it->it_flags & ITEM_TOKEN_SENT) {
-            *fp = 'Z';
-            fp--;
-        }
-        if (it->it_flags & ITEM_STALE) {
-            *fp = 'X';
-            fp--;
-            // FIXME: think hard about this. is this a default, or a flag?
-            if ((it->it_flags & ITEM_TOKEN_SENT) == 0) {
-                // If we're stale but no token already sent, now send one.
-                won_token = true;
-            }
+        if (of.value) {
+            memcpy(p, "VA ", 3);
+            p = itoa_u32(it->nbytes-2, p+3);
+        } else {
+            memcpy(p, "HD", 2);
+            p += 2;
         }
 
-        for (i = 0; i < olen; i++) {
-            switch (opts[i]) {
+        for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+            switch (tokens[i].value[0]) {
                 case 'T':
                     ttl_set = true;
-                    if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                    if (!safe_strtol(tokens[i].value+1, &exptime_int)) {
                         errstr = "CLIENT_ERROR bad tokens in command line format";
                         goto error;
                     }
                     // FIXME: check for < 0, or stoul and cast here.
                     it->exptime = realtime(exptime_int);
-                    rtokens++;
                     break;
                 case 'N':
                     if (item_created) {
-                        if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                        if (!safe_strtol(tokens[i].value+1, &exptime_int)) {
                             errstr = "CLIENT_ERROR bad tokens in command line format";
                             goto error;
                         }
@@ -4280,7 +4244,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                         it->exptime = realtime(exptime_int);
                         won_token = true;
                     }
-                    rtokens++; // always consume the token.
                     break;
                 case 'R':
                     // If we haven't autovivified and supplied token is less
@@ -4288,7 +4251,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                     if ((it->it_flags & ITEM_TOKEN_SENT) == 0
                             && !item_created
                             && it->exptime != 0) {
-                        if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                        if (!safe_strtol(tokens[i].value+1, &exptime_int)) {
                             errstr = "CLIENT_ERROR bad tokens in command line format";
                             goto error;
                         }
@@ -4297,77 +4260,86 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                             won_token = true;
                         }
                     }
-                    rtokens++;
                     break;
                 case 's':
-                    *p = ' ';
-                    p = itoa_u32(it->nbytes-2, p+1);
+                    META_CHAR(p, 's');
+                    p = itoa_u32(it->nbytes-2, p);
                     break;
                 case 't':
                     // TODO: ensure this is correct for autoviv case.
                     // or, I guess users can put N before t?
                     // TTL remaining as of this request.
                     // needs to be relative because server clocks may not be in sync.
-                    *p = ' ';
+                    META_CHAR(p, 't');
                     if (it->exptime == 0) {
-                        *(p+1) = '-';
-                        *(p+2) = '1';
-                        p += 3;
+                        *p = '-';
+                        *(p+1) = '1';
+                        p += 2;
                     } else {
-                        p = itoa_u32(it->exptime - current_time, p+1);
+                        p = itoa_u32(it->exptime - current_time, p);
                     }
                     break;
                 case 'c':
-                    *p = ' ';
-                    p = itoa_u64(ITEM_get_cas(it), p+1);
-                    break;
-                case 'v':
-                    of.value = 1;
+                    META_CHAR(p, 'c');
+                    p = itoa_u64(ITEM_get_cas(it), p);
                     break;
                 case 'f':
-                    *p = ' ';
+                    META_CHAR(p, 'f');
                     if (FLAGS_SIZE(it) == 0) {
-                        *(p+1) = '0';
-                        p += 2;
+                        *p = '0';
+                        p++;
                     } else {
-                        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p+1);
+                        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
                     }
                     break;
                 case 'l':
-                    *p = ' ';
-                    p = itoa_u32(current_time - it->time, p+1);
+                    META_CHAR(p, 'l');
+                    p = itoa_u32(current_time - it->time, p);
                     break;
                 case 'h':
-                    *p = ' ';
+                    META_CHAR(p, 'h');
                     if (it->it_flags & ITEM_FETCHED) {
-                        *(p+1) = '1';
+                        *p = '1';
                     } else {
-                        *(p+1) = '0';
+                        *p = '0';
                     }
-                    p += 2;
+                    p++;
                     break;
                 case 'O':
-                    if (tokens[rtokens].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                    if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
                         errstr = "CLIENT_ERROR opaque token too long";
                         goto error;
                     }
-                    *p = ' ';
-                    memcpy(p+1, tokens[rtokens].value, tokens[rtokens].length);
-                    p += tokens[rtokens].length + 1;
-                    rtokens++;
+                    META_SPACE(p);
+                    memcpy(p, tokens[i].value, tokens[i].length);
+                    p += tokens[i].length;
                     break;
                 case 'k':
-                    *p = ' ';
-                    memcpy(p+1, ITEM_key(it), it->nkey);
-                    p += it->nkey + 1;
+                    META_CHAR(p, 'k');
+                    memcpy(p, ITEM_key(it), it->nkey);
+                    p += it->nkey;
                     break;
+            }
+        }
+
+        // Has this item already sent a token?
+        // Important to do this here so we don't send W with Z.
+        // Isn't critical, but easier for client authors to understand.
+        if (it->it_flags & ITEM_TOKEN_SENT) {
+            META_CHAR(p, 'Z');
+        }
+        if (it->it_flags & ITEM_STALE) {
+            META_CHAR(p, 'X');
+            // FIXME: think hard about this. is this a default, or a flag?
+            if ((it->it_flags & ITEM_TOKEN_SENT) == 0) {
+                // If we're stale but no token already sent, now send one.
+                won_token = true;
             }
         }
 
         if (won_token) {
             // Mark a win into the flag buffer.
-            *fp = 'W';
-            fp--; // walk backwards for next token.
+            META_CHAR(p, 'W');
             it->it_flags |= ITEM_TOKEN_SENT;
         }
 
@@ -4379,15 +4351,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         *(p+1) = '\n';
         *(p+2) = '\0';
         p += 2;
-        // tag initial space to the front of the buffer, ahead of any extra
-        // flags that were added.
-        *fp = ' ';
-        *(fp-1) = 'A';
-        *(fp-2) = 'V';
-        fp -= 2;
         // finally, chain in the buffer.
-        // fp includes the flags.
-        resp_add_iov(resp, fp, p - fp);
+        resp_add_iov(resp, resp->wbuf, p - resp->wbuf);
 
         if (of.value) {
 #ifdef EXTSTORE
@@ -4495,18 +4460,16 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     unsigned int flags = 0;
     uint32_t exptime_int = 0;
     uint64_t req_cas_id = 0;
-    char *p;
     time_t exptime;
     int vlen = 0;
-    int rtokens;
     item *it;
-    char *opts;
-    int olen, i;
+    int i;
     short comm = NREAD_SET;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
     uint32_t hv;
     mc_resp *resp = c->resp;
+    char *p = resp->wbuf;
 
     assert(c != NULL);
 
@@ -4519,87 +4482,65 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    rtokens = 3; // cmd, key, final.
-
     if (ntokens == 3) {
         out_errstring(c, "CLIENT_ERROR bad command line format");
         return;
     }
 
-    opts = tokens[KEY_TOKEN + 1].value;
-    olen = tokens[KEY_TOKEN + 1].length;
-    rtokens++;
-
-    if (olen > MFLAG_MAX_OPT_LENGTH) {
+    if (ntokens > MFLAG_MAX_OPT_LENGTH) {
         out_errstring(c, "CLIENT_ERROR options flags too long");
         return;
     }
 
-    // copy opts before munging them.
-    // first two chars is status code.
+    // leave space for the status code.
     p = resp->wbuf + 3;
-    memcpy(p, opts, olen);
-    p += olen;
 
-    // scrubs duplicated options and sets flags for how to load the item.
     // TODO: I, E, APL?
-    int mfres = _meta_flag_preparse(opts, olen, &of);
-
-    if (mfres + rtokens != ntokens) {
-        if (mfres == -1) {
-            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
-        } else {
-            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
-        }
+    if (_meta_flag_preparse(tokens, ntokens, &of) != 0) {
+        out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
 
     // Set noreply after tokens are understood.
     c->noreply = of.no_reply;
-    rtokens = KEY_TOKEN + 2;
 
-    for (i = 0; i < olen; i++) {
-        switch (opts[i]) {
+    for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+        switch (tokens[i].value[0]) {
             case 'F':
-                if (!safe_strtoul(tokens[rtokens].value, &flags)) {
+                if (!safe_strtoul(tokens[i].value+1, &flags)) {
                     goto error;
                 }
-                rtokens++;
                 break;
             case 'C':
-                if (!safe_strtoull(tokens[rtokens].value, &req_cas_id)) {
+                if (!safe_strtoull(tokens[i].value+1, &req_cas_id)) {
                     goto error;
                 }
                 comm = NREAD_CAS;
-                rtokens++;
                 break;
             case 'S':
-                if (!safe_strtol(tokens[rtokens].value, &vlen)) {
+                if (!safe_strtol(tokens[i].value+1, &vlen)) {
                     goto error;
                 }
-                rtokens++;
                 break;
             case 'T':
-                if (!safe_strtoul(tokens[rtokens].value, &exptime_int)) {
+                if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
                     goto error;
                 }
-                rtokens++;
                 break;
             // TODO: macro perhaps?
             case 'O':
-                if (tokens[rtokens].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
                     errstr = "CLIENT_ERROR opaque token too long";
                     goto error;
                 }
-                *p = ' ';
-                memcpy(p+1, tokens[rtokens].value, tokens[rtokens].length);
-                p += tokens[rtokens].length + 1;
-                rtokens++;
+                META_SPACE(p);
+                memcpy(p, tokens[i].value, tokens[i].length);
+                p += tokens[i].length;
                 break;
             case 'k':
-                *p = ' ';
-                memcpy(p+1, key, nkey);
-                p += nkey + 1;
+                META_CHAR(p, 'k');
+                memcpy(p, key, nkey);
+                p += nkey;
                 break;
         }
     }
@@ -4690,15 +4631,14 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     size_t nkey;
     uint32_t exptime_int = 0;
     uint64_t req_cas_id = 0;
-    char *p;
-    int rtokens;
     item *it = NULL;
-    char *opts;
-    int olen, i;
+    int i;
     uint32_t hv;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
     mc_resp *resp = c->resp;
+    // reserve 3 bytes for status code
+    char *p = resp->wbuf + 3;
 
     assert(c != NULL);
 
@@ -4711,76 +4651,47 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    rtokens = 3; // cmd, key, final.
-
-    // rtokens == 0 acts like a normal immediate delete
-    if (ntokens == 3) {
-        opts = "";
-        olen = 0;
-    } else {
-        opts = tokens[KEY_TOKEN + 1].value;
-        olen = tokens[KEY_TOKEN + 1].length;
-        rtokens++;
-    }
-
-    if (olen > MFLAG_MAX_OPT_LENGTH) {
+    if (ntokens > MFLAG_MAX_OPT_LENGTH) {
         out_string(c, "CLIENT_ERROR options flags too long");
         return;
     }
 
-    // copy opts before munging them.
-    // first two chars is status code.
-    p = resp->wbuf + 3;
-    memcpy(p, opts, olen);
-    p += olen;
-
     // scrubs duplicated options and sets flags for how to load the item.
-    int mfres = _meta_flag_preparse(opts, olen, &of);
-
-    if (mfres + rtokens != ntokens) {
-        if (mfres == -1) {
-            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
-        } else {
-            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
-        }
+    if (_meta_flag_preparse(tokens, ntokens, &of) != 0) {
+        out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
-    rtokens = KEY_TOKEN + 2;
     c->noreply = of.no_reply;
 
     assert(c != NULL);
     bool new_ttl = false;
-    for (i = 0; i < olen; i++) {
-        switch (opts[i]) {
+    for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+        switch (tokens[i].value[0]) {
             case 'C':
-                if (!safe_strtoull(tokens[rtokens].value, &req_cas_id)) {
+                if (!safe_strtoull(tokens[i].value+1, &req_cas_id)) {
                     goto error;
                 }
-                rtokens++;
                 break;
             case 'T':
-                if (!safe_strtoul(tokens[rtokens].value, &exptime_int)) {
+                if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
                     goto error;
                 }
                 new_ttl = true;
-                rtokens++;
                 break;
             // TODO: macro perhaps?
             case 'O':
-                if (tokens[rtokens].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
                     errstr = "CLIENT_ERROR opaque token too long";
                     goto error;
                 }
-                *p = ' ';
-                memcpy(p+1, tokens[rtokens].value, tokens[rtokens].length);
-                p += tokens[rtokens].length + 1;
-                rtokens++;
+                META_SPACE(p);
+                memcpy(p, tokens[i].value, tokens[i].length);
+                p += tokens[i].length;
                 break;
             case 'k':
-                *p = ' ';
-                memcpy(p+1, key, nkey);
-                p += nkey + 1;
-                rtokens++;
+                META_CHAR(p, 'k');
+                memcpy(p, key, nkey);
+                p += nkey;
                 break;
         }
     }
