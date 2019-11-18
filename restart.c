@@ -76,6 +76,7 @@ static int restart_check(const char *file) {
     FILE *f = fopen(metafile, "r");
     if (f == NULL) {
         fprintf(stderr, "[restart] no metadata save file, starting with a clean cache\n");
+        free(metafile);
         return -1;
     }
 
@@ -207,9 +208,10 @@ static int restart_save(const char *file) {
     // FIXME: function.
     size_t flen = strlen(file);
     const char *ext = ".meta";
-    char *metafile = calloc(1, flen + strlen(ext) + 1);
+    size_t extlen = strlen(ext);
+    char *metafile = calloc(1, flen + extlen + 1);
     memcpy(metafile, file, flen);
-    memcpy(metafile+flen, ext, strlen(ext));
+    memcpy(metafile+flen, ext, extlen);
 
     // restrictive permissions for the metadata file.
     // TODO: also for the mmap file eh? :P
@@ -218,6 +220,7 @@ static int restart_save(const char *file) {
     umask(oldmask);
     if (f == NULL) {
         // FIXME: correct error handling.
+        free(metafile);
         perror("failed to write metadata file");
         return -1;
     }
@@ -229,6 +232,8 @@ static int restart_save(const char *file) {
         // Plugins/engines in the metadata file are separated by tag lines.
         fprintf(f, "T%s\n", cb->tag);
         if (cb->scb(cb->tag, &ctx, cb->data) != 0) {
+            fclose(f);
+            free(metafile);
             return -1;
         }
 
