@@ -6719,14 +6719,20 @@ static void drive_machine(conn *c) {
                 }
             }
 
-            if (settings.maxconns_fast &&
-                stats_state.curr_conns + stats_state.reserved_fds >= settings.maxconns - 1) {
+            bool reject;
+            if (settings.maxconns_fast) {
+                STATS_LOCK();
+                reject = stats_state.curr_conns + stats_state.reserved_fds >= settings.maxconns - 1;
+                stats.rejected_conns++;
+                STATS_UNLOCK();
+            } else {
+                reject = false;
+            }
+
+            if (reject) {
                 str = "ERROR Too many open connections\r\n";
                 res = write(sfd, str, strlen(str));
                 close(sfd);
-                STATS_LOCK();
-                stats.rejected_conns++;
-                STATS_UNLOCK();
             } else {
                 void *ssl_v = NULL;
 #ifdef TLS
