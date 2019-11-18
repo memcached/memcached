@@ -53,7 +53,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     // conn_worker_readd.
     // Currntly this connection would not be served by a different thread
     // than the one it's assigned.
-    assert(c->thread->thread_id == (unsigned long)pthread_self());
+    assert(pthread_equal(c->thread->thread_id, pthread_self()) != 0);
 
     char *bp = c->ssl_wbuf;
     for (i = 0; i < msg->msg_iovlen; i++) {
