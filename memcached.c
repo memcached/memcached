@@ -7352,6 +7352,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strncmp(p, notls, strlen(notls)) == 0) {
                 if (!settings.ssl_enabled) {
                     fprintf(stderr, "'notls' option is valid only when SSL is enabled\n");
+                    free(list);
                     return 1;
                 }
                 ssl_enabled = false;
@@ -8411,6 +8412,7 @@ int main (int argc, char **argv) {
     };
 
     if (!sanitycheck()) {
+        free(meta);
         return EX_OSERR;
     }
 
@@ -9650,6 +9652,7 @@ int main (int argc, char **argv) {
     if (start_lru_maintainer && start_lru_maintainer_thread(NULL) != 0) {
 #endif
         fprintf(stderr, "Failed to enable LRU maintainer thread\n");
+        free(meta);
         return 1;
     }
 
@@ -9795,6 +9798,8 @@ int main (int argc, char **argv) {
 
     /* cleanup base */
     event_base_free(main_base);
+
+    free(meta);
 
     return retval;
 }
