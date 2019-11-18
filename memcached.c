@@ -9528,8 +9528,8 @@ int main (int argc, char **argv) {
     }
 
     /* initialize other stuff */
-    logger_init();
     stats_init();
+    logger_init();
     conn_init();
     bool reuse_mem = false;
     void *mem_base = NULL;
