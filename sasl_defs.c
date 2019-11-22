@@ -16,6 +16,23 @@ const char * const locations[] = {
     "/etc/sasl2/memcached.conf",
     NULL
 };
+
+/* If the element of locations is file, locations_dir_path stores the
+ * directory path of these elements */
+const char *const locations_dir_path[] = {
+    "/etc/sasl",
+    "/etc/sasl2",
+    NULL
+};
+
+/* If the element of locations is directory, locations_file_path stores
+ * the actual configue file which used by sasl, when GETCONFPATH is
+ * enabled */
+const char *const locations_file_path[] = {
+    "/etc/sasl/memcached.conf/memcached.conf",
+    "/etc/sasl2/memcached.conf/memcached.conf",
+    NULL
+};
 #endif
 
 #ifndef HAVE_SASL_CALLBACK_FT
@@ -88,12 +105,24 @@ static int sasl_getconf(void *context, const char **path)
     *path = getenv("SASL_CONF_PATH");
 
     if (*path == NULL) {
+#if defined(HAVE_SASL_CB_GETCONF)
         for (int i = 0; locations[i] != NULL; ++i) {
             if (access(locations[i], F_OK) == 0) {
                 *path = locations[i];
                 break;
             }
         }
+#elif defined(HAVE_SASL_CB_GETCONFPATH)
+        for (int i = 0; locations[i] != NULL; ++i) {
+            if (access(locations_file_path[i], F_OK) == 0) {
+                *path = locations[i];
+                break;
+            } else if (access(locations[i], F_OK) == 0) {
+                *path = locations_dir_path[i];
+                break;
+            }
+        }
+#endif
     }
 
     if (settings.verbose) {
