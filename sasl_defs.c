@@ -12,8 +12,8 @@ char my_sasl_hostname[1025];
  * specify one in the environment variable SASL_CONF_PATH
  */
 const char * const locations[] = {
-    "/etc/sasl/memcached.conf",
-    "/etc/sasl2/memcached.conf",
+    "/etc/sasl",
+    "/etc/sasl2",
     NULL
 };
 #endif
@@ -89,7 +89,10 @@ static int sasl_getconf(void *context, const char **path)
 
     if (*path == NULL) {
         for (int i = 0; locations[i] != NULL; ++i) {
-            if (access(locations[i], F_OK) == 0) {
+            char buff[30];
+            strcpy(buff, locations[i]);
+            strcat(buff, "/memcached.conf");
+            if (access(buff, F_OK) == 0) {
                 *path = locations[i];
                 break;
             }
