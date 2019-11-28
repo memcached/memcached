@@ -3663,12 +3663,24 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
                 resp->chunked_data_iov = 0;
             } else {
                 int i;
-                // Wipe the iovecs up through our data injection.
-                // Allows trailers to be returned (EN)
-                for (i = 0; i <= wrap->iovec_data; i++) {
-                    resp->tosend -= resp->iov[i].iov_len;
-                    resp->iov[i].iov_len = 0;
-                    resp->iov[i].iov_base = NULL;
+                // Meta commands have EN status lines for miss, rather than
+                // END as a trailer as per normal ascii.
+                if (resp->iov[0].iov_len >= 3
+                        && memcmp(resp->iov[0].iov_base, "VA ", 3) == 0) {
+                    // TODO: These miss translators should use specific callback
+                    // functions attached to the io wrap. This is weird :(
+                    resp->iovcnt = 1;
+                    resp->iov[0].iov_len = 4;
+                    resp->iov[0].iov_base = "EN\r\n";
+                    resp->tosend = 4;
+                } else {
+                    // Wipe the iovecs up through our data injection.
+                    // Allows trailers to be returned (END)
+                    for (i = 0; i <= wrap->iovec_data; i++) {
+                        resp->tosend -= resp->iov[i].iov_len;
+                        resp->iov[i].iov_len = 0;
+                        resp->iov[i].iov_base = NULL;
+                    }
                 }
                 resp->chunked_total = 0;
                 resp->chunked_data_iov = 0;
@@ -4032,7 +4044,7 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
         total++;
 
         ret = snprintf(resp->wbuf + total, WRITE_BUFFER_SIZE - (it->nkey + 12),
-                "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\nEN\r\n",
+                "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\n",
                 (it->exptime == 0) ? -1 : (current_time - it->exptime),
                 (unsigned long long)(current_time - it->time),
                 (unsigned long long)ITEM_get_cas(it),
@@ -4171,6 +4183,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     if (ntokens == 3) {
         // TODO: any way to fix this?
         out_errstring(c, "CLIENT_ERROR bad command line format");
+        return;
     } else if (ntokens > MFLAG_MAX_OPT_LENGTH) {
         // TODO: ensure the command tokenizer gives us at least this many
         out_errstring(c, "CLIENT_ERROR options flags are too long");
@@ -4376,10 +4389,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                 resp_add_chunked_iov(resp, it, it->nbytes);
             }
 #endif
-        }
-
-        if (!c->noreply) {
-            resp_add_iov(resp, "EN\r\n", 4);
         }
 
         // need to hold the ref at least because of the key above.
@@ -5458,7 +5467,7 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "md") == 0)) {
         process_mdelete_command(c, tokens, ntokens);
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "mn") == 0)) {
-        out_string(c, "EN");
+        out_string(c, "MN");
         // mn command forces immediate writeback flush.
         conn_set_state(c, conn_mwrite);
         return;
