@@ -15,46 +15,47 @@ my $sock = $server->sock;
 # response:
 # VA [size] [flags]\r\n
 # data\r\n
-# EN\r\n
 # or:
 # HD [flags]\r\n
+# or:
+# EN\r\n
 # flags are single 'f' or 'f1234' or 'fTEXT'
 #
 # flags:
-# - s: item size
+# - s: return item size
 # - v: return item value
 # - c: return item cas
 # - t: return item TTL remaining (-1 for unlimited)
-# - f: client flags
-# - l: last access time
-# - h: whether item has been hit before
-# - O: opaque to copy back.
+# - f: return client flags
+# - l: return last access time
+# - h: return whether item has been hit before
+# - O(token): opaque to copy back.
 # - k: return key
 # - q: noreply semantics.
-# - u: don't bump the item
+# - u: don't bump the item in LRU
 # updaters:
-# - N (token): vivify on miss, takes TTL as a argument
-# - R (token): if token is less than item TTL win for recache
-# - T (token): update remaining TTL
+# - N(token): vivify on miss, takes TTL as a argument
+# - R(token): if token is less than item TTL win for recache
+# - T(token): update remaining TTL
 # FIXME: do I need a "if stale and no token sent, flip" explicit flag?
 # extra response flags:
 # - W: client has "won" the token
 # - X: object is stale
 # - Z: object has sent a winning token
 #
-# ms [key] [flags] [tokens]\r\n
+# ms [key] [flags]\r\n
 # value\r\n
 # response:
-# ST [flags] [tokens]\r\n
+# ST [flags]\r\n
 # ST STORED, NS NOT_STORED, EX EXISTS, NF NOT_FOUND
 #
 # flags:
 # - q: noreply
-# - F (token): set client flags
-# - C (token): compare CAS value
-# - S (token): item size
-# - T (token): TTL
-# - O: opaque to copy back.
+# - F(token): set client flags
+# - C(token): compare CAS value
+# - S(token): item size
+# - T(token): TTL
+# - O(token): opaque to copy back.
 # - k: return key
 # - I: invalid. set-to-invalid if CAS is older than it should be.
 # Not implemented:
@@ -64,20 +65,20 @@ my $sock = $server->sock;
 # - L: replace (exclusive)
 # - incr/decr? pushing it, I guess.
 #
-# md [key] [flags] [tokens]\r\n
+# md [key] [flags]\r\n
 # response:
-# DE [flags] [tokens]
+# DE [flags]
 # flags:
 # - q: noreply
-# - T (token): updates TTL
-# - C (token): compare CAS value
+# - T(token): updates TTL
+# - C(token): compare CAS value
 # - I: invalidate. mark as stale, bumps CAS.
-# - O: opaque to copy back.
+# - O(token): opaque to copy back.
 # - k: return key
 #
 # mn\r\n
 # response:
-# EN
+# MN\r\n
 
 # metaget tests
 
@@ -95,8 +96,6 @@ my $sock = $server->sock;
 
     print $sock "me foo\r\n";
     like(scalar <$sock>, qr/^ME foo /, "raw mget result");
-    # bleed the EN off the socket.
-    my $dud = scalar <$sock>;
 }
 
 # mget with arguments
@@ -364,7 +363,7 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^bo/, "get value");
     like(scalar <$sock>, qr/^VA 2/, "get response");
     like(scalar <$sock>, qr/^bo/, "get value");
-    like(scalar <$sock>, qr/^EN/, "end token");
+    like(scalar <$sock>, qr/^MN/, "end token");
 }
 
 {
@@ -389,9 +388,7 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^ST /, "set foo");
     print $sock "mg foo s\r\nmg foo s\r\nquit\r\nmg foo s\r\n";
     like(scalar <$sock>, qr/^HD /, "got resp");
-    like(scalar <$sock>, qr/^EN/, "got resp");
     like(scalar <$sock>, qr/^HD /, "got resp");
-    like(scalar <$sock>, qr/^EN/, "got resp");
     is(scalar <$sock>, undef, "final get didn't run");
 }
 
@@ -458,7 +455,7 @@ if (supports_extstore()) {
     print $sock "mg mfoo1 s v\r\n";
     is(scalar <$sock>, "EN\r\n");
     print $sock "mg mfoo1 s v q\r\nmn\r\n";
-    is(scalar <$sock>, "EN\r\n");
+    is(scalar <$sock>, "MN\r\n");
     $stats = mem_stats($sock);
     cmp_ok($stats->{miss_from_extstore}, '>', 0, 'at least one miss');
 }
@@ -494,18 +491,18 @@ sub mget_is {
     if (! defined $val) {
         my $line = scalar <$s>;
         if ($line =~ /^VA/) {
-            $line .= scalar(<$s>) . scalar(<$s>);
+            $line .= scalar(<$s>);
         }
         Test::More::is($line, "EN\r\n", $msg);
     } else {
         my $len = length($val);
         my $body = scalar(<$s>);
-        my $expected = "VA $len $eflags\r\n$val\r\nEN\r\n";
+        my $expected = "VA $len $eflags\r\n$val\r\n";
         if (!$body || $body =~ /^EN/) {
             Test::More::is($body, $expected, $msg);
             return;
         }
-        $body .= scalar(<$s>) . scalar(<$s>);
+        $body .= scalar(<$s>);
         Test::More::is($body, $expected, $msg);
         return mget_res($body);
     }
@@ -524,7 +521,6 @@ sub mget {
     if ($header =~ m/^VA/) {
         $val = scalar(<$s>);
     }
-    my $end = scalar(<$s>);
 
     return mget_res($header . $val);
 }

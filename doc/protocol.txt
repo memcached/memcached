@@ -96,23 +96,29 @@ noted in the 'Commands' section above.
 
 All meta commands follow a basic syntax:
 
-cm <key> <flags> <token1> <token2> <...>\r\n
+<cm> <key> <flag1> <flag2> <...>\r\n
 
-Where 'cm' is a 2 character command code. The number of tokens supplied is
-based off of the flags used.
+Where <cm> is a 2 character command code.
 
 Responses look like:
 
-RC <flags> <token1> <token2> <...>\r\n
+<RC> <flag1> <flag2> <...>\r\n
 
-Where 'rc' is a 2 character return code. The number of tokens returned are
-based off of the flags used.
+Where <RC> is a 2 character return code. The number of flags returned are
+based off of the flags supplied.
 
 Flags are single character codes, ie 'q' or 'k' or 'I', which adjust the
 behavior of the command. The flags are reflected in the response. The order of
 which tokens are consumed or returned depend on the order of the flags given.
 For example, a metaget with flags of 'st' would return tokens for "size" and
 "TTL remaining" in that order. 'ts' would return "TTL remaining" then "size".
+
+Flags are single character codes, ie 'q' or 'k' or 'O', which adjust the
+behavior of a command. Flags may contain token arguments, which come after the
+flag and before the next space or newline, ie 'Oopaque' or 'Kuserkey'. Flags
+can return new data or reflect information, in the same order they were
+supplied in the request. Sending an 't' flag with a get for an item with 20
+seconds of TTL remaining, would return 't20' in the response.
 
 Syntax errors are handled the same as noted under 'Error strings' section
 below.
@@ -456,7 +462,11 @@ me <key>\r\n
 
 The response looks like:
 
-ME <key> <k>=<v>*\r\nEN\r\n
+ME <key> <k>=<v>*\r\n
+
+A miss looks like:
+
+EN\r\n
 
 Each of the keys and values are the internal data for the item.
 
@@ -476,22 +486,15 @@ The meta get command is the generic command for retrieving key data from
 memcached. Based on the flags supplied, it can replace all of the commands:
 "get", "gets", "gat", "gats", "touch", as well as adding new options.
 
-mg <key> <flags> <tokens>*\r\n
+mg <key> <flags>*\r\n
 
 - <key> means one key string. Unlike "get" metaget can only take a single key.
 
 - <flags> are a set of single character codes ended with a space or newline.
-
-- <tokens>* means zero or more tokens, based on the flags supplied. They are
-  consumed in order specified by the flags.
+  flags may have strings after the initial character.
 
 After this command, the client expects an item to be returned, received as a
-text line followed by an optional data block. After the item is transferred,
-the server sends the string
-
-"EN\r\n"
-
-to indicate the end of the response.
+text line followed by an optional data block.
 
 If a response line appearing in a retrieval request is not sent back
 by the server this means that the server does not
@@ -501,17 +504,27 @@ deleted by a client).
 
 An item sent by the server looks like:
 
-VA <flags> <tokens>*\r\n
+VA <size> <flags>*\r\n
 <data block>\r\n
 
-- <flags> are a reflection of the flags sent to the server. Extra flags can be
-  added to the response based on the execution of the command.
+- <size> is the size of <data block> in bytes, minus the \r\n
 
-- <tokens>* are tokens returned by the server, based on the flags supplied.
+- <flags>* are tokens returned by the server, based on the flags supplied.
   They are added in order specified by the flags sent.
 
 - <data block> is the data for this item. Note that the data black is
   optional, requiring the 'v' flag to be supplied.
+
+If the request did not ask for a value in the response (v) flag, the server
+response instead looks like:
+
+HD <flags>*\r\n
+
+If the request resulted in a miss, the response looks like:
+
+EN\r\n
+
+Unless the (q) flag was supplied, which suppresses the status code for a miss.
 
 The flags used by the 'mg' command are:
 
@@ -520,7 +533,7 @@ The flags used by the 'mg' command are:
 - h: return whether item has been hit before as a 0 or 1
 - k: return key as a token
 - l: return time since item was last accessed in seconds
-- O (token): opaque value, consumes a token and copies back with response
+- O(token): opaque value, consumes a token and copies back with response
 - q: use noreply semantics for return codes.
 - s: return item size token
 - t: return item TTL remaining in seconds (-1 for unlimited)
@@ -528,9 +541,9 @@ The flags used by the 'mg' command are:
 - v: return item value in <data block>
 
 These flags can modify the item:
-- N (token): vivify on miss, takes TTL as a argument
-- R (token): if token is less than remaining TTL win for recache
-- T (token): update remaining TTL
+- N(token): vivify on miss, takes TTL as a argument
+- R(token): if token is less than remaining TTL win for recache
+- T(token): update remaining TTL
 
 These extra flags can be added to the response:
 - W: client has "won" the recache flag
@@ -546,9 +559,9 @@ The above two flags return the value of "hit before?" and "last access time"
 before the command was processed. Otherwise this would always show a 1 for
 hit or always show an access time of "0" unless combined with the "u" flag.
 
-- O (token): opaque value, consumes a token and copies back with response
+- O(token): opaque value, consumes a token and copies back with response
 
-The O (opaque) token is used by this and other commands to allow easier
+The O(opaque) token is used by this and other commands to allow easier
 pipelining of requests while saving bytes on the wire for responses. For
 example: if pipelining three get commands together, you may not know which
 response belongs to which without also retrieving the key. If the key is very
@@ -581,10 +594,10 @@ access time.
 - v: return item value in <data block>
 
 The data block for a metaget response is optional, requiring this flag to be
-passed in.
+passed in. The response code also changes from "HD" to "VA <size>"
 
 These flags can modify the item:
-- N (token): vivify on miss, takes TTL as a argument
+- N(token): vivify on miss, takes TTL as a argument
 
 Used to help with so called "dog piling" problems with recaching of popular
 items. If supplied, and metaget does not find the item in cache, it will
@@ -599,14 +612,14 @@ already received the win flag.
 
 Can be combined with CAS flags to gate the update further.
 
-- R (token): if token is less than remaining TTL win for recache
+- R(token): if token is less than remaining TTL win for recache
 
 Similar to and can be combined with 'N'. If the remaining TTL of an item is
 below the supplied token, return a 'W' flag to indicate the client has "won"
 the right to recache an item. This allows refreshing an item before it leads to
 a miss.
 
-- T (token): update remaining TTL
+- T(token): update remaining TTL
 
 Similar to "touch" and "gat" commands, updates the remaining TTL of an item if
 hit.
@@ -646,27 +659,25 @@ The meta set command a generic command for storing data to memcached. Based on
 the flags supplied, it can replace the commands: "set", "cas". as well as
 adding new options.
 
-ms <key> <flags> <tokens>*\r\n
+ms <key> <flags>*\r\n
 
 - <key> means one key string.
 
 - <flags> are a set of single character codes ended with a space or newline.
-
-- <tokens>* means zero or more tokens, based on the flags supplied. They are
-  consumed in order specified by the flags.
+  flags may have strings after the initial character.
 
 After this line, the client sends the data block:
 
 <data block>\r\n
 
 - <data block> is a chunk of arbitrary 8-bit data of length supplied by an 'S'
-  flag and token from the previous line. If no 'S' flag is supplied the data
+  flag and token from the request line. If no 'S' flag is supplied the data
   is assumed to be 0 length.
 
 After sending the command line and the data block the client awaits
 the reply, which is of the format:
 
-CD <flags> <tokens>*\r\n
+<CD> <flags> <tokens>*\r\n
 
 Where CD is one of:
 
@@ -683,25 +694,25 @@ with CAS semantics did not exist.
 
 The flags used by the 'ms' command are:
 
-- C (token): compare CAS value when storing item
-- F (token): set client flags to token (32 bit unsigned numeric)
-- I: invalid. set-to-invalid if CAS is older than it should be.
+- C(token): compare CAS value when storing item
+- F(token): set client flags to token (32 bit unsigned numeric)
+- I: invalidate. set-to-invalid if supplied CAS is older than item's CAS
 - k: return key as a token
-- O (token): opaque value, consumes a token and copies back with response
+- O(token): opaque value, consumes a token and copies back with response
 - q: use noreply semantics for return codes
-- S (token): size of <data block> to store
-- T (token): Time-To-Live for item, see "Expiration" above.
+- S(token): size of <data block> to store
+- T(token): Time-To-Live for item, see "Expiration" above.
 
 The flags are now repeated with detailed information where useful:
 
-- C (token): compare CAS value when storing item
+- C(token): compare CAS value when storing item
 
 Similar to the basic "cas" command, only store item if the supplied token
 matches the current CAS value of the item. When combined with the 'I' flag, a
 CAS value that is _lower_ than the current value may be accepted, but the item
 will be marked as "stale", returning the X flag with mget requests.
 
-- F (token): set client flags to token (32 bit unsigned numeric)
+- F(token): set client flags to token (32 bit unsigned numeric)
 
 Sets flags to 0 if not supplied.
 
@@ -709,7 +720,7 @@ Sets flags to 0 if not supplied.
 
 Functional when combined with 'C' flag above.
 
-- O (token): opaque value, consumes a token and copies back with response
+- O(token): opaque value, consumes a token and copies back with response
 
 See description under 'Meta Get'
 
@@ -728,18 +739,16 @@ Meta Delete
 The meta delete command allows for explicit deletion of items, as well as
 marking items as "stale" to allow serving items as stale during revalidation.
 
-md <key> <flags> <tokens>*\r\n
+md <key> <flags>*\r\n
 
 - <key> means one key string.
 
 - <flags> are a set of single character codes ended with a space or newline.
-
-- <tokens>* means zero or more tokens, based on the flags supplied. They are
-  consumed in order specified by the flags.
+  flags may have strings after the initial character.
 
 The response is in the format:
 
-CD <flags> <tokens>*\r\n
+<CD> <flags> <tokens>*\r\n
 
 Where CD is one of:
 
@@ -752,16 +761,16 @@ Where CD is one of:
 
 The flags used by the 'md' command are:
 
-- C (token): compare CAS value
+- C(token): compare CAS value
 - I: invalidate. mark as stale, bumps CAS.
 - k: return key
-- O: opaque to copy back.
+- O(token): opaque to copy back.
 - q: noreply
-- T (token): updates TTL, only when paired with the 'I' flag
+- T(token): updates TTL, only when paired with the 'I' flag
 
 The flags are now repeated with detailed information where useful:
 
-- C (token): compare CAS value
+- C(token): compare CAS value
 
 Can be used to only delete or mark-stale if a supplied CAS value matches.
 
@@ -771,7 +780,7 @@ Instead of removing an item, this will give the item a new CAS value and mark
 it as stale. This means when it is later fetched by metaget, the client will
 be supplied an 'X' flag to show the data is stale and needs to be recached.
 
-- O (token): opaque to copy back.
+- O(token): opaque to copy back.
 
 See description under 'Meta Get'
 
@@ -780,7 +789,7 @@ See description under 'Meta Get'
 See description under 'Meta Set'. In the case of meta delete, this will hide
 response lines with the code "DE". It will still return any other responses.
 
-- T (token): updates TTL, only when paired with the 'I' flag
+- T(token): updates TTL, only when paired with the 'I' flag
 
 When marking an item as stale with 'I', the 'T' flag can be used to update the
 TTL as well; limiting the amount of time an item will live while stale and
@@ -794,16 +803,14 @@ takes no flags, no arguments.
 
 This returns the static response:
 
-"EN\r\n"
-
-Similar to a meta get command.
+"MN\r\n"
 
 This command is useful when used with the 'q' flag and pipelining commands.
-For example, with 'mg' the response lines are blank on miss, and the 'q' flag
-will hide the "EN\r\n" response code. If pipelining several 'mg's together
-with noreply semantics, an "mn\r\n" command can be tagged to the end of the
-chain, which will return an "EN\r\n", signalling to a client that all previous
-commands have been processed.
+For example, with 'mg' the response lines are blank on miss when the 'q' flag
+is supplied. If pipelining several 'mg's together with noreply semantics, an
+"mn\r\n" command can be tagged to the end of the chain, which will return an
+"MN\r\n", signalling to a client that all previous commands have been
+processed.
 
 Slabs Reassign
 --------------
