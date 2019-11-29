@@ -1,5 +1,6 @@
 #include "config.h"
 #include <seccomp.h>
+#include <termios.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
