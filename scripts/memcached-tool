@@ -150,9 +150,9 @@ if ($mode eq 'stats') {
             $items{$1} = $2;
         }
     }
-    printf ("#%-17s %5s %11s\n", $addr, "Field", "Value");
+    printf ("#%-22s %5s %13s\n", $addr, "Field", "Value");
     foreach my $name (sort(keys(%items))) {
-        printf ("%24s %12s\n", $name, $items{$name});
+        printf ("%29s %14s\n", $name, $items{$name});
 
     }
     exit;
