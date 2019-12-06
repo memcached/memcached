@@ -203,6 +203,23 @@ bool safe_strcpy(char *dst, const char *src, const size_t dstmax) {
    }
 }
 
+bool safe_memcmp(const void *a, const void *b, size_t len) {
+    const volatile unsigned char *ua = (const volatile unsigned char *)a;
+    const volatile unsigned char *ub = (const volatile unsigned char *)b;
+    int delta = 0;
+    size_t x;
+
+    for (x = 0; x < len; x++) {
+        delta |= ua[x] ^ ub[x];
+    }
+
+    if (delta == 0) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 void vperror(const char *fmt, ...) {
     int old_errno = errno;
     char buf[1024];
