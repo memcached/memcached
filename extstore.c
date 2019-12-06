@@ -186,7 +186,7 @@ void extstore_get_page_data(void *ptr, struct extstore_stats *st) {
 }
 
 const char *extstore_err(enum extstore_res res) {
-    char *rv = "unknown error";
+    const char *rv = "unknown error";
     switch (res) {
         case EXTSTORE_INIT_BAD_WBUF_SIZE:
             rv = "page_size must be divisible by wbuf_size";
