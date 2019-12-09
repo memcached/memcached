@@ -104,6 +104,9 @@ AC_ARG_ENABLE(tls,
   [AS_HELP_STRING([--enable-tls], [Enable Transport Layer Security EXPERIMENTAL ])])
 
 
+AC_ARG_ENABLE(asan,
+  [AS_HELP_STRING([--enable-asan], [Compile with ASAN EXPERIMENTAL ])])
+
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
 dnl
@@ -199,12 +202,17 @@ if test "x$enable_arm_crc32" = "xyes"; then
     AC_DEFINE([ARM_CRC32],1,[Set to nonzero if you want to enable ARMv8 crc32])
 fi
 
+if test "x$enable_asan" = "xyes"; then
+    AC_DEFINE([ASAN],1,[Set to nonzero if you want to compile using ASAN])
+fi
+
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
 AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" = "yes"])
 AM_CONDITIONAL([ENABLE_ARM_CRC32],[test "$enable_arm_crc32" = "yes"])
 AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
+AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
 
 
 AC_SUBST(DTRACE)
@@ -760,6 +768,9 @@ elif test "$GCC" = "yes"
 then
   GCC_VERSION=`$CC -dumpversion`
   CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  if test "x$enable_asan" = "xyes"; then
+    CFLAGS="$CFLAGS -fsanitize=address"
+  fi
   case $GCC_VERSION in
     4.4.*)
     CFLAGS="$CFLAGS -fno-strict-aliasing"
