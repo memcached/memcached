@@ -281,6 +281,10 @@ bool restart_mmap_open(const size_t limit, const char *file, void **mem_base) {
     long pagesize = _find_pagesize();
     memory_file = strdup(file);
     mmap_fd = open(file, O_RDWR|O_CREAT, S_IRWXU);
+    if (mmap_fd == -1) {
+        perror("failed to open file for mmap");
+        abort();
+    }
     if (ftruncate(mmap_fd, limit) != 0) {
         perror("ftruncate failed");
         abort();
