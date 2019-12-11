@@ -2017,7 +2017,7 @@ static void append_stats(const char *key, const uint16_t klen,
 {
     /* value without a key is invalid */
     if (klen == 0 && vlen > 0) {
-        return ;
+        return;
     }
 
     conn *c = (conn*)cookie;
@@ -2025,13 +2025,13 @@ static void append_stats(const char *key, const uint16_t klen,
     if (c->protocol == binary_prot) {
         size_t needed = vlen + klen + sizeof(protocol_binary_response_header);
         if (!grow_stats_buf(c, needed)) {
-            return ;
+            return;
         }
         append_bin_stats(key, klen, val, vlen, c);
     } else {
         size_t needed = vlen + klen + 10; // 10 == "STAT = \r\n"
         if (!grow_stats_buf(c, needed)) {
-            return ;
+            return;
         }
         append_ascii_stats(key, klen, val, vlen, c);
     }
@@ -3732,7 +3732,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     } else if (strcmp(subcommand, "reset") == 0) {
         stats_reset();
         out_string(c, "RESET");
-        return ;
+        return;
     } else if (strcmp(subcommand, "detail") == 0) {
         /* NOTE: how to tackle detail with binary? */
         if (ntokens < 4)
@@ -3740,7 +3740,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         else
             process_stats_detail(c, tokens[2].value);
         /* Output already generated */
-        return ;
+        return;
     } else if (strcmp(subcommand, "settings") == 0) {
         process_stat_settings(&append_stats, c);
     } else if (strcmp(subcommand, "cachedump") == 0) {
@@ -3770,7 +3770,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
         buf = item_cachedump(id, limit, &bytes);
         write_and_free(c, buf, bytes);
-        return ;
+        return;
     } else if (strcmp(subcommand, "conns") == 0) {
         process_stats_conns(&append_stats, c);
 #ifdef EXTSTORE
@@ -3790,7 +3790,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         } else {
             out_string(c, "ERROR");
         }
-        return ;
+        return;
     }
 
     /* append terminator and start the transfer */

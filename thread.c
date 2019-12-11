@@ -561,7 +561,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
         close(sfd);
         /* given that malloc failed this may also fail, but let's try */
         fprintf(stderr, "Failed to allocate memory for connection object\n");
-        return ;
+        return;
     }
 
     int tid = (last_thread + 1) % settings.num_threads;
