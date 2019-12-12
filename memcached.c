@@ -748,6 +748,11 @@ static void conn_release_items(conn *c) {
         while (tmp) {
             io_wrap *next = tmp->next;
             recache_or_free(c, tmp);
+            // malloc'ed iovec list used for chunked extstore fetches.
+            if (tmp->io.iov) {
+                free(tmp->io.iov);
+                tmp->io.iov = NULL;
+            }
             do_cache_free(c->thread->io_cache, tmp); // lockless
             tmp = next;
         }
@@ -3679,9 +3684,6 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
         wrap->miss = false;
     }
 
-    if (io->iov) {
-        free(io->iov);
-    }
     c->io_wrapleft--;
     wrap->active = false;
     //assert(c->io_wrapleft >= 0);
@@ -3758,6 +3760,9 @@ static inline int _get_extstore(conn *c, item *it, mc_resp *resp) {
             // FIXME: _pure evil_, silently erroring if item is too large.
             if (chunk == NULL || ciovcnt > IOV_MAX-1) {
                 item_remove(new_it);
+                free(io->io.iov);
+                // TODO: wrapper function for freeing up an io wrap?
+                io->io.iov = NULL;
                 do_cache_free(c->thread->io_cache, io);
                 return -1;
             }
