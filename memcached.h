@@ -768,7 +768,7 @@ extern int daemonize(int nochdir, int noclose);
 #define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)
 
-#include "stats.h"
+#include "stats_prefix.h"
 #include "slabs.h"
 #include "assoc.h"
 #include "items.h"
