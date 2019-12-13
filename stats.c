@@ -1,26 +1,14 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-/*
- * Detailed statistics management. For simple stats like total number of
- * "get" requests, we use inline code in memcached.c and friends, but when
- * stats detail mode is activated, the code here records more information.
- *
- * Author:
- *   Steven Grimm <sgrimm@facebook.com>
- */
+/* Author: Steven Grimm <sgrimm@facebook.com> */
 #include "memcached.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 
-/*
- * Stats are tracked on the basis of key prefixes. This is a simple
- * fixed-size hash of prefixes; we run the prefixes through the same
- * CRC function used by the cache hashtable.
- */
-
-
+/* Hash table that uses the global hash function */
 static PREFIX_STATS *prefix_stats[PREFIX_HASH_SIZE];
+
 static char prefix_delimiter;
 static int num_prefixes = 0;
 static int total_prefix_size = 0;
@@ -30,10 +18,6 @@ void stats_prefix_init(char delimiter) {
     memset(prefix_stats, 0, sizeof(prefix_stats));
 }
 
-/*
- * Cleans up all our previously collected stats. NOTE: the stats lock is
- * assumed to be held when this is called.
- */
 void stats_prefix_clear(void) {
     int i;
 
@@ -50,11 +34,6 @@ void stats_prefix_clear(void) {
     total_prefix_size = 0;
 }
 
-/*
- * Returns the stats structure for a prefix, creating it if it's not already
- * in the list.
- */
-/*@null@*/
 PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
     uint32_t hashval;
@@ -107,9 +86,6 @@ PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
     return pfs;
 }
 
-/*
- * Records a "get" of a key.
- */
 void stats_prefix_record_get(const char *key, const size_t nkey, const bool is_hit) {
     PREFIX_STATS *pfs;
 
@@ -124,9 +100,6 @@ void stats_prefix_record_get(const char *key, const size_t nkey, const bool is_h
     STATS_UNLOCK();
 }
 
-/*
- * Records a "delete" of a key.
- */
 void stats_prefix_record_delete(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
 
@@ -138,9 +111,6 @@ void stats_prefix_record_delete(const char *key, const size_t nkey) {
     STATS_UNLOCK();
 }
 
-/*
- * Records a "set" of a key.
- */
 void stats_prefix_record_set(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
 
@@ -152,10 +122,6 @@ void stats_prefix_record_set(const char *key, const size_t nkey) {
     STATS_UNLOCK();
 }
 
-/*
- * Returns stats in textual form suitable for writing to a client.
- */
-/*@null@*/
 char *stats_prefix_dump(int *length) {
     const char *format = "PREFIX %s get %llu hit %llu set %llu del %llu\r\n";
     PREFIX_STATS *pfs;
