@@ -242,7 +242,7 @@ static void stats_init(void) {
        like 'settings.oldest_live' which act as booleans as well as
        values are now false in boolean context... */
     process_started = time(0) - ITEM_UPDATE_INTERVAL - 2;
-    stats_prefix_init();
+    stats_prefix_init(settings.prefix_delimiter);
 }
 
 static void stats_reset(void) {

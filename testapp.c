@@ -20,6 +20,8 @@
 
 #include "config.h"
 #include "cache.h"
+#include "hash.h"
+#include "stats.h"
 #include "util.h"
 #include "protocol_binary.h"
 #ifdef TLS
@@ -40,6 +42,10 @@ struct conn {
     ssize_t (*write)(struct conn *c, const void *buf, size_t count);
 };
 
+struct settings {
+    char *hash_algorithm;
+};
+struct settings settings;
 
 static ssize_t tcp_read(struct conn *c, void *buf, size_t count);
 static ssize_t tcp_write(struct conn *c, const void *buf, size_t count);
@@ -238,6 +244,138 @@ static enum test_return cache_redzone_test(void)
 #else
     return TEST_SKIP;
 #endif
+}
+
+static enum test_return test_stats_prefix_find(void) {
+    PREFIX_STATS *pfs1, *pfs2;
+
+    stats_prefix_clear();
+    pfs1 = stats_prefix_find("abc", 3);
+    assert(pfs1 == NULL);
+    pfs1 = stats_prefix_find("abc|", 4);
+    assert(pfs1 == NULL);
+
+    pfs1 = stats_prefix_find("abc:", 4);
+    assert(pfs1 != NULL);
+    assert(0ULL == (pfs1->num_gets + pfs1->num_sets + pfs1->num_deletes + pfs1->num_hits));
+    pfs2 = stats_prefix_find("abc:", 4);
+    assert(pfs1 == pfs2);
+    pfs2 = stats_prefix_find("abc:d", 5);
+    assert(pfs1 == pfs2);
+    pfs2 = stats_prefix_find("xyz123:", 6);
+    assert(pfs1 != pfs2);
+    pfs2 = stats_prefix_find("ab:", 3);
+    assert(pfs1 != pfs2);
+    return TEST_PASS;
+}
+
+static enum test_return test_stats_prefix_record_get(void) {
+    PREFIX_STATS *pfs;
+    stats_prefix_clear();
+
+    stats_prefix_record_get("abc:123", 7, false);
+    pfs = stats_prefix_find("abc:123", 7);
+    assert(1 == pfs->num_gets);
+    assert(0 == pfs->num_hits);
+    stats_prefix_record_get("abc:456", 7, false);
+    assert(2 == pfs->num_gets);
+    assert(0 == pfs->num_hits);
+    stats_prefix_record_get("abc:456", 7, true);
+    assert(3 == pfs->num_gets);
+    assert(1 == pfs->num_hits);
+    stats_prefix_record_get("def:", 4, true);
+    assert(3 == pfs->num_gets);
+    assert(1 == pfs->num_hits);
+    return TEST_PASS;
+}
+
+static enum test_return test_stats_prefix_record_delete(void) {
+    PREFIX_STATS *pfs;
+    stats_prefix_clear();
+
+    stats_prefix_record_delete("abc:123", 7);
+    pfs = stats_prefix_find("abc:123", 7);
+    assert(0 == pfs->num_gets);
+    assert(0 == pfs->num_hits);
+    assert(1 == pfs->num_deletes);
+    assert(0 == pfs->num_sets);
+    stats_prefix_record_delete("def:", 4);
+    assert(1 == pfs->num_deletes);
+    return TEST_PASS;
+}
+
+static enum test_return test_stats_prefix_record_set(void) {
+    PREFIX_STATS *pfs;
+    stats_prefix_clear();
+
+    stats_prefix_record_set("abc:123", 7);
+    pfs = stats_prefix_find("abc:123", 7);
+    assert(0 == pfs->num_gets);
+    assert(0 == pfs->num_hits);
+    assert(0 == pfs->num_deletes);
+    assert(1 == pfs->num_sets);
+    stats_prefix_record_delete("def:", 4);
+    assert(1 == pfs->num_sets);
+    return TEST_PASS;
+}
+
+static enum test_return test_stats_prefix_dump(void) {
+    int hashval = hash("abc", 3) % PREFIX_HASH_SIZE;
+    char tmp[500];
+    char *expected;
+    int keynum;
+    int length;
+
+    stats_prefix_clear();
+
+    assert(strcmp("END\r\n", stats_prefix_dump(&length)) == 0);
+    assert(5 == length);
+    stats_prefix_record_set("abc:123", 7);
+    expected = "PREFIX abc get 0 hit 0 set 1 del 0\r\nEND\r\n";
+    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strlen(expected) == length);
+    stats_prefix_record_get("abc:123", 7, false);
+    expected = "PREFIX abc get 1 hit 0 set 1 del 0\r\nEND\r\n";
+    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strlen(expected) == length);
+    stats_prefix_record_get("abc:123", 7, true);
+    expected = "PREFIX abc get 2 hit 1 set 1 del 0\r\nEND\r\n";
+    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strlen(expected) == length);
+    stats_prefix_record_delete("abc:123", 7);
+    expected = "PREFIX abc get 2 hit 1 set 1 del 1\r\nEND\r\n";
+    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strlen(expected) == length);
+
+    /* The order of results might change if we switch hash functions. */
+    stats_prefix_record_delete("def:123", 7);
+    expected = "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
+               "PREFIX def get 0 hit 0 set 0 del 1\r\n"
+               "END\r\n";
+    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strlen(expected) == length);
+
+    /* Find a key that hashes to the same bucket as "abc" */
+    bool found_match = false;
+    for (keynum = 0; keynum < PREFIX_HASH_SIZE * 100; keynum++) {
+        snprintf(tmp, sizeof(tmp), "%d:", keynum);
+        /* -1 because only the prefix portion is used when hashing */
+        if (hashval == hash(tmp, strlen(tmp) - 1) % PREFIX_HASH_SIZE) {
+            found_match = true;
+            break;
+        }
+    }
+    assert(found_match);
+    stats_prefix_record_set(tmp, strlen(tmp));
+    snprintf(tmp, sizeof(tmp),
+             "PREFIX %d get 0 hit 0 set 1 del 0\r\n"
+             "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
+             "PREFIX def get 0 hit 0 set 0 del 1\r\n"
+             "END\r\n", keynum);
+    assert(strcmp(tmp, stats_prefix_dump(&length)) == 0);
+    assert(strlen(tmp) == length);
+
+    return TEST_PASS;
 }
 
 static enum test_return test_safe_strtoul(void) {
@@ -2083,6 +2221,11 @@ struct testcase testcases[] = {
     { "cache_destructor", cache_destructor_test },
     { "cache_reuse", cache_reuse_test },
     { "cache_redzone", cache_redzone_test },
+    { "stats_prefix_find", test_stats_prefix_find },
+    { "stats_prefix_record_get", test_stats_prefix_record_get },
+    { "stats_prefix_record_delete", test_stats_prefix_record_delete },
+    { "stats_prefix_record_set", test_stats_prefix_record_set },
+    { "stats_prefix_dump", test_stats_prefix_dump },
     { "issue_161", test_issue_161 },
     { "strtol", test_safe_strtol },
     { "strtoll", test_safe_strtoll },
@@ -2133,6 +2276,14 @@ struct testcase testcases[] = {
     { NULL, NULL }
 };
 
+/* Stub out function defined in memcached.c */
+void STATS_LOCK(void);
+void STATS_UNLOCK(void);
+void STATS_LOCK(void)
+{}
+void STATS_UNLOCK(void)
+{}
+
 int main(int argc, char **argv)
 {
     int exitcode = 0;
@@ -2144,6 +2295,9 @@ int main(int argc, char **argv)
         enable_ssl = true;
     }
 #endif
+    /* Stats prefix test is sensitive to the choice of hash function */
+    hash_init(JENKINS_HASH);
+    stats_prefix_init(':');
 
     for (num_cases = 0; testcases[num_cases].description; num_cases++) {
         /* Just counting */
