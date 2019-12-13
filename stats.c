@@ -18,24 +18,15 @@
  * fixed-size hash of prefixes; we run the prefixes through the same
  * CRC function used by the cache hashtable.
  */
-typedef struct _prefix_stats PREFIX_STATS;
-struct _prefix_stats {
-    char         *prefix;
-    size_t        prefix_len;
-    uint64_t      num_gets;
-    uint64_t      num_sets;
-    uint64_t      num_deletes;
-    uint64_t      num_hits;
-    PREFIX_STATS *next;
-};
 
-#define PREFIX_HASH_SIZE 256
 
 static PREFIX_STATS *prefix_stats[PREFIX_HASH_SIZE];
+static char prefix_delimiter;
 static int num_prefixes = 0;
 static int total_prefix_size = 0;
 
-void stats_prefix_init(void) {
+void stats_prefix_init(char delimiter) {
+    prefix_delimiter = delimiter;
     memset(prefix_stats, 0, sizeof(prefix_stats));
 }
 
@@ -64,7 +55,7 @@ void stats_prefix_clear(void) {
  * in the list.
  */
 /*@null@*/
-static PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
+PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
     PREFIX_STATS *pfs;
     uint32_t hashval;
     size_t length;
@@ -73,7 +64,7 @@ static PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
     assert(key != NULL);
 
     for (length = 0; length < nkey && key[length] != '\0'; length++) {
-        if (key[length] == settings.prefix_delimiter) {
+        if (key[length] == prefix_delimiter) {
             bailout = false;
             break;
         }
@@ -208,178 +199,3 @@ char *stats_prefix_dump(int *length) {
     *length = pos + 5;
     return buf;
 }
-
-
-#ifdef UNIT_TEST
-
-/****************************************************************************
- To run unit tests, compile with
-    $(CC) -DUNIT_TEST -DHAVE_CONFIG_H -o stats_test stats.c memcached-hash.o memcached-murmur3_hash.o memcached-jenkins_hash.o
-****************************************************************************/
-
-struct settings settings;
-
-static char *current_test = "";
-static int test_count = 0;
-static int fail_count = 0;
-
-static void fail(char *what) { printf("\tFAIL: %s\n", what); fflush(stdout); fail_count++; }
-static void test_equals_int(char *what, int a, int b) { test_count++; if (a != b) fail(what); }
-static void test_equals_ptr(char *what, void *a, void *b) { test_count++; if (a != b) fail(what); }
-static void test_equals_str(char *what, const char *a, const char *b) { test_count++; if (strcmp(a, b)) fail(what); }
-static void test_equals_ull(char *what, uint64_t a, uint64_t b) { test_count++; if (a != b) fail(what); }
-static void test_notequals_ptr(char *what, void *a, void *b) { test_count++; if (a == b) fail(what); }
-static void test_notnull_ptr(char *what, void *a) { test_count++; if (NULL == a) fail(what); }
-static void test_null_ptr(char *what, void *a) { test_count++; if (NULL != a) fail(what); }
-
-static void test_prefix_find(void) {
-    PREFIX_STATS *pfs1, *pfs2;
-
-    pfs1 = stats_prefix_find("abc", 3);
-    test_null_ptr("Key without prefix", pfs1);
-    pfs1 = stats_prefix_find("abc|", 4);
-    test_null_ptr("Key with different prefix", pfs1);
-
-    pfs1 = stats_prefix_find("abc:", 4);
-    test_notnull_ptr("initial prefix find", pfs1);
-    test_equals_ull("request counts", 0ULL,
-        pfs1->num_gets + pfs1->num_sets + pfs1->num_deletes + pfs1->num_hits);
-    pfs2 = stats_prefix_find("abc:", 4);
-    test_equals_ptr("find of same prefix", pfs1, pfs2);
-    pfs2 = stats_prefix_find("abc:d", 5);
-    test_equals_ptr("find of same prefix, ignoring extra chars", pfs1, pfs2);
-    pfs2 = stats_prefix_find("xyz123:", 6);
-    test_notequals_ptr("find of different prefix", pfs1, pfs2);
-    pfs2 = stats_prefix_find("ab:", 3);
-    test_notequals_ptr("find of shorter prefix", pfs1, pfs2);
-}
-
-static void test_prefix_record_get(void) {
-    PREFIX_STATS *pfs;
-
-    stats_prefix_record_get("abc:123", 7, false);
-    pfs = stats_prefix_find("abc:123", 7);
-    test_equals_ull("get count after get #1", 1, pfs->num_gets);
-    test_equals_ull("hit count after get #1", 0, pfs->num_hits);
-    stats_prefix_record_get("abc:456", 7, false);
-    test_equals_ull("get count after get #2", 2, pfs->num_gets);
-    test_equals_ull("hit count after get #2", 0, pfs->num_hits);
-    stats_prefix_record_get("abc:456", 7, true);
-    test_equals_ull("get count after get #3", 3, pfs->num_gets);
-    test_equals_ull("hit count after get #3", 1, pfs->num_hits);
-    stats_prefix_record_get("def:", 4, true);
-    test_equals_ull("get count after get #4", 3, pfs->num_gets);
-    test_equals_ull("hit count after get #4", 1, pfs->num_hits);
-}
-
-static void test_prefix_record_delete(void) {
-    PREFIX_STATS *pfs;
-
-    stats_prefix_record_delete("abc:123", 7);
-    pfs = stats_prefix_find("abc:123", 7);
-    test_equals_ull("get count after delete #1", 0, pfs->num_gets);
-    test_equals_ull("hit count after delete #1", 0, pfs->num_hits);
-    test_equals_ull("delete count after delete #1", 1, pfs->num_deletes);
-    test_equals_ull("set count after delete #1", 0, pfs->num_sets);
-    stats_prefix_record_delete("def:", 4);
-    test_equals_ull("delete count after delete #2", 1, pfs->num_deletes);
-}
-
-static void test_prefix_record_set(void) {
-    PREFIX_STATS *pfs;
-
-    stats_prefix_record_set("abc:123", 7);
-    pfs = stats_prefix_find("abc:123", 7);
-    test_equals_ull("get count after set #1", 0, pfs->num_gets);
-    test_equals_ull("hit count after set #1", 0, pfs->num_hits);
-    test_equals_ull("delete count after set #1", 0, pfs->num_deletes);
-    test_equals_ull("set count after set #1", 1, pfs->num_sets);
-    stats_prefix_record_delete("def:", 4);
-    test_equals_ull("set count after set #2", 1, pfs->num_sets);
-}
-
-static void test_prefix_dump(void) {
-    int hashval = hash("abc", 3) % PREFIX_HASH_SIZE;
-    char tmp[500];
-    char *expected;
-    int keynum;
-    int length;
-
-    test_equals_str("empty stats", "END\r\n", stats_prefix_dump(&length));
-    test_equals_int("empty stats length", 5, length);
-    stats_prefix_record_set("abc:123", 7);
-    expected = "PREFIX abc get 0 hit 0 set 1 del 0\r\nEND\r\n";
-    test_equals_str("stats after set", expected, stats_prefix_dump(&length));
-    test_equals_int("stats length after set", strlen(expected), length);
-    stats_prefix_record_get("abc:123", 7, false);
-    expected = "PREFIX abc get 1 hit 0 set 1 del 0\r\nEND\r\n";
-    test_equals_str("stats after get #1", expected, stats_prefix_dump(&length));
-    test_equals_int("stats length after get #1", strlen(expected), length);
-    stats_prefix_record_get("abc:123", 7, true);
-    expected = "PREFIX abc get 2 hit 1 set 1 del 0\r\nEND\r\n";
-    test_equals_str("stats after get #2", expected, stats_prefix_dump(&length));
-    test_equals_int("stats length after get #2", strlen(expected), length);
-    stats_prefix_record_delete("abc:123", 7);
-    expected = "PREFIX abc get 2 hit 1 set 1 del 1\r\nEND\r\n";
-    test_equals_str("stats after del #1", expected, stats_prefix_dump(&length));
-    test_equals_int("stats length after del #1", strlen(expected), length);
-
-    /* The order of results might change if we switch hash functions. */
-    stats_prefix_record_delete("def:123", 7);
-    expected = "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
-               "PREFIX def get 0 hit 0 set 0 del 1\r\n"
-               "END\r\n";
-    test_equals_str("stats after del #2", expected, stats_prefix_dump(&length));
-    test_equals_int("stats length after del #2", strlen(expected), length);
-
-    /* Find a key that hashes to the same bucket as "abc" */
-    bool found_match = false;
-    for (keynum = 0; keynum < PREFIX_HASH_SIZE * 100; keynum++) {
-        snprintf(tmp, sizeof(tmp), "%d:", keynum);
-        /* -1 because only the prefix portion is used when hashing */
-        if (hashval == hash(tmp, strlen(tmp) - 1) % PREFIX_HASH_SIZE) {
-            found_match = true;
-            break;
-        }
-    }
-    assert(found_match);
-    stats_prefix_record_set(tmp, strlen(tmp));
-    snprintf(tmp, sizeof(tmp),
-             "PREFIX %d get 0 hit 0 set 1 del 0\r\n"
-             "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
-             "PREFIX def get 0 hit 0 set 0 del 1\r\n"
-             "END\r\n", keynum);
-    test_equals_str("stats with two stats in one bucket",
-                    tmp, stats_prefix_dump(&length));
-    test_equals_int("stats length with two stats in one bucket",
-                    strlen(tmp), length);
-}
-
-static void run_test(char *what, void (*func)(void)) {
-    current_test = what;
-    test_count = fail_count = 0;
-    puts(what);
-    fflush(stdout);
-
-    stats_prefix_clear();
-    (func)();
-    printf("\t%d / %d pass\n", (test_count - fail_count), test_count);
-}
-
-/* Stub out methods which are defined in memcached.c */
-void STATS_LOCK(void) { }
-void STATS_UNLOCK(void) { }
-
-int main(int argc, char **argv) {
-    /* Stats dump test is sensitive to the choice of hash function */
-    hash_init(JENKINS_HASH);
-    stats_prefix_init();
-    settings.prefix_delimiter = ':';
-    run_test("stats_prefix_find", test_prefix_find);
-    run_test("stats_prefix_record_get", test_prefix_record_get);
-    run_test("stats_prefix_record_delete", test_prefix_record_delete);
-    run_test("stats_prefix_record_set", test_prefix_record_set);
-    run_test("stats_prefix_dump", test_prefix_dump);
-}
-
-#endif
