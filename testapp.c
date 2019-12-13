@@ -21,7 +21,7 @@
 #include "config.h"
 #include "cache.h"
 #include "hash.h"
-#include "stats.h"
+#include "stats_prefix.h"
 #include "util.h"
 #include "protocol_binary.h"
 #ifdef TLS

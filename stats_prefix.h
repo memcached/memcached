@@ -1,5 +1,5 @@
-#ifndef STATS_H
-#define STATS_H
+#ifndef STATS_PREFIX_H
+#define STATS_PREFIX_H
 
 /* The stats prefix subsystem stores detailed statistics for each key prefix.
  * Simple statistics like total number of GETS are stored by the Stats
