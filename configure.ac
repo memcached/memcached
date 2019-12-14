@@ -9,6 +9,16 @@ AM_CONFIG_HEADER([config.h])
 
 AC_PROG_CC
 
+is_darwin=no
+
+case "${host_os}" in
+   darwin*)
+   is_darwin=yes
+   ;;
+esac
+
+AM_CONDITIONAL([DARWIN], [test "$is_darwin" = "yes"])
+
 dnl **********************************************************************
 dnl DETECT_ICC ([ACTION-IF-YES], [ACTION-IF-NO])
 dnl
@@ -193,6 +203,10 @@ if test "x$enable_dtrace" = "xyes"; then
     then
         dtrace_instrument_obj=yes
         rm conftest.h
+        # on Mac probe id are generated with $
+        if test "$is_darwin" = "yes"; then
+          CFLAGS="$CFLAGS -Wno-dollar-in-identifier-extension"
+        fi
     fi
 
     if test "`which tr`" = "/usr/ucb/tr"; then
