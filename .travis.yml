@@ -1,6 +1,9 @@
 sudo: required
 dist: xenial
 language: cpp
+arch:
+    - amd64
+    - arm64
 
 compiler:
     - gcc
