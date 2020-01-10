@@ -920,13 +920,11 @@ static void resp_add_chunked_iov(mc_resp *resp, const void *buf, int len) {
 
 static bool resp_start(conn *c) {
     mc_resp *resp = do_cache_alloc(c->thread->resp_cache);
-    //fprintf(stderr, "resp alloc: %d\n", c->thread->resp_cache->total);
     if (!resp) {
         return false;
     }
-    // FIXME: make wbuf indirect or use offsetof or something to zero
-    // this. or a sub struct.
-    memset(resp, 0, 128);
+    // FIXME: make wbuf indirect or use offsetof to zero up until wbuf
+    memset(resp, 0, sizeof(*resp));
     if (!c->resp_head) {
         c->resp_head = resp;
     }
@@ -963,7 +961,6 @@ static mc_resp* resp_finish(conn *c, mc_resp *resp) {
         c->resp = NULL;
     }
     do_cache_free(c->thread->resp_cache, resp);
-    //fprintf(stderr, "resp free: %d\n", c->thread->resp_cache->total);
     return next;
 }
 
