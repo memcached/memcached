@@ -26,7 +26,6 @@
 /* An item in the connection queue. */
 enum conn_queue_item_modes {
     queue_new_conn,   /* brand new connection. */
-    queue_redispatch, /* redispatching from side thread */
 };
 typedef struct conn_queue_item CQ_ITEM;
 struct conn_queue_item {
@@ -470,7 +469,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     CQ_ITEM *item;
     char buf[1];
     conn *c;
-    unsigned int timeout_fd;
+    unsigned int fd_from_pipe;
 
     if (read(fd, buf, 1) != 1) {
         if (settings.verbose > 0)
@@ -517,10 +516,6 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 #endif
                 }
                 break;
-
-            case queue_redispatch:
-                conn_worker_readd(item->c);
-                break;
         }
         cqi_free(item);
         break;
@@ -530,12 +525,21 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         break;
     /* a client socket timed out */
     case 't':
-        if (read(fd, &timeout_fd, sizeof(timeout_fd)) != sizeof(timeout_fd)) {
+        if (read(fd, &fd_from_pipe, sizeof(fd_from_pipe)) != sizeof(fd_from_pipe)) {
             if (settings.verbose > 0)
                 fprintf(stderr, "Can't read timeout fd from libevent pipe\n");
             return;
         }
-        conn_close_idle(conns[timeout_fd]);
+        conn_close_idle(conns[fd_from_pipe]);
+        break;
+    /* a side thread redispatched a client connection */
+    case 'r':
+        if (read(fd, &fd_from_pipe, sizeof(fd_from_pipe)) != sizeof(fd_from_pipe)) {
+            if (settings.verbose > 0)
+                fprintf(stderr, "Can't read redispatch fd from libevent pipe\n");
+            return;
+        }
+        conn_worker_readd(conns[fd_from_pipe]);
         break;
     /* asked to stop */
     case 's':
@@ -590,26 +594,15 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
  * Re-dispatches a connection back to the original thread. Can be called from
  * any side thread borrowing a connection.
  */
+#define REDISPATCH_MSG_SIZE (1 + sizeof(int))
 void redispatch_conn(conn *c) {
-    CQ_ITEM *item = cqi_new();
-    char buf[1];
-    if (item == NULL) {
-        /* Can't cleanly redispatch connection. close it forcefully. */
-        c->state = conn_closed;
-        close(c->sfd);
-        return;
-    }
+    char buf[REDISPATCH_MSG_SIZE];
     LIBEVENT_THREAD *thread = c->thread;
-    item->sfd = c->sfd;
-    item->init_state = conn_new_cmd;
-    item->c = c;
-    item->mode = queue_redispatch;
 
-    cq_push(thread->new_conn_queue, item);
-
-    buf[0] = 'c';
-    if (write(thread->notify_send_fd, buf, 1) != 1) {
-        perror("Writing to thread notify pipe");
+    buf[0] = 'r';
+    memcpy(&buf[1], &c->sfd, sizeof(int));
+    if (write(thread->notify_send_fd, buf, REDISPATCH_MSG_SIZE) != REDISPATCH_MSG_SIZE) {
+        perror("Writing redispatch to thread notify pipe");
     }
 }
 

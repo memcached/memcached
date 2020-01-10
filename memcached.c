@@ -469,7 +469,9 @@ void conn_close_idle(conn *c) {
         if (settings.verbose > 1)
             fprintf(stderr, "Closing idle fd %d\n", c->sfd);
 
+        pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.idle_kicks++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
 
         conn_set_state(c, conn_closing);
         drive_machine(c);
