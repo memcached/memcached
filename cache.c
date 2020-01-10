@@ -149,7 +149,7 @@ void do_cache_free(cache_t *cache, void *ptr) {
                 cache->destructor(ptr, NULL);
             }
             free(ptr);
-
+            cache->total--;
         }
     }
 }
