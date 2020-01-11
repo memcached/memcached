@@ -608,22 +608,12 @@ void redispatch_conn(conn *c) {
 
 /* This misses the allow_new_conns flag :( */
 void sidethread_conn_close(conn *c) {
-    c->state = conn_closed;
     if (settings.verbose > 1)
-        fprintf(stderr, "<%d connection closed from side thread.\n", c->sfd);
-#ifdef TLS
-    if (c->ssl) {
-        c->ssl_wbuf = NULL;
-        SSL_shutdown(c->ssl);
-        SSL_free(c->ssl);
-    }
-#endif
-    close(c->sfd);
+        fprintf(stderr, "<%d connection closing from side thread.\n", c->sfd);
 
-    STATS_LOCK();
-    stats_state.curr_conns--;
-    STATS_UNLOCK();
-
+    c->state = conn_closing;
+    // redispatch will see closing flag and properly close connection.
+    redispatch_conn(c);
     return;
 }
 

@@ -483,12 +483,19 @@ void conn_worker_readd(conn *c) {
     c->ev_flags = EV_READ | EV_PERSIST;
     event_set(&c->event, c->sfd, c->ev_flags, event_handler, (void *)c);
     event_base_set(c->thread->base, &c->event);
-    c->state = conn_new_cmd;
 
     // TODO: call conn_cleanup/fail/etc
     if (event_add(&c->event, 0) == -1) {
         perror("event_add");
     }
+
+    // side thread wanted us to close immediately.
+    if (c->state == conn_closing) {
+        drive_machine(c);
+        return;
+    }
+    c->state = conn_new_cmd;
+
 #ifdef EXTSTORE
     // If we had IO objects, process
     if (c->io_wraplist) {
