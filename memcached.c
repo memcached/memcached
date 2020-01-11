@@ -2260,11 +2260,8 @@ static void dispatch_bin_command(conn *c) {
         case PROTOCOL_BINARY_CMD_QUIT:
             if (keylen == 0 && extlen == 0 && bodylen == 0) {
                 write_bin_response(c, NULL, 0, 0, 0);
-                if (c->noreply) {
-                    conn_set_state(c, conn_closing);
-                } else {
-                    c->close_after_write = true;
-                }
+                conn_set_state(c, conn_mwrite);
+                c->close_after_write = true;
             } else {
                 protocol_error = 1;
             }
