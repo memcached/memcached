@@ -6259,7 +6259,9 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused) {
     mc_resp *resp = c->resp_head;
     while (resp && iovused + resp->iovcnt < IOV_MAX-1) {
         if (resp->skip) {
-            resp = resp_finish(c, resp);
+            // Don't actually unchain the resp obj here since it's singly-linked.
+            // Just let the post function handle it linearly.
+            resp = resp->next;
             continue;
         }
         if (resp->chunked_data_iov) {
@@ -6325,6 +6327,11 @@ static void _transmit_post(conn *c, ssize_t res) {
     mc_resp *resp = c->resp_head;
     while (resp) {
         int x;
+        if (resp->skip) {
+            resp = resp_finish(c, resp);
+            continue;
+        }
+
         // fastpath check. all small responses should cut here.
         if (res >= resp->tosend) {
             res -= resp->tosend;
