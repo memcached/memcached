@@ -6276,7 +6276,9 @@ void do_accept_new_conns(const bool do_accept) {
     }
 }
 
-static int _transmit_pre(conn *c, struct iovec *iovs, int iovused) {
+#define TRANSMIT_ONE_RESP true
+#define TRANSMIT_ALL_RESP false
+static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp) {
     mc_resp *resp = c->resp_head;
     while (resp && iovused + resp->iovcnt < IOV_MAX-1) {
         if (resp->skip) {
@@ -6334,6 +6336,9 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused) {
 
         // done looking at first response, walk down the chain.
         resp = resp->next;
+        // used for UDP mode: UDP cannot send multiple responses per packet.
+        if (one_resp)
+            break;
     }
     return iovused;
 }
@@ -6411,7 +6416,7 @@ static enum transmit_result transmit(conn *c) {
     memset(&msg, 0, sizeof(struct msghdr));
     msg.msg_iov = iovs;
 
-    iovused = _transmit_pre(c, iovs, iovused);
+    iovused = _transmit_pre(c, iovs, iovused, TRANSMIT_ALL_RESP);
 
     // Alright, send.
     ssize_t res;
@@ -6530,7 +6535,7 @@ static enum transmit_result transmit_udp(conn *c) {
     // Fill the IOV's the standard way.
     // TODO: might get a small speedup if we let it break early with a length
     // limit.
-    iovused = _transmit_pre(c, iovs, iovused);
+    iovused = _transmit_pre(c, iovs, iovused, TRANSMIT_ONE_RESP);
 
     // Clip the IOV's to the max UDP packet size.
     // If we add support for send_mmsg, this can be where we split msg's.
