@@ -973,6 +973,11 @@ static mc_resp* resp_finish(conn *c, mc_resp *resp) {
     return next;
 }
 
+// tells if connection has a depth of response objects to process.
+static bool resp_has_stack(conn *c) {
+    return c->resp_head->next != NULL ? true : false;
+}
+
 static void out_string(conn *c, const char *str) {
     size_t len;
     mc_resp *resp = c->resp;
@@ -5478,6 +5483,14 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
     }
 }
 #endif
+// TODO: pipelined commands are incompatible with shifting connections to a
+// side thread. Given this only happens in two instances (watch and
+// lru_crawler metadump) it should be fine for things to bail. It _should_ be
+// unusual for these commands.
+// This is hard to fix since tokenize_command() mutilates the read buffer, so
+// we can't drop out and back in again.
+// Leaving this note here to spend more time on a fix when necessary, or if an
+// opportunity becomes obvious.
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -5715,6 +5728,10 @@ static void process_command(conn *c, char *command) {
                 out_string(c, "ERROR metadump not allowed");
                 return;
             }
+            if (resp_has_stack(c)) {
+                out_string(c, "ERROR cannot pipeline other commands before metadump");
+                return;
+            }
 
             int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_METADUMP,
                     c, c->sfd, LRU_CRAWLER_CAP_REMAINING);
@@ -5786,6 +5803,10 @@ static void process_command(conn *c, char *command) {
             out_string(c, "ERROR");
         }
     } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "watch") == 0) {
+        if (resp_has_stack(c)) {
+            out_string(c, "ERROR cannot pipeline other commands before watch");
+            return;
+        }
         process_watch_command(c, tokens, ntokens);
     } else if ((ntokens == 3 || ntokens == 4) && (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0)) {
         process_memlimit_command(c, tokens, ntokens);

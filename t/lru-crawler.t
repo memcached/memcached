@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 222;
+use Test::More tests => 224;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -58,6 +58,14 @@ while (1) {
     is($slabs->{"1:used_chunks"}, 60, "slab1 now has 60 used chunks");
     my $items = mem_stats($sock, "items");
     is($items->{"items:1:crawler_reclaimed"}, 30, "slab1 has 30 reclaims");
+}
+
+# Ensure pipelined commands fail with metadump.
+# using metaget because get forces pipeline flush.
+{
+    print $sock "mg foo v\r\nlru_crawler metadump all\r\n";
+    is(scalar <$sock>, "EN\r\n");
+    is(scalar <$sock>, "ERROR cannot pipeline other commands before metadump\r\n");
 }
 
 # Check that crawler metadump works correctly.
