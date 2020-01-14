@@ -626,6 +626,7 @@ typedef struct _mc_resp {
      * to asynchronously kill an object that was queued to write
      */
     bool skip;
+    bool free; // double free detection.
     // UDP bits. Copied in from the client.
     uint16_t    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
     uint16_t    udp_sequence; /* packet counter when transmitting result */

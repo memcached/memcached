@@ -774,6 +774,18 @@ static void conn_release_items(conn *c) {
         mc_resp *resp = c->resp_head;
         // r_f() handles the chain maintenance.
         while (resp) {
+            // temporary by default. hide behind a debug flag in the future:
+            // double free detection. Transmit loops can drop out early, but
+            // here we could infinite loop.
+            if (resp->free) {
+                fprintf(stderr, "ERROR: double free detected during conn_release_items(): [%d] [%s]\n",
+                        c->sfd, c->protocol == binary_prot ? "binary" : "ascii");
+                // Since this is a critical failure, just leak the memory.
+                // If these errors are seen, an abort() can be used instead.
+                c->resp_head = NULL;
+                c->resp = NULL;
+                break;
+            }
             resp = resp_finish(c, resp);
         }
     }
@@ -969,6 +981,7 @@ static mc_resp* resp_finish(conn *c, mc_resp *resp) {
     if (c->resp == resp) {
         c->resp = NULL;
     }
+    resp->free = true;
     do_cache_free(c->thread->resp_cache, resp);
     return next;
 }
