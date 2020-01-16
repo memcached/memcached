@@ -12,8 +12,8 @@ char my_sasl_hostname[1025];
  * specify one in the environment variable SASL_CONF_PATH
  */
 const char * const locations[] = {
-    "/etc/sasl",
-    "/etc/sasl2",
+    "/etc/sasl/memcached.conf",
+    "/etc/sasl2/memcached.conf",
     NULL
 };
 #endif
@@ -82,18 +82,51 @@ static int sasl_server_userdb_checkpass(sasl_conn_t *conn,
 }
 #endif
 
-#if defined(HAVE_SASL_CB_GETCONF) || defined(HAVE_SASL_CB_GETCONFPATH)
+#if defined(HAVE_SASL_CB_GETCONF)
 static int sasl_getconf(void *context, const char **path)
 {
     *path = getenv("SASL_CONF_PATH");
 
     if (*path == NULL) {
         for (int i = 0; locations[i] != NULL; ++i) {
-            char buff[30];
-            strcpy(buff, locations[i]);
-            strcat(buff, "/memcached.conf");
-            if (access(buff, F_OK) == 0) {
+            if (access(locations[i], F_OK) == 0) {
                 *path = locations[i];
+                break;
+            }
+        }
+    }
+
+    if (settings.verbose) {
+        if (*path != NULL) {
+            fprintf(stderr, "Reading configuration from: <%s>\n", *path);
+        } else {
+            fprintf(stderr, "Failed to locate a config path\n");
+        }
+
+    }
+
+    return (*path != NULL) ? SASL_OK : SASL_FAIL;
+}
+#elif defined(HAVE_SASL_CB_GETCONFPATH)
+static int sasl_getconf(void *context, const char **path)
+{
+    *path = getenv("SASL_CONF_PATH");
+
+    char buf[50];
+    if (*path == NULL) {
+        for (int i = 0; locations[i] != NULL; ++i) {
+            int locationlen = strlen(locations[i]);
+            strncpy(buf, locations[i], sizeof(buf) - 1);
+            strncat(buf, "/memcached.conf", sizeof(buf) - 1 - locationlen);
+            if (access(buf, F_OK) == 0) {
+                *path = locations[i];
+                break;
+            }
+            else if (access(locations[i], F_OK) == 0) {
+                char *p = strrchr(locations[i], '/');
+                memset(buf, 0, sizeof(buf));
+                memcpy(buf, locations[i], p - (char *)locations[i]);
+                *path = buf;
                 break;
             }
         }
