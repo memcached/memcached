@@ -82,11 +82,12 @@ static int sasl_server_userdb_checkpass(sasl_conn_t *conn,
 }
 #endif
 
-#if defined(HAVE_SASL_CB_GETCONF)
+#if defined(HAVE_SASL_CB_GETCONF) || defined(HAVE_SASL_CB_GETCONFPATH)
 static int sasl_getconf(void *context, const char **path)
 {
     *path = getenv("SASL_CONF_PATH");
 
+#if defined(HAVE_SASL_CB_GETCONF)
     if (*path == NULL) {
         for (int i = 0; locations[i] != NULL; ++i) {
             if (access(locations[i], F_OK) == 0) {
@@ -95,23 +96,7 @@ static int sasl_getconf(void *context, const char **path)
             }
         }
     }
-
-    if (settings.verbose) {
-        if (*path != NULL) {
-            fprintf(stderr, "Reading configuration from: <%s>\n", *path);
-        } else {
-            fprintf(stderr, "Failed to locate a config path\n");
-        }
-
-    }
-
-    return (*path != NULL) ? SASL_OK : SASL_FAIL;
-}
 #elif defined(HAVE_SASL_CB_GETCONFPATH)
-static int sasl_getconf(void *context, const char **path)
-{
-    *path = getenv("SASL_CONF_PATH");
-
     char buf[50];
     if (*path == NULL) {
         for (int i = 0; locations[i] != NULL; ++i) {
@@ -131,6 +116,7 @@ static int sasl_getconf(void *context, const char **path)
             }
         }
     }
+#endif
 
     if (settings.verbose) {
         if (*path != NULL) {
