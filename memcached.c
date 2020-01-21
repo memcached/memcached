@@ -7583,7 +7583,7 @@ static void usage(void) {
            "-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
-           "-m, --memory-limit=<num>  item memory in megabytes (default: %ld)\n"
+           "-m, --memory-limit=<num>  item memory in megabytes (default: %lu)\n"
            "-M, --disable-evictions   return error on memory exhausted instead of evicting\n"
            "-c, --conn-limit=<num>    max simultaneous connections (default: %d)\n"
            "-k, --lock-memory         lock down all paged memory\n"
@@ -7596,7 +7596,7 @@ static void usage(void) {
            "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
            "-f, --slab-growth-factor=<num> chunk size growth factor (default: %2.2f)\n"
            "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: %d)\n",
-           settings.port, settings.udpport, settings.access, settings.maxbytes / (1 << 20),
+           settings.port, settings.udpport, settings.access, (unsigned long) settings.maxbytes / (1 << 20),
            settings.maxconns, settings.factor, settings.chunk_size);
     verify_default("udp-port",settings.udpport == 0);
     printf("-L, --enable-largepages  try to use large memory pages (if available)\n");
