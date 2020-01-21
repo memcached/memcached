@@ -32,6 +32,10 @@ static restart_data_cb *cb_stack = NULL;
 // routines for the restart code.
 void restart_register(const char *tag, restart_check_cb ccb, restart_save_cb scb, void *data) {
     restart_data_cb *cb = calloc(1, sizeof(restart_data_cb));
+    if (cb == NULL) {
+        fprintf(stderr, "[restart] failed to allocate callback register\n");
+        abort();
+    }
 
     // Handle first time call initialization inline so we don't need separate
     // API call.
@@ -70,6 +74,11 @@ static int restart_check(const char *file) {
     size_t flen = strlen(file);
     const char *ext = ".meta";
     char *metafile = calloc(1, flen + strlen(ext) + 1);
+    if (metafile == NULL) {
+        // probably in a really bad position if we hit here, so don't start.
+        fprintf(stderr, "[restart] failed to allocate memory for restart check\n");
+        abort();
+    }
     memcpy(metafile, file, flen);
     memcpy(metafile+flen, ext, strlen(ext));
 
@@ -210,6 +219,10 @@ static int restart_save(const char *file) {
     const char *ext = ".meta";
     size_t extlen = strlen(ext);
     char *metafile = calloc(1, flen + extlen + 1);
+    if (metafile == NULL) {
+        fprintf(stderr, "[restart] failed to allocate memory during metadata save\n");
+        return -1;
+    }
     memcpy(metafile, file, flen);
     memcpy(metafile+flen, ext, extlen);
 
