@@ -322,38 +322,45 @@ static enum test_return test_stats_prefix_record_set(void) {
 static enum test_return test_stats_prefix_dump(void) {
     int hashval = hash("abc", 3) % PREFIX_HASH_SIZE;
     char tmp[500];
-    char *expected;
+    char *buf;
+    const char *expected;
     int keynum;
     int length;
 
     stats_prefix_clear();
 
-    assert(strcmp("END\r\n", stats_prefix_dump(&length)) == 0);
+    assert(strcmp("END\r\n", (buf = stats_prefix_dump(&length))) == 0);
     assert(5 == length);
     stats_prefix_record_set("abc:123", 7);
+    free(buf);
     expected = "PREFIX abc get 0 hit 0 set 1 del 0\r\nEND\r\n";
-    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strcmp(expected, (buf = stats_prefix_dump(&length))) == 0);
     assert(strlen(expected) == length);
     stats_prefix_record_get("abc:123", 7, false);
+    free(buf);
     expected = "PREFIX abc get 1 hit 0 set 1 del 0\r\nEND\r\n";
-    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strcmp(expected, (buf = stats_prefix_dump(&length))) == 0);
     assert(strlen(expected) == length);
     stats_prefix_record_get("abc:123", 7, true);
+    free(buf);
     expected = "PREFIX abc get 2 hit 1 set 1 del 0\r\nEND\r\n";
-    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strcmp(expected, (buf = stats_prefix_dump(&length))) == 0);
     assert(strlen(expected) == length);
     stats_prefix_record_delete("abc:123", 7);
+    free(buf);
     expected = "PREFIX abc get 2 hit 1 set 1 del 1\r\nEND\r\n";
-    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strcmp(expected, (buf = stats_prefix_dump(&length))) == 0);
     assert(strlen(expected) == length);
 
     /* The order of results might change if we switch hash functions. */
     stats_prefix_record_delete("def:123", 7);
+    free(buf);
     expected = "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
                "PREFIX def get 0 hit 0 set 0 del 1\r\n"
                "END\r\n";
-    assert(strcmp(expected, stats_prefix_dump(&length)) == 0);
+    assert(strcmp(expected, (buf = stats_prefix_dump(&length))) == 0);
     assert(strlen(expected) == length);
+    free(buf);
 
     /* Find a key that hashes to the same bucket as "abc" */
     bool found_match = false;
@@ -372,8 +379,12 @@ static enum test_return test_stats_prefix_dump(void) {
              "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
              "PREFIX def get 0 hit 0 set 0 del 1\r\n"
              "END\r\n", keynum);
-    assert(strcmp(tmp, stats_prefix_dump(&length)) == 0);
+    assert(strcmp(tmp, (buf = stats_prefix_dump(&length))) == 0);
     assert(strlen(tmp) == length);
+    free(buf);
+
+    /* Marking the end of these tests */
+    stats_prefix_clear();
 
     return TEST_PASS;
 }
@@ -2182,6 +2193,7 @@ static enum test_return test_issue_101(void) {
         con = connect_server("127.0.0.1", port, false, enable_ssl);
         assert(con);
         ret = test_binary_noop();
+        close_conn();
         exit(0);
     }
 
