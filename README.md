@@ -23,7 +23,9 @@ list to ask questions, github issues aren't seen by everyone!
   
 ## Building
 
-Tested on Ubuntu 18.04:
+To build memcached in your machine from local repo you will have to install
+autotools, automake and libevent. In a debian based system that will look
+like this
 
 ```bash
 sudo apt-get install autotools-dev
@@ -37,6 +39,16 @@ cd memcached
 make
 make test
 ```
+
+It should create the binary in the same folder, which you can run
+
+cd memcached && ./memcached
+
+You can telnet into that memcached to ensure it is up and running
+
+telnet 127.0.0.1 11211
+stats
+
 
 ## Environment
 
