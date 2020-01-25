@@ -20,6 +20,21 @@ list to ask questions, github issues aren't seen by everyone!
 * libevent, https://www.monkey.org/~provos/libevent/ (libevent-dev)
 * libseccomp, (optional, experimental, linux) - enables process restrictions for
   better security. Tested only on x86_64 architectures.
+  
+## Building
+
+```bash
+	sudo apt-get install autotools-dev
+	sudo apt-get install automake
+	sudo apt-get install libevent-dev
+	rm -rf memcached
+	git clone https://github.com/memcached/memcached.git
+	cd memcached 
+  ./autogen.sh
+	./configure --enable-extstore
+	make
+	make test
+```
 
 ## Environment
 
