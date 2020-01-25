@@ -24,8 +24,8 @@ list to ask questions, github issues aren't seen by everyone!
 ## Building
 
 To build memcached in your machine from local repo you will have to install
-autotools, automake and libevent. In a debian based system that will look
-like this
+autotools, automake and libevent. In a debian based system the installation
+and compilation commands look like this: 
 
 ```bash
 sudo apt-get install autotools-dev
