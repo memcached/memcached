@@ -43,7 +43,7 @@ make test
 It should create the binary in the same folder, which you can run
 
 ```bash
-cd memcached && ./memcached
+./memcached
 ```
 
 You can telnet into that memcached to ensure it is up and running
