@@ -42,13 +42,16 @@ make test
 
 It should create the binary in the same folder, which you can run
 
+```bash
 cd memcached && ./memcached
+```
 
 You can telnet into that memcached to ensure it is up and running
 
+```bash
 telnet 127.0.0.1 11211
 stats
-
+```
 
 ## Environment
 
