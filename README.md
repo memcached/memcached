@@ -23,17 +23,19 @@ list to ask questions, github issues aren't seen by everyone!
   
 ## Building
 
+Tested on Ubuntu 18.04:
+
 ```bash
-	sudo apt-get install autotools-dev
-	sudo apt-get install automake
-	sudo apt-get install libevent-dev
-	rm -rf memcached
-	git clone https://github.com/memcached/memcached.git
-	cd memcached 
-  ./autogen.sh
-	./configure --enable-extstore
-	make
-	make test
+sudo apt-get install autotools-dev
+sudo apt-get install automake
+sudo apt-get install libevent-dev
+rm -rf memcached
+git clone https://github.com/memcached/memcached.git
+cd memcached 
+./autogen.sh
+./configure --enable-extstore
+make
+make test
 ```
 
 ## Environment
