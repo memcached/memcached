@@ -11,8 +11,8 @@ After that you can build memcached binary using automake
 cd memcached
 ./autogen.sh
 ./configure
-make test
 make
+make test
 
 It should create the binary in the same folder, which you can run
 
