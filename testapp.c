@@ -352,14 +352,14 @@ static enum test_return test_stats_prefix_dump(void) {
     assert(strcmp(expected, (buf = stats_prefix_dump(&length))) == 0);
     assert(strlen(expected) == length);
 
-    /* The order of results might change if we switch hash functions. */
     stats_prefix_record_delete("def:123", 7);
     free(buf);
-    expected = "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
-               "PREFIX def get 0 hit 0 set 0 del 1\r\n"
-               "END\r\n";
-    assert(strcmp(expected, (buf = stats_prefix_dump(&length))) == 0);
-    assert(strlen(expected) == length);
+    /* NOTE: Prefixes can be dumped in any order, so we verify that
+       each expected line is present in the string. */
+    buf = stats_prefix_dump(&length);
+    assert(strstr(buf, "PREFIX abc get 2 hit 1 set 1 del 1\r\n") != NULL);
+    assert(strstr(buf, "PREFIX def get 0 hit 0 set 0 del 1\r\n") != NULL);
+    assert(strstr(buf, "END\r\n") != NULL);
     free(buf);
 
     /* Find a key that hashes to the same bucket as "abc" */
@@ -374,13 +374,12 @@ static enum test_return test_stats_prefix_dump(void) {
     }
     assert(found_match);
     stats_prefix_record_set(tmp, strlen(tmp));
-    snprintf(tmp, sizeof(tmp),
-             "PREFIX %d get 0 hit 0 set 1 del 0\r\n"
-             "PREFIX abc get 2 hit 1 set 1 del 1\r\n"
-             "PREFIX def get 0 hit 0 set 0 del 1\r\n"
-             "END\r\n", keynum);
-    assert(strcmp(tmp, (buf = stats_prefix_dump(&length))) == 0);
-    assert(strlen(tmp) == length);
+    buf = stats_prefix_dump(&length);
+    assert(strstr(buf, "PREFIX abc get 2 hit 1 set 1 del 1\r\n") != NULL);
+    assert(strstr(buf, "PREFIX def get 0 hit 0 set 0 del 1\r\n") != NULL);
+    assert(strstr(buf, "END\r\n") != NULL);
+    snprintf(tmp, sizeof(tmp), "PREFIX %d get 0 hit 0 set 1 del 0\r\n", keynum);
+    assert(strstr(buf, tmp) != NULL);
     free(buf);
 
     /* Marking the end of these tests */
