@@ -1034,7 +1034,7 @@ static int slab_rebalance_move(void) {
                     /* unlink and mark as done if it's not
                      * a chunked item as they require more book-keeping) */
                     STORAGE_delete(storage, it);
-                    if (!ch) {
+                    if (!ch && (it->it_flags & ITEM_CHUNKED) == 0) {
                         do_item_unlink(it, hv);
                         it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
                         it->refcount = 0;
