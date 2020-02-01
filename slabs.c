@@ -715,9 +715,6 @@ void slabs_munlock(void) {
 static pthread_cond_t slab_rebalance_cond = PTHREAD_COND_INITIALIZER;
 static volatile int do_run_slab_rebalance_thread = 1;
 
-#define DEFAULT_SLAB_BULK_CHECK 1
-int slab_bulk_check = DEFAULT_SLAB_BULK_CHECK;
-
 static int slab_rebalance_start(void) {
     slabclass_t *s_cls;
     int no_go = 0;
@@ -846,24 +843,22 @@ enum move_status {
  */
 static int slab_rebalance_move(void) {
     slabclass_t *s_cls;
-    int x;
     int was_busy = 0;
     int refcount = 0;
     uint32_t hv;
     void *hold_lock;
     enum move_status status = MOVE_PASS;
 
-    pthread_mutex_lock(&slabs_lock);
-
     s_cls = &slabclass[slab_rebal.s_clsid];
+    // the offset to check if completed or not
+    int offset = ((char*)slab_rebal.slab_pos-(char*)slab_rebal.slab_start)/(s_cls->size);
 
-    for (x = 0; x < slab_bulk_check; x++) {
+    // skip acquiring the slabs lock for items we've already fully processed.
+    if (slab_rebal.completed[offset] == 0) {
+        pthread_mutex_lock(&slabs_lock);
         hv = 0;
         hold_lock = NULL;
         item *it = slab_rebal.slab_pos;
-
-        // the offset to check if completed or not
-        int offset = ((char*)slab_rebal.slab_pos-(char*)slab_rebal.slab_start)/(s_cls->size);
 
         item_chunk *ch = NULL;
         status = MOVE_PASS;
@@ -881,8 +876,7 @@ static int slab_rebalance_move(void) {
         /* ITEM_FETCHED when ITEM_SLABBED is overloaded to mean we've cleared
          * the chunk for move. Only these two flags should exist.
          */
-        if ( (slab_rebal.completed[offset] == 0)
-              && (it->it_flags != (ITEM_SLABBED|ITEM_FETCHED)) ) {
+        if (it->it_flags != (ITEM_SLABBED|ITEM_FETCHED)) {
             /* ITEM_SLABBED can only be added/removed under the slabs_lock */
             if (it->it_flags & ITEM_SLABBED) {
                 assert(ch == NULL);
@@ -1038,6 +1032,9 @@ static int slab_rebalance_move(void) {
                         do_item_unlink(it, hv);
                         it->it_flags = ITEM_SLABBED|ITEM_FETCHED;
                         it->refcount = 0;
+#ifdef DEBUG_SLAB_MOVER
+                        memcpy(ITEM_key(it), "deadbeef", 8);
+#endif
                         slab_rebal.completed[offset] = 1;
                     } else {
                         ntotal = ITEM_ntotal(it);
@@ -1072,10 +1069,13 @@ static int slab_rebalance_move(void) {
                 break;
         }
 
-        slab_rebal.slab_pos = (char *)slab_rebal.slab_pos + s_cls->size;
-        if (slab_rebal.slab_pos >= slab_rebal.slab_end)
-            break;
+        pthread_mutex_unlock(&slabs_lock);
     }
+
+    // Note: slab_rebal.* is occasionally protected under slabs_lock, but
+    // the mover thread is the only user while active: so it's only necessary
+    // for start/stop synchronization.
+    slab_rebal.slab_pos = (char *)slab_rebal.slab_pos + s_cls->size;
 
     if (slab_rebal.slab_pos >= slab_rebal.slab_end) {
         /* Some items were busy, start again from the top */
@@ -1090,8 +1090,6 @@ static int slab_rebalance_move(void) {
             slab_rebal.done++;
         }
     }
-
-    pthread_mutex_unlock(&slabs_lock);
 
     return was_busy;
 }
@@ -1310,13 +1308,6 @@ int start_slab_maintenance_thread(void) {
     int ret;
     slab_rebalance_signal = 0;
     slab_rebal.slab_start = NULL;
-    char *env = getenv("MEMCACHED_SLAB_BULK_CHECK");
-    if (env != NULL) {
-        slab_bulk_check = atoi(env);
-        if (slab_bulk_check == 0) {
-            slab_bulk_check = DEFAULT_SLAB_BULK_CHECK;
-        }
-    }
 
     if ((ret = pthread_create(&rebalance_tid, NULL,
                               slab_rebalance_thread, NULL)) != 0) {
