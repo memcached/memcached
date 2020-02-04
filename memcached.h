@@ -465,6 +465,8 @@ struct settings {
     rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
     unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
 #endif
+    int num_napi_ids; /* Max number of NAPI_IDs */
+    bool napi_id_based_thread_selection;
 };
 
 extern struct stats stats;
@@ -604,6 +606,7 @@ typedef struct {
     char   *ssl_wbuf;
 #endif
 
+    int napi_id;                /* align NAPI_ID to thread */
 } LIBEVENT_THREAD;
 typedef struct conn conn;
 #ifdef EXTSTORE

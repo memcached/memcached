@@ -545,8 +545,100 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     }
 }
 
-/* Which thread we assigned a connection to most recently. */
+/* The thread we assigned a connection to most recently. */
 static int last_thread = -1;
+
+/* This function simply returns next_thread based on round-robin */
+static LIBEVENT_THREAD *select_thread(void)
+{
+    int tid = (last_thread + 1) % settings.num_threads;
+    last_thread = tid;
+    return threads + tid;
+}
+
+/* This function selects a thread to process requests from a given connection.
+ * Thread selection is either based on the (existing) default mechanism,
+ * round-robin based thread selection, or based on NAPI_ID. NAPI_ID based
+ * selection creates an association between a (hardware) queue on a NIC and an
+ * application thread. This mapping streamlines the flow of data from the NIC
+ * to an application thread by having an application thread source data from
+ * the same hardware queue which serves up traffic for many connections
+ */
+static LIBEVENT_THREAD *select_thread_using_napi_id(int sfd)
+{
+    LIBEVENT_THREAD *thread = NULL;
+    int start_tid, i;
+    socklen_t len;
+    int napi_id;
+
+    /* first check if there is pre-existing NAPI_ID => Thread
+     * association, if so - use that thread, otherwise select unassigned
+     * or unassociated thread 
+     */
+#ifndef SO_INCOMING_NAPI_ID
+#define SO_INCOMING_NAPI_ID 56
+#endif /* SO_INCOMING_NAPI_ID */
+    len = sizeof(napi_id);
+    if (getsockopt(sfd, SOL_SOCKET, SO_INCOMING_NAPI_ID,
+		   &napi_id, &len) == -1) {
+        perror("getsockopt SO_INCOMING_NAPI_ID");
+        /* Disable napi_id based thread selection since socket option returned
+         * error, may be running on older linux kernel
+         */
+        settings.napi_id_based_thread_selection = false;
+        return select_thread();
+    }
+    /* getsockopt didn't fail but napi_id is still unassigned, This is expected if
+     * connection are setup on localhost (means not going thru' underlying
+     * device, hence for those local connection, napi_id is not expected
+     * Non NAPI-IDs are aggregated down to zero by getsockopt call
+     * for socket option SO_INCOMING_NAPI_ID
+     */
+	if (!napi_id) {
+        return select_thread();
+	}
+
+    /* find thread which has pre-existing association with napi_id,
+     * if there is pre-existing association of thread => napi_id,
+     * use that thread
+     */
+    for (int i = 0; i < settings.num_threads; i++) {
+        thread = threads + i;
+        if (thread->napi_id == napi_id) {
+            /* found associated thread based on NAPI_ID */
+            return thread;
+        }
+    }
+    /* if thread with pre-existing association of thread => napi_id is not
+     * found, select next available thread based that is not associated
+     * with any NAPI-ID 
+     */
+    start_tid = (last_thread + 1) % settings.num_threads;
+		
+    /* find unclaimed thread based on napi_id */
+    for (i = start_tid; i < settings.num_threads; i++) {
+        thread = threads + i;
+        if (!thread->napi_id) {
+            last_thread = i; /* record index of last selected thread */			
+            /* record napi_id on selected thread to establish
+             * thread => napi_id association. Any connection with same
+             * NAPI_ID is associated with same thread
+             */
+            thread->napi_id = napi_id;
+            return thread;
+        }
+    }
+
+    /* If here means likely that number of unique NAPI_ID are
+     * more than the number of threads and that is fine.
+     * From this point onwards, disable "napi_id_based_thread_selection"
+     * and fallback to default thread selection mechanism
+     * This is needed so that at least application can still continue to work
+     * and apply it's own load-balancing technique
+     */
+    settings.napi_id_based_thread_selection = false;
+    return select_thread();
+}
 
 /*
  * Dispatches a new connection to another thread. This is only ever called
@@ -564,11 +656,19 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
         return;
     }
 
-    int tid = (last_thread + 1) % settings.num_threads;
+    LIBEVENT_THREAD *thread = NULL;
 
-    LIBEVENT_THREAD *thread = threads + tid;
-
-    last_thread = tid;
+    /* if napi-id based thread selection is not enabled, use
+     * default round-robin based thread selection
+     */
+	if (settings.napi_id_based_thread_selection) {
+        thread = select_thread_using_napi_id(sfd);
+    } else {
+        /* common case where user may not use --napi-ids=<num> option.
+         * Hence thread selection is based on default mechanism (round-robin)
+         */
+        thread = select_thread();
+	}
 
     item->sfd = sfd;
     item->init_state = init_state;

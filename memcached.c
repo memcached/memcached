@@ -7724,6 +7724,16 @@ static void usage(void) {
     verify_default("ssl_keyformat", settings.ssl_keyformat == SSL_FILETYPE_PEM);
     verify_default("ssl_verify_mode", settings.ssl_verify_mode == SSL_VERIFY_NONE);
 #endif
+    printf("-N, --napi-ids=<num>      number of napi_ids for NAPI-ID based thread selection\n"
+           "                          Why to use this feature:                             \n"
+           "                          The Linux Kernel natively supports busy_polling feature\n"
+           "                          which enables polling of NIC HW queue directly from application\n"
+           "                          thread context. It is also extended for epoll:epoll_wait syscall.\n"
+           "                          Using busy_polling feature has direct and visible impact on\n"
+           "                          application performance w.r.t request to response time. Busy_polling\n"
+           "                          feature provides lower latency and improved predicatablity by\n"
+           "                          providing consistent result (consistent and lower response time\n"
+           "                          even at 99.9 percent\n");
     return;
 }
 
@@ -8539,6 +8549,7 @@ int main (int argc, char **argv) {
           "Y:"   /* Enable token auth */
           "e:"  /* mmap path for external item memory */
           "o:"  /* Extended generic options */
+          "N:"  /* NAPI_ID based thread selection */
           ;
 
     /* process arguments */
@@ -8579,6 +8590,7 @@ int main (int argc, char **argv) {
         {"auth-file", required_argument, 0, 'Y'},
         {"memory-file", required_argument, 0, 'e'},
         {"extended", required_argument, 0, 'o'},
+        {"napi-ids", required_argument, 0, 'N'},
         {0, 0, 0, 0}
     };
     int optindex;
@@ -9294,10 +9306,26 @@ int main (int argc, char **argv) {
             }
             free(subopts_orig);
             break;
+    case 'N':
+        settings.num_napi_ids = atoi(optarg);
+        if (settings.num_napi_ids <= 0) {
+	    fprintf(stderr, "Number of NAPI_IDs must be greater than 0\n");
+	    return 1;
+        }
+        break;
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
         }
+    }
+
+    if (settings.num_napi_ids && settings.num_threads) {
+        if (settings.num_napi_ids > settings.num_threads) {
+            fprintf(stderr, "Number of NAPI_IDs(%d) cannot be more than num_threads (%d)\n",
+                    settings.num_napi_ids, settings.num_threads);
+            exit(EX_USAGE);
+        }
+        settings.napi_id_based_thread_selection = true;
     }
 
     if (settings.item_size_max < ITEM_SIZE_MAX_LOWER_LIMIT) {
