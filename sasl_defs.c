@@ -27,7 +27,7 @@ const char *const locations_dir_path[] = {
 
 /* If the element of locations is directory, locations_file_path stores
  * the actual configue file which used by sasl, when GETCONFPATH is
- * enabld */
+ * enabled */
 const char *const locations_file_path[] = {
     "/etc/sasl/memcached.conf/memcached.conf",
     "/etc/sasl2/memcached.conf/memcached.conf",
