@@ -516,9 +516,9 @@ VA <size> <flags>*\r\n
   optional, requiring the 'v' flag to be supplied.
 
 If the request did not ask for a value in the response (v) flag, the server
-response instead looks like:
+response looks like:
 
-HD <flags>*\r\n
+OK <flags>*\r\n
 
 If the request resulted in a miss, the response looks like:
 
@@ -594,7 +594,7 @@ access time.
 - v: return item value in <data block>
 
 The data block for a metaget response is optional, requiring this flag to be
-passed in. The response code also changes from "HD" to "VA <size>"
+passed in. The response code also changes from "OK" to "VA <size>"
 
 These flags can modify the item:
 - N(token): vivify on miss, takes TTL as a argument
@@ -681,7 +681,7 @@ the reply, which is of the format:
 
 Where CD is one of:
 
-- "ST" (STORED), to indicate success.
+- "OK" (STORED), to indicate success.
 
 - "NS" (NOT_STORED), to indicate the data was not stored, but not
 because of an error.
@@ -728,7 +728,7 @@ See description under 'Meta Get'
 
 Noreply is a method of reducing the amount of data sent back by memcached to
 the client for normal responses. In the case of metaset, a response that would
-start with "ST" (STORED) will not be sent. Any other code, such as "EX"
+start with "OK" will not be sent. Any other code, such as "EX"
 (EXISTS) will still be returned.
 
 Errors are always returned.
@@ -752,7 +752,7 @@ The response is in the format:
 
 Where CD is one of:
 
-- "DE" (DELETED), to indicate success
+- "OK" (DELETED), to indicate success
 
 - "NF" (NOT_FOUND), to indicate that the item with this key was not found.
 

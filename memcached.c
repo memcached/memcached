@@ -1223,7 +1223,7 @@ static void complete_nread_ascii(conn *c) {
           conn_set_state(c, conn_new_cmd);
           switch (ret) {
           case STORED:
-              memcpy(resp->wbuf, "ST ", 3);
+              memcpy(resp->wbuf, "OK ", 3);
               // Only place noreply is used for meta cmds is a nominal response.
               if (c->noreply) {
                   resp->skip = true;
@@ -4232,7 +4232,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             memcpy(p, "VA ", 3);
             p = itoa_u32(it->nbytes-2, p+3);
         } else {
-            memcpy(p, "HD", 2);
+            memcpy(p, "OK", 2);
             p += 2;
         }
 
@@ -4735,7 +4735,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             // Clients can noreply nominal responses.
             if (c->noreply)
                 resp->skip = true;
-            memcpy(resp->wbuf, "DE ", 3);
+            memcpy(resp->wbuf, "OK ", 3);
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
@@ -4745,7 +4745,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             STORAGE_delete(c->thread->storage, it);
             if (c->noreply)
                 resp->skip = true;
-            memcpy(resp->wbuf, "DE ", 3);
+            memcpy(resp->wbuf, "OK ", 3);
         }
         goto cleanup;
     } else {
