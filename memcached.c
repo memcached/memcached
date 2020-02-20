@@ -260,6 +260,7 @@ static void settings_init(void) {
     settings.udpport = 0;
 #ifdef TLS
     settings.ssl_enabled = false;
+    settings.ssl_session_cache = false;
     settings.ssl_ctx = NULL;
     settings.ssl_chain_cert = NULL;
     settings.ssl_key = NULL;
@@ -269,7 +270,6 @@ static void settings_init(void) {
     settings.ssl_ca_cert = NULL;
     settings.ssl_last_cert_refresh_time = current_time;
     settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
-    settings.ssl_session_cache = false;
 #endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
