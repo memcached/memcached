@@ -143,7 +143,7 @@ int ssl_init(void) {
     settings.ssl_ctx = SSL_CTX_new(TLS_server_method());
     // Clients should use at least TLSv1.2
     int flags = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
-                SSL_OP_NO_TLSv1 |SSL_OP_NO_TLSv1_1;
+                SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1;
     SSL_CTX_set_options(settings.ssl_ctx, flags);
 
     // The server certificate, private key and validations.
@@ -167,6 +167,17 @@ int ssl_init(void) {
         exit(EX_USAGE);
     }
 
+    // Optional session caching; default disabled.
+    if (settings.ssl_session_cache) {
+        SSL_CTX_sess_set_new_cb(settings.ssl_ctx, ssl_new_session_callback);
+        SSL_CTX_set_session_cache_mode(settings.ssl_ctx, SSL_SESS_CACHE_SERVER);
+        SSL_CTX_set_session_id_context(settings.ssl_ctx,
+                                       (const unsigned char *) SESSION_ID_CONTEXT,
+                                       strlen(SESSION_ID_CONTEXT));
+    } else {
+        SSL_CTX_set_session_cache_mode(settings.ssl_ctx, SSL_SESS_CACHE_OFF);
+    }
+
     return 0;
 }
 
@@ -187,6 +198,19 @@ void ssl_callback(const SSL *s, int where, int ret) {
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
         return;
     }
+}
+
+/*
+ * This method is invoked with every new successfully negotiated SSL session,
+ * when server-side session caching is enabled. Note that this method is not
+ * invoked when a session is reused.
+ */
+int ssl_new_session_callback(SSL *s, SSL_SESSION *sess) {
+    STATS_LOCK();
+    stats.ssl_new_sessions++;
+    STATS_UNLOCK();
+
+    return 0;
 }
 
 bool refresh_certs(char **errmsg) {

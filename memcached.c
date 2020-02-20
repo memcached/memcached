@@ -269,6 +269,7 @@ static void settings_init(void) {
     settings.ssl_ca_cert = NULL;
     settings.ssl_last_cert_refresh_time = current_time;
     settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
+    settings.ssl_session_cache = false;
 #endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
@@ -3232,6 +3233,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
+        if (settings.ssl_session_cache) {
+            APPEND_STAT("ssl_new_sessions", "%llu", (unsigned long long)stats.ssl_new_sessions);
+        }
         APPEND_STAT("ssl_handshake_errors", "%llu", (unsigned long long)stats.ssl_handshake_errors);
         APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
     }
@@ -3319,6 +3323,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ssl_ciphers", "%s", settings.ssl_ciphers ? settings.ssl_ciphers : "NULL");
     APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
     APPEND_STAT("ssl_wbuf_size", "%u", settings.ssl_wbuf_size);
+    APPEND_STAT("ssl_session_cache", "%s", settings.ssl_session_cache ? "yes" : "no");
 #endif
 }
 
@@ -8122,6 +8127,8 @@ static void usage(void) {
            "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
            "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
            "                          (default: %u)\n", settings.ssl_wbuf_size / (1 << 10));
+    printf("   - ssl_session_cache:   enable server-side SSL session cache, to support session\n"
+           "                          resumption\n");
     verify_default("ssl_keyformat", settings.ssl_keyformat == SSL_FILETYPE_PEM);
     verify_default("ssl_verify_mode", settings.ssl_verify_mode == SSL_VERIFY_NONE);
 #endif
@@ -8777,6 +8784,7 @@ int main (int argc, char **argv) {
         SSL_CIPHERS,
         SSL_CA_CERT,
         SSL_WBUF_SIZE,
+        SSL_SESSION_CACHE,
 #endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
@@ -8845,6 +8853,7 @@ int main (int argc, char **argv) {
         [SSL_CIPHERS] = "ssl_ciphers",
         [SSL_CA_CERT] = "ssl_ca_cert",
         [SSL_WBUF_SIZE] = "ssl_wbuf_size",
+        [SSL_SESSION_CACHE] = "ssl_session_cache",
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
@@ -8911,7 +8920,7 @@ int main (int argc, char **argv) {
 
     char *shortopts =
           "a:"  /* access mask for unix socket */
-          "A"  /* enable admin shutdown command */
+          "A"   /* enable admin shutdown command */
           "Z"   /* enable SSL */
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
@@ -9515,6 +9524,9 @@ int main (int argc, char **argv) {
                     return 1;
                 }
                 settings.ssl_wbuf_size *= 1024; /* kilobytes */
+                break;
+            case SSL_SESSION_CACHE:
+                settings.ssl_session_cache = true;
                 break;
 #endif
 #ifdef EXTSTORE
