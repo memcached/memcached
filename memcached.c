@@ -9873,7 +9873,7 @@ int main (int argc, char **argv) {
      * SSL parameter validation
      */
     if (settings.ssl_session_cache && !settings.ssl_enabled) {
-        fprintf(stderr, "-z (ssl_session_cache) requires -Z (ssl_enabled)\n");
+        fprintf(stderr, "ERROR: -z (ssl_session_cache) requires -Z (ssl_enabled).\n");
         exit(EX_USAGE);
     }
 
