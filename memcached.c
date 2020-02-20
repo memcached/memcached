@@ -269,6 +269,7 @@ static void settings_init(void) {
     settings.ssl_ca_cert = NULL;
     settings.ssl_last_cert_refresh_time = current_time;
     settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
+    settings.ssl_session_cache = false;
 #endif
     /* By default this string should be NULL for getaddrinfo() */
     settings.inter = NULL;
@@ -3312,6 +3313,7 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
 #endif
 #ifdef TLS
     APPEND_STAT("ssl_enabled", "%s", settings.ssl_enabled ? "yes" : "no");
+    APPEND_STAT("ssl_session_cache", "%s", settings.ssl_session_cache ? "yes" : "no");
     APPEND_STAT("ssl_chain_cert", "%s", settings.ssl_chain_cert);
     APPEND_STAT("ssl_key", "%s", settings.ssl_key);
     APPEND_STAT("ssl_verify_mode", "%d", settings.ssl_verify_mode);
@@ -8020,6 +8022,8 @@ static void usage(void) {
            "                          enables restartable cache (stop with SIGUSR1)\n");
 #ifdef TLS
     printf("-Z, --enable-ssl          enable TLS/SSL\n");
+    printf("-z, --enable-ssl-session-cache enable SSL server session cache to support session\n"
+           "                          resumption; requires SSL to be enabled\n");
 #endif
     printf("-o, --extended            comma separated list of extended options\n"
            "                          most options have a 'no_' prefix to disable\n"
@@ -8911,8 +8915,9 @@ int main (int argc, char **argv) {
 
     char *shortopts =
           "a:"  /* access mask for unix socket */
-          "A"  /* enable admin shutdown command */
+          "A"   /* enable admin shutdown command */
           "Z"   /* enable SSL */
+          "z"   /* enable SSL server session cache */
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
@@ -8952,6 +8957,7 @@ int main (int argc, char **argv) {
         {"unix-mask", required_argument, 0, 'a'},
         {"enable-shutdown", no_argument, 0, 'A'},
         {"enable-ssl", no_argument, 0, 'Z'},
+        {"enable-ssl-session-cache", no_argument, 0, 'z'},
         {"port", required_argument, 0, 'p'},
         {"unix-socket", required_argument, 0, 's'},
         {"udp-port", required_argument, 0, 'U'},
@@ -8997,15 +9003,20 @@ int main (int argc, char **argv) {
             /* enables "shutdown" command */
             settings.shutdown_command = true;
             break;
+#ifdef TLS
         case 'Z':
             /* enable secure communication*/
-#ifdef TLS
             settings.ssl_enabled = true;
+            break;
+        case 'z':
+            settings.ssl_session_cache = true;
+            break;
 #else
+        case 'Z':
+        case 'z':
             fprintf(stderr, "This server is not built with TLS support.\n");
             exit(EX_USAGE);
 #endif
-            break;
         case 'a':
             /* access for unix domain socket, as octal mask (like chmod)*/
             settings.access= strtol(optarg,NULL,8);
@@ -9858,6 +9869,14 @@ int main (int argc, char **argv) {
 
 
 #ifdef TLS
+    /*
+     * SSL parameter validation
+     */
+    if (settings.ssl_session_cache && !settings.ssl_enabled) {
+        fprintf(stderr, "-z (ssl_session_cache) requires -Z (ssl_enabled)\n");
+        exit(EX_USAGE);
+    }
+
     /*
      * Setup SSL if enabled
      */

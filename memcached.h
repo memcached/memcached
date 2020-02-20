@@ -473,6 +473,7 @@ struct settings {
     char *ssl_ca_cert; /* certificate with CAs. */
     rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
     unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
+    bool ssl_session_cache; /* enable SSL server session caching */
 #endif
 };
 

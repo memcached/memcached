@@ -167,6 +167,11 @@ int ssl_init(void) {
         exit(EX_USAGE);
     }
 
+    // Optional session caching; default disabled.
+    if (settings.ssl_session_cache) {
+        SSL_CTX_set_session_cache_mode(settings.ssl_ctx, SSL_SESS_CACHE_SERVER);
+    }
+
     return 0;
 }
 
