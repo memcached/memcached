@@ -466,7 +466,6 @@ fi
 
 dnl ----------------------------------------------------------------------------
 
-AC_SEARCH_LIBS(umem_cache_create, umem)
 AC_SEARCH_LIBS(gethugepagesizes, hugetlbfs)
 
 AC_HEADER_STDBOOL
@@ -736,14 +735,6 @@ AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
 AM_CONDITIONAL([BUILD_LINUX_PRIVS],[test "$build_linux_privs" = "yes"])
 AM_CONDITIONAL([BUILD_OPENBSD_PRIVS],[test "$build_openbsd_privs" = "yes"])
 AM_CONDITIONAL([BUILD_FREEBSD_PRIVS],[test "$build_freebsd_privs" = "yes"])
-
-AC_CHECK_HEADER(umem.h, [
-   AC_DEFINE([HAVE_UMEM_H], 1,
-         [Define this if you have umem.h])
-   build_cache=no
-], [build_cache=yes])
-
-AM_CONDITIONAL([BUILD_CACHE], [test "x$build_cache" = "xyes"])
 
 AC_ARG_ENABLE(docs,
   [AS_HELP_STRING([--disable-docs],[Disable documentation generation])])

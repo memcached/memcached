@@ -313,6 +313,8 @@ static void settings_init(void) {
     settings.logger_buf_size = LOGGER_BUF_SIZE;
     settings.drop_privileges = false;
     settings.watch_enabled = true;
+    settings.resp_obj_mem_limit = 0;
+    settings.read_buf_mem_limit = 0;
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
 #endif
@@ -432,9 +434,9 @@ static bool rbuf_alloc(conn *c) {
     if (c->rbuf == NULL) {
         c->rbuf = do_cache_alloc(c->thread->rbuf_cache);
         if (!c->rbuf) {
-            STATS_LOCK();
-            stats.malloc_fails++;
-            STATS_UNLOCK();
+            THR_STATS_LOCK(c);
+            c->thread->stats.read_buf_oom++;
+            THR_STATS_UNLOCK(c);
             return false;
         }
         c->rsize = READ_BUFFER_SIZE;
@@ -1013,6 +1015,9 @@ static void resp_add_chunked_iov(mc_resp *resp, const void *buf, int len) {
 static bool resp_start(conn *c) {
     mc_resp *resp = do_cache_alloc(c->thread->resp_cache);
     if (!resp) {
+        THR_STATS_LOCK(c);
+        c->thread->stats.response_obj_oom++;
+        THR_STATS_UNLOCK(c);
         return false;
     }
     // FIXME: make wbuf indirect or use offsetof to zero up until wbuf
@@ -3056,8 +3061,10 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("response_obj_bytes", "%llu", (unsigned long long)thread_stats.response_obj_bytes);
     APPEND_STAT("response_obj_total", "%llu", (unsigned long long)thread_stats.response_obj_total);
     APPEND_STAT("response_obj_free", "%llu", (unsigned long long)thread_stats.response_obj_free);
+    APPEND_STAT("response_obj_oom", "%llu", (unsigned long long)thread_stats.response_obj_oom);
     APPEND_STAT("read_buf_bytes", "%llu", (unsigned long long)thread_stats.read_buf_bytes);
     APPEND_STAT("read_buf_bytes_free", "%llu", (unsigned long long)thread_stats.read_buf_bytes_free);
+    APPEND_STAT("read_buf_oom", "%llu", (unsigned long long)thread_stats.read_buf_oom);
     APPEND_STAT("reserved_fds", "%u", stats_state.reserved_fds);
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
@@ -3215,6 +3222,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
+    APPEND_STAT("resp_obj_mem_limit", "%u", settings.resp_obj_mem_limit);
+    APPEND_STAT("read_buf_mem_limit", "%u", settings.read_buf_mem_limit);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
     APPEND_STAT("inline_ascii_response", "%s", "no"); // setting is dead, cannot be yes.
 #ifdef HAVE_DROP_PRIVILEGES
@@ -5424,10 +5433,6 @@ static void process_command(conn *c, char *command) {
 
     // Prep the response object for this query.
     if (!resp_start(c)) {
-        // This is a malloc failure, so nothing we can do.
-        STATS_LOCK();
-        stats.malloc_fails++;
-        STATS_UNLOCK();
         conn_set_state(c, conn_closing);
         return;
     }
@@ -5840,10 +5845,6 @@ static int try_read_command_binary(conn *c) {
         }
 
         if (!resp_start(c)) {
-            // This is a malloc failure, so nothing we can do.
-            STATS_LOCK();
-            stats.malloc_fails++;
-            STATS_UNLOCK();
             conn_set_state(c, conn_closing);
             return -1;
         }
@@ -5877,9 +5878,6 @@ static int try_read_command_asciiauth(conn *c) {
 
     if (!c->resp) {
         if (!resp_start(c)) {
-            STATS_LOCK();
-            stats.malloc_fails++;
-            STATS_UNLOCK();
             conn_set_state(c, conn_closing);
             return 1;
         }
@@ -7580,6 +7578,16 @@ static void usage(void) {
            "                          default is %u (unlimited)\n",
            flag_enabled_disabled(settings.maxconns_fast), settings.hashpower_init,
            settings.lru_crawler_sleep, settings.lru_crawler_tocrawl);
+    printf("   - resp_obj_mem_limit:  limit in megabytes for connection response objects.\n"
+           "                          do not adjust unless you have high (100k+) conn. limits.\n"
+           "                          0 means unlimited (default: %u)\n"
+           "   - read_buf_mem_limit:  limit in megabytes for connection read buffers.\n"
+           "                          do not adjust unless you have high (100k+) conn. limits.\n"
+           "                          0 means unlimited (default: %u)\n",
+           settings.resp_obj_mem_limit,
+           settings.read_buf_mem_limit);
+    verify_default("resp_obj_mem_limit", settings.resp_obj_mem_limit == 0);
+    verify_default("read_buf_mem_limit", settings.read_buf_mem_limit == 0);
     printf("   - no_lru_maintainer:   disable new LRU system + background thread.\n"
            "   - hot_lru_pct:         pct of slab memory to reserve for hot lru.\n"
            "                          (requires lru_maintainer, default pct: %d)\n"
@@ -8297,6 +8305,8 @@ int main (int argc, char **argv) {
         NO_LRU_MAINTAINER,
         NO_DROP_PRIVILEGES,
         DROP_PRIVILEGES,
+        RESP_OBJ_MEM_LIMIT,
+        READ_BUF_MEM_LIMIT,
 #ifdef TLS
         SSL_CERT,
         SSL_KEY,
@@ -8363,6 +8373,8 @@ int main (int argc, char **argv) {
         [NO_LRU_MAINTAINER] = "no_lru_maintainer",
         [NO_DROP_PRIVILEGES] = "no_drop_privileges",
         [DROP_PRIVILEGES] = "drop_privileges",
+        [RESP_OBJ_MEM_LIMIT] = "resp_obj_mem_limit",
+        [READ_BUF_MEM_LIMIT] = "read_buf_mem_limit",
 #ifdef TLS
         [SSL_CERT] = "ssl_chain_cert",
         [SSL_KEY] = "ssl_key",
@@ -9211,6 +9223,28 @@ int main (int argc, char **argv) {
                 break;
             case DROP_PRIVILEGES:
                 settings.drop_privileges = true;
+                break;
+            case RESP_OBJ_MEM_LIMIT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing resp_obj_mem_limit argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.resp_obj_mem_limit)) {
+                    fprintf(stderr, "could not parse argument to resp_obj_mem_limit\n");
+                    return 1;
+                }
+                settings.resp_obj_mem_limit *= 1024 * 1024; /* megabytes */
+                break;
+            case READ_BUF_MEM_LIMIT:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing read_buf_mem_limit argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.read_buf_mem_limit)) {
+                    fprintf(stderr, "could not parse argument to read_buf_mem_limit\n");
+                    return 1;
+                }
+                settings.read_buf_mem_limit *= 1024 * 1024; /* megabytes */
                 break;
 #ifdef MEMCACHED_DEBUG
             case RELAXED_PRIVILEGES:

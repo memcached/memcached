@@ -294,7 +294,9 @@ struct slab_stats {
     X(conn_yields) /* # of yields for connections (-R option)*/ \
     X(auth_cmds) \
     X(auth_errors) \
-    X(idle_kicks) /* idle connections killed */
+    X(idle_kicks) /* idle connections killed */ \
+    X(response_obj_oom) \
+    X(read_buf_oom)
 
 #ifdef EXTSTORE
 #define EXTSTORE_THREAD_STATS_FIELDS \
@@ -436,6 +438,8 @@ struct settings {
     int idle_timeout;       /* Number of seconds to let connections idle */
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
+    unsigned int resp_obj_mem_limit; /* total megabytes allowable for resp objects */
+    unsigned int read_buf_mem_limit; /* total megabytes allowable for read buffers */
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
     bool watch_enabled; /* allows watch commands to be dropped */
     bool relaxed_privileges;   /* Relax process restrictions when running testapp */
@@ -837,6 +841,8 @@ int stop_conn_timeout_thread(void);
 #define refcount_decr(it) --(it->refcount)
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
+#define THR_STATS_LOCK(c) pthread_mutex_lock(&c->thread->stats.mutex)
+#define THR_STATS_UNLOCK(c) pthread_mutex_unlock(&c->thread->stats.mutex)
 void threadlocal_stats_reset(void);
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
