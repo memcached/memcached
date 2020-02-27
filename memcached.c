@@ -1116,9 +1116,6 @@ static void out_errstring(conn *c, const char *str) {
     out_string(c, str);
 }
 
-#define ALLOW_NOREPLY true
-#define DISABLE_NOREPLY false
-
 /*
  * Outputs a protocol-specific "out of memory" error. For ASCII clients,
  * this is equivalent to out_string().
