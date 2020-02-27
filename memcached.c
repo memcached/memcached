@@ -4365,10 +4365,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             it->it_flags |= ITEM_TOKEN_SENT;
         }
 
-        // TODO: Benchmark unlocking here vs later. _get_extstore() could be
-        // intensive so probably better to unlock here after we're done
-        // fiddling with the item header.
-
         *p = '\r';
         *(p+1) = '\n';
         *(p+2) = '\0';
@@ -4410,6 +4406,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                 resp->item = it;
             }
         } else {
+            // Failed to set up extstore fetch.
             if (of.locked) {
                 do_item_remove(it);
             } else {
@@ -4424,11 +4421,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     }
 
     if (of.locked) {
-        // Delayed bump so we could get fetched/last access time/etc.
-        // TODO: before segmented LRU, last-access time would only update
-        // every 60 seconds. Currently it doesn't update at all if an item is
-        // marked as ACTIVE. I believe this is a bug... in segmented mode
-        // there's no reason to avoid bumping la on every access.
+        // Delayed bump so we could get fetched/last access time pre-update.
         if (!of.no_update && it != NULL) {
             do_item_bump(c, it, hv);
         }
@@ -4466,8 +4459,11 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     }
     return;
 error:
-    if (it && of.locked) {
-        item_unlock(hv);
+    if (it) {
+        do_item_remove(it);
+        if (of.locked) {
+            item_unlock(hv);
+        }
     }
     out_errstring(c, errstr);
 }
