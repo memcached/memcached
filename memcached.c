@@ -3570,7 +3570,7 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
 }
 
 #define IT_REFCOUNT_LIMIT 60000
-static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch, bool do_update) {
+static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch, bool do_update, bool *overflow) {
     item *it;
     if (should_touch) {
         it = item_touch(key, nkey, exptime, c);
@@ -3580,6 +3580,9 @@ static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptim
     if (it && it->refcount > IT_REFCOUNT_LIMIT) {
         item_remove(it);
         it = NULL;
+        *overflow = true;
+    } else {
+        *overflow = false;
     }
     return it;
 }
@@ -3588,13 +3591,16 @@ static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptim
 // locked, caller can directly change what it needs.
 // though it might eventually be a better interface to sink it all into
 // items.c.
-static inline item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32_t *hv) {
+static inline item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32_t *hv, bool *overflow) {
     item *it;
     it = item_get_locked(key, nkey, c, do_update, hv);
     if (it && it->refcount > IT_REFCOUNT_LIMIT) {
         do_item_remove(it);
         it = NULL;
         item_unlock(*hv);
+        *overflow = true;
+    } else {
+        *overflow = false;
     }
     return it;
 }
@@ -3872,7 +3878,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     do {
         while(key_token->length != 0) {
-
+            bool overflow; // not used here.
             key = key_token->value;
             nkey = key_token->length;
 
@@ -3881,7 +3887,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 goto stop;
             }
 
-            it = limited_get(key, nkey, c, exptime, should_touch, DO_UPDATE);
+            it = limited_get(key, nkey, c, exptime, should_touch, DO_UPDATE, &overflow);
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
@@ -4036,7 +4042,8 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
     char *key = tokens[KEY_TOKEN].value;
     size_t nkey = tokens[KEY_TOKEN].length;
 
-    item *it = limited_get(key, nkey, c, 0, false, DONT_UPDATE);
+    bool overflow; // not used here.
+    item *it = limited_get(key, nkey, c, 0, false, DONT_UPDATE, &overflow);
     if (it) {
         mc_resp *resp = c->resp;
         size_t total = 0;
@@ -4205,11 +4212,21 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // TODO: need to indicate if the item was overflowed or not?
     // I think we do, since an overflow shouldn't trigger an alloc/replace.
+    bool overflow = false;
     if (!of.locked) {
-        it = limited_get(key, nkey, c, 0, false, !of.no_update);
+        it = limited_get(key, nkey, c, 0, false, !of.no_update, &overflow);
     } else {
         // If we had to lock the item, we're doing our own bump later.
-        it = limited_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+        it = limited_get_locked(key, nkey, c, DONT_UPDATE, &hv, &overflow);
+    }
+
+    // Since we're a new protocol, we can actually inform users that refcount
+    // overflow is happening by straight up throwing an error.
+    // We definitely don't want to re-autovivify by accident.
+    if (overflow) {
+        assert(it == NULL);
+        out_errstring(c, "SERVER_ERROR refcount overflow during fetch");
+        return;
     }
 
     if (it == NULL && of.vivify) {
