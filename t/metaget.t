@@ -364,6 +364,11 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^VA 2/, "get response");
     like(scalar <$sock>, qr/^bo/, "get value");
     like(scalar <$sock>, qr/^MN/, "end token");
+
+    # "quiet" won't do anything with autoviv, since the only case (miss)
+    # should return data anyway.
+    print $sock "mg quietautov s N30 t q\r\n";
+    like(scalar <$sock>, qr/^OK s0/, "quiet doesn't override autovivication");
 }
 
 {
