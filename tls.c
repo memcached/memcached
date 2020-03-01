@@ -170,6 +170,9 @@ int ssl_init(void) {
     // Optional session caching; default disabled.
     if (settings.ssl_session_cache) {
         SSL_CTX_set_session_cache_mode(settings.ssl_ctx, SSL_SESS_CACHE_SERVER);
+        SSL_CTX_set_session_id_context(settings.ssl_ctx,
+                                       (const unsigned char *) SESSION_ID_CONTEXT,
+                                       strlen(SESSION_ID_CONTEXT));
     }
 
     return 0;
