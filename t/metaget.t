@@ -58,12 +58,13 @@ my $sock = $server->sock;
 # - O(token): opaque to copy back.
 # - k: return key
 # - I: invalid. set-to-invalid if CAS is older than it should be.
-# Not implemented:
-# - E: add if not exists (influences other options)
-# - A: append (exclusive)
-# - P: prepend (exclusive)
-# - L: replace (exclusive)
-# - incr/decr? pushing it, I guess.
+# - M(token): mode switch.
+#   - default to "set"
+#   - E: add mode
+#   - A: append mode
+#   - P: prepend mode
+#   - R: replace mode
+#   - S: set mode - not necessary, but could be useful for clients.
 #
 # md [key] [flags]\r\n
 # response:
@@ -114,6 +115,62 @@ my $sock = $server->sock;
 
     # FIXME: figure out what I meant to do here.
     #my $res = mget($sock, 'foo2', 's t v');
+}
+
+# mset tests with mode switch flag (M)
+
+{
+    diag "mset mode switch";
+    print $sock "ms modedefault S2 T120\r\naa\r\n";
+    like(scalar <$sock>, qr/^OK /, "default set mode");
+    mget_is({ sock => $sock,
+              flags => 's v',
+              eflags => 's2' },
+            'modedefault', 'aa', "retrieved test value");
+
+    # Fail an add
+    print $sock "ms modedefault S2 T120 ME\r\naa\r\n";
+    like(scalar <$sock>, qr/^NS /, "add mode gets NOT_STORED");
+    # Win an add
+    print $sock "ms modetest S2 T120 ME\r\nbb\r\n";
+    like(scalar <$sock>, qr/^OK /, "add mode");
+    mget_is({ sock => $sock,
+              flags => 's v',
+              eflags => 's2' },
+            'modetest', 'bb', "retrieved test value");
+
+    # append
+    print $sock "ms modetest S2 T120 MA\r\ncc\r\n";
+    like(scalar <$sock>, qr/^OK /, "append mode");
+    mget_is({ sock => $sock,
+              flags => 's v',
+              eflags => 's4' },
+            'modetest', 'bbcc', "retrieved test value");
+    # prepend
+    print $sock "ms modetest S2 T120 MP\r\naa\r\n";
+    like(scalar <$sock>, qr/^OK /, "append mode");
+    mget_is({ sock => $sock,
+              flags => 's v',
+              eflags => 's6' },
+            'modetest', 'aabbcc', "retrieved test value");
+
+    # replace
+    print $sock "ms modereplace S2 T120 MR\r\nzz\r\n";
+    like(scalar <$sock>, qr/^NS /, "fail replace mode");
+    print $sock "ms modetest S2 T120 MR\r\nxx\r\n";
+    like(scalar <$sock>, qr/^OK /, "replace mode");
+    mget_is({ sock => $sock,
+              flags => 's v',
+              eflags => 's2' },
+            'modetest', 'xx', "retrieved test value");
+
+    # explicit set
+    print $sock "ms modetest S2 T120 MS\r\nyy\r\n";
+    like(scalar <$sock>, qr/^OK /, "force set mode");
+
+    # invalid mode
+    print $sock "ms modetest S2 T120 MZ\r\ntt\r\n";
+    like(scalar <$sock>, qr/^CLIENT_ERROR /, "invalid mode");
 }
 
 # lease-test, use two sockets? one socket should be fine, actually.
@@ -314,7 +371,7 @@ my $sock = $server->sock;
     print $sock "ms toinv S1 T90 C0\r\nf\r\n";
     like(scalar <$sock>, qr/^EX /, "failed to SET: low CAS didn't match");
 
-    print $sock "ms toinv S1 I T90 C0\r\nf\r\n";
+    print $sock "ms toinv S1 I T90 C1\r\nf\r\n";
     like(scalar <$sock>, qr/^OK /, "SET an invalid/stale item");
 
     diag "confirm item still stale, and TTL wasn't raised.";

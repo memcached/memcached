@@ -2741,127 +2741,151 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
 
+    enum cas_result { CAS_NONE, CAS_MATCH, CAS_BADVAL, CAS_STALE, CAS_MISS };
+
     item *new_it = NULL;
     uint32_t flags;
 
-    if (old_it != NULL && comm == NREAD_ADD) {
-        /* add only adds a nonexistent item, but promote to head of LRU */
-        do_item_update(old_it);
-    } else if (!old_it && (comm == NREAD_REPLACE
-        || comm == NREAD_APPEND || comm == NREAD_PREPEND))
-    {
-        /* replace only replaces an existing value; don't store */
-    } else if (comm == NREAD_CAS) {
-        /* validate cas operation */
-        if (old_it == NULL) {
-            // LRU expired
-            stored = NOT_FOUND;
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.cas_misses++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-        }
-        else if (ITEM_get_cas(it) == ITEM_get_cas(old_it)) {
-            // cas validates
-            // it and old_it may belong to different classes.
-            // I'm updating the stats for the one that's getting pushed out
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
+    /* Do the CAS test up front so we can apply to all store modes */
+    enum cas_result cas_res = CAS_NONE;
 
-            STORAGE_delete(c->thread->storage, old_it);
-            item_replace(old_it, it, hv);
-            stored = STORED;
-        } else if (c->set_stale && ITEM_get_cas(it) < ITEM_get_cas(old_it)) {
-            // if we're allowed to set a stale value, CAS must be lower than
-            // the current item's CAS.
-            // This replaces the value, but should preserve TTL, and stale
-            // item marker bit + token sent if exists.
-            it->exptime = old_it->exptime;
-            it->it_flags |= ITEM_STALE;
-            if (old_it->it_flags & ITEM_TOKEN_SENT) {
-                it->it_flags |= ITEM_TOKEN_SENT;
-            }
-
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-
-            STORAGE_delete(c->thread->storage, old_it);
-            item_replace(old_it, it, hv);
-            stored = STORED;
+    bool do_store = false;
+    if (old_it != NULL) {
+        // Most of the CAS work requires something to compare to.
+        uint64_t it_cas = ITEM_get_cas(it);
+        uint64_t old_cas = ITEM_get_cas(old_it);
+        if (it_cas == 0) {
+            cas_res = CAS_NONE;
+        } else if (it_cas == old_cas) {
+            cas_res = CAS_MATCH;
+        } else if (c->set_stale && it_cas < old_cas) {
+            cas_res = CAS_STALE;
         } else {
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
-
-            if(settings.verbose > 1) {
-                fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
-                        (unsigned long long)ITEM_get_cas(old_it),
-                        (unsigned long long)ITEM_get_cas(it));
-            }
-            stored = EXISTS;
+            cas_res = CAS_BADVAL;
         }
-    } else {
-        int failed_alloc = 0;
-        /*
-         * Append - combine new and old record into single one. Here it's
-         * atomic and thread-safe.
-         */
-        if (comm == NREAD_APPEND || comm == NREAD_PREPEND) {
-            /*
-             * Validate CAS
-             */
-            if (ITEM_get_cas(it) != 0) {
-                // CAS much be equal
-                if (ITEM_get_cas(it) != ITEM_get_cas(old_it)) {
+
+        switch (comm) {
+            case NREAD_ADD:
+                /* add only adds a nonexistent item, but promote to head of LRU */
+                do_item_update(old_it);
+                break;
+            case NREAD_CAS:
+                if (cas_res == CAS_MATCH) {
+                    // cas validates
+                    // it and old_it may belong to different classes.
+                    // I'm updating the stats for the one that's getting pushed out
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    do_store = true;
+                } else if (cas_res == CAS_STALE) {
+                    // if we're allowed to set a stale value, CAS must be lower than
+                    // the current item's CAS.
+                    // This replaces the value, but should preserve TTL, and stale
+                    // item marker bit + token sent if exists.
+                    it->exptime = old_it->exptime;
+                    it->it_flags |= ITEM_STALE;
+                    if (old_it->it_flags & ITEM_TOKEN_SENT) {
+                        it->it_flags |= ITEM_TOKEN_SENT;
+                    }
+
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    do_store = true;
+                } else {
+                    // NONE or BADVAL are the same for CAS cmd
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+
+                    if (settings.verbose > 1) {
+                        fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
+                                (unsigned long long)ITEM_get_cas(old_it),
+                                (unsigned long long)ITEM_get_cas(it));
+                    }
                     stored = EXISTS;
                 }
-            }
+                break;
+            case NREAD_APPEND:
+            case NREAD_PREPEND:
+                if (cas_res != CAS_NONE && cas_res != CAS_MATCH) {
+                    stored = EXISTS;
+                    break;
+                }
 #ifdef EXTSTORE
-            if ((old_it->it_flags & ITEM_HDR) != 0) {
-                /* block append/prepend from working with extstore-d items.
-                 * also don't replace the header with the append chunk
-                 * accidentally, so mark as a failed_alloc.
-                 */
-                failed_alloc = 1;
-            } else
+                if ((old_it->it_flags & ITEM_HDR) != 0) {
+                    /* block append/prepend from working with extstore-d items.
+                     * leave response code to NOT_STORED default */
+                    break;
+                }
 #endif
-            if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
                 FLAGS_CONV(old_it, flags);
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
+                // OOM trying to copy.
+                if (new_it == NULL)
+                    break;
                 /* copy data from it and old_it to new_it */
-                if (new_it == NULL || _store_item_copy_data(comm, old_it, new_it, it) == -1) {
-                    failed_alloc = 1;
-                    stored = NOT_STORED;
-                    // failed data copy, free up.
-                    if (new_it != NULL)
-                        item_remove(new_it);
+                if (_store_item_copy_data(comm, old_it, new_it, it) == -1) {
+                    // failed data copy
+                    break;
                 } else {
+                    // refcount of new_it is 1 here. will end up 2 after link.
+                    // it's original ref is managed outside of this function
                     it = new_it;
+                    do_store = true;
                 }
-            }
+                break;
+            case NREAD_REPLACE:
+            case NREAD_SET:
+                do_store = true;
+                break;
         }
 
-        if (stored == NOT_STORED && failed_alloc == 0) {
-            if (old_it != NULL) {
-                STORAGE_delete(c->thread->storage, old_it);
-                item_replace(old_it, it, hv);
-            } else {
-                do_item_link(it, hv);
-            }
+        if (do_store) {
+            STORAGE_delete(c->thread->storage, old_it);
+            item_replace(old_it, it, hv);
+            stored = STORED;
+        }
 
-            c->cas = ITEM_get_cas(it);
+        do_item_remove(old_it);         /* release our reference */
+        if (new_it != NULL) {
+            // append/prepend end up with an extra reference for new_it.
+            do_item_remove(new_it);
+        }
+    } else {
+        /* No pre-existing item to replace or compare to. */
+        if (ITEM_get_cas(it) != 0) {
+            /* Asked for a CAS match but nothing to compare it to. */
+            cas_res = CAS_MISS;
+        }
 
+        switch (comm) {
+            case NREAD_ADD:
+            case NREAD_SET:
+                do_store = true;
+                break;
+            case NREAD_CAS:
+                // LRU expired
+                stored = NOT_FOUND;
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.cas_misses++;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
+                break;
+            case NREAD_REPLACE:
+            case NREAD_APPEND:
+            case NREAD_PREPEND:
+                /* Requires an existing item. */
+                break;
+        }
+
+        if (do_store) {
+            do_item_link(it, hv);
             stored = STORED;
         }
     }
-
-    if (old_it != NULL)
-        do_item_remove(old_it);         /* release our reference */
-    if (new_it != NULL)
-        do_item_remove(new_it);
 
     if (stored == STORED) {
         c->cas = ITEM_get_cas(it);
@@ -4142,6 +4166,7 @@ static int _meta_flag_preparse(token_t *tokens, const size_t ntokens, struct _me
             case 'F':
             case 'S':
             case 'C':
+            case 'M':
                 break;
             case 'I':
                 of->set_stale = 1;
@@ -4532,34 +4557,61 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     // Set noreply after tokens are understood.
     c->noreply = of.no_reply;
 
+    bool has_error = false;
     for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
         switch (tokens[i].value[0]) {
             case 'F':
                 if (!safe_strtoul(tokens[i].value+1, &flags)) {
-                    goto error;
+                    has_error = true;
                 }
                 break;
             case 'C':
                 if (!safe_strtoull(tokens[i].value+1, &req_cas_id)) {
-                    goto error;
+                    has_error = true;
                 }
                 comm = NREAD_CAS;
                 break;
             case 'S':
                 if (!safe_strtol(tokens[i].value+1, &vlen)) {
-                    goto error;
+                    has_error = true;
                 }
                 break;
             case 'T':
                 if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
-                    goto error;
+                    has_error = true;
+                }
+                break;
+            case 'M':
+                // "mode switch" to alternative commands
+                // add, replace, append, prepend.
+                switch (tokens[i].value[1]) {
+                    case 'E': // Add...
+                        comm = NREAD_ADD;
+                        break;
+                    case 'A': // Append.
+                        comm = NREAD_APPEND;
+                        break;
+                    case 'P': // Prepend.
+                        comm = NREAD_PREPEND;
+                        break;
+                    case 'R': // Replace.
+                        comm = NREAD_REPLACE;
+                        break;
+                    case 'S': // Set. Default.
+                        comm = NREAD_SET;
+                        break;
+                    default:
+                        errstr = "CLIENT_ERROR invalid mode for ms M token";
+                        has_error = true;
+                        break;
                 }
                 break;
             // TODO: macro perhaps?
             case 'O':
                 if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
                     errstr = "CLIENT_ERROR opaque token too long";
-                    goto error;
+                    has_error = true;
+                    break;
                 }
                 META_SPACE(p);
                 memcpy(p, tokens[i].value, tokens[i].length);
@@ -4573,7 +4625,16 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
         }
     }
 
-    /* Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
+    // The item storage function doesn't exactly map to mset.
+    // If a CAS value is supplied, upgrade default SET mode to CAS mode.
+    // Also allows REPLACE to work, as REPLACE + CAS works the same as CAS.
+    // add-with-cas works the same as add; but could only LRU bump if match..
+    // APPEND/PREPEND allow a simplified CAS check.
+    if (req_cas_id != 0 && (comm == NREAD_SET || comm == NREAD_REPLACE)) {
+        comm = NREAD_CAS;
+    }
+
+    /* Ancient comment: Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
     exptime = exptime_int;
 
     /* Negative exptimes can underflow and end up immortal. realtime() will
@@ -4584,10 +4645,15 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // TODO: can we treat vlen as unsigned? :(
     if (vlen < 0 || vlen > (INT_MAX - 2)) {
-        // TODO: specific error.
+        errstr = "CLIENT_ERROR invalid length";
         goto error;
     }
     vlen += 2;
+
+    // We attempt to process as much as we can in hopes of getting a valid and
+    // adjusted vlen, or else the data swallow after error will be for 0b.
+    if (has_error)
+        goto error;
 
     it = item_alloc(key, nkey, flags, realtime(exptime), vlen);
 
@@ -4607,6 +4673,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
                 NULL, status, comm, key, nkey, 0, 0);
 
         /* Avoid stale data persisting in cache because we failed alloc. */
+        // NOTE: only if SET mode?
         it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
         if (it) {
             do_item_unlink(it, hv);

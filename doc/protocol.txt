@@ -655,9 +655,9 @@ may decide to retry later or take some other action.
 Meta Set
 --------
 
-The meta set command a generic command for storing data to memcached. Based on
-the flags supplied, it can replace the commands: "set", "cas". as well as
-adding new options.
+The meta set command a generic command for storing data to memcached. Based
+on the flags supplied, it can replace all storage commands (see token M) as
+well as adds new options.
 
 ms <key> <flags>*\r\n
 
@@ -702,6 +702,7 @@ The flags used by the 'ms' command are:
 - q: use noreply semantics for return codes
 - S(token): size of <data block> to store
 - T(token): Time-To-Live for item, see "Expiration" above.
+- M(token): mode switch to change behavior to add, replace, append, prepend
 
 The flags are now repeated with detailed information where useful:
 
@@ -727,11 +728,22 @@ See description under 'Meta Get'
 - q: use noreply semantics for return codes
 
 Noreply is a method of reducing the amount of data sent back by memcached to
-the client for normal responses. In the case of metaset, a response that would
-start with "OK" will not be sent. Any other code, such as "EX"
+the client for normal responses. In the case of metaset, a response that
+would start with "OK" will not be sent. Any other code, such as "EX"
 (EXISTS) will still be returned.
 
 Errors are always returned.
+
+- M(token): mode switch. Takes a single character for the mode.
+
+E: "add" command. LRU bump and return NS if item exists. Else
+add.
+A: "append" command. If item exists, append the new value to its data.
+P: "prepend" command. If item exists, prepend the new value to its data.
+S: "set" command. The default mode, added for completeness.
+
+The "cas" command is supplanted by specifying the cas value with the 'C' flag.
+Append and Prepend modes will also respect a supplied cas value.
 
 Meta Delete
 -----------
