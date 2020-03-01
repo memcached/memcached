@@ -18,7 +18,7 @@ will use new certificates without a need of re-starting the server process.
 # Multiple ports with and without TLS : by default all TCP ports are secured. Optionally we can setup
 the server to secure a specific TCP port.
 
-Note that initial implementation does not support session resumption or renegotiation.
+Note that initial implementation does not support session renegotiation.
 
 Design
 ------
