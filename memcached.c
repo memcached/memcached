@@ -18,6 +18,7 @@
 #include "storage.h"
 #endif
 #include "authfile.h"
+#include "restart.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -107,8 +108,10 @@ static int start_conn_timeout_thread();
 static void stats_init(void);
 static void server_stats(ADD_STAT add_stats, conn *c);
 static void process_stat_settings(ADD_STAT add_stats, void *c);
-static void conn_to_str(const conn *c, char *buf);
+static void conn_to_str(const conn *c, char *addr, char *svr_addr);
 
+/** Return a datum for stats in binary protocol */
+static bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 
 /* defaults */
 static void settings_init(void);
@@ -148,7 +151,7 @@ volatile int slab_rebalance_signal;
 /* hoping this is temporary; I'd prefer to cut globals, but will complete this
  * battle another day.
  */
-void *ext_storage;
+void *ext_storage = NULL;
 #endif
 /** file scope variables **/
 static conn *listen_conn = NULL;
@@ -186,6 +189,7 @@ static enum transmit_result transmit(conn *c);
  * can block the listener via a condition.
  */
 static volatile bool allow_new_conns = true;
+static bool stop_main_loop = false;
 static struct event maxconnsevent;
 static void maxconns_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
@@ -238,7 +242,7 @@ static void stats_init(void) {
        like 'settings.oldest_live' which act as booleans as well as
        values are now false in boolean context... */
     process_started = time(0) - ITEM_UPDATE_INTERVAL - 2;
-    stats_prefix_init();
+    stats_prefix_init(settings.prefix_delimiter);
 }
 
 static void stats_reset(void) {
@@ -316,6 +320,7 @@ static void settings_init(void) {
     settings.logger_watcher_buf_size = LOGGER_WATCHER_BUF_SIZE;
     settings.logger_buf_size = LOGGER_BUF_SIZE;
     settings.drop_privileges = false;
+    settings.watch_enabled = true;
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
 #endif
@@ -372,6 +377,7 @@ extern pthread_mutex_t conn_lock;
 
 /* Connection timeout thread bits */
 static pthread_t conn_timeout_tid;
+static int do_run_conn_timeout_thread;
 
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
@@ -383,7 +389,7 @@ static void *conn_timeout_thread(void *arg) {
     int sleep_time;
     useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
 
-    while(1) {
+    while(do_run_conn_timeout_thread) {
         if (settings.verbose > 2)
             fprintf(stderr, "idle timeout thread at top of connection list\n");
 
@@ -441,6 +447,7 @@ static int start_conn_timeout_thread() {
     if (settings.idle_timeout == 0)
         return -1;
 
+    do_run_conn_timeout_thread = 1;
     if ((ret = pthread_create(&conn_timeout_tid, NULL,
         conn_timeout_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create idle connection timeout thread: %s\n",
@@ -448,6 +455,14 @@ static int start_conn_timeout_thread() {
         return -1;
     }
 
+    return 0;
+}
+
+int stop_conn_timeout_thread(void) {
+    if (!do_run_conn_timeout_thread)
+        return -1;
+    do_run_conn_timeout_thread = 0;
+    pthread_join(conn_timeout_tid, NULL);
     return 0;
 }
 
@@ -464,6 +479,10 @@ static int start_conn_timeout_thread() {
 static void conn_init(void) {
     /* We're unlikely to see an FD much higher than maxconns. */
     int next_fd = dup(1);
+    if (next_fd < 0) {
+        perror("Failed to duplicate file descriptor\n");
+        exit(1);
+    }
     int headroom = 10;      /* account for extra unexpected open FDs */
     struct rlimit rl;
 
@@ -664,6 +683,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->msgcurr = 0;
     c->msgused = 0;
     c->sasl_started = false;
+    c->set_stale = false;
+    c->mset_res = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
 #ifdef EXTSTORE
     c->io_wraplist = NULL;
@@ -1192,7 +1213,6 @@ static int build_udp_headers(conn *c) {
     return 0;
 }
 
-
 static void out_string(conn *c, const char *str) {
     size_t len;
 
@@ -1225,6 +1245,38 @@ static void out_string(conn *c, const char *str) {
     memcpy(c->wbuf, str, len);
     memcpy(c->wbuf + len, "\r\n", 2);
     c->wbytes = len + 2;
+    c->wcurr = c->wbuf;
+
+    conn_set_state(c, conn_write);
+    c->write_and_go = conn_new_cmd;
+    return;
+}
+
+// For metaget-style ASCII commands. Ignores noreply, ensuring clients see
+// protocol level errors.
+static void out_errstring(conn *c, const char *str) {
+    c->noreply = false;
+    out_string(c, str);
+}
+
+#define ALLOW_NOREPLY true
+#define DISABLE_NOREPLY false
+
+// Works from a string already written into c->wbuf.
+// Called from meta commands. process_command() already zeroes out an output,
+// and this must be used for nominal use cases.
+static void out_mstring(conn *c, bool use_noreply) {
+    assert(c != NULL);
+    assert(c->wbytes != 0);
+
+    if (c->noreply && use_noreply) {
+        c->noreply = false;
+        conn_set_state(c, conn_new_cmd);
+        return;
+    }
+
+    memcpy(c->wbuf + c->wbytes, "\r\n", 2);
+    c->wbytes += 2;
     c->wcurr = c->wbuf;
 
     conn_set_state(c, conn_write);
@@ -1296,6 +1348,10 @@ static void complete_nread_ascii(conn *c) {
     }
 
     if (!is_valid) {
+        // metaset mode always returns errors.
+        if (c->mset_res) {
+            c->noreply = false;
+        }
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
       ret = store_item(it, comm, c);
@@ -1330,25 +1386,51 @@ static void complete_nread_ascii(conn *c) {
       }
 #endif
 
-      switch (ret) {
-      case STORED:
-          out_string(c, "STORED");
-          break;
-      case EXISTS:
-          out_string(c, "EXISTS");
-          break;
-      case NOT_FOUND:
-          out_string(c, "NOT_FOUND");
-          break;
-      case NOT_STORED:
-          out_string(c, "NOT_STORED");
-          break;
-      default:
-          out_string(c, "SERVER_ERROR Unhandled storage type.");
+      if (c->mset_res) {
+          switch (ret) {
+          case STORED:
+              memcpy(c->wbuf, "ST ", 3);
+              out_mstring(c, ALLOW_NOREPLY);
+              break;
+          case EXISTS:
+              memcpy(c->wbuf, "EX ", 3);
+              out_mstring(c, DISABLE_NOREPLY);
+              break;
+          case NOT_FOUND:
+              memcpy(c->wbuf, "NF ", 3);
+              out_mstring(c, DISABLE_NOREPLY);
+              break;
+          case NOT_STORED:
+              memcpy(c->wbuf, "NS ", 3);
+              out_mstring(c, DISABLE_NOREPLY);
+              break;
+          default:
+              c->noreply = false;
+              out_string(c, "SERVER_ERROR Unhandled storage type.");
+          }
+      } else {
+          switch (ret) {
+          case STORED:
+              out_string(c, "STORED");
+              break;
+          case EXISTS:
+              out_string(c, "EXISTS");
+              break;
+          case NOT_FOUND:
+              out_string(c, "NOT_FOUND");
+              break;
+          case NOT_STORED:
+              out_string(c, "NOT_STORED");
+              break;
+          default:
+              out_string(c, "SERVER_ERROR Unhandled storage type.");
+          }
       }
 
     }
 
+    c->set_stale = false; /* force flag to be off just in case */
+    c->mset_res = false;
     item_remove(c->item);       /* release the c->item reference */
     c->item = 0;
 }
@@ -1936,7 +2018,7 @@ static void append_stats(const char *key, const uint16_t klen,
 {
     /* value without a key is invalid */
     if (klen == 0 && vlen > 0) {
-        return ;
+        return;
     }
 
     conn *c = (conn*)cookie;
@@ -1944,13 +2026,13 @@ static void append_stats(const char *key, const uint16_t klen,
     if (c->protocol == binary_prot) {
         size_t needed = vlen + klen + sizeof(protocol_binary_response_header);
         if (!grow_stats_buf(c, needed)) {
-            return ;
+            return;
         }
         append_bin_stats(key, klen, val, vlen, c);
     } else {
         size_t needed = vlen + klen + 10; // 10 == "STAT = \r\n"
         if (!grow_stats_buf(c, needed)) {
-            return ;
+            return;
         }
         append_ascii_stats(key, klen, val, vlen, c);
     }
@@ -2549,7 +2631,7 @@ static void process_bin_update(conn *c) {
         /* FIXME: losing c->cmd since it's translated below. refactor? */
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
                 NULL, status, 0, key, nkey, req->message.body.expiration,
-                ITEM_clsid(it));
+                ITEM_clsid(it), c->sfd);
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
@@ -2919,7 +3001,7 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
 
 /*
  * Stores an item in the cache according to the semantics of one of the set
- * commands. In threaded mode, this is protected by the cache lock.
+ * commands. Protected by the item lock.
  *
  * Returns the state of storage.
  */
@@ -2940,7 +3022,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         /* replace only replaces an existing value; don't store */
     } else if (comm == NREAD_CAS) {
         /* validate cas operation */
-        if(old_it == NULL) {
+        if (old_it == NULL) {
             // LRU expired
             stored = NOT_FOUND;
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -2951,6 +3033,24 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             // cas validates
             // it and old_it may belong to different classes.
             // I'm updating the stats for the one that's getting pushed out
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
+            STORAGE_delete(c->thread->storage, old_it);
+            item_replace(old_it, it, hv);
+            stored = STORED;
+        } else if (c->set_stale && ITEM_get_cas(it) < ITEM_get_cas(old_it)) {
+            // if we're allowed to set a stale value, CAS must be lower than
+            // the current item's CAS.
+            // This replaces the value, but should preserve TTL, and stale
+            // item marker bit + token sent if exists.
+            it->exptime = old_it->exptime;
+            it->it_flags |= ITEM_STALE;
+            if (old_it->it_flags & ITEM_TOKEN_SENT) {
+                it->it_flags |= ITEM_TOKEN_SENT;
+            }
+
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -2997,7 +3097,6 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
 #endif
             if (stored == NOT_STORED) {
                 /* we have it and old_it here - alloc memory to hold both */
-                /* flags was already lost - so recover them from ITEM_suffix(it) */
                 FLAGS_CONV(old_it, flags);
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
@@ -3037,7 +3136,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         c->cas = ITEM_get_cas(it);
     }
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
-            stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
+            stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it), c->sfd);
 
     return stored;
 }
@@ -3231,6 +3330,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
     APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
     APPEND_STAT("cmd_touch", "%llu", (unsigned long long)thread_stats.touch_cmds);
+    APPEND_STAT("cmd_meta", "%llu", (unsigned long long)thread_stats.meta_cmds);
     APPEND_STAT("get_hits", "%llu", (unsigned long long)slab_stats.get_hits);
     APPEND_STAT("get_misses", "%llu", (unsigned long long)thread_stats.get_misses);
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
@@ -3324,9 +3424,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
-        SSL_LOCK();
         APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
-        SSL_UNLOCK();
     }
 #endif
 }
@@ -3413,19 +3511,124 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
 #endif
 }
 
-static void conn_to_str(const conn *c, char *buf) {
-    char addr_text[MAXPATHLEN];
+static int nz_strcmp(int nzlength, const char *nz, const char *z) {
+    int zlength=strlen(z);
+    return (zlength == nzlength) && (strncmp(nz, z, zlength) == 0) ? 0 : -1;
+}
 
-    if (!c) {
-        strcpy(buf, "<null>");
-    } else if (c->state == conn_closed) {
-        strcpy(buf, "<closed>");
+static bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
+    bool ret = true;
+
+    if (add_stats != NULL) {
+        if (!stat_type) {
+            /* prepare general statistics for the engine */
+            STATS_LOCK();
+            APPEND_STAT("bytes", "%llu", (unsigned long long)stats_state.curr_bytes);
+            APPEND_STAT("curr_items", "%llu", (unsigned long long)stats_state.curr_items);
+            APPEND_STAT("total_items", "%llu", (unsigned long long)stats.total_items);
+            STATS_UNLOCK();
+            APPEND_STAT("slab_global_page_pool", "%u", global_page_pool_size(NULL));
+            item_stats_totals(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "items") == 0) {
+            item_stats(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "slabs") == 0) {
+            slabs_stats(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
+            item_stats_sizes(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes_enable") == 0) {
+            item_stats_sizes_enable(add_stats, c);
+        } else if (nz_strcmp(nkey, stat_type, "sizes_disable") == 0) {
+            item_stats_sizes_disable(add_stats, c);
+        } else {
+            ret = false;
+        }
     } else {
-        const char *protoname = "?";
+        ret = false;
+    }
+
+    return ret;
+}
+
+static inline void get_conn_text(const conn *c, const int af,
+                char* addr, struct sockaddr *sock_addr) {
+    char addr_text[MAXPATHLEN];
+    addr_text[0] = '\0';
+    const char *protoname = "?";
+    unsigned short port = 0;
+    size_t pathlen = 0;
+
+    switch (af) {
+        case AF_INET:
+            (void) inet_ntop(af,
+                    &((struct sockaddr_in *)sock_addr)->sin_addr,
+                    addr_text,
+                    sizeof(addr_text) - 1);
+            port = ntohs(((struct sockaddr_in *)sock_addr)->sin_port);
+            protoname = IS_UDP(c->transport) ? "udp" : "tcp";
+            break;
+
+        case AF_INET6:
+            addr_text[0] = '[';
+            addr_text[1] = '\0';
+            if (inet_ntop(af,
+                    &((struct sockaddr_in6 *)sock_addr)->sin6_addr,
+                    addr_text + 1,
+                    sizeof(addr_text) - 2)) {
+                strcat(addr_text, "]");
+            }
+            port = ntohs(((struct sockaddr_in6 *)sock_addr)->sin6_port);
+            protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
+            break;
+
+        case AF_UNIX:
+            // this strncpy call originally could piss off an address
+            // sanitizer; we supplied the size of the dest buf as a limiter,
+            // but optimized versions of strncpy could read past the end of
+            // *src while looking for a null terminator. Since buf and
+            // sun_path here are both on the stack they could even overlap,
+            // which is "undefined". In all OSS versions of strncpy I could
+            // find this has no effect; it'll still only copy until the first null
+            // terminator is found. Thus it's possible to get the OS to
+            // examine past the end of sun_path but it's unclear to me if this
+            // can cause any actual problem.
+            //
+            // We need a safe_strncpy util function but I'll punt on figuring
+            // that out for now.
+            pathlen = sizeof(((struct sockaddr_un *)sock_addr)->sun_path);
+            if (MAXPATHLEN <= pathlen) {
+                pathlen = MAXPATHLEN - 1;
+            }
+            strncpy(addr_text,
+                    ((struct sockaddr_un *)sock_addr)->sun_path,
+                    pathlen);
+            addr_text[pathlen] = '\0';
+            protoname = "unix";
+            break;
+    }
+
+    if (strlen(addr_text) < 2) {
+        /* Most likely this is a connected UNIX-domain client which
+         * has no peer socket address, but there's no portable way
+         * to tell for sure.
+         */
+        sprintf(addr_text, "<AF %d>", af);
+    }
+
+    if (port) {
+        sprintf(addr, "%s:%s:%u", protoname, addr_text, port);
+    } else {
+        sprintf(addr, "%s:%s", protoname, addr_text);
+    }
+}
+
+static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
+    if (!c) {
+        strcpy(addr, "<null>");
+    } else if (c->state == conn_closed) {
+        strcpy(addr, "<closed>");
+    } else {
         struct sockaddr_in6 local_addr;
-        struct sockaddr *addr = (void *)&c->request_addr;
-        int af;
-        unsigned short port = 0;
+        struct sockaddr *sock_addr = (void *)&c->request_addr;
 
         /* For listen ports and idle UDP ports, show listen address */
         if (c->state == conn_listening ||
@@ -3436,57 +3639,17 @@ static void conn_to_str(const conn *c, char *buf) {
             if (getsockname(c->sfd,
                         (struct sockaddr *)&local_addr,
                         &local_addr_len) == 0) {
-                addr = (struct sockaddr *)&local_addr;
+                sock_addr = (struct sockaddr *)&local_addr;
             }
         }
+        get_conn_text(c, sock_addr->sa_family, addr, sock_addr);
 
-        af = addr->sa_family;
-        addr_text[0] = '\0';
-
-        switch (af) {
-            case AF_INET:
-                (void) inet_ntop(af,
-                        &((struct sockaddr_in *)addr)->sin_addr,
-                        addr_text,
-                        sizeof(addr_text) - 1);
-                port = ntohs(((struct sockaddr_in *)addr)->sin_port);
-                protoname = IS_UDP(c->transport) ? "udp" : "tcp";
-                break;
-
-            case AF_INET6:
-                addr_text[0] = '[';
-                addr_text[1] = '\0';
-                if (inet_ntop(af,
-                        &((struct sockaddr_in6 *)addr)->sin6_addr,
-                        addr_text + 1,
-                        sizeof(addr_text) - 2)) {
-                    strcat(addr_text, "]");
-                }
-                port = ntohs(((struct sockaddr_in6 *)addr)->sin6_port);
-                protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
-                break;
-
-            case AF_UNIX:
-                strncpy(addr_text,
-                        ((struct sockaddr_un *)addr)->sun_path,
-                        sizeof(addr_text) - 1);
-                addr_text[sizeof(addr_text)-1] = '\0';
-                protoname = "unix";
-                break;
-        }
-
-        if (strlen(addr_text) < 2) {
-            /* Most likely this is a connected UNIX-domain client which
-             * has no peer socket address, but there's no portable way
-             * to tell for sure.
-             */
-            sprintf(addr_text, "<AF %d>", af);
-        }
-
-        if (port) {
-            sprintf(buf, "%s:%s:%u", protoname, addr_text, port);
-        } else {
-            sprintf(buf, "%s:%s", protoname, addr_text);
+        if (c->state != conn_listening && !(IS_UDP(c->transport) &&
+                 c->state == conn_read)) {
+            struct sockaddr_storage svr_sock_addr;
+            socklen_t svr_addr_len = sizeof(svr_sock_addr);
+            getsockname(c->sfd, (struct sockaddr *)&svr_sock_addr, &svr_addr_len);
+            get_conn_text(c, svr_sock_addr.ss_family, svr_addr, (struct sockaddr *)&svr_sock_addr);
         }
     }
 }
@@ -3495,7 +3658,9 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
     char val_str[STAT_VAL_LEN];
-    char conn_name[MAXPATHLEN + sizeof("unix:") + sizeof("65535")];
+    size_t extras_len = sizeof("unix:") + sizeof("65535");
+    char addr[MAXPATHLEN + extras_len];
+    char svr_addr[MAXPATHLEN + extras_len];
     int klen = 0, vlen = 0;
 
     assert(add_stats);
@@ -3507,10 +3672,17 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
              * output -- not worth the complexity of the locking that'd be
              * required to prevent it.
              */
+            if (IS_UDP(conns[i]->transport)) {
+                APPEND_NUM_STAT(i, "UDP", "%s", "UDP");
+            }
             if (conns[i]->state != conn_closed) {
-                conn_to_str(conns[i], conn_name);
+                conn_to_str(conns[i], addr, svr_addr);
 
-                APPEND_NUM_STAT(i, "addr", "%s", conn_name);
+                APPEND_NUM_STAT(i, "addr", "%s", addr);
+                if (conns[i]->state != conn_listening &&
+                    !(IS_UDP(conns[i]->transport) && conns[i]->state == conn_read)) {
+                    APPEND_NUM_STAT(i, "listen_addr", "%s", svr_addr);
+                }
                 APPEND_NUM_STAT(i, "state", "%s",
                         state_text(conns[i]->state));
                 APPEND_NUM_STAT(i, "secs_since_last_cmd", "%d",
@@ -3561,7 +3733,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     } else if (strcmp(subcommand, "reset") == 0) {
         stats_reset();
         out_string(c, "RESET");
-        return ;
+        return;
     } else if (strcmp(subcommand, "detail") == 0) {
         /* NOTE: how to tackle detail with binary? */
         if (ntokens < 4)
@@ -3569,7 +3741,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         else
             process_stats_detail(c, tokens[2].value);
         /* Output already generated */
-        return ;
+        return;
     } else if (strcmp(subcommand, "settings") == 0) {
         process_stat_settings(&append_stats, c);
     } else if (strcmp(subcommand, "cachedump") == 0) {
@@ -3599,7 +3771,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 
         buf = item_cachedump(id, limit, &bytes);
         write_and_free(c, buf, bytes);
-        return ;
+        return;
     } else if (strcmp(subcommand, "conns") == 0) {
         process_stats_conns(&append_stats, c);
 #ifdef EXTSTORE
@@ -3619,7 +3791,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         } else {
             out_string(c, "ERROR");
         }
-        return ;
+        return;
     }
 
     /* append terminator and start the transfer */
@@ -3659,16 +3831,31 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
 }
 
 #define IT_REFCOUNT_LIMIT 60000
-static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch) {
+static inline item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch, bool do_update) {
     item *it;
     if (should_touch) {
         it = item_touch(key, nkey, exptime, c);
     } else {
-        it = item_get(key, nkey, c, DO_UPDATE);
+        it = item_get(key, nkey, c, do_update);
     }
     if (it && it->refcount > IT_REFCOUNT_LIMIT) {
         item_remove(it);
         it = NULL;
+    }
+    return it;
+}
+
+// Semantics are different than limited_get; since the item is returned
+// locked, caller can directly change what it needs.
+// though it might eventually be a better interface to sink it all into
+// items.c.
+static inline item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32_t *hv) {
+    item *it;
+    it = item_get_locked(key, nkey, c, do_update, hv);
+    if (it && it->refcount > IT_REFCOUNT_LIMIT) {
+        do_item_remove(it);
+        it = NULL;
+        item_unlock(*hv);
     }
     return it;
 }
@@ -3958,7 +4145,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 goto stop;
             }
 
-            it = limited_get(key, nkey, c, exptime, should_touch);
+            it = limited_get(key, nkey, c, exptime, should_touch, DO_UPDATE);
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
@@ -4101,6 +4288,854 @@ stop:
     }
 }
 
+// slow snprintf for debugging purposes.
+static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens) {
+    assert(c != NULL);
+
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    char *key = tokens[KEY_TOKEN].value;
+    size_t nkey = tokens[KEY_TOKEN].length;
+
+    item *it = limited_get(key, nkey, c, 0, false, DONT_UPDATE);
+    if (it) {
+        size_t total = 0;
+        size_t ret;
+        // similar to out_string().
+        memcpy(c->wbuf, "ME ", 3);
+        total += 3;
+        memcpy(c->wbuf + total, ITEM_key(it), it->nkey);
+        total += it->nkey;
+        c->wbuf[total] = ' ';
+        total++;
+
+        ret = snprintf(c->wbuf + total, c->wsize - (it->nkey + 12),
+                "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\nEN\r\n",
+                (it->exptime == 0) ? -1 : (current_time - it->exptime),
+                (unsigned long long)(current_time - it->time),
+                (unsigned long long)ITEM_get_cas(it),
+                (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
+                ITEM_clsid(it),
+                (unsigned long) ITEM_ntotal(it));
+
+        item_remove(it);
+        c->wbytes = total + ret;
+        c->wcurr = c->wbuf;
+        conn_set_state(c, conn_write);
+        c->write_and_go = conn_new_cmd;
+    } else {
+        out_string(c, "EN");
+    }
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.meta_cmds++;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
+}
+
+#define MFLAG_MAX_OPT_LENGTH 20
+#define MFLAG_MAX_OPAQUE_LENGTH 32
+
+struct _meta_flags {
+    unsigned int no_update :1;
+    unsigned int locked :1;
+    unsigned int vivify :1;
+    unsigned int la :1;
+    unsigned int hit :1;
+    unsigned int value :1;
+    unsigned int set_stale :1;
+    unsigned int no_reply :1;
+};
+
+static int _meta_flag_preparse(char *opts, size_t olen, struct _meta_flags *of) {
+    unsigned int i;
+    // NOTE: 'seen' is one of those need-to-microbench situation to do this via bit vector or
+    // simple 8 bit array; need two divs and a shift vs a bit more memory.
+    // Leave it simple for now, optimize later.
+    uint8_t seen[127] = {0};
+    // also count how many tokens should be necessary to parse.
+    int tokens = 0;
+    for (i = 0; i < olen; i++) {
+        uint8_t o = (uint8_t)opts[i];
+        // zero out repeat flags so we don't over-parse for return data.
+        if (o >= 127 || seen[o] != 0) {
+            return -1;
+        }
+        seen[o] = 1;
+        // FIXME: alphabetize.
+        switch (opts[i]) {
+            case 'N':
+                of->locked = 1;
+                of->vivify = 1;
+                tokens++;
+                break;
+            case 'T':
+                tokens++;
+                of->locked = 1;
+                break;
+            case 'R':
+                of->locked = 1;
+                tokens++;
+                break;
+            case 'l':
+                of->la = 1;
+                of->locked = 1; // need locked to delay LRU bump
+                break;
+            case 'O':
+                tokens++;
+                break;
+            case 'k': // known but no special handling
+            case 's':
+            case 't':
+            case 'c':
+            case 'v':
+            case 'f':
+                break;
+            case 'h':
+                of->locked = 1; // need locked to delay LRU bump
+                break;
+            case 'u':
+                of->no_update = 1;
+                break;
+            case 'q':
+                of->no_reply = 1;
+                break;
+            // mset-related.
+            case 'F':
+            case 'S':
+            case 'C':
+                tokens++;
+                break;
+            case 'I':
+                of->set_stale = 1;
+                break;
+            default: // unknown flag, bail.
+                return -1;
+        }
+    }
+
+    return tokens;
+}
+
+static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    item *it;
+    char *opts;
+    char *fp = NULL;
+    char *p = c->wbuf;
+    size_t olen;
+    unsigned int i = 0;
+    int32_t rtokens = 0; // remaining tokens available.
+    struct _meta_flags of = {0}; // option bitflags.
+    uint32_t hv; // cached hash value for unlocking an item.
+    bool failed = false;
+    bool item_created = false;
+    bool won_token = false;
+    bool ttl_set = false;
+    char *errstr;
+
+    assert(c != NULL);
+
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_errstring(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    // NOTE: final token has length == 0.
+    // KEY_TOKEN == 1. 0 is command.
+    rtokens = 3; // cmd, key, final.
+
+    if (ntokens == 3) {
+        // Default flag options. Might not be the best idea.
+        opts = "sftv";
+        olen = 4;
+    } else {
+        // need to parse out the options.
+        opts = tokens[KEY_TOKEN + 1].value;
+        olen = tokens[KEY_TOKEN + 1].length;
+        rtokens++;
+    }
+
+    if (olen > MFLAG_MAX_OPT_LENGTH) {
+        out_errstring(c, "CLIENT_ERROR options flags are too long");
+        return;
+    }
+
+    // Copy opts into wbuf and advance pointer.
+    // We return the initial options + extra indicator flags.
+    // we reserve 4 bytes in front of the buffer, for up to three extra flags
+    // we can tag plus the initial space.
+    // This could be simpler by adding two iov's for the header line, but this
+    // is a hot path so trying to keep those to a minimum.
+    fp = c->wbuf + 6;
+    memcpy(fp, opts, olen);
+    p = fp + olen;
+    fp--; // next token, or final space, goes here.
+
+    // scrubs duplicated options and sets flags for how to load the item.
+    int mfres = _meta_flag_preparse(opts, olen, &of);
+
+    if (mfres + rtokens != ntokens) {
+        if (mfres == -1) {
+            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
+        } else {
+            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        }
+        return;
+    }
+    rtokens = KEY_TOKEN + 2;
+    c->noreply = of.no_reply;
+
+    // TODO: need to indicate if the item was overflowed or not?
+    // I think we do, since an overflow shouldn't trigger an alloc/replace.
+    if (!of.locked) {
+        it = limited_get(key, nkey, c, 0, false, !of.no_update);
+    } else {
+        // If we had to lock the item, we're doing our own bump later.
+        it = limited_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+    }
+
+    if (it == NULL && of.vivify) {
+        // Fill in the exptime during parsing later.
+        it = item_alloc(key, nkey, 0, realtime(0), 2);
+        // We don't actually need any of do_store_item's logic:
+        // - already fetched and missed an existing item.
+        // - lock is still held.
+        // - not append/prepend/replace
+        // - not testing CAS
+        if (it != NULL) {
+            // I look forward to the day I get rid of this :)
+            memcpy(ITEM_data(it), "\r\n", 2);
+            // NOTE: This initializes the CAS value.
+            do_item_link(it, hv);
+            item_created = true;
+        }
+    }
+
+    // don't have to check result of add_iov() since the iov size defaults are
+    // enough.
+    if (it) {
+        int32_t exptime_int = 0;
+
+        // Has this item already sent a token?
+        // Important to do this here so we don't send W with Z.
+        // Isn't critical, but easier for client authors to understand.
+        if (it->it_flags & ITEM_TOKEN_SENT) {
+            *fp = 'Z';
+            fp--;
+        }
+        if (it->it_flags & ITEM_STALE) {
+            *fp = 'X';
+            fp--;
+            // FIXME: think hard about this. is this a default, or a flag?
+            if ((it->it_flags & ITEM_TOKEN_SENT) == 0) {
+                // If we're stale but no token already sent, now send one.
+                won_token = true;
+            }
+        }
+
+        for (i = 0; i < olen; i++) {
+            switch (opts[i]) {
+                case 'T':
+                    ttl_set = true;
+                    if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                        errstr = "CLIENT_ERROR bad tokens in command line format";
+                        goto error;
+                    }
+                    // FIXME: check for < 0, or stoul and cast here.
+                    it->exptime = realtime(exptime_int);
+                    rtokens++;
+                    break;
+                case 'N':
+                    if (item_created) {
+                        if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                            errstr = "CLIENT_ERROR bad tokens in command line format";
+                            goto error;
+                        }
+                        // FIXME: check for < 0, or stoul and cast here.
+                        it->exptime = realtime(exptime_int);
+                        won_token = true;
+                    }
+                    rtokens++; // always consume the token.
+                    break;
+                case 'R':
+                    // If we haven't autovivified and supplied token is less
+                    // than current TTL, mark a win.
+                    if ((it->it_flags & ITEM_TOKEN_SENT) == 0
+                            && !item_created
+                            && it->exptime != 0) {
+                        if (!safe_strtol(tokens[rtokens].value, &exptime_int)) {
+                            errstr = "CLIENT_ERROR bad tokens in command line format";
+                            goto error;
+                        }
+
+                        if (it->exptime - current_time < exptime_int) {
+                            won_token = true;
+                        }
+                    }
+                    rtokens++;
+                    break;
+                case 's':
+                    *p = ' ';
+                    p = itoa_u32(it->nbytes-2, p+1);
+                    break;
+                case 't':
+                    // TODO: ensure this is correct for autoviv case.
+                    // or, I guess users can put N before t?
+                    // TTL remaining as of this request.
+                    // needs to be relative because server clocks may not be in sync.
+                    *p = ' ';
+                    if (it->exptime == 0) {
+                        *(p+1) = '-';
+                        *(p+2) = '1';
+                        p += 3;
+                    } else {
+                        p = itoa_u32(it->exptime - current_time, p+1);
+                    }
+                    break;
+                case 'c':
+                    *p = ' ';
+                    p = itoa_u64(ITEM_get_cas(it), p+1);
+                    break;
+                case 'v':
+                    of.value = 1;
+                    break;
+                case 'f':
+                    *p = ' ';
+                    if (FLAGS_SIZE(it) == 0) {
+                        *(p+1) = '0';
+                        p += 2;
+                    } else {
+                        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p+1);
+                    }
+                    break;
+                case 'l':
+                    *p = ' ';
+                    p = itoa_u32(current_time - it->time, p+1);
+                    break;
+                case 'h':
+                    *p = ' ';
+                    if (it->it_flags & ITEM_FETCHED) {
+                        *(p+1) = '1';
+                    } else {
+                        *(p+1) = '0';
+                    }
+                    p += 2;
+                    break;
+                case 'O':
+                    if (tokens[rtokens].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                        errstr = "CLIENT_ERROR opaque token too long";
+                        goto error;
+                    }
+                    *p = ' ';
+                    memcpy(p+1, tokens[rtokens].value, tokens[rtokens].length);
+                    p += tokens[rtokens].length + 1;
+                    rtokens++;
+                    break;
+                case 'k':
+                    *p = ' ';
+                    memcpy(p+1, ITEM_key(it), it->nkey);
+                    p += it->nkey + 1;
+                    break;
+            }
+        }
+
+        if (won_token) {
+            // Mark a win into the flag buffer.
+            *fp = 'W';
+            fp--; // walk backwards for next token.
+            it->it_flags |= ITEM_TOKEN_SENT;
+        }
+
+        // TODO: Benchmark unlocking here vs later. _get_extstore() could be
+        // intensive so probably better to unlock here after we're done
+        // fiddling with the item header.
+
+        *p = '\r';
+        *(p+1) = '\n';
+        *(p+2) = '\0';
+        p += 2;
+        // tag initial space to the front of the buffer, ahead of any extra
+        // flags that were added.
+        *fp = ' ';
+        *(fp-1) = 'A';
+        *(fp-2) = 'V';
+        fp -= 2;
+        // finally, chain in the buffer.
+        // fp includes the flags.
+        add_iov(c, fp, p - fp);
+
+        if (of.value) {
+#ifdef EXTSTORE
+            if (it->it_flags & ITEM_HDR) {
+                // this bizarre interface is instructing _get_extstore() to
+                // "walk back and zero out" this many iovec's on an internal
+                // miss. kills the VALUE + key + header stitched above.
+                int iovcnt = 2;
+                int iovst = c->iovused - 1;
+
+                if (_get_extstore(c, it, iovst, iovcnt) != 0) {
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.get_oom_extstore++;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
+
+                    failed = true;
+                }
+            } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                add_iov(c, ITEM_data(it), it->nbytes);
+            } else {
+                add_chunked_item_iovs(c, it, it->nbytes);
+            }
+#else
+            if ((it->it_flags & ITEM_CHUNKED) == 0) {
+                add_iov(c, ITEM_data(it), it->nbytes);
+            } else {
+                add_chunked_item_iovs(c, it, it->nbytes);
+            }
+#endif
+        }
+
+        if (!c->noreply) {
+            add_iov(c, "EN\r\n", 4);
+        }
+
+        // need to hold the ref at least because of the key above.
+#ifdef EXTSTORE
+        if (!failed) {
+            if ((it->it_flags & ITEM_HDR) != 0 && of.value) {
+                // Only have extstore clean if header and returning value.
+                c->item = NULL;
+            } else {
+                c->item = it;
+            }
+        } else {
+            if (of.locked) {
+                do_item_remove(it);
+            } else {
+                item_remove(it);
+            }
+        }
+#else
+        c->item = it;
+#endif
+    } else {
+        failed = true;
+    }
+
+    if (of.locked) {
+        // Delayed bump so we could get fetched/last access time/etc.
+        // TODO: before segmented LRU, last-access time would only update
+        // every 60 seconds. Currently it doesn't update at all if an item is
+        // marked as ACTIVE. I believe this is a bug... in segmented mode
+        // there's no reason to avoid bumping la on every access.
+        if (!of.no_update && it != NULL) {
+            do_item_bump(c, it, hv);
+        }
+        item_unlock(hv);
+    }
+
+    // we count this command as a normal one if we've gotten this far.
+    // TODO: for autovivify case, miss never happens. Is this okay?
+    if (!failed) {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (ttl_set) {
+            c->thread->stats.touch_cmds++;
+            c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+        } else {
+            c->thread->stats.lru_hits[it->slabs_clsid]++;
+            c->thread->stats.get_cmds++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        conn_set_state(c, conn_write);
+        c->write_and_go = conn_new_cmd;
+    } else {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (ttl_set) {
+            c->thread->stats.touch_cmds++;
+            c->thread->stats.touch_misses++;
+        } else {
+            c->thread->stats.get_misses++;
+            c->thread->stats.get_cmds++;
+        }
+        MEMCACHED_COMMAND_GET(c->sfd, key, nkey, -1, 0);
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        // This gets elided in noreply mode.
+        out_string(c, "EN");
+    }
+    return;
+error:
+    if (it && of.locked) {
+        item_unlock(hv);
+    }
+    out_errstring(c, errstr);
+}
+
+static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    unsigned int flags = 0;
+    uint32_t exptime_int = 0;
+    uint64_t req_cas_id = 0;
+    char *p;
+    time_t exptime;
+    int vlen = 0;
+    int rtokens;
+    item *it;
+    char *opts;
+    int olen, i;
+    short comm = NREAD_SET;
+    struct _meta_flags of = {0}; // option bitflags.
+    char *errstr = "CLIENT_ERROR bad command line format";
+    uint32_t hv;
+
+    assert(c != NULL);
+
+    // TODO: most of this is identical to mget.
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_errstring(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    rtokens = 3; // cmd, key, final.
+
+    if (ntokens == 3) {
+        out_errstring(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    opts = tokens[KEY_TOKEN + 1].value;
+    olen = tokens[KEY_TOKEN + 1].length;
+    rtokens++;
+
+    if (olen > MFLAG_MAX_OPT_LENGTH) {
+        out_errstring(c, "CLIENT_ERROR options flags too long");
+        return;
+    }
+
+    // copy opts before munging them.
+    // first two chars is status code.
+    p = c->wbuf + 3;
+    memcpy(p, opts, olen);
+    p += olen;
+
+    // scrubs duplicated options and sets flags for how to load the item.
+    // TODO: I, E, APL?
+    int mfres = _meta_flag_preparse(opts, olen, &of);
+
+    if (mfres + rtokens != ntokens) {
+        if (mfres == -1) {
+            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
+        } else {
+            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        }
+        return;
+    }
+
+    // Set noreply after tokens are understood.
+    c->noreply = of.no_reply;
+    rtokens = KEY_TOKEN + 2;
+
+    for (i = 0; i < olen; i++) {
+        switch (opts[i]) {
+            case 'F':
+                if (!safe_strtoul(tokens[rtokens].value, &flags)) {
+                    goto error;
+                }
+                rtokens++;
+                break;
+            case 'C':
+                if (!safe_strtoull(tokens[rtokens].value, &req_cas_id)) {
+                    goto error;
+                }
+                comm = NREAD_CAS;
+                rtokens++;
+                break;
+            case 'S':
+                if (!safe_strtol(tokens[rtokens].value, &vlen)) {
+                    goto error;
+                }
+                rtokens++;
+                break;
+            case 'T':
+                if (!safe_strtoul(tokens[rtokens].value, &exptime_int)) {
+                    goto error;
+                }
+                rtokens++;
+                break;
+            // TODO: macro perhaps?
+            case 'O':
+                if (tokens[rtokens].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                    errstr = "CLIENT_ERROR opaque token too long";
+                    goto error;
+                }
+                *p = ' ';
+                memcpy(p+1, tokens[rtokens].value, tokens[rtokens].length);
+                p += tokens[rtokens].length + 1;
+                rtokens++;
+                break;
+            case 'k':
+                *p = ' ';
+                memcpy(p+1, key, nkey);
+                p += nkey + 1;
+                break;
+        }
+    }
+
+    /* Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
+    exptime = exptime_int;
+
+    /* Negative exptimes can underflow and end up immortal. realtime() will
+       immediately expire values that are greater than REALTIME_MAXDELTA, but less
+       than process_started, so lets aim for that. */
+    if (exptime < 0)
+        exptime = REALTIME_MAXDELTA + 1;
+
+    // TODO: can we treat vlen as unsigned? :(
+    if (vlen < 0 || vlen > (INT_MAX - 2)) {
+        // TODO: specific error.
+        goto error;
+    }
+    vlen += 2;
+
+    it = item_alloc(key, nkey, flags, realtime(exptime), vlen);
+
+    if (it == 0) {
+        enum store_item_type status;
+        // TODO: These could be normalized codes (TL and OM). Need to
+        // reorganize the output stuff a bit though.
+        if (! item_size_ok(nkey, flags, vlen)) {
+            errstr = "SERVER_ERROR object too large for cache";
+            status = TOO_LARGE;
+        } else {
+            errstr = "SERVER_ERROR out of memory storing object";
+            status = NO_MEMORY;
+        }
+        // FIXME: LOGGER_LOG specific to mset, include options.
+        LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
+                NULL, status, comm, key, nkey, 0, 0);
+
+        /* Avoid stale data persisting in cache because we failed alloc. */
+        it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+        if (it) {
+            do_item_unlink(it, hv);
+            STORAGE_delete(c->thread->storage, it);
+            do_item_remove(it);
+        }
+        item_unlock(hv);
+
+        goto error;
+    }
+    ITEM_set_cas(it, req_cas_id);
+
+    c->item = it;
+#ifdef NEED_ALIGN
+    if (it->it_flags & ITEM_CHUNKED) {
+        c->ritem = ITEM_schunk(it);
+    } else {
+        c->ritem = ITEM_data(it);
+    }
+#else
+    c->ritem = ITEM_data(it);
+#endif
+    c->rlbytes = it->nbytes;
+    // TODO: Could support other modes (append/prepend/replace/add)
+    c->cmd = comm;
+    if (of.set_stale && comm == NREAD_CAS) {
+        c->set_stale = true;
+    }
+    // We've written the status line into wbuf, use wbytes to finalize later.
+    c->wbytes = p - c->wbuf;
+    c->mset_res = true;
+    conn_set_state(c, conn_nread);
+    return;
+error:
+    /* swallow the data line */
+    c->write_and_go = conn_swallow;
+    c->sbytes = vlen;
+
+    // Note: no errors possible after the item was successfully allocated.
+    // So we're just looking at dumping error codes and returning.
+    out_errstring(c, errstr);
+}
+
+static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    uint32_t exptime_int = 0;
+    uint64_t req_cas_id = 0;
+    char *p;
+    int rtokens;
+    item *it = NULL;
+    char *opts;
+    int olen, i;
+    uint32_t hv;
+    struct _meta_flags of = {0}; // option bitflags.
+    char *errstr = "CLIENT_ERROR bad command line format";
+
+    assert(c != NULL);
+
+    // TODO: most of this is identical to mget.
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    rtokens = 3; // cmd, key, final.
+
+    // rtokens == 0 acts like a normal immediate delete
+    if (ntokens == 3) {
+        opts = "";
+        olen = 0;
+    } else {
+        opts = tokens[KEY_TOKEN + 1].value;
+        olen = tokens[KEY_TOKEN + 1].length;
+        rtokens++;
+    }
+
+    if (olen > MFLAG_MAX_OPT_LENGTH) {
+        out_string(c, "CLIENT_ERROR options flags too long");
+        return;
+    }
+
+    // copy opts before munging them.
+    // first two chars is status code.
+    p = c->wbuf + 3;
+    memcpy(p, opts, olen);
+    p += olen;
+
+    // scrubs duplicated options and sets flags for how to load the item.
+    int mfres = _meta_flag_preparse(opts, olen, &of);
+
+    if (mfres + rtokens != ntokens) {
+        if (mfres == -1) {
+            out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
+        } else {
+            out_errstring(c, "CLIENT_ERROR incorrect number of tokens supplied");
+        }
+        return;
+    }
+    rtokens = KEY_TOKEN + 2;
+    c->noreply = of.no_reply;
+
+    assert(c != NULL);
+    bool new_ttl = false;
+    for (i = 0; i < olen; i++) {
+        switch (opts[i]) {
+            case 'C':
+                if (!safe_strtoull(tokens[rtokens].value, &req_cas_id)) {
+                    goto error;
+                }
+                rtokens++;
+                break;
+            case 'T':
+                if (!safe_strtoul(tokens[rtokens].value, &exptime_int)) {
+                    goto error;
+                }
+                new_ttl = true;
+                rtokens++;
+                break;
+            // TODO: macro perhaps?
+            case 'O':
+                if (tokens[rtokens].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                    errstr = "CLIENT_ERROR opaque token too long";
+                    goto error;
+                }
+                *p = ' ';
+                memcpy(p+1, tokens[rtokens].value, tokens[rtokens].length);
+                p += tokens[rtokens].length + 1;
+                rtokens++;
+                break;
+            case 'k':
+                *p = ' ';
+                memcpy(p+1, key, nkey);
+                p += nkey + 1;
+                rtokens++;
+                break;
+        }
+    }
+
+    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+    if (it) {
+        MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
+
+        // allow only deleting/marking if a CAS value matches.
+        if (req_cas_id != 0 && ITEM_get_cas(it) != req_cas_id) {
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.delete_misses++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
+            // Need to ensure client gets this response.
+            memcpy(c->wbuf, "EX ", 3);
+            c->wbytes = p - c->wbuf;
+            out_mstring(c, DISABLE_NOREPLY);
+            goto cleanup;
+        }
+
+        // If we're to set this item as stale, we don't actually want to
+        // delete it. We mark the stale bit, bump CAS, and update exptime if
+        // we were supplied a new TTL.
+        if (of.set_stale) {
+            if (new_ttl) {
+                it->exptime = realtime(exptime_int);
+            }
+            it->it_flags |= ITEM_STALE;
+            // Also need to remove TOKEN_SENT, so next client can win.
+            it->it_flags &= ~ITEM_TOKEN_SENT;
+
+            ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+
+            memcpy(c->wbuf, "DE ", 3);
+            // TODO: just use two diff funcs? :|
+            // also, take len for arg?
+            c->wbytes = p - c->wbuf;
+            out_mstring(c, ALLOW_NOREPLY);
+        } else {
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
+            do_item_unlink(it, hv);
+            STORAGE_delete(c->thread->storage, it);
+            memcpy(c->wbuf, "DE ", 3);
+            c->wbytes = p - c->wbuf;
+            out_mstring(c, ALLOW_NOREPLY);
+        }
+        goto cleanup;
+    } else {
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        c->thread->stats.delete_misses++;
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+
+        memcpy(c->wbuf, "NF ", 3);
+        c->wbytes = p - c->wbuf;
+        out_mstring(c, ALLOW_NOREPLY);
+        goto cleanup;
+    }
+cleanup:
+    if (it) {
+        do_item_remove(it);
+    }
+    // Item is always returned locked, even if missing.
+    item_unlock(hv);
+    return;
+error:
+    out_errstring(c, errstr);
+}
+
+
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
     char *key;
     size_t nkey;
@@ -4169,7 +5204,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
             status = NO_MEMORY;
         }
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
-                NULL, status, comm, key, nkey, 0, 0);
+                NULL, status, comm, key, nkey, 0, 0, c->sfd);
         /* swallow the data line */
         c->write_and_go = conn_swallow;
         c->sbytes = vlen;
@@ -4543,6 +5578,11 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
     assert(c != NULL);
 
     set_noreply_maybe(c, tokens, ntokens);
+    if (!settings.watch_enabled) {
+        out_string(c, "CLIENT_ERROR watch commands not allowed");
+        return;
+    }
+
     if (ntokens > 2) {
         for (x = COMMAND_TOKEN + 1; x < ntokens - 1; x++) {
             if ((strcmp(tokens[x].value, "rawcmds") == 0)) {
@@ -4773,6 +5813,18 @@ static void process_command(conn *c, char *command) {
 
         process_get_command(c, tokens, ntokens, true, false);
 
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "mg") == 0)) {
+        process_mget_command(c, tokens, ntokens);
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "ms") == 0)) {
+        process_mset_command(c, tokens, ntokens);
+    } else if (ntokens >= 3 && (strcmp(tokens[COMMAND_TOKEN].value, "md") == 0)) {
+        process_mdelete_command(c, tokens, ntokens);
+    } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "mn") == 0)) {
+        out_string(c, "EN");
+        return;
+    } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "me") == 0)) {
+        process_meta_command(c, tokens, ntokens);
+        return;
     } else if ((ntokens == 4 || ntokens == 5) && (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0)) {
 
         process_arithmetic_command(c, tokens, ntokens, 0);
@@ -4993,7 +6045,7 @@ static void process_command(conn *c, char *command) {
                     out_string(c, "ERROR failed to start lru crawler thread");
                 }
             } else if ((strcmp(tokens[COMMAND_TOKEN + 1].value, "disable") == 0)) {
-                if (stop_item_crawler_thread() == 0) {
+                if (stop_item_crawler_thread(CRAWLER_NOWAIT) == 0) {
                     out_string(c, "OK");
                 } else {
                     out_string(c, "ERROR failed to stop lru crawler thread");
@@ -5487,7 +6539,7 @@ static enum transmit_result transmit(conn *c) {
         struct msghdr *m = &c->msglist[c->msgcurr];
 
         res = c->sendmsg(c, m, 0);
-        if (res > 0) {
+        if (res >= 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -5517,7 +6569,7 @@ static enum transmit_result transmit(conn *c) {
             }
             return TRANSMIT_SOFT_ERROR;
         }
-        /* if res == 0 or res == -1 and error is not EAGAIN or EWOULDBLOCK,
+        /* if res == -1 and error is not EAGAIN or EWOULDBLOCK,
            we have a real error, on which we close the connection */
         if (settings.verbose > 0)
             perror("Failed to write, and not due to blocking");
@@ -5673,14 +6725,20 @@ static void drive_machine(conn *c) {
                 }
             }
 
-            if (settings.maxconns_fast &&
-                stats_state.curr_conns + stats_state.reserved_fds >= settings.maxconns - 1) {
+            bool reject;
+            if (settings.maxconns_fast) {
+                STATS_LOCK();
+                reject = stats_state.curr_conns + stats_state.reserved_fds >= settings.maxconns - 1;
+                stats.rejected_conns++;
+                STATS_UNLOCK();
+            } else {
+                reject = false;
+            }
+
+            if (reject) {
                 str = "ERROR Too many open connections\r\n";
                 res = write(sfd, str, strlen(str));
                 close(sfd);
-                STATS_LOCK();
-                stats.rejected_conns++;
-                STATS_UNLOCK();
             } else {
                 void *ssl_v = NULL;
 #ifdef TLS
@@ -5713,6 +6771,7 @@ static void drive_machine(conn *c) {
                             if (settings.verbose) {
                                 fprintf(stderr, "SSL connection failed with error code : %d : %s\n", err, strerror(errno));
                             }
+                            SSL_free(ssl);
                             close(sfd);
                             break;
                         }
@@ -5867,6 +6926,11 @@ static void drive_machine(conn *c) {
                 out_of_memory(c, "SERVER_ERROR Out of memory during read");
                 c->sbytes = c->rlbytes;
                 c->write_and_go = conn_swallow;
+                // Ensure this flag gets cleared. It gets killed on conn_new()
+                // so any conn_closing is fine, calling complete_nread is
+                // fine. This swallow semms to be the only other case.
+                c->set_stale = false;
+                c->mset_res = false;
                 break;
             }
             /* otherwise we have a real error, on which we close the connection */
@@ -6232,7 +7296,16 @@ static int server_socket(const char *interface,
                  * among threads, so this is guaranteed to assign one
                  * FD to each thread.
                  */
-                int per_thread_fd = c ? dup(sfd) : sfd;
+                int per_thread_fd;
+                if (c == 0) {
+                    per_thread_fd = sfd;
+                } else {
+                    per_thread_fd = dup(sfd);
+                    if (per_thread_fd < 0) {
+                        perror("Failed to duplicate file descriptor");
+                        exit(EXIT_FAILURE);
+                    }
+                }
                 dispatch_conn_new(per_thread_fd, conn_read,
                                   EV_READ | EV_PERSIST,
                                   UDP_READ_BUFFER_SIZE, transport, NULL);
@@ -6291,6 +7364,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strncmp(p, notls, strlen(notls)) == 0) {
                 if (!settings.ssl_enabled) {
                     fprintf(stderr, "'notls' option is valid only when SSL is enabled\n");
+                    free(list);
                     return 1;
                 }
                 ssl_enabled = false;
@@ -6431,6 +7505,10 @@ static int server_socket_unix(const char *path, int access_mask) {
  */
 volatile rel_time_t current_time;
 static struct event clockevent;
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+static bool monotonic = false;
+static int64_t monotonic_start;
+#endif
 
 /* libevent uses a monotonic clock when available for event scheduling. Aside
  * from jitter, simply ticking our internal timer here is accurate enough.
@@ -6439,25 +7517,12 @@ static struct event clockevent;
 static void clock_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 1, .tv_usec = 0};
     static bool initialized = false;
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
-    static bool monotonic = false;
-    static time_t monotonic_start;
-#endif
 
     if (initialized) {
         /* only delete the event if it's actually there. */
         evtimer_del(&clockevent);
     } else {
         initialized = true;
-        /* process_started is initialized to time() - 2. We initialize to 1 so
-         * flush_all won't underflow during tests. */
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
-        struct timespec ts;
-        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-            monotonic = true;
-            monotonic_start = ts.tv_sec - ITEM_UPDATE_INTERVAL - 2;
-        }
-#endif
     }
 
     // While we're here, check for hash table expansion.
@@ -6491,13 +7556,25 @@ static void clock_handler(const int fd, const short which, void *arg) {
     }
 }
 
+static const char* flag_enabled_disabled(bool flag) {
+    return (flag ? "enabled" : "disabled");
+}
+
+static void verify_default(const char* param, bool condition) {
+    if (!condition) {
+        printf("Default value of [%s] has changed."
+            " Modify the help text and default value check.\n", param);
+        exit(EXIT_FAILURE);
+    }
+}
+
 static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
-    printf("-p, --port=<num>          TCP port to listen on (default: 11211)\n"
-           "-U, --udp-port=<num>      UDP port to listen on (default: 0, off)\n"
+    printf("-p, --port=<num>          TCP port to listen on (default: %d)\n"
+           "-U, --udp-port=<num>      UDP port to listen on (default: %d, off)\n"
            "-s, --unix-socket=<file>  UNIX socket to listen on (disables network support)\n"
            "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
-           "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: 0700)\n"
+           "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: %o)\n"
            "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
 #ifdef TLS
            "                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
@@ -6506,9 +7583,9 @@ static void usage(void) {
            "-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
-           "-m, --memory-limit=<num>  item memory in megabytes (default: 64 MB)\n"
+           "-m, --memory-limit=<num>  item memory in megabytes (default: %lu)\n"
            "-M, --disable-evictions   return error on memory exhausted instead of evicting\n"
-           "-c, --conn-limit=<num>    max simultaneous connections (default: 1024)\n"
+           "-c, --conn-limit=<num>    max simultaneous connections (default: %d)\n"
            "-k, --lock-memory         lock down all paged memory\n"
            "-v, --verbose             verbose (print errors/warnings while in event loop)\n"
            "-vv                       very verbose (also print client commands/responses)\n"
@@ -6517,105 +7594,136 @@ static void usage(void) {
            "-i, --license             print memcached and libevent license\n"
            "-V, --version             print version and exit\n"
            "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
-           "-f, --slab-growth-factor=<num> chunk size growth factor (default: 1.25)\n"
-           "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: 48)\n");
+           "-f, --slab-growth-factor=<num> chunk size growth factor (default: %2.2f)\n"
+           "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: %d)\n",
+           settings.port, settings.udpport, settings.access, (unsigned long) settings.maxbytes / (1 << 20),
+           settings.maxconns, settings.factor, settings.chunk_size);
+    verify_default("udp-port",settings.udpport == 0);
     printf("-L, --enable-largepages  try to use large memory pages (if available)\n");
     printf("-D <char>     Use <char> as the delimiter between key prefixes and IDs.\n"
            "              This is used for per-prefix stats reporting. The default is\n"
-           "              \":\" (colon). If this option is specified, stats collection\n"
+           "              \"%c\" (colon). If this option is specified, stats collection\n"
            "              is turned on automatically; if not, then it may be turned on\n"
-           "              by sending the \"stats detail on\" command to the server.\n");
-    printf("-t, --threads=<num>       number of threads to use (default: 4)\n");
+           "              by sending the \"stats detail on\" command to the server.\n",
+           settings.prefix_delimiter);
+    printf("-t, --threads=<num>       number of threads to use (default: %d)\n", settings.num_threads);
     printf("-R, --max-reqs-per-event  maximum number of requests per event, limits the\n"
            "                          requests processed per connection to prevent \n"
-           "                          starvation (default: 20)\n");
+           "                          starvation (default: %d)\n", settings.reqs_per_event);
     printf("-C, --disable-cas         disable use of CAS\n");
-    printf("-b, --listen-backlog=<num> set the backlog queue limit (default: 1024)\n");
-    printf("-B, --protocol=<name>     protocol - one of ascii, binary, or auto (default)\n");
+    printf("-b, --listen-backlog=<num> set the backlog queue limit (default: %d)\n", settings.backlog);
+    printf("-B, --protocol=<name>     protocol - one of ascii, binary, or auto (default: %s)\n",
+           prot_text(settings.binding_protocol));
     printf("-I, --max-item-size=<num> adjusts max item size\n"
-           "                          (default: 1mb, min: 1k, max: 1024m)\n");
+           "                          (default: %dm, min: %dk, max: %dm)\n",
+           settings.item_size_max/ (1 << 20), ITEM_SIZE_MAX_LOWER_LIMIT / (1 << 10),  ITEM_SIZE_MAX_UPPER_LIMIT / (1 << 20));
 #ifdef ENABLE_SASL
     printf("-S, --enable-sasl         turn on Sasl authentication\n");
 #endif
     printf("-F, --disable-flush-all   disable flush_all command\n");
     printf("-X, --disable-dumping     disable stats cachedump and lru_crawler metadump\n");
+    printf("-W  --disable-watch       disable watch commands (live logging)\n");
     printf("-Y, --auth-file=<file>    (EXPERIMENTAL) enable ASCII protocol authentication. format:\n"
            "                          user:pass\\nuser2:pass2\\n\n");
+    printf("-e, --memory-file=<file>  (EXPERIMENTAL) mmap a file for item memory.\n"
+           "                          use only in ram disks or persistent memory mounts!\n"
+           "                          enables restartable cache (stop with SIGUSR1)\n");
 #ifdef TLS
     printf("-Z, --enable-ssl          enable TLS/SSL\n");
 #endif
     printf("-o, --extended            comma separated list of extended options\n"
            "                          most options have a 'no_' prefix to disable\n"
-           "   - maxconns_fast:       immediately close new connections after limit\n"
+           "   - maxconns_fast:       immediately close new connections after limit (default: %s)\n"
            "   - hashpower:           an integer multiplier for how large the hash\n"
-           "                          table should be. normally grows at runtime.\n"
+           "                          table should be. normally grows at runtime. (default starts at: %d)\n"
            "                          set based on \"STAT hash_power_level\"\n"
            "   - tail_repair_time:    time in seconds for how long to wait before\n"
            "                          forcefully killing LRU tail item.\n"
            "                          disabled by default; very dangerous option.\n"
            "   - hash_algorithm:      the hash table algorithm\n"
            "                          default is murmur3 hash. options: jenkins, murmur3\n"
-           "   - lru_crawler:         enable LRU Crawler background thread\n"
+           "   - no_lru_crawler:      disable LRU Crawler background thread.\n"
            "   - lru_crawler_sleep:   microseconds to sleep between items\n"
-           "                          default is 100.\n"
+           "                          default is %d.\n"
            "   - lru_crawler_tocrawl: max items to crawl per slab per run\n"
-           "                          default is 0 (unlimited)\n"
-           "   - lru_maintainer:      enable new LRU system + background thread\n"
+           "                          default is %u (unlimited)\n",
+           flag_enabled_disabled(settings.maxconns_fast), settings.hashpower_init,
+           settings.lru_crawler_sleep, settings.lru_crawler_tocrawl);
+    printf("   - no_lru_maintainer:   disable new LRU system + background thread.\n"
            "   - hot_lru_pct:         pct of slab memory to reserve for hot lru.\n"
-           "                          (requires lru_maintainer)\n"
+           "                          (requires lru_maintainer, default pct: %d)\n"
            "   - warm_lru_pct:        pct of slab memory to reserve for warm lru.\n"
-           "                          (requires lru_maintainer)\n"
-           "   - hot_max_factor:      items idle > cold lru age * drop from hot lru.\n"
-           "   - warm_max_factor:     items idle > cold lru age * this drop from warm.\n"
+           "                          (requires lru_maintainer, default pct: %d)\n"
+           "   - hot_max_factor:      items idle > cold lru age * drop from hot lru. (default: %.2f)\n"
+           "   - warm_max_factor:     items idle > cold lru age * this drop from warm. (default: %.2f)\n"
            "   - temporary_ttl:       TTL's below get separate LRU, can't be evicted.\n"
-           "                          (requires lru_maintainer)\n"
-           "   - idle_timeout:        timeout for idle connections\n"
-           "   - slab_chunk_max:      (EXPERIMENTAL) maximum slab size. use extreme care.\n"
-           "   - watcher_logbuf_size: size in kilobytes of per-watcher write buffer.\n"
+           "                          (requires lru_maintainer, default: %d)\n"
+           "   - idle_timeout:        timeout for idle connections. (default: %d, no timeout)\n",
+           settings.hot_lru_pct, settings.warm_lru_pct, settings.hot_max_factor, settings.warm_max_factor,
+           settings.temporary_ttl, settings.idle_timeout);
+    printf("   - slab_chunk_max:      (EXPERIMENTAL) maximum slab size in kilobytes. use extreme care. (default: %d)\n"
+           "   - watcher_logbuf_size: size in kilobytes of per-watcher write buffer. (default: %u)\n"
            "   - worker_logbuf_size:  size in kilobytes of per-worker-thread buffer\n"
-           "                          read by background thread, then written to watchers.\n"
+           "                          read by background thread, then written to watchers. (default: %u)\n"
            "   - track_sizes:         enable dynamic reports for 'stats sizes' command.\n"
            "   - no_hashexpand:       disables hash table expansion (dangerous)\n"
            "   - modern:              enables options which will be default in future.\n"
-           "             currently: nothing\n"
-           "   - no_modern:           uses defaults of previous major version (1.4.x)\n"
+           "                          currently: nothing\n"
+           "   - no_modern:           uses defaults of previous major version (1.4.x)\n",
+           settings.slab_chunk_size_max / (1 << 10), settings.logger_watcher_buf_size / (1 << 10),
+           settings.logger_buf_size / (1 << 10));
+    verify_default("tail_repair_time", settings.tail_repair_time == TAIL_REPAIR_TIME_DEFAULT);
+    verify_default("lru_crawler_tocrawl", settings.lru_crawler_tocrawl == 0);
+    verify_default("idle_timeout", settings.idle_timeout == 0);
 #ifdef HAVE_DROP_PRIVILEGES
-           "   - drop_privileges:     enable dropping extra syscall privileges\n"
+    printf("   - drop_privileges:     enable dropping extra syscall privileges\n"
            "   - no_drop_privileges:  disable drop_privileges in case it causes issues with\n"
            "                          some customisation.\n"
+           "                          (default is no_drop_privileges)\n");
+    verify_default("drop_privileges", !settings.drop_privileges);
 #ifdef MEMCACHED_DEBUG
-           "   - relaxed_privileges: Running tests requires extra privileges.\n"
+    printf("   - relaxed_privileges:  running tests requires extra privileges. (default: %s)\n",
+           flag_enabled_disabled(settings.relaxed_privileges));
 #endif
 #endif
 #ifdef EXTSTORE
-           "   - ext_path:            file to write to for external storage.\n"
+    printf("   - ext_path:            file to write to for external storage.\n"
            "                          ie: ext_path=/mnt/d1/extstore:1G\n"
-           "   - ext_page_size:       size in megabytes of storage pages.\n"
-           "   - ext_wbuf_size:       size in megabytes of page write buffers.\n"
-           "   - ext_threads:         number of IO threads to run.\n"
-           "   - ext_item_size:       store items larger than this (bytes)\n"
-           "   - ext_item_age:        store items idle at least this long\n"
-           "   - ext_low_ttl:         consider TTLs lower than this specially\n"
-           "   - ext_drop_unread:     don't re-write unread values during compaction\n"
-           "   - ext_recache_rate:    recache an item every N accesses\n"
+           "   - ext_page_size:       size in megabytes of storage pages. (default: %u)\n"
+           "   - ext_wbuf_size:       size in megabytes of page write buffers. (default: %u)\n"
+           "   - ext_threads:         number of IO threads to run. (default: %u)\n"
+           "   - ext_item_size:       store items larger than this (bytes, default %u)\n"
+           "   - ext_item_age:        store items idle at least this long (seconds, default: no age limit)\n"
+           "   - ext_low_ttl:         consider TTLs lower than this specially (default: %u)\n"
+           "   - ext_drop_unread:     don't re-write unread values during compaction (default: %s)\n"
+           "   - ext_recache_rate:    recache an item every N accesses (default: %u)\n"
            "   - ext_compact_under:   compact when fewer than this many free pages\n"
+           "                          (default: 1/4th of the assigned storage)\n"
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
-           "   - ext_max_frag:        max page fragmentation to tolerage\n"
+           "                          (default: 1/4th of the assigned storage)\n"
+           "   - ext_max_frag:        max page fragmentation to tolerage (default: %.2f)\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
-           "                          (see doc/storage.txt for more info)\n"
+           "                          (see doc/storage.txt for more info, default: %.3f)\n",
+           settings.ext_page_size / (1 << 20), settings.ext_wbuf_size / (1 << 20), settings.ext_io_threadcount,
+           settings.ext_item_size, settings.ext_low_ttl,
+           flag_enabled_disabled(settings.ext_drop_unread), settings.ext_recache_rate,
+           settings.ext_max_frag, settings.slab_automove_freeratio);
+    verify_default("ext_item_age", settings.ext_item_age == UINT_MAX);
 #endif
 #ifdef TLS
-           "   - ssl_chain_cert:      certificate chain file in PEM format\n"
+    printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"
            "   - ssl_key:             private key, if not part of the -ssl_chain_cert\n"
-           "   - ssl_keyformat:         private key format (PEM, DER or ENGINE) PEM default\n"
-           "   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
+           "   - ssl_keyformat:       private key format (PEM, DER or ENGINE) (default: PEM)\n");
+    printf("   - ssl_verify_mode:     peer certificate verification mode, default is 0(None).\n"
            "                          valid values are 0(None), 1(Request), 2(Require)\n"
-           "                          or 3(Once)\n"
-           "   - ssl_ciphers:         specify cipher list to be used\n"
+           "                          or 3(Once)\n");
+    printf("   - ssl_ciphers:         specify cipher list to be used\n"
            "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
            "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
+           "                          (default: %u)\n", settings.ssl_wbuf_size / (1 << 10));
+    verify_default("ssl_keyformat", settings.ssl_keyformat == SSL_FILETYPE_PEM);
+    verify_default("ssl_verify_mode", settings.ssl_verify_mode == SSL_VERIFY_NONE);
 #endif
-           );
     return;
 }
 
@@ -6746,6 +7854,11 @@ static void sig_handler(const int sig) {
 
 static void sighup_handler(const int sig) {
     settings.sig_hup = true;
+}
+
+static void sig_usrhandler(const int sig) {
+    printf("Graceful shutdown signal handled: %s.\n", strsignal(sig));
+    stop_main_loop = true;
 }
 
 #ifndef HAVE_SIGIGNORE
@@ -6888,6 +8001,296 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
     return true;
 }
 
+struct _mc_meta_data {
+    void *mmap_base;
+    uint64_t old_base;
+    char *slab_config; // string containing either factor or custom slab list.
+    int64_t time_delta;
+    uint64_t process_started;
+    uint32_t current_time;
+};
+
+// We need to remember a combination of configuration settings and global
+// state for restart viability and resumption of internal services.
+// Compared to the number of tunables and state values, relatively little
+// does need to be remembered.
+// Time is the hardest; we have to assume the sys clock is correct and re-sync for
+// the lost time after restart.
+static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
+    struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
+
+    // Settings to remember.
+    // TODO: should get a version of version which is numeric, else
+    // comparisons for compat reasons are difficult.
+    // it may be possible to punt on this for now; since we can test for the
+    // absense of another key... such as the new numeric version.
+    //restart_set_kv(ctx, "version", "%s", VERSION);
+    // We hold the original factor or subopts _string_
+    // it can be directly compared without roundtripping through floats or
+    // serializing/deserializing the long options list.
+    restart_set_kv(ctx, "slab_config", "%s", meta->slab_config);
+    restart_set_kv(ctx, "maxbytes", "%llu", (unsigned long long) settings.maxbytes);
+    restart_set_kv(ctx, "chunk_size", "%d", settings.chunk_size);
+    restart_set_kv(ctx, "item_size_max", "%d", settings.item_size_max);
+    restart_set_kv(ctx, "slab_chunk_size_max", "%d", settings.slab_chunk_size_max);
+    restart_set_kv(ctx, "slab_page_size", "%d", settings.slab_page_size);
+    restart_set_kv(ctx, "use_cas", "%s", settings.use_cas ? "true" : "false");
+    restart_set_kv(ctx, "slab_reassign", "%s", settings.slab_reassign ? "true" : "false");
+
+    // Online state to remember.
+
+    // current time is tough. we need to rely on the clock being correct to
+    // pull the delta between stop and start times. we also need to know the
+    // delta between start time and now to restore monotonic clocks.
+    // for non-monotonic clocks (some OS?), process_started is the only
+    // important one.
+    restart_set_kv(ctx, "current_time", "%u", current_time);
+    // types are great until... this. some systems time_t could be big, but
+    // I'm assuming never negative.
+    restart_set_kv(ctx, "process_started", "%llu", (unsigned long long) process_started);
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        restart_set_kv(ctx, "stop_time", "%lu", tv.tv_sec);
+    }
+
+    // Might as well just fetch the next CAS value to use than tightly
+    // coupling the internal variable into the restart system.
+    restart_set_kv(ctx, "current_cas", "%llu", (unsigned long long) get_cas_id());
+    restart_set_kv(ctx, "oldest_cas", "%llu", (unsigned long long) settings.oldest_cas);
+    restart_set_kv(ctx, "logger_gid", "%llu", logger_get_gid());
+    restart_set_kv(ctx, "hashpower", "%u", stats_state.hash_power_level);
+    // NOTE: oldest_live is a rel_time_t, which aliases for unsigned int.
+    // should future proof this with a 64bit upcast, or fetch value from a
+    // converter function/macro?
+    restart_set_kv(ctx, "oldest_live", "%u", settings.oldest_live);
+    // TODO: use uintptr_t etc? is it portable enough?
+    restart_set_kv(ctx, "mmap_oldbase", "%p", meta->mmap_base);
+
+    return 0;
+}
+
+// We must see at least this number of checked lines. Else empty/missing lines
+// could cause a false-positive.
+// TODO: Once crc32'ing of the metadata file is done this could be ensured better by
+// the restart module itself (crc32 + count of lines must match on the
+// backend)
+#define RESTART_REQUIRED_META 17
+
+// With this callback we make a decision on if the current configuration
+// matches up enough to allow reusing the cache.
+// We also re-load important runtime information.
+static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
+    struct _mc_meta_data *meta = (struct _mc_meta_data *)data;
+    char *key;
+    char *val;
+    int reuse_mmap = 0;
+    meta->process_started = 0;
+    meta->time_delta = 0;
+    meta->current_time = 0;
+    int lines_seen = 0;
+
+    // TODO: not sure this is any better than just doing an if/else tree with
+    // strcmp's...
+    enum {
+        R_MMAP_OLDBASE = 0,
+        R_MAXBYTES,
+        R_CHUNK_SIZE,
+        R_ITEM_SIZE_MAX,
+        R_SLAB_CHUNK_SIZE_MAX,
+        R_SLAB_PAGE_SIZE,
+        R_SLAB_CONFIG,
+        R_USE_CAS,
+        R_SLAB_REASSIGN,
+        R_CURRENT_CAS,
+        R_OLDEST_CAS,
+        R_OLDEST_LIVE,
+        R_LOGGER_GID,
+        R_CURRENT_TIME,
+        R_STOP_TIME,
+        R_PROCESS_STARTED,
+        R_HASHPOWER,
+    };
+
+    const char *opts[] = {
+        [R_MMAP_OLDBASE] = "mmap_oldbase",
+        [R_MAXBYTES] = "maxbytes",
+        [R_CHUNK_SIZE] = "chunk_size",
+        [R_ITEM_SIZE_MAX] = "item_size_max",
+        [R_SLAB_CHUNK_SIZE_MAX] = "slab_chunk_size_max",
+        [R_SLAB_PAGE_SIZE] = "slab_page_size",
+        [R_SLAB_CONFIG] = "slab_config",
+        [R_USE_CAS] = "use_cas",
+        [R_SLAB_REASSIGN] = "slab_reassign",
+        [R_CURRENT_CAS] = "current_cas",
+        [R_OLDEST_CAS] = "oldest_cas",
+        [R_OLDEST_LIVE] = "oldest_live",
+        [R_LOGGER_GID] = "logger_gid",
+        [R_CURRENT_TIME] = "current_time",
+        [R_STOP_TIME] = "stop_time",
+        [R_PROCESS_STARTED] = "process_started",
+        [R_HASHPOWER] = "hashpower",
+        NULL
+    };
+
+    while (restart_get_kv(ctx, &key, &val) == RESTART_OK) {
+        int type = 0;
+        int32_t val_int = 0;
+        uint32_t val_uint = 0;
+        int64_t bigval_int = 0;
+        uint64_t bigval_uint = 0;
+
+        while (opts[type] != NULL && strcmp(key, opts[type]) != 0) {
+            type++;
+        }
+        if (opts[type] == NULL) {
+            fprintf(stderr, "[restart] unknown/unhandled key: %s\n", key);
+            continue;
+        }
+        lines_seen++;
+
+        // helper for any boolean checkers.
+        bool val_bool = false;
+        bool is_bool = true;
+        if (strcmp(val, "false") == 0) {
+            val_bool = false;
+        } else if (strcmp(val, "true") == 0) {
+            val_bool = true;
+        } else {
+            is_bool = false;
+        }
+
+        switch (type) {
+        case R_MMAP_OLDBASE:
+            if (!safe_strtoull_hex(val, &meta->old_base)) {
+                fprintf(stderr, "[restart] failed to parse %s: %s\n", key, val);
+                reuse_mmap = -1;
+            }
+            break;
+        case R_MAXBYTES:
+            if (!safe_strtoll(val, &bigval_int) || settings.maxbytes != bigval_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_CHUNK_SIZE:
+            if (!safe_strtol(val, &val_int) || settings.chunk_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_ITEM_SIZE_MAX:
+            if (!safe_strtol(val, &val_int) || settings.item_size_max != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_CHUNK_SIZE_MAX:
+            if (!safe_strtol(val, &val_int) || settings.slab_chunk_size_max != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_PAGE_SIZE:
+            if (!safe_strtol(val, &val_int) || settings.slab_page_size != val_int) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_CONFIG:
+            if (strcmp(val, meta->slab_config) != 0) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_USE_CAS:
+            if (!is_bool || settings.use_cas != val_bool) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_SLAB_REASSIGN:
+            if (!is_bool || settings.slab_reassign != val_bool) {
+                reuse_mmap = -1;
+            }
+            break;
+        case R_CURRENT_CAS:
+            // FIXME: do we need to fail if these values _aren't_ found?
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                set_cas_id(bigval_uint);
+            }
+            break;
+        case R_OLDEST_CAS:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.oldest_cas = bigval_uint;
+            }
+            break;
+        case R_OLDEST_LIVE:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.oldest_live = val_uint;
+            }
+            break;
+        case R_LOGGER_GID:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                logger_set_gid(bigval_uint);
+            }
+            break;
+        case R_PROCESS_STARTED:
+            if (!safe_strtoull(val, &bigval_uint)) {
+                reuse_mmap = -1;
+            } else {
+                meta->process_started = bigval_uint;
+            }
+            break;
+        case R_CURRENT_TIME:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                meta->current_time = val_uint;
+            }
+            break;
+        case R_STOP_TIME:
+            if (!safe_strtoll(val, &bigval_int)) {
+                reuse_mmap = -1;
+            } else {
+                struct timeval t;
+                gettimeofday(&t, NULL);
+                meta->time_delta = t.tv_sec - bigval_int;
+                // clock has done something crazy.
+                // there are _lots_ of ways the clock can go wrong here, but
+                // this is a safe sanity check since there's nothing else we
+                // can realistically do.
+                if (meta->time_delta <= 0) {
+                    reuse_mmap = -1;
+                }
+            }
+            break;
+        case R_HASHPOWER:
+            if (!safe_strtoul(val, &val_uint)) {
+                reuse_mmap = -1;
+            } else {
+                settings.hashpower_init = val_uint;
+            }
+            break;
+        default:
+            fprintf(stderr, "[restart] unhandled key: %s\n", key);
+        }
+
+        if (reuse_mmap != 0) {
+            fprintf(stderr, "[restart] restart incompatible due to setting for [%s] [old value: %s]\n", key, val);
+            break;
+        }
+    }
+
+    if (lines_seen < RESTART_REQUIRED_META) {
+        fprintf(stderr, "[restart] missing some metadata lines\n");
+        reuse_mmap = -1;
+    }
+
+    return reuse_mmap;
+}
+
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
@@ -6896,6 +8299,7 @@ int main (int argc, char **argv) {
     int maxcore = 0;
     char *username = NULL;
     char *pid_file = NULL;
+    char *memory_file = NULL;
     struct passwd *pw;
     struct rlimit rlim;
     char *buf;
@@ -6914,6 +8318,10 @@ int main (int argc, char **argv) {
     bool use_slab_sizes = false;
     char *slab_sizes_unparsed = NULL;
     bool slab_chunk_size_changed = false;
+    // struct for restart code. Initialized up here so we can curry
+    // important settings to save or validate.
+    struct _mc_meta_data *meta = malloc(sizeof(struct _mc_meta_data));
+    meta->slab_config = NULL;
 #ifdef EXTSTORE
     void *storage = NULL;
     struct extstore_conf_file *storage_file = NULL;
@@ -7056,6 +8464,7 @@ int main (int argc, char **argv) {
     };
 
     if (!sanitycheck()) {
+        free(meta);
         return EX_OSERR;
     }
 
@@ -7063,9 +8472,11 @@ int main (int argc, char **argv) {
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
     signal(SIGHUP, sighup_handler);
+    signal(SIGUSR1, sig_usrhandler);
 
     /* init settings */
     settings_init();
+    verify_default("hash_algorithm", hash_type == MURMUR3_HASH);
 #ifdef EXTSTORE
     settings.ext_item_size = 512;
     settings.ext_item_age = UINT_MAX;
@@ -7077,9 +8488,11 @@ int main (int argc, char **argv) {
     settings.ext_compact_under = 0;
     settings.ext_drop_under = 0;
     settings.slab_automove_freeratio = 0.01;
-    ext_cf.page_size = 1024 * 1024 * 64;
+    settings.ext_page_size = 1024 * 1024 * 64;
+    settings.ext_io_threadcount = 1;
+    ext_cf.page_size = settings.ext_page_size;
     ext_cf.wbuf_size = settings.ext_wbuf_size;
-    ext_cf.io_threadcount = 1;
+    ext_cf.io_threadcount = settings.ext_io_threadcount;
     ext_cf.io_depth = 1;
     ext_cf.page_buckets = 4;
     ext_cf.wbuf_count = ext_cf.page_buckets;
@@ -7122,7 +8535,9 @@ int main (int argc, char **argv) {
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
           "X"   /* Disable dump commands */
+          "W"   /* Disable watch commands */
           "Y:"   /* Enable token auth */
+          "e:"  /* mmap path for external item memory */
           "o:"  /* Extended generic options */
           ;
 
@@ -7160,7 +8575,9 @@ int main (int argc, char **argv) {
         {"enable-sasl", no_argument, 0, 'S'},
         {"disable-flush-all", no_argument, 0, 'F'},
         {"disable-dumping", no_argument, 0, 'X'},
+        {"disable-watch", no_argument, 0, 'W'},
         {"auth-file", required_argument, 0, 'Y'},
+        {"memory-file", required_argument, 0, 'e'},
         {"extended", required_argument, 0, 'o'},
         {0, 0, 0, 0}
     };
@@ -7264,12 +8681,16 @@ int main (int argc, char **argv) {
         case 'P':
             pid_file = optarg;
             break;
+        case 'e':
+            memory_file = optarg;
+            break;
         case 'f':
             settings.factor = atof(optarg);
             if (settings.factor <= 1.0) {
                 fprintf(stderr, "Factor must be greater than 1\n");
                 return 1;
             }
+            meta->slab_config = strdup(optarg);
             break;
         case 'n':
             settings.chunk_size = atoi(optarg);
@@ -7361,6 +8782,9 @@ int main (int argc, char **argv) {
             break;
        case 'X' :
             settings.dump_enabled = false;
+            break;
+       case 'W' :
+            settings.watch_enabled = false;
             break;
        case 'Y' :
             // dupe the file path now just in case the options get mangled.
@@ -7566,7 +8990,7 @@ int main (int argc, char **argv) {
                 }
                 settings.logger_buf_size *= 1024; /* kilobytes */
             case SLAB_SIZES:
-                slab_sizes_unparsed = subopts_value;
+                slab_sizes_unparsed = strdup(subopts_value);
                 break;
             case SLAB_CHUNK_MAX:
                 if (subopts_value == NULL) {
@@ -7876,7 +9300,7 @@ int main (int argc, char **argv) {
         }
     }
 
-    if (settings.item_size_max < 1024) {
+    if (settings.item_size_max < ITEM_SIZE_MAX_LOWER_LIMIT) {
         fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
         exit(EX_USAGE);
     }
@@ -7884,7 +9308,7 @@ int main (int argc, char **argv) {
         fprintf(stderr, "Cannot set item size limit higher than 1/2 of memory max.\n");
         exit(EX_USAGE);
     }
-    if (settings.item_size_max > (1024 * 1024 * 1024)) {
+    if (settings.item_size_max > (ITEM_SIZE_MAX_UPPER_LIMIT)) {
         fprintf(stderr, "Cannot set item size limit higher than a gigabyte.\n");
         exit(EX_USAGE);
     }
@@ -7933,11 +9357,20 @@ int main (int argc, char **argv) {
     }*/
 
     if (slab_sizes_unparsed != NULL) {
+        // want the unedited string for restart code.
+        char *temp = strdup(slab_sizes_unparsed);
         if (_parse_slab_sizes(slab_sizes_unparsed, slab_sizes)) {
             use_slab_sizes = true;
+            if (meta->slab_config) {
+                free(meta->slab_config);
+            }
+            meta->slab_config = temp;
         } else {
             exit(EX_USAGE);
         }
+    } else if (!meta->slab_config) {
+        // using the default factor.
+        meta->slab_config = "1.25";
     }
 
     if (settings.hot_lru_pct + settings.warm_lru_pct > 80) {
@@ -7973,6 +9406,11 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "ERROR: You cannot allow the ASCII protocol while using SASL.\n");
                 exit(EX_USAGE);
             }
+        }
+
+        if (settings.udpport) {
+            fprintf(stderr, "ERROR: Cannot enable UDP while using binary SASL authentication.\n");
+            exit(EX_USAGE);
         }
     }
 
@@ -8063,8 +9501,18 @@ int main (int argc, char **argv) {
             exit(EX_NOUSER);
         }
         if (setgroups(0, NULL) < 0) {
-            fprintf(stderr, "failed to drop supplementary groups\n");
-            exit(EX_OSERR);
+            /* setgroups may fail with EPERM, indicating we are already in a
+             * minimally-privileged state. In that case we continue. For all
+             * other failure codes we exit.
+             *
+             * Note that errno is stored here because fprintf may change it.
+             */
+            bool should_exit = errno != EPERM;
+            fprintf(stderr, "failed to drop supplementary groups: %s\n",
+                    strerror(errno));
+            if (should_exit) {
+                exit(EX_OSERR);
+            }
         }
         if (setgid(pw->pw_gid) < 0 || setuid(pw->pw_uid) < 0) {
             fprintf(stderr, "failed to assume identity of user %s\n", username);
@@ -8142,16 +9590,46 @@ int main (int argc, char **argv) {
     }
 
     /* initialize other stuff */
-    logger_init();
     stats_init();
-    assoc_init(settings.hashpower_init);
+    logger_init();
     conn_init();
+    bool reuse_mem = false;
+    void *mem_base = NULL;
+    bool prefill = false;
+    if (memory_file != NULL) {
+        preallocate = true;
+        // Easier to manage memory if we prefill the global pool when reusing.
+        prefill = true;
+        restart_register("main", _mc_meta_load_cb, _mc_meta_save_cb, meta);
+        reuse_mem = restart_mmap_open(settings.maxbytes,
+                        memory_file,
+                        &mem_base);
+        // The "save" callback gets called when we're closing out the mmap,
+        // but we don't know what the mmap_base is until after we call open.
+        // So we pass the struct above but have to fill it in here so the
+        // data's available during the save routine.
+        meta->mmap_base = mem_base;
+        // Also, the callbacks for load() run before _open returns, so we
+        // should have the old base in 'meta' as of here.
+    }
+    // Initialize the hash table _after_ checking restart metadata.
+    // We override the hash table start argument with what was live
+    // previously, to avoid filling a huge set of items into a tiny hash
+    // table.
+    assoc_init(settings.hashpower_init);
+#ifdef EXTSTORE
+    if (storage_file && reuse_mem) {
+        fprintf(stderr, "[restart] memory restart with extstore not presently supported.\n");
+        reuse_mem = false;
+    }
+#endif
     slabs_init(settings.maxbytes, settings.factor, preallocate,
-            use_slab_sizes ? slab_sizes : NULL);
+            use_slab_sizes ? slab_sizes : NULL, mem_base, reuse_mem);
 #ifdef EXTSTORE
     if (storage_file) {
         enum extstore_res eres;
         if (settings.ext_compact_under == 0) {
+            // If changing the default fraction (4), change the help text as well.
             settings.ext_compact_under = storage_file->page_count / 4;
             /* Only rescues non-COLD items if below this threshold */
             settings.ext_drop_under = storage_file->page_count / 4;
@@ -8172,9 +9650,29 @@ int main (int argc, char **argv) {
         }
         ext_storage = storage;
         /* page mover algorithm for extstore needs memory prefilled */
-        slabs_prefill_global();
+        prefill = true;
     }
 #endif
+
+    if (settings.drop_privileges) {
+        setup_privilege_violations_handler();
+    }
+
+    if (prefill)
+        slabs_prefill_global();
+    /* In restartable mode and we've decided to issue a fixup on memory */
+    if (memory_file != NULL && reuse_mem) {
+        mc_ptr_t old_base = meta->old_base;
+        assert(old_base == meta->old_base);
+
+        // should've pulled in process_started from meta file.
+        process_started = meta->process_started;
+        // TODO: must be a more canonical way of serializing/deserializing
+        // pointers? passing through uint64_t should work, and we're not
+        // annotating the pointer with anything, but it's still slightly
+        // insane.
+        restart_fixup((void *)old_base);
+    }
     /*
      * ignore SIGPIPE signals; we can use errno == EPIPE if we
      * need that information
@@ -8215,6 +9713,7 @@ int main (int argc, char **argv) {
     if (start_lru_maintainer && start_lru_maintainer_thread(NULL) != 0) {
 #endif
         fprintf(stderr, "Failed to enable LRU maintainer thread\n");
+        free(meta);
         return 1;
     }
 
@@ -8228,6 +9727,25 @@ int main (int argc, char **argv) {
     }
 
     /* initialise clock event */
+#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
+    {
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+            monotonic = true;
+            monotonic_start = ts.tv_sec;
+            // Monotonic clock needs special handling for restarts.
+            // We get a start time at an arbitrary place, so we need to
+            // restore the original time delta, which is always "now" - _start
+            if (reuse_mem) {
+                // the running timespan at stop time + the time we think we
+                // were stopped.
+                monotonic_start -= meta->current_time + meta->time_delta;
+            } else {
+                monotonic_start -= ITEM_UPDATE_INTERVAL + 2;
+            }
+        }
+    }
+#endif
     clock_handler(0, 0, 0);
 
     /* create unix mode sockets after dropping privileges */
@@ -8312,11 +9830,25 @@ int main (int argc, char **argv) {
     uriencode_init();
 
     /* enter the event loop */
-    if (event_base_loop(main_base, 0) != 0) {
-        retval = EXIT_FAILURE;
+    while (!stop_main_loop) {
+        if (event_base_loop(main_base, EVLOOP_ONCE) != 0) {
+            retval = EXIT_FAILURE;
+            break;
+        }
     }
 
-    stop_assoc_maintenance_thread();
+    fprintf(stderr, "Gracefully stopping\n");
+    stop_threads();
+    int i;
+    // FIXME: make a function callable from threads.c
+    for (i = 0; i < max_fds; i++) {
+        if (conns[i] && conns[i]->state != conn_closed) {
+            conn_close(conns[i]);
+        }
+    }
+    if (memory_file != NULL) {
+        restart_mmap_close();
+    }
 
     /* remove the PID file if we're a daemon */
     if (do_daemonize)
@@ -8327,6 +9859,8 @@ int main (int argc, char **argv) {
 
     /* cleanup base */
     event_base_free(main_base);
+
+    free(meta);
 
     return retval;
 }

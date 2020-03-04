@@ -15,7 +15,7 @@ my @unixsockets = ();
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
              supports_sasl free_port supports_drop_priv supports_extstore
-             wait_ext_flush supports_tls enabled_tls_testing);
+             wait_ext_flush supports_tls enabled_tls_testing run_help);
 
 use constant MAX_READ_WRITE_SIZE => 16384;
 use constant SRV_CRT => "server_crt.pem";
@@ -223,6 +223,18 @@ sub supports_drop_priv {
     return 0;
 }
 
+sub get_memcached_exe {
+    my $exe = "$builddir/memcached-debug";
+    croak("memcached binary doesn't exist.  Haven't run 'make' ?\n") unless -e $exe;
+    croak("memcached binary not executable\n") unless -x _;
+    return $exe;
+}
+
+sub run_help {
+    my $exe = get_memcached_exe();
+    return system("$exe -h");
+}
+
 sub new_memcached {
     my ($args, $passed_port) = @_;
     my $port = $passed_port;
@@ -277,11 +289,10 @@ sub new_memcached {
 
     my $childpid = fork();
 
-    my $exe = "$builddir/memcached-debug";
-    croak("memcached binary doesn't exist.  Haven't run 'make' ?\n") unless -e $exe;
-    croak("memcached binary not executable\n") unless -x _;
+    my $exe = get_memcached_exe();
 
     unless ($childpid) {
+        #print STDERR "RUN: $exe $args\n";
         exec "$builddir/timedrun 600 $exe $args";
         exit; # never gets here.
     }
@@ -348,6 +359,11 @@ sub DESTROY {
 sub stop {
     my $self = shift;
     kill 15, $self->{pid};
+}
+
+sub graceful_stop {
+    my $self = shift;
+    kill 'SIGUSR1', $self->{pid};
 }
 
 sub host { $_[0]{host} }

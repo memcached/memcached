@@ -88,8 +88,8 @@ static int logger_thread_poll_watchers(int force_poll, int watcher);
 
 /* Logger GID's can be used by watchers to put logs back into strict order
  */
-static uint64_t logger_get_gid(void) {
-    static uint64_t logger_gid = 0;
+static uint64_t logger_gid = 0;
+uint64_t logger_get_gid(void) {
 #ifdef HAVE_GCC_64ATOMICS
     return __sync_add_and_fetch(&logger_gid, 1);
 #elif defined(__sun)
@@ -99,6 +99,18 @@ static uint64_t logger_get_gid(void) {
     uint64_t res = ++logger_gid;
     mutex_unlock(&logger_atomics_mutex);
     return res;
+#endif
+}
+
+void logger_set_gid(uint64_t gid) {
+#ifdef HAVE_GCC_64ATOMICS
+    __sync_add_and_fetch(&logger_gid, gid);
+#elif defined(__sun)
+    atomic_add_64(&logger_gid);
+#else
+    mutex_lock(&logger_atomics_mutex);
+    logger_gid = gid;
+    mutex_unlock(&logger_atomics_mutex);
 #endif
 }
 
@@ -181,14 +193,14 @@ static int _logger_thread_parse_ise(logentry *e, char *scratch) {
     const char * const cmd_map[] = {
         "null", "add", "set", "replace", "append", "prepend", "cas" };
 
-    if (le->cmd <= 5)
+    if (le->cmd <= 6)
         cmd = cmd_map[le->cmd];
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u clsid=%u\n",
+            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u clsid=%u cfd=%d\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-            keybuf, status_map[le->status], cmd, le->ttl, le->clsid);
+            keybuf, status_map[le->status], cmd, le->ttl, le->clsid, le->sfd);
     return total;
 }
 
@@ -201,9 +213,9 @@ static int _logger_thread_parse_ige(logentry *e, char *scratch) {
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_get key=%s status=%s clsid=%u\n",
+            "ts=%d.%d gid=%llu type=item_get key=%s status=%s clsid=%u cfd=%d\n",
             (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-            keybuf, was_found_map[le->was_found], le->clsid);
+            keybuf, was_found_map[le->was_found], le->clsid, le->sfd);
     return total;
 }
 
@@ -505,6 +517,8 @@ static void logger_thread_sum_stats(struct logger_stats *ls) {
 static void *logger_thread(void *arg) {
     useconds_t to_sleep = MIN_LOGGER_SLEEP;
     L_DEBUG("LOGGER: Starting logger thread\n");
+    // TODO: If we ever have item references in the logger code, will need to
+    // ensure everything is dequeued before stopping the thread.
     while (do_run_logger_thread) {
         int found_logs = 0;
         logger *l;
@@ -553,12 +567,11 @@ static int start_logger_thread(void) {
     return 0;
 }
 
-// future.
-/*static int stop_logger_thread(void) {
+static int stop_logger_thread(void) {
     do_run_logger_thread = 0;
     pthread_join(logger_tid, NULL);
     return 0;
-}*/
+}
 
 /*************************
  * Public functions for submitting logs and starting loggers from workers.
@@ -578,17 +591,14 @@ void logger_init(void) {
         abort();
     }
 
-    /* This can be removed once the global stats initializer is improved */
-    STATS_LOCK();
-    stats.log_worker_dropped = 0;
-    stats.log_worker_written = 0;
-    stats.log_watcher_skipped = 0;
-    stats.log_watcher_sent = 0;
-    STATS_UNLOCK();
     /* This is what adding a STDERR watcher looks like. should replace old
      * "verbose" settings. */
     //logger_add_watcher(NULL, 0);
     return;
+}
+
+void logger_stop(void) {
+    stop_logger_thread();
 }
 
 /* called *from* the thread using a logger.
@@ -650,20 +660,20 @@ static void _logger_log_ext_write(logentry *e, item *it, uint8_t bucket) {
  * might be useful to store/print the flags an item has?
  * could also collapse this and above code into an "item status" struct. wait
  * for more endpoints to be written before making it generic, though.
- * TODO: This and below should track and reprint the client fd.
  */
 static void _logger_log_item_get(logentry *e, const int was_found, const char *key,
-        const int nkey, const uint8_t clsid) {
+        const int nkey, const uint8_t clsid, const int sfd) {
     struct logentry_item_get *le = (struct logentry_item_get *) e->data;
     le->was_found = was_found;
     le->nkey = nkey;
     le->clsid = clsid;
     memcpy(le->key, key, nkey);
+    le->sfd = sfd;
     e->size = sizeof(struct logentry_item_get) + nkey;
 }
 
 static void _logger_log_item_store(logentry *e, const enum store_item_type status,
-        const int comm, char *key, const int nkey, rel_time_t ttl, const uint8_t clsid) {
+        const int comm, char *key, const int nkey, rel_time_t ttl, const uint8_t clsid, int sfd) {
     struct logentry_item_store *le = (struct logentry_item_store *) e->data;
     le->status = status;
     le->cmd = comm;
@@ -675,6 +685,7 @@ static void _logger_log_item_store(logentry *e, const enum store_item_type statu
         le->ttl = 0;
     }
     memcpy(le->key, key, nkey);
+    le->sfd = sfd;
     e->size = sizeof(struct logentry_item_store) + nkey;
 }
 
@@ -741,7 +752,8 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             char *key = va_arg(ap, char *);
             size_t nkey = va_arg(ap, size_t);
             uint8_t gclsid = va_arg(ap, int);
-            _logger_log_item_get(e, was_found, key, nkey, gclsid);
+            int gsfd = va_arg(ap, int);
+            _logger_log_item_get(e, was_found, key, nkey, gclsid, gsfd);
             va_end(ap);
             break;
         case LOGGER_ITEM_STORE_ENTRY:
@@ -752,7 +764,8 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             size_t snkey = va_arg(ap, size_t);
             rel_time_t sttl = va_arg(ap, rel_time_t);
             uint8_t sclsid = va_arg(ap, int);
-            _logger_log_item_store(e, status, comm, skey, snkey, sttl, sclsid);
+            int ssfd = va_arg(ap, int);
+            _logger_log_item_store(e, status, comm, skey, snkey, sttl, sclsid, ssfd);
             va_end(ap);
             break;
     }
@@ -792,6 +805,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
     logger_watcher *w = NULL;
     pthread_mutex_lock(&logger_stack_lock);
     if (watcher_count >= WATCHER_LIMIT) {
+        pthread_mutex_unlock(&logger_stack_lock);
         return LOGGER_ADD_WATCHER_TOO_MANY;
     }
 

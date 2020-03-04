@@ -48,7 +48,6 @@ static item** old_hashtable = 0;
 
 /* Flag: Are we in the middle of expanding now? */
 static bool expanding = false;
-static bool started_expanding = false;
 
 /*
  * During expansion we migrate values with bucket granularity; this is how
@@ -141,13 +140,11 @@ static void assoc_expand(void) {
 }
 
 void assoc_start_expand(uint64_t curr_items) {
-    if (started_expanding)
-        return;
-
-    if (curr_items > (hashsize(hashpower) * 3) / 2 &&
-          hashpower < HASHPOWER_MAX) {
-        started_expanding = true;
-        pthread_cond_signal(&maintenance_cond);
+    if (pthread_mutex_trylock(&maintenance_lock) == 0) {
+        if (curr_items > (hashsize(hashpower) * 3) / 2 && hashpower < HASHPOWER_MAX) {
+            pthread_cond_signal(&maintenance_cond);
+        }
+        pthread_mutex_unlock(&maintenance_lock);
     }
 }
 
@@ -246,7 +243,6 @@ static void *assoc_maintenance_thread(void *arg) {
 
         if (!expanding) {
             /* We are done expanding.. just wait for next invocation */
-            started_expanding = false;
             pthread_cond_wait(&maintenance_cond, &maintenance_lock);
             /* assoc_expand() swaps out the hash table entirely, so we need
              * all threads to not hold any references related to the hash
@@ -255,11 +251,14 @@ static void *assoc_maintenance_thread(void *arg) {
              * allow dynamic hash table expansion without causing significant
              * wait times.
              */
-            pause_threads(PAUSE_ALL_THREADS);
-            assoc_expand();
-            pause_threads(RESUME_ALL_THREADS);
+            if (do_run_maintenance_thread) {
+                pause_threads(PAUSE_ALL_THREADS);
+                assoc_expand();
+                pause_threads(RESUME_ALL_THREADS);
+            }
         }
     }
+    mutex_unlock(&maintenance_lock);
     return NULL;
 }
 
@@ -274,7 +273,7 @@ int start_assoc_maintenance_thread() {
             hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
         }
     }
-    pthread_mutex_init(&maintenance_lock, NULL);
+
     if ((ret = pthread_create(&maintenance_tid, NULL,
                               assoc_maintenance_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n", strerror(ret));

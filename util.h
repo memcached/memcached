@@ -12,10 +12,13 @@ bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dst
  * returns true if conversion succeeded.
  */
 bool safe_strtoull(const char *str, uint64_t *out);
+bool safe_strtoull_hex(const char *str, uint64_t *out);
 bool safe_strtoll(const char *str, int64_t *out);
 bool safe_strtoul(const char *str, uint32_t *out);
 bool safe_strtol(const char *str, int32_t *out);
 bool safe_strtod(const char *str, double *out);
+bool safe_strcpy(char *dst, const char *src, const size_t dstmax);
+bool safe_memcmp(const void *a, const void *b, size_t len);
 
 #ifndef HAVE_HTONLL
 extern uint64_t htonll(uint64_t);

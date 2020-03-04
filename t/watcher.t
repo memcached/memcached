@@ -5,7 +5,7 @@ use strict;
 use warnings;
 use Socket qw/SO_RCVBUF/;
 
-use Test::More tests => 10;
+use Test::More tests => 13;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -102,4 +102,34 @@ if ($res eq "STORED\r\n") {
     }
     is($found_log, 1, "found rawcmd log entry");
     is($found_ev, 1, "found eviction log entry");
+}
+
+# test cas command logs
+{
+    $watcher = $server->new_sock;
+    print $watcher "watch mutations\n";
+    $res = <$watcher>;
+    is($res, "OK\r\n", "mutations watcher enabled");
+
+    print $client "cas cas_watch_key 0 0 5 0\r\nvalue\r\n";
+    my $tries = 30;
+    my $found_cas = 0;
+    while (my $log = <$watcher>) {
+        $found_cas = 1 if ($log =~ m/cmd=cas/ && $log =~ m/cas_watch_key/);
+        last if ($tries-- == 0 || $found_cas);
+        sleep 1;
+    }
+    is($found_cas, 1, "correctly logged cas command");
+}
+
+# test no_watch option
+{
+    my $nowatch_server = new_memcached('-W');
+    my $watchsock = $nowatch_server->new_sock;
+
+    print $watchsock "watch mutations\n";
+
+    my $watchresult = <$watchsock>;
+
+    is($watchresult, "CLIENT_ERROR watch commands not allowed\r\n", "attempted watch gave client error with no_watch option set");
 }

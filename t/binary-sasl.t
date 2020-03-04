@@ -92,7 +92,7 @@ use constant RES_MAGIC        => 0x81;
 my $pwd=getcwd;
 $ENV{'SASL_CONF_PATH'} = "$pwd/t/sasl";
 
-my $server = new_memcached('-B binary -S -l 127.0.0.1 ');
+my $server = new_memcached('-B binary -U 0 -S -l 127.0.0.1 ');
 
 my $mc = MC::Client->new;
 

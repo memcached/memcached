@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <grp.h>
+#include <signal.h>
 
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
@@ -84,6 +85,13 @@
  * items.
  */
 #define ITEM_UPDATE_INTERVAL 60
+
+/*
+ * Valid range of the maximum size of an item, in bytes.
+ */
+#define ITEM_SIZE_MAX_LOWER_LIMIT 1024
+#define ITEM_SIZE_MAX_UPPER_LIMIT 1024 * 1024 * 1024
+
 
 /* unistd.h is here */
 #if HAVE_UNISTD_H
@@ -282,6 +290,7 @@ struct slab_stats {
     X(incr_misses) \
     X(decr_misses) \
     X(cas_misses) \
+    X(meta_cmds) \
     X(bytes_read) \
     X(bytes_written) \
     X(flush_cmds) \
@@ -397,7 +406,7 @@ struct settings {
     int item_size_max;        /* Maximum item size */
     int slab_chunk_size_max;  /* Upper end for chunks within slab pages. */
     int slab_page_size;     /* Slab's page units. */
-    bool sig_hup;           /* a HUP signal was received but not yet handled */
+    volatile sig_atomic_t sig_hup;  /* a HUP signal was received but not yet handled */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
     bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
@@ -426,8 +435,11 @@ struct settings {
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
+    bool watch_enabled; /* allows watch commands to be dropped */
     bool relaxed_privileges;   /* Relax process restrictions when running testapp */
 #ifdef EXTSTORE
+    unsigned int ext_io_threadcount; /* number of IO threads to run. */
+    unsigned int ext_page_size; /* size in megabytes of storage pages. */
     unsigned int ext_item_size; /* minimum size of items to store externally */
     unsigned int ext_item_age; /* max age of tail item before storing ext. */
     unsigned int ext_low_ttl; /* remaining TTL below this uses own pages */
@@ -477,7 +489,12 @@ extern struct settings settings;
 #define ITEM_HDR 128
 /* additional 4 bytes for item client flags */
 #define ITEM_CFLAGS 256
-/* 7 bits free! */
+/* item has sent out a token already */
+#define ITEM_TOKEN_SENT 512
+/* reserved, in case tokens should be a 2-bit count in future */
+#define ITEM_TOKEN_RESERVED 1024
+/* if item has been marked as a stale value */
+#define ITEM_STALE 2048
 
 /**
  * Structure for storing items within memcached.
@@ -607,15 +624,17 @@ typedef struct _io_wrap {
  * The structure representing a connection into memcached.
  */
 struct conn {
+    sasl_conn_t *sasl_conn;
     int    sfd;
+    bool sasl_started;
+    bool authenticated;
+    bool set_stale;
+    bool mset_res; /** uses mset format for return code */
 #ifdef TLS
     SSL    *ssl;
     char   *ssl_wbuf;
     bool ssl_enabled;
 #endif
-    sasl_conn_t *sasl_conn;
-    bool sasl_started;
-    bool authenticated;
     enum conn_states  state;
     enum bin_substates substate;
     rel_time_t last_cmd_time;
@@ -734,6 +753,7 @@ struct slab_rebalance {
     uint32_t busy_deletes;
     uint32_t busy_loops;
     uint8_t done;
+    uint8_t *completed;
 };
 
 extern struct slab_rebalance slab_rebal;
@@ -758,7 +778,7 @@ extern int daemonize(int nochdir, int noclose);
 #define mutex_lock(x) pthread_mutex_lock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)
 
-#include "stats.h"
+#include "stats_prefix.h"
 #include "slabs.h"
 #include "assoc.h"
 #include "items.h"
@@ -804,6 +824,8 @@ void *item_trylock(uint32_t hv);
 void item_trylock_unlock(void *arg);
 void item_unlock(uint32_t hv);
 void pause_threads(enum pause_thread_types type);
+void stop_threads(void);
+int stop_conn_timeout_thread(void);
 #define refcount_incr(it) ++(it->refcount)
 #define refcount_decr(it) --(it->refcount)
 void STATS_LOCK(void);
@@ -819,8 +841,10 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
 enum store_item_type store_item(item *item, int comm, conn *c);
 
 #if HAVE_DROP_PRIVILEGES
+extern void setup_privilege_violations_handler(void);
 extern void drop_privileges(void);
 #else
+#define setup_privilege_violations_handler()
 #define drop_privileges()
 #endif
 

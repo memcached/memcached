@@ -1,6 +1,6 @@
 FROM alpine:latest
 
-RUN apk update && apk add --no-cache musl-dev libevent-dev libseccomp-dev linux-headers gcc make automake autoconf
+RUN apk update && apk add --no-cache musl-dev libevent-dev libseccomp-dev linux-headers gcc make automake autoconf perl-test-harness-utils
 
 ADD . /src
 WORKDIR /src

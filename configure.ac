@@ -104,6 +104,9 @@ AC_ARG_ENABLE(tls,
   [AS_HELP_STRING([--enable-tls], [Enable Transport Layer Security EXPERIMENTAL ])])
 
 
+AC_ARG_ENABLE(asan,
+  [AS_HELP_STRING([--enable-asan], [Compile with ASAN EXPERIMENTAL ])])
+
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
 dnl
@@ -172,12 +175,11 @@ if test "x$enable_dtrace" = "xyes"; then
   if test "x$DTRACE" != "xno"; then
     AC_DEFINE([ENABLE_DTRACE],1,[Set to nonzero if you want to include DTRACE])
     build_dtrace=yes
-    # DTrace on MacOSX does not use -G option
-    $DTRACE -G -o conftest.$$ -s memcached_dtrace.d 2>/dev/zero
+    $DTRACE -h -o conftest.h -s memcached_dtrace.d 2>/dev/zero
     if test $? -eq 0
     then
         dtrace_instrument_obj=yes
-        rm conftest.$$
+        rm conftest.h
     fi
 
     if test "`which tr`" = "/usr/ucb/tr"; then
@@ -200,12 +202,17 @@ if test "x$enable_arm_crc32" = "xyes"; then
     AC_DEFINE([ARM_CRC32],1,[Set to nonzero if you want to enable ARMv8 crc32])
 fi
 
+if test "x$enable_asan" = "xyes"; then
+    AC_DEFINE([ASAN],1,[Set to nonzero if you want to compile using ASAN])
+fi
+
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
 AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" = "yes"])
 AM_CONDITIONAL([ENABLE_ARM_CRC32],[test "$enable_arm_crc32" = "yes"])
 AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
+AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
 
 
 AC_SUBST(DTRACE)
@@ -264,9 +271,15 @@ return sizeof(void*) == 8 ? 0 : 1;
     ],[
       CFLAGS="-m64 $org_cflags"
     ],[
-    AC_MSG_ERROR([Don't know how to build a 64-bit object.])
+      AC_MSG_ERROR([Don't know how to build a 64-bit object.])
+    ],[
+       dnl cross compile
+       AC_MSG_WARN([Assuming no extra CFLAGS are required for cross-compiling 64bit version.])
     ])
 fi
+
+dnl Check if data pointer is 64bit or not
+AC_CHECK_SIZEOF([void *])
 
 # Issue 213: Search for clock_gettime to help people linking
 #            with a static version of libevent
@@ -556,30 +569,10 @@ fi
 AC_C_SOCKLEN_T
 
 dnl Check if we're a little-endian or a big-endian system, needed by hash code
-AC_DEFUN([AC_C_ENDIAN],
-[AC_CACHE_CHECK(for endianness, ac_cv_c_endian,
-[
-  AC_RUN_IFELSE(
-    [AC_LANG_PROGRAM([], [dnl
-        long val = 1;
-        char *c = (char *) &val;
-        exit(*c == 1);
-    ])
-  ],[
-    ac_cv_c_endian=big
-  ],[
-    ac_cv_c_endian=little
-  ])
-])
-if test $ac_cv_c_endian = big; then
-  AC_DEFINE(ENDIAN_BIG, 1, [machine is bigendian])
-fi
-if test $ac_cv_c_endian = little; then
-  AC_DEFINE(ENDIAN_LITTLE, 1, [machine is littleendian])
-fi
-])
-
-AC_C_ENDIAN
+AC_C_BIGENDIAN(
+  [AC_DEFINE(ENDIAN_BIG, 1, [machine is bigendian])],
+  [AC_DEFINE(ENDIAN_LITTLE, 1, [machine is littleendian])],
+  [AC_MSG_ERROR([Cannot detect endianness. Must pass ac_cv_c_bigendian={yes,no} to configure.])])
 
 AC_DEFUN([AC_C_HTONLL],
 [
@@ -613,6 +606,7 @@ fi
 
 AC_CHECK_FUNCS(mlockall)
 AC_CHECK_FUNCS(getpagesizes)
+AC_CHECK_FUNCS(sysconf)
 AC_CHECK_FUNCS(memcntl)
 AC_CHECK_FUNCS(sigignore)
 AC_CHECK_FUNCS(clock_gettime)
@@ -655,12 +649,15 @@ AC_DEFUN([AC_C_ALIGNMENT],
   ],[
     ac_cv_c_alignment=need
   ],[
-    ac_cv_c_alignment=need
+    dnl cross compile
+    ac_cv_c_alignment=maybe
   ])
 ])
-if test $ac_cv_c_alignment = need; then
-  AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])
-fi
+AS_IF([test $ac_cv_c_alignment = need],
+  [AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])])
+AS_IF([test $ac_cv_c_alignment = maybe],
+  [AC_MSG_WARN([Assuming aligned access is required when cross-compiling])
+   AC_DEFINE(NEED_ALIGN, 1, [Machine need alignment])])
 ])
 
 AC_C_ALIGNMENT
@@ -771,6 +768,9 @@ elif test "$GCC" = "yes"
 then
   GCC_VERSION=`$CC -dumpversion`
   CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  if test "x$enable_asan" = "xyes"; then
+    CFLAGS="$CFLAGS -fsanitize=address"
+  fi
   case $GCC_VERSION in
     4.4.*)
     CFLAGS="$CFLAGS -fno-strict-aliasing"

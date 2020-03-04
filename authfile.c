@@ -1,12 +1,15 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 #include "authfile.h"
+#include "util.h"
 
 // TODO: frontend needs a refactor so this can avoid global objects.
 
@@ -114,8 +117,8 @@ int authfile_check(const char *user, const char *pass) {
     for (int x = 0; x < entry_cnt; x++) {
         auth_t *e = &main_auth_entries[x];
         if (ulen == e->ulen && plen == e->plen &&
-            memcmp(user, e->user, e->ulen) == 0 &&
-            memcmp(pass, e->pass, e->plen) == 0) {
+            safe_memcmp(user, e->user, e->ulen) &&
+            safe_memcmp(pass, e->pass, e->plen)) {
             return 1;
         }
     }

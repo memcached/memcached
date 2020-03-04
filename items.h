@@ -8,6 +8,7 @@
 
 /* See items.c */
 uint64_t get_cas_id(void);
+void set_cas_id(uint64_t new_cas);
 
 /*@null@*/
 item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags, const rel_time_t exptime, const int nbytes);
@@ -23,6 +24,7 @@ void do_item_remove(item *it);
 void do_item_update(item *it);   /** update LRU time to current and reposition */
 void do_item_update_nolock(item *it);
 int  do_item_replace(item *it, item *new_it, const uint32_t hv);
+void do_item_link_fixup(item *it);
 
 int item_is_flushed(item *it);
 unsigned int do_get_lru_size(uint32_t id);
@@ -71,6 +73,7 @@ void fill_item_stats_automove(item_stats_automove *am);
 
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update);
 item *do_item_touch(const char *key, const size_t nkey, uint32_t exptime, const uint32_t hv, conn *c);
+void do_item_bump(conn *c, item *it, const uint32_t hv);
 void item_stats_reset(void);
 extern pthread_mutex_t lru_locks[POWER_LARGEST];
 

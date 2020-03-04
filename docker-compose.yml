@@ -12,3 +12,7 @@ services:
         build:
             context: .
             dockerfile: devtools/Dockerfile.arch
+    fedora:
+        build:
+            context: .
+            dockerfile: devtools/Dockerfile.fedora

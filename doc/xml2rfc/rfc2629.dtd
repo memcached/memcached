@@ -1,5 +1,5 @@
 <!--
-  revised DTD for the RFC document series, draft of 2007-03-29
+  revised DTD for the RFC document series, draft of 2009-10-06
   -->
 
 
@@ -83,7 +83,7 @@
 
 <!ENTITY % TEXT       "#PCDATA">
 
-<!ENTITY   rfc.number "XXXX">
+<!ENTITY   rfc.number SYSTEM "internal:/rfc.number">
 
 
 <!--
@@ -104,14 +104,18 @@
           updates     %NUMBERS;          ""
           category    (std|bcp|info|exp|historic)
                                          #IMPLIED
+          consensus   (no|yes)           #IMPLIED
           seriesNo    %NUMBER;           #IMPLIED
           ipr         (full2026|noDerivativeWorks2026|none
                       |full3667|noModification3667|noDerivatives3667
-                      |full3978|noModification3978|noDerivatives3978)
+                      |full3978|noModification3978|noDerivatives3978
+                      |trust200811|noModificationTrust200811|noDerivativesTrust200811
+                      |trust200902|noModificationTrust200902|noDerivativesTrust200902
+                      |pre5378Trust200902)
                                          #IMPLIED
           iprExtract  IDREF              #IMPLIED
           submissionType
-                      (IETF|independent) "IETF"
+                      (IETF|IAB|IRTF|independent) "IETF"
           docName     %ATEXT;            #IMPLIED
           xml:lang    %ATEXT;            "en">
 
@@ -127,9 +131,9 @@
 <!-- the "abbrev" attribute is used for headers, etc. -->
 <!ELEMENT title       (%CTEXT;)>
 <!ATTLIST title
-          abbrev      %ATEXT;            #IMPLIED>
+          abbrev      %ATEXT;            #IMPLIED> 
 
-<!ELEMENT author      (organization,address?)>
+<!ELEMENT author      (organization?,address?)>
 <!ATTLIST author
           initials    %ATEXT;            #IMPLIED
           surname     %ATEXT;            #IMPLIED
@@ -139,8 +143,8 @@
 <!ELEMENT organization
                       (%CTEXT;)>
 <!ATTLIST organization
-          abbrev      %ATEXT;            #IMPLIED>
-
+          abbrev      %ATEXT;            #IMPLIED> 
+ 
 <!ELEMENT address     (postal?,phone?,facsimile?,email?,uri?)>
 
 <!-- this content model should be more strict:
@@ -179,17 +183,17 @@
   -->
 
 
-<!-- later on, may be (section+,appendix*,section*) -->
 <!ELEMENT middle      (section+)>
 
 <!ELEMENT section     ((t|figure|texttable|iref)*,section*)>
 <!ATTLIST section
           anchor      ID                 #IMPLIED
           title       %ATEXT;            #REQUIRED
+	  numbered    (yes|no)		 #IMPLIED
           toc         (include|exclude|default)
                                          "default">
 
-<!--
+<!-- use of <appendix/> is deprecated...
 <!ELEMENT appendix    ((t|figure|texttable|iref)*,appendix*)>
 <!ATTLIST appendix
           anchor      ID                 #IMPLIED
@@ -204,7 +208,7 @@
           anchor      ID                 #IMPLIED
           hangText    %ATEXT;            #IMPLIED>
 
-<!-- the value of the style attribute is inherited from the closest
+<!-- the value of the style attribute is inherited from the closest 
      parent -->
 <!ELEMENT list        (t+)>
 <!ATTLIST list
@@ -236,6 +240,7 @@
 
 <!ELEMENT spanx       (%CTEXT;)>
 <!ATTLIST spanx
+          xml:space   (default|preserve) "preserve"
           style       %ATEXT;            "emph">
 
 <!ELEMENT vspace      EMPTY>
@@ -246,6 +251,7 @@
 <!ATTLIST figure
           anchor      ID                 #IMPLIED
           title       %ATEXT;            ""
+          suppress-title (true|false)    "false"
           src         %URI;              #IMPLIED
           align       (left|center|right) "left"
           alt         %ATEXT;            ""
@@ -265,14 +271,17 @@
           height      %ATEXT;            "">
 
 <!ELEMENT postamble   (%TEXT;|xref|eref|iref|cref|spanx)*>
-
+    
 <!ELEMENT texttable   (preamble?,ttcol+,c*,postamble?)>
 <!ATTLIST texttable
           anchor      ID                 #IMPLIED
-          title       %ATEXT;            "">
+          title       %ATEXT;            ""
+          suppress-title (true|false)    "false"
+          align       (left|center|right) "center"
+          style       (all|none|headers|full) "full">
 <!ELEMENT ttcol       (%CTEXT;)>
 <!ATTLIST ttcol
-          width       %ATEXT;           #IMPLIED
+          width       %ATEXT;            #IMPLIED
           align       (left|center|right) "left">
 <!ELEMENT c           (%TEXT;|xref|eref|iref|cref|spanx)*>
 
@@ -290,6 +299,7 @@
           title       %ATEXT;            "References">
 <!ELEMENT reference   (front,seriesInfo*,format*,annotation*)>
 <!ATTLIST reference
+	  quote-title (true|false)	 "true"
           anchor      ID                 #IMPLIED
           target      %URI;              #IMPLIED>
 <!ELEMENT seriesInfo  EMPTY>
