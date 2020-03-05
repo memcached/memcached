@@ -143,7 +143,7 @@ int ssl_init(void) {
     settings.ssl_ctx = SSL_CTX_new(TLS_server_method());
     // Clients should use at least TLSv1.2
     int flags = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
-                SSL_OP_NO_TLSv1 |SSL_OP_NO_TLSv1_1;
+                SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1;
     SSL_CTX_set_options(settings.ssl_ctx, flags);
 
     // The server certificate, private key and validations.
@@ -173,6 +173,8 @@ int ssl_init(void) {
         SSL_CTX_set_session_id_context(settings.ssl_ctx,
                                        (const unsigned char *) SESSION_ID_CONTEXT,
                                        strlen(SESSION_ID_CONTEXT));
+    } else {
+        SSL_CTX_set_session_cache_mode(settings.ssl_ctx, SSL_SESS_CACHE_OFF);
     }
 
     return 0;
