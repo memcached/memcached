@@ -6668,7 +6668,9 @@ static void drive_machine(conn *c) {
             if (settings.maxconns_fast) {
                 STATS_LOCK();
                 reject = stats_state.curr_conns + stats_state.reserved_fds >= settings.maxconns - 1;
-                stats.rejected_conns++;
+                if (reject) {
+                    stats.rejected_conns++;
+                }
                 STATS_UNLOCK();
             } else {
                 reject = false;
