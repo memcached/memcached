@@ -807,6 +807,88 @@ When marking an item as stale with 'I', the 'T' flag can be used to update the
 TTL as well; limiting the amount of time an item will live while stale and
 waiting to be recached.
 
+Meta Arithmetic
+---------------
+
+The meta arithmetic command allows for basic operations against numerical
+values. This replaces the "incr" and "decr" commands. Values are unsigned
+64bit integers. Decrementing will reach 0 rather than underflow. Incrementing
+can overflow.
+
+ma <key> <flags>*\r\n
+
+- <key> means one key string.
+
+- <flags> are a set of single character codes ended with a space or newline.
+  flags may have strings after the initial character.
+
+The response is in the format:
+
+<CD> <flags> <tokens>*\r\n
+
+Where CD is one of:
+
+- "OK" to indicate success
+
+- "NF" (NOT_FOUND), to indicate that the item with this key was not found.
+
+- "NS" (NOT_STORED), to indicate that the item was not created as requested
+  after a miss.
+
+- "EX" (EXISTS), to indicate that the supplied CAS token does not match the
+  stored item.
+
+If the 'v' flag is supplied, the response is formatted as:
+
+VA <size> <flags>*\r\n
+<number>\r\n
+
+The flags used by the 'ma' command are:
+
+- C(token): compare CAS value (see mset)
+- N(token): auto create item on miss with supplied TTL
+- J(token): initial value to use if auto created after miss (default 0)
+- D(token): delta to apply (unsigned int, default 1)
+- T(token): update TTL on success
+- M(token): mode switch to change between incr and decr modes.
+- t: return current TTL
+- c: return current CAS
+- v: return new value
+
+The flags are now repeated with detailed information where useful:
+
+- C(token): compare CAS value
+
+Can be used to only incr/decr if a supplied CAS value matches. A new CAS value
+is generated after a delta is applied. Add the 'c' flag to get the new CAS
+value after success.
+
+- N(token): auto create item on miss with supplied TTL
+
+Similar to mget, on a miss automatically create the item. A value can be
+seeded using the J flag.
+
+- J(token): initial value
+
+An unsigned integer which will be seeded as the value on a miss. Must be
+combined with an N flag.
+
+- D(token): delta to apply
+
+An unsigned integer to either add or subtract from the currently stored
+number.
+
+- T(token): update TTL
+
+On success, sets the remaining TTL to the supplied value.
+
+-M(token): mode switch. Takes a single character for the mode.
+
+I: Increment mode (default)
++: Alias for increment
+D: Decrement mode
+-: Alias for decrement
+
 Meta No-Op
 ----------
 

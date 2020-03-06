@@ -750,7 +750,7 @@ enum delta_result_type add_delta(conn *c, const char *key,
 
     hv = hash(key, nkey);
     item_lock(hv);
-    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas, hv);
+    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas, hv, NULL);
     item_unlock(hv);
     return ret;
 }

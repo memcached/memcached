@@ -4166,7 +4166,11 @@ static int _meta_flag_preparse(token_t *tokens, const size_t ntokens, struct _me
             case 'F':
             case 'S':
             case 'C':
-            case 'M':
+            case 'M': // mset and marithmetic mode switch
+                break;
+            case 'J': // marithmetic initial value
+                break;
+            case 'D': // marithmetic delta value
                 break;
             case 'I':
                 of->set_stale = 1;
@@ -4858,6 +4862,266 @@ error:
     out_errstring(c, errstr);
 }
 
+static void process_marithmetic_command(conn *c, token_t *tokens, const size_t ntokens) {
+    char *key;
+    size_t nkey;
+    uint32_t exptime_int = 0;
+    uint64_t req_cas_id = 0;
+    int i;
+    struct _meta_flags of = {0}; // option bitflags.
+    char *errstr = "CLIENT_ERROR bad command line format";
+    mc_resp *resp = c->resp;
+    // no reservation (like del/set) since we post-process the status line.
+    char *p = resp->wbuf;
+
+    // If no argument supplied, incr or decr by one.
+    uint64_t delta = 1;
+    uint64_t initial = 0;
+    // Default mode is incr.
+    bool incr = true;
+    bool locked = true;
+    uint32_t hv = 0;
+    item *it = NULL; // item returned by do_add_delta.
+
+    assert(c != NULL);
+
+    // TODO: most of this is identical to mget.
+    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    key = tokens[KEY_TOKEN].value;
+    nkey = tokens[KEY_TOKEN].length;
+
+    if (ntokens > MFLAG_MAX_OPT_LENGTH) {
+        out_string(c, "CLIENT_ERROR options flags too long");
+        return;
+    }
+
+    // scrubs duplicated options and sets flags for how to load the item.
+    if (_meta_flag_preparse(tokens, ntokens, &of) != 0) {
+        out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
+        return;
+    }
+    c->noreply = of.no_reply;
+
+    // TODO: pretty sure this whole loop can be removed by adding error string
+    // and some int + a char field to _preparse()
+    assert(c != NULL);
+    for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+        switch (tokens[i].value[0]) {
+            case 'D':
+                if (!safe_strtoull(tokens[i].value+1, &delta)) {
+                    errstr = "CLIENT_ERROR invalid numeric delta value";
+                    goto error;
+                }
+                break;
+            case 'C':
+                if (!safe_strtoull(tokens[i].value+1, &req_cas_id)) {
+                    goto error;
+                }
+                break;
+            case 'J':
+                if (!safe_strtoull(tokens[i].value+1, &initial)) {
+                    errstr = "CLIENT_ERROR invalid numeric initial value";
+                    goto error;
+                }
+                break;
+            case 'M':
+                // "mode switch" to alternative commands
+                // incr/decr. future: mul/div/shift/etc?
+                switch (tokens[i].value[1]) {
+                    case 'I': // Incr (default)
+                    case '+':
+                        incr = true;
+                        break;
+                    case 'D': // Decr.
+                    case '-':
+                        incr = false;
+                        break;
+                    default:
+                        errstr = "CLIENT_ERROR invalid mode for ma M token";
+                        goto error;
+                        break;
+                }
+                break;
+        }
+    }
+
+    // take hash value and manually lock item... hold lock during store phase
+    // on miss and avoid recalculating the hash multiple times.
+    hv = hash(key, nkey);
+    item_lock(hv);
+    char tmpbuf[INCR_MAX_STORAGE_LEN];
+
+    // return a referenced item if it exists, so we can modify it here, rather
+    // than adding even more parameters to do_add_delta.
+    bool item_created = false;
+    switch(do_add_delta(c, key, nkey, incr, delta, tmpbuf, &req_cas_id, hv, &it)) {
+    case OK:
+        if (c->noreply)
+            resp->skip = true;
+        memcpy(resp->wbuf, "OK ", 3);
+        break;
+    case NON_NUMERIC:
+        errstr = "CLIENT_ERROR cannot increment or decrement non-numeric value";
+        goto error;
+        break;
+    case EOM:
+        errstr = "SERVER_ERROR out of memory";
+        goto error;
+        break;
+    case DELTA_ITEM_NOT_FOUND:
+        if (of.vivify) {
+            itoa_u64(initial, tmpbuf);
+            int vlen = strlen(tmpbuf);
+
+            it = item_alloc(key, nkey, 0, 0, vlen+2);
+            if (it != NULL) {
+                memcpy(ITEM_data(it), tmpbuf, vlen);
+                memcpy(ITEM_data(it) + vlen, "\r\n", 2);
+                if (do_store_item(it, NREAD_ADD, c, hv)) {
+                    item_created = true;
+                } else {
+                    // Not sure how we can get here if we're holding the lock.
+                    memcpy(resp->wbuf, "NS ", 3);
+                }
+            } else {
+                errstr = "SERVER_ERROR Out of memory allocating new item";
+                goto error;
+            }
+        } else {
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            if (incr) {
+                c->thread->stats.incr_misses++;
+            } else {
+                c->thread->stats.decr_misses++;
+            }
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+            // won't have a valid it here.
+            memcpy(p, "NF ", 3);
+            p += 3;
+        }
+        break;
+    case DELTA_ITEM_CAS_MISMATCH:
+        // also returns without a valid it.
+        memcpy(p, "EX ", 3);
+        p += 3;
+        break;
+    }
+
+    // final loop
+    // allows building the response with information after vivifying from a
+    // miss, or returning a new CAS value after add_delta().
+    if (it) {
+        size_t vlen = strlen(tmpbuf);
+        if (of.value) {
+            memcpy(p, "VA ", 3);
+            p = itoa_u32(vlen, p+3);
+        } else {
+            memcpy(p, "OK", 2);
+            p += 2;
+        }
+
+        for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+            switch (tokens[i].value[0]) {
+                case 'c':
+                    META_CHAR(p, 'c');
+                    p = itoa_u64(ITEM_get_cas(it), p);
+                    break;
+                case 't':
+                    META_CHAR(p, 't');
+                    if (it->exptime == 0) {
+                        *p = '-';
+                        *(p+1) = '1';
+                        p += 2;
+                    } else {
+                        p = itoa_u32(it->exptime - current_time, p);
+                    }
+                    break;
+                case 'T':
+                    if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
+                        goto error;
+                    }
+                    it->exptime = realtime(exptime_int);
+                    break;
+                case 'N':
+                    if (item_created) {
+                        if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
+                            errstr = "CLIENT_ERROR bad tokens in command line format";
+                            goto error;
+                        }
+                        // FIXME: check for < 0, or stoul and cast here.
+                        it->exptime = realtime(exptime_int);
+                    }
+                    break;
+                // TODO: macro perhaps?
+                case 'O':
+                    if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                        errstr = "CLIENT_ERROR opaque token too long";
+                        goto error;
+                    }
+                    META_SPACE(p);
+                    memcpy(p, tokens[i].value, tokens[i].length);
+                    p += tokens[i].length;
+                    break;
+                case 'k':
+                    META_CHAR(p, 'k');
+                    memcpy(p, key, nkey);
+                    p += nkey;
+                    break;
+            }
+        }
+
+        if (of.value) {
+            *p = '\r';
+            *(p+1) = '\n';
+            p += 2;
+            memcpy(p, tmpbuf, vlen);
+            p += vlen;
+        }
+
+        do_item_remove(it);
+    } else {
+        // No item to handle. still need to return opaque/key tokens
+        for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+            switch (tokens[i].value[0]) {
+                // TODO: macro perhaps?
+                case 'O':
+                    if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                        errstr = "CLIENT_ERROR opaque token too long";
+                        goto error;
+                    }
+                    META_SPACE(p);
+                    memcpy(p, tokens[i].value, tokens[i].length);
+                    p += tokens[i].length;
+                    break;
+                case 'k':
+                    META_CHAR(p, 'k');
+                    memcpy(p, key, nkey);
+                    p += nkey;
+                    break;
+            }
+        }
+    }
+
+    item_unlock(hv);
+
+    resp->wbytes = p - resp->wbuf;
+    memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
+    resp->wbytes += 2;
+    resp_add_iov(resp, resp->wbuf, resp->wbytes);
+    conn_set_state(c, conn_new_cmd);
+    return;
+error:
+    if (it != NULL)
+        do_item_remove(it);
+    if (locked)
+        item_unlock(hv);
+    out_errstring(c, errstr);
+}
+
 
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
     char *key;
@@ -5067,7 +5331,8 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
 enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
                                     const bool incr, const int64_t delta,
                                     char *buf, uint64_t *cas,
-                                    const uint32_t hv) {
+                                    const uint32_t hv,
+                                    item **it_ret) {
     char *ptr;
     uint64_t value;
     int res;
@@ -5168,7 +5433,11 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     if (cas) {
         *cas = ITEM_get_cas(it);    /* swap the incoming CAS value */
     }
-    do_item_remove(it);         /* release our reference */
+    if (it_ret != NULL) {
+        *it_ret = it;
+    } else {
+        do_item_remove(it);         /* release our reference */
+    }
     return OK;
 }
 
@@ -5553,6 +5822,8 @@ static void process_command(conn *c, char *command) {
         // mn command forces immediate writeback flush.
         conn_set_state(c, conn_mwrite);
         return;
+    } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "ma") == 0)) {
+        process_marithmetic_command(c, tokens, ntokens);
     } else if (ntokens >= 2 && (strcmp(tokens[COMMAND_TOKEN].value, "me") == 0)) {
         process_meta_command(c, tokens, ntokens);
         return;

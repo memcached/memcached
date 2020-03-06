@@ -77,6 +77,31 @@ my $sock = $server->sock;
 # - O(token): opaque to copy back.
 # - k: return key
 #
+# ma [key] [flags]\r\n
+# response:
+# OK [flags]\r\n
+# OK, NS NOT_STORED, EX EXISTS, NF NOT_FOUND
+# or:
+# VA [size] [flags]\r\n
+# data\r\n
+#
+# flags:
+# q: noreply
+# N(token): autovivify with supplied TTL
+# J(token): initial value to use if autovivified
+# D(token): delta to apply. default 1
+# T(token): update TTL
+# C(token): CAS must match
+# M(token): mode switch.
+#  - default to "incr"
+#  - I: incr
+#  - +: incr
+#  - D: decr
+#  - -: decr
+# t: return TTL
+# c: return current CAS
+# v: return new value
+#
 # mn\r\n
 # response:
 # MN\r\n
@@ -115,6 +140,72 @@ my $sock = $server->sock;
 
     # FIXME: figure out what I meant to do here.
     #my $res = mget($sock, 'foo2', 's t v');
+}
+
+{
+    diag "marithmetic tests";
+    print $sock "ma mo\r\n";
+    like(scalar <$sock>, qr/^NF/, "incr miss");
+
+    print $sock "ma mo D1\r\n";
+    like(scalar <$sock>, qr/^NF/, "incr miss with argument");
+
+    print $sock "set mo 0 0 1\r\n1\r\n";
+    like(scalar <$sock>, qr/^STORED/, "stored with set");
+
+    print $sock "ma mo\r\n";
+    like(scalar <$sock>, qr/^OK/, "incr'd a set value");
+
+    print $sock "set mo 0 0 1\r\nq\r\n";
+    like(scalar <$sock>, qr/^STORED/, "stored with set");
+
+    print $sock "ma mo\r\n";
+    like(scalar <$sock>, qr/^CLIENT_ERROR /, "cannot incr non-numeric value");
+
+    print $sock "ma mu N90\r\n";
+    like(scalar <$sock>, qr/^OK/, "incr with seed");
+    my $res = mget($sock, 'mu', 's t v Ofoo k');
+    ok(keys %$res, "not a miss");
+    ok(find_flags($res, 'st'), "got main flags back");
+    is($res->{val}, '0', "seeded default value");
+    my $ttl = get_flag($res, 't');
+    ok($ttl > 10 && $ttl < 91, "TTL is within requested window: $ttl");
+
+    $res = marith($sock, 'mu', 'T300 v t');
+    ok(keys %$res, "not a miss");
+    is($res->{val}, '1', "incremented once");
+    $ttl = get_flag($res, 't');
+    ok($ttl > 150 && $ttl < 301, "TTL is within requested window: $ttl");
+
+    $res = marith($sock, 'mi', 'N0 J13 v t');
+    ok(keys %$res, "not a miss");
+    is($res->{val}, '13', 'seeded on a missed value');
+    $res = marith($sock, 'mi', 'N0 J13 v t');
+    is($res->{val}, '14', 'incremented from seed');
+
+    $res = marith($sock, 'mi', 'N0 J13 v t D30');
+    is($res->{val}, '44', 'specific increment');
+
+    $res = marith($sock, 'mi', 'N0 J13 v t MD D22');
+    is($res->{val}, '22', 'specific decrement');
+
+    $res = marith($sock, 'mi', 'N0 J13 v t MD D9000');
+    is($res->{val}, '0', 'land at 0 for over-decrement');
+
+    print $sock "ma mi q D1\r\nmn\r\n";
+    like(scalar <$sock>, qr/^MN/, "quiet increment");
+
+    # CAS routines.
+    $res = marith($sock, 'mc', 'N0 c v');
+    my $cas = get_flag($res, 'c');
+    # invalid CAS.
+    print $sock "ma mc N0 C99999 v\r\n";
+    like(scalar <$sock>, qr/^EX/, 'CAS mismatch');
+    # valid CAS
+    $res = marith($sock, 'mc', "N0 C$cas c v");
+    my $ncas = get_flag($res, 'c');
+    is($res->{val}, '1', 'ticked after CAS increment');
+    isnt($cas, $ncas, 'CAS increments during modification');
 }
 
 # mset tests with mode switch flag (M)
@@ -578,6 +669,22 @@ sub mget {
     my $flags = shift;
 
     print $s "mg $key $flags\r\n";
+    my $header = scalar(<$s>);
+    my $val = "\r\n";
+    if ($header =~ m/^VA/) {
+        $val = scalar(<$s>);
+    }
+
+    return mget_res($header . $val);
+}
+
+# TODO: share with mget()?
+sub marith {
+    my $s = shift;
+    my $key = shift;
+    my $flags = shift;
+
+    print $s "ma $key $flags\r\n";
     my $header = scalar(<$s>);
     my $val = "\r\n";
     if ($header =~ m/^VA/) {
