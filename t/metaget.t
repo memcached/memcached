@@ -532,7 +532,7 @@ my $sock = $server->sock;
 {
     diag "flag and token count errors";
     print $sock "mg foo m o o o o o o o o o\r\n";
-    like(scalar <$sock>, qr/^CLIENT_ERROR invalid or duplicate flag/, "gone silly with flags");
+    like(scalar <$sock>, qr/^CLIENT_ERROR invalid flag/, "gone silly with flags");
 }
 
 {

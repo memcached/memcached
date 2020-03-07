@@ -4105,6 +4105,7 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
 #define MFLAG_MAX_OPAQUE_LENGTH 32
 
 struct _meta_flags {
+    unsigned int has_error :1; // flipped if we found an error during parsing.
     unsigned int no_update :1;
     unsigned int locked :1;
     unsigned int vivify :1;
@@ -4113,30 +4114,74 @@ struct _meta_flags {
     unsigned int value :1;
     unsigned int set_stale :1;
     unsigned int no_reply :1;
+    unsigned int has_cas :1;
+    unsigned int new_ttl :1;
+    char mode; // single character mode switch, common to ms/ma
+    rel_time_t exptime;
+    rel_time_t autoviv_exptime;
+    rel_time_t recache_time;
+    int32_t value_len;
+    uint32_t client_flags;
+    uint64_t req_cas_id;
+    uint64_t delta; // ma
+    uint64_t initial; // ma
 };
 
-static int _meta_flag_preparse(token_t *tokens, const size_t ntokens, struct _meta_flags *of) {
+static int _meta_flag_preparse(token_t *tokens, const size_t ntokens,
+        struct _meta_flags *of, char **errstr) {
     unsigned int i;
+    int32_t tmp_int;
     uint8_t seen[127] = {0};
     // Start just past the key token. Look at first character of each token.
     for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
         uint8_t o = (uint8_t)tokens[i].value[0];
         // zero out repeat flags so we don't over-parse for return data.
         if (o >= 127 || seen[o] != 0) {
+            *errstr = "CLIENT_ERROR duplicate flag";
             return -1;
         }
         seen[o] = 1;
-        // FIXME: alphabetize.
         switch (o) {
+            /* Negative exptimes can underflow and end up immortal. realtime() will
+               immediately expire values that are greater than REALTIME_MAXDELTA, but less
+               than process_started, so lets aim for that. */
             case 'N':
                 of->locked = 1;
                 of->vivify = 1;
+                if (!safe_strtol(tokens[i].value+1, &tmp_int)) {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
+                } else {
+                    if (tmp_int < 0) {
+                        tmp_int = REALTIME_MAXDELTA + 1;
+                    }
+                    of->autoviv_exptime = realtime(tmp_int);
+                }
                 break;
             case 'T':
                 of->locked = 1;
+                if (!safe_strtol(tokens[i].value+1, &tmp_int)) {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
+                } else {
+                    if (tmp_int < 0) {
+                        tmp_int = REALTIME_MAXDELTA + 1;
+                    }
+                    of->exptime = realtime(tmp_int);
+                    of->new_ttl = true;
+                }
                 break;
             case 'R':
                 of->locked = 1;
+                if (!safe_strtol(tokens[i].value+1, &tmp_int)) {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = 1;
+                } else {
+                    if (tmp_int < 0) {
+                        tmp_int = REALTIME_MAXDELTA + 1;
+                    }
+                    of->recache_time = realtime(tmp_int);
+                }
                 break;
             case 'l':
                 of->la = 1;
@@ -4164,23 +4209,62 @@ static int _meta_flag_preparse(token_t *tokens, const size_t ntokens, struct _me
                 break;
             // mset-related.
             case 'F':
+                if (!safe_strtoul(tokens[i].value+1, &of->client_flags)) {
+                    of->has_error = true;
+                }
+                break;
             case 'S':
-            case 'C':
+                if (!safe_strtol(tokens[i].value+1, &tmp_int)) {
+                    of->has_error = true;
+                } else {
+                    // Size is adjusted for underflow or overflow once the
+                    // \r\n terminator is added.
+                    if (tmp_int < 0 || tmp_int > (INT_MAX - 2)) {
+                        *errstr = "CLIENT_ERROR invalid length";
+                        of->has_error = true;
+                    } else {
+                        of->value_len = tmp_int + 2; // \r\n
+                    }
+                }
+                break;
+            case 'C': // mset, mdelete, marithmetic
+                if (!safe_strtoull(tokens[i].value+1, &of->req_cas_id)) {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = true;
+                } else {
+                    of->has_cas = true;
+                }
+                break;
             case 'M': // mset and marithmetic mode switch
+                if (tokens[i].length != 2) {
+                    *errstr = "CLIENT_ERROR incorrect length for M token";
+                    of->has_error = 1;
+                } else {
+                    of->mode = tokens[i].value[1];
+                }
                 break;
             case 'J': // marithmetic initial value
+                if (!safe_strtoull(tokens[i].value+1, &of->initial)) {
+                    *errstr = "CLIENT_ERROR invalid numeric initial value";
+                    of->has_error = 1;
+                }
                 break;
             case 'D': // marithmetic delta value
+                if (!safe_strtoull(tokens[i].value+1, &of->delta)) {
+                    *errstr = "CLIENT_ERROR invalid numeric delta value";
+                    of->has_error = 1;
+                }
                 break;
             case 'I':
                 of->set_stale = 1;
                 break;
             default: // unknown flag, bail.
+                *errstr = "CLIENT_ERROR invalid flag";
                 return -1;
         }
     }
 
-    return 0;
+    return of->has_error ? -1 : 0;
 }
 
 #define META_SPACE(p) { \
@@ -4233,8 +4317,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     }
 
     // scrubs duplicated options and sets flags for how to load the item.
-    if (_meta_flag_preparse(tokens, ntokens, &of) != 0) {
-        out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
+    if (_meta_flag_preparse(tokens, ntokens, &of, &errstr) != 0) {
+        out_errstring(c, errstr);
         return;
     }
     c->noreply = of.no_reply;
@@ -4278,8 +4362,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // don't have to check result of add_iov() since the iov size defaults are
     // enough.
     if (it) {
-        int32_t exptime_int = 0;
-
         if (of.value) {
             memcpy(p, "VA ", 3);
             p = itoa_u32(it->nbytes-2, p+3);
@@ -4292,21 +4374,11 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             switch (tokens[i].value[0]) {
                 case 'T':
                     ttl_set = true;
-                    if (!safe_strtol(tokens[i].value+1, &exptime_int)) {
-                        errstr = "CLIENT_ERROR bad tokens in command line format";
-                        goto error;
-                    }
-                    // FIXME: check for < 0, or stoul and cast here.
-                    it->exptime = realtime(exptime_int);
+                    it->exptime = of.exptime;
                     break;
                 case 'N':
                     if (item_created) {
-                        if (!safe_strtol(tokens[i].value+1, &exptime_int)) {
-                            errstr = "CLIENT_ERROR bad tokens in command line format";
-                            goto error;
-                        }
-                        // FIXME: check for < 0, or stoul and cast here.
-                        it->exptime = realtime(exptime_int);
+                        it->exptime = of.autoviv_exptime;
                         won_token = true;
                     }
                     break;
@@ -4315,15 +4387,9 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                     // than current TTL, mark a win.
                     if ((it->it_flags & ITEM_TOKEN_SENT) == 0
                             && !item_created
-                            && it->exptime != 0) {
-                        if (!safe_strtol(tokens[i].value+1, &exptime_int)) {
-                            errstr = "CLIENT_ERROR bad tokens in command line format";
-                            goto error;
-                        }
-
-                        if (it->exptime - current_time < exptime_int) {
-                            won_token = true;
-                        }
+                            && it->exptime != 0
+                            && it->exptime < of.recache_time) {
+                        won_token = true;
                     }
                     break;
                 case 's':
@@ -4331,8 +4397,6 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                     p = itoa_u32(it->nbytes-2, p);
                     break;
                 case 't':
-                    // TODO: ensure this is correct for autoviv case.
-                    // or, I guess users can put N before t?
                     // TTL remaining as of this request.
                     // needs to be relative because server clocks may not be in sync.
                     META_CHAR(p, 't');
@@ -4514,11 +4578,6 @@ error:
 static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
-    unsigned int flags = 0;
-    uint32_t exptime_int = 0;
-    uint64_t req_cas_id = 0;
-    time_t exptime;
-    int vlen = 0;
     item *it;
     int i;
     short comm = NREAD_SET;
@@ -4552,10 +4611,10 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     // leave space for the status code.
     p = resp->wbuf + 3;
 
-    // TODO: I, E, APL?
-    if (_meta_flag_preparse(tokens, ntokens, &of) != 0) {
-        out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
-        return;
+    // We need to at least try to get the size to properly slurp bad bytes
+    // after an error.
+    if (_meta_flag_preparse(tokens, ntokens, &of, &errstr) != 0) {
+        goto error;
     }
 
     // Set noreply after tokens are understood.
@@ -4564,52 +4623,6 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     bool has_error = false;
     for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
         switch (tokens[i].value[0]) {
-            case 'F':
-                if (!safe_strtoul(tokens[i].value+1, &flags)) {
-                    has_error = true;
-                }
-                break;
-            case 'C':
-                if (!safe_strtoull(tokens[i].value+1, &req_cas_id)) {
-                    has_error = true;
-                }
-                comm = NREAD_CAS;
-                break;
-            case 'S':
-                if (!safe_strtol(tokens[i].value+1, &vlen)) {
-                    has_error = true;
-                }
-                break;
-            case 'T':
-                if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
-                    has_error = true;
-                }
-                break;
-            case 'M':
-                // "mode switch" to alternative commands
-                // add, replace, append, prepend.
-                switch (tokens[i].value[1]) {
-                    case 'E': // Add...
-                        comm = NREAD_ADD;
-                        break;
-                    case 'A': // Append.
-                        comm = NREAD_APPEND;
-                        break;
-                    case 'P': // Prepend.
-                        comm = NREAD_PREPEND;
-                        break;
-                    case 'R': // Replace.
-                        comm = NREAD_REPLACE;
-                        break;
-                    case 'S': // Set. Default.
-                        comm = NREAD_SET;
-                        break;
-                    default:
-                        errstr = "CLIENT_ERROR invalid mode for ms M token";
-                        has_error = true;
-                        break;
-                }
-                break;
             // TODO: macro perhaps?
             case 'O':
                 if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
@@ -4629,43 +4642,51 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
         }
     }
 
+    // "mode switch" to alternative commands
+    switch (of.mode) {
+        case 0:
+            break; // no mode supplied.
+        case 'E': // Add...
+            comm = NREAD_ADD;
+            break;
+        case 'A': // Append.
+            comm = NREAD_APPEND;
+            break;
+        case 'P': // Prepend.
+            comm = NREAD_PREPEND;
+            break;
+        case 'R': // Replace.
+            comm = NREAD_REPLACE;
+            break;
+        case 'S': // Set. Default.
+            comm = NREAD_SET;
+            break;
+        default:
+            errstr = "CLIENT_ERROR invalid mode for ms M token";
+            goto error;
+    }
+
     // The item storage function doesn't exactly map to mset.
     // If a CAS value is supplied, upgrade default SET mode to CAS mode.
     // Also allows REPLACE to work, as REPLACE + CAS works the same as CAS.
     // add-with-cas works the same as add; but could only LRU bump if match..
     // APPEND/PREPEND allow a simplified CAS check.
-    if (req_cas_id != 0 && (comm == NREAD_SET || comm == NREAD_REPLACE)) {
+    if (of.has_cas && (comm == NREAD_SET || comm == NREAD_REPLACE)) {
         comm = NREAD_CAS;
     }
-
-    /* Ancient comment: Ubuntu 8.04 breaks when I pass exptime to safe_strtol */
-    exptime = exptime_int;
-
-    /* Negative exptimes can underflow and end up immortal. realtime() will
-       immediately expire values that are greater than REALTIME_MAXDELTA, but less
-       than process_started, so lets aim for that. */
-    if (exptime < 0)
-        exptime = REALTIME_MAXDELTA + 1;
-
-    // TODO: can we treat vlen as unsigned? :(
-    if (vlen < 0 || vlen > (INT_MAX - 2)) {
-        errstr = "CLIENT_ERROR invalid length";
-        goto error;
-    }
-    vlen += 2;
 
     // We attempt to process as much as we can in hopes of getting a valid and
     // adjusted vlen, or else the data swallow after error will be for 0b.
     if (has_error)
         goto error;
 
-    it = item_alloc(key, nkey, flags, realtime(exptime), vlen);
+    it = item_alloc(key, nkey, of.client_flags, of.exptime, of.value_len);
 
     if (it == 0) {
         enum store_item_type status;
         // TODO: These could be normalized codes (TL and OM). Need to
         // reorganize the output stuff a bit though.
-        if (! item_size_ok(nkey, flags, vlen)) {
+        if (! item_size_ok(nkey, of.client_flags, of.value_len)) {
             errstr = "SERVER_ERROR object too large for cache";
             status = TOO_LARGE;
         } else {
@@ -4688,7 +4709,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
         goto error;
     }
-    ITEM_set_cas(it, req_cas_id);
+    ITEM_set_cas(it, of.req_cas_id);
 
     c->item = it;
 #ifdef NEED_ALIGN
@@ -4701,7 +4722,6 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     c->ritem = ITEM_data(it);
 #endif
     c->rlbytes = it->nbytes;
-    // TODO: Could support other modes (append/prepend/replace/add)
     c->cmd = comm;
     if (of.set_stale && comm == NREAD_CAS) {
         c->set_stale = true;
@@ -4716,7 +4736,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     return;
 error:
     /* swallow the data line */
-    c->sbytes = vlen;
+    c->sbytes = of.value_len;
 
     // Note: no errors possible after the item was successfully allocated.
     // So we're just looking at dumping error codes and returning.
@@ -4728,7 +4748,6 @@ error:
 static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
-    uint32_t exptime_int = 0;
     uint64_t req_cas_id = 0;
     item *it = NULL;
     int i;
@@ -4756,27 +4775,15 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     }
 
     // scrubs duplicated options and sets flags for how to load the item.
-    if (_meta_flag_preparse(tokens, ntokens, &of) != 0) {
+    if (_meta_flag_preparse(tokens, ntokens, &of, &errstr) != 0) {
         out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
     c->noreply = of.no_reply;
 
     assert(c != NULL);
-    bool new_ttl = false;
     for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
         switch (tokens[i].value[0]) {
-            case 'C':
-                if (!safe_strtoull(tokens[i].value+1, &req_cas_id)) {
-                    goto error;
-                }
-                break;
-            case 'T':
-                if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
-                    goto error;
-                }
-                new_ttl = true;
-                break;
             // TODO: macro perhaps?
             case 'O':
                 if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
@@ -4800,7 +4807,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
         // allow only deleting/marking if a CAS value matches.
-        if (req_cas_id != 0 && ITEM_get_cas(it) != req_cas_id) {
+        if (of.has_cas && ITEM_get_cas(it) != req_cas_id) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.delete_misses++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -4813,8 +4820,8 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         // delete it. We mark the stale bit, bump CAS, and update exptime if
         // we were supplied a new TTL.
         if (of.set_stale) {
-            if (new_ttl) {
-                it->exptime = realtime(exptime_int);
+            if (of.new_ttl) {
+                it->exptime = of.exptime;
             }
             it->it_flags |= ITEM_STALE;
             // Also need to remove TOKEN_SENT, so next client can win.
@@ -4865,8 +4872,6 @@ error:
 static void process_marithmetic_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
-    uint32_t exptime_int = 0;
-    uint64_t req_cas_id = 0;
     int i;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
@@ -4875,11 +4880,10 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     char *p = resp->wbuf;
 
     // If no argument supplied, incr or decr by one.
-    uint64_t delta = 1;
-    uint64_t initial = 0;
-    // Default mode is incr.
-    bool incr = true;
-    bool locked = true;
+    of.delta = 1;
+    of.initial = 0; // redundant, for clarity.
+    bool incr = true; // default mode is to increment.
+    bool locked = false;
     uint32_t hv = 0;
     item *it = NULL; // item returned by do_add_delta.
 
@@ -4900,65 +4904,42 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     }
 
     // scrubs duplicated options and sets flags for how to load the item.
-    if (_meta_flag_preparse(tokens, ntokens, &of) != 0) {
+    if (_meta_flag_preparse(tokens, ntokens, &of, &errstr) != 0) {
         out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
     c->noreply = of.no_reply;
 
-    // TODO: pretty sure this whole loop can be removed by adding error string
-    // and some int + a char field to _preparse()
     assert(c != NULL);
-    for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
-        switch (tokens[i].value[0]) {
-            case 'D':
-                if (!safe_strtoull(tokens[i].value+1, &delta)) {
-                    errstr = "CLIENT_ERROR invalid numeric delta value";
-                    goto error;
-                }
-                break;
-            case 'C':
-                if (!safe_strtoull(tokens[i].value+1, &req_cas_id)) {
-                    goto error;
-                }
-                break;
-            case 'J':
-                if (!safe_strtoull(tokens[i].value+1, &initial)) {
-                    errstr = "CLIENT_ERROR invalid numeric initial value";
-                    goto error;
-                }
-                break;
-            case 'M':
-                // "mode switch" to alternative commands
-                // incr/decr. future: mul/div/shift/etc?
-                switch (tokens[i].value[1]) {
-                    case 'I': // Incr (default)
-                    case '+':
-                        incr = true;
-                        break;
-                    case 'D': // Decr.
-                    case '-':
-                        incr = false;
-                        break;
-                    default:
-                        errstr = "CLIENT_ERROR invalid mode for ma M token";
-                        goto error;
-                        break;
-                }
-                break;
-        }
+    // "mode switch" to alternative commands
+    switch (of.mode) {
+        case 0: // no switch supplied.
+            break;
+        case 'I': // Incr (default)
+        case '+':
+            incr = true;
+            break;
+        case 'D': // Decr.
+        case '-':
+            incr = false;
+            break;
+        default:
+            errstr = "CLIENT_ERROR invalid mode for ma M token";
+            goto error;
+            break;
     }
 
     // take hash value and manually lock item... hold lock during store phase
     // on miss and avoid recalculating the hash multiple times.
     hv = hash(key, nkey);
     item_lock(hv);
+    locked = true;
     char tmpbuf[INCR_MAX_STORAGE_LEN];
 
     // return a referenced item if it exists, so we can modify it here, rather
     // than adding even more parameters to do_add_delta.
     bool item_created = false;
-    switch(do_add_delta(c, key, nkey, incr, delta, tmpbuf, &req_cas_id, hv, &it)) {
+    switch(do_add_delta(c, key, nkey, incr, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
     case OK:
         if (c->noreply)
             resp->skip = true;
@@ -4974,7 +4955,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
         break;
     case DELTA_ITEM_NOT_FOUND:
         if (of.vivify) {
-            itoa_u64(initial, tmpbuf);
+            itoa_u64(of.initial, tmpbuf);
             int vlen = strlen(tmpbuf);
 
             it = item_alloc(key, nkey, 0, 0, vlen+2);
@@ -5041,19 +5022,11 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
                     }
                     break;
                 case 'T':
-                    if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
-                        goto error;
-                    }
-                    it->exptime = realtime(exptime_int);
+                    it->exptime = of.exptime;
                     break;
                 case 'N':
                     if (item_created) {
-                        if (!safe_strtoul(tokens[i].value+1, &exptime_int)) {
-                            errstr = "CLIENT_ERROR bad tokens in command line format";
-                            goto error;
-                        }
-                        // FIXME: check for < 0, or stoul and cast here.
-                        it->exptime = realtime(exptime_int);
+                        it->exptime = of.autoviv_exptime;
                     }
                     break;
                 // TODO: macro perhaps?
