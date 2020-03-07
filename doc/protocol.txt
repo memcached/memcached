@@ -740,6 +740,7 @@ E: "add" command. LRU bump and return NS if item exists. Else
 add.
 A: "append" command. If item exists, append the new value to its data.
 P: "prepend" command. If item exists, prepend the new value to its data.
+R: "replace" command. Set only if item already exists.
 S: "set" command. The default mode, added for completeness.
 
 The "cas" command is supplanted by specifying the cas value with the 'C' flag.
@@ -848,9 +849,10 @@ The flags used by the 'ma' command are:
 - C(token): compare CAS value (see mset)
 - N(token): auto create item on miss with supplied TTL
 - J(token): initial value to use if auto created after miss (default 0)
-- D(token): delta to apply (unsigned int, default 1)
+- D(token): delta to apply (decimal unsigned 64-bit number, default 1)
 - T(token): update TTL on success
 - M(token): mode switch to change between incr and decr modes.
+- q: use noreply semantics for return codes (see details under mset)
 - t: return current TTL
 - c: return current CAS
 - v: return new value
@@ -870,7 +872,7 @@ seeded using the J flag.
 
 - J(token): initial value
 
-An unsigned integer which will be seeded as the value on a miss. Must be
+An unsigned 64-bit integer which will be seeded as the value on a miss. Must be
 combined with an N flag.
 
 - D(token): delta to apply

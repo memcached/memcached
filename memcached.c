@@ -4676,7 +4676,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     }
 
     // We attempt to process as much as we can in hopes of getting a valid and
-    // adjusted vlen, or else the data swallow after error will be for 0b.
+    // adjusted vlen, or else the data swallowed after error will be for 0b.
     if (has_error)
         goto error;
 
