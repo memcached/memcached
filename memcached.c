@@ -7949,6 +7949,7 @@ static void usage(void) {
 #endif
 #endif
 #ifdef EXTSTORE
+    printf("\n   - External storage (ext_*) related options (see: https://memcached.org/extstore)\n");
     printf("   - ext_path:            file to write to for external storage.\n"
            "                          ie: ext_path=/mnt/d1/extstore:1G\n"
            "   - ext_page_size:       size in megabytes of storage pages. (default: %u)\n"
