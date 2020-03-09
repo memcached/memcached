@@ -46,6 +46,8 @@
 #endif
 #include "crc32c.h"
 
+crc_func crc32c;
+
 /* CRC-32C (iSCSI) polynomial in reversed bit order. */
 #define POLY 0x82f63b78
 
