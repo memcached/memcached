@@ -7,7 +7,7 @@ use lib "$Bin/lib";
 use MemcachedTest;
 
 
-my $server = new_memcached();
+my $server = new_memcached('-m 128');
 my $sock = $server->sock;
 
 
