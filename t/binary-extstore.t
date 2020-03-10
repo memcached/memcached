@@ -68,6 +68,23 @@ use constant RES_MAGIC        => 0x81;
 
 my $mc = MC::Client->new;
 
+# Wait until all items have flushed
+sub wait_for_ext {
+    my $sum = 1;
+    while ($sum != 0) {
+        my %s = $mc->stats("items");
+        $sum = 0;
+        for my $key (keys %s) {
+            if ($key =~ m/items:(\d+):number/) {
+                # Ignore classes which can contain extstore items
+                next if $1 < 3;
+                $sum += $s{$key};
+            }
+        }
+        sleep 1 if $sum != 0;
+    }
+}
+
 my $check = sub {
     my ($key, $orig_flags, $orig_val) = @_;
     my ($flags, $val, $cas) = $mc->get($key);
@@ -128,7 +145,7 @@ $set->('x', 10, 19, "somevalue");
         $set->("nfoo$_", 0, 19, $value);
     }
     # wait for a flush
-    sleep 4;
+    wait_for_ext();
     # value returns for one flushed object.
     $check->('nfoo1', 19, $value);
 
@@ -171,11 +188,11 @@ $set->('x', 10, 19, "somevalue");
     for (1 .. $keycount) {
         $set->("mfoo$_", 0, 19, $value);
     }
-    sleep 4;
+    wait_for_ext();
     for ($keycount .. ($keycount*3)) {
         $set->("mfoo$_", 0, 19, $value);
     }
-    sleep 4;
+    wait_for_ext();
     # FIXME: Need to sample through a few values, or fix eviction to be
     # more accurate. On 32bit systems some pages unused to this point get
     # filled after the first few items, then the eviction algo pulls those
@@ -195,7 +212,7 @@ $set->('x', 10, 19, "somevalue");
 {
     my %stats = $mc->stats('');
     $set->("bigvalue", 0, 0, $bigvalue);
-    sleep 4;
+    wait_for_ext();
     $check->("bigvalue", 0, $bigvalue);
     my %stats2 = $mc->stats('');
 
