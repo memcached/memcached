@@ -111,13 +111,18 @@ if ($res eq "STORED\r\n") {
     $res = <$watcher>;
     is($res, "OK\r\n", "mutations watcher enabled");
 
-    print $client "cas cas_watch_key 0 0 5 0\r\nvalue\r\n";
+    # There's a bit of a startup race where some workers may not have the log
+    # enabled yet, so we try a little harder to get the log line in there.
+    sleep 1;
+    for (1 .. 20) {
+        print $client "cas cas_watch_key 0 0 5 0\r\nvalue\r\n";
+        $res = <$client>;
+    }
     my $tries = 30;
     my $found_cas = 0;
     while (my $log = <$watcher>) {
         $found_cas = 1 if ($log =~ m/cmd=cas/ && $log =~ m/cas_watch_key/);
         last if ($tries-- == 0 || $found_cas);
-        sleep 1;
     }
     is($found_cas, 1, "correctly logged cas command");
 }
