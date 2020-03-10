@@ -298,8 +298,18 @@ sub send_command {
 
     my $full_msg = $self->build_command($cmd, $key, $val, $opaque, $extra_header, $cas);
 
-    my $sent = $self->{socket}->send($full_msg);
-    die("Send failed:  $!") unless $sent;
+    my $sent = 0;
+    my $data_len =  length($full_msg);
+    while ($sent < $data_len) {
+        my $sent_bytes = $self->{socket}->syswrite($full_msg,
+                                    $data_len - $sent > MemcachedTest::MAX_READ_WRITE_SIZE ?
+                                        MemcachedTest::MAX_READ_WRITE_SIZE : ($data_len - $sent),
+                                    $sent);
+        last if ($sent_bytes <= 0);
+        $sent += $sent_bytes;
+    }
+    die("Send failed:  $!") unless $data_len;
+
     if($sent != length($full_msg)) {
         die("only sent $sent of " . length($full_msg) . " bytes");
     }
@@ -339,7 +349,7 @@ sub _handle_single_response {
 
     my $hdr = "";
     while(::MIN_RECV_BYTES - length($hdr) > 0) {
-        $self->{socket}->recv(my $response, ::MIN_RECV_BYTES - length($hdr));
+        $self->{socket}->sysread(my $response, ::MIN_RECV_BYTES - length($hdr));
         $hdr .= $response;
     }
     Test::More::is(length($hdr), ::MIN_RECV_BYTES, "Expected read length");
@@ -355,7 +365,7 @@ sub _handle_single_response {
     # fetch the value
     my $rv="";
     while($remaining - length($rv) > 0) {
-        $self->{socket}->recv(my $buf, $remaining - length($rv));
+        $self->{socket}->sysread(my $buf, $remaining - length($rv));
         $rv .= $buf;
     }
     if(length($rv) != $remaining) {
