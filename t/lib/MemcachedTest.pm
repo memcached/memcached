@@ -314,7 +314,7 @@ sub new_memcached {
     # try to connect / find open port, only if we're not using unix domain
     # sockets
 
-    for (1..20) {
+    for (1..80) {
         my $conn;
         if ($ssl_enabled) {
             $conn = eval qq{ IO::Socket::SSL->new(PeerAddr => "127.0.0.1:$port",
