@@ -148,6 +148,7 @@ enum restart_get_kv_ret restart_get_kv(void *ctx, char **key, char **val) {
     // have to re-assign it into the structure anyway.
     if (c->line != NULL) {
         free(c->line);
+        c->line = NULL;
     }
 
     if (getline(&line, &len, c->f) != -1) {
@@ -198,6 +199,7 @@ enum restart_get_kv_ret restart_get_kv(void *ctx, char **key, char **val) {
         } else {
             // FIXME: proper error chain.
             fprintf(stderr, "[restart] invalid metadata line:\n\n%s\n", line);
+            free(line);
             return RESTART_BADLINE;
         }
     } else {

@@ -114,21 +114,3 @@ write buffer is used, 8 megs are read back at once and iterated for objects.
 This needs a fair amount of tuning, possibly more throttling. It will still
 evict pages if the compactor gets behind.
 
-TODO
-----
-
-Sharing my broad TODO items into here. While doing the work they get split up
-more into local notes. Adding this so others can follow along:
-
-(a bunch of the TODO has been completed and removed)
-- O_DIRECT support
-- libaio support (requires O_DIRECT)
-- JBOD support (not in first pass)
-  - 1-2 active pages per device. potentially dedicated IO threads per device.
-    with a RAID setup you risk any individual disk doing a GC pause stalling
-    all writes. could also simply rotate devices on a per-bucket basis.
-
-on memcached end:
-- O_DIRECT support; mostly memalign pages, but also making chunks grow
-  aligned to sector sizes once they are >= a single sector.
-- specify storage size by MB/G/T/etc instead of page count

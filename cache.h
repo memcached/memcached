@@ -3,18 +3,6 @@
 #define CACHE_H
 #include <pthread.h>
 
-#ifdef HAVE_UMEM_H
-#include <umem.h>
-#define cache_t umem_cache_t
-#define cache_alloc(a) umem_cache_alloc(a, UMEM_DEFAULT)
-#define do_cache_alloc(a) umem_cache_alloc(a, UMEM_DEFAULT)
-#define cache_free(a, b) umem_cache_free(a, b)
-#define do_cache_free(a, b) umem_cache_free(a, b)
-#define cache_create(a,b,c,d,e) umem_cache_create((char*)a, b, c, d, e, NULL, NULL, NULL, 0)
-#define cache_destroy(a) umem_cache_destroy(a);
-
-#else
-
 #ifndef NDEBUG
 /* may be used for debug purposes */
 extern int cache_error;
@@ -55,8 +43,12 @@ typedef struct {
     size_t bufsize;
     /** The capacity of the list of elements */
     int freetotal;
+    /** Total malloc'ed objects */
+    int total;
     /** The current number of free elements */
     int freecurr;
+    /** A limit on the total number of elements */
+    int limit;
     /** The constructor to be called each time we allocate more memory */
     cache_constructor_t* constructor;
     /** The destructor to be called each time before we release memory */
@@ -114,6 +106,12 @@ void* do_cache_alloc(cache_t* handle);
  */
 void cache_free(cache_t* handle, void* ptr);
 void do_cache_free(cache_t* handle, void* ptr);
-#endif
+/**
+ * Set or adjust a limit for the number of objects to malloc
+ *
+ * @param handle handle to the object cache to adjust
+ * @param limit the number of objects to cache before returning NULL
+ */
+void cache_set_limit(cache_t* handle, int limit);
 
 #endif

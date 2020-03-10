@@ -1,3 +1,5 @@
+#include "config.h"
+
 /* fast-enough functions for uriencoding strings. */
 void uriencode_init(void);
 bool uriencode(const char *src, char *dst, const size_t srclen, const size_t dstlen);

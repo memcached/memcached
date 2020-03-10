@@ -26,7 +26,6 @@
 /* An item in the connection queue. */
 enum conn_queue_item_modes {
     queue_new_conn,   /* brand new connection. */
-    queue_redispatch, /* redispatching from side thread */
 };
 typedef struct conn_queue_item CQ_ITEM;
 struct conn_queue_item {
@@ -407,12 +406,38 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(EXIT_FAILURE);
     }
 
-    me->suffix_cache = cache_create("suffix", SUFFIX_SIZE, sizeof(char*),
-                                    NULL, NULL);
-    if (me->suffix_cache == NULL) {
-        fprintf(stderr, "Failed to create suffix cache\n");
+    me->resp_cache = cache_create("resp", sizeof(mc_resp), sizeof(char *), NULL, NULL);
+    if (me->resp_cache == NULL) {
+        fprintf(stderr, "Failed to create response cache\n");
         exit(EXIT_FAILURE);
     }
+    // Note: we were cleanly passing in num_threads before, but this now
+    // relies on settings globals too much.
+    if (settings.resp_obj_mem_limit) {
+        int limit = settings.resp_obj_mem_limit / settings.num_threads;
+        if (limit < sizeof(mc_resp)) {
+            limit = 1;
+        } else {
+            limit = limit / sizeof(mc_resp);
+        }
+        cache_set_limit(me->resp_cache, limit);
+    }
+
+    me->rbuf_cache = cache_create("rbuf", READ_BUFFER_SIZE, sizeof(char *), NULL, NULL);
+    if (me->rbuf_cache == NULL) {
+        fprintf(stderr, "Failed to create read buffer cache\n");
+        exit(EXIT_FAILURE);
+    }
+    if (settings.read_buf_mem_limit) {
+        int limit = settings.read_buf_mem_limit / settings.num_threads;
+        if (limit < READ_BUFFER_SIZE) {
+            limit = 1;
+        } else {
+            limit = limit / READ_BUFFER_SIZE;
+        }
+        cache_set_limit(me->rbuf_cache, limit);
+    }
+
 #ifdef EXTSTORE
     me->io_cache = cache_create("io", sizeof(io_wrap), sizeof(char*), NULL, NULL);
     if (me->io_cache == NULL) {
@@ -471,7 +496,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
     CQ_ITEM *item;
     char buf[1];
     conn *c;
-    unsigned int timeout_fd;
+    unsigned int fd_from_pipe;
 
     if (read(fd, buf, 1) != 1) {
         if (settings.verbose > 0)
@@ -518,10 +543,6 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 #endif
                 }
                 break;
-
-            case queue_redispatch:
-                conn_worker_readd(item->c);
-                break;
         }
         cqi_free(item);
         break;
@@ -531,12 +552,21 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         break;
     /* a client socket timed out */
     case 't':
-        if (read(fd, &timeout_fd, sizeof(timeout_fd)) != sizeof(timeout_fd)) {
+        if (read(fd, &fd_from_pipe, sizeof(fd_from_pipe)) != sizeof(fd_from_pipe)) {
             if (settings.verbose > 0)
                 fprintf(stderr, "Can't read timeout fd from libevent pipe\n");
             return;
         }
-        conn_close_idle(conns[timeout_fd]);
+        conn_close_idle(conns[fd_from_pipe]);
+        break;
+    /* a side thread redispatched a client connection */
+    case 'r':
+        if (read(fd, &fd_from_pipe, sizeof(fd_from_pipe)) != sizeof(fd_from_pipe)) {
+            if (settings.verbose > 0)
+                fprintf(stderr, "Can't read redispatch fd from libevent pipe\n");
+            return;
+        }
+        conn_worker_readd(conns[fd_from_pipe]);
         break;
     /* asked to stop */
     case 's':
@@ -591,47 +621,26 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
  * Re-dispatches a connection back to the original thread. Can be called from
  * any side thread borrowing a connection.
  */
+#define REDISPATCH_MSG_SIZE (1 + sizeof(int))
 void redispatch_conn(conn *c) {
-    CQ_ITEM *item = cqi_new();
-    char buf[1];
-    if (item == NULL) {
-        /* Can't cleanly redispatch connection. close it forcefully. */
-        c->state = conn_closed;
-        close(c->sfd);
-        return;
-    }
+    char buf[REDISPATCH_MSG_SIZE];
     LIBEVENT_THREAD *thread = c->thread;
-    item->sfd = c->sfd;
-    item->init_state = conn_new_cmd;
-    item->c = c;
-    item->mode = queue_redispatch;
 
-    cq_push(thread->new_conn_queue, item);
-
-    buf[0] = 'c';
-    if (write(thread->notify_send_fd, buf, 1) != 1) {
-        perror("Writing to thread notify pipe");
+    buf[0] = 'r';
+    memcpy(&buf[1], &c->sfd, sizeof(int));
+    if (write(thread->notify_send_fd, buf, REDISPATCH_MSG_SIZE) != REDISPATCH_MSG_SIZE) {
+        perror("Writing redispatch to thread notify pipe");
     }
 }
 
 /* This misses the allow_new_conns flag :( */
 void sidethread_conn_close(conn *c) {
-    c->state = conn_closed;
     if (settings.verbose > 1)
-        fprintf(stderr, "<%d connection closed from side thread.\n", c->sfd);
-#ifdef TLS
-    if (c->ssl) {
-        c->ssl_wbuf = NULL;
-        SSL_shutdown(c->ssl);
-        SSL_free(c->ssl);
-    }
-#endif
-    close(c->sfd);
+        fprintf(stderr, "<%d connection closing from side thread.\n", c->sfd);
 
-    STATS_LOCK();
-    stats_state.curr_conns--;
-    STATS_UNLOCK();
-
+    c->state = conn_closing;
+    // redispatch will see closing flag and properly close connection.
+    redispatch_conn(c);
     return;
 }
 
@@ -741,7 +750,7 @@ enum delta_result_type add_delta(conn *c, const char *key,
 
     hv = hash(key, nkey);
     item_lock(hv);
-    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas, hv);
+    ret = do_add_delta(c, key, nkey, incr, delta, buf, cas, hv, NULL);
     item_unlock(hv);
     return ret;
 }
@@ -820,6 +829,11 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
                 threads[ii].stats.lru_hits[sid];
         }
 
+        stats->response_obj_bytes += threads[ii].resp_cache->total * sizeof(mc_resp);
+        stats->response_obj_total += threads[ii].resp_cache->total;
+        stats->response_obj_free += threads[ii].resp_cache->freecurr;
+        stats->read_buf_bytes += threads[ii].rbuf_cache->total * READ_BUFFER_SIZE;
+        stats->read_buf_bytes_free += threads[ii].rbuf_cache->freecurr * READ_BUFFER_SIZE;
         pthread_mutex_unlock(&threads[ii].stats.mutex);
     }
 }
