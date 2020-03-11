@@ -18,8 +18,13 @@ if (!supports_extstore()) {
 
 $ext_path = "/tmp/extstore.$$";
 
-my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=0,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_chunk_max=16384,slab_automove=0,ext_compact_under=0");
+my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=0,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_chunk_max=16384,slab_automove=0");
 my $sock = $server->sock;
+
+# Only able to disable compaction at runtime.
+# FIXME: -1 for disabled? :(
+print $sock "extstore compact_under 0\r\n";
+my $res = <$sock>;
 
 # Wait until all items have flushed
 sub wait_for_ext {
@@ -112,6 +117,7 @@ wait_for_ext();
 
     # original "pattern" key should be gone.
     cmp_ok($stats->{recache_from_extstore}, '<', 1, 'no recaching happening');
+    cmp_ok($stats->{extstore_compact_rescues}, '<', 1, 'no compaction rescues happened');
     mem_get_is($sock, "pattern", undef, "original pattern key is gone");
     $stats = mem_stats($sock);
     is($stats->{miss_from_extstore}, 1, 'one extstore miss');
