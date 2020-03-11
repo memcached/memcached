@@ -7964,7 +7964,7 @@ static void usage(void) {
            "                          (default: 1/4th of the assigned storage)\n"
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
            "                          (default: 1/4th of the assigned storage)\n"
-           "   - ext_max_frag:        max page fragmentation to tolerage (default: %.2f)\n"
+           "   - ext_max_frag:        max page fragmentation to tolerate (default: %.2f)\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info, default: %.3f)\n",
            settings.ext_page_size / (1 << 20), settings.ext_wbuf_size / (1 << 20), settings.ext_io_threadcount,
