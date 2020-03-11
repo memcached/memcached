@@ -40,11 +40,12 @@ print $sock "set foo 0 $expire 6\r\nfooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo");
 mem_get_is($sock, "foo", undef, "already expired");
 
-$expire = time() + 1;
+# TODO: These suck. We really need a time travel command like 1.5 had.
+$expire = time() + 4;
 print $sock "set foo 0 $expire 6\r\nfoov+1\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo");
 mem_get_is($sock, "foo", "foov+1");
-sleep(2.2);
+sleep(8);
 mem_get_is($sock, "foo", undef, "now expired");
 
 $expire = time() - 20;
@@ -58,7 +59,7 @@ mem_get_is($sock, "add", "addval");
 # second add fails
 print $sock "add add 0 2 7\r\naddval2\r\n";
 is(scalar <$sock>, "NOT_STORED\r\n", "add failure");
-sleep(2.3);
+sleep(5);
 print $sock "add add 0 2 7\r\naddval3\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored add again");
 mem_get_is($sock, "add", "addval3");
