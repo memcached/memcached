@@ -144,10 +144,13 @@ wait_for_ext();
     }
     print $sock "extstore compact_under 4\r\n";
     my $res = <$sock>;
+    is($res, "OK\r\n", 'set compact_under');
     print $sock "extstore drop_under 3\r\n";
     $res = <$sock>;
+    is($res, "OK\r\n", 'set drop_under');
     print $sock "extstore max_frag 0.9\r\n";
     $res = <$sock>;
+    is($res, "OK\r\n", 'set max_frag');
 
     # Give compaction some time to run.
     for (1 .. 30) {
