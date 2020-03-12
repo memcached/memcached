@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 15;
+use Test::More tests => 17;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -48,6 +48,11 @@ sleep(2.2);
 mem_get_is($sock, "foo", undef, "now expired");
 
 $expire = time() - 20;
+print $sock "set boo 0 $expire 6\r\nbooval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored boo");
+mem_get_is($sock, "boo", undef, "now expired");
+
+$expire = -1;
 print $sock "set boo 0 $expire 6\r\nbooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored boo");
 mem_get_is($sock, "boo", undef, "now expired");
