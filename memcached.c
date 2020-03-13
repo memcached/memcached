@@ -3233,6 +3233,9 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
+        if (settings.ssl_session_cache) {
+            APPEND_STAT("ssl_new_sessions", "%llu", (unsigned long long)stats.ssl_new_sessions);
+        }
         APPEND_STAT("ssl_handshake_errors", "%llu", (unsigned long long)stats.ssl_handshake_errors);
         APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
     }

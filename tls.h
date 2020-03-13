@@ -14,5 +14,6 @@ ssize_t ssl_write(conn *c, void *buf, size_t count);
 int ssl_init(void);
 bool refresh_certs(char **errmsg);
 void ssl_callback(const SSL *s, int where, int ret);
+int ssl_new_session_callback(SSL *s, SSL_SESSION *sess);
 
 #endif

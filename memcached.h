@@ -358,6 +358,7 @@ struct stats {
 #endif
 #ifdef TLS
     uint64_t      ssl_handshake_errors; /* TLS failures at accept/handshake time */
+    uint64_t      ssl_new_sessions; /* successfully negotiated new (non-reused) TLS sessions */
 #endif
     struct timeval maxconns_entered;  /* last time maxconns entered */
 };
