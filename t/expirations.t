@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 17;
+use Test::More tests => 41;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -28,6 +28,7 @@ sub wait_for_early_second {
 
 wait_for_early_second();
 
+# set&add expiration test
 print $sock "set foo 0 3 6\r\nfooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo");
 
@@ -61,10 +62,70 @@ mem_get_is($sock, "boo", undef, "now expired");
 print $sock "add add 0 2 6\r\naddval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored add");
 mem_get_is($sock, "add", "addval");
-# second add fails
+
 print $sock "add add 0 2 7\r\naddval2\r\n";
 is(scalar <$sock>, "NOT_STORED\r\n", "add failure");
 sleep(5);
+
 print $sock "add add 0 2 7\r\naddval3\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored add again");
 mem_get_is($sock, "add", "addval3");
+
+# touch expiration test
+print $sock "set tch 0 0 8\r\ntouchval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored tch");
+
+$expire = time() - 1;
+print $sock "touch tch $expire\r\n";
+is(scalar <$sock>, "TOUCHED\r\n", "touched tch");
+mem_get_is($sock, "touch", undef, "now expired");
+
+print $sock "set tch 0 0 8\r\ntouchval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored tch");
+
+$expire = time() + 1;
+print $sock "touch tch $expire\r\n";
+is(scalar <$sock>, "TOUCHED\r\n", "touched tch");
+sleep(3);
+mem_get_is($sock, "touch", undef, "now expired");
+
+print $sock "set tch 0 0 8\r\ntouchval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored tch");
+
+$expire = -1;
+print $sock "touch tch $expire\r\n";
+is(scalar <$sock>, "TOUCHED\r\n", "touched tch");
+mem_get_is($sock, "touch", undef, "now expired");
+
+# get and touch expiration test
+print $sock "set gat 0 0 6\r\ngatval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored gat");
+
+$expire = time() - 1;
+print $sock "gat $expire gat\r\n";
+is(scalar <$sock>, "VALUE gat 0 6\r\n","get and touch gat");
+is(scalar <$sock>, "gatval\r\n","value");
+is(scalar <$sock>, "END\r\n", "end");
+mem_get_is($sock, "gat", undef, "now expired");
+
+print $sock "set gat 0 0 6\r\ngatval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored gat");
+
+$expire = time() + 1;
+print $sock "gat $expire gat\r\n";
+is(scalar <$sock>, "VALUE gat 0 6\r\n","get and touch gat");
+is(scalar <$sock>, "gatval\r\n","value");
+is(scalar <$sock>, "END\r\n", "end");
+sleep(3);
+mem_get_is($sock, "gat", undef, "now expired");
+
+
+print $sock "set gat 0 0 6\r\ngatval\r\n";
+is(scalar <$sock>, "STORED\r\n", "stored gat");
+
+$expire = -1;
+print $sock "gat $expire gat\r\n";
+is(scalar <$sock>, "VALUE gat 0 6\r\n","get and touch gat");
+is(scalar <$sock>, "gatval\r\n","value");
+is(scalar <$sock>, "END\r\n", "end");
+mem_get_is($sock, "gat", undef, "now expired");
