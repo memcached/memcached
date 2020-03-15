@@ -1621,6 +1621,23 @@ The value of the "state" stat may be one of the following:
 |                | sending back multiple lines of response data).            |
 |----------------+-----------------------------------------------------------|
 
+TLS statistics
+--------------
+
+TLS is a compile-time opt-in feature available in versions 1.5.13 and later.
+When compiled with TLS support and TLS termination is enabled at runtime, the
+following additional statistics are available via the "stats" command.
+
+|--------------------------------+----------+--------------------------------|
+| Name                           | Type     | Meaning                        |
+|--------------------------------+----------+--------------------------------|
+| ssl_handshake_errors           | 64u      | Number of times the server has |
+|                                |          | encountered an OpenSSL error   |
+|                                |          | during handshake (SSL_accept). |
+| time_since_server_cert_refresh | 32u      | Number of seconds that have    |
+|                                |          | elapsed since the last time    |
+|                                |          | certs were reloaded from disk. |
+|--------------------------------+----------+--------------------------------|
 
 
 Other commands

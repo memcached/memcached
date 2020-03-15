@@ -356,6 +356,9 @@ struct stats {
     uint64_t      extstore_compact_rescues; /* items re-written during compaction */
     uint64_t      extstore_compact_skipped; /* unhit items skipped during compaction */
 #endif
+#ifdef TLS
+    uint64_t      ssl_handshake_errors; /* TLS failures at accept/handshake time */
+#endif
     struct timeval maxconns_entered;  /* last time maxconns entered */
 };
 
