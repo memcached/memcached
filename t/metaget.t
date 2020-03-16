@@ -113,6 +113,12 @@ my $sock = $server->sock;
 # - raw mget miss
 # - raw mget bad key
 
+# Test basic parser.
+{
+    print $sock " \n";
+    is(scalar <$sock>, "ERROR\r\n", "error from blank command");
+}
+
 {
     print $sock "set foo 0 0 2\r\nhi\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored test value");

@@ -2933,10 +2933,10 @@ typedef struct token_s {
 #define WANT_TOKENS(ntokens, min, max) \
     do { \
         if (min != -1 && ntokens < min) { \
-            out_string(c, "CLIENT_ERROR wrong number of command tokens"); \
+            out_string(c, "ERROR"); \
             return; \
         } else if (max != -1 && ntokens > max) { \
-            out_string(c, "CLIENT_ERROR wrong number of command tokens"); \
+            out_string(c, "ERROR"); \
             return; \
         } \
     } while (0)
@@ -2944,7 +2944,7 @@ typedef struct token_s {
 #define WANT_TOKENS_OR(ntokens, a, b) \
     do { \
         if (ntokens != a && ntokens != b) { \
-            out_string(c, "CLIENT_ERROR wrong number of command tokens"); \
+            out_string(c, "ERROR"); \
             return; \
         } \
     } while (0)
@@ -2952,7 +2952,7 @@ typedef struct token_s {
 #define WANT_TOKENS_MIN(ntokens, min) \
     do { \
         if (ntokens < min) { \
-            out_string(c, "CLIENT_ERROR wrong number of command tokens"); \
+            out_string(c, "ERROR"); \
             return; \
         } \
     } while (0)
@@ -6036,6 +6036,8 @@ static void process_command(conn *c, char *command) {
     }
 
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
+    // All commands need a minimum of two tokens: cmd and NULL finalizer
+    WANT_TOKENS_MIN(ntokens, 2);
 
     // Meta commands are all 2-char in length.
     if (tokens[COMMAND_TOKEN].length == 2 &&
@@ -6061,8 +6063,12 @@ static void process_command(conn *c, char *command) {
             case 'e':
                 process_meta_command(c, tokens, ntokens);
                 break;
+            default:
+                out_string(c, "ERROR");
+                break;
         }
-    } else if (tokens[COMMAND_TOKEN].value[0] == 'g') {
+    } else if (tokens[COMMAND_TOKEN].length > 2 &&
+            tokens[COMMAND_TOKEN].value[0] == 'g') {
         // Various get commands are very common; short out the branch.
         if (strcmp(tokens[COMMAND_TOKEN].value, "get") == 0) {
 
@@ -6130,7 +6136,6 @@ static void process_command(conn *c, char *command) {
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0) {
 
-        WANT_TOKENS_MIN(ntokens, 2);
         process_stat(c, tokens, ntokens);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0) {
@@ -6155,17 +6160,14 @@ static void process_command(conn *c, char *command) {
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
 
-        WANT_TOKENS_MIN(ntokens, 2);
         process_slabs_command(c, tokens, ntokens);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
 
-        WANT_TOKENS_MIN(ntokens, 2);
         process_lru_crawler_command(c, tokens, ntokens);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "watch") == 0) {
 
-        WANT_TOKENS_MIN(ntokens, 2);
         process_watch_command(c, tokens, ntokens);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0) {
@@ -6194,7 +6196,7 @@ static void process_command(conn *c, char *command) {
         process_refresh_certs_command(c);
 #endif
     } else {
-        if (ntokens >= 2 && strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
+        if (strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
             conn_set_state(c, conn_closing);
         } else {
             out_string(c, "ERROR");
