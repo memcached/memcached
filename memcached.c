@@ -5991,7 +5991,7 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
     }
 }
 #ifdef TLS
-static void process_refresh_certs_command(conn *c) {
+static void process_refresh_certs_command(conn *c, token_t *tokens, const size_t ntokens) {
     set_noreply_maybe(c, tokens, ntokens);
     char *errmsg = NULL;
     if (refresh_certs(&errmsg)) {
@@ -6193,7 +6193,7 @@ static void process_command(conn *c, char *command) {
 #ifdef TLS
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0) {
         WANT_TOKENS_OR(ntokens, 2, 2);
-        process_refresh_certs_command(c);
+        process_refresh_certs_command(c, tokens, ntokens);
 #endif
     } else {
         if (strncmp(tokens[ntokens - 2].value, "HTTP/", 5) == 0) {
