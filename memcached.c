@@ -3192,7 +3192,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
-        APPEND_STAT("ssl_errors", "%llu", (unsigned long long)stats.ssl_errors);
+        APPEND_STAT("ssl_handshake_errors", "%llu", (unsigned long long)stats.ssl_handshake_errors);
         APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
     }
 #endif
@@ -7030,7 +7030,7 @@ static void drive_machine(conn *c) {
                             SSL_free(ssl);
                             close(sfd);
                             STATS_LOCK();
-                            stats.ssl_errors++;
+                            stats.ssl_handshake_errors++;
                             STATS_UNLOCK();
                             break;
                         }
