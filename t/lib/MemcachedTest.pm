@@ -384,11 +384,15 @@ sub new_sock {
     if ($self->{domainsocket}) {
         return IO::Socket::UNIX->new(Peer => $self->{domainsocket});
     } elsif (MemcachedTest::enabled_tls_testing()) {
-        return eval qq{ IO::Socket::SSL->new(PeerAddr => "$self->{host}:$self->{port}",
-                                    SSL_verify_mode => IO::Socket::SSL::SSL_VERIFY_NONE,
-                                    SSL_cert_file => '$client_crt',
-                                    SSL_key_file => '$client_key');
-                                    };
+        my $ssl_session_cache = shift;
+        my $ssl_version = shift;
+        return IO::Socket::SSL->new(PeerAddr => "$self->{host}:$self->{port}",
+                                    SSL_verify_mode => eval qq{ IO::Socket::SSL::SSL_VERIFY_NONE },
+                                    SSL_session_cache => $ssl_session_cache,
+                                    SSL_version => "$ssl_version",
+                                    SSL_cert_file => "$client_crt",
+                                    SSL_key_file => "$client_key");
+
     } else {
         return IO::Socket::INET->new(PeerAddr => "$self->{host}:$self->{port}");
     }
