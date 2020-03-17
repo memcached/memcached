@@ -1634,6 +1634,9 @@ following additional statistics are available via the "stats" command.
 | ssl_handshake_errors           | 64u      | Number of times the server has |
 |                                |          | encountered an OpenSSL error   |
 |                                |          | during handshake (SSL_accept). |
+| ssl_new_sessions               | 64u      | When SSL session caching is    |
+|                                |          | enabled, the number of newly   |
+|                                |          | created server-side sessions.  |
 | time_since_server_cert_refresh | 32u      | Number of seconds that have    |
 |                                |          | elapsed since the last time    |
 |                                |          | certs were reloaded from disk. |
