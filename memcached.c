@@ -7021,7 +7021,7 @@ static void drive_machine(conn *c) {
                     }
                     SSL_set_fd(ssl, sfd);
                     int ret = SSL_accept(ssl);
-                    if (ret < 0) {
+                    if (ret <= 0) {
                         int err = SSL_get_error(ssl, ret);
                         if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
                             if (settings.verbose) {
