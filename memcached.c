@@ -6037,11 +6037,15 @@ static void process_command(conn *c, char *command) {
 
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
     // All commands need a minimum of two tokens: cmd and NULL finalizer
-    WANT_TOKENS_MIN(ntokens, 2);
+    // There are also no valid commands shorter than two bytes.
+    if (ntokens < 2 || tokens[COMMAND_TOKEN].length < 2) {
+        out_string(c, "ERROR");
+        return;
+    }
 
     // Meta commands are all 2-char in length.
-    if (tokens[COMMAND_TOKEN].length == 2 &&
-            tokens[COMMAND_TOKEN].value[0] == 'm') {
+    char first = tokens[COMMAND_TOKEN].value[0];
+    if (first == 'm' && tokens[COMMAND_TOKEN].length == 2) {
         switch (tokens[COMMAND_TOKEN].value[1]) {
             case 'g':
                 process_mget_command(c, tokens, ntokens);
@@ -6067,65 +6071,97 @@ static void process_command(conn *c, char *command) {
                 out_string(c, "ERROR");
                 break;
         }
-    } else if (tokens[COMMAND_TOKEN].length > 2 &&
-            tokens[COMMAND_TOKEN].value[0] == 'g') {
-        // Various get commands are very common; short out the branch.
+    } else if (first == 'g') {
+        // Various get commands are very common.
+        WANT_TOKENS_MIN(ntokens, 3);
         if (strcmp(tokens[COMMAND_TOKEN].value, "get") == 0) {
 
-            WANT_TOKENS_MIN(ntokens, 3);
             process_get_command(c, tokens, ntokens, false, false);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "gets") == 0) {
 
-            WANT_TOKENS_MIN(ntokens, 3);
             process_get_command(c, tokens, ntokens, true, false);
-
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "gat") == 0) {
 
-            WANT_TOKENS_MIN(ntokens, 3);
             process_get_command(c, tokens, ntokens, false, true);
-
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "gats") == 0) {
 
-            WANT_TOKENS_MIN(ntokens, 3);
             process_get_command(c, tokens, ntokens, true, true);
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (first == 's') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) {
 
+            WANT_TOKENS_OR(ntokens, 6, 7);
+            process_update_command(c, tokens, ntokens, comm, false);
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0) {
+
+            process_stat(c, tokens, ntokens);
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 2, 2);
+            process_shutdown_command(c);
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
+
+            process_slabs_command(c, tokens, ntokens);
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (first == 'a') {
+        if ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
+            (strcmp(tokens[COMMAND_TOKEN].value, "append") == 0 && (comm = NREAD_APPEND)) ) {
+
+            WANT_TOKENS_OR(ntokens, 6, 7);
+            process_update_command(c, tokens, ntokens, comm, false);
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (first == 'c') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0 && (comm = NREAD_CAS)) {
+
+            WANT_TOKENS_OR(ntokens, 7, 8);
+            process_update_command(c, tokens, ntokens, comm, true);
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 3, 4);
+            process_memlimit_command(c, tokens, ntokens);
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (first == 'i') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 4, 5);
+            process_arithmetic_command(c, tokens, ntokens, 1);
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (first == 'd') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0) {
+
+            WANT_TOKENS(ntokens, 3, 5);
+            process_delete_command(c, tokens, ntokens);
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 4, 5);
+            process_arithmetic_command(c, tokens, ntokens, 0);
+        } else {
+            out_string(c, "ERROR");
+        }
+    } else if (first == 't') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "touch") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 4, 5);
+            process_touch_command(c, tokens, ntokens);
         } else {
             out_string(c, "ERROR");
         }
     } else if (
-               ((strcmp(tokens[COMMAND_TOKEN].value, "add") == 0 && (comm = NREAD_ADD)) ||
-                (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET)) ||
                 (strcmp(tokens[COMMAND_TOKEN].value, "replace") == 0 && (comm = NREAD_REPLACE)) ||
-                (strcmp(tokens[COMMAND_TOKEN].value, "prepend") == 0 && (comm = NREAD_PREPEND)) ||
-                (strcmp(tokens[COMMAND_TOKEN].value, "append") == 0 && (comm = NREAD_APPEND)) )) {
+                (strcmp(tokens[COMMAND_TOKEN].value, "prepend") == 0 && (comm = NREAD_PREPEND)) ) {
 
         WANT_TOKENS_OR(ntokens, 6, 7);
         process_update_command(c, tokens, ntokens, comm, false);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "cas") == 0 && (comm = NREAD_CAS)) {
-
-        WANT_TOKENS_OR(ntokens, 7, 8);
-        process_update_command(c, tokens, ntokens, comm, true);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0) {
-
-        WANT_TOKENS_OR(ntokens, 4, 5);
-        process_arithmetic_command(c, tokens, ntokens, 1);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0) {
-
-        WANT_TOKENS_OR(ntokens, 4, 5);
-        process_arithmetic_command(c, tokens, ntokens, 0);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "delete") == 0) {
-
-        WANT_TOKENS(ntokens, 3, 5);
-        process_delete_command(c, tokens, ntokens);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "touch") == 0) {
-
-        WANT_TOKENS_OR(ntokens, 4, 5);
-        process_touch_command(c, tokens, ntokens);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "bget") == 0) {
         // ancient "binary get" command which isn't in any documentation, was
@@ -6133,10 +6169,6 @@ static void process_command(conn *c, char *command) {
         // we should look deeper into client code and remove this.
         WANT_TOKENS_MIN(ntokens, 3);
         process_get_command(c, tokens, ntokens, false, false);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "stats") == 0) {
-
-        process_stat(c, tokens, ntokens);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0) {
 
@@ -6153,15 +6185,6 @@ static void process_command(conn *c, char *command) {
         WANT_TOKENS_OR(ntokens, 2, 2);
         process_quit_command(c);
 
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0) {
-
-        WANT_TOKENS_OR(ntokens, 2, 2);
-        process_shutdown_command(c);
-
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
-
-        process_slabs_command(c, tokens, ntokens);
-
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
 
         process_lru_crawler_command(c, tokens, ntokens);
@@ -6170,9 +6193,6 @@ static void process_command(conn *c, char *command) {
 
         process_watch_command(c, tokens, ntokens);
 
-    } else if (strcmp(tokens[COMMAND_TOKEN].value, "cache_memlimit") == 0) {
-        WANT_TOKENS_OR(ntokens, 3, 4);
-        process_memlimit_command(c, tokens, ntokens);
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0) {
         WANT_TOKENS_OR(ntokens, 3, 4);
         process_verbosity_command(c, tokens, ntokens);
