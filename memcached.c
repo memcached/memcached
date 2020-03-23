@@ -6175,8 +6175,9 @@ static int try_read_command_binary(conn *c) {
         // want to refactor a ton of code either. Header is only ever used out
         // of c->binary_header, but the extlen stuff is used for the latter
         // bytes. Just wastes 24 bytes on the stack this way.
-        char extbuf[sizeof(c->binary_header) + BIN_MAX_EXTLEN];
-        memcpy(extbuf + sizeof(c->binary_header), c->rcurr + sizeof(c->binary_header), extlen);
+        char extbuf[sizeof(c->binary_header) + BIN_MAX_EXTLEN+1];
+        memcpy(extbuf + sizeof(c->binary_header), c->rcurr + sizeof(c->binary_header),
+                extlen > BIN_MAX_EXTLEN ? BIN_MAX_EXTLEN : extlen);
         c->rbytes -= sizeof(c->binary_header) + extlen + keylen;
         c->rcurr += sizeof(c->binary_header) + extlen + keylen;
 
