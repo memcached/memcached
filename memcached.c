@@ -2932,10 +2932,7 @@ typedef struct token_s {
 
 #define WANT_TOKENS(ntokens, min, max) \
     do { \
-        if (min != -1 && ntokens < min) { \
-            out_string(c, "ERROR"); \
-            return; \
-        } else if (max != -1 && ntokens > max) { \
+        if ((min != -1 && ntokens < min) || (max != -1 && ntokens > max)) { \
             out_string(c, "ERROR"); \
             return; \
         } \
@@ -6099,7 +6096,6 @@ static void process_command(conn *c, char *command) {
             process_stat(c, tokens, ntokens);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0) {
 
-            WANT_TOKENS_OR(ntokens, 2, 2);
             process_shutdown_command(c);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
 
@@ -6177,12 +6173,10 @@ static void process_command(conn *c, char *command) {
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "version") == 0) {
 
-        WANT_TOKENS_OR(ntokens, 2, 2);
         process_version_command(c);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "quit") == 0) {
 
-        WANT_TOKENS_OR(ntokens, 2, 2);
         process_quit_command(c);
 
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
@@ -6202,7 +6196,6 @@ static void process_command(conn *c, char *command) {
 #ifdef MEMCACHED_DEBUG
     // commands which exist only for testing the memcached's security protection
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "misbehave") == 0) {
-        WANT_TOKENS_OR(ntokens, 2, 2);
         process_misbehave_command(c);
 #endif
 #ifdef EXTSTORE
@@ -6212,7 +6205,6 @@ static void process_command(conn *c, char *command) {
 #endif
 #ifdef TLS
     } else if (strcmp(tokens[COMMAND_TOKEN].value, "refresh_certs") == 0) {
-        WANT_TOKENS_OR(ntokens, 2, 2);
         process_refresh_certs_command(c, tokens, ntokens);
 #endif
     } else {
