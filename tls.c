@@ -94,6 +94,11 @@ static bool load_server_certificates(char **errmsg) {
         *errmsg = NULL;
         return false;
     }
+    if (settings.ssl_ctx == NULL) {
+        snprintf(error_msg, errmax, "Error TLS not enabled\r\n");
+        *errmsg = error_msg;
+        return false;
+    }
     SSL_LOCK();
     if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
         settings.ssl_chain_cert)) {
