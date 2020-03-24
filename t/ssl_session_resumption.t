@@ -15,7 +15,7 @@ my $server;
 my $sock;
 my $stats;
 
-my $session_cache = IO::Socket::SSL::Session_Cache->new(1);
+my $session_cache = eval qq{ IO::Socket::SSL::Session_Cache->new(1); };
 
 ### Disabled SSL session cache
 
