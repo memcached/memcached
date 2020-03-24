@@ -107,6 +107,9 @@ AC_ARG_ENABLE(tls,
 AC_ARG_ENABLE(asan,
   [AS_HELP_STRING([--enable-asan], [Compile with ASAN EXPERIMENTAL ])])
 
+AC_ARG_ENABLE(static,
+  [AS_HELP_STRING([--enable-static], [Compile a statically linked binary])])
+
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
 dnl
@@ -206,6 +209,10 @@ if test "x$enable_asan" = "xyes"; then
     AC_DEFINE([ASAN],1,[Set to nonzero if you want to compile using ASAN])
 fi
 
+if test "x$enable_static" = "xyes"; then
+    AC_DEFINE([STATIC],1,[Set to nonzero if you want to compile a statically linked binary])
+fi
+
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
@@ -213,6 +220,7 @@ AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" != "no"])
 AM_CONDITIONAL([ENABLE_ARM_CRC32],[test "$enable_arm_crc32" = "yes"])
 AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
 AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
+AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 
 
 AC_SUBST(DTRACE)
@@ -462,6 +470,11 @@ if test "x$enable_tls" = "xyes"; then
       CPPFLAGS="-I$ac_cv_libssl_dir $CPPFLAGS"
     fi
   fi
+fi
+
+if test "x$enable_static" = "xyes"; then
+  LIBS="$LIBS -ldl"
+  LDFLAGS="-static $LDFLAGS"
 fi
 
 dnl ----------------------------------------------------------------------------
