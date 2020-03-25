@@ -820,9 +820,8 @@ enum delta_result_type add_delta(conn *c, const char *key,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas);
 void accept_new_conns(const bool do_accept);
-conn *conn_from_freelist(void);
-bool  conn_add_to_freelist(conn *c);
 void  conn_close_idle(conn *c);
+void  conn_close_all(void);
 item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 #define DO_UPDATE true
 #define DONT_UPDATE false

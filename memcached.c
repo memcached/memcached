@@ -939,6 +939,18 @@ static void conn_close(conn *c) {
     return;
 }
 
+// Since some connections might be off on side threads and some are managed as
+// listeners we need to walk through them all from a central point.
+// Must be called with all worker threads hung or in the process of closing.
+void conn_close_all(void) {
+    int i;
+    for (i = 0; i < max_fds; i++) {
+        if (conns[i] && conns[i]->state != conn_closed) {
+            conn_close(conns[i]);
+        }
+    }
+}
+
 /**
  * Convert a state name to a human readable form.
  */
@@ -10126,13 +10138,6 @@ int main (int argc, char **argv) {
 
     fprintf(stderr, "Gracefully stopping\n");
     stop_threads();
-    int i;
-    // FIXME: make a function callable from threads.c
-    for (i = 0; i < max_fds; i++) {
-        if (conns[i] && conns[i]->state != conn_closed) {
-            conn_close(conns[i]);
-        }
-    }
     if (memory_file != NULL) {
         restart_mmap_close();
     }

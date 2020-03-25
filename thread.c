@@ -204,6 +204,7 @@ void stop_threads(void) {
     if (settings.verbose > 0)
         fprintf(stderr, "asking workers to stop\n");
     buf[0] = 's';
+    pthread_mutex_lock(&worker_hang_lock);
     pthread_mutex_lock(&init_lock);
     init_count = 0;
     for (i = 0; i < settings.num_threads; i++) {
@@ -214,6 +215,8 @@ void stop_threads(void) {
     }
     wait_for_thread_registration(settings.num_threads);
     pthread_mutex_unlock(&init_lock);
+
+    // All of the workers are hung but haven't done cleanup yet.
 
     if (settings.verbose > 0)
         fprintf(stderr, "asking background threads to stop\n");
@@ -235,6 +238,17 @@ void stop_threads(void) {
     stop_conn_timeout_thread();
     if (settings.verbose > 0)
         fprintf(stderr, "stopped idle timeout thread\n");
+
+    // Close all connections then let the workers finally exit.
+    if (settings.verbose > 0)
+        fprintf(stderr, "closing connections\n");
+    conn_close_all();
+    pthread_mutex_unlock(&worker_hang_lock);
+    if (settings.verbose > 0)
+        fprintf(stderr, "reaping worker threads\n");
+    for (i = 0; i < settings.num_threads; i++) {
+        pthread_join(threads[i].thread_id, NULL);
+    }
 
     if (settings.verbose > 0)
         fprintf(stderr, "all background threads stopped\n");
