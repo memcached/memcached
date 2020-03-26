@@ -299,6 +299,10 @@ void slabs_prefill_global(void) {
     while (mem_malloced < mem_limit
             && (ptr = memory_allocate(len)) != NULL) {
         grow_slab_list(0);
+        // Ensure the front header is zero'd to avoid confusing restart code.
+        // It's probably good enough to cast it and just zero slabs_clsid, but
+        // this is extra paranoid.
+        memset(ptr, 0, sizeof(item));
         p->slab_list[p->slabs++] = ptr;
     }
     mem_limit_reached = true;
