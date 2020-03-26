@@ -381,9 +381,11 @@ static int do_slabs_newslab(const unsigned int id) {
         return 0;
     }
 
-#if !defined(__FreeBSD__)
+    // Always wipe the memory at this stage: in restart mode the mmap memory
+    // could be unused, yet still full of data. Better for usability if we're
+    // wiping memory as it's being pulled out of the global pool instead of
+    // blocking startup all at once.
     memset(ptr, 0, (size_t)len);
-#endif
     split_slab_page_into_freelist(ptr, id);
 
     p->slab_list[p->slabs++] = ptr;
