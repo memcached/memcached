@@ -341,7 +341,11 @@ static void *conn_timeout_thread(void *arg) {
     char buf[TIMEOUT_MSG_SIZE];
     rel_time_t oldest_last_cmd;
     int sleep_time;
-    useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
+    int sleep_slice = max_fds / CONNS_PER_SLICE;
+    if (sleep_slice == 0)
+        sleep_slice = CONNS_PER_SLICE;
+
+    useconds_t timeslice = 1000000 / sleep_slice;
 
     while(do_run_conn_timeout_thread) {
         if (settings.verbose > 2)
