@@ -4328,7 +4328,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     bool item_created = false;
     bool won_token = false;
     bool ttl_set = false;
-    char *errstr;
+    char *errstr = "CLIENT_ERROR bad command line format";
     mc_resp *resp = c->resp;
     char *p = resp->wbuf;
 
