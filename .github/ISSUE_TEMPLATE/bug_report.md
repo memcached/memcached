@@ -7,6 +7,12 @@ assignees: ''
 
 ---
 
+**DO NOT SUBMIT SECURITY REPORTS HERE**
+
+If you have a security vulnerability, _please report it to the maintainers
+privately_. You will be able to file your bug and claim credit once we have a
+fix implemented.
+
 **Describe the bug**
 A clear and concise description of what the bug is.
 
