@@ -28,6 +28,16 @@ dangerous when using a large cache.  Just make sure the memcached machines
 don't swap.  memcached does non-blocking network I/O, but not disk.  (it
 should never go to disk, or you've lost the whole point of it)
 
+## Bug reports
+
+Feel free to use the issue tracker on github.
+
+**If you are reporting a security bug** please contact a maintainer privately.
+We follow responsible disclosure: we handle reports privately, prepare a
+patch, allow notifications to vendor lists, then run a fix release and your
+bug can be posted publicly with credit in our release notes and commit
+history.
+
 ## Website
 
 * https://www.memcached.org
