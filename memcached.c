@@ -7825,12 +7825,13 @@ static void usage(void) {
            "-s, --unix-socket=<file>  UNIX socket to listen on (disables network support)\n"
            "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
            "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: %o)\n"
-           "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
+           "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n",
+           settings.port, settings.udpport, settings.access);
 #ifdef TLS
-           "                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
-           "                          disable for specific listeners (-l notls:<ip>:<port>) \n"
+    printf("                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
+           "                          disable for specific listeners (-l notls:<ip>:<port>) \n");
 #endif
-           "-d, --daemon              run as a daemon\n"
+    printf("-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
            "-m, --memory-limit=<num>  item memory in megabytes (default: %lu)\n"
@@ -7846,7 +7847,7 @@ static void usage(void) {
            "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
            "-f, --slab-growth-factor=<num> chunk size growth factor (default: %2.2f)\n"
            "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: %d)\n",
-           settings.port, settings.udpport, settings.access, (unsigned long) settings.maxbytes / (1 << 20),
+           (unsigned long) settings.maxbytes / (1 << 20),
            settings.maxconns, settings.factor, settings.chunk_size);
     verify_default("udp-port",settings.udpport == 0);
     printf("-L, --enable-largepages  try to use large memory pages (if available)\n");
