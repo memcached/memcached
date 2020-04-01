@@ -21,6 +21,7 @@
 #include "config.h"
 #include "cache.h"
 #include "hash.h"
+#include "jenkins_hash.h"
 #include "stats_prefix.h"
 #include "util.h"
 #include "protocol_binary.h"
@@ -42,10 +43,7 @@ struct conn {
     ssize_t (*write)(struct conn *c, const void *buf, size_t count);
 };
 
-struct settings {
-    char *hash_algorithm;
-};
-struct settings settings;
+hash_func hash;
 
 static ssize_t tcp_read(struct conn *c, void *buf, size_t count);
 static ssize_t tcp_write(struct conn *c, const void *buf, size_t count);
@@ -2306,8 +2304,9 @@ int main(int argc, char **argv)
         enable_ssl = true;
     }
 #endif
-    /* Stats prefix test is sensitive to the choice of hash function */
-    hash_init(JENKINS_HASH);
+    /* Initialized directly instead of using hash_init to avoid pulling in
+       the definition of settings struct from memcached.h */
+    hash = jenkins_hash;
     stats_prefix_init(':');
 
     for (num_cases = 0; testcases[num_cases].description; num_cases++) {
