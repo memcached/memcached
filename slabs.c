@@ -279,7 +279,10 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
     {
         char *t_initial_malloc = getenv("T_MEMD_INITIAL_MALLOC");
         if (t_initial_malloc) {
-            mem_malloced = (size_t)atol(t_initial_malloc);
+            int64_t env_malloced;
+            if (safe_strtoll((const char *)t_initial_malloc, &env_malloced)) {
+                mem_malloced = (size_t)env_malloced;
+            }
         }
 
     }
