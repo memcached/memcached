@@ -512,7 +512,7 @@ VA <size> <flags>*\r\n
 - <flags>* are tokens returned by the server, based on the flags supplied.
   They are added in order specified by the flags sent.
 
-- <data block> is the data for this item. Note that the data black is
+- <data block> is the data for this item. Note that the data block is
   optional, requiring the 'v' flag to be supplied.
 
 If the request did not ask for a value in the response (v) flag, the server
