@@ -80,6 +80,10 @@ diag "Load a couple chunked items";
         $cur += 50;
         $cnt++;
     }
+    # delete the last one.
+    $cnt--;
+    print $sock "delete chunk${cnt}\r\n";
+    like(scalar <$sock>, qr/DELETED/, "deleted $cnt from large chunked items");
 }
 
 diag "Data that should expire while stopped.";

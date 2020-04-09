@@ -370,7 +370,7 @@ unsigned int restart_fixup(void *orig_addr) {
 
         int size = slabs_fixup((char *)mmap_base + checked,
                 checked % settings.slab_page_size);
-        //fprintf(stderr, "id: %d, size: %d\n", it->slabs_clsid, size);
+        //fprintf(stderr, "id: %d, size: %d remain: %u\n", it->slabs_clsid, size, page_remain);
         // slabber gobbled an entire page, skip and move on.
         if (size == -1) {
             assert(page_remain % page_size == 0);
