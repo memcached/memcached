@@ -139,7 +139,7 @@ my $settings = mem_stats($sock, ' settings');
 is(1024, $settings->{'maxconns'});
 # we run SSL tests over TCP; hence the domain_socket
 # is expected to be NULL.
-if (enabled_tls_testing()) {
+if (enabled_tls_testing() || !supports_unix_socket()) {
     is('NULL', $settings->{'domain_socket'});
 } else {
     isnt('NULL', $settings->{'domain_socket'});

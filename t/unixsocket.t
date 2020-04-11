@@ -1,24 +1,35 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 3;
+use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
 my $filename = "/tmp/memcachetest$$";
 
-my $server = new_memcached("-s $filename");
-my $sock = $server->sock;
+if (supports_unix_socket()) {
+    plan tests => 3;
 
-ok(-S $filename, "creating unix domain socket $filename");
+    my $server = new_memcached("-s $filename");
+    my $sock = $server->sock;
 
-# set foo (and should get it)
-print $sock "set foo 0 0 6\r\nfooval\r\n";
+    ok(-S $filename, "creating unix domain socket $filename");
 
-is(scalar <$sock>, "STORED\r\n", "stored foo");
-mem_get_is($sock, "foo", "fooval");
+    # set foo (and should get it)
+    print $sock "set foo 0 0 6\r\nfooval\r\n";
 
-unlink($filename);
+    is(scalar <$sock>, "STORED\r\n", "stored foo");
+    mem_get_is($sock, "foo", "fooval");
 
-## Just some basic stuff for now...
+    unlink($filename);
+
+    ## Just some basic stuff for now...
+} else {
+    plan tests => 1;
+
+    eval {
+        my $server = new_memcached("-s $filename");
+    };
+    ok($@, "Died connecting to unsupported unix socket.");
+}
