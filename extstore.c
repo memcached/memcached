@@ -16,6 +16,7 @@
 #include <string.h>
 #include <assert.h>
 #include "extstore.h"
+#include "config.h"
 
 // TODO: better if an init option turns this on/off.
 #ifdef EXTSTORE_DEBUG
@@ -773,14 +774,20 @@ static void *extstore_io_thread(void *arg) {
                     }
                     pthread_mutex_unlock(&p->mutex);
                     if (do_op) {
-#ifdef __APPLE__
-                        ret = lseek(p->fd, SEEK_SET, p->offset + cur_io->offset);
+#if !defined(HAVE_PREAD) || !defined(HAVE_PREADV)
+                        // TODO: lseek offset is natively 64-bit on OS X, but
+                        // perhaps not on all platforms? Else use lseek64()
+                        ret = lseek(p->fd, p->offset + cur_io->offset, SEEK_SET);
                         if (ret >= 0) {
                             if (cur_io->iov == NULL) {
                                 ret = read(p->fd, cur_io->buf, cur_io->len);
                             } else {
                                 ret = readv(p->fd, cur_io->iov, cur_io->iovcnt);
                             }
+#ifdef EXTSTORE_DEBUG
+                        } else {
+                            perror("lseek failed");
+#endif
                         }
 #else
                         if (cur_io->iov == NULL) {
