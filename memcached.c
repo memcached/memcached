@@ -3371,7 +3371,6 @@ static inline void get_conn_text(const conn *c, const int af,
     addr_text[0] = '\0';
     const char *protoname = "?";
     unsigned short port = 0;
-    size_t pathlen = 0;
 
     switch (af) {
         case AF_INET:
@@ -3396,7 +3395,10 @@ static inline void get_conn_text(const conn *c, const int af,
             protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
             break;
 
+#ifndef DISABLE_UNIX_SOCKET
         case AF_UNIX:
+        {
+            size_t pathlen = 0;
             // this strncpy call originally could piss off an address
             // sanitizer; we supplied the size of the dest buf as a limiter,
             // but optimized versions of strncpy could read past the end of
@@ -3419,7 +3421,9 @@ static inline void get_conn_text(const conn *c, const int af,
                     pathlen);
             addr_text[pathlen] = '\0';
             protoname = "unix";
+        }
             break;
+#endif /* #ifndef DISABLE_UNIX_SOCKET */
     }
 
     if (strlen(addr_text) < 2) {
@@ -7812,6 +7816,7 @@ static int server_sockets(int port, enum network_transport transport,
     }
 }
 
+#ifndef DISABLE_UNIX_SOCKET
 static int new_socket_unix(void) {
     int sfd;
     int flags;
@@ -7889,6 +7894,9 @@ static int server_socket_unix(const char *path, int access_mask) {
 
     return 0;
 }
+#else
+#define server_socket_unix(path, access_mask)   -1
+#endif /* #ifndef DISABLE_UNIX_SOCKET */
 
 /*
  * We keep the current time of day in a global variable that's updated by a
@@ -7967,9 +7975,13 @@ static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
     printf("-p, --port=<num>          TCP port to listen on (default: %d)\n"
            "-U, --udp-port=<num>      UDP port to listen on (default: %d, off)\n"
+#ifndef DISABLE_UNIX_SOCKET
            "-s, --unix-socket=<file>  UNIX socket to listen on (disables network support)\n"
+#endif /* #ifndef DISABLE_UNIX_SOCKET */
            "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
+#ifndef DISABLE_UNIX_SOCKET
            "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: %o)\n"
+#endif /* #ifndef DISABLE_UNIX_SOCKET */
            "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
 #ifdef TLS
            "                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
@@ -7991,7 +8003,11 @@ static void usage(void) {
            "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
            "-f, --slab-growth-factor=<num> chunk size growth factor (default: %2.2f)\n"
            "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: %d)\n",
-           settings.port, settings.udpport, settings.access, (unsigned long) settings.maxbytes / (1 << 20),
+           settings.port, settings.udpport,
+#ifndef DISABLE_UNIX_SOCKET
+           settings.access,
+#endif /* #ifndef DISABLE_UNIX_SOCKET */
+           (unsigned long) settings.maxbytes / (1 << 20),
            settings.maxconns, settings.factor, settings.chunk_size);
     verify_default("udp-port",settings.udpport == 0);
     printf("-L, --enable-largepages  try to use large memory pages (if available)\n");
@@ -9016,8 +9032,13 @@ int main (int argc, char **argv) {
 #endif
             break;
         case 'a':
+#ifndef DISABLE_UNIX_SOCKET
             /* access for unix domain socket, as octal mask (like chmod)*/
             settings.access= strtol(optarg,NULL,8);
+#else
+            fprintf(stderr, "This server is not built with unix socket support.\n");
+            exit(EX_USAGE);
+#endif /* #ifndef DISABLE_UNIX_SOCKET */
             break;
         case 'U':
             settings.udpport = atoi(optarg);
@@ -9028,7 +9049,12 @@ int main (int argc, char **argv) {
             tcp_specified = true;
             break;
         case 's':
+#ifndef DISABLE_UNIX_SOCKET
             settings.socketpath = optarg;
+#else
+            fprintf(stderr, "This server is not built with unix socket support.\n");
+            exit(EX_USAGE);
+#endif /* #ifndef DISABLE_UNIX_SOCKET */
             break;
         case 'm':
             settings.maxbytes = ((size_t)atoi(optarg)) * 1024 * 1024;

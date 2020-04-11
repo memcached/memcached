@@ -15,7 +15,8 @@ my @unixsockets = ();
 
 @EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
              supports_sasl free_port supports_drop_priv supports_extstore
-             wait_ext_flush supports_tls enabled_tls_testing run_help);
+             wait_ext_flush supports_tls enabled_tls_testing run_help
+             supports_unix_socket);
 
 use constant MAX_READ_WRITE_SIZE => 16384;
 use constant SRV_CRT => "server_crt.pem";
@@ -182,27 +183,39 @@ sub free_port {
     return $port;
 }
 
+sub print_help {
+    my $exe = get_memcached_exe();
+    my $output = `$exe -h`;
+    return $output;
+}
+
 sub supports_udp {
-    my $output = `$builddir/memcached-debug -h`;
+    my $output = print_help();
     return 0 if $output =~ /^memcached 1\.1\./;
     return 1;
 }
 
 sub supports_sasl {
-    my $output = `$builddir/memcached-debug -h`;
+    my $output = print_help();
     return 1 if $output =~ /sasl/i;
     return 0;
 }
 
 sub supports_extstore {
-    my $output = `$builddir/memcached-debug -h`;
+    my $output = print_help();
     return 1 if $output =~ /ext_path/i;
     return 0;
 }
 
 sub supports_tls {
-    my $output = `$builddir/memcached-debug -h`;
+    my $output = print_help();
     return 1 if $output =~ /enable-ssl/i;
+    return 0;
+}
+
+sub supports_unix_socket {
+    my $output = print_help();
+    return 1 if $output =~ /unix-socket/i;
     return 0;
 }
 
@@ -218,7 +231,7 @@ sub enabled_tls_testing {
 }
 
 sub supports_drop_priv {
-    my $output = `$builddir/memcached-debug -h`;
+    my $output = print_help();
     return 1 if $output =~ /no_drop_privileges/i;
     return 0;
 }
@@ -240,6 +253,7 @@ sub new_memcached {
     my $port = $passed_port;
     my $host = '127.0.0.1';
     my $ssl_enabled  = enabled_tls_testing();
+    my $unix_socket_disabled  = !supports_unix_socket();
 
     if ($ENV{T_MEMD_USE_DAEMON}) {
         my ($host, $port) = ($ENV{T_MEMD_USE_DAEMON} =~ m/^([^:]+):(\d+)$/);
@@ -268,7 +282,7 @@ sub new_memcached {
     $args .= " -o relaxed_privileges";
 
     my $udpport;
-    if ($args =~ /-l (\S+)/ || ($ssl_enabled && ($args !~ /-s (\S+)/))) {
+    if ($args =~ /-l (\S+)/ || (($ssl_enabled || $unix_socket_disabled) && ($args !~ /-s (\S+)/))) {
         if (!$port) {
             $port = free_port();
         }
