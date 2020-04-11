@@ -103,7 +103,7 @@ static bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void 
 static void settings_init(void);
 
 /* event handling, network IO */
-static void event_handler(const int fd, const short which, void *arg);
+static void event_handler(const evutil_socket_t fd, const short which, void *arg);
 static void conn_close(conn *c);
 static void conn_init(void);
 static bool update_event(conn *c, const int new_flags);
@@ -183,7 +183,7 @@ static enum transmit_result transmit(conn *c);
 static volatile bool allow_new_conns = true;
 static bool stop_main_loop = false;
 static struct event maxconnsevent;
-static void maxconns_handler(const int fd, const short which, void *arg) {
+static void maxconns_handler(const evutil_socket_t fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
 
     if (fd == -42 || allow_new_conns == false) {
@@ -7361,9 +7361,9 @@ static void drive_machine(conn *c) {
             if (settings.verbose > 0) {
                 fprintf(stderr, "Failed to read, and not due to blocking:\n"
                         "errno: %d %s \n"
-                        "rcurr=%lx ritem=%lx rbuf=%lx rlbytes=%d rsize=%d\n",
+                        "rcurr=%p ritem=%p rbuf=%p rlbytes=%d rsize=%d\n",
                         errno, strerror(errno),
-                        (long)c->rcurr, (long)c->ritem, (long)c->rbuf,
+                        c->rcurr, c->ritem, c->rbuf,
                         (int)c->rlbytes, (int)c->rsize);
             }
             conn_set_state(c, conn_closing);
@@ -7485,7 +7485,7 @@ static void drive_machine(conn *c) {
     return;
 }
 
-void event_handler(const int fd, const short which, void *arg) {
+void event_handler(const evutil_socket_t fd, const short which, void *arg) {
     conn *c;
 
     c = (conn *)arg;
@@ -7535,7 +7535,11 @@ static void maximize_sndbuf(const int sfd) {
     int old_size;
 
     /* Start with the default size. */
+#ifdef _WIN32
+    if (getsockopt((SOCKET)sfd, SOL_SOCKET, SO_SNDBUF, (char *)&old_size, &intsize) != 0) {
+#else
     if (getsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &old_size, &intsize) != 0) {
+#endif /* #ifdef _WIN32 */
         if (settings.verbose > 0)
             perror("getsockopt(SO_SNDBUF)");
         return;
@@ -7909,7 +7913,7 @@ static int64_t monotonic_start;
  * from jitter, simply ticking our internal timer here is accurate enough.
  * Note that users who are setting explicit dates for expiration times *must*
  * ensure their clocks are correct before starting memcached. */
-static void clock_handler(const int fd, const short which, void *arg) {
+static void clock_handler(const evutil_socket_t fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 1, .tv_usec = 0};
     static bool initialized = false;
 
