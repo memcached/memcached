@@ -181,6 +181,10 @@ int ssl_init(void) {
     return 0;
 }
 
+/* BoringSSL rejects peer renegotiations by default.
+ * See https://boringssl.googlesource.com/boringssl/+/HEAD/PORTING.md
+ */
+#ifndef OPENSSL_IS_BORINGSSL
 /*
  * This method is registered with each SSL connection and abort the SSL session
  * if a client initiates a renegotiation.
@@ -199,6 +203,7 @@ void ssl_callback(const SSL *s, int where, int ret) {
         return;
     }
 }
+#endif /* #ifndef OPENSSL_IS_BORINGSSL */
 
 /*
  * This method is invoked with every new successfully negotiated SSL session,
