@@ -784,10 +784,6 @@ static void *extstore_io_thread(void *arg) {
                             } else {
                                 ret = readv(p->fd, cur_io->iov, cur_io->iovcnt);
                             }
-#ifdef EXTSTORE_DEBUG
-                        } else {
-                            perror("lseek failed");
-#endif
                         }
 #else
                         if (cur_io->iov == NULL) {
