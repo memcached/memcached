@@ -7978,20 +7978,20 @@ static void verify_default(const char* param, bool condition) {
 static void usage(void) {
     printf(PACKAGE " " VERSION "\n");
     printf("-p, --port=<num>          TCP port to listen on (default: %d)\n"
-           "-U, --udp-port=<num>      UDP port to listen on (default: %d, off)\n"
+           "-U, --udp-port=<num>      UDP port to listen on (default: %d, off)\n",
+           settings.port, settings.udpport);
 #ifndef DISABLE_UNIX_SOCKET
-           "-s, --unix-socket=<file>  UNIX socket to listen on (disables network support)\n"
+    printf("-s, --unix-socket=<file>  UNIX socket to listen on (disables network support)\n");
+    printf("-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: %o)\n",
+            settings.access);
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
-           "-A, --enable-shutdown     enable ascii \"shutdown\" command\n"
-#ifndef DISABLE_UNIX_SOCKET
-           "-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: %o)\n"
-#endif /* #ifndef DISABLE_UNIX_SOCKET */
-           "-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n"
+    printf("-A, --enable-shutdown     enable ascii \"shutdown\" command\n");
+    printf("-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n");
 #ifdef TLS
-           "                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
-           "                          disable for specific listeners (-l notls:<ip>:<port>) \n"
+    printf("                          if TLS/SSL is enabled, 'notls' prefix can be used to\n"
+           "                          disable for specific listeners (-l notls:<ip>:<port>) \n");
 #endif
-           "-d, --daemon              run as a daemon\n"
+    printf("-d, --daemon              run as a daemon\n"
            "-r, --enable-coredumps    maximize core file limit\n"
            "-u, --user=<user>         assume identity of <username> (only when run as root)\n"
            "-m, --memory-limit=<num>  item memory in megabytes (default: %lu)\n"
@@ -8007,10 +8007,6 @@ static void usage(void) {
            "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
            "-f, --slab-growth-factor=<num> chunk size growth factor (default: %2.2f)\n"
            "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: %d)\n",
-           settings.port, settings.udpport,
-#ifndef DISABLE_UNIX_SOCKET
-           settings.access,
-#endif /* #ifndef DISABLE_UNIX_SOCKET */
            (unsigned long) settings.maxbytes / (1 << 20),
            settings.maxconns, settings.factor, settings.chunk_size);
     verify_default("udp-port",settings.udpport == 0);
