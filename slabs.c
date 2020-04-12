@@ -456,6 +456,8 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
     it->prev = 0;
     // header object's original classid is stored in chunk.
     p = &slabclass[chunk->orig_clsid];
+    // original class id needs to be set on free memory.
+    it->slabs_clsid = chunk->orig_clsid;
     if (chunk->next) {
         chunk = chunk->next;
         chunk->prev = 0;
