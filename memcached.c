@@ -6341,13 +6341,6 @@ static int try_read_command_asciiauth(conn *c) {
     size_t ntokens;
     char *cont = NULL;
 
-    if (!c->resp) {
-        if (!resp_start(c)) {
-            conn_set_state(c, conn_closing);
-            return 1;
-        }
-    }
-
     // TODO: move to another function.
     if (!c->sasl_started) {
         char *el;
@@ -6384,6 +6377,12 @@ static int try_read_command_asciiauth(conn *c) {
         if (ntokens < 6
                 || strcmp(tokens[0].value, "set") != 0
                 || !safe_strtoul(tokens[4].value, &size)) {
+            if (!c->resp) {
+                if (!resp_start(c)) {
+                    conn_set_state(c, conn_closing);
+                    return 1;
+                }
+            }
             out_string(c, "CLIENT_ERROR unauthenticated");
             return 1;
         }
@@ -6398,6 +6397,14 @@ static int try_read_command_asciiauth(conn *c) {
     if (c->rbytes < c->rlbytes) {
         // need more bytes.
         return 0;
+    }
+
+    // Going to respond at this point, so attach a response object.
+    if (!c->resp) {
+        if (!resp_start(c)) {
+            conn_set_state(c, conn_closing);
+            return 1;
+        }
     }
 
     cont = c->rcurr;
