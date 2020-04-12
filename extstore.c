@@ -115,7 +115,7 @@ static _store_wbuf *wbuf_new(size_t size) {
     _store_wbuf *b = calloc(1, sizeof(_store_wbuf));
     if (b == NULL)
         return NULL;
-    b->buf = malloc(size);
+    b->buf = calloc(size, sizeof(char));
     if (b->buf == NULL) {
         free(b);
         return NULL;

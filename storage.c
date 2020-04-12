@@ -458,6 +458,7 @@ static void *storage_compact_thread(void *arg) {
     wrap.done = false;
     wrap.submitted = false;
     wrap.io.data = &wrap;
+    wrap.io.iov = NULL;
     wrap.io.buf = (void *)readback_buf;
 
     wrap.io.len = settings.ext_wbuf_size;
