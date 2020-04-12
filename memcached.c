@@ -7374,7 +7374,7 @@ static void drive_machine(conn *c) {
                         "errno: %d %s \n"
                         "rcurr=%p ritem=%p rbuf=%p rlbytes=%d rsize=%d\n",
                         errno, strerror(errno),
-                        c->rcurr, c->ritem, c->rbuf,
+                        (void *)c->rcurr, (void *)c->ritem, (void *)c->rbuf,
                         (int)c->rlbytes, (int)c->rsize);
             }
             conn_set_state(c, conn_closing);
