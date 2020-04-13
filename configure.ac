@@ -164,15 +164,10 @@ if test "x$enable_sasl" = "xyes"; then
   AC_C_DETECT_SASL_CB_GETCONF
   AC_C_DETECT_SASL_CB_GETCONFPATH
   AC_DEFINE([ENABLE_SASL],1,[Set to nonzero if you want to include SASL])
-  AC_TRY_COMPILE([
-     #ifdef HAVE_SASL_SASL_H
-     #include <sasl/sasl.h>
-     #endif
-  ],[
-    sasl_server_init(NULL, "test");
-  ],[ENABLE_SASL=1
-  ],[ENABLE_SASL=0
-  ])
+  AC_SEARCH_LIBS([sasl_server_init], [sasl2 sasl], [],
+    [
+      AC_MSG_ERROR([Failed to locate the library containing sasl_server_init])
+    ])
 
   AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
         [AC_DEFINE([ENABLE_SASL_PWDB], 1,
