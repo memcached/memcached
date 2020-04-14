@@ -897,6 +897,8 @@ Meta No-Op
 The meta no-op command exists solely to return a static response code. It
 takes no flags, no arguments.
 
+"mn\r\n"
+
 This returns the static response:
 
 "MN\r\n"
