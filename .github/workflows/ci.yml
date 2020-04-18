@@ -1,0 +1,21 @@
+name: GitHub CI
+
+on: [push, pull_request]
+
+jobs:
+  ubuntu-build-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install deps
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y libevent-dev libseccomp-dev git libsasl2-dev
+    - name: Build
+      run: |
+        gcc --version
+        ./autogen.sh
+        ./configure --enable-seccomp --enable-tls --enable-sasl --enable-sasl-pwdb
+        make -j
+    - name: Test
+      run: PARALLEL=5 make test
