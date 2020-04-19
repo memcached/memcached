@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 130;
+use Test::More tests => 131;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -33,6 +33,11 @@ isnt($items_before->{"items:31:evicted"}, 0, "slab 31 evicted is nonzero");
 isnt($items_before->{"items:25:evicted"}, 0, "slab 25 evicted is nonzero");
 
 my $slabs_before = mem_stats($sock, "slabs");
+
+# Invalid argument test
+print $sock "slabs reassign invalid1 invalid2\r\n";
+is(scalar <$sock>, "CLIENT_ERROR bad command line format\r\n");
+
 # Move a large slab to the smaller slab
 print $sock "slabs reassign 31 25\r\n";
 is(scalar <$sock>, "OK\r\n", "slab rebalancer started");

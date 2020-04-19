@@ -5523,7 +5523,10 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
 
     set_noreply_maybe(c, tokens, ntokens);
 
-    level = strtoul(tokens[1].value, NULL, 10);
+    if (!safe_strtoul(tokens[1].value, (uint32_t*)&level)) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
     settings.verbose = level > MAX_VERBOSITY_LEVEL ? MAX_VERBOSITY_LEVEL : level;
     out_string(c, "OK");
     return;
@@ -5569,7 +5572,10 @@ static void process_slabs_automove_command(conn *c, token_t *tokens, const size_
         }
         settings.slab_automove_ratio = ratio;
     } else {
-        level = strtoul(tokens[2].value, NULL, 10);
+        if (!safe_strtoul(tokens[2].value, (uint32_t*)&level)) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
         if (level == 0) {
             settings.slab_automove = 0;
         } else if (level == 1 || level == 2) {
@@ -5777,7 +5783,7 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
 }
 #endif
 static void process_flush_all_command(conn *c, token_t *tokens, const size_t ntokens) {
-    time_t exptime = 0;
+    int32_t exptime = 0;
     rel_time_t new_oldest = 0;
 
     set_noreply_maybe(c, tokens, ntokens);
@@ -5793,9 +5799,8 @@ static void process_flush_all_command(conn *c, token_t *tokens, const size_t nto
     }
 
     if (ntokens != (c->noreply ? 3 : 2)) {
-        exptime = strtol(tokens[1].value, NULL, 10);
-        if(errno == ERANGE) {
-            out_string(c, "CLIENT_ERROR bad command line format");
+        if (!safe_strtol(tokens[1].value, &exptime)) {
+            out_string(c, "CLIENT_ERROR invalid exptime argument");
             return;
         }
     }
@@ -5849,10 +5854,8 @@ static void process_slabs_command(conn *c, token_t *tokens, const size_t ntokens
             return;
         }
 
-        src = strtol(tokens[2].value, NULL, 10);
-        dst = strtol(tokens[3].value, NULL, 10);
-
-        if (errno == ERANGE) {
+        if (! (safe_strtol(tokens[2].value, (int32_t*)&src)
+               && safe_strtol(tokens[3].value, (int32_t*)&dst))) {
             out_string(c, "CLIENT_ERROR bad command line format");
             return;
         }
