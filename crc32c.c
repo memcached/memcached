@@ -167,7 +167,7 @@ static uint32_t crc32c_hw_aarch64(uint32_t crc, const void* buf, size_t len)
 #endif
 
 /* Apply if the platform is intel */
-#if defined(__X86_64__)||defined(__x86_64__)||defined(__ia64__)
+#if defined(__X86_64__)||defined(__x86_64__)
 
 /* Multiply a matrix times a vector over the Galois field of two elements,
    GF(2).  Each element is a bit in an unsigned integer.  mat must have at
@@ -388,12 +388,11 @@ static uint32_t crc32c_hw(uint32_t crc, const void *buf, size_t len)
                 : "%ebx", "%edx"); \
         (have) = (ecx >> 20) & 1; \
     } while (0)
-
 #endif
 /* Compute a CRC-32C.  If the crc32 instruction is available, use the hardware
    version.  Otherwise, use the software version. */
 void crc32c_init(void) {
-    #if defined(__X86_64__)||defined(__x86_64__)||defined(__ia64__)
+    #if defined(__X86_64__)||defined(__x86_64__)
     int sse42;
     SSE42(sse42);
 
