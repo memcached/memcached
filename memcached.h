@@ -52,6 +52,11 @@
 #include <openssl/ssl.h>
 #endif
 
+/** libevent < release-2.0.3-alpha does not define/support evutil_socket_t */
+#ifndef evutil_socket_t
+#define evutil_socket_t int
+#endif /* #ifndef evutil_socket_t */
+
 /** Maximum length of a key. */
 #define KEY_MAX_LENGTH 250
 
