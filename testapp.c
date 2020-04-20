@@ -211,7 +211,7 @@ static enum test_return test_issue_161(void)
 
 static enum test_return cache_redzone_test(void)
 {
-#ifndef HAVE_UMEM_H
+#if !defined(HAVE_UMEM_H) && !defined(__APPLE__)
     cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
                                   NULL, NULL);
 
