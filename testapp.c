@@ -209,41 +209,6 @@ static enum test_return test_issue_161(void)
     return ret;
 }
 
-static enum test_return cache_redzone_test(void)
-{
-#if !defined(HAVE_UMEM_H) && !defined(__APPLE__)
-    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
-                                  NULL, NULL);
-
-    /* Ignore SIGABRT */
-    struct sigaction old_action;
-    struct sigaction action = { .sa_handler = SIG_IGN, .sa_flags = 0};
-    sigemptyset(&action.sa_mask);
-    sigaction(SIGABRT, &action, &old_action);
-
-    /* check memory debug.. */
-    char *p = cache_alloc(cache);
-    char old = *(p - 1);
-    *(p - 1) = 0;
-    cache_free(cache, p);
-    assert(cache_error == -1);
-    *(p - 1) = old;
-
-    p[sizeof(uint32_t)] = 0;
-    cache_free(cache, p);
-    assert(cache_error == 1);
-
-    /* restore signal handler */
-    sigaction(SIGABRT, &old_action, NULL);
-
-    cache_destroy(cache);
-
-    return TEST_PASS;
-#else
-    return TEST_SKIP;
-#endif
-}
-
 static enum test_return test_stats_prefix_find(void) {
     PREFIX_STATS *pfs1, *pfs2;
 
@@ -2229,7 +2194,6 @@ struct testcase testcases[] = {
     { "cache_constructor_fail", cache_fail_constructor_test },
     { "cache_destructor", cache_destructor_test },
     { "cache_reuse", cache_reuse_test },
-    { "cache_redzone", cache_redzone_test },
     { "stats_prefix_find", test_stats_prefix_find },
     { "stats_prefix_record_get", test_stats_prefix_record_get },
     { "stats_prefix_record_delete", test_stats_prefix_record_delete },
