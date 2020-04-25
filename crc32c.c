@@ -43,9 +43,12 @@
 #include <pthread.h>
 #include "crc32c.h"
 
+crc_func crc32c;
+
 /* CRC-32C (iSCSI) polynomial in reversed bit order. */
 #define POLY 0x82f63b78
 
+uint32_t crc32c_sw(uint32_t crc, void const *buf, size_t len);
 uint32_t crc32c_sw_little(uint32_t crc, void const *buf, size_t len);
 uint32_t crc32c_sw_big(uint32_t crc, void const *buf, size_t len);
 #ifdef __x86_64__
@@ -260,17 +263,21 @@ static uint32_t crc32c_hw(uint32_t crc, void const *buf, size_t len) {
 
 /* Compute a CRC-32C.  If the crc32 instruction is available, use the hardware
    version.  Otherwise, use the software version. */
-uint32_t crc32c(uint32_t crc, void const *buf, size_t len) {
+void crc32c_init(void) {
     int sse42;
 
     SSE42(sse42);
-    return sse42 ? crc32c_hw(crc, buf, len) : crc32c_sw(crc, buf, len);
+    if (sse42) {
+        crc32c = crc32c_hw;
+    } else {
+        crc32c = crc32c_sw;
+    }
 }
 
 #else /* !__x86_64__ */
 
-uint32_t crc32c(uint32_t crc, void const *buf, size_t len) {
-    return crc32c_sw(crc, buf, len);
+void crc32c_init(void) {
+    crc32c = crc32c_sw;
 }
 
 #endif

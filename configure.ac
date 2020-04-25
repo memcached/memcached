@@ -82,8 +82,10 @@ fi
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
 
-AC_ARG_ENABLE(arm_crc32,
-  [AS_HELP_STRING([--enable-arm-crc32], [Enable ARMv8 CRC32 instructions])])
+dnl ARM crc32 optimization is disabled until we have hardware for an automated
+dnl regression test.
+dnl AC_ARG_ENABLE(arm_crc32,
+dnl  [AS_HELP_STRING([--enable-arm-crc32], [Enable ARMv8 CRC32 instructions])])
 
 AC_ARG_ENABLE(extstore,
   [AS_HELP_STRING([--disable-extstore], [Disable external storage (extstore)])])
