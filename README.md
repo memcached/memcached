@@ -32,8 +32,8 @@ should never go to disk, or you've lost the whole point of it)
 
 ## Build status
 
-[![buildbot badge](https://build.memcached.org/buildbot/badges/fast-build.svg)](https://build.memcached.org/#/builders)
-[![buildbot badge](https://build.memcached.org/buildbot/badges/vm-centos7-64.svg)](https://build.memcached.org/#/builders)
+[![buildbot badge](https://build.memcached.org/badges/fast-build.svg)](https://build.memcached.org/#/builders)
+[![buildbot badge](https://build.memcached.org/badges/vm-centos7-64.svg)](https://build.memcached.org/#/builders)
 
 ## Bug reports
 
