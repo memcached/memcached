@@ -90,7 +90,7 @@ my $deleted_chunked_item = 0;
 
 diag "Data that should expire while stopped.";
 {
-    print $sock "set low1 0 8 2\r\nbo\r\n";
+    print $sock "set low1 0 5 2\r\nbo\r\n";
     like(scalar <$sock>, qr/STORED/, "stored low ttl item");
     # This one should stay.
     print $sock "set low2 0 20 2\r\nmo\r\n";

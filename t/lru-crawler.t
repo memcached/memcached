@@ -88,10 +88,20 @@ for (1 .. 30) {
 
 print $sock "lru_crawler disable\r\n";
 is(scalar <$sock>, "OK\r\n", "disabled lru crawler");
-{
+my $settings_match = 0;
+# TODO: we retry a few times since the settings value is changed
+# outside of a memory barrier, but the thread is stopped before the OK is
+# returned.
+# At some point better handling of the setings synchronization should happen.
+for (1 .. 10) {
     my $stats = mem_stats($server->sock, ' settings');
-    is($stats->{lru_crawler}, "no");
+    if ($stats->{lru_crawler} eq "no") {
+        $settings_match = 1;
+        last;
+    }
+    sleep 1;
 }
+is($settings_match, 1, "settings output matches crawler state");
 
 $server->stop;
 
