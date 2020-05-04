@@ -16,6 +16,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <spawn.h>
 #include <fcntl.h>
 
 #include "config.h"
@@ -32,6 +33,7 @@
 #define TMP_TEMPLATE "/tmp/test_file.XXXXXXX"
 
 enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
+extern char **environ;
 
 struct conn {
     int sock;
@@ -517,61 +519,58 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     system(coreadm);
 #endif
 
-    pid_t pid = fork();
-    assert(pid != -1);
+    pid_t pid;
+    char *argv[24];
+    int arg = 0;
+    char tmo[24];
+    snprintf(tmo, sizeof(tmo), "%u", timeout);
 
-    if (pid == 0) {
-        /* Child */
-        char *argv[24];
-        int arg = 0;
-        char tmo[24];
-        snprintf(tmo, sizeof(tmo), "%u", timeout);
-
-        putenv(environment);
+    putenv(environment);
 #ifdef __sun
-        putenv("LD_PRELOAD=watchmalloc.so.1");
-        putenv("MALLOC_DEBUG=WATCH");
+    putenv("LD_PRELOAD=watchmalloc.so.1");
+    putenv("MALLOC_DEBUG=WATCH");
 #endif
 
-        if (!daemon) {
-            argv[arg++] = "./timedrun";
-            argv[arg++] = tmo;
-        }
-        argv[arg++] = "./memcached-debug";
-        argv[arg++] = "-A";
-        argv[arg++] = "-p";
-        argv[arg++] = "-1";
-        argv[arg++] = "-U";
-        argv[arg++] = "0";
+    if (!daemon) {
+	    argv[arg++] = "./timedrun";
+	    argv[arg++] = tmo;
+    }
+    argv[arg++] = "./memcached-debug";
+    argv[arg++] = "-A";
+    argv[arg++] = "-p";
+    argv[arg++] = "-1";
+    argv[arg++] = "-U";
+    argv[arg++] = "0";
 #ifdef TLS
-        if (enable_ssl) {
-            argv[arg++] = "-Z";
-            argv[arg++] = "-o";
-            argv[arg++] = "ssl_chain_cert=t/server_crt.pem";
-            argv[arg++] = "-o";
-            argv[arg++] = "ssl_key=t/server_key.pem";
-        }
+    if (enable_ssl) {
+	    argv[arg++] = "-Z";
+	    argv[arg++] = "-o";
+	    argv[arg++] = "ssl_chain_cert=t/server_crt.pem";
+	    argv[arg++] = "-o";
+	    argv[arg++] = "ssl_key=t/server_key.pem";
+    }
 #endif
-        /* Handle rpmbuild and the like doing this as root */
-        if (getuid() == 0) {
-            argv[arg++] = "-u";
-            argv[arg++] = "root";
-        }
-        if (daemon) {
-            argv[arg++] = "-d";
-            argv[arg++] = "-P";
-            argv[arg++] = pid_file;
-        }
+    /* Handle rpmbuild and the like doing this as root */
+    if (getuid() == 0) {
+	    argv[arg++] = "-u";
+	    argv[arg++] = "root";
+    }
+    if (daemon) {
+	    argv[arg++] = "-d";
+	    argv[arg++] = "-P";
+	    argv[arg++] = pid_file;
+    }
 #ifdef MESSAGE_DEBUG
-         argv[arg++] = "-vvv";
+    argv[arg++] = "-vvv";
 #endif
 #ifdef HAVE_DROP_PRIVILEGES
-        argv[arg++] = "-o";
-        argv[arg++] = "relaxed_privileges";
+    argv[arg++] = "-o";
+    argv[arg++] = "relaxed_privileges";
 #endif
-        argv[arg++] = NULL;
-        assert(execv(argv[0], argv) != -1);
-    }
+    argv[arg++] = NULL;
+
+    if (posix_spawn(&pid, argv[0], NULL, NULL, argv, environ) != 0)
+        return -1;
 
     /* Yeah just let us "busy-wait" for the file to be created ;-) */
     while (access(filename, F_OK) == -1) {
@@ -824,7 +823,7 @@ static void read_ascii_response(char *buffer, size_t size) {
 }
 
 static enum test_return test_issue_92(void) {
-    char buffer[1024];
+    char buffer[1024] = {0};
 
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);

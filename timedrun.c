@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <spawn.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <sysexits.h>
@@ -9,6 +10,7 @@
 #include <assert.h>
 
 volatile sig_atomic_t caught_sig = 0;
+extern char **environ;
 
 static void signal_handler(int which)
 {
@@ -72,23 +74,12 @@ static int wait_for_process(pid_t pid)
 
 static int spawn_and_wait(char **argv)
 {
-    int rv = EX_SOFTWARE;
-    pid_t pid = fork();
+    pid_t pid;
 
-    switch (pid) {
-    case -1:
-        perror("fork");
-        rv = EX_OSERR;
-        break; /* NOTREACHED */
-    case 0:
-        execvp(argv[0], argv);
-        perror("exec");
-        rv = EX_SOFTWARE;
-        break; /* NOTREACHED */
-    default:
-        rv = wait_for_process(pid);
-    }
-    return rv;
+    if (posix_spawn(&pid, argv[0], NULL, NULL, argv, environ) == -1)
+        return EX_OSERR;
+    wait_for_process(pid);
+    return EX_SOFTWARE;
 }
 
 static void usage(void) {

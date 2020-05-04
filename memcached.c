@@ -7592,6 +7592,7 @@ static int server_socket(const char *interface,
     struct addrinfo *ai;
     struct addrinfo *next;
     struct addrinfo hints = { .ai_flags = AI_PASSIVE,
+                              .ai_protocol = 0,
                               .ai_family = AF_UNSPEC };
     char port_buf[NI_MAXSERV];
     int error;
