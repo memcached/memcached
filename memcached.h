@@ -233,6 +233,12 @@ enum pause_thread_types {
     RESUME_WORKER_THREADS
 };
 
+enum stop_reasons {
+    NOT_STOP,
+    GRACE_STOP,
+    EXIT_NORMALLY
+};
+
 #define IS_TCP(x) (x == tcp_transport)
 #define IS_UDP(x) (x == udp_transport)
 
