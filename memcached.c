@@ -181,7 +181,7 @@ static enum transmit_result transmit(conn *c);
  * can block the listener via a condition.
  */
 static volatile bool allow_new_conns = true;
-static bool stop_main_loop = false;
+static int stop_main_loop = NOT_STOP;
 static struct event maxconnsevent;
 static void maxconns_handler(const evutil_socket_t fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
@@ -8279,8 +8279,8 @@ static void remove_pidfile(const char *pid_file) {
 }
 
 static void sig_handler(const int sig) {
+    stop_main_loop = EXIT_NORMALLY;
     printf("Signal handled: %s.\n", strsignal(sig));
-    exit(EXIT_SUCCESS);
 }
 
 static void sighup_handler(const int sig) {
@@ -8289,7 +8289,7 @@ static void sighup_handler(const int sig) {
 
 static void sig_usrhandler(const int sig) {
     printf("Graceful shutdown signal handled: %s.\n", strsignal(sig));
-    stop_main_loop = true;
+    stop_main_loop = GRACE_STOP;
 }
 
 #ifndef HAVE_SIGIGNORE
@@ -10306,9 +10306,20 @@ int main (int argc, char **argv) {
         }
     }
 
-    fprintf(stderr, "Gracefully stopping\n");
+    switch (stop_main_loop) {
+        case GRACE_STOP:
+            fprintf(stderr, "Gracefully stopping\n");
+        break;
+        case EXIT_NORMALLY:
+            fprintf(stderr, "Exiting normally\n");
+        break;
+        default:
+            fprintf(stderr, "Exiting on error\n");
+        break;
+    }
+
     stop_threads();
-    if (memory_file != NULL) {
+    if (memory_file != NULL && stop_main_loop == GRACE_STOP) {
         restart_mmap_close();
     }
 
