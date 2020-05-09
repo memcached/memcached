@@ -2,6 +2,7 @@ package MemcachedTest;
 use strict;
 use IO::Socket::INET;
 use IO::Socket::UNIX;
+use POSIX ":sys_wait_h";
 use Exporter 'import';
 use Carp qw(croak);
 use vars qw(@EXPORT);
@@ -248,6 +249,11 @@ sub run_help {
     return system("$exe -h");
 }
 
+# -1 if the pid is actually dead.
+sub is_running {
+    return waitpid($_[0], WNOHANG) >= 0 ? 1 : 0;
+}
+
 sub new_memcached {
     my ($args, $passed_port) = @_;
     my $port = $passed_port;
@@ -306,23 +312,43 @@ sub new_memcached {
     my $exe = get_memcached_exe();
 
     unless ($childpid) {
-        #print STDERR "RUN: $exe $args\n";
-        exec "$builddir/timedrun 600 $exe $args";
+        my $valgrind = "";
+        my $valgrind_args = "--quiet --error-exitcode=1 --exit-on-first-error=yes";
+        if ($ENV{VALGRIND_ARGS}) {
+            $valgrind_args = $ENV{VALGRIND_ARGS};
+        }
+        if ($ENV{VALGRIND_TEST}) {
+            $valgrind = "valgrind $valgrind_args";
+            # NOTE: caller file stuff.
+            $valgrind .= " $ENV{VALGRIND_EXTRA_ARGS}";
+        }
+        my $cmd = "$builddir/timedrun 600 $valgrind $exe $args";
+        #print STDERR "RUN: $cmd\n\n";
+        exec $cmd;
         exit; # never gets here.
     }
 
     # unix domain sockets
     if ($args =~ /-s (\S+)/) {
-        sleep 1;
+        # A slow/emulated/valgrinded/etc system may take longer than a second
+        # for the unix socket to appear.
         my $filename = $1;
-        my $conn = IO::Socket::UNIX->new(Peer => $filename) ||
-            croak("Failed to connect to unix domain socket: $! '$filename'");
+        for (1..20) {
+            sleep 1;
+            my $conn = IO::Socket::UNIX->new(Peer => $filename);
 
-        return Memcached::Handle->new(pid  => $childpid,
-                                      conn => $conn,
-                                      domainsocket => $filename,
-                                      host => $host,
-                                      port => $port);
+            if ($conn) {
+                return Memcached::Handle->new(pid  => $childpid,
+                                              conn => $conn,
+                                              domainsocket => $filename,
+                                              host => $host,
+                                              port => $port);
+            } else {
+                croak("Failed to connect to unix socket: memcached not running") unless is_running($childpid);
+                sleep 1;
+            }
+        }
+        croak("Failed to connect to unix domain socket: $! '$filename'") if $@;
     }
 
     # try to connect / find open port, only if we're not using unix domain
@@ -347,7 +373,8 @@ sub new_memcached {
                                           host => $host,
                                           port => $port);
         }
-        select undef, undef, undef, 0.10;
+        croak("Failed to connect: memcached not running") unless is_running($childpid);
+        select undef, undef, undef, 0.25;
     }
     croak("Failed to startup/connect to memcached server.");
 }
