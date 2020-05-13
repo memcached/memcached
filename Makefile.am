@@ -114,8 +114,8 @@ test_tls:
 test_basic_tls:
 	@if test $(SSL_TEST)1 != 1; then \
 	  echo "Running basic tests with TLS"; \
-	  $(builddir)/testapp; \
-	  prove $(srcdir)/t/binary.t $(srcdir)/t/getset.t $(srcdir)/t/ssl*; \
+	  $(builddir)/testapp && \
+	  prove $(srcdir)/t/binary.t $(srcdir)/t/getset.t $(srcdir)/t/ssl* && \
 	  echo "Finished running basic TLS tests"; \
 	else \
 	  echo "Set SSL_TEST=1 to enable TLS tests"; \
