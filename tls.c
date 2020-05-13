@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sysexits.h>
 #include <sys/param.h>
+#include <openssl/err.h>
 
 #ifndef MAXPATHLEN
 #define MAXPATHLEN 4096
@@ -13,7 +14,8 @@
 
 static pthread_mutex_t ssl_ctx_lock = PTHREAD_MUTEX_INITIALIZER;
 
-const unsigned MAX_ERROR_MSG_SIZE = 128;
+const unsigned ERROR_MSG_SIZE = 64;
+const size_t SSL_ERROR_MSG_SIZE = 256;
 
 void SSL_LOCK() {
     pthread_mutex_lock(&(ssl_ctx_lock));
@@ -82,53 +84,90 @@ ssize_t ssl_write(conn *c, void *buf, size_t count) {
 }
 
 /*
+ * Prints an SSL error into the buff, if there's any.
+ */
+static void print_ssl_error(char *buff, size_t len) {
+    unsigned long err;
+    if ((err = ERR_get_error()) != 0) {
+        ERR_error_string_n(err, buff, len);
+    }
+}
+
+/*
  * Loads server certificates to the SSL context and validate them.
  * @return whether certificates are successfully loaded and verified or not.
  * @param error_msg contains the error when unsuccessful.
  */
 static bool load_server_certificates(char **errmsg) {
-    bool success = true;
-    char *error_msg = malloc(MAXPATHLEN + MAX_ERROR_MSG_SIZE);
-    size_t errmax = MAXPATHLEN + MAX_ERROR_MSG_SIZE - 1;
+    bool success = false;
+
+    const size_t CRLF_NULLCHAR_LEN = 3;
+    char *error_msg = malloc(MAXPATHLEN + ERROR_MSG_SIZE +
+        SSL_ERROR_MSG_SIZE);
+    size_t errmax = MAXPATHLEN + ERROR_MSG_SIZE + SSL_ERROR_MSG_SIZE -
+        CRLF_NULLCHAR_LEN;
+
     if (error_msg == NULL) {
         *errmsg = NULL;
         return false;
     }
+
     if (settings.ssl_ctx == NULL) {
         snprintf(error_msg, errmax, "Error TLS not enabled\r\n");
         *errmsg = error_msg;
         return false;
     }
+
+    char *ssl_err_msg = malloc(SSL_ERROR_MSG_SIZE);
+    if (ssl_err_msg == NULL) {
+        free(error_msg);
+        *errmsg = NULL;
+        return false;
+    }
+    bzero(ssl_err_msg, SSL_ERROR_MSG_SIZE);
+    size_t err_msg_size = 0;
+
     SSL_LOCK();
     if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
         settings.ssl_chain_cert)) {
-        snprintf(error_msg, errmax, "Error loading the certificate chain: %s\r\n",
-            settings.ssl_chain_cert);
-        success = false;
+        print_ssl_error(ssl_err_msg, SSL_ERROR_MSG_SIZE);
+        err_msg_size = snprintf(error_msg, errmax, "Error loading the certificate chain: "
+            "%s : %s", settings.ssl_chain_cert, ssl_err_msg);
     } else if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
                                         settings.ssl_keyformat)) {
-        snprintf(error_msg, errmax, "Error loading the key: %s\r\n", settings.ssl_key);
-        success = false;
+        print_ssl_error(ssl_err_msg, SSL_ERROR_MSG_SIZE);
+        err_msg_size = snprintf(error_msg, errmax, "Error loading the key: %s : %s",
+            settings.ssl_key, ssl_err_msg);
     } else if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
-        snprintf(error_msg, errmax, "Error validating the certificate\r\n");
-        success = false;
+        print_ssl_error(ssl_err_msg, SSL_ERROR_MSG_SIZE);
+        err_msg_size = snprintf(error_msg, errmax, "Error validating the certificate: %s",
+            ssl_err_msg);
     } else if (settings.ssl_ca_cert) {
         if (!SSL_CTX_load_verify_locations(settings.ssl_ctx,
           settings.ssl_ca_cert, NULL)) {
-            snprintf(error_msg, errmax,
-              "Error loading the CA certificate: %s\r\n", settings.ssl_ca_cert);
-            success = false;
+            print_ssl_error(ssl_err_msg, SSL_ERROR_MSG_SIZE);
+            err_msg_size = snprintf(error_msg, errmax,
+              "Error loading the CA certificate: %s : %s",
+              settings.ssl_ca_cert, ssl_err_msg);
         } else {
             SSL_CTX_set_client_CA_list(settings.ssl_ctx,
               SSL_load_client_CA_file(settings.ssl_ca_cert));
+            success = true;
         }
+    } else {
+        success = true;
     }
     SSL_UNLOCK();
+    free(ssl_err_msg);
     if (success) {
         settings.ssl_last_cert_refresh_time = current_time;
         free(error_msg);
     } else {
         *errmsg = error_msg;
+        error_msg += (err_msg_size >= errmax ? errmax - 1: err_msg_size);
+        snprintf(error_msg, CRLF_NULLCHAR_LEN, "\r\n");
+        // Print if there are more errors and drain the queue.
+        ERR_print_errors_fp(stderr);
     }
     return success;
 }
@@ -149,9 +188,7 @@ int ssl_init(void) {
     // The server certificate, private key and validations.
     char *error_msg;
     if (!load_server_certificates(&error_msg)) {
-        if (settings.verbose) {
-            fprintf(stderr, "%s", error_msg);
-        }
+        fprintf(stderr, "%s", error_msg);
         free(error_msg);
         exit(EX_USAGE);
     }
@@ -160,10 +197,8 @@ int ssl_init(void) {
     SSL_CTX_set_verify(settings.ssl_ctx, settings.ssl_verify_mode, NULL);
     if (settings.ssl_ciphers && !SSL_CTX_set_cipher_list(settings.ssl_ctx,
                                                     settings.ssl_ciphers)) {
-        if (settings.verbose) {
-            fprintf(stderr, "Error setting the provided cipher(s): %s\n",
-                    settings.ssl_ciphers);
-        }
+        fprintf(stderr, "Error setting the provided cipher(s): %s\n",
+                settings.ssl_ciphers);
         exit(EX_USAGE);
     }
 
@@ -191,10 +226,8 @@ int ssl_init(void) {
 void ssl_callback(const SSL *s, int where, int ret) {
     SSL* ssl = (SSL*)s;
     if (SSL_in_before(ssl)) {
-        if (settings.verbose) {
-            fprintf(stderr, "%d: SSL renegotiation is not supported, "
-                    "closing the connection\n", SSL_get_fd(ssl));
-        }
+        fprintf(stderr, "%d: SSL renegotiation is not supported, "
+                "closing the connection\n", SSL_get_fd(ssl));
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
         return;
     }
