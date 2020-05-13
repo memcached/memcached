@@ -19,7 +19,7 @@ list to ask questions, github issues aren't seen by everyone!
 
 * libevent, https://www.monkey.org/~provos/libevent/ (libevent-dev)
 * libseccomp, (optional, experimental, linux) - enables process restrictions for
-  better security. Tested only on x86_64 architectures.
+  better security. Tested only on x86-64 architectures.
 * openssl, (optional) - enables TLS support. need relatively up to date
   version.
 
@@ -32,11 +32,7 @@ should never go to disk, or you've lost the whole point of it)
 
 ## Build status
 
-[![buildbot badge](https://build.memcached.org/badges/fast-build.svg?left_text=Fast%20Test)](https://build.memcached.org/#/builders)
-
-[![buildbot badge](https://build.memcached.org/badges/vm-centos7-64.svg?left_text=Centos%207)](https://build.memcached.org/#/builders)
-
-[![buildbot badge](https://build.memcached.org/badges/vm-debian10-32.svg?left_text=Debian%2010%2032bit)](https://build.memcached.org/#/builders)
+See https://build.memcached.org/ for multi-platform regression testing status.
 
 ## Bug reports
 
