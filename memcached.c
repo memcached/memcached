@@ -10311,7 +10311,7 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Gracefully stopping\n");
         break;
         case EXIT_NORMALLY:
-            fprintf(stderr, "Exiting normally\n");
+            // Don't need to print anything to STDERR for a normal shutdown.
         break;
         default:
             fprintf(stderr, "Exiting on error\n");
