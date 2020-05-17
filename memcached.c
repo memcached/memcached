@@ -6817,6 +6817,12 @@ static enum transmit_result transmit(conn *c) {
     msg.msg_iov = iovs;
 
     iovused = _transmit_pre(c, iovs, iovused, TRANSMIT_ALL_RESP);
+    if (iovused == 0) {
+        // Avoid the syscall if we're only handling a noreply.
+        // Return the response object.
+        _transmit_post(c, 0);
+        return TRANSMIT_COMPLETE;
+    }
 
     // Alright, send.
     ssize_t res;
