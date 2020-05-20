@@ -226,12 +226,16 @@ void stop_threads(void) {
     stop_item_crawler_thread(CRAWLER_WAIT);
     if (settings.verbose > 0)
         fprintf(stderr, "stopped lru crawler\n");
-    stop_lru_maintainer_thread();
-    if (settings.verbose > 0)
-        fprintf(stderr, "stopped maintainer\n");
-    stop_slab_maintenance_thread();
-    if (settings.verbose > 0)
-        fprintf(stderr, "stopped slab mover\n");
+    if (settings.lru_maintainer_thread) {
+        stop_lru_maintainer_thread();
+        if (settings.verbose > 0)
+            fprintf(stderr, "stopped maintainer\n");
+    }
+    if (settings.slab_reassign) {
+        stop_slab_maintenance_thread();
+        if (settings.verbose > 0)
+            fprintf(stderr, "stopped slab mover\n");
+    }
     logger_stop();
     if (settings.verbose > 0)
         fprintf(stderr, "stopped logger thread\n");
