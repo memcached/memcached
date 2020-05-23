@@ -22,6 +22,9 @@ int main(int argc, char **argv) {
     display("Libevent thread",
             sizeof(LIBEVENT_THREAD) - sizeof(struct thread_stats));
     display("Connection", sizeof(conn));
+    display("Response object", sizeof(mc_resp));
+    display("Response bundle", sizeof(mc_resp_bundle));
+    display("Response objects per bundle", MAX_RESP_PER_BUNDLE);
 
     printf("----------------------------------------\n");
 
