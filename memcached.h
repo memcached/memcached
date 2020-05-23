@@ -602,6 +602,7 @@ typedef struct {
     unsigned short page_id; /* from IO header */
 } item_hdr;
 #endif
+typedef struct _mc_resp_bundle mc_resp_bundle;
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
@@ -612,6 +613,7 @@ typedef struct {
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *resp_cache;        /* response objects */
     cache_t *rbuf_cache;        /* static-sized read buffers */
+    mc_resp_bundle *open_bundle;
 #ifdef EXTSTORE
     cache_t *io_cache;          /* IO objects */
     void *storage;              /* data object for storage system */
@@ -629,6 +631,7 @@ typedef struct {
  */
 #define MC_RESP_IOVCOUNT 4
 typedef struct _mc_resp {
+    mc_resp_bundle *bundle; // ptr back to bundle
     struct _mc_resp *next; // choo choo.
     int wbytes; // bytes to write out of wbuf: might be able to nuke this.
     int tosend; // total bytes to send for this response
@@ -654,6 +657,15 @@ typedef struct _mc_resp {
 
     char wbuf[WRITE_BUFFER_SIZE];
 } mc_resp;
+
+#define MAX_RESP_PER_BUNDLE ((READ_BUFFER_SIZE - sizeof(mc_resp_bundle)) / sizeof(mc_resp))
+struct _mc_resp_bundle {
+    uint8_t refcount;
+    uint8_t next_check; // next object to check on assignment.
+    struct _mc_resp_bundle *next;
+    struct _mc_resp_bundle *prev;
+    mc_resp r[];
+};
 
 typedef struct conn conn;
 #ifdef EXTSTORE
