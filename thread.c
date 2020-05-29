@@ -424,28 +424,13 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(EXIT_FAILURE);
     }
 
-    me->resp_cache = cache_create("resp", sizeof(mc_resp), sizeof(char *), NULL, NULL);
-    if (me->resp_cache == NULL) {
-        fprintf(stderr, "Failed to create response cache\n");
-        exit(EXIT_FAILURE);
-    }
-    // Note: we were cleanly passing in num_threads before, but this now
-    // relies on settings globals too much.
-    if (settings.resp_obj_mem_limit) {
-        int limit = settings.resp_obj_mem_limit / settings.num_threads;
-        if (limit < sizeof(mc_resp)) {
-            limit = 1;
-        } else {
-            limit = limit / sizeof(mc_resp);
-        }
-        cache_set_limit(me->resp_cache, limit);
-    }
-
     me->rbuf_cache = cache_create("rbuf", READ_BUFFER_SIZE, sizeof(char *), NULL, NULL);
     if (me->rbuf_cache == NULL) {
         fprintf(stderr, "Failed to create read buffer cache\n");
         exit(EXIT_FAILURE);
     }
+    // Note: we were cleanly passing in num_threads before, but this now
+    // relies on settings globals too much.
     if (settings.read_buf_mem_limit) {
         int limit = settings.read_buf_mem_limit / settings.num_threads;
         if (limit < READ_BUFFER_SIZE) {
@@ -847,9 +832,7 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
                 threads[ii].stats.lru_hits[sid];
         }
 
-        stats->response_obj_bytes += threads[ii].resp_cache->total * sizeof(mc_resp);
-        stats->response_obj_total += threads[ii].resp_cache->total;
-        stats->response_obj_free += threads[ii].resp_cache->freecurr;
+        stats->read_buf_count += threads[ii].rbuf_cache->total;
         stats->read_buf_bytes += threads[ii].rbuf_cache->total * READ_BUFFER_SIZE;
         stats->read_buf_bytes_free += threads[ii].rbuf_cache->freecurr * READ_BUFFER_SIZE;
         pthread_mutex_unlock(&threads[ii].stats.mutex);

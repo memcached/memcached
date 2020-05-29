@@ -1202,12 +1202,10 @@ integers separated by a colon (treat this as a floating point number).
 | rejected_connections  | 64u     | Conns rejected in maxconns_fast mode      |
 | connection_structures | 32u     | Number of connection structures allocated |
 |                       |         | by the server                             |
-| response_obj_bytes    | 64u     | Number of bytes used for response objects |
-| response_obj_total    | 64u     | Total nummber of response objects         |
-| response_obj_free     | 64u     | Current free cached response objects      |
 | response_obj_oom      | 64u     | Connections closed by lack of memory      |
-| read_buf_bytes        | 64u     | Total read buffer bytes allocated         |
-| read_buf_bytes_free   | 64u     | Total read buffer bytes cached for reuse  |
+| read_buf_count        | 64u     | Total read/resp buffers allocated         |
+| read_buf_bytes        | 64u     | Total read/resp buffer bytes allocated    |
+| read_buf_bytes_free   | 64u     | Total read/resp buffer bytes cached       |
 | read_buf_oom          | 64u     | Connections closed by lack of memory      |
 | reserved_fds          | 32u     | Number of misc fds used internally        |
 | cmd_get               | 64u     | Cumulative number of retrieval reqs       |
@@ -1376,8 +1374,7 @@ other stats command.
 |                   |          | per active watcher connected.                |
 | worker_logbuf_size| 32u      | Size of internal per-worker-thread buffer    |
 |                   |          | which the background thread reads from.      |
-| resp_obj_mem_limit| 32u      | Megabyte limit for conn. response objects.   |
-| read_obj_mem_limit| 32u      | Megabyte limit for conn. read buffers.       |
+| read_obj_mem_limit| 32u      | Megabyte limit for conn. read/resp buffers.  |
 | track_sizes       | bool     | If yes, a "stats sizes" histogram is being   |
 |                   |          | dynamically tracked.                         |
 | inline_ascii_response                                                       |
