@@ -321,7 +321,6 @@ static void settings_init(void) {
     settings.logger_buf_size = LOGGER_BUF_SIZE;
     settings.drop_privileges = false;
     settings.watch_enabled = true;
-    settings.resp_obj_mem_limit = 0;
     settings.read_buf_mem_limit = 0;
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
@@ -3232,10 +3231,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("rejected_connections", "%llu", (unsigned long long)stats.rejected_conns);
     }
     APPEND_STAT("connection_structures", "%u", stats_state.conn_structs);
-    APPEND_STAT("response_obj_bytes", "%llu", (unsigned long long)thread_stats.response_obj_bytes);
-    APPEND_STAT("response_obj_total", "%llu", (unsigned long long)thread_stats.response_obj_total);
-    APPEND_STAT("response_obj_free", "%llu", (unsigned long long)thread_stats.response_obj_free);
     APPEND_STAT("response_obj_oom", "%llu", (unsigned long long)thread_stats.response_obj_oom);
+    APPEND_STAT("read_buf_count", "%llu", (unsigned long long)thread_stats.read_buf_count);
     APPEND_STAT("read_buf_bytes", "%llu", (unsigned long long)thread_stats.read_buf_bytes);
     APPEND_STAT("read_buf_bytes_free", "%llu", (unsigned long long)thread_stats.read_buf_bytes_free);
     APPEND_STAT("read_buf_oom", "%llu", (unsigned long long)thread_stats.read_buf_oom);
@@ -3400,7 +3397,6 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("idle_timeout", "%d", settings.idle_timeout);
     APPEND_STAT("watcher_logbuf_size", "%u", settings.logger_watcher_buf_size);
     APPEND_STAT("worker_logbuf_size", "%u", settings.logger_buf_size);
-    APPEND_STAT("resp_obj_mem_limit", "%u", settings.resp_obj_mem_limit);
     APPEND_STAT("read_buf_mem_limit", "%u", settings.read_buf_mem_limit);
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
     APPEND_STAT("inline_ascii_response", "%s", "no"); // setting is dead, cannot be yes.
@@ -8181,15 +8177,10 @@ static void usage(void) {
            "                          default is %u (unlimited)\n",
            flag_enabled_disabled(settings.maxconns_fast), settings.hashpower_init,
            settings.lru_crawler_sleep, settings.lru_crawler_tocrawl);
-    printf("   - resp_obj_mem_limit:  limit in megabytes for connection response objects.\n"
-           "                          do not adjust unless you have high (100k+) conn. limits.\n"
-           "                          0 means unlimited (default: %u)\n"
-           "   - read_buf_mem_limit:  limit in megabytes for connection read buffers.\n"
-           "                          do not adjust unless you have high (100k+) conn. limits.\n"
+    printf("   - read_buf_mem_limit:  limit in megabytes for connection read/response buffers.\n"
+           "                          do not adjust unless you have high (20k+) conn. limits.\n"
            "                          0 means unlimited (default: %u)\n",
-           settings.resp_obj_mem_limit,
            settings.read_buf_mem_limit);
-    verify_default("resp_obj_mem_limit", settings.resp_obj_mem_limit == 0);
     verify_default("read_buf_mem_limit", settings.read_buf_mem_limit == 0);
     printf("   - no_lru_maintainer:   disable new LRU system + background thread.\n"
            "   - hot_lru_pct:         pct of slab memory to reserve for hot lru.\n"
@@ -9842,15 +9833,8 @@ int main (int argc, char **argv) {
                 settings.drop_privileges = true;
                 break;
             case RESP_OBJ_MEM_LIMIT:
-                if (subopts_value == NULL) {
-                    fprintf(stderr, "Missing resp_obj_mem_limit argument\n");
-                    return 1;
-                }
-                if (!safe_strtoul(subopts_value, &settings.resp_obj_mem_limit)) {
-                    fprintf(stderr, "could not parse argument to resp_obj_mem_limit\n");
-                    return 1;
-                }
-                settings.resp_obj_mem_limit *= 1024 * 1024; /* megabytes */
+                // TODO: Remove at some point in the future.
+                fprintf(stderr, "DEPRECATED: resp_obj_mem_limit no longer used. See read_buf_mem_limit,\n");
                 break;
             case READ_BUF_MEM_LIMIT:
                 if (subopts_value == NULL) {
