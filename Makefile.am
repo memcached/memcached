@@ -25,7 +25,8 @@ memcached_SOURCES = memcached.c memcached.h \
                     itoa_ljust.c itoa_ljust.h \
                     slab_automove.c slab_automove.h \
                     authfile.c authfile.h \
-                    restart.c restart.h
+                    restart.c restart.h \
+                    proto_text.c proto_text.h
 
 if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += solaris_priv.c
