@@ -874,6 +874,45 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
 
 enum store_item_type store_item(item *item, int comm, conn *c);
 
+/* Protocol related code */
+void out_string(conn *c, const char *str);
+#define REALTIME_MAXDELTA 60*60*24*30
+/* Negative exptimes can underflow and end up immortal. realtime() will
+   immediately expire values that are greater than REALTIME_MAXDELTA, but less
+   than process_started, so lets aim for that. */
+#define EXPTIME_TO_POSITIVE_TIME(exptime) (exptime < 0) ? \
+        REALTIME_MAXDELTA + 1 : exptime
+rel_time_t realtime(const time_t exptime);
+item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch, bool do_update, bool *overflow);
+item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32_t *hv, bool *overflow);
+// Read/Response object handlers.
+void resp_reset(mc_resp *resp);
+void resp_add_iov(mc_resp *resp, const void *buf, int len);
+void resp_add_chunked_iov(mc_resp *resp, const void *buf, int len);
+bool resp_start(conn *c);
+mc_resp* resp_finish(conn *c, mc_resp *resp);
+bool resp_has_stack(conn *c);
+bool rbuf_switch_to_malloc(conn *c);
+void conn_release_items(conn *c);
+void conn_set_state(conn *c, enum conn_states state);
+void out_of_memory(conn *c, char *ascii_error);
+void out_errstring(conn *c, const char *str);
+void write_and_free(conn *c, char *buf, int bytes);
+void server_stats(ADD_STAT add_stats, conn *c);
+void append_stats(const char *key, const uint16_t klen,
+                  const char *val, const uint32_t vlen,
+                  const void *cookie);
+/** Return a datum for stats in binary protocol */
+bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
+void stats_reset(void);
+void process_stat_settings(ADD_STAT add_stats, void *c);
+void process_stats_conns(ADD_STAT add_stats, void *c);
+
+#ifdef EXTSTORE
+void process_extstore_stats(ADD_STAT add_stats, conn *c);
+int _get_extstore(conn *c, item *it, mc_resp *resp);
+#endif
+
 #if HAVE_DROP_PRIVILEGES
 extern void setup_privilege_violations_handler(void);
 extern void drop_privileges(void);
