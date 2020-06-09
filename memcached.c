@@ -10051,12 +10051,18 @@ int main (int argc, char **argv) {
         fprintf(stderr, "failed to getrlimit number of files\n");
         exit(EX_OSERR);
     } else {
+#ifdef MEMCACHED_DEBUG
+        if (rlim.rlim_cur < settings.maxconns && rlim.rlim_max < settings.maxconns) {
+#endif
         rlim.rlim_cur = settings.maxconns;
         rlim.rlim_max = settings.maxconns;
         if (setrlimit(RLIMIT_NOFILE, &rlim) != 0) {
             fprintf(stderr, "failed to set rlimit for open files. Try starting as root or requesting smaller maxconns value.\n");
             exit(EX_OSERR);
         }
+#ifdef MEMCACHED_DEBUG
+        }
+#endif
     }
 
     /* lose root privileges if we have them */
