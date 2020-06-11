@@ -5,6 +5,10 @@
 
 #include "memcached.h"
 #include "proto_text.h"
+// FIXME: only for process_proxy_stats()
+// - some better/different structure for stats subcommands
+// would remove this abstraction leak.
+#include "proto_proxy.h"
 #include "authfile.h"
 #include "storage.h"
 #include "base64.h"
@@ -41,13 +45,6 @@
         p += 2; \
     } \
 }
-
-static void process_command(conn *c, char *command);
-
-typedef struct token_s {
-    char *value;
-    size_t length;
-} token_t;
 
 static void _finalize_mset(conn *c, enum store_item_type ret) {
     mc_resp *resp = c->resp;
@@ -231,12 +228,6 @@ void complete_nread_ascii(conn *c) {
     c->item = 0;
 }
 
-#define COMMAND_TOKEN 0
-#define SUBCOMMAND_TOKEN 1
-#define KEY_TOKEN 1
-
-#define MAX_TOKENS 24
-
 #define WANT_TOKENS(ntokens, min, max) \
     do { \
         if ((min != -1 && ntokens < min) || (max != -1 && ntokens > max)) { \
@@ -278,7 +269,7 @@ void complete_nread_ascii(conn *c) {
  *      command  = tokens[ix].value;
  *   }
  */
-static size_t tokenize_command(char *command, token_t *tokens, const size_t max_tokens) {
+size_t tokenize_command(char *command, token_t *tokens, const size_t max_tokens) {
     char *s, *e;
     size_t ntokens = 0;
     size_t len = strlen(command);
@@ -481,7 +472,7 @@ int try_read_command_ascii(conn *c) {
     assert(cont <= (c->rcurr + c->rbytes));
 
     c->last_cmd_time = current_time;
-    process_command(c, c->rcurr);
+    process_command_ascii(c, c->rcurr);
 
     c->rbytes -= (cont - c->rcurr);
     c->rcurr = cont;
@@ -791,6 +782,10 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 #ifdef EXTSTORE
     } else if (strcmp(subcommand, "extstore") == 0) {
         process_extstore_stats(&append_stats, c);
+#endif
+#ifdef PROXY
+    } else if (strcmp(subcommand, "proxy") == 0) {
+        process_proxy_stats(&append_stats, c);
 #endif
     } else {
         /* getting here means that the subcommand is either engine specific or
@@ -2684,7 +2679,7 @@ static void process_refresh_certs_command(conn *c, token_t *tokens, const size_t
 // we can't drop out and back in again.
 // Leaving this note here to spend more time on a fix when necessary, or if an
 // opportunity becomes obvious.
-static void process_command(conn *c, char *command) {
+void process_command_ascii(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
     size_t ntokens;

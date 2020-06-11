@@ -329,6 +329,12 @@ struct slab_stats {
     X(badcrc_from_extstore)
 #endif
 
+#ifdef PROXY
+#define PROXY_THREAD_STATS_FIELDS \
+    X(proxy_conn_requests) \
+    X(proxy_conn_errors)
+#endif
+
 /**
  * Stats stored per-thread.
  */
@@ -338,6 +344,9 @@ struct thread_stats {
     THREAD_STATS_FIELDS
 #ifdef EXTSTORE
     EXTSTORE_THREAD_STATS_FIELDS
+#endif
+#ifdef PROXY
+    PROXY_THREAD_STATS_FIELDS
 #endif
 #undef X
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -501,6 +510,11 @@ struct settings {
 #endif
     int num_napi_ids;   /* maximum number of NAPI IDs */
     char *memory_file;  /* warm restart memory file path */
+#ifdef PROXY
+    bool proxy_enabled;
+    char *proxy_startfile; /* lua file to run when workers start */
+    void *proxy_ctx; /* proxy's state context */
+#endif
 };
 
 extern struct stats stats;
@@ -690,7 +704,12 @@ typedef struct {
     char   *ssl_wbuf;
 #endif
     int napi_id;                /* napi id associated with this thread */
-
+#ifdef PROXY
+    void *L;
+    void *proxy_hooks;
+    void *proxy_stats;
+    // TODO: add ctx object so we can attach to queue.
+#endif
 } LIBEVENT_THREAD;
 
 /**
@@ -945,6 +964,7 @@ void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
+LIBEVENT_THREAD *get_worker_thread(int id);
 
 /* Stat processing functions */
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
