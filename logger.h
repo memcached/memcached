@@ -31,6 +31,11 @@ enum log_entry_type {
     LOGGER_COMPACT_END,
     LOGGER_COMPACT_FRAGINFO,
 #endif
+#ifdef PROXY
+    LOGGER_PROXY_CONFIG,
+    LOGGER_PROXY_RAW,
+    LOGGER_PROXY_ERROR,
+#endif
 };
 
 enum logger_ret_type {
@@ -106,7 +111,14 @@ struct logentry_conn_event {
     int sfd;
     struct sockaddr_in6 addr;
 };
-
+#ifdef PROXY
+struct logentry_proxy_raw {
+    unsigned short type;
+    unsigned short code;
+    long elapsed; // elapsed time in usec
+    char cmd[8];
+};
+#endif
 /* end intermediary structures */
 
 /* WARNING: cuddled items aren't compatible with warm restart. more code

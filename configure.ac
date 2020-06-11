@@ -114,6 +114,12 @@ AC_ARG_ENABLE(static,
 AC_ARG_ENABLE(unix_socket,
   [AS_HELP_STRING([--disable-unix-socket], [Disable unix domain socket])])
 
+AC_ARG_ENABLE(proxy,
+  [AS_HELP_STRING([--enable-proxy], [Enable proxy code EXPERIMENTAL])])
+
+AC_ARG_ENABLE(proxy-uring,
+  [AS_HELP_STRING([--enable-proxy-uring], [Enable proxy io_uring code EXPERIMENTAL])])
+
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
 dnl
@@ -217,6 +223,18 @@ if test "x$enable_unix_socket" = "xno"; then
     AC_DEFINE([DISABLE_UNIX_SOCKET],1,[Set to nonzero if you want to disable unix domain socket])
 fi
 
+if test "x$enable_proxy" = "xyes"; then
+    AC_DEFINE([PROXY],1,[Set to nonzero if you want to enable proxy code])
+    CPPFLAGS="-Ivendor/lua/src -Ivendor/liburing/src/include $CPPFLAGS"
+    dnl lua needs math lib.
+    LIBS="$LIBS -lm -ldl"
+fi
+
+if test "x$enable_proxy_uring" = "xyes"; then
+    AC_DEFINE([HAVE_LIBURING],1,[Set to nonzero if you want to enable proxy uring handling])
+    CPPFLAGS="-Ivendor/liburing/src/include $CPPFLAGS"
+fi
+
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
@@ -226,6 +244,8 @@ AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
 AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
 AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
+AM_CONDITIONAL([ENABLE_PROXY],[test "$enable_proxy" = "yes"])
+AM_CONDITIONAL([ENABLE_PROXY_URING],[test "$enable_proxy_uring" = "yes"])
 
 
 AC_SUBST(DTRACE)

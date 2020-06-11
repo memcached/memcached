@@ -51,6 +51,10 @@ if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
 endif
 
+if ENABLE_PROXY
+memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h
+endif
+
 if ENABLE_EXTSTORE
 memcached_SOURCES += extstore.c extstore.h \
                      crc32c.c crc32c.h \
@@ -90,6 +94,16 @@ memcached_debug_DEPENDENCIES += memcached_debug_dtrace.o
 CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
 endif
 
+if ENABLE_PROXY
+memcached_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
+memcached_debug_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
+endif
+
+if ENABLE_PROXY_URING
+memcached_LDADD += vendor/liburing/src/liburing.a
+memcached_debug_LDADD += vendor/liburing/src/liburing.a
+endif
+
 memcached_debug_CFLAGS += -DMEMCACHED_DEBUG
 
 memcached_dtrace.h: memcached_dtrace.d
@@ -108,6 +122,11 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md LICENSE.bipbuffer
+EXTRA_DIST += vendor/Makefile vendor/lua vendor/mcmc
+
+if ENABLE_PROXY
+SUBDIRS += vendor
+endif
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 

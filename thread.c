@@ -9,6 +9,9 @@
 #ifdef HAVE_EVENTFD
 #include <sys/eventfd.h>
 #endif
+#ifdef PROXY
+#include "proto_proxy.h"
+#endif
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
@@ -36,6 +39,9 @@ enum conn_queue_item_modes {
     queue_redispatch, /* return conn from side thread */
     queue_stop,       /* exit thread */
     queue_return_io,  /* returning a pending IO object immediately */
+#ifdef PROXY
+    queue_proxy_reload, /* signal proxy to reload worker VM */
+#endif
 };
 typedef struct conn_queue_item CQ_ITEM;
 struct conn_queue_item {
@@ -475,6 +481,16 @@ static void setup_thread(LIBEVENT_THREAD *me) {
             storage_submit_cb, storage_complete_cb, NULL, storage_finalize_cb);
     }
 #endif
+#ifdef PROXY
+    thread_io_queue_add(me, IO_QUEUE_PROXY, settings.proxy_ctx, proxy_submit_cb,
+            proxy_complete_cb, proxy_return_cb, proxy_finalize_cb);
+
+    // TODO: maybe register hooks to be called here from sub-packages? ie;
+    // extstore, TLS, proxy.
+    if (settings.proxy_enabled) {
+        proxy_thread_init(me);
+    }
+#endif
     thread_io_queue_add(me, IO_QUEUE_NONE, NULL, NULL, NULL, NULL, NULL);
 }
 
@@ -600,10 +616,21 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                 /* getting an individual IO object back */
                 conn_io_queue_return(item->io);
                 break;
+#ifdef PROXY
+            case queue_proxy_reload:
+                proxy_worker_reload(settings.proxy_ctx, me);
+                break;
+#endif
         }
 
         cqi_free(me->ev_queue, item);
     }
+}
+
+// NOTE: need better encapsulation.
+// used by the proxy module to iterate the worker threads.
+LIBEVENT_THREAD *get_worker_thread(int id) {
+    return &threads[id];
 }
 
 /* Which thread we assigned a connection to most recently. */
@@ -726,6 +753,11 @@ void redispatch_conn(conn *c) {
 void timeout_conn(conn *c) {
     notify_worker_fd(c->thread, c->sfd, queue_timeout);
 }
+#ifdef PROXY
+void proxy_reload_notify(LIBEVENT_THREAD *t) {
+    notify_worker_fd(t, 0, queue_proxy_reload);
+}
+#endif
 
 void return_io_pending(io_pending_t *io) {
     CQ_ITEM *item = cqi_new(io->thread->ev_queue);
@@ -898,6 +930,9 @@ void threadlocal_stats_reset(void) {
 #ifdef EXTSTORE
         EXTSTORE_THREAD_STATS_FIELDS
 #endif
+#ifdef PROXY
+        PROXY_THREAD_STATS_FIELDS
+#endif
 #undef X
 
         memset(&threads[ii].stats.slab_stats, 0,
@@ -922,6 +957,9 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
         THREAD_STATS_FIELDS
 #ifdef EXTSTORE
         EXTSTORE_THREAD_STATS_FIELDS
+#endif
+#ifdef PROXY
+        PROXY_THREAD_STATS_FIELDS
 #endif
 #undef X
 

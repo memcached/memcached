@@ -56,6 +56,7 @@
 
 #include "proto_text.h"
 #include "proto_bin.h"
+#include "proto_proxy.h"
 
 #if defined(__FreeBSD__)
 #include <sys/sysctl.h>
@@ -84,7 +85,6 @@ static enum try_read_result try_read_network(conn *c);
 static enum try_read_result try_read_udp(conn *c);
 
 static int start_conn_timeout_thread();
-
 
 /* stats */
 static void stats_init(void);
@@ -500,6 +500,11 @@ static const char *prot_text(enum protocol prot) {
         case negotiating_prot:
             rv = "auto-negotiate";
             break;
+#ifdef PROXY
+        case proxy_prot:
+            rv = "proxy";
+            break;
+#endif
     }
     return rv;
 }
@@ -797,6 +802,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             case negotiating_prot:
                 c->try_read_command = try_read_command_negotiate;
                 break;
+#ifdef PROXY
+            case proxy_prot:
+                c->try_read_command = try_read_command_proxy;
+                break;
+#endif
         }
     }
 
@@ -1417,13 +1427,22 @@ static void reset_cmd_handler(conn *c) {
 
 static void complete_nread(conn *c) {
     assert(c != NULL);
+#ifdef PROXY
+    assert(c->protocol == ascii_prot
+           || c->protocol == binary_prot
+           || c->protocol == proxy_prot);
+#else
     assert(c->protocol == ascii_prot
            || c->protocol == binary_prot);
-
+#endif
     if (c->protocol == ascii_prot) {
         complete_nread_ascii(c);
     } else if (c->protocol == binary_prot) {
         complete_nread_binary(c);
+#ifdef PROXY
+    } else if (c->protocol == proxy_prot) {
+        complete_nread_proxy(c);
+#endif
     }
 }
 
@@ -1788,6 +1807,12 @@ void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("badcrc_from_extstore", "%llu", (unsigned long long)thread_stats.badcrc_from_extstore);
     }
 #endif
+#ifdef PROXY
+    if (settings.proxy_enabled) {
+        APPEND_STAT("proxy_conn_requests", "%llu", (unsigned long long)thread_stats.proxy_conn_requests);
+        APPEND_STAT("proxy_conn_errors", "%llu", (unsigned long long)thread_stats.proxy_conn_errors);
+    }
+#endif
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
     APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
     APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);
@@ -1842,6 +1867,9 @@ void server_stats(ADD_STAT add_stats, conn *c) {
     STATS_UNLOCK();
 #ifdef EXTSTORE
     storage_stats(add_stats, c);
+#endif
+#ifdef PROXY
+    proxy_stats(add_stats, c);
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
@@ -3801,6 +3829,9 @@ static void clock_handler(const evutil_socket_t fd, const short which, void *arg
         settings.sig_hup = false;
 
         authfile_load(settings.auth_file);
+#ifdef PROXY
+        proxy_start_reload(settings.proxy_ctx);
+#endif
     }
 
     evtimer_set(&clockevent, clock_handler, 0);
@@ -3998,6 +4029,9 @@ static void usage(void) {
            flag_enabled_disabled(settings.ext_drop_unread), settings.ext_recache_rate,
            settings.ext_max_frag, settings.slab_automove_freeratio);
     verify_default("ext_item_age", settings.ext_item_age == UINT_MAX);
+#endif
+#ifdef PROXY
+    printf("   - proxy_config:        path to lua config file.\n");
 #endif
 #ifdef TLS
     printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"
@@ -4663,6 +4697,9 @@ int main (int argc, char **argv) {
         SSL_SESSION_CACHE,
         SSL_MIN_VERSION,
 #endif
+#ifdef PROXY
+        PROXY_CONFIG,
+#endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
@@ -4717,6 +4754,9 @@ int main (int argc, char **argv) {
         [SSL_WBUF_SIZE] = "ssl_wbuf_size",
         [SSL_SESSION_CACHE] = "ssl_session_cache",
         [SSL_MIN_VERSION] = "ssl_min_version",
+#endif
+#ifdef PROXY
+        [PROXY_CONFIG] = "proxy_config",
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
@@ -5461,6 +5501,22 @@ int main (int argc, char **argv) {
                 }
                 settings.read_buf_mem_limit *= 1024 * 1024; /* megabytes */
                 break;
+#ifdef PROXY
+            case PROXY_CONFIG:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing proxy_config file argument\n");
+                    return 1;
+                }
+                if (protocol_specified) {
+                    fprintf(stderr, "Cannot specify a protocol with proxy mode enabled\n");
+                    return 1;
+                }
+                settings.proxy_startfile = strdup(subopts_value);
+                settings.proxy_enabled = true;
+                settings.binding_protocol = proxy_prot;
+                protocol_specified = true;
+                break;
+#endif
 #ifdef MEMCACHED_DEBUG
             case RELAXED_PRIVILEGES:
                 settings.relaxed_privileges = true;
@@ -5868,6 +5924,14 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     }
     /* start up worker threads if MT mode */
+#ifdef PROXY
+    if (settings.proxy_enabled) {
+        proxy_init();
+        if (proxy_load_config(settings.proxy_ctx) != 0) {
+            exit(EXIT_FAILURE);
+        }
+    }
+#endif
 #ifdef EXTSTORE
     slabs_set_storage(storage);
     memcached_thread_init(settings.num_threads, storage);
