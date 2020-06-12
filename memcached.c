@@ -10052,7 +10052,7 @@ int main (int argc, char **argv) {
         exit(EX_OSERR);
     } else {
 #ifdef MEMCACHED_DEBUG
-        if (rlim.rlim_cur < settings.maxconns && rlim.rlim_max < settings.maxconns) {
+        if (rlim.rlim_cur < settings.maxconns || rlim.rlim_max < settings.maxconns) {
 #endif
         rlim.rlim_cur = settings.maxconns;
         rlim.rlim_max = settings.maxconns;
