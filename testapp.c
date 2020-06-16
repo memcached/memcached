@@ -573,8 +573,8 @@ static pid_t start_server(in_port_t *port_out, bool daemon, int timeout) {
     }
 
     /* Yeah just let us "busy-wait" for the file to be created ;-) */
-    useconds_t wait_timeout = 1000000;
-    useconds_t wait = 10;
+    useconds_t wait_timeout = 1000000 * 10;
+    useconds_t wait = 1000;
     while (access(filename, F_OK) == -1 && wait_timeout > 0) {
         usleep(wait);
         wait_timeout -= (wait > wait_timeout ? wait_timeout : wait);
