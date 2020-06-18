@@ -101,9 +101,11 @@ static void print_ssl_error(char *buff, size_t len) {
 static bool load_server_certificates(char **errmsg) {
     bool success = false;
 
+    const size_t CRLF_NULLCHAR_LEN = 3;
     char *error_msg = malloc(MAXPATHLEN + ERROR_MSG_SIZE +
         SSL_ERROR_MSG_SIZE);
-    size_t errmax = MAXPATHLEN + ERROR_MSG_SIZE + SSL_ERROR_MSG_SIZE - 1;
+    size_t errmax = MAXPATHLEN + ERROR_MSG_SIZE + SSL_ERROR_MSG_SIZE -
+        CRLF_NULLCHAR_LEN;
 
     if (error_msg == NULL) {
         *errmsg = NULL;
@@ -118,32 +120,34 @@ static bool load_server_certificates(char **errmsg) {
 
     char *ssl_err_msg = malloc(SSL_ERROR_MSG_SIZE);
     if (ssl_err_msg == NULL) {
+        free(error_msg);
         *errmsg = NULL;
         return false;
     }
     bzero(ssl_err_msg, SSL_ERROR_MSG_SIZE);
+    size_t err_msg_size = 0;
 
     SSL_LOCK();
     if (!SSL_CTX_use_certificate_chain_file(settings.ssl_ctx,
         settings.ssl_chain_cert)) {
         print_ssl_error(ssl_err_msg, SSL_ERROR_MSG_SIZE);
-        snprintf(error_msg, errmax, "Error loading the certificate chain: "
-            "%s : %s\r\n", settings.ssl_chain_cert, ssl_err_msg);
+        err_msg_size = snprintf(error_msg, errmax, "Error loading the certificate chain: "
+            "%s : %s", settings.ssl_chain_cert, ssl_err_msg);
     } else if (!SSL_CTX_use_PrivateKey_file(settings.ssl_ctx, settings.ssl_key,
                                         settings.ssl_keyformat)) {
         print_ssl_error(ssl_err_msg, SSL_ERROR_MSG_SIZE);
-        snprintf(error_msg, errmax, "Error loading the key: %s : %s\r\n",
+        err_msg_size = snprintf(error_msg, errmax, "Error loading the key: %s : %s",
             settings.ssl_key, ssl_err_msg);
     } else if (!SSL_CTX_check_private_key(settings.ssl_ctx)) {
         print_ssl_error(ssl_err_msg, SSL_ERROR_MSG_SIZE);
-        snprintf(error_msg, errmax, "Error validating the certificate: %s\r\n",
+        err_msg_size = snprintf(error_msg, errmax, "Error validating the certificate: %s",
             ssl_err_msg);
     } else if (settings.ssl_ca_cert) {
         if (!SSL_CTX_load_verify_locations(settings.ssl_ctx,
           settings.ssl_ca_cert, NULL)) {
             print_ssl_error(ssl_err_msg, SSL_ERROR_MSG_SIZE);
-            snprintf(error_msg, errmax,
-              "Error loading the CA certificate: %s : %s\r\n",
+            err_msg_size = snprintf(error_msg, errmax,
+              "Error loading the CA certificate: %s : %s",
               settings.ssl_ca_cert, ssl_err_msg);
         } else {
             SSL_CTX_set_client_CA_list(settings.ssl_ctx,
@@ -160,6 +164,8 @@ static bool load_server_certificates(char **errmsg) {
         free(error_msg);
     } else {
         *errmsg = error_msg;
+        error_msg += (err_msg_size >= errmax ? errmax - 1: err_msg_size);
+        snprintf(error_msg, CRLF_NULLCHAR_LEN, "\r\n");
         // Print if there are more errors and drain the queue.
         ERR_print_errors_fp(stderr);
     }
