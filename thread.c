@@ -832,6 +832,7 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
                 threads[ii].stats.lru_hits[sid];
         }
 
+        stats->response_buf_count += threads[ii].response_buf_count;
         stats->read_buf_count += threads[ii].rbuf_cache->total;
         stats->read_buf_bytes += threads[ii].rbuf_cache->total * READ_BUFFER_SIZE;
         stats->read_buf_bytes_free += threads[ii].rbuf_cache->freecurr * READ_BUFFER_SIZE;

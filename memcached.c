@@ -1059,14 +1059,15 @@ static mc_resp* resp_allocate(conn *c) {
         if (resp != NULL) {
             b->refcount++;
             resp->free = false;
-            if (b->refcount == MAX_RESP_PER_BUNDLE) {
-                assert(b->next == NULL);
-                // We only allocate off the head. Assign new head.
-                th->open_bundle = b->prev;
-                // Remove ourselves from the list.
-                if (b->prev) {
-                    b->prev->next = 0;
-                }
+    }
+
+        if (b->refcount == MAX_RESP_PER_BUNDLE) {
+            assert(b->next == NULL);
+            // We only allocate off the head. Assign new head.
+            th->open_bundle = b->prev;
+            // Remove ourselves from the list.
+            if (b->prev) {
+                b->prev->next = 0;
             }
         }
     }
@@ -1074,6 +1075,7 @@ static mc_resp* resp_allocate(conn *c) {
     if (resp == NULL) {
         assert(th->open_bundle == NULL);
         b = do_cache_alloc(th->rbuf_cache);
+        c->thread->response_buf_count++;
         if (b) {
             b->next_check = 1;
             b->refcount = 1;
@@ -1081,8 +1083,9 @@ static mc_resp* resp_allocate(conn *c) {
                 b->r[i].bundle = b;
                 b->r[i].free = true;
             }
-            b->next = 0;
-            b->prev = 0;
+            b->next = NULL;
+            b->prev = NULL;
+            b->r[0].free = false;
             th->open_bundle = b;
             resp = &b->r[0];
         } else {
@@ -1105,20 +1108,23 @@ static void resp_free(conn *c, mc_resp *resp) {
             assert(b->prev == 0);
             b->next_check = 0;
         } else {
-            // Assert that we're either in the list or at the head.
-            assert((b->next || b->prev) || b == th->open_bundle);
+            // Adjust the links as needed.
+            if ((b->next || b->prev) || b == th->open_bundle) {
 
-            // unlink from list.
-            mc_resp_bundle **head = &th->open_bundle;
-            if (*head == b) *head = b->next;
-            // Not tracking the tail.
-            assert(b->next != b && b->prev != b);
+                // unlink from list.
+                mc_resp_bundle **head = &th->open_bundle;
+                if (*head == b) *head = b->next;
+                // Not tracking the tail.
+                assert(b->next != b && b->prev != b);
 
-            if (b->next) b->next->prev = b->prev;
-            if (b->prev) b->prev->next = b->next;
+                if (b->next) b->next->prev = b->prev;
+                if (b->prev) b->prev->next = b->next;
+            }
 
             // Now completely done with this buffer.
+        // Removing the buffer even if its dangling.
             do_cache_free(th->rbuf_cache, b);
+            c->thread->response_buf_count--;
         }
     } else {
         mc_resp_bundle **head = &th->open_bundle;
@@ -3235,6 +3241,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     }
     APPEND_STAT("connection_structures", "%u", stats_state.conn_structs);
     APPEND_STAT("response_obj_oom", "%llu", (unsigned long long)thread_stats.response_obj_oom);
+    APPEND_STAT("response_buf_count", "%llu", (unsigned long long)thread_stats.response_buf_count);
     APPEND_STAT("read_buf_count", "%llu", (unsigned long long)thread_stats.read_buf_count);
     APPEND_STAT("read_buf_bytes", "%llu", (unsigned long long)thread_stats.read_buf_bytes);
     APPEND_STAT("read_buf_bytes_free", "%llu", (unsigned long long)thread_stats.read_buf_bytes_free);
