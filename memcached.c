@@ -1060,12 +1060,12 @@ static mc_resp* resp_allocate(conn *c) {
             b->refcount++;
             resp->free = false;
             if (b->refcount == MAX_RESP_PER_BUNDLE) {
-                assert(b->next == NULL);
+                assert(b->prev == NULL);
                 // We only allocate off the head. Assign new head.
-                th->open_bundle = b->prev;
+                th->open_bundle = b->next;
                 // Remove ourselves from the list.
-                if (b->prev) {
-                    b->prev->next = 0;
+                if (b->next) {
+                    b->next->prev = 0;
                 }
             }
         }
@@ -1085,6 +1085,7 @@ static mc_resp* resp_allocate(conn *c) {
             b->prev = 0;
             th->open_bundle = b;
             resp = &b->r[0];
+            resp->free = false;
         } else {
             return NULL;
         }
