@@ -1066,6 +1066,7 @@ static mc_resp* resp_allocate(conn *c) {
                 // Remove ourselves from the list.
                 if (b->next) {
                     b->next->prev = 0;
+                    b->next = 0;
                 }
             }
         }
