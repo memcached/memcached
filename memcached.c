@@ -1146,6 +1146,10 @@ static bool resp_start(conn *c) {
         THR_STATS_UNLOCK(c);
         return false;
     }
+    // handling the stats counters here to simplify testing
+    THR_STATS_LOCK(c);
+    c->thread->stats.response_obj_count++;
+    THR_STATS_UNLOCK(c);
     // Skip zeroing the bundle pointer at the start.
     // TODO: this line is here temporarily to make the code easy to disable.
     // when it's more mature, move the memset into resp_allocate() and have it
@@ -1192,6 +1196,9 @@ static mc_resp* resp_finish(conn *c, mc_resp *resp) {
         c->resp = NULL;
     }
     resp_free(c, resp);
+    THR_STATS_LOCK(c);
+    c->thread->stats.response_obj_count--;
+    THR_STATS_UNLOCK(c);
     return next;
 }
 
@@ -3237,6 +3244,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     }
     APPEND_STAT("connection_structures", "%u", stats_state.conn_structs);
     APPEND_STAT("response_obj_oom", "%llu", (unsigned long long)thread_stats.response_obj_oom);
+    APPEND_STAT("response_obj_count", "%llu", (unsigned long long)thread_stats.response_obj_count);
     APPEND_STAT("read_buf_count", "%llu", (unsigned long long)thread_stats.read_buf_count);
     APPEND_STAT("read_buf_bytes", "%llu", (unsigned long long)thread_stats.read_buf_bytes);
     APPEND_STAT("read_buf_bytes_free", "%llu", (unsigned long long)thread_stats.read_buf_bytes_free);

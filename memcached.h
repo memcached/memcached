@@ -302,6 +302,7 @@ struct slab_stats {
     X(auth_errors) \
     X(idle_kicks) /* idle connections killed */ \
     X(response_obj_oom) \
+    X(response_obj_count) \
     X(read_buf_oom)
 
 #ifdef EXTSTORE
