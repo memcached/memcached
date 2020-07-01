@@ -1060,12 +1060,13 @@ static mc_resp* resp_allocate(conn *c) {
             b->refcount++;
             resp->free = false;
             if (b->refcount == MAX_RESP_PER_BUNDLE) {
-                assert(b->next == NULL);
+                assert(b->prev == NULL);
                 // We only allocate off the head. Assign new head.
-                th->open_bundle = b->prev;
+                th->open_bundle = b->next;
                 // Remove ourselves from the list.
-                if (b->prev) {
-                    b->prev->next = 0;
+                if (b->next) {
+                    b->next->prev = 0;
+                    b->next = 0;
                 }
             }
         }
@@ -1075,6 +1076,9 @@ static mc_resp* resp_allocate(conn *c) {
         assert(th->open_bundle == NULL);
         b = do_cache_alloc(th->rbuf_cache);
         if (b) {
+            THR_STATS_LOCK(c);
+            c->thread->stats.response_obj_bytes += READ_BUFFER_SIZE;
+            THR_STATS_UNLOCK(c);
             b->next_check = 1;
             b->refcount = 1;
             for (int i = 0; i < MAX_RESP_PER_BUNDLE; i++) {
@@ -1085,6 +1089,7 @@ static mc_resp* resp_allocate(conn *c) {
             b->prev = 0;
             th->open_bundle = b;
             resp = &b->r[0];
+            resp->free = false;
         } else {
             return NULL;
         }
@@ -1119,6 +1124,9 @@ static void resp_free(conn *c, mc_resp *resp) {
 
             // Now completely done with this buffer.
             do_cache_free(th->rbuf_cache, b);
+            THR_STATS_LOCK(c);
+            c->thread->stats.response_obj_bytes -= READ_BUFFER_SIZE;
+            THR_STATS_UNLOCK(c);
         }
     } else {
         mc_resp_bundle **head = &th->open_bundle;
@@ -1144,6 +1152,10 @@ static bool resp_start(conn *c) {
         THR_STATS_UNLOCK(c);
         return false;
     }
+    // handling the stats counters here to simplify testing
+    THR_STATS_LOCK(c);
+    c->thread->stats.response_obj_count++;
+    THR_STATS_UNLOCK(c);
     // Skip zeroing the bundle pointer at the start.
     // TODO: this line is here temporarily to make the code easy to disable.
     // when it's more mature, move the memset into resp_allocate() and have it
@@ -1190,6 +1202,9 @@ static mc_resp* resp_finish(conn *c, mc_resp *resp) {
         c->resp = NULL;
     }
     resp_free(c, resp);
+    THR_STATS_LOCK(c);
+    c->thread->stats.response_obj_count--;
+    THR_STATS_UNLOCK(c);
     return next;
 }
 
@@ -3235,6 +3250,8 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     }
     APPEND_STAT("connection_structures", "%u", stats_state.conn_structs);
     APPEND_STAT("response_obj_oom", "%llu", (unsigned long long)thread_stats.response_obj_oom);
+    APPEND_STAT("response_obj_count", "%llu", (unsigned long long)thread_stats.response_obj_count);
+    APPEND_STAT("response_obj_bytes", "%llu", (unsigned long long)thread_stats.response_obj_bytes);
     APPEND_STAT("read_buf_count", "%llu", (unsigned long long)thread_stats.read_buf_count);
     APPEND_STAT("read_buf_bytes", "%llu", (unsigned long long)thread_stats.read_buf_bytes);
     APPEND_STAT("read_buf_bytes_free", "%llu", (unsigned long long)thread_stats.read_buf_bytes_free);
