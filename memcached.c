@@ -1076,6 +1076,9 @@ static mc_resp* resp_allocate(conn *c) {
         assert(th->open_bundle == NULL);
         b = do_cache_alloc(th->rbuf_cache);
         if (b) {
+            THR_STATS_LOCK(c);
+            c->thread->stats.response_obj_bytes += READ_BUFFER_SIZE;
+            THR_STATS_UNLOCK(c);
             b->next_check = 1;
             b->refcount = 1;
             for (int i = 0; i < MAX_RESP_PER_BUNDLE; i++) {
@@ -1121,6 +1124,9 @@ static void resp_free(conn *c, mc_resp *resp) {
 
             // Now completely done with this buffer.
             do_cache_free(th->rbuf_cache, b);
+            THR_STATS_LOCK(c);
+            c->thread->stats.response_obj_bytes -= READ_BUFFER_SIZE;
+            THR_STATS_UNLOCK(c);
         }
     } else {
         mc_resp_bundle **head = &th->open_bundle;
@@ -3245,6 +3251,7 @@ static void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("connection_structures", "%u", stats_state.conn_structs);
     APPEND_STAT("response_obj_oom", "%llu", (unsigned long long)thread_stats.response_obj_oom);
     APPEND_STAT("response_obj_count", "%llu", (unsigned long long)thread_stats.response_obj_count);
+    APPEND_STAT("response_obj_bytes", "%llu", (unsigned long long)thread_stats.response_obj_bytes);
     APPEND_STAT("read_buf_count", "%llu", (unsigned long long)thread_stats.read_buf_count);
     APPEND_STAT("read_buf_bytes", "%llu", (unsigned long long)thread_stats.read_buf_bytes);
     APPEND_STAT("read_buf_bytes_free", "%llu", (unsigned long long)thread_stats.read_buf_bytes_free);
