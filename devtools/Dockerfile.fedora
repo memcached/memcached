@@ -1,12 +1,14 @@
 FROM fedora:latest
 
+ARG CONFIGURE_OPTS="--enable-seccomp"
+
 RUN dnf install -y perl automake autoconf libseccomp-devel libevent-devel gcc make git
 
 ADD . /src
 WORKDIR /src
 
 RUN aclocal && autoheader && automake --foreign --add-missing && autoconf
-RUN ./configure --enable-seccomp
+RUN ./configure ${CONFIGURE_OPTS}
 RUN make -j
 
 CMD make test
