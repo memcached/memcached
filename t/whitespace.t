@@ -22,7 +22,7 @@ BEGIN {
     my %exempted_hash = map { $_ => 1 } @exempted;
 
     my @stuff = split /\0/, `git ls-files -z -c -m -o --exclude-standard`;
-    @files = grep { ! $exempted_hash{$_} } @stuff;
+    @files = grep { ! $exempted_hash{$_} && $_ !~ m/^vendor/ } @stuff;
 
     # We won't find any files if git isn't installed.  If git isn't
     # installed, they're probably not doing any useful development, or
