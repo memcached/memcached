@@ -2670,7 +2670,7 @@ static enum transmit_result transmit_udp(conn *c) {
     msg.msg_namelen = resp->request_addr_size;
 
     // First IOV is the custom UDP header.
-    iovs[0].iov_base = udp_hdr;
+    iovs[0].iov_base = (void *)udp_hdr;
     iovs[0].iov_len = UDP_HEADER_SIZE;
     build_udp_header(udp_hdr, resp);
     iovused++;

@@ -388,6 +388,22 @@ if test $ac_cv_libevent_dir != "(system)"; then
   fi
 fi
 
+AC_RUN_IFELSE(
+   [AC_LANG_PROGRAM([
+#include <event.h>
+   ], [dnl
+const char *ver = event_get_version();
+return (ver != NULL && *ver != '1') ? 0 : 1;
+   ])
+   ],[
+     AC_DEFINE(HAVE_LIBEVENT_NEW, 1, [linked to libevent])
+   ],
+   [
+     AC_MSG_ERROR([libevent2 is required])
+   ],
+   []
+[])
+
 trylibssldir=""
 AC_ARG_WITH(libssl,
        [  --with-libssl=PATH     Specify path to libssl installation ],
