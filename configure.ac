@@ -372,7 +372,6 @@ AC_CACHE_CHECK([for libevent directory], ac_cv_libevent_dir, [
 ])
   fi
 ])
-
 LIBS="-levent $LIBS"
 if test $ac_cv_libevent_dir != "(system)"; then
   if test -d "$ac_cv_libevent_dir/lib" ; then
@@ -391,22 +390,19 @@ fi
 
 AC_RUN_IFELSE(
    [AC_LANG_PROGRAM([
-     #include <event.h>
-   ], [
-     const char *ver = event_get_version();
-     return (ver != NULL && ver[0] == '2') ? 0 : 1;
+#include <event.h>
+   ], [dnl
+const char *ver = event_get_version();
+return (ver != NULL && *ver != '1') ? 0 : 1;
    ])
    ],[
-     libevent2_api=yes
+     AC_DEFINE(HAVE_LIBEVENT_NEW, 1, [linked to libevent])
    ],
    [
-     libevent2_api=no
+     AC_MSG_WARN([linked to libevent1])
    ],
+   []
 [])
-
-if test $libevent2_api = yes; then
-  AC_DEFINE(HAVE_LIBEVENT2, 1, [linked to libevent2])
-fi
 
 trylibssldir=""
 AC_ARG_WITH(libssl,
