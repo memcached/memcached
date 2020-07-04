@@ -37,6 +37,10 @@
 #endif
 #endif
 
+#if !defined(HAVE_LIBEVENT2)
+typedef int evutil_socket_t;
+#endif
+
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
 #include "cache.h"
