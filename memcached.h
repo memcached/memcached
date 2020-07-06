@@ -37,7 +37,7 @@
 #endif
 #endif
 
-#if !defined(HAVE_LIBEVENT2)
+#if !defined(HAVE_LIBEVENT_NEW)
 typedef int evutil_socket_t;
 #endif
 
