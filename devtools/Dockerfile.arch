@@ -1,5 +1,7 @@
 FROM archlinux/base:latest
 
+ARG CONFIGURE_OPTS="--enable-seccomp"
+
 RUN pacman -Sy && pacman --noconfirm -S gcc automake autoconf libevent libseccomp git make perl
 RUN ln -s /usr/bin/core_perl/prove /usr/bin/prove
 
@@ -11,7 +13,7 @@ RUN autoheader
 RUN automake --gnu --add-missing
 RUN autoconf
 
-RUN ./configure --enable-seccomp
+RUN ./configure ${CONFIGURE_OPTS}
 RUN make -j
 
 CMD make test

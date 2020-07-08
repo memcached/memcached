@@ -1203,6 +1203,9 @@ integers separated by a colon (treat this as a floating point number).
 | connection_structures | 32u     | Number of connection structures allocated |
 |                       |         | by the server                             |
 | response_obj_oom      | 64u     | Connections closed by lack of memory      |
+| response_obj_count    | 64u     | Total response objects in use             |
+| response_obj_bytes    | 64u     | Total bytes used for resp. objects. is a  |
+|                       |         | subset of bytes from read_buf_bytes.      |
 | read_buf_count        | 64u     | Total read/resp buffers allocated         |
 | read_buf_bytes        | 64u     | Total read/resp buffer bytes allocated    |
 | read_buf_bytes_free   | 64u     | Total read/resp buffer bytes cached       |

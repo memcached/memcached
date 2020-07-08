@@ -31,7 +31,15 @@ args = parser.parse_args()
 
 host, port = args.host.split(':')
 
-def window_check(history, sid, key):
+def window_check_count(history, sid, key):
+    total = 0
+    for window in history['w']:
+        s = window.get(sid)
+        if s and s.get(key):
+            total += s.get(key) > 0 and 1 or 0
+    return total
+
+def window_check_sum(history, sid, key):
     total = 0
     for window in history['w']:
         s = window.get(sid)
@@ -75,14 +83,14 @@ def determine_move(history, diffs, totals):
             w[sid]['dirty'] = 1
         if slab['evicted_d'] > 0:
             w[sid]['dirty'] = 1
-            w[sid]['ev'] = 1
+            w[sid]['ev'] = slab['evicted_d'] / totals['evicted_d']
         w[sid]['age'] = slab['age']
-        age = window_check(history, sid, 'age') / len(history['w'])
+        age = window_check_sum(history, sid, 'age') / len(history['w'])
 
         # if > 2.5 pages free, and not dirty, reassign to global page pool and
         # break.
         if slab['free_chunks'] > slab['chunks_per_page'] * 2.5:
-            if window_check(history, sid, 'dirty') == 0:
+            if window_check_sum(history, sid, 'dirty') == 0:
                 decision = (sid, 0)
                 break
 
@@ -91,9 +99,13 @@ def determine_move(history, diffs, totals):
             oldest = (sid, age)
 
         # are we the youngest evicting slab class?
-        ev_total = window_check(history, sid, 'ev')
+        ev_total = window_check_count(history, sid, 'ev')
+        ev_total_sum = window_check_sum(history, sid, 'ev') / args.window
         window_min = args.window / 2
-        if age < youngest[1] and ev_total > window_min:
+        if args.verbose:
+            print("sid {} age {} ev_total {} window_min {} ev_total_sum {}".format(sid, age, ev_total, window_min, ev_total_sum))
+        # If youngest and evicted in more than 50% of the window interval, or more than 25% of the total evictions in the window
+        if age < youngest[1] and ( ev_total > window_min or ev_total_sum > 0.25 ):
             youngest = (sid, age)
             #if args.verbose:
             #    print("window: {} range: {}".format(ev_total, window_min))
