@@ -11,13 +11,13 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached('-c 32');
+my $server = new_memcached('-c 30','','true');
 
 my $stat_sock = $server->sock;
 my @sockets = ();
 my $num_sockets;
 my $rejected_conns = 0;
-for (1 .. 3) {
+for (1 .. 5) {
   my $sock = $server->new_sock;
   if (defined($sock)) {
     push (@sockets, $sock);
@@ -26,10 +26,10 @@ for (1 .. 3) {
   }
 }
 $num_sockets = @sockets;
-ok(($num_sockets == 3), 'Got correct num of sockets');
+ok(($num_sockets == 5), 'Got correct num of sockets');
 
 my $stats = mem_stats($stat_sock);
-is($stats->{curr_connections}, 4, 'Got correct number of connections');
-#once rejected_connections metric is updated correctly, we can check for the failed connections.
+is($stats->{curr_connections}, 2, 'Got correct number of connections');
+is($stats->{rejected_connections}, 4, 'Got correct number of rejected connections');
 $server->stop();
 done_testing();

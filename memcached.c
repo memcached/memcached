@@ -3167,6 +3167,7 @@ static void drive_machine(conn *c) {
     struct sockaddr_storage addr;
     int nreqs = settings.reqs_per_event;
     int res;
+    const char *str;
 #ifdef HAVE_ACCEPT4
     static int  use_accept4 = 1;
 #else
@@ -3203,9 +3204,6 @@ static void drive_machine(conn *c) {
                         fprintf(stderr, "Too many open connections\n");
                     accept_new_conns(false);
                     stop = true;
-                    STATS_LOCK();
-                    stats.rejected_conns++;
-                    STATS_UNLOCK();
                 } else {
                     perror("accept()");
                     stop = true;
@@ -3220,8 +3218,23 @@ static void drive_machine(conn *c) {
                 }
             }
 
+            bool reject;
+            if (settings.maxconns_fast) {
+                STATS_LOCK();
+                reject = sfd >= settings.maxconns - 1;
+                if (reject) {
+                    stats.rejected_conns++;
+                }
+                STATS_UNLOCK();
+            } else {
+                reject = false;
+            }
 
-            {
+            if (reject) {
+                str = "ERROR Too many open connections\r\n";
+                res = write(sfd, str, strlen(str));
+                close(sfd);
+            } else {
                 void *ssl_v = NULL;
 #ifdef TLS
                 SSL *ssl = NULL;

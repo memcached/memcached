@@ -244,6 +244,13 @@ sub get_memcached_exe {
     return $exe;
 }
 
+sub get_memcached_non_debug_exe {
+    my $exe = "$builddir/memcached";
+    croak("memcached binary doesn't exist.  Haven't run 'make' ?\n") unless -e $exe;
+    croak("memcached binary not executable\n") unless -x _;
+    return $exe;
+}
+
 sub run_help {
     my $exe = get_memcached_exe();
     return system("$exe -h");
@@ -255,8 +262,9 @@ sub is_running {
 }
 
 sub new_memcached {
-    my ($args, $passed_port) = @_;
+    my ($args, $passed_port, $passed_non_debug_build_flag) = @_;
     my $port = $passed_port;
+    my $non_debug_build_flag = $passed_non_debug_build_flag;
     my $host = '127.0.0.1';
     my $ssl_enabled  = enabled_tls_testing();
     my $unix_socket_disabled  = !supports_unix_socket();
@@ -285,7 +293,9 @@ sub new_memcached {
     if ($< == 0) {
         $args .= " -u root";
     }
-    $args .= " -o relaxed_privileges";
+    if (! $non_debug_build_flag) {
+        $args .= " -o relaxed_privileges";
+    }
 
     my $udpport;
     if ($args =~ /-l (\S+)/ || (($ssl_enabled || $unix_socket_disabled) && ($args !~ /-s (\S+)/))) {
@@ -309,7 +319,12 @@ sub new_memcached {
 
     my $childpid = fork();
 
-    my $exe = get_memcached_exe();
+    my $exe;
+    if ($non_debug_build_flag) {
+        $exe = get_memcached_non_debug_exe();
+    } else {
+        $exe = get_memcached_exe();
+    }
 
     unless ($childpid) {
         my $valgrind = "";
