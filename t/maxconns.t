@@ -11,22 +11,25 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-plan skip_all => "maxconns test does not work";
-exit 0;
+my $server = new_memcached('-c 32');
 
-plan tests => 6;
-
-# start up a server with 10 maximum connections
-my $server = new_memcached('-c 100');
-my $sock = $server->sock;
-my @sockets;
-
-ok(defined($sock), 'Connection 0');
-push (@sockets, $sock);
-
-
-foreach my $conn (1..10) {
-  $sock = $server->new_sock;
-  ok(defined($sock), "Made connection $conn");
-  push(@sockets, $sock);
+my $stat_sock = $server->sock;
+my @sockets = ();
+my $num_sockets;
+my $rejected_conns = 0;
+for (1 .. 3) {
+  my $sock = $server->new_sock;
+  if (defined($sock)) {
+    push (@sockets, $sock);
+  } else {
+    $rejected_conns = $rejected_conns + 1;
+  }
 }
+$num_sockets = @sockets;
+ok(($num_sockets == 3), 'Got correct num of sockets');
+
+my $stats = mem_stats($stat_sock);
+is($stats->{curr_connections}, 4, 'Got correct number of connections');
+#once rejected_connections metric is updated correctly, we can check for the failed connections.
+$server->stop();
+done_testing();
