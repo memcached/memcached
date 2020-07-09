@@ -3219,12 +3219,12 @@ static void drive_machine(conn *c) {
 
             bool reject;
             if (settings.maxconns_fast) {
-                STATS_LOCK();
-                reject = stats_state.curr_conns + stats_state.reserved_fds >= settings.maxconns - 1;
+                reject = sfd >= settings.maxconns - 1;
                 if (reject) {
+                    STATS_LOCK();
                     stats.rejected_conns++;
+                    STATS_UNLOCK();
                 }
-                STATS_UNLOCK();
             } else {
                 reject = false;
             }
