@@ -14,7 +14,7 @@ my $builddir = getcwd;
 
 my @unixsockets = ();
 
-@EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
+@EXPORT = qw(new_memcached new_memcached_nodebug sleep mem_get_is mem_gets mem_gets_is mem_stats
              supports_sasl free_port supports_drop_priv supports_extstore
              wait_ext_flush supports_tls enabled_tls_testing run_help
              supports_unix_socket);
@@ -261,10 +261,14 @@ sub is_running {
     return waitpid($_[0], WNOHANG) >= 0 ? 1 : 0;
 }
 
+sub new_memcached_nodebug {
+    my ($args, $passed_port) = @_;
+    return new_memcached($args, $passed_port, "true");
+}
+
 sub new_memcached {
-    my ($args, $passed_port, $passed_non_debug_build_flag) = @_;
+    my ($args, $passed_port, $non_debug_build_flag) = @_;
     my $port = $passed_port;
-    my $non_debug_build_flag = $passed_non_debug_build_flag;
     my $host = '127.0.0.1';
     my $ssl_enabled  = enabled_tls_testing();
     my $unix_socket_disabled  = !supports_unix_socket();

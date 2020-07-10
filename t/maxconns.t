@@ -1,35 +1,40 @@
 #!/usr/bin/perl
-# NOTE: This test never worked. Memcached would ignore maxconns requests lower
-# than the current ulimit. Test needs to be updated.
 
 use strict;
 use warnings;
 
 use Test::More;
-
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached('-c 30','','true');
+my $server = new_memcached_nodebug('-c 30');
 
 my $stat_sock = $server->sock;
 my @sockets = ();
 my $num_sockets;
 my $rejected_conns = 0;
-for (1 .. 5) {
+my $stats;
+for (1 .. 20) {
   my $sock = $server->new_sock;
   if (defined($sock)) {
-    push (@sockets, $sock);
-  } else {
-    $rejected_conns = $rejected_conns + 1;
+    push(@sockets, $sock);
+    $stats = mem_stats($stat_sock);
+    if ($stats->{rejected_connections} > $rejected_conns) {
+      $rejected_conns = $stats->{rejected_connections};
+      my $buffer = "";
+      my $length = 31;
+      my $res = recv($sock, $buffer, $length, 0);
+      if (not $buffer eq '') {
+          is($buffer, "ERROR Too many open connections", "Got expected response from the server");
+      }
+    }
   }
 }
-$num_sockets = @sockets;
-ok(($num_sockets == 5), 'Got correct num of sockets');
 
-my $stats = mem_stats($stat_sock);
-is($stats->{curr_connections}, 2, 'Got correct number of connections');
-is($stats->{rejected_connections}, 4, 'Got correct number of rejected connections');
-$server->stop();
+for my $s (@sockets) {
+    $s->close();
+}
+cmp_ok($stats->{rejected_connections}, '>', '1', 'rejected connections recorded');
+$server->stop;
 done_testing();
