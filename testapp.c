@@ -165,6 +165,9 @@ static enum test_return cache_reuse_test(void)
     int ii;
     cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
                                   NULL, NULL);
+    if(cache == NULL){
+        return TEST_FAIL;
+    }                              
     char *ptr = cache_alloc(cache);
     cache_free(cache, ptr);
     for (ii = 0; ii < 100; ++ii) {
@@ -181,6 +184,9 @@ static enum test_return cache_bulkalloc(size_t datasize)
 {
     cache_t *cache = cache_create("test", datasize, sizeof(char*),
                                   NULL, NULL);
+    if(cache == NULL){
+        return TEST_FAIL;
+    }                              
 #define ITERATIONS 1024
     void *ptr[ITERATIONS];
 
@@ -215,6 +221,9 @@ static enum test_return cache_redzone_test(void)
     cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
                                   NULL, NULL);
 
+    if(cache == NULL){
+        return TEST_FAIL;
+    }
     /* Ignore SIGABRT */
     struct sigaction old_action;
     struct sigaction action = { .sa_handler = SIG_IGN, .sa_flags = 0};
@@ -273,6 +282,9 @@ static enum test_return test_stats_prefix_record_get(void) {
 
     stats_prefix_record_get("abc:123", 7, false);
     pfs = stats_prefix_find("abc:123", 7);
+    if(pfs == NULL){
+        return TEST_FAIL;
+    }    
     assert(1 == pfs->num_gets);
     assert(0 == pfs->num_hits);
     stats_prefix_record_get("abc:456", 7, false);
@@ -293,6 +305,9 @@ static enum test_return test_stats_prefix_record_delete(void) {
 
     stats_prefix_record_delete("abc:123", 7);
     pfs = stats_prefix_find("abc:123", 7);
+    if(pfs == NULL){
+        return TEST_FAIL;
+    }
     assert(0 == pfs->num_gets);
     assert(0 == pfs->num_hits);
     assert(1 == pfs->num_deletes);
@@ -308,6 +323,9 @@ static enum test_return test_stats_prefix_record_set(void) {
 
     stats_prefix_record_set("abc:123", 7);
     pfs = stats_prefix_find("abc:123", 7);
+    if(pfs == NULL){
+        return TEST_FAIL;
+    }
     assert(0 == pfs->num_gets);
     assert(0 == pfs->num_hits);
     assert(0 == pfs->num_deletes);
