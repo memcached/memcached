@@ -367,6 +367,8 @@ struct stats {
     uint64_t      ssl_new_sessions; /* successfully negotiated new (non-reused) TLS sessions */
 #endif
     struct timeval maxconns_entered;  /* last time maxconns entered */
+    uint64_t      unexpected_napi_ids;  /* see doc/napi_ids.txt */
+    uint64_t      round_robin_fallback; /* see doc/napi_ids.txt */
 };
 
 /**
@@ -481,6 +483,7 @@ struct settings {
     unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
     bool ssl_session_cache; /* enable SSL server session caching */
 #endif
+    int num_napi_ids;   /* maximum number of NAPI IDs */
 };
 
 extern struct stats stats;
@@ -621,6 +624,7 @@ typedef struct {
 #ifdef TLS
     char   *ssl_wbuf;
 #endif
+    int napi_id;                /* napi id associated with this thread */
 
 } LIBEVENT_THREAD;
 

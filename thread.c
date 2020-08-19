@@ -581,6 +581,77 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
 /* Which thread we assigned a connection to most recently. */
 static int last_thread = -1;
 
+/* Last thread we assigned to a connection based on napi_id */
+static int last_thread_by_napi_id = -1;
+
+static LIBEVENT_THREAD *select_thread_round_robin(void)
+{
+    int tid = (last_thread + 1) % settings.num_threads;
+
+    last_thread = tid;
+
+    return threads + tid;
+}
+
+static void reset_threads_napi_id(void)
+{
+    LIBEVENT_THREAD *thread;
+    int i;
+
+    for (i = 0; i < settings.num_threads; i++) {
+         thread = threads + i;
+         thread->napi_id = 0;
+    }
+
+    last_thread_by_napi_id = -1;
+}
+
+/* Select a worker thread based on the NAPI ID of an incoming connection
+ * request. NAPI ID is a globally unique ID that identifies a NIC RX queue
+ * on which a flow is received.
+ */
+static LIBEVENT_THREAD *select_thread_by_napi_id(int sfd)
+{
+    LIBEVENT_THREAD *thread;
+    int napi_id, err, i;
+    socklen_t len;
+    int tid = -1;
+
+    len = sizeof(socklen_t);
+    err = getsockopt(sfd, SOL_SOCKET, SO_INCOMING_NAPI_ID, &napi_id, &len);
+    if ((err == -1) || (napi_id == 0)) {
+        STATS_LOCK();
+        stats.round_robin_fallback++;
+        STATS_UNLOCK();
+        return select_thread_round_robin();
+    }
+
+select:
+    for (i = 0; i < settings.num_threads; i++) {
+         thread = threads + i;
+         if (last_thread_by_napi_id < i) {
+             thread->napi_id = napi_id;
+             last_thread_by_napi_id = i;
+             tid = i;
+             break;
+         }
+         if (thread->napi_id == napi_id) {
+             tid = i;
+             break;
+         }
+    }
+
+    if (tid == -1) {
+        STATS_LOCK();
+        stats.unexpected_napi_ids++;
+        STATS_UNLOCK();
+        reset_threads_napi_id();
+        goto select;
+    }
+
+    return threads + tid;
+}
+
 /*
  * Dispatches a new connection to another thread. This is only ever called
  * from the main thread, either during initialization (for UDP) or because
@@ -597,11 +668,12 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
         return;
     }
 
-    int tid = (last_thread + 1) % settings.num_threads;
+    LIBEVENT_THREAD *thread;
 
-    LIBEVENT_THREAD *thread = threads + tid;
-
-    last_thread = tid;
+    if (!settings.num_napi_ids)
+        thread = select_thread_round_robin();
+    else
+        thread = select_thread_by_napi_id(sfd);
 
     item->sfd = sfd;
     item->init_state = init_state;
