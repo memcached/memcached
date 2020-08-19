@@ -61,6 +61,10 @@
 #include <sys/sysctl.h>
 #endif
 
+#ifndef SO_INCOMING_NAPI_ID
+#define SO_INCOMING_NAPI_ID 56
+#endif
+
 /*
  * forward declarations
  */
@@ -288,6 +292,7 @@ static void settings_init(void) {
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
 #endif
+    settings.num_napi_ids = 0;
 }
 
 extern pthread_mutex_t conn_lock;
@@ -1775,6 +1780,8 @@ void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("time_since_server_cert_refresh", "%u", now - settings.ssl_last_cert_refresh_time);
     }
 #endif
+    APPEND_STAT("unexpected_napi_ids", "%llu", (unsigned long long)stats.unexpected_napi_ids);
+    APPEND_STAT("round_robin_fallback", "%llu", (unsigned long long)stats.round_robin_fallback);
 }
 
 void process_stat_settings(ADD_STAT add_stats, void *c) {
@@ -1859,6 +1866,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ssl_wbuf_size", "%u", settings.ssl_wbuf_size);
     APPEND_STAT("ssl_session_cache", "%s", settings.ssl_session_cache ? "yes" : "no");
 #endif
+    APPEND_STAT("num_napi_ids", "%s", settings.num_napi_ids);
 }
 
 static int nz_strcmp(int nzlength, const char *nz, const char *z) {
@@ -3383,6 +3391,16 @@ static int server_socket(const char *interface,
             continue;
         }
 
+        if (settings.num_napi_ids) {
+            socklen_t len = sizeof(socklen_t);
+            int napi_id;
+            error = getsockopt(sfd, SOL_SOCKET, SO_INCOMING_NAPI_ID, &napi_id, &len);
+            if (error != 0) {
+                fprintf(stderr, "-N <num_napi_ids> option not supported\n");
+                exit(EXIT_FAILURE);
+            }
+        }
+
 #ifdef IPV6_V6ONLY
         if (next->ai_family == AF_INET6) {
             error = setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &flags, sizeof(flags));
@@ -3906,6 +3924,7 @@ static void usage(void) {
     verify_default("ssl_keyformat", settings.ssl_keyformat == SSL_FILETYPE_PEM);
     verify_default("ssl_verify_mode", settings.ssl_verify_mode == SSL_VERIFY_NONE);
 #endif
+    printf("-N, --napi_ids            number of napi ids. see doc/napi_ids.txt for more details\n");
     return;
 }
 
@@ -4663,6 +4682,7 @@ int main (int argc, char **argv) {
           "Y:"   /* Enable token auth */
           "e:"  /* mmap path for external item memory */
           "o:"  /* Extended generic options */
+          "N:"  /* NAPI ID based thread selection */
           ;
 
     /* process arguments */
@@ -4703,6 +4723,7 @@ int main (int argc, char **argv) {
         {"auth-file", required_argument, 0, 'Y'},
         {"memory-file", required_argument, 0, 'e'},
         {"extended", required_argument, 0, 'o'},
+        {"napi-ids", required_argument, 0, 'N'},
         {0, 0, 0, 0}
     };
     int optindex;
@@ -4923,6 +4944,13 @@ int main (int argc, char **argv) {
        case 'Y' :
             // dupe the file path now just in case the options get mangled.
             settings.auth_file = strdup(optarg);
+            break;
+       case 'N':
+            settings.num_napi_ids = atoi(optarg);
+            if (settings.num_napi_ids <= 0) {
+                fprintf(stderr, "Maximum number of NAPI IDs must be greater than 0\n");
+                return 1;
+            }
             break;
         case 'o': /* It's sub-opts time! */
             subopts_orig = subopts = strdup(optarg); /* getsubopt() changes the original args */
@@ -5309,6 +5337,12 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
         }
+    }
+
+    if (settings.num_napi_ids > settings.num_threads) {
+        fprintf(stderr, "Number of napi_ids(%d) cannot be greater than number of threads(%d)\n",
+                settings.num_napi_ids, settings.num_threads);
+        exit(EX_USAGE);
     }
 
     if (settings.item_size_max < ITEM_SIZE_MAX_LOWER_LIMIT) {

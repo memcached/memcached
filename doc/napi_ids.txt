@@ -1,0 +1,41 @@
+NAPI ID based worker thread selection
+  -N <num_napi_ids>  | --napi_ids=<num_napi_ids>
+
+By default memcached assigns connections to worker threads in a round-robin
+manner. NAPI ID based worker thread selection enables worker threads to be
+selected based on the NIC HW RX queue on which the incoming request is
+received.
+
+This is enabled using SO_INCOMING_NAPI_ID socket option that is supported
+in linux kernels 4.12 or higher. This socket option returns a system level
+unique ID called NAPI ID that is associated with a RX queue on which the
+last packet associated with that socket is received.
+
+This allows memcached to split the incoming flows among threads based on
+the RX queue on which they are received. Each worker thread is associated
+with a NIC HW receive queue and services all the connection requests
+received on a specific RX queue. This mapping between a memcached thread
+and a HW NIC queue streamlines the flow of data from the NIC to the
+application. In addition, an optimal path with reduced context switches is
+possible, if epoll based busy polling
+(sysctl -w net.core.busy_poll = <non-zero value>) is also enabled.
+
+This feature is enabled via a new command line parameter -N <num> or
+"--napi_ids=<num>", where <num> is the number of available/assigned NIC
+hardware RX queues through which requests associated with a connection are
+received. The number of napi_ids specified cannot be greater than the number
+of worker threads specified using -t/--threads option. If the option is
+not specified, or the conditions not met, the code defaults to round robin
+thread selection.
+
+During a normal run, each worker thread gets associated with a napi_id and
+this will establish a 1:1 mapping between the thread and queues. If a new
+napi_id is received after each thread is associated with its own napi_id
+(this can happen if num_napi_ids argument doesn't exactly match with the
+number of RX queues OR if the NIC driver goes through a reload), a stats
+error counter called 'unexpected_napi_ids' is incremented and all the
+napi_id's associated with the threads are reset.
+
+If -N option is used, but the connection requests are received from a
+virtual interface like loopback, napi_id returned can be 0. This condition
+is tracked via a stats counter called 'round_robin_fallback'.
