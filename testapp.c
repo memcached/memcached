@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "cache.h"
+#include "crc32c.h"
 #include "hash.h"
 #include "jenkins_hash.h"
 #include "stats_prefix.h"
@@ -895,6 +896,34 @@ static enum test_return test_issue_92(void) {
     close_conn();
     con = connect_server("127.0.0.1", port, false, enable_ssl);
     assert(con);
+    return TEST_PASS;
+}
+
+static enum test_return test_crc32c(void) {
+    uint32_t crc_hw, crc_sw;
+
+    char buffer[256];
+    for (int x = 0; x < 256; x++)
+        buffer[x] = x;
+
+    /* Compare harware to software implementaiton */
+    crc_hw = crc32c(0, buffer, 256);
+    crc_sw = crc32c_sw(0, buffer, 256);
+    assert(crc_hw == 0x9c44184b);
+    assert(crc_sw == 0x9c44184b);
+
+    /* Test that passing a CRC in also works */
+    crc_hw = crc32c(crc_hw, buffer, 256);
+    crc_sw = crc32c_sw(crc_sw, buffer, 256);
+    assert(crc_hw == 0xae10ee5a);
+    assert(crc_sw == 0xae10ee5a);
+
+    /* Test odd offsets/sizes */
+    crc_hw = crc32c(crc_hw, buffer + 1, 256 - 2);
+    crc_sw = crc32c_sw(crc_sw, buffer + 1, 256 - 2);
+    assert(crc_hw == 0xed37b906);
+    assert(crc_sw == 0xed37b906);
+
     return TEST_PASS;
 }
 
@@ -2297,6 +2326,7 @@ struct testcase testcases[] = {
     { "issue_44", test_issue_44 },
     { "vperror", test_vperror },
     { "issue_101", test_issue_101 },
+    { "crc32c", test_crc32c },
     /* The following tests all run towards the same server */
     { "start_server", start_memcached_server },
     { "issue_92", test_issue_92 },
@@ -2362,6 +2392,8 @@ int main(int argc, char **argv)
        the definition of settings struct from memcached.h */
     hash = jenkins_hash;
     stats_prefix_init(':');
+
+    crc32c_init();
 
     for (num_cases = 0; testcases[num_cases].description; num_cases++) {
         /* Just counting */
