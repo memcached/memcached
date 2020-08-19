@@ -48,7 +48,6 @@ crc_func crc32c;
 /* CRC-32C (iSCSI) polynomial in reversed bit order. */
 #define POLY 0x82f63b78
 
-uint32_t crc32c_sw(uint32_t crc, void const *buf, size_t len);
 uint32_t crc32c_sw_little(uint32_t crc, void const *buf, size_t len);
 uint32_t crc32c_sw_big(uint32_t crc, void const *buf, size_t len);
 #ifdef __x86_64__
@@ -274,8 +273,70 @@ void crc32c_init(void) {
     }
 }
 
-#else /* !__x86_64__ */
+#elif defined(__aarch64__) && defined(__linux__)
+#include <sys/auxv.h>
 
+static inline uint32_t crc32cx(uint32_t crc, const uint64_t data)
+{
+        asm(".arch_extension crc\n"
+        "crc32cx %w0, %w0, %x1" : "+r" (crc) : "r" (data));
+        return crc;
+}
+
+static inline uint32_t crc32cb(uint32_t crc, const uint8_t data)
+{
+        asm(".arch_extension crc\n"
+            "crc32cb %w0, %w0, %w1" : "+r" (crc) : "r" (data));
+        return crc;
+}
+
+static uint32_t crc32c_hw(uint32_t crc, void const *buf, size_t len) {
+    crc = ~crc;
+    unsigned char const *next = buf;
+
+    while (((uintptr_t)next & 7) && len > 0) {
+        crc = crc32cb(crc, *(uint8_t *)next);
+        next++;
+        len--;
+    }
+
+    while (len >= 64) {
+        uint64_t *next8 = (uint64_t *)next;
+        crc = crc32cx(crc, next8[0]);
+        crc = crc32cx(crc, next8[1]);
+        crc = crc32cx(crc, next8[2]);
+        crc = crc32cx(crc, next8[3]);
+        crc = crc32cx(crc, next8[4]);
+        crc = crc32cx(crc, next8[5]);
+        crc = crc32cx(crc, next8[6]);
+        crc = crc32cx(crc, next8[7]);
+        next += 64;
+        len -= 64;
+    }
+
+    while (len >= 8) {
+        crc = crc32cx(crc, *(uint64_t *)next);
+        next += 8;
+        len -= 8;
+    }
+
+    while (len > 0) {
+        crc = crc32cb(crc, *(uint8_t *)next);
+        next++;
+        len--;
+    }
+
+    return ~crc;
+}
+
+void crc32c_init(void) {
+    uint64_t auxv = getauxval(AT_HWCAP);
+
+    crc32c = crc32c_sw;
+    if (auxv & HWCAP_CRC32)
+        crc32c = crc32c_hw;
+}
+#else /* !__x86_64__i && !__aarch64__ */
 void crc32c_init(void) {
     crc32c = crc32c_sw;
 }
