@@ -6,6 +6,7 @@
 
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 #include "memcached.h"
+#include "storage.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
@@ -186,9 +187,7 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
 #ifdef EXTSTORE
     bool is_valid = true;
     if (search->it_flags & ITEM_HDR) {
-        item_hdr *hdr = (item_hdr *)ITEM_data(search);
-        if (extstore_check(storage, hdr->page_id, hdr->page_version) != 0)
-            is_valid = false;
+        is_valid = storage_validate_item(storage, search);
     }
 #endif
     if ((search->exptime != 0 && search->exptime < current_time)

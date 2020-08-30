@@ -6,6 +6,7 @@
 #include "memcached.h"
 #include "proto_text.h"
 #include "authfile.h"
+#include "storage.h"
 #ifdef TLS
 #include "tls.h"
 #endif
@@ -520,7 +521,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
 #ifdef EXTSTORE
                   if (it->it_flags & ITEM_HDR) {
-                      if (_get_extstore(c, it, resp) != 0) {
+                      if (storage_get_item(c, it, resp) != 0) {
                           pthread_mutex_lock(&c->thread->stats.mutex);
                           c->thread->stats.get_oom_extstore++;
                           pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -1165,7 +1166,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         if (of.value) {
 #ifdef EXTSTORE
             if (it->it_flags & ITEM_HDR) {
-                if (_get_extstore(c, it, resp) != 0) {
+                if (storage_get_item(c, it, resp) != 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.get_oom_extstore++;
                     pthread_mutex_unlock(&c->thread->stats.mutex);

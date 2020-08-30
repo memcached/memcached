@@ -6,6 +6,7 @@
 
 #include "memcached.h"
 #include "proto_bin.h"
+#include "storage.h"
 #ifdef TLS
 #include "tls.h"
 #endif
@@ -523,7 +524,7 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
             /* Add the data minus the CRLF */
 #ifdef EXTSTORE
             if (it->it_flags & ITEM_HDR) {
-                if (_get_extstore(c, it, c->resp) != 0) {
+                if (storage_get_item(c, it, c->resp) != 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.get_oom_extstore++;
                     pthread_mutex_unlock(&c->thread->stats.mutex);

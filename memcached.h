@@ -43,7 +43,6 @@
 #include "logger.h"
 
 #ifdef EXTSTORE
-#include "extstore.h"
 #include "crc32c.h"
 #endif
 
@@ -925,11 +924,6 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 void stats_reset(void);
 void process_stat_settings(ADD_STAT add_stats, void *c);
 void process_stats_conns(ADD_STAT add_stats, void *c);
-
-#ifdef EXTSTORE
-void process_extstore_stats(ADD_STAT add_stats, conn *c);
-int _get_extstore(conn *c, item *it, mc_resp *resp);
-#endif
 
 #if HAVE_DROP_PRIVILEGES
 extern void setup_privilege_violations_handler(void);
