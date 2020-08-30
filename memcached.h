@@ -667,9 +667,11 @@ struct _mc_resp_bundle {
 
 typedef struct conn conn;
 #ifdef EXTSTORE
-typedef struct _io_wrap {
-    obj_io io;
-    struct _io_wrap *next;
+#define IO_QUEUE_NONE 0
+#define IO_QUEUE_EXTSTORE 1
+typedef struct _io_pending_t {
+    struct _io_pending_t *next;
+    void *io_ctx;
     conn *c;
     item *hdr_it;             /* original header item. */
     mc_resp *resp;            /* associated response object */
@@ -678,7 +680,17 @@ typedef struct _io_wrap {
     bool miss;                /* signal a miss to unlink hdr_it */
     bool badcrc;              /* signal a crc failure */
     bool active;              /* tells if IO was dispatched or not */
-} io_wrap;
+} io_pending_t;
+
+typedef void (*io_queue_add_cb)(void *ctx, io_pending_t *pending);
+typedef void (*io_queue_free_cb)(void *ctx, io_pending_t *pending);
+typedef struct {
+    io_pending_t *head_pending;
+    void *ctx;
+    io_queue_add_cb cb;
+    io_queue_free_cb free_cb;
+    int type;
+} io_queue_t;
 #endif
 /**
  * The structure representing a connection into memcached.
@@ -726,10 +738,12 @@ struct conn {
     int    sbytes;    /* how many bytes to swallow */
 
 #ifdef EXTSTORE
-    int io_wrapleft;
+    int io_pending;
+    io_queue_t io_queues[3]; /* set of deferred IO queues. */
+    bool io_queued; /* IO's were queued. */
+#endif
+#ifdef EXTSTORE
     unsigned int recache_counter;
-    io_wrap *io_wraplist; /* linked list of io_wraps */
-    bool io_queued; /* FIXME: debugging flag */
 #endif
     enum protocol protocol;   /* which protocol this connection speaks */
     enum network_transport transport; /* what transport is used by this connection */
@@ -802,6 +816,10 @@ enum delta_result_type do_add_delta(conn *c, const char *key,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
 enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
+#ifdef EXTSTORE
+void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_add_cb cb, io_queue_free_cb free_cb);
+io_queue_t *conn_io_queue_get(conn *c, int type);
+#endif
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size,
     enum network_transport transport, struct event_base *base, void *ssl);
 

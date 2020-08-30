@@ -540,14 +540,37 @@ void conn_worker_readd(conn *c) {
 
 #ifdef EXTSTORE
     // If we had IO objects, process
-    if (c->io_wraplist) {
-        //assert(c->io_wrapleft == 0); // assert no more to process
+    if (c->io_queued) {
+        c->io_queued = false;
         conn_set_state(c, conn_mwrite);
         drive_machine(c);
     }
 #endif
 }
+#ifdef EXTSTORE
+void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_add_cb cb, io_queue_free_cb free_cb) {
+    io_queue_t *q = c->io_queues;
+    while (q->type != IO_QUEUE_NONE) {
+        q++;
+    }
+    q->type = type;
+    q->ctx = ctx;
+    q->cb = cb;
+    q->free_cb = free_cb;
+    return;
+}
 
+io_queue_t *conn_io_queue_get(conn *c, int type) {
+    io_queue_t *q = c->io_queues;
+    while (q->type != IO_QUEUE_NONE) {
+        if (q->type == type) {
+            return q;
+        }
+        q++;
+    }
+    return NULL;
+}
+#endif
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
@@ -586,6 +609,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             fprintf(stderr, "Failed to allocate buffers for connection\n");
             return NULL;
         }
+
 
         STATS_LOCK();
         stats_state.conn_structs++;
@@ -653,8 +677,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->close_after_write = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
 #ifdef EXTSTORE
-    c->io_wraplist = NULL;
-    c->io_wrapleft = 0;
+    // wipe all queues.
+    memset(c->io_queues, 0, sizeof(c->io_queues));
+    c->io_pending = 0;
 #endif
 
     c->item = 0;
@@ -722,73 +747,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     return c;
 }
-#ifdef EXTSTORE
-static void recache_or_free(conn *c, io_wrap *wrap) {
-    item *it;
-    it = (item *)wrap->io.buf;
-    bool do_free = true;
-    if (wrap->active) {
-        // If request never dispatched, free the read buffer but leave the
-        // item header alone.
-        do_free = false;
-        size_t ntotal = ITEM_ntotal(wrap->hdr_it);
-        slabs_free(it, ntotal, slabs_clsid(ntotal));
-        c->io_wrapleft--;
-        assert(c->io_wrapleft >= 0);
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.get_aborted_extstore++;
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-    } else if (wrap->miss) {
-        // If request was ultimately a miss, unlink the header.
-        do_free = false;
-        size_t ntotal = ITEM_ntotal(wrap->hdr_it);
-        item_unlink(wrap->hdr_it);
-        slabs_free(it, ntotal, slabs_clsid(ntotal));
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        c->thread->stats.miss_from_extstore++;
-        if (wrap->badcrc)
-            c->thread->stats.badcrc_from_extstore++;
-        pthread_mutex_unlock(&c->thread->stats.mutex);
-    } else if (settings.ext_recache_rate) {
-        // hashvalue is cuddled during store
-        uint32_t hv = (uint32_t)it->time;
-        // opt to throw away rather than wait on a lock.
-        void *hold_lock = item_trylock(hv);
-        if (hold_lock != NULL) {
-            item *h_it = wrap->hdr_it;
-            uint8_t flags = ITEM_LINKED|ITEM_FETCHED|ITEM_ACTIVE;
-            // Item must be recently hit at least twice to recache.
-            if (((h_it->it_flags & flags) == flags) &&
-                    h_it->time > current_time - ITEM_UPDATE_INTERVAL &&
-                    c->recache_counter++ % settings.ext_recache_rate == 0) {
-                do_free = false;
-                // In case it's been updated.
-                it->exptime = h_it->exptime;
-                it->it_flags &= ~ITEM_LINKED;
-                it->refcount = 0;
-                it->h_next = NULL; // might not be necessary.
-                STORAGE_delete(c->thread->storage, h_it);
-                item_replace(h_it, it, hv);
-                pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.recache_from_extstore++;
-                pthread_mutex_unlock(&c->thread->stats.mutex);
-            }
-        }
-        if (hold_lock)
-            item_trylock_unlock(hold_lock);
-    }
-    if (do_free)
-        slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
 
-    wrap->io.buf = NULL; // sanity.
-    wrap->io.next = NULL;
-    wrap->next = NULL;
-    wrap->active = false;
-
-    // TODO: reuse lock and/or hv.
-    item_remove(wrap->hdr_it);
-}
-#endif
 void conn_release_items(conn *c) {
     assert(c != NULL);
 
@@ -798,20 +757,19 @@ void conn_release_items(conn *c) {
     }
 
 #ifdef EXTSTORE
-    if (c->io_wraplist) {
-        io_wrap *tmp = c->io_wraplist;
-        while (tmp) {
-            io_wrap *next = tmp->next;
-            recache_or_free(c, tmp);
-            // malloc'ed iovec list used for chunked extstore fetches.
-            if (tmp->io.iov) {
-                free(tmp->io.iov);
-                tmp->io.iov = NULL;
+    io_queue_t *q = c->io_queues;
+    while (q->type != IO_QUEUE_NONE) {
+        if (q->head_pending) {
+            io_pending_t *tmp = q->head_pending;
+            while (tmp) {
+                io_pending_t *next = tmp->next;
+                q->free_cb(q->ctx, tmp);
+                do_cache_free(c->thread->io_cache, tmp); // lockless
+                tmp = next;
             }
-            do_cache_free(c->thread->io_cache, tmp); // lockless
-            tmp = next;
+            q->head_pending = NULL;
         }
-        c->io_wraplist = NULL;
+        q++;
     }
 #endif
 
@@ -2176,9 +2134,10 @@ item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32
 // simply mark the io wrapper with the return value and decrement wrapleft, if
 // zero redispatching. Still a bit of work being done in the side thread but
 // minimized at least.
+// TODO: wrap -> p?
 static void _get_extstore_cb(void *e, obj_io *io, int ret) {
     // FIXME: assumes success
-    io_wrap *wrap = (io_wrap *)io->data;
+    io_pending_t *wrap = (io_pending_t *)io->data;
     mc_resp *resp = wrap->resp;
     conn *c = wrap->c;
     assert(wrap->active == true);
@@ -2275,15 +2234,14 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret) {
         wrap->miss = false;
     }
 
-    c->io_wrapleft--;
+    c->io_pending--;
     wrap->active = false;
     //assert(c->io_wrapleft >= 0);
 
     // All IO's have returned, lets re-attach this connection to our original
     // thread.
-    if (c->io_wrapleft == 0) {
+    if (c->io_pending == 0) {
         assert(c->io_queued == true);
-        c->io_queued = false;
         redispatch_conn(c);
     }
 }
@@ -2295,6 +2253,7 @@ int _get_extstore(conn *c, item *it, mc_resp *resp) {
 #else
     item_hdr *hdr = (item_hdr *)ITEM_data(it);
 #endif
+    io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_EXTSTORE);
     size_t ntotal = ITEM_ntotal(it);
     unsigned int clsid = slabs_clsid(ntotal);
     item *new_it;
@@ -2315,15 +2274,16 @@ int _get_extstore(conn *c, item *it, mc_resp *resp) {
     // so we can free the chunk on a miss
     new_it->slabs_clsid = clsid;
 
-    io_wrap *io = do_cache_alloc(c->thread->io_cache);
-    io->active = true;
-    io->miss = false;
-    io->badcrc = false;
-    io->noreply = c->noreply;
-    // io_wrap owns the reference for this object now.
-    io->hdr_it = it;
-    io->resp = resp;
-    io->io.iov = NULL;
+    io_pending_t *p = do_cache_alloc(c->thread->io_cache);
+    p->active = true;
+    p->miss = false;
+    p->badcrc = false;
+    p->noreply = c->noreply;
+    // io_pending owns the reference for this object now.
+    p->hdr_it = it;
+    p->resp = resp;
+    obj_io *eio = calloc(1, sizeof(obj_io));
+    p->io_ctx = eio;
 
     // FIXME: error handling.
     if (chunked) {
@@ -2334,16 +2294,17 @@ int _get_extstore(conn *c, item *it, mc_resp *resp) {
         // but we still can't load objects requiring > IOV_MAX iovs.
         // In the meantime, these objects are rare/slow enough that
         // malloc/freeing a statically sized object won't cause us much pain.
-        io->io.iov = malloc(sizeof(struct iovec) * IOV_MAX);
-        if (io->io.iov == NULL) {
+        eio->iov = malloc(sizeof(struct iovec) * IOV_MAX);
+        if (eio->iov == NULL) {
             item_remove(new_it);
-            do_cache_free(c->thread->io_cache, io);
+            free(eio);
+            do_cache_free(c->thread->io_cache, p);
             return -1;
         }
 
         // fill the header so we can get the full data + crc back.
-        io->io.iov[0].iov_base = new_it;
-        io->io.iov[0].iov_len = ITEM_ntotal(new_it) - new_it->nbytes;
+        eio->iov[0].iov_base = new_it;
+        eio->iov[0].iov_len = ITEM_ntotal(new_it) - new_it->nbytes;
         ciovcnt++;
 
         while (remain > 0) {
@@ -2351,24 +2312,25 @@ int _get_extstore(conn *c, item *it, mc_resp *resp) {
             // FIXME: _pure evil_, silently erroring if item is too large.
             if (chunk == NULL || ciovcnt > IOV_MAX-1) {
                 item_remove(new_it);
-                free(io->io.iov);
+                free(eio->iov);
                 // TODO: wrapper function for freeing up an io wrap?
-                io->io.iov = NULL;
-                do_cache_free(c->thread->io_cache, io);
+                eio->iov = NULL;
+                free(eio);
+                do_cache_free(c->thread->io_cache, p);
                 return -1;
             }
-            io->io.iov[ciovcnt].iov_base = chunk->data;
-            io->io.iov[ciovcnt].iov_len = (remain < chunk->size) ? remain : chunk->size;
+            eio->iov[ciovcnt].iov_base = chunk->data;
+            eio->iov[ciovcnt].iov_len = (remain < chunk->size) ? remain : chunk->size;
             chunk->used = (remain < chunk->size) ? remain : chunk->size;
             remain -= chunk->size;
             ciovcnt++;
         }
 
-        io->io.iovcnt = ciovcnt;
+        eio->iovcnt = ciovcnt;
     }
 
     // Chunked or non chunked we reserve a response iov here.
-    io->iovec_data = resp->iovcnt;
+    p->iovec_data = resp->iovcnt;
     int iovtotal = (c->protocol == binary_prot) ? it->nbytes - 2 : it->nbytes;
     if (chunked) {
         resp_add_chunked_iov(resp, new_it, iovtotal);
@@ -2376,39 +2338,38 @@ int _get_extstore(conn *c, item *it, mc_resp *resp) {
         resp_add_iov(resp, "", iovtotal);
     }
 
-    io->io.buf = (void *)new_it;
-    io->c = c;
+    eio->buf = (void *)new_it;
+    p->c = c;
 
     // We need to stack the sub-struct IO's together as well.
-    if (c->io_wraplist) {
-        io->io.next = &c->io_wraplist->io;
+    if (q->head_pending) {
+        eio->next = q->head_pending->io_ctx;
     } else {
-        io->io.next = NULL;
+        eio->next = NULL;
     }
 
     // IO queue for this connection.
-    io->next = c->io_wraplist;
-    c->io_wraplist = io;
-    assert(c->io_wrapleft >= 0);
-    c->io_wrapleft++;
+    p->next = q->head_pending;
+    q->head_pending = p;
+    assert(c->io_pending >= 0);
+    c->io_pending++;
     // reference ourselves for the callback.
-    io->io.data = (void *)io;
+    eio->data = (void *)p;
 
     // Now, fill in io->io based on what was in our header.
 #ifdef NEED_ALIGN
-    io->io.page_version = hdr.page_version;
-    io->io.page_id = hdr.page_id;
-    io->io.offset = hdr.offset;
+    eio->page_version = hdr.page_version;
+    eio->page_id = hdr.page_id;
+    eio->offset = hdr.offset;
 #else
-    io->io.page_version = hdr->page_version;
-    io->io.page_id = hdr->page_id;
-    io->io.offset = hdr->offset;
+    eio->page_version = hdr->page_version;
+    eio->page_id = hdr->page_id;
+    eio->offset = hdr->offset;
 #endif
-    io->io.len = ntotal;
-    io->io.mode = OBJ_IO_READ;
-    io->io.cb = _get_extstore_cb;
+    eio->len = ntotal;
+    eio->mode = OBJ_IO_READ;
+    eio->cb = _get_extstore_cb;
 
-    //fprintf(stderr, "EXTSTORE: IO stacked %u\n", io->iovec_data);
     // FIXME: This stat needs to move to reflect # of flash hits vs misses
     // for now it's a good gauge on how often we request out to flash at
     // least.
@@ -3513,14 +3474,19 @@ static void drive_machine(conn *c) {
              * remove the connection from the worker thread and dispatch the
              * IO queue
              */
-            if (c->io_wrapleft) {
+            if (c->io_pending) {
                 assert(c->io_queued == false);
-                assert(c->io_wraplist != NULL);
                 // TODO: create proper state for this condition
                 conn_set_state(c, conn_watch);
                 event_del(&c->event);
                 c->io_queued = true;
-                extstore_submit(c->thread->storage, &c->io_wraplist->io);
+                io_queue_t *q = c->io_queues;
+                while (q->type != IO_QUEUE_NONE) {
+                    if (q->head_pending != NULL) {
+                        q->cb(q->ctx, q->head_pending);
+                    }
+                    q++;
+                }
                 stop = true;
                 break;
             }

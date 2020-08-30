@@ -1,6 +1,8 @@
 #ifndef STORAGE_H
 #define STORAGE_H
 
+void storage_submit_cb(void *ctx, io_pending_t *pending);
+void storage_free_cb(void *ctx, io_pending_t *pending);
 int start_storage_write_thread(void *arg);
 void storage_write_pause(void);
 void storage_write_resume(void);
