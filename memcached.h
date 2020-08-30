@@ -611,8 +611,8 @@ typedef struct {
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *rbuf_cache;        /* static-sized read buffers */
     mc_resp_bundle *open_bundle;
-#ifdef EXTSTORE
     cache_t *io_cache;          /* IO objects */
+#ifdef EXTSTORE
     void *storage;              /* data object for storage system */
 #endif
     logger *l;                  /* logger buffer */
@@ -665,7 +665,7 @@ struct _mc_resp_bundle {
 };
 
 typedef struct conn conn;
-#ifdef EXTSTORE
+
 #define IO_QUEUE_NONE 0
 #define IO_QUEUE_EXTSTORE 1
 typedef struct _io_pending_t {
@@ -690,7 +690,7 @@ typedef struct {
     io_queue_free_cb free_cb;
     int type;
 } io_queue_t;
-#endif
+
 /**
  * The structure representing a connection into memcached.
  */
@@ -736,11 +736,9 @@ struct conn {
     /* data for the swallow state */
     int    sbytes;    /* how many bytes to swallow */
 
-#ifdef EXTSTORE
-    int io_pending;
+    int io_pending; /* number of deferred IO requests */
     io_queue_t io_queues[3]; /* set of deferred IO queues. */
     bool io_queued; /* IO's were queued. */
-#endif
 #ifdef EXTSTORE
     unsigned int recache_counter;
 #endif
@@ -815,10 +813,8 @@ enum delta_result_type do_add_delta(conn *c, const char *key,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
 enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
-#ifdef EXTSTORE
 void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_add_cb cb, io_queue_free_cb free_cb);
 io_queue_t *conn_io_queue_get(conn *c, int type);
-#endif
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size,
     enum network_transport transport, struct event_base *base, void *ssl);
 

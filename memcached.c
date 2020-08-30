@@ -533,16 +533,14 @@ void conn_worker_readd(conn *c) {
     }
     c->state = conn_new_cmd;
 
-#ifdef EXTSTORE
     // If we had IO objects, process
     if (c->io_queued) {
         c->io_queued = false;
         conn_set_state(c, conn_mwrite);
         drive_machine(c);
     }
-#endif
 }
-#ifdef EXTSTORE
+
 void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_add_cb cb, io_queue_free_cb free_cb) {
     io_queue_t *q = c->io_queues;
     while (q->type != IO_QUEUE_NONE) {
@@ -565,7 +563,7 @@ io_queue_t *conn_io_queue_get(conn *c, int type) {
     }
     return NULL;
 }
-#endif
+
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
@@ -671,11 +669,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->mset_res = false;
     c->close_after_write = false;
     c->last_cmd_time = current_time; /* initialize for idle kicker */
-#ifdef EXTSTORE
     // wipe all queues.
     memset(c->io_queues, 0, sizeof(c->io_queues));
     c->io_pending = 0;
-#endif
 
     c->item = 0;
 
@@ -751,7 +747,6 @@ void conn_release_items(conn *c) {
         c->item = 0;
     }
 
-#ifdef EXTSTORE
     io_queue_t *q = c->io_queues;
     while (q->type != IO_QUEUE_NONE) {
         if (q->head_pending) {
@@ -766,7 +761,6 @@ void conn_release_items(conn *c) {
         }
         q++;
     }
-#endif
 
     // Cull any unsent responses.
     if (c->resp_head) {
@@ -3159,7 +3153,6 @@ static void drive_machine(conn *c) {
 
         case conn_write:
         case conn_mwrite:
-#ifdef EXTSTORE
             /* have side IO's that must process before transmit() can run.
              * remove the connection from the worker thread and dispatch the
              * IO queue
@@ -3180,7 +3173,7 @@ static void drive_machine(conn *c) {
                 stop = true;
                 break;
             }
-#endif
+
             switch (!IS_UDP(c->transport) ? transmit(c) : transmit_udp(c)) {
             case TRANSMIT_COMPLETE:
                 if (c->state == conn_mwrite) {

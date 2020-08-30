@@ -441,13 +441,11 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         cache_set_limit(me->rbuf_cache, limit);
     }
 
-#ifdef EXTSTORE
     me->io_cache = cache_create("io", sizeof(io_pending_t), sizeof(char*), NULL, NULL);
     if (me->io_cache == NULL) {
         fprintf(stderr, "Failed to create IO object cache\n");
         exit(EXIT_FAILURE);
     }
-#endif
 #ifdef TLS
     if (settings.ssl_enabled) {
         me->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
@@ -543,9 +541,7 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                         conn_io_queue_add(c, IO_QUEUE_EXTSTORE, c->thread->storage, storage_submit_cb, storage_free_cb);
                     }
 #endif
-#ifdef EXTSTORE
                     conn_io_queue_add(c, IO_QUEUE_NONE, NULL, NULL, NULL);
-#endif
 
 #ifdef TLS
                     if (settings.ssl_enabled && c->ssl != NULL) {

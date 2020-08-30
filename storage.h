@@ -15,10 +15,8 @@ void storage_stats(ADD_STAT add_stats, conn *c);
 void process_extstore_stats(ADD_STAT add_stats, conn *c);
 bool storage_validate_item(void *e, item *it);
 int storage_get_item(conn *c, item *it, mc_resp *resp);
-#ifdef EXTSTORE
 void storage_submit_cb(void *ctx, io_pending_t *pending);
 void storage_free_cb(void *ctx, io_pending_t *pending);
-#endif
 int start_storage_write_thread(void *arg);
 void storage_write_pause(void);
 void storage_write_resume(void);
