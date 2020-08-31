@@ -670,15 +670,9 @@ typedef struct conn conn;
 #define IO_QUEUE_EXTSTORE 1
 typedef struct _io_pending_t {
     struct _io_pending_t *next;
-    void *io_ctx;
     conn *c;
-    item *hdr_it;             /* original header item. */
     mc_resp *resp;            /* associated response object */
-    unsigned int iovec_data;  /* specific index of data iovec */
-    bool noreply;             /* whether the response had noreply set */
-    bool miss;                /* signal a miss to unlink hdr_it */
-    bool badcrc;              /* signal a crc failure */
-    bool active;              /* tells if IO was dispatched or not */
+    char data[120];
 } io_pending_t;
 
 typedef void (*io_queue_add_cb)(void *ctx, io_pending_t *pending);

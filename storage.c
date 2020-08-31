@@ -20,6 +20,21 @@
  * API functions
  */
 
+// re-cast an io_pending_t into this more descriptive structure.
+// the first few items _must_ match the original struct.
+typedef struct _io_pending_storage_t {
+    struct _io_pending_t *next;
+    conn *c;
+    mc_resp *resp;            /* original struct ends here */
+    item *hdr_it;             /* original header item. */
+    obj_io io_ctx;            /* embedded extstore IO header */
+    unsigned int iovec_data;  /* specific index of data iovec */
+    bool noreply;             /* whether the response had noreply set */
+    bool miss;                /* signal a miss to unlink hdr_it */
+    bool badcrc;              /* signal a crc failure */
+    bool active;              /* tells if IO was dispatched or not */
+} io_pending_storage_t;
+
 // Only call this if item has ITEM_HDR
 bool storage_validate_item(void *e, item *it) {
     item_hdr *hdr = (item_hdr *)ITEM_data(it);
@@ -28,7 +43,6 @@ bool storage_validate_item(void *e, item *it) {
     } else {
         return true;
     }
-
 }
 
 void storage_delete(void *e, item *it) {
@@ -109,10 +123,10 @@ void storage_stats(ADD_STAT add_stats, conn *c) {
 // TODO: wrap -> p?
 static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
     // FIXME: assumes success
-    io_pending_t *wrap = (io_pending_t *)io->data;
-    mc_resp *resp = wrap->resp;
-    conn *c = wrap->c;
-    assert(wrap->active == true);
+    io_pending_storage_t *p = (io_pending_storage_t *)io->data;
+    mc_resp *resp = p->resp;
+    conn *c = p->c;
+    assert(p->active == true);
     item *read_it = (item *)io->buf;
     bool miss = false;
 
@@ -138,12 +152,12 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
 
         if (crc != crc2) {
             miss = true;
-            wrap->badcrc = true;
+            p->badcrc = true;
         }
     }
 
     if (miss) {
-        if (wrap->noreply) {
+        if (p->noreply) {
             // In all GET cases, noreply means we send nothing back.
             resp->skip = true;
         } else {
@@ -159,16 +173,16 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
                 // cut the extra nbytes off of the body_len
                 uint32_t body_len = ntohl(header->response.bodylen);
                 uint8_t hdr_len = header->response.extlen;
-                body_len -= resp->iov[wrap->iovec_data].iov_len + hdr_len;
-                resp->tosend -= resp->iov[wrap->iovec_data].iov_len + hdr_len;
+                body_len -= resp->iov[p->iovec_data].iov_len + hdr_len;
+                resp->tosend -= resp->iov[p->iovec_data].iov_len + hdr_len;
                 header->response.extlen = 0;
                 header->response.status = (uint16_t)htons(PROTOCOL_BINARY_RESPONSE_KEY_ENOENT);
                 header->response.bodylen = htonl(body_len);
 
                 // truncate the data response.
-                resp->iov[wrap->iovec_data].iov_len = 0;
+                resp->iov[p->iovec_data].iov_len = 0;
                 // wipe the extlen iov... wish it was just a flat buffer.
-                resp->iov[wrap->iovec_data-1].iov_len = 0;
+                resp->iov[p->iovec_data-1].iov_len = 0;
                 resp->chunked_data_iov = 0;
             } else {
                 int i;
@@ -185,7 +199,7 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
                 } else {
                     // Wipe the iovecs up through our data injection.
                     // Allows trailers to be returned (END)
-                    for (i = 0; i <= wrap->iovec_data; i++) {
+                    for (i = 0; i <= p->iovec_data; i++) {
                         resp->tosend -= resp->iov[i].iov_len;
                         resp->iov[i].iov_len = 0;
                         resp->iov[i].iov_base = NULL;
@@ -195,19 +209,19 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
                 resp->chunked_data_iov = 0;
             }
         }
-        wrap->miss = true;
+        p->miss = true;
     } else {
         assert(read_it->slabs_clsid != 0);
         // TODO: should always use it instead of ITEM_data to kill more
         // chunked special casing.
         if ((read_it->it_flags & ITEM_CHUNKED) == 0) {
-            resp->iov[wrap->iovec_data].iov_base = ITEM_data(read_it);
+            resp->iov[p->iovec_data].iov_base = ITEM_data(read_it);
         }
-        wrap->miss = false;
+        p->miss = false;
     }
 
     c->io_pending--;
-    wrap->active = false;
+    p->active = false;
     //assert(c->io_wrapleft >= 0);
 
     // All IO's have returned, lets re-attach this connection to our original
@@ -246,7 +260,10 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     // so we can free the chunk on a miss
     new_it->slabs_clsid = clsid;
 
-    io_pending_t *p = do_cache_alloc(c->thread->io_cache);
+    io_pending_storage_t *p = do_cache_alloc(c->thread->io_cache);
+    // this is a re-cast structure, so assert that we never outsize it.
+    assert(sizeof(io_pending_t) >= sizeof(io_pending_storage_t));
+    memset(p, 0, sizeof(io_pending_storage_t));
     p->active = true;
     p->miss = false;
     p->badcrc = false;
@@ -254,8 +271,7 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     // io_pending owns the reference for this object now.
     p->hdr_it = it;
     p->resp = resp;
-    obj_io *eio = calloc(1, sizeof(obj_io));
-    p->io_ctx = eio;
+    obj_io *eio = &p->io_ctx;
 
     // FIXME: error handling.
     if (chunked) {
@@ -269,7 +285,6 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
         eio->iov = malloc(sizeof(struct iovec) * IOV_MAX);
         if (eio->iov == NULL) {
             item_remove(new_it);
-            free(eio);
             do_cache_free(c->thread->io_cache, p);
             return -1;
         }
@@ -287,7 +302,6 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
                 free(eio->iov);
                 // TODO: wrapper function for freeing up an io wrap?
                 eio->iov = NULL;
-                free(eio);
                 do_cache_free(c->thread->io_cache, p);
                 return -1;
             }
@@ -315,14 +329,15 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 
     // We need to stack the sub-struct IO's together as well.
     if (q->head_pending) {
-        eio->next = q->head_pending->io_ctx;
+        io_pending_storage_t *qh = (io_pending_storage_t *)q->head_pending;
+        eio->next = &qh->io_ctx;
     } else {
         eio->next = NULL;
     }
 
     // IO queue for this connection.
     p->next = q->head_pending;
-    q->head_pending = p;
+    q->head_pending = (io_pending_t *)p;
     assert(c->io_pending >= 0);
     c->io_pending++;
     // reference ourselves for the callback.
@@ -353,12 +368,17 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 }
 
 void storage_submit_cb(void *ctx, io_pending_t *pending) {
-    extstore_submit(ctx, pending->io_ctx);
+    // re-cast to our specific struct.
+    io_pending_storage_t *p = (io_pending_storage_t *)pending;
+    extstore_submit(ctx, &p->io_ctx);
 }
 
-static void recache_or_free(io_pending_t *p) {
+static void recache_or_free(io_pending_t *pending) {
+    // re-cast to our specific struct.
+    io_pending_storage_t *p = (io_pending_storage_t *)pending;
+
     conn *c = p->c;
-    obj_io *io = p->io_ctx;
+    obj_io *io = &p->io_ctx;
     item *it = (item *)io->buf;
     assert(c != NULL);
     assert(io != NULL);
@@ -416,8 +436,8 @@ static void recache_or_free(io_pending_t *p) {
     if (do_free)
         slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
 
-    //wrap->io.buf = NULL;
-    //wrap->io.next = NULL;
+    p->io_ctx.buf = NULL;
+    p->io_ctx.next = NULL;
     p->next = NULL;
     p->active = false;
 
@@ -428,12 +448,14 @@ static void recache_or_free(io_pending_t *p) {
 // TODO: io cache or embed obj_io in space within io_pending_t
 void storage_free_cb(void *ctx, io_pending_t *pending) {
     recache_or_free(pending);
-    obj_io *io = pending->io_ctx;
+    io_pending_storage_t *p = (io_pending_storage_t *)pending;
+    obj_io *io = &p->io_ctx;
     // malloc'ed iovec list used for chunked extstore fetches.
     if (io->iov) {
         free(io->iov);
+        io->iov = NULL;
     }
-    free(io);
+    // don't need to free the main context, since it's embedded.
 }
 
 /*
