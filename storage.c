@@ -23,7 +23,7 @@
 // re-cast an io_pending_t into this more descriptive structure.
 // the first few items _must_ match the original struct.
 typedef struct _io_pending_storage_t {
-    struct _io_pending_t *next;
+    io_queue_t *q;
     conn *c;
     mc_resp *resp;            /* original struct ends here */
     item *hdr_it;             /* original header item. */
@@ -271,6 +271,7 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     // io_pending owns the reference for this object now.
     p->hdr_it = it;
     p->resp = resp;
+    p->q = q; // quicker access to the queue structure.
     obj_io *eio = &p->io_ctx;
 
     // FIXME: error handling.
@@ -324,20 +325,17 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
         resp_add_iov(resp, "", iovtotal);
     }
 
+    // We can't bail out anymore, so mc_resp owns the IO from here.
+    resp->io_pending = (io_pending_t *)p;
+
     eio->buf = (void *)new_it;
     p->c = c;
 
-    // We need to stack the sub-struct IO's together as well.
-    if (q->head_pending) {
-        io_pending_storage_t *qh = (io_pending_storage_t *)q->head_pending;
-        eio->next = &qh->io_ctx;
-    } else {
-        eio->next = NULL;
-    }
+    // We need to stack the sub-struct IO's together for submission.
+    eio->next = q->stack_ctx;
+    q->stack_ctx = eio;
 
-    // IO queue for this connection.
-    p->next = q->head_pending;
-    q->head_pending = (io_pending_t *)p;
+    // No need to stack the io_pending's together as they live on mc_resp's.
     assert(c->io_pending >= 0);
     c->io_pending++;
     // reference ourselves for the callback.
@@ -367,10 +365,9 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     return 0;
 }
 
-void storage_submit_cb(void *ctx, io_pending_t *pending) {
-    // re-cast to our specific struct.
-    io_pending_storage_t *p = (io_pending_storage_t *)pending;
-    extstore_submit(ctx, &p->io_ctx);
+void storage_submit_cb(void *ctx, void *stack) {
+    // Don't need to do anything special for extstore.
+    extstore_submit(ctx, stack);
 }
 
 static void recache_or_free(io_pending_t *pending) {
@@ -438,15 +435,22 @@ static void recache_or_free(io_pending_t *pending) {
 
     p->io_ctx.buf = NULL;
     p->io_ctx.next = NULL;
-    p->next = NULL;
     p->active = false;
 
     // TODO: reuse lock and/or hv.
     item_remove(p->hdr_it);
 }
 
-// TODO: io cache or embed obj_io in space within io_pending_t
-void storage_free_cb(void *ctx, io_pending_t *pending) {
+// Called after the IO is processed but before the response is transmitted.
+// TODO: stubbed with a reminder: should be able to move most of the extstore
+// callback code into this code instead, executing on worker thread instead of
+// IO thread.
+void storage_complete_cb(void *ctx, void *stack_ctx) {
+    return;
+}
+
+// Called after responses have been transmitted. Need to free up related data.
+void storage_finalize_cb(io_pending_t *pending) {
     recache_or_free(pending);
     io_pending_storage_t *p = (io_pending_storage_t *)pending;
     obj_io *io = &p->io_ctx;

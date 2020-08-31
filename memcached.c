@@ -531,25 +531,29 @@ void conn_worker_readd(conn *c) {
         drive_machine(c);
         return;
     }
-    c->state = conn_new_cmd;
 
     // If we had IO objects, process
     if (c->io_queued) {
         c->io_queued = false;
-        conn_set_state(c, conn_mwrite);
+        // state should be conn_io_queue already, so it will know how to
+        // dequeue and finalize the async work.
         drive_machine(c);
+    } else {
+        conn_set_state(c, conn_new_cmd);
     }
 }
 
-void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_add_cb cb, io_queue_free_cb free_cb) {
+void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb fin_cb) {
     io_queue_t *q = c->io_queues;
     while (q->type != IO_QUEUE_NONE) {
         q++;
     }
     q->type = type;
     q->ctx = ctx;
-    q->cb = cb;
-    q->free_cb = free_cb;
+    q->stack_ctx = NULL;
+    q->submit_cb = cb;
+    q->complete_cb = com_cb;
+    q->finalize_cb = fin_cb;
     return;
 }
 
@@ -562,6 +566,23 @@ io_queue_t *conn_io_queue_get(conn *c, int type) {
         q++;
     }
     return NULL;
+}
+
+// called after returning to the main worker thread.
+// users of the queue need to distinguish if the IO was actually consumed or
+// not and handle appropriately.
+static void conn_io_queue_complete(conn *c) {
+    io_queue_t *q = c->io_queues;
+    while (q->type != IO_QUEUE_NONE) {
+        // Reuse the same submit stack. We zero it out first so callbacks can
+        // queue new IO's if necessary.
+        if (q->stack_ctx) {
+            void *tmp = q->stack_ctx;
+            q->stack_ctx = NULL;
+            q->complete_cb(q->ctx, tmp);
+        }
+        q++;
+    }
 }
 
 conn *conn_new(const int sfd, enum conn_states init_state,
@@ -747,21 +768,6 @@ void conn_release_items(conn *c) {
         c->item = 0;
     }
 
-    io_queue_t *q = c->io_queues;
-    while (q->type != IO_QUEUE_NONE) {
-        if (q->head_pending) {
-            io_pending_t *tmp = q->head_pending;
-            while (tmp) {
-                io_pending_t *next = tmp->next;
-                q->free_cb(q->ctx, tmp);
-                do_cache_free(c->thread->io_cache, tmp); // lockless
-                tmp = next;
-            }
-            q->head_pending = NULL;
-        }
-        q++;
-    }
-
     // Cull any unsent responses.
     if (c->resp_head) {
         mc_resp *resp = c->resp_head;
@@ -885,7 +891,8 @@ static const char *state_text(enum conn_states state) {
                                        "conn_closing",
                                        "conn_mwrite",
                                        "conn_closed",
-                                       "conn_watch" };
+                                       "conn_watch",
+                                       "conn_io_queue" };
     return statenames[state];
 }
 
@@ -1109,6 +1116,13 @@ mc_resp* resp_finish(conn *c, mc_resp *resp) {
     }
     if (resp->write_and_free) {
         free(resp->write_and_free);
+    }
+    if (resp->io_pending) {
+        // If we had a pending IO, tell it to internally clean up then return
+        // the main object back to our thread cache.
+        resp->io_pending->q->finalize_cb(resp->io_pending);
+        do_cache_free(c->thread->io_cache, resp->io_pending);
+        resp->io_pending = NULL;
     }
     if (c->resp_head == resp) {
         c->resp_head = next;
@@ -3159,16 +3173,21 @@ static void drive_machine(conn *c) {
              */
             if (c->io_pending) {
                 assert(c->io_queued == false);
-                // TODO: create proper state for this condition
-                conn_set_state(c, conn_watch);
+                conn_set_state(c, conn_io_queue);
                 event_del(&c->event);
                 c->io_queued = true;
-                io_queue_t *q = c->io_queues;
+                // TODO: write as for loop?
+                /*io_queue_t *q = c->io_queues;
                 while (q->type != IO_QUEUE_NONE) {
-                    if (q->head_pending != NULL) {
-                        q->cb(q->ctx, q->head_pending);
+                    if (q->stack_ctx != NULL) {
+                        q->submit_cb(q->ctx, q->stack_ctx);
                     }
                     q++;
+                }*/
+                for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
+                    if (q->stack_ctx != NULL) {
+                        q->submit_cb(q->ctx, q->stack_ctx);
+                    }
                 }
                 stop = true;
                 break;
@@ -3216,6 +3235,11 @@ static void drive_machine(conn *c) {
         case conn_watch:
             /* We handed off our connection to the logger thread. */
             stop = true;
+            break;
+        case conn_io_queue:
+            /* Complete our queued IO's from within the worker thread. */
+            conn_io_queue_complete(c);
+            conn_set_state(c, conn_mwrite);
             break;
         case conn_max_state:
             assert(false);

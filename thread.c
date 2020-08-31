@@ -538,10 +538,11 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                     c->thread = me;
 #ifdef EXTSTORE
                     if (c->thread->storage) {
-                        conn_io_queue_add(c, IO_QUEUE_EXTSTORE, c->thread->storage, storage_submit_cb, storage_free_cb);
+                        conn_io_queue_add(c, IO_QUEUE_EXTSTORE, c->thread->storage,
+                            storage_submit_cb, storage_complete_cb, storage_finalize_cb);
                     }
 #endif
-                    conn_io_queue_add(c, IO_QUEUE_NONE, NULL, NULL, NULL);
+                    conn_io_queue_add(c, IO_QUEUE_NONE, NULL, NULL, NULL, NULL);
 
 #ifdef TLS
                     if (settings.ssl_enabled && c->ssl != NULL) {
