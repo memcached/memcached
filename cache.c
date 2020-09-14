@@ -142,7 +142,7 @@ void do_cache_free(cache_t *cache, void *ptr) {
     }
     ptr = pre;
 #endif
-    if (cache->limit > cache->total) {
+    if (cache->limit != 0 && cache->limit < cache->total) {
         /* Allow freeing in case the limit was revised downward */
         if (cache->destructor) {
             cache->destructor(ptr, NULL);
