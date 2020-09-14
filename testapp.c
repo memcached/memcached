@@ -244,6 +244,34 @@ static enum test_return cache_redzone_test(void)
 #endif
 }
 
+static enum test_return cache_limit_revised_downward_test(void)
+{
+    int limit = 10, allocated_num = limit + 1, i;
+    char ** alloc_objs = calloc(allocated_num, sizeof(char *));
+
+    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
+                                  NULL, NULL);
+    assert(cache != NULL);
+
+    /* cache->limit is 0 and we can allocate limit+1 items */
+    for (i = 0; i < allocated_num; i++) {
+        alloc_objs[i] = cache_alloc(cache);
+        assert(alloc_objs[i] != NULL);
+    }
+    assert(cache->total == allocated_num);
+
+    /* revised downward cache->limit */
+    cache_set_limit(cache, limit);
+
+    /* If we free one item, the cache->total should decreased by one*/
+    cache_free(cache, alloc_objs[0]);
+
+    assert(cache->total == allocated_num-1);
+    cache_destroy(cache);
+
+    return TEST_PASS;
+}
+
 static enum test_return test_stats_prefix_find(void) {
     PREFIX_STATS *pfs1, *pfs2;
 
@@ -2237,6 +2265,7 @@ struct testcase testcases[] = {
     { "cache_destructor", cache_destructor_test },
     { "cache_reuse", cache_reuse_test },
     { "cache_redzone", cache_redzone_test },
+    { "cache_limit_revised_downward", cache_limit_revised_downward_test },
     { "stats_prefix_find", test_stats_prefix_find },
     { "stats_prefix_record_get", test_stats_prefix_record_get },
     { "stats_prefix_record_delete", test_stats_prefix_record_delete },
