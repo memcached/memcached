@@ -33,22 +33,15 @@ enum authfile_ret authfile_load(const char *file) {
     char *auth_data = NULL;
     auth_t auth_entries[MAX_ENTRIES];
 
-    if (stat(file, &sb) == -1) {
-        return AUTHFILE_MISSING;
+    FILE *pwfile = fopen(file, "r");
+    if (pwfile == NULL) {
+        return AUTHFILE_OPENFAIL;
+    } else if (fstat(fileno(pwfile), &sb)) {
+        fclose(pwfile);
+        return AUTHFILE_STATFAIL;
     }
 
     auth_data = calloc(1, sb.st_size);
-
-    if (auth_data == NULL) {
-        return AUTHFILE_OOM;
-    }
-
-    FILE *pwfile = fopen(file, "r");
-    if (pwfile == NULL) {
-        // not strictly necessary but to be safe.
-        free(auth_data);
-        return AUTHFILE_OPENFAIL;
-    }
 
     char *auth_cur = auth_data;
     auth_t *entry_cur = auth_entries;

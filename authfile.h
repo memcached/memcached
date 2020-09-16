@@ -3,8 +3,8 @@
 
 enum authfile_ret {
     AUTHFILE_OK = 0,
-    AUTHFILE_MISSING,
     AUTHFILE_OOM,
+    AUTHFILE_STATFAIL, // not likely, but just to be sure
     AUTHFILE_OPENFAIL,
     AUTHFILE_MALFORMED,
 };
