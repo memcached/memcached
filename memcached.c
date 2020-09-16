@@ -6102,9 +6102,14 @@ int main (int argc, char **argv) {
         }
 
         switch (authfile_load(settings.auth_file)) {
-            case AUTHFILE_MISSING: // fall through.
+            case AUTHFILE_STATFAIL:
+                vperror("Could not stat authfile [%s], error %s", settings.auth_file
+                                                            , strerror(errno));
+                exit(EXIT_FAILURE);
+                break;
             case AUTHFILE_OPENFAIL:
-                vperror("Could not open authfile [%s] for reading", settings.auth_file);
+                vperror("Could not open authfile [%s] for reading, error %s", settings.auth_file
+                                                                           , strerror(errno));
                 exit(EXIT_FAILURE);
                 break;
             case AUTHFILE_OOM:
