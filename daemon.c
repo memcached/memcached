@@ -67,23 +67,25 @@ int daemonize(int nochdir, int noclose)
     if (noclose == 0 && (fd = open("/dev/null", O_RDWR, 0)) != -1) {
         if(dup2(fd, STDIN_FILENO) < 0) {
             perror("dup2 stdin");
-            return (-1);
+            goto err_cleanup;
         }
         if(dup2(fd, STDOUT_FILENO) < 0) {
             perror("dup2 stdout");
-            return (-1);
+            goto err_cleanup;
         }
         if(dup2(fd, STDERR_FILENO) < 0) {
             perror("dup2 stderr");
-            return (-1);
+            goto err_cleanup;
         }
 
-        if (fd > STDERR_FILENO) {
-            if(close(fd) < 0) {
-                perror("close");
-                return (-1);
-            }
+        if(close(fd) < 0) {
+            perror("close");
+            return (-1);
         }
     }
     return (0);
+
+    err_cleanup:
+        close(fd);
+        return (-1);
 }
