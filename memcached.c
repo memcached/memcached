@@ -4432,6 +4432,8 @@ static int enable_large_pages(void) {
         return -1;
     }
     return 0;
+#elif defined(__NetBSD__)
+    return 0;
 #else
     return -1;
 #endif

@@ -156,6 +156,12 @@ static void * alloc_large_chunk(const size_t limit)
         fprintf(stderr, "Failed to set super pages\n");
         ptr = NULL;
     }
+#elif defined(__NetBSD__)
+    ptr = mmap(NULL, limit, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON | MAP_ALIGNED(MAP_ALIGNMENT_4GB), -1, 0);
+    if (ptr == MAP_FAILED) {
+        fprintf(stderr, "Failed to set aligned pages\n");
+        ptr = NULL;
+    }
 #else
     ptr = malloc(limit);
 #endif
