@@ -9,14 +9,14 @@ use lib "$Bin/lib";
 use MemcachedTest;
 
 #my $server = new_memcached_nodebug('-c 30');
-my $server = new_memcached('-c 30');
+my $server = new_memcached();
 
 my $stat_sock = $server->sock;
 my @sockets = ();
 my $num_sockets;
 my $rejected_conns = 0;
 my $stats;
-for (1 .. 20) {
+for (1 .. 1024) {
   my $sock = $server->new_sock;
   if (defined($sock)) {
     push(@sockets, $sock);
@@ -38,4 +38,5 @@ for my $s (@sockets) {
 }
 cmp_ok($stats->{rejected_connections}, '>', '1', 'rejected connections recorded');
 $server->stop;
+$stat_sock->close();
 done_testing();
