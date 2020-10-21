@@ -674,6 +674,21 @@ typedef struct conn conn;
 
 typedef void (*io_queue_stack_cb)(void *ctx, void *stack);
 typedef void (*io_queue_cb)(io_pending_t *pending);
+// this structure's ownership gets passed between threads:
+// - owned normally by the worker thread.
+// - multiple queues can be submitted at the same time.
+// - each queue can be sent to different background threads.
+// - each submitted queue needs to know when to return to the worker.
+// - the worker needs to know when all queues have returned so it can process.
+//
+// io_queue_t's count field is owned by worker until submitted. Then owned by
+// side thread until returned.
+// conn->io_queues_submitted is always owned by the worker thread. it is
+// incremented as the worker submits queues, and decremented as it gets pinged
+// for returned threads.
+//
+// All of this is to avoid having to hit a mutex owned by the connection
+// thread that gets pinged for each thread (or an equivalent atomic).
 typedef struct {
     void *ctx; // untouched ptr for specific context
     void *stack_ctx; // module-specific context to be batch-submitted
@@ -681,12 +696,13 @@ typedef struct {
     io_queue_stack_cb complete_cb;
     io_queue_cb finalize_cb; // called back on the worker thread.
     int type;
+    int count; // ios to process before returning. only accessed by queue processor once submitted
 } io_queue_t;
 
 struct _io_pending_t {
     io_queue_t *q;
     conn *c;
-    mc_resp *resp;            /* associated response object */
+    mc_resp *resp; // associated response object
     char data[120];
 };
 
@@ -735,9 +751,8 @@ struct conn {
     /* data for the swallow state */
     int    sbytes;    /* how many bytes to swallow */
 
-    int io_pending; /* number of deferred IO requests */
+    int io_queues_submitted; /* see notes on io_queue_t */
     io_queue_t io_queues[3]; /* set of deferred IO queues. */
-    bool io_queued; /* IO's were queued. */
 #ifdef EXTSTORE
     unsigned int recache_counter;
 #endif

@@ -517,6 +517,14 @@ void conn_close_idle(conn *c) {
 
 /* bring conn back from a sidethread. could have had its event base moved. */
 void conn_worker_readd(conn *c) {
+    if (c->state == conn_io_queue) {
+        c->io_queues_submitted--;
+        // If we're still waiting for other queues to return, don't re-add the
+        // connection yet.
+        if (c->io_queues_submitted != 0) {
+            return;
+        }
+    }
     c->ev_flags = EV_READ | EV_PERSIST;
     event_set(&c->event, c->sfd, c->ev_flags, event_handler, (void *)c);
     event_base_set(c->thread->base, &c->event);
@@ -530,13 +538,8 @@ void conn_worker_readd(conn *c) {
     if (c->state == conn_closing) {
         drive_machine(c);
         return;
-    }
-
-    // If we had IO objects, process
-    if (c->io_queued) {
-        c->io_queued = false;
-        // state should be conn_io_queue already, so it will know how to
-        // dequeue and finalize the async work.
+    } else if (c->state == conn_io_queue) {
+        // machine will know how to return based on secondary state.
         drive_machine(c);
     } else {
         conn_set_state(c, conn_new_cmd);
@@ -692,7 +695,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->last_cmd_time = current_time; /* initialize for idle kicker */
     // wipe all queues.
     memset(c->io_queues, 0, sizeof(c->io_queues));
-    c->io_pending = 0;
+    c->io_queues_submitted = 0;
 
     c->item = 0;
 
@@ -3171,26 +3174,25 @@ static void drive_machine(conn *c) {
              * remove the connection from the worker thread and dispatch the
              * IO queue
              */
-            if (c->io_pending) {
-                assert(c->io_queued == false);
-                conn_set_state(c, conn_io_queue);
-                event_del(&c->event);
-                c->io_queued = true;
-                // TODO: write as for loop?
-                /*io_queue_t *q = c->io_queues;
-                while (q->type != IO_QUEUE_NONE) {
-                    if (q->stack_ctx != NULL) {
-                        q->submit_cb(q->ctx, q->stack_ctx);
-                    }
-                    q++;
-                }*/
+            if (c->io_queues[0].type != IO_QUEUE_NONE) {
+                assert(c->io_queues_submitted == 0);
+                bool hit = false;
+
                 for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
-                    if (q->stack_ctx != NULL) {
+                    if (q->count != 0) {
+                        assert(q->stack_ctx != NULL);
+                        hit = true;
                         q->submit_cb(q->ctx, q->stack_ctx);
+                        c->io_queues_submitted++;
                     }
                 }
-                stop = true;
-                break;
+                if (hit) {
+                    conn_set_state(c, conn_io_queue);
+                    event_del(&c->event);
+
+                    stop = true;
+                    break;
+                }
             }
 
             switch (!IS_UDP(c->transport) ? transmit(c) : transmit_udp(c)) {

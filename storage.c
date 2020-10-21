@@ -220,14 +220,13 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
         p->miss = false;
     }
 
-    c->io_pending--;
+    p->q->count--;
     p->active = false;
     //assert(c->io_wrapleft >= 0);
 
     // All IO's have returned, lets re-attach this connection to our original
     // thread.
-    if (c->io_pending == 0) {
-        assert(c->io_queued == true);
+    if (p->q->count == 0) {
         redispatch_conn(c);
     }
 }
@@ -256,7 +255,6 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     }
     if (new_it == NULL)
         return -1;
-    assert(!c->io_queued); // FIXME: debugging.
     // so we can free the chunk on a miss
     new_it->slabs_clsid = clsid;
 
@@ -336,8 +334,8 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     q->stack_ctx = eio;
 
     // No need to stack the io_pending's together as they live on mc_resp's.
-    assert(c->io_pending >= 0);
-    c->io_pending++;
+    assert(q->count >= 0);
+    q->count++;
     // reference ourselves for the callback.
     eio->data = (void *)p;
 
@@ -386,8 +384,8 @@ static void recache_or_free(io_pending_t *pending) {
         do_free = false;
         size_t ntotal = ITEM_ntotal(p->hdr_it);
         slabs_free(it, ntotal, slabs_clsid(ntotal));
-        c->io_pending--;
-        assert(c->io_pending >= 0);
+        p->q->count--;
+        assert(p->q->count >= 0);
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.get_aborted_extstore++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
