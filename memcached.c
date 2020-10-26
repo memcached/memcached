@@ -1183,9 +1183,9 @@ bool resp_has_stack(conn *c) {
 
 void out_string(conn *c, const char *str) {
     size_t len;
+    assert(c != NULL);
     mc_resp *resp = c->resp;
 
-    assert(c != NULL);
     // if response was original filled with something, but we're now writing
     // out an error or similar, have to reset the object first.
     // TODO: since this is often redundant with allocation, how many callers
@@ -2604,7 +2604,6 @@ static enum try_read_result try_read_udp(conn *c) {
 
         /* If this is a multi-packet request, drop it. */
         if (buf[4] != 0 || buf[5] != 1) {
-            out_string(c, "SERVER_ERROR multi-packet request not supported");
             return READ_NO_DATA_RECEIVED;
         }
 
