@@ -27,7 +27,7 @@ $stats = mem_stats($sock);
 is($stats->{idle_kicks}, "0", "check stats 2");
 
 # Make sure we do timeout when not
-sleep(5);
+sleep(7);
 mem_stats($sock);   # Network activity, so socket code will see dead socket
 sleep(1);
 # we run SSL tests over TCP; hence IO::Socket::SSL returns
