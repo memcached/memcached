@@ -199,7 +199,9 @@ if test "x$enable_dtrace" = "xyes"; then
         dtrace_instrument_obj=yes
         rm conftest.h
         # on Mac probe id are generated with $
-        CFLAGS="$CFLAGS -Wno-dollar-in-identifier-extension"
+	if test "$is_darwin" = "yes"; then
+          CFLAGS="$CFLAGS -Wno-dollar-in-identifier-extension"
+	fi
     fi
 
     if test "`which tr`" = "/usr/ucb/tr"; then
