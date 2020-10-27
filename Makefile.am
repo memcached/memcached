@@ -112,6 +112,7 @@ endif
 
 memcached_debug_CFLAGS += -DMEMCACHED_DEBUG
 
+# build fails on Darwin with const signature replacements.
 if DARWIN
 memcached_dtrace.h: memcached_dtrace.d
 	${DTRACE} -h -s memcached_dtrace.d

@@ -12,9 +12,9 @@ AC_PROG_CC
 is_darwin=no
 
 case "${host_os}" in
-	darwin*)
-		is_darwin=yes
-		;;
+   darwin*)
+   is_darwin=yes
+   ;;
 esac
 
 AM_CONDITIONAL([DARWIN], [test "$is_darwin" = "yes"])
@@ -204,7 +204,9 @@ if test "x$enable_dtrace" = "xyes"; then
         dtrace_instrument_obj=yes
         rm conftest.h
         # on Mac probe id are generated with $
-        CFLAGS="$CFLAGS -Wno-dollar-in-identifier-extension"
+        if test "$is_darwin" = "yes"; then
+          CFLAGS="$CFLAGS -Wno-dollar-in-identifier-extension"
+        fi
     fi
 
     if test "`which tr`" = "/usr/ucb/tr"; then
