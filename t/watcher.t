@@ -85,7 +85,6 @@ if ($res eq "STORED\r\n") {
     # wait for all of the writes to go through.
     print $client "version\r\n";
     $res = <$client>;
-    sleep 4;
 
     my $mwatcher = $server->new_sock;
     print $mwatcher "watch mutations evictions\n";
