@@ -8,7 +8,6 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-#my $server = new_memcached_nodebug('-c 30');
 my $server = new_memcached();
 
 my $stat_sock = $server->sock;
