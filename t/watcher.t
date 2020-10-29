@@ -82,10 +82,14 @@ if ($res eq "STORED\r\n") {
     for (1 .. $keycount) {
         print $client "set n,foo$_ 0 0 11000 noreply\r\n$value\r\n";
     }
+    # wait for all of the writes to go through.
+    print $client "version\r\n";
+    $res = <$client>;
+    sleep 4;
 
-    $watcher = $server->new_sock;
-    print $watcher "watch mutations evictions\n";
-    $res = <$watcher>;
+    my $mwatcher = $server->new_sock;
+    print $mwatcher "watch mutations evictions\n";
+    $res = <$mwatcher>;
     is($res, "OK\r\n", "new watcher enabled");
     my $watcher2 = $server->new_sock;
     print $watcher2 "watch evictions\n";
@@ -95,7 +99,7 @@ if ($res eq "STORED\r\n") {
     print $client "set bfoo 0 0 11000 noreply\r\n$value\r\n";
     my $found_log = 0;
     my $found_ev  = 0;
-    while (my $log = <$watcher>) {
+    while (my $log = <$mwatcher>) {
         $found_log = 1 if ($log =~ m/type=item_store/);
         $found_ev = 1 if ($log =~ m/type=eviction/);
         last if ($found_log && $found_ev);
