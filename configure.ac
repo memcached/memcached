@@ -399,7 +399,7 @@ return (ver != NULL && *ver != '1') ? 0 : 1;
      AC_DEFINE(HAVE_LIBEVENT_NEW, 1, [linked to libevent])
    ],
    [
-     AC_MSG_WARN([linked to libevent1])
+     AC_MSG_ERROR([libevent2 is required])
    ],
    []
 [])
