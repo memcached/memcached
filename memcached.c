@@ -361,9 +361,10 @@ static void *conn_timeout_thread(void *arg) {
             fprintf(stderr,
                     "idle timeout thread finished pass, sleeping for %ds\n",
                     sleep_time);
-        /* Sleep time may be too long, so split it by 1sec to exit from service normaly */
+        /* Sleep time may be too long, so split it by 0.1 sec to check exit flag and shutdown service gracefuly */
+        sleep_time *= 10;
         while (sleep_time) {
-            usleep((useconds_t) 1000000);
+            usleep((useconds_t) 100000);
             sleep_time--;
             // Service exit called? Check flag here.
             if (!do_run_conn_timeout_thread) break;
