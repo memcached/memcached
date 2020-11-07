@@ -520,6 +520,8 @@ extern struct settings settings;
 #define ITEM_TOKEN_RESERVED 1024
 /* if item has been marked as a stale value */
 #define ITEM_STALE 2048
+/* if item key was sent in binary */
+#define ITEM_KEY_BINARY 4096
 
 /**
  * Structure for storing items within memcached.
