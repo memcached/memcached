@@ -7,5 +7,10 @@ void do_assoc_move_next_bucket(void);
 int start_assoc_maintenance_thread(void);
 void stop_assoc_maintenance_thread(void);
 void assoc_start_expand(uint64_t curr_items);
+/* walk functions */
+void *assoc_get_iterator(void);
+item *assoc_iterate(void *iterp);
+void assoc_iterate_final(void *iterp);
+
 extern unsigned int hashpower;
 extern unsigned int item_lock_hashpower;

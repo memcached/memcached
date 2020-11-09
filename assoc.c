@@ -292,3 +292,67 @@ void stop_assoc_maintenance_thread() {
     pthread_join(maintenance_tid, NULL);
 }
 
+struct assoc_iterator {
+    unsigned int bucket;
+    bool bucket_locked;
+    item *it;
+    item *next;
+};
+
+void *assoc_get_iterator(void) {
+    struct assoc_iterator *iter = calloc(1, sizeof(struct assoc_iterator));
+    if (iter == NULL) {
+        return NULL;
+    }
+    // this will hang the caller while a hash table expansion is running.
+    mutex_lock(&maintenance_lock);
+    return iter;
+}
+
+item *assoc_iterate(void *iterp) {
+    struct assoc_iterator *iter = (struct assoc_iterator *) iterp;
+    // - if locked bucket and next, update next and return
+    if (iter->bucket_locked) {
+        if (iter->next != NULL) {
+            iter->it = iter->next;
+            iter->next = iter->it->h_next;
+            return iter->it;
+        } else {
+            // unlock previous bucket, if any
+            item_unlock(iter->bucket);
+            // iterate the bucket post since it starts at 0.
+            iter->bucket++;
+            iter->bucket_locked = false;
+        }
+    }
+
+    // - loop until we hit the end or find something.
+    while (iter->bucket != hashsize(hashpower)) {
+        // - lock next bucket
+        item_lock(iter->bucket);
+        iter->bucket_locked = true;
+        // - only check the primary hash table since expand is blocked.
+        iter->it = primary_hashtable[iter->bucket];
+        if (iter->it != NULL) {
+            // - set it, next and return
+            iter->next = iter->it->h_next;
+            return iter->it;
+        } else {
+            // - nothing found in this bucket, try next.
+            item_unlock(iter->bucket);
+            iter->bucket_locked = false;
+            iter->bucket++;
+        }
+    }
+
+    return NULL;
+}
+
+void assoc_iterate_final(void *iterp) {
+    struct assoc_iterator *iter = (struct assoc_iterator *) iterp;
+    if (iter->bucket_locked) {
+        item_unlock(iter->bucket);
+    }
+    mutex_unlock(&maintenance_lock);
+    free(iter);
+}

@@ -349,6 +349,58 @@ static void lru_crawler_class_done(int i) {
         active_crawler_mod.mod->doneclass(&active_crawler_mod, i);
 }
 
+static void item_crawl_hash(void) {
+    // get iterator from assoc. can hang for a long time.
+    // - blocks hash expansion
+    void *iter = assoc_get_iterator();
+    int crawls_persleep = settings.crawls_persleep;
+    item *it = NULL;
+
+    // loop while iterator returns something
+    // - iterator func handles bucket-walking
+    // - iterator returns with bucket locked.
+    while ((it = assoc_iterate(iter)) != NULL) {
+        /* Get memory from bipbuf, if client has no space, flush. */
+        if (active_crawler_mod.c.c != NULL) {
+            int ret = lru_crawler_client_getbuf(&active_crawler_mod.c);
+            if (ret != 0) {
+                // fail out and finalize.
+                break;
+            }
+        } else if (active_crawler_mod.mod->needs_client) {
+            // fail out and finalize.
+            break;
+        }
+
+        // double check that the item isn't in a transitional state.
+        if (refcount_incr(it) < 2) {
+            refcount_decr(it);
+            continue;
+        }
+
+        // FIXME: missing hv and i are fine for metadump eval, but not fine
+        // for expire eval.
+        active_crawler_mod.mod->eval(&active_crawler_mod, it, 0, 0);
+
+        // - sleep bits from orig loop
+        if (crawls_persleep-- <= 0 && settings.lru_crawler_sleep) {
+            pthread_mutex_unlock(&lru_crawler_lock);
+            usleep(settings.lru_crawler_sleep);
+            pthread_mutex_lock(&lru_crawler_lock);
+            crawls_persleep = settings.crawls_persleep;
+        } else if (!settings.lru_crawler_sleep) {
+            // TODO: only cycle lock every N?
+            pthread_mutex_unlock(&lru_crawler_lock);
+            pthread_mutex_lock(&lru_crawler_lock);
+        }
+
+    }
+
+    // must finalize or we leave the hash table expansion blocked.
+    assoc_iterate_final(iter);
+    return;
+}
+
 static void *item_crawler_thread(void *arg) {
     int i;
     int crawls_persleep = settings.crawls_persleep;
@@ -361,6 +413,10 @@ static void *item_crawler_thread(void *arg) {
     while (do_run_lru_crawler_thread) {
     pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
 
+    if (crawler_count == -1) {
+        item_crawl_hash();
+        crawler_count = 0;
+    } else {
     while (crawler_count) {
         item *search = NULL;
         void *hold_lock = NULL;
@@ -434,7 +490,8 @@ static void *item_crawler_thread(void *arg) {
                 pthread_mutex_lock(&lru_crawler_lock);
             }
         }
-    }
+    } // while
+    } // if crawler_count
 
     if (active_crawler_mod.mod != NULL) {
         if (active_crawler_mod.mod->finalize != NULL)
@@ -553,12 +610,6 @@ static int do_lru_crawler_start(uint32_t id, uint32_t remaining) {
         starts++;
     }
     pthread_mutex_unlock(&lru_locks[sid]);
-    if (starts) {
-        STATS_LOCK();
-        stats_state.lru_crawler_running = true;
-        stats.lru_crawler_starts++;
-        STATS_UNLOCK();
-    }
     return starts;
 }
 
@@ -604,6 +655,12 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
         return -1;
     }
 
+    /* hash table walk only supported with metadump for now. */
+    if (type != CRAWLER_METADUMP && ids == NULL) {
+        pthread_mutex_unlock(&lru_crawler_lock);
+        return -2;
+    }
+
     /* Configure the module */
     if (!is_running) {
         assert(crawler_mod_regs[type] != NULL);
@@ -624,12 +681,25 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
         }
     }
 
-    /* we allow the autocrawler to restart sub-LRU's before completion */
-    for (int sid = POWER_SMALLEST; sid < POWER_LARGEST; sid++) {
-        if (ids[sid])
-            starts += do_lru_crawler_start(sid, remaining);
+    if (ids == NULL) {
+        /* NULL ids means to walk the hash table instead. */
+        starts = 1;
+        /* FIXME: hack to signal hash mode to the crawler thread.
+         * Something more clear would be nice.
+         */
+        crawler_count = -1;
+    } else {
+        /* we allow the autocrawler to restart sub-LRU's before completion */
+        for (int sid = POWER_SMALLEST; sid < POWER_LARGEST; sid++) {
+            if (ids[sid])
+                starts += do_lru_crawler_start(sid, remaining);
+        }
     }
     if (starts) {
+        STATS_LOCK();
+        stats_state.lru_crawler_running = true;
+        stats.lru_crawler_starts++;
+        STATS_UNLOCK();
         pthread_cond_signal(&lru_crawler_cond);
     }
     pthread_mutex_unlock(&lru_crawler_lock);
@@ -645,6 +715,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_t
     uint32_t sid = 0;
     int starts = 0;
     uint8_t tocrawl[POWER_LARGEST];
+    bool hash_crawl = false;
 
     /* FIXME: I added this while debugging. Don't think it's needed? */
     memset(tocrawl, 0, sizeof(uint8_t) * POWER_LARGEST);
@@ -652,6 +723,8 @@ enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_t
         for (sid = 0; sid < POWER_LARGEST; sid++) {
             tocrawl[sid] = 1;
         }
+    } else if (strcmp(slabs, "hash") == 0) {
+        hash_crawl = true;
     } else {
         for (char *p = strtok_r(slabs, ",", &b);
              p != NULL;
@@ -669,7 +742,7 @@ enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_t
         }
     }
 
-    starts = lru_crawler_start(tocrawl, remaining, type, NULL, c, sfd);
+    starts = lru_crawler_start(hash_crawl ? NULL : tocrawl, remaining, type, NULL, c, sfd);
     if (starts == -1) {
         return CRAWLER_RUNNING;
     } else if (starts == -2) {
