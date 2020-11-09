@@ -1071,12 +1071,17 @@ The response line could be one of:
 
 - "BADCLASS [message]" to indicate an invalid class was specified.
 
-lru_crawler metadump <classid,classid,classid|all>
+lru_crawler metadump <classid,classid,classid|all|hash>
 
 - Similar in function to the above "lru_crawler crawl" command, this function
   outputs one line for every valid item found in the matching slab classes.
   Similar to "cachedump", but does not lock the cache and can return all
   items, not just 1MB worth.
+
+  if "hash" is specified instead of a classid or "all", the crawler will dump
+  items by directly walking the hash table instead of the LRU's. This makes it
+  more likely all items will be visited once as LRU reordering and locking can
+  cause frequently accessed items to be missed.
 
   Lines are in "key=value key2=value2" format, with value being URI encoded
   (ie: %20 for a space).
