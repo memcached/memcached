@@ -51,6 +51,11 @@
 #include <openssl/ssl.h>
 #endif
 
+/* for NAPI pinning feature */
+#ifndef SO_INCOMING_NAPI_ID
+#define SO_INCOMING_NAPI_ID 56
+#endif
+
 /** Maximum length of a key. */
 #define KEY_MAX_LENGTH 250
 

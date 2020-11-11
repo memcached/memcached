@@ -61,10 +61,6 @@
 #include <sys/sysctl.h>
 #endif
 
-#ifndef SO_INCOMING_NAPI_ID
-#define SO_INCOMING_NAPI_ID 56
-#endif
-
 /*
  * forward declarations
  */
