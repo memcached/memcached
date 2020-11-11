@@ -4952,6 +4952,11 @@ int main (int argc, char **argv) {
             subopts_orig = subopts = strdup(optarg); /* getsubopt() changes the original args */
 
             while (*subopts != '\0') {
+            // BSD getsubopt (at least) has undefined behavior on -1, so
+            // if we want to retry the getsubopt call in submodules we
+            // need an extra layer of string copies.
+            char *subopts_temp_o = NULL;
+            char *subopts_temp = subopts_temp_o = strdup(subopts);
 
             switch (getsubopt(&subopts, subopts_tokens, &subopts_value)) {
             case MAXCONNS_FAST:
@@ -5317,16 +5322,19 @@ int main (int argc, char **argv) {
             default:
 #ifdef EXTSTORE
                 // TODO: differentiating response code.
-                if (storage_read_config(storage_cf, &subopts_value)) {
+                if (storage_read_config(storage_cf, &subopts_temp)) {
                     return 1;
                 }
 #else
-                printf("Illegal suboption \"%s\"\n", subopts_value);
+                printf("Illegal suboption \"%s\"\n", subopts_temp);
                 return 1;
 #endif
+            } // switch
+            if (subopts_temp_o) {
+                free(subopts_temp_o);
             }
 
-            }
+            } // while
             free(subopts_orig);
             break;
         default:
