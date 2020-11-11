@@ -253,15 +253,32 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     e->page_size = cf->page_size;
     uint64_t temp_page_count = 0;
     for (f = fh; f != NULL; f = f->next) {
-        f->fd = open(f->file, O_RDWR | O_CREAT | O_TRUNC, 0644);
+        f->fd = open(f->file, O_RDWR | O_CREAT, 0644);
         if (f->fd < 0) {
             *res = EXTSTORE_INIT_OPEN_FAIL;
 #ifdef EXTSTORE_DEBUG
-            perror("open");
+            perror("extstore open");
 #endif
             free(e);
             return NULL;
         }
+        // use an fcntl lock to help avoid double starting.
+        struct flock lock;
+        lock.l_type = F_WRLCK;
+        lock.l_start = 0;
+        lock.l_whence = SEEK_SET;
+        lock.l_len = 0;
+        if (fcntl(f->fd, F_SETLK, &lock) < 0) {
+            *res = EXTSTORE_INIT_OPEN_FAIL;
+            free(e);
+            return NULL;
+        }
+        if (ftruncate(f->fd, 0) < 0) {
+            *res = EXTSTORE_INIT_OPEN_FAIL;
+            free(e);
+            return NULL;
+        }
+
         temp_page_count += f->page_count;
         f->offset = 0;
     }
