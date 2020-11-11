@@ -20,6 +20,11 @@ $ext_path = "/tmp/extstore.$$";
 my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=0,ext_compact_under=1");
 my $sock = $server->sock;
 
+eval {
+    my $server = new_memcached("-o ext_path=$ext_path:64m");
+};
+ok($@, "failed to start a second server with the same file path");
+
 # Wait until all items have flushed
 sub wait_for_ext {
     my $target = shift || 0;
