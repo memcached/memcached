@@ -745,18 +745,28 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
     }
 }
 
-// TODO: if 'b' after "ME key" decode the key.
 // slow snprintf for debugging purposes.
 static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens) {
     assert(c != NULL);
 
-    if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
+    if (ntokens < 3 || tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
 
     char *key = tokens[KEY_TOKEN].value;
     size_t nkey = tokens[KEY_TOKEN].length;
+
+    if (ntokens >= 4 && tokens[2].length == 1 && tokens[2].value[0] == 'b') {
+        size_t ret = base64_decode((unsigned char *)key, nkey,
+                    (unsigned char *)key, nkey);
+        if (ret == 0) {
+            // failed to decode.
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+        nkey = ret;
+    }
 
     bool overflow; // not used here.
     item *it = limited_get(key, nkey, c, 0, false, DONT_UPDATE, &overflow);
@@ -767,8 +777,15 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
         // similar to out_string().
         memcpy(resp->wbuf, "ME ", 3);
         total += 3;
-        memcpy(resp->wbuf + total, ITEM_key(it), it->nkey);
-        total += it->nkey;
+        if (it->it_flags & ITEM_KEY_BINARY) {
+            // re-encode from memory rather than copy the original key;
+            // to help give confidence that what in memory is what we asked
+            // for.
+            total += base64_encode((unsigned char *) ITEM_key(it), it->nkey, (unsigned char *)resp->wbuf + total, WRITE_BUFFER_SIZE - total);
+        } else {
+            memcpy(resp->wbuf + total, ITEM_key(it), it->nkey);
+            total += it->nkey;
+        }
         resp->wbuf[total] = ' ';
         total++;
 
