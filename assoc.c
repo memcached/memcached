@@ -309,25 +309,28 @@ void *assoc_get_iterator(void) {
     return iter;
 }
 
-item *assoc_iterate(void *iterp) {
+bool assoc_iterate(void *iterp, item **it) {
     struct assoc_iterator *iter = (struct assoc_iterator *) iterp;
+    *it = NULL;
     // - if locked bucket and next, update next and return
     if (iter->bucket_locked) {
         if (iter->next != NULL) {
             iter->it = iter->next;
             iter->next = iter->it->h_next;
-            return iter->it;
+            *it = iter->it;
         } else {
             // unlock previous bucket, if any
             item_unlock(iter->bucket);
             // iterate the bucket post since it starts at 0.
             iter->bucket++;
             iter->bucket_locked = false;
+            *it = NULL;
         }
+        return true;
     }
 
     // - loop until we hit the end or find something.
-    while (iter->bucket != hashsize(hashpower)) {
+    if (iter->bucket != hashsize(hashpower)) {
         // - lock next bucket
         item_lock(iter->bucket);
         iter->bucket_locked = true;
@@ -336,16 +339,18 @@ item *assoc_iterate(void *iterp) {
         if (iter->it != NULL) {
             // - set it, next and return
             iter->next = iter->it->h_next;
-            return iter->it;
+            *it = iter->it;
         } else {
             // - nothing found in this bucket, try next.
             item_unlock(iter->bucket);
             iter->bucket_locked = false;
             iter->bucket++;
         }
+    } else {
+        return false;
     }
 
-    return NULL;
+    return true;
 }
 
 void assoc_iterate_final(void *iterp) {

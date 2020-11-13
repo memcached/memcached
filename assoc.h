@@ -9,7 +9,7 @@ void stop_assoc_maintenance_thread(void);
 void assoc_start_expand(uint64_t curr_items);
 /* walk functions */
 void *assoc_get_iterator(void);
-item *assoc_iterate(void *iterp);
+bool assoc_iterate(void *iterp, item **it);
 void assoc_iterate_final(void *iterp);
 
 extern unsigned int hashpower;

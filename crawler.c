@@ -359,7 +359,24 @@ static void item_crawl_hash(void) {
     // loop while iterator returns something
     // - iterator func handles bucket-walking
     // - iterator returns with bucket locked.
-    while ((it = assoc_iterate(iter)) != NULL) {
+    while (assoc_iterate(iter, &it)) {
+        // if iterator returns true but no item, we're inbetween buckets and
+        // can do sleep or cleanup work without holding a lock.
+        if (it == NULL) {
+            // - sleep bits from orig loop
+            if (crawls_persleep-- <= 0 && settings.lru_crawler_sleep) {
+                pthread_mutex_unlock(&lru_crawler_lock);
+                usleep(settings.lru_crawler_sleep);
+                pthread_mutex_lock(&lru_crawler_lock);
+                crawls_persleep = settings.crawls_persleep;
+            } else if (!settings.lru_crawler_sleep) {
+                // TODO: only cycle lock every N?
+                pthread_mutex_unlock(&lru_crawler_lock);
+                pthread_mutex_lock(&lru_crawler_lock);
+            }
+            continue;
+        }
+
         /* Get memory from bipbuf, if client has no space, flush. */
         if (active_crawler_mod.c.c != NULL) {
             int ret = lru_crawler_client_getbuf(&active_crawler_mod.c);
@@ -381,19 +398,6 @@ static void item_crawl_hash(void) {
         // FIXME: missing hv and i are fine for metadump eval, but not fine
         // for expire eval.
         active_crawler_mod.mod->eval(&active_crawler_mod, it, 0, 0);
-
-        // - sleep bits from orig loop
-        if (crawls_persleep-- <= 0 && settings.lru_crawler_sleep) {
-            pthread_mutex_unlock(&lru_crawler_lock);
-            usleep(settings.lru_crawler_sleep);
-            pthread_mutex_lock(&lru_crawler_lock);
-            crawls_persleep = settings.crawls_persleep;
-        } else if (!settings.lru_crawler_sleep) {
-            // TODO: only cycle lock every N?
-            pthread_mutex_unlock(&lru_crawler_lock);
-            pthread_mutex_lock(&lru_crawler_lock);
-        }
-
     }
 
     // must finalize or we leave the hash table expansion blocked.
