@@ -614,7 +614,8 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
 
     while (it != NULL && (limit == 0 || shown < limit)) {
         assert(it->nkey <= KEY_MAX_LENGTH);
-        if (it->nbytes == 0 && it->nkey == 0) {
+        // protect from printing binary keys.
+        if ((it->nbytes == 0 && it->nkey == 0) || (it->it_flags & ITEM_KEY_BINARY)) {
             it = it->next;
             continue;
         }
