@@ -1389,6 +1389,7 @@ other stats command.
 |                   | bool     | Does nothing as of 1.5.15                    |
 | drop_privileges   | bool     | If yes, and available, drop unused syscalls  |
 |                   |          | (see seccomp on Linux, pledge on OpenBSD)    |
+| memory_file       | char     | Warm restart memory file path, if enabled    |
 |-------------------+----------+----------------------------------------------|
 
 

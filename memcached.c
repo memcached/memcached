@@ -289,6 +289,7 @@ static void settings_init(void) {
     settings.relaxed_privileges = false;
 #endif
     settings.num_napi_ids = 0;
+    settings.memory_file = NULL;
 }
 
 extern pthread_mutex_t conn_lock;
@@ -1877,6 +1878,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ssl_session_cache", "%s", settings.ssl_session_cache ? "yes" : "no");
 #endif
     APPEND_STAT("num_napi_ids", "%s", settings.num_napi_ids);
+    APPEND_STAT("memory_file", "%s", settings.memory_file);
 }
 
 static int nz_strcmp(int nzlength, const char *nz, const char *z) {
@@ -4494,7 +4496,6 @@ int main (int argc, char **argv) {
     int maxcore = 0;
     char *username = NULL;
     char *pid_file = NULL;
-    char *memory_file = NULL;
     struct passwd *pw;
     struct rlimit rlim;
     char *buf;
@@ -4847,7 +4848,7 @@ int main (int argc, char **argv) {
             pid_file = optarg;
             break;
         case 'e':
-            memory_file = optarg;
+            settings.memory_file = optarg;
             break;
         case 'f':
             settings.factor = atof(optarg);
@@ -5666,13 +5667,13 @@ int main (int argc, char **argv) {
     bool reuse_mem = false;
     void *mem_base = NULL;
     bool prefill = false;
-    if (memory_file != NULL) {
+    if (settings.memory_file != NULL) {
         preallocate = true;
         // Easier to manage memory if we prefill the global pool when reusing.
         prefill = true;
         restart_register("main", _mc_meta_load_cb, _mc_meta_save_cb, meta);
         reuse_mem = restart_mmap_open(settings.maxbytes,
-                        memory_file,
+                        settings.memory_file,
                         &mem_base);
         // The "save" callback gets called when we're closing out the mmap,
         // but we don't know what the mmap_base is until after we call open.
@@ -5714,7 +5715,7 @@ int main (int argc, char **argv) {
     if (prefill)
         slabs_prefill_global();
     /* In restartable mode and we've decided to issue a fixup on memory */
-    if (memory_file != NULL && reuse_mem) {
+    if (settings.memory_file != NULL && reuse_mem) {
         mc_ptr_t old_base = meta->old_base;
         assert(old_base == meta->old_base);
 
@@ -5903,7 +5904,7 @@ int main (int argc, char **argv) {
     }
 
     stop_threads();
-    if (memory_file != NULL && stop_main_loop == GRACE_STOP) {
+    if (settings.memory_file != NULL && stop_main_loop == GRACE_STOP) {
         restart_mmap_close();
     }
 
