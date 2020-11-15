@@ -24,6 +24,12 @@ my $mem_path = "/tmp/mc_restart.$$";
 my $server = new_memcached("-m 128 -e $mem_path -I 2m");
 my $sock = $server->sock;
 
+diag "restart basic stats";
+{
+    my $stats = mem_stats($server->sock, ' settings');
+    is($stats->{memory_file}, $mem_path);
+}
+
 diag "Set some values, various sizes.";
 {
     my $cur = 2;

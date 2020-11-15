@@ -489,6 +489,7 @@ struct settings {
     bool ssl_session_cache; /* enable SSL server session caching */
 #endif
     int num_napi_ids;   /* maximum number of NAPI IDs */
+    char *memory_file;  /* warm restart memory file path */
 };
 
 extern struct stats stats;
