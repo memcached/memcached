@@ -1689,6 +1689,10 @@ be released back to the OS asynchronously.
 The argument is in megabytes, not bytes. Input gets multiplied out into
 megabytes internally.
 
+"shutdown" and "shutdown_graceful" are commands with no arguments, and
+can be used to stop memcached with signals SIGINT and SIGUSR1, respectively.
+These commands are disabled by default, but can be enabled with the -A flag.
+
 "version" is a command with no arguments:
 
 version\r\n

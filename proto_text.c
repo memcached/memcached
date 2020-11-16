@@ -2348,10 +2348,10 @@ static void process_quit_command(conn *c) {
     c->close_after_write = true;
 }
 
-static void process_shutdown_command(conn *c) {
+static void process_shutdown_command(conn *c, int signal) {
     if (settings.shutdown_command) {
         conn_set_state(c, conn_closing);
-        raise(SIGINT);
+        raise(signal);
     } else {
         out_string(c, "ERROR: shutdown not enabled");
     }
@@ -2620,7 +2620,10 @@ static void process_command(conn *c, char *command) {
             process_stat(c, tokens, ntokens);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0) {
 
-            process_shutdown_command(c);
+            process_shutdown_command(c, SIGINT);
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown_graceful") == 0) {
+
+            process_shutdown_command(c, SIGUSR1);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
 
             process_slabs_command(c, tokens, ntokens);
