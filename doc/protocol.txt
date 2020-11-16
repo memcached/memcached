@@ -1695,6 +1695,12 @@ be released back to the OS asynchronously.
 The argument is in megabytes, not bytes. Input gets multiplied out into
 megabytes internally.
 
+"shutdown" is a command with an optional argument used to stop memcached with
+a kill signal. By default, "shutdown" alone raises SIGINT, though "graceful"
+may be specified as the single argument to instead trigger a graceful shutdown
+with SIGUSR1. The shutdown command is disabled by default, and can be enabled
+with the -A/--enable-shutdown flag.
+
 "version" is a command with no arguments:
 
 version\r\n
