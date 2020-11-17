@@ -2348,12 +2348,20 @@ static void process_quit_command(conn *c) {
     c->close_after_write = true;
 }
 
-static void process_shutdown_command(conn *c, int signal) {
-    if (settings.shutdown_command) {
-        conn_set_state(c, conn_closing);
-        raise(signal);
-    } else {
+static void process_shutdown_command(conn *c, token_t *tokens, const size_t ntokens) {
+    if (!settings.shutdown_command) {
         out_string(c, "ERROR: shutdown not enabled");
+        return;
+    }
+
+    if (ntokens == 2) {
+        conn_set_state(c, conn_closing);
+        raise(SIGINT);
+    } else if (ntokens == 3 && strcmp(tokens[SUBCOMMAND_TOKEN].value, "graceful") == 0) {
+        conn_set_state(c, conn_closing);
+        raise(SIGUSR1);
+    } else {
+        out_string(c, "CLIENT_ERROR invalid shutdown mode");
     }
 }
 
@@ -2620,10 +2628,7 @@ static void process_command(conn *c, char *command) {
             process_stat(c, tokens, ntokens);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0) {
 
-            process_shutdown_command(c, SIGINT);
-        } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown_graceful") == 0) {
-
-            process_shutdown_command(c, SIGUSR1);
+            process_shutdown_command(c, tokens, ntokens);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
 
             process_slabs_command(c, tokens, ntokens);

@@ -18,21 +18,28 @@ is(scalar <$sock>, "ERROR: shutdown not enabled\r\n",
     "error when shutdown is not enabled");
 $server->DESTROY();
 
+# Shutdown command error
+$server = new_memcached("-A");
+$sock = $server->sock;
+print $sock "shutdown foo\r\n";
+like(scalar <$sock>, qr/CLIENT_ERROR/, "rejected invalid shutdown mode");
+$server->DESTROY();
+
 # Normal shutdown
 $server = new_memcached("-A");
 $sock = $server->sock;
 print $sock "version\r\n";
-like(scalar <$sock>, qr/VERSION/, "server is alive");
+like(scalar <$sock>, qr/VERSION/, "server is initially alive");
 print $sock "shutdown\r\n";
 print $sock "version\r\n";
-is(scalar <$sock>, undef, "server has been shut down");
+is(scalar <$sock>, undef, "server has been normally shut down");
 
 # Graceful shutdown
 $server = new_memcached("-A");
 $sock = $server->sock;
 print $sock "version\r\n";
-like(scalar <$sock>, qr/VERSION/, "server is alive");
-print $sock "shutdown_graceful\r\n";
+like(scalar <$sock>, qr/VERSION/, "server is initially alive");
+print $sock "shutdown graceful\r\n";
 print $sock "version\r\n";
 is(scalar <$sock>, undef, "server has been gracefully shut down");
 
