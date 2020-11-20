@@ -736,7 +736,6 @@ enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_t
 
             if (!safe_strtoul(p, &sid) || sid < POWER_SMALLEST
                     || sid >= MAX_NUMBER_OF_SLAB_CLASSES) {
-                pthread_mutex_unlock(&lru_crawler_lock);
                 return CRAWLER_BADCLASS;
             }
             tocrawl[sid | TEMP_LRU] = 1;
