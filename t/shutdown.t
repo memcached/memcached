@@ -31,8 +31,7 @@ use MemcachedTest;
     print $sock "version\r\n";
     like(scalar <$sock>, qr/VERSION/, "server is initially alive");
     print $sock "shutdown\r\n";
-    print $sock "version\r\n";
-    is(scalar <$sock>, undef, "server has been normally shut down");
+    still_going($server);
 }
 
 # Graceful shutdown
@@ -42,8 +41,21 @@ use MemcachedTest;
     print $sock "version\r\n";
     like(scalar <$sock>, qr/VERSION/, "server is initially alive");
     print $sock "shutdown graceful\r\n";
-    print $sock "version\r\n";
-    is(scalar <$sock>, undef, "server has been gracefully shut down");
+    still_going($server);
+}
+
+sub still_going {
+    my $server = shift;
+    for (1..10) {
+        if ($server->is_running) {
+            sleep 1;
+        } else {
+            ok(!$server->is_running, "server stopped");
+            return;
+        }
+    }
+
+    ok(0, "server failed to stop");
 }
 
 done_testing();
