@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 256;
+use Test::More tests => 70257;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -96,8 +96,10 @@ for (1 .. 30) {
 # set enough small values to ensure bucket chaining happens
 # ... but not enough that hash table expansion happens.
 # TODO: check hash power level?
+my %bfoo = ();
 for (1 .. 70000) {
     print $sock "set bfoo$_ 0 0 1 noreply\r\nz\r\n";
+    $bfoo{$_} = 1;
 }
 {
     print $sock "version\r\n";
@@ -111,10 +113,14 @@ for (1 .. 70000) {
     my $count = 0;
     while (<$sock>) {
         last if /^(\.|END)/;
-        /^(key=) (\S+).*([^\r\n]+)/;
+        if (/^key=bfoo(\S+)/) {
+            ok(exists $bfoo{$1}, "found bfoo key $1 is still in test hash");
+            delete $bfoo{$1};
+        }
         $count++;
     }
     is ($count, 70090, "metadump hash returns all items");
+    is ((keys %bfoo), 0, "metadump found all bfoo keys");
 }
 
 print $sock "lru_crawler disable\r\n";
