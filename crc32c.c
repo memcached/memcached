@@ -275,7 +275,7 @@ void crc32c_init(void) {
 
 #elif defined(__aarch64__) && defined(__linux__)
 #include <sys/auxv.h>
-
+#if defined(HWCAP_CRC32)
 static inline uint32_t crc32cx(uint32_t crc, const uint64_t data)
 {
         asm(".arch_extension crc\n"
@@ -336,6 +336,12 @@ void crc32c_init(void) {
     if (auxv & HWCAP_CRC32)
         crc32c = crc32c_hw;
 }
+#else /* no hw crc32 on arm64 system supported? old compiler/libc/kernel? */
+void crc32c_init(void) {
+    crc32c = crc32c_sw;
+}
+#endif
+
 #else /* !__x86_64__i && !__aarch64__ */
 void crc32c_init(void) {
     crc32c = crc32c_sw;
