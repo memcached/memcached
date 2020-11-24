@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 224;
+use Test::More tests => 70257;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -77,13 +77,50 @@ while (1) {
         /^(key=) (\S+).*([^\r\n]+)/;
         $count++;
     }
-    is ($count, 60);
+    is ($count, 60, "metadump all returns all items");
 }
 
 for (1 .. 30) {
     mem_get_is($sock, "ifoo$_", "ok");
     mem_get_is($sock, "lfoo$_", "ok");
     mem_get_is($sock, "sfoo$_", undef);
+}
+
+# add a few more items into a different slab class
+my $mfdata = 'x' x 512;
+for (1 .. 30) {
+    print $sock "set mfoo$_ 0 0 512\r\n$mfdata\r\n";
+    is(scalar <$sock>, "STORED\r\n", "stored key");
+}
+
+# set enough small values to ensure bucket chaining happens
+# ... but not enough that hash table expansion happens.
+# TODO: check hash power level?
+my %bfoo = ();
+for (1 .. 70000) {
+    print $sock "set bfoo$_ 0 0 1 noreply\r\nz\r\n";
+    $bfoo{$_} = 1;
+}
+{
+    print $sock "version\r\n";
+    my $res = <$sock>;
+    like($res, qr/^VERSION/, "bulk sets completed");
+}
+
+# Check metadump hash table walk returns correct number of items.
+{
+    print $sock "lru_crawler metadump hash\r\n";
+    my $count = 0;
+    while (<$sock>) {
+        last if /^(\.|END)/;
+        if (/^key=bfoo(\S+)/) {
+            ok(exists $bfoo{$1}, "found bfoo key $1 is still in test hash");
+            delete $bfoo{$1};
+        }
+        $count++;
+    }
+    is ($count, 70090, "metadump hash returns all items");
+    is ((keys %bfoo), 0, "metadump found all bfoo keys");
 }
 
 print $sock "lru_crawler disable\r\n";

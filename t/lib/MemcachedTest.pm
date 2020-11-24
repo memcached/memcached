@@ -387,6 +387,7 @@ END {
 
 ############################################################################
 package Memcached::Handle;
+use POSIX ":sys_wait_h";
 sub new {
     my ($class, %params) = @_;
     return bless \%params, $class;
@@ -405,6 +406,12 @@ sub stop {
 sub graceful_stop {
     my $self = shift;
     kill 'SIGUSR1', $self->{pid};
+}
+
+# -1 if the pid is actually dead.
+sub is_running {
+    my $self = shift;
+    return waitpid($self->{pid}, WNOHANG) >= 0 ? 1 : 0;
 }
 
 sub host { $_[0]{host} }

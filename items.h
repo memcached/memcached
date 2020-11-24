@@ -84,16 +84,3 @@ void lru_maintainer_pause(void);
 void lru_maintainer_resume(void);
 
 void *lru_bump_buf_create(void);
-
-#ifdef EXTSTORE
-#define STORAGE_delete(e, it) \
-    do { \
-        if (it->it_flags & ITEM_HDR) { \
-            item_hdr *hdr = (item_hdr *)ITEM_data(it); \
-            extstore_delete(e, hdr->page_id, hdr->page_version, \
-                    1, ITEM_ntotal(it)); \
-        } \
-    } while (0)
-#else
-#define STORAGE_delete(...)
-#endif

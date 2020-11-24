@@ -75,17 +75,16 @@ AS_IF([test "$ICC" = "yes" -o "$GCC" = "yes"],
     AS_IF(test "$CLANG" = "no",[CFLAGS="$CFLAGS -pthread"])
 ])
 
+dnl clang will error .arch_extension crc32 assembler directives to allow
+dnl assembling crc instructions without this
+AS_IF(test "$CLANG" = "yes",[CFLAGS="$CFLAGS -Wno-language-extension-token"])
+
 if test "$ICC" = "no"; then
    AC_PROG_CC_C99
 fi
 
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
-
-dnl ARM crc32 optimization is disabled until we have hardware for an automated
-dnl regression test.
-dnl AC_ARG_ENABLE(arm_crc32,
-dnl  [AS_HELP_STRING([--enable-arm-crc32], [Enable ARMv8 CRC32 instructions])])
 
 AC_ARG_ENABLE(extstore,
   [AS_HELP_STRING([--disable-extstore], [Disable external storage (extstore)])])
@@ -204,10 +203,6 @@ fi
 
 if test "x$enable_tls" = "xyes"; then
     AC_DEFINE([TLS],1,[Set to nonzero if you want to enable TLS])
-fi
-
-if test "x$enable_arm_crc32" = "xyes"; then
-    AC_DEFINE([ARM_CRC32],1,[Set to nonzero if you want to enable ARMv8 crc32])
 fi
 
 if test "x$enable_asan" = "xyes"; then
@@ -392,6 +387,22 @@ if test $ac_cv_libevent_dir != "(system)"; then
     CPPFLAGS="-I$ac_cv_libevent_dir $CPPFLAGS"
   fi
 fi
+
+AC_RUN_IFELSE(
+   [AC_LANG_PROGRAM([
+#include <event.h>
+   ], [dnl
+const char *ver = event_get_version();
+return (ver != NULL && *ver != '1') ? 0 : 1;
+   ])
+   ],[
+     AC_DEFINE(HAVE_LIBEVENT_NEW, 1, [linked to libevent])
+   ],
+   [
+     AC_MSG_ERROR([libevent2 is required])
+   ],
+   []
+[])
 
 trylibssldir=""
 AC_ARG_WITH(libssl,

@@ -17,4 +17,7 @@ extern crc_func crc32c;
 
 void crc32c_init(void);
 
+// Expose a prototype for the crc32c software variant simply for testing purposes
+uint32_t crc32c_sw(uint32_t crc, void const *buf, size_t len);
+
 #endif    /* CRC32C_H */

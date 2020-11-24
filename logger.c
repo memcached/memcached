@@ -447,7 +447,7 @@ static int logger_thread_poll_watchers(int force_poll, int watcher) {
     nfd = 0;
     for (x = 0; x < WATCHER_LIMIT; x++) {
         logger_watcher *w = watchers[x];
-        if (w == NULL)
+        if (w == NULL || (watcher != WATCHER_ALL && x != watcher))
             continue;
 
         data_size = 0;

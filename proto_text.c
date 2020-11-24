@@ -6,6 +6,7 @@
 #include "memcached.h"
 #include "proto_text.h"
 #include "authfile.h"
+#include "storage.h"
 #ifdef TLS
 #include "tls.h"
 #endif
@@ -520,7 +521,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
 #ifdef EXTSTORE
                   if (it->it_flags & ITEM_HDR) {
-                      if (_get_extstore(c, it, resp) != 0) {
+                      if (storage_get_item(c, it, resp) != 0) {
                           pthread_mutex_lock(&c->thread->stats.mutex);
                           c->thread->stats.get_oom_extstore++;
                           pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -1165,7 +1166,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         if (of.value) {
 #ifdef EXTSTORE
             if (it->it_flags & ITEM_HDR) {
-                if (_get_extstore(c, it, resp) != 0) {
+                if (storage_get_item(c, it, resp) != 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.get_oom_extstore++;
                     pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -2347,12 +2348,20 @@ static void process_quit_command(conn *c) {
     c->close_after_write = true;
 }
 
-static void process_shutdown_command(conn *c) {
-    if (settings.shutdown_command) {
+static void process_shutdown_command(conn *c, token_t *tokens, const size_t ntokens) {
+    if (!settings.shutdown_command) {
+        out_string(c, "ERROR: shutdown not enabled");
+        return;
+    }
+
+    if (ntokens == 2) {
         conn_set_state(c, conn_closing);
         raise(SIGINT);
+    } else if (ntokens == 3 && strcmp(tokens[SUBCOMMAND_TOKEN].value, "graceful") == 0) {
+        conn_set_state(c, conn_closing);
+        raise(SIGUSR1);
     } else {
-        out_string(c, "ERROR: shutdown not enabled");
+        out_string(c, "CLIENT_ERROR invalid shutdown mode");
     }
 }
 
@@ -2619,7 +2628,7 @@ static void process_command(conn *c, char *command) {
             process_stat(c, tokens, ntokens);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "shutdown") == 0) {
 
-            process_shutdown_command(c);
+            process_shutdown_command(c, tokens, ntokens);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "slabs") == 0) {
 
             process_slabs_command(c, tokens, ntokens);

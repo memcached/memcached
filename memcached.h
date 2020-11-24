@@ -43,13 +43,17 @@
 #include "logger.h"
 
 #ifdef EXTSTORE
-#include "extstore.h"
 #include "crc32c.h"
 #endif
 
 #include "sasl_defs.h"
 #ifdef TLS
 #include <openssl/ssl.h>
+#endif
+
+/* for NAPI pinning feature */
+#ifndef SO_INCOMING_NAPI_ID
+#define SO_INCOMING_NAPI_ID 56
 #endif
 
 /** Maximum length of a key. */
@@ -196,6 +200,7 @@ enum conn_states {
     conn_mwrite,     /**< writing out many items sequentially */
     conn_closed,     /**< connection is closed */
     conn_watch,      /**< held by the logger thread as a watcher */
+    conn_io_queue,   /**< wait on async. process to get response object */
     conn_max_state   /**< Max state value (used for assertion) */
 };
 
@@ -367,6 +372,8 @@ struct stats {
     uint64_t      ssl_new_sessions; /* successfully negotiated new (non-reused) TLS sessions */
 #endif
     struct timeval maxconns_entered;  /* last time maxconns entered */
+    uint64_t      unexpected_napi_ids;  /* see doc/napi_ids.txt */
+    uint64_t      round_robin_fallback; /* see doc/napi_ids.txt */
 };
 
 /**
@@ -481,6 +488,8 @@ struct settings {
     unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
     bool ssl_session_cache; /* enable SSL server session caching */
 #endif
+    int num_napi_ids;   /* maximum number of NAPI IDs */
+    char *memory_file;  /* warm restart memory file path */
 };
 
 extern struct stats stats;
@@ -612,8 +621,8 @@ typedef struct {
     struct conn_queue *new_conn_queue; /* queue of new connections to handle */
     cache_t *rbuf_cache;        /* static-sized read buffers */
     mc_resp_bundle *open_bundle;
-#ifdef EXTSTORE
     cache_t *io_cache;          /* IO objects */
+#ifdef EXTSTORE
     void *storage;              /* data object for storage system */
 #endif
     logger *l;                  /* logger buffer */
@@ -621,12 +630,14 @@ typedef struct {
 #ifdef TLS
     char   *ssl_wbuf;
 #endif
+    int napi_id;                /* napi id associated with this thread */
 
 } LIBEVENT_THREAD;
 
 /**
  * Response objects
  */
+typedef struct _io_pending_t io_pending_t;
 #define MC_RESP_IOVCOUNT 4
 typedef struct _mc_resp {
     mc_resp_bundle *bundle; // ptr back to bundle
@@ -634,6 +645,7 @@ typedef struct _mc_resp {
     int wbytes; // bytes to write out of wbuf: might be able to nuke this.
     int tosend; // total bytes to send for this response
     void *write_and_free; /** free this memory after finishing writing */
+    io_pending_t *io_pending; /* pending IO descriptor for this response */
 
     item *item; /* item associated with this response object, with reference held */
     struct iovec iov[MC_RESP_IOVCOUNT]; /* built-in iovecs to simplify network code */
@@ -666,20 +678,44 @@ struct _mc_resp_bundle {
 };
 
 typedef struct conn conn;
-#ifdef EXTSTORE
-typedef struct _io_wrap {
-    obj_io io;
-    struct _io_wrap *next;
+
+#define IO_QUEUE_NONE 0
+#define IO_QUEUE_EXTSTORE 1
+
+typedef void (*io_queue_stack_cb)(void *ctx, void *stack);
+typedef void (*io_queue_cb)(io_pending_t *pending);
+// this structure's ownership gets passed between threads:
+// - owned normally by the worker thread.
+// - multiple queues can be submitted at the same time.
+// - each queue can be sent to different background threads.
+// - each submitted queue needs to know when to return to the worker.
+// - the worker needs to know when all queues have returned so it can process.
+//
+// io_queue_t's count field is owned by worker until submitted. Then owned by
+// side thread until returned.
+// conn->io_queues_submitted is always owned by the worker thread. it is
+// incremented as the worker submits queues, and decremented as it gets pinged
+// for returned threads.
+//
+// All of this is to avoid having to hit a mutex owned by the connection
+// thread that gets pinged for each thread (or an equivalent atomic).
+typedef struct {
+    void *ctx; // untouched ptr for specific context
+    void *stack_ctx; // module-specific context to be batch-submitted
+    io_queue_stack_cb submit_cb; // callback given a full stack of pending IO's at once.
+    io_queue_stack_cb complete_cb;
+    io_queue_cb finalize_cb; // called back on the worker thread.
+    int type;
+    int count; // ios to process before returning. only accessed by queue processor once submitted
+} io_queue_t;
+
+struct _io_pending_t {
+    io_queue_t *q;
     conn *c;
-    item *hdr_it;             /* original header item. */
-    mc_resp *resp;            /* associated response object */
-    unsigned int iovec_data;  /* specific index of data iovec */
-    bool noreply;             /* whether the response had noreply set */
-    bool miss;                /* signal a miss to unlink hdr_it */
-    bool badcrc;              /* signal a crc failure */
-    bool active;              /* tells if IO was dispatched or not */
-} io_wrap;
-#endif
+    mc_resp *resp; // associated response object
+    char data[120];
+};
+
 /**
  * The structure representing a connection into memcached.
  */
@@ -725,11 +761,10 @@ struct conn {
     /* data for the swallow state */
     int    sbytes;    /* how many bytes to swallow */
 
+    int io_queues_submitted; /* see notes on io_queue_t */
+    io_queue_t io_queues[3]; /* set of deferred IO queues. */
 #ifdef EXTSTORE
-    int io_wrapleft;
     unsigned int recache_counter;
-    io_wrap *io_wraplist; /* linked list of io_wraps */
-    bool io_queued; /* FIXME: debugging flag */
 #endif
     enum protocol protocol;   /* which protocol this connection speaks */
     enum network_transport transport; /* what transport is used by this connection */
@@ -802,6 +837,8 @@ enum delta_result_type do_add_delta(conn *c, const char *key,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
 enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
+void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb fin_cb);
+io_queue_t *conn_io_queue_get(conn *c, int type);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size,
     enum network_transport transport, struct event_base *base, void *ssl);
 
@@ -907,11 +944,6 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 void stats_reset(void);
 void process_stat_settings(ADD_STAT add_stats, void *c);
 void process_stats_conns(ADD_STAT add_stats, void *c);
-
-#ifdef EXTSTORE
-void process_extstore_stats(ADD_STAT add_stats, conn *c);
-int _get_extstore(conn *c, item *it, mc_resp *resp);
-#endif
 
 #if HAVE_DROP_PRIVILEGES
 extern void setup_privilege_violations_handler(void);
