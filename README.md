@@ -17,16 +17,16 @@ list to ask questions, github issues aren't seen by everyone!
 
 ## Dependencies
 
-* libevent, https://www.monkey.org/~provos/libevent/ (libevent-dev)
-* libseccomp, (optional, experimental, linux) - enables process restrictions for
+* libevent - https://www.monkey.org/~provos/libevent/ (libevent-dev)
+* libseccomp (optional, experimental, linux) - enables process restrictions for
   better security. Tested only on x86-64 architectures.
-* openssl, (optional) - enables TLS support. need relatively up to date
+* openssl (optional) - enables TLS support. need relatively up to date
   version.
 
 ## Environment
 
 Be warned that the -k (mlockall) option to memcached might be
-dangerous when using a large cache.  Just make sure the memcached machines
+dangerous when using a large cache. Just make sure the memcached machines
 don't swap.  memcached does non-blocking network I/O, but not disk.  (it
 should never go to disk, or you've lost the whole point of it)
 
