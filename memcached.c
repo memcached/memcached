@@ -704,6 +704,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->rcurr = c->rbuf;
     c->ritem = 0;
     c->rbuf_malloced = false;
+    c->item_malloced = false;
     c->sasl_started = false;
     c->set_stale = false;
     c->mset_res = false;
@@ -783,7 +784,12 @@ void conn_release_items(conn *c) {
     assert(c != NULL);
 
     if (c->item) {
-        item_remove(c->item);
+        if (c->item_malloced) {
+            free(c->item);
+            c->item_malloced = false;
+        } else {
+            item_remove(c->item);
+        }
         c->item = 0;
     }
 
@@ -1344,7 +1350,12 @@ static void reset_cmd_handler(conn *c) {
     if (c->item != NULL) {
         // TODO: Any other way to get here?
         // SASL auth was mistakenly using it. Nothing else should?
-        item_remove(c->item);
+        if (c->item_malloced) {
+            free(c->item);
+            c->item_malloced = false;
+        } else {
+            item_remove(c->item);
+        }
         c->item = NULL;
     }
     if (c->rbytes > 0) {
@@ -3070,7 +3081,7 @@ static void drive_machine(conn *c) {
                 break;
             }
 
-            if ((((item *)c->item)->it_flags & ITEM_CHUNKED) == 0) {
+            if (c->item_malloced || ((((item *)c->item)->it_flags & ITEM_CHUNKED) == 0) ) {
                 /* first check if we have leftovers in the conn_read buffer */
                 if (c->rbytes > 0) {
                     int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;

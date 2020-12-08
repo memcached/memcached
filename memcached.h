@@ -728,6 +728,7 @@ struct conn {
     bool mset_res; /** uses mset format for return code */
     bool close_after_write; /** flush write then move to close connection */
     bool rbuf_malloced; /** read buffer was malloc'ed for ascii mget, needs free() */
+    bool item_malloced; /** item for conn_nread state is a temporary malloc */
 #ifdef TLS
     SSL    *ssl;
     char   *ssl_wbuf;
