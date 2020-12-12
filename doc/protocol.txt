@@ -456,9 +456,11 @@ Meta Debug
 The meta debug command is a human readable dump of all available internal
 metadata of an item, minus the value.
 
-me <key>\r\n
+me <key> <flag>\r\n
 
 - <key> means one key string.
+- if <flag> is 'b', then <key> is a base64 encoded binary value. the response
+  key will also be base64 encoded.
 
 The response looks like:
 
@@ -528,6 +530,7 @@ Unless the (q) flag was supplied, which suppresses the status code for a miss.
 
 The flags used by the 'mg' command are:
 
+- b: interpret key as base64 encoded binary value
 - c: return item cas token
 - f: return client flags token
 - h: return whether item has been hit before as a 0 or 1
@@ -551,6 +554,15 @@ These extra flags can be added to the response:
 - Z: tem has already sent a winning flag
 
 The flags are now repeated with detailed information where useful:
+
+- b: interpret key as base64 encoded binary value
+
+This flag instructs memcached to run a base64 decoder on <key> before looking
+it up. This allows storing and fetching of binary packed keys, so long as they
+are sent to memcached in base64 encoding.
+
+If 'b' flag is sent in the response, and a key is returned via 'k', this
+signals to the client that the key is base64 encoded binary.
 
 - h: return whether item has been hit before as a 0 or 1
 - l: return time since item was last accessed in seconds
@@ -694,6 +706,7 @@ with CAS semantics did not exist.
 
 The flags used by the 'ms' command are:
 
+- b: interpret key as base64 encoded binary value (see metaget)
 - C(token): compare CAS value when storing item
 - F(token): set client flags to token (32 bit unsigned numeric)
 - I: invalidate. set-to-invalid if supplied CAS is older than item's CAS
@@ -774,6 +787,7 @@ Where CD is one of:
 
 The flags used by the 'md' command are:
 
+- b: interpret key as base64 encoded binary value (see metaget)
 - C(token): compare CAS value
 - I: invalidate. mark as stale, bumps CAS.
 - k: return key
@@ -846,6 +860,7 @@ VA <size> <flags>*\r\n
 
 The flags used by the 'ma' command are:
 
+- b: interpret key as base64 encoded binary value (see metaget)
 - C(token): compare CAS value (see mset)
 - N(token): auto create item on miss with supplied TTL
 - J(token): initial value to use if auto created after miss (default 0)

@@ -149,6 +149,23 @@ my $sock = $server->sock;
 }
 
 {
+    diag "encoded binary keys";
+    # 44OG44K544OI is "tesuto" in katakana
+    my $tesuto = "44OG44K544OI";
+    print $sock "ms $tesuto S2 b\r\npo\r\n";
+    like(scalar <$sock>, qr/^OK /, "set with encoded key");
+
+    my $res = mget($sock, $tesuto, 'v');
+    ok(! exists $res->{val}, "encoded key doesn't exist");
+    $res = mget($sock, $tesuto, 'b v k');
+    ok(exists $res->{val}, "decoded key exists");
+    ok(get_flag($res, 'k') eq $tesuto, "key returned encoded");
+
+    # TODO: test k is returned properly from ms.
+    # validate the store data is smaller somehow?
+}
+
+{
     diag "marithmetic tests";
     print $sock "ma mo\r\n";
     like(scalar <$sock>, qr/^NF/, "incr miss");

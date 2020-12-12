@@ -20,6 +20,7 @@ memcached_SOURCES = memcached.c memcached.h \
                     util.c util.h \
                     trace.h cache.c cache.h sasl_defs.h \
                     bipbuffer.c bipbuffer.h \
+                    base64.c base64.h \
                     logger.c logger.h \
                     crawler.c crawler.h \
                     itoa_ljust.c itoa_ljust.h \
