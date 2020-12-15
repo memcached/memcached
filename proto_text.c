@@ -2435,7 +2435,8 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
             break;
         }
         return;
-    } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "metadump") == 0) {
+    } else if ((ntokens == 4 || ntokens == 5) &&
+            strcmp(tokens[COMMAND_TOKEN + 1].value, "metadump") == 0) {
         if (settings.lru_crawler == false) {
             out_string(c, "CLIENT_ERROR lru crawler disabled");
             return;
@@ -2449,7 +2450,16 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
             return;
         }
 
-        int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_METADUMP,
+        bool noencode = false;
+        if (ntokens == 5 && !strncmp(tokens[3].value, "noencode", 8)) {
+            noencode = true;
+        } else if (ntokens == 5) {
+            out_string(c, "CLIENT_ERROR bad command line format");
+            return;
+        }
+
+        int rv = lru_crawler_crawl(tokens[2].value,
+                noencode ? CRAWLER_METADUMP_NOENCODE : CRAWLER_METADUMP,
                 c, c->sfd, LRU_CRAWLER_CAP_REMAINING);
         switch(rv) {
             case CRAWLER_OK:

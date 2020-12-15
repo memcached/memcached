@@ -40,16 +40,16 @@ typedef void (*crawler_doneclass_func)(crawler_module_t *cm, int slab_cls);
 typedef void (*crawler_finalize_func)(crawler_module_t *cm);
 
 typedef struct {
-    crawler_init_func init; /* run before crawl starts */
-    crawler_eval_func eval; /* runs on an item. */
+    crawler_init_func init;           /* run before crawl starts */
+    crawler_eval_func eval;           /* runs on an item. */
     crawler_doneclass_func doneclass; /* runs once per sub-crawler completion. */
-    crawler_finalize_func finalize; /* runs once when all sub-crawlers are done. */
-    bool needs_lock; /* whether or not we need the LRU lock held when eval is called */
-    bool needs_client; /* whether or not to grab onto the remote client */
+    crawler_finalize_func finalize;   /* runs once when all sub-crawlers are done. */
+    bool needs_lock;                  /* whether or not we need the LRU lock held when eval is called */
+    bool needs_client;                /* whether or not to grab onto the remote client */
 } crawler_module_reg_t;
 
 struct _crawler_module_t {
-    void *data; /* opaque data pointer */
+    void *data;                       /* opaque data pointer */
     crawler_client_t c;
     crawler_module_reg_t *mod;
 };
@@ -69,6 +69,7 @@ crawler_module_reg_t crawler_expired_mod = {
 };
 
 static void crawler_metadump_eval(crawler_module_t *cm, item *search, uint32_t hv, int i);
+static void crawler_metadump_noencode_eval(crawler_module_t *cm, item *search, uint32_t hv, int i);
 static void crawler_metadump_finalize(crawler_module_t *cm);
 
 crawler_module_reg_t crawler_metadump_mod = {
@@ -80,10 +81,20 @@ crawler_module_reg_t crawler_metadump_mod = {
     .needs_client = true
 };
 
-crawler_module_reg_t *crawler_mod_regs[3] = {
+crawler_module_reg_t crawler_metadump_noencode_mod = {
+    .init = NULL,
+    .eval = crawler_metadump_noencode_eval,
+    .doneclass = NULL,
+    .finalize = crawler_metadump_finalize,
+    .needs_lock = false,
+    .needs_client = true
+};
+
+crawler_module_reg_t *crawler_mod_regs[4] = {
     &crawler_expired_mod,
     &crawler_expired_mod,
-    &crawler_metadump_mod
+    &crawler_metadump_mod,
+    &crawler_metadump_noencode_mod
 };
 
 static int lru_crawler_client_getbuf(crawler_client_t *c);
@@ -235,9 +246,21 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
     pthread_mutex_unlock(&d->lock);
 }
 
+static inline int output_metadump_line(char* key, crawler_module_t *cm, item *it) {
+    return snprintf(cm->c.cbuf, 4096,
+            "key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu\n",
+            key,
+            (it->exptime == 0) ? -1 : (long)(it->exptime + process_started),
+            (unsigned long long)(it->time + process_started),
+            (unsigned long long)ITEM_get_cas(it),
+            (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
+            ITEM_clsid(it),
+            (unsigned long) ITEM_ntotal(it));
+}
+
 static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, int i) {
     //int slab_id = CLEAR_LRU(i);
-    char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
+    char encoded_key[KEY_MAX_URI_ENCODED_LENGTH];
     int is_flushed = item_is_flushed(it);
     /* Ignore expired content. */
     if ((it->exptime != 0 && it->exptime < current_time)
@@ -246,16 +269,27 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
         return;
     }
     // TODO: uriencode directly into the buffer.
-    uriencode(ITEM_key(it), keybuf, it->nkey, KEY_MAX_URI_ENCODED_LENGTH);
-    int total = snprintf(cm->c.cbuf, 4096,
-            "key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu\n",
-            keybuf,
-            (it->exptime == 0) ? -1 : (long)(it->exptime + process_started),
-            (unsigned long long)(it->time + process_started),
-            (unsigned long long)ITEM_get_cas(it),
-            (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
-            ITEM_clsid(it),
-            (unsigned long) ITEM_ntotal(it));
+    uriencode(ITEM_key(it), encoded_key, it->nkey, KEY_MAX_URI_ENCODED_LENGTH);
+    int total = output_metadump_line(encoded_key, cm, it);
+    refcount_decr(it);
+    // TODO: some way of tracking the errors. these are very unlikely though.
+    if (total >= LRU_CRAWLER_WRITEBUF - 1 || total <= 0) {
+        /* Failed to write, don't push it. */
+        return;
+    }
+    bipbuf_push(cm->c.buf, total);
+}
+
+static void crawler_metadump_noencode_eval(crawler_module_t *cm, item *it, uint32_t hv, int i) {
+    //int slab_id = CLEAR_LRU(i);
+    int is_flushed = item_is_flushed(it);
+    /* Ignore expired content. */
+    if ((it->exptime != 0 && it->exptime < current_time)
+        || is_flushed) {
+        refcount_decr(it);
+        return;
+    }
+    int total = output_metadump_line(ITEM_key(it), cm, it);
     refcount_decr(it);
     // TODO: some way of tracking the errors. these are very unlikely though.
     if (total >= LRU_CRAWLER_WRITEBUF - 1 || total <= 0) {
@@ -660,7 +694,7 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
     }
 
     /* hash table walk only supported with metadump for now. */
-    if (type != CRAWLER_METADUMP && ids == NULL) {
+    if ((type != CRAWLER_METADUMP && type != CRAWLER_METADUMP_NOENCODE) && ids == NULL) {
         pthread_mutex_unlock(&lru_crawler_lock);
         return -2;
     }
@@ -745,7 +779,8 @@ enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_t
         }
     }
 
-    starts = lru_crawler_start(hash_crawl ? NULL : tocrawl, remaining, type, NULL, c, sfd);
+    starts = lru_crawler_start(hash_crawl ? NULL : tocrawl, remaining,
+            type, NULL, c, sfd);
     if (starts == -1) {
         return CRAWLER_RUNNING;
     } else if (starts == -2) {

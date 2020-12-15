@@ -1071,7 +1071,7 @@ The response line could be one of:
 
 - "BADCLASS [message]" to indicate an invalid class was specified.
 
-lru_crawler metadump <classid,classid,classid|all|hash>
+lru_crawler metadump <classid,classid,classid|all|hash> [noencode]
 
 - Similar in function to the above "lru_crawler crawl" command, this function
   outputs one line for every valid item found in the matching slab classes.
@@ -1090,6 +1090,9 @@ lru_crawler metadump <classid,classid,classid|all|hash>
 
   "key", "exp" (expiration time), "la", (last access time), "cas",
   "fetch" (if item has been fetched before).
+
+  "noencode" optional parameter that instructs MC to output the key without
+  URL encoding it.
 
 The response line could be one of:
 
