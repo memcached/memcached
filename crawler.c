@@ -40,18 +40,19 @@ typedef void (*crawler_doneclass_func)(crawler_module_t *cm, int slab_cls);
 typedef void (*crawler_finalize_func)(crawler_module_t *cm);
 
 typedef struct {
-    crawler_init_func init; /* run before crawl starts */
-    crawler_eval_func eval; /* runs on an item. */
+    crawler_init_func init;           /* run before crawl starts */
+    crawler_eval_func eval;           /* runs on an item. */
     crawler_doneclass_func doneclass; /* runs once per sub-crawler completion. */
-    crawler_finalize_func finalize; /* runs once when all sub-crawlers are done. */
-    bool needs_lock; /* whether or not we need the LRU lock held when eval is called */
-    bool needs_client; /* whether or not to grab onto the remote client */
+    crawler_finalize_func finalize;   /* runs once when all sub-crawlers are done. */
+    bool needs_lock;                  /* whether or not we need the LRU lock held when eval is called */
+    bool needs_client;                /* whether or not to grab onto the remote client */
 } crawler_module_reg_t;
 
 struct _crawler_module_t {
-    void *data; /* opaque data pointer */
+    void *data;                       /* opaque data pointer */
     crawler_client_t c;
     crawler_module_reg_t *mod;
+    bool noencode;                    /* Do not encode if true. */
 };
 
 static int crawler_expired_init(crawler_module_t *cm, void *data);
@@ -237,7 +238,8 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
 
 static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, int i) {
     //int slab_id = CLEAR_LRU(i);
-    char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
+    char *key_ptr;
+    char encoded_key[KEY_MAX_URI_ENCODED_LENGTH];
     int is_flushed = item_is_flushed(it);
     /* Ignore expired content. */
     if ((it->exptime != 0 && it->exptime < current_time)
@@ -245,11 +247,15 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
         refcount_decr(it);
         return;
     }
-    // TODO: uriencode directly into the buffer.
-    uriencode(ITEM_key(it), keybuf, it->nkey, KEY_MAX_URI_ENCODED_LENGTH);
+    key_ptr = ITEM_key(it);
+    if (!cm->noencode) {
+        // TODO: uriencode directly into the buffer.
+        uriencode(ITEM_key(it), encoded_key, it->nkey, KEY_MAX_URI_ENCODED_LENGTH);
+        key_ptr = encoded_key;
+    }
     int total = snprintf(cm->c.cbuf, 4096,
             "key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu\n",
-            keybuf,
+            key_ptr,
             (it->exptime == 0) ? -1 : (long)(it->exptime + process_started),
             (unsigned long long)(it->time + process_started),
             (unsigned long long)ITEM_get_cas(it),
@@ -634,7 +640,7 @@ static int lru_crawler_set_client(crawler_module_t *cm, void *c, const int sfd) 
 
 int lru_crawler_start(uint8_t *ids, uint32_t remaining,
                              const enum crawler_run_type type, void *data,
-                             void *c, const int sfd) {
+                             void *c, const int sfd, bool noencode) {
     int starts = 0;
     bool is_running;
     static rel_time_t block_ae_until = 0;
@@ -669,6 +675,7 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
     if (!is_running) {
         assert(crawler_mod_regs[type] != NULL);
         active_crawler_mod.mod = crawler_mod_regs[type];
+        active_crawler_mod.noencode = noencode;
         active_crawler_type = type;
         if (active_crawler_mod.mod->init != NULL) {
             active_crawler_mod.mod->init(&active_crawler_mod, data);
@@ -714,7 +721,7 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
  * Also only clear the crawlerstats once per sid.
  */
 enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_type type,
-        void *c, const int sfd, unsigned int remaining) {
+        void *c, const int sfd, unsigned int remaining, bool noencode) {
     char *b = NULL;
     uint32_t sid = 0;
     int starts = 0;
@@ -745,7 +752,8 @@ enum crawler_result_type lru_crawler_crawl(char *slabs, const enum crawler_run_t
         }
     }
 
-    starts = lru_crawler_start(hash_crawl ? NULL : tocrawl, remaining, type, NULL, c, sfd);
+    starts = lru_crawler_start(hash_crawl ? NULL : tocrawl, remaining,
+            type, NULL, c, sfd, noencode);
     if (starts == -1) {
         return CRAWLER_RUNNING;
     } else if (starts == -2) {

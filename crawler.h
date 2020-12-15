@@ -33,10 +33,10 @@ int start_item_crawler_thread(void);
 int stop_item_crawler_thread(bool wait);
 int init_lru_crawler(void *arg);
 enum crawler_result_type lru_crawler_crawl(char *slabs, enum crawler_run_type,
-        void *c, const int sfd, unsigned int remaining);
+        void *c, const int sfd, unsigned int remaining, bool noencode);
 int lru_crawler_start(uint8_t *ids, uint32_t remaining,
                              const enum crawler_run_type type, void *data,
-                             void *c, const int sfd);
+                             void *c, const int sfd, bool noencode);
 void lru_crawler_pause(void);
 void lru_crawler_resume(void);
 
