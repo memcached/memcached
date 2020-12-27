@@ -3716,6 +3716,10 @@ static int server_socket_unix(const char *path, int access_mask) {
  */
 volatile rel_time_t current_time;
 static struct event clockevent;
+#ifdef MEMCACHED_DEBUG
+volatile bool is_paused;
+volatile int64_t delta;
+#endif
 #if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
 static bool monotonic = false;
 static int64_t monotonic_start;
@@ -3751,19 +3755,31 @@ static void clock_handler(const evutil_socket_t fd, const short which, void *arg
     event_base_set(main_base, &clockevent);
     evtimer_add(&clockevent, &t);
 
+#ifdef MEMCACHED_DEBUG
+    if (is_paused) return;
+#endif
+
 #if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
     if (monotonic) {
         struct timespec ts;
         if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1)
             return;
+#ifdef MEMCACHED_DEBUG
+        current_time = (rel_time_t) (ts.tv_sec - monotonic_start + delta);
+#else
         current_time = (rel_time_t) (ts.tv_sec - monotonic_start);
+#endif
         return;
     }
 #endif
     {
         struct timeval tv;
         gettimeofday(&tv, NULL);
+#ifdef MEMCACHED_DEBUG
+        current_time = (rel_time_t) (tv.tv_sec - process_started + delta);
+#else
         current_time = (rel_time_t) (tv.tv_sec - process_started);
+#endif
     }
 }
 

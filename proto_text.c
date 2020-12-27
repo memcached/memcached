@@ -2067,6 +2067,31 @@ static void process_misbehave_command(conn *c) {
         out_string(c, "OK");
     }
 }
+
+static void process_debugtime_command(conn *c, token_t *tokens, const size_t ntokens) {
+    struct timeval tv;
+
+    if (strcmp(tokens[1].value, "p") == 0) {
+        gettimeofday(&tv, NULL);
+        if (!is_paused) {
+            is_paused = true;
+        }
+    } else if (strcmp(tokens[1].value, "r") == 0) {
+        gettimeofday(&tv, NULL);
+        if (is_paused) {
+            is_paused = false;
+        }
+    } else {
+        int64_t time_delta = 0;
+        if (!safe_strtoll(tokens[1].value, &time_delta)) {
+            out_string(c, "ERROR");
+            return;
+        }
+        delta += time_delta;
+        current_time += delta;
+    }
+    out_string(c, "OK");
+}
 #endif
 
 static void process_slabs_automove_command(conn *c, token_t *tokens, const size_t ntokens) {
@@ -2673,6 +2698,11 @@ static void process_command(conn *c, char *command) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
             process_arithmetic_command(c, tokens, ntokens, 0);
+#ifdef MEMCACHED_DEBUG
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "debugtime") == 0) {
+            WANT_TOKENS_MIN(ntokens, 2);
+            process_debugtime_command(c, tokens, ntokens);
+#endif
         } else {
             out_string(c, "ERROR");
         }
