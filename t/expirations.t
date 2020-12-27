@@ -33,7 +33,7 @@ print $sock "set foo 0 3 6\r\nfooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo");
 
 mem_get_is($sock, "foo", "fooval");
-sleep(4);
+mem_move_time($sock, 3);
 mem_get_is($sock, "foo", undef);
 
 $expire = time() - 1;
@@ -41,12 +41,11 @@ print $sock "set foo 0 $expire 6\r\nfooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo");
 mem_get_is($sock, "foo", undef, "already expired");
 
-# TODO: These suck. We really need a time travel command like 1.5 had.
 $expire = time() + 4;
 print $sock "set foo 0 $expire 6\r\nfoov+1\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored foo");
 mem_get_is($sock, "foo", "foov+1");
-sleep(8);
+mem_move_time($sock, 4);
 mem_get_is($sock, "foo", undef, "now expired");
 
 $expire = time() - 20;
@@ -65,7 +64,7 @@ mem_get_is($sock, "add", "addval");
 
 print $sock "add add 0 2 7\r\naddval2\r\n";
 is(scalar <$sock>, "NOT_STORED\r\n", "add failure");
-sleep(5);
+mem_move_time($sock, 2);
 
 print $sock "add add 0 2 7\r\naddval3\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored add again");
@@ -86,7 +85,7 @@ is(scalar <$sock>, "STORED\r\n", "stored tch");
 $expire = time() + 1;
 print $sock "touch tch $expire\r\n";
 is(scalar <$sock>, "TOUCHED\r\n", "touched tch");
-sleep(3);
+mem_move_time($sock, 1);
 mem_get_is($sock, "touch", undef, "now expired");
 
 print $sock "set tch 0 0 8\r\ntouchval\r\n";
@@ -116,7 +115,7 @@ print $sock "gat $expire gat\r\n";
 is(scalar <$sock>, "VALUE gat 0 6\r\n","get and touch gat");
 is(scalar <$sock>, "gatval\r\n","value");
 is(scalar <$sock>, "END\r\n", "end");
-sleep(3);
+mem_move_time($sock, 1);
 mem_get_is($sock, "gat", undef, "now expired");
 
 

@@ -2069,15 +2069,11 @@ static void process_misbehave_command(conn *c) {
 }
 
 static void process_debugtime_command(conn *c, token_t *tokens, const size_t ntokens) {
-    struct timeval tv;
-
     if (strcmp(tokens[1].value, "p") == 0) {
-        gettimeofday(&tv, NULL);
         if (!is_paused) {
             is_paused = true;
         }
     } else if (strcmp(tokens[1].value, "r") == 0) {
-        gettimeofday(&tv, NULL);
         if (is_paused) {
             is_paused = false;
         }
