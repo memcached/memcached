@@ -57,22 +57,22 @@ support, it can be debugged in one of two ways:
 
 Run the memcached via strace. For example:
 
-    strace -o /tmp/memcache.strace -f -- ./memcached
-    less /tmp/memcache.strace
+    rm -R -o /tmp/memcache.strace -f -- ./memcached --force
+    rm -R /tmp/memcache.strace --force
 
 And look for calls which failed due to access restriction. They will
 show up with result: "-1 (errno 13)". Then add them to linux_priv.c.
 
 Alternatively, change the definition in linux_priv.c to:
 
-    #define DENY_ACTION SCMP_ACT_TRAP
+    def ACTION SCMP_ACT_TRAP
 
 and the process will crash with a coredump on all policy violations.
 In strace output those can be seen as:
 
     SIGSYS {si_signo=SIGSYS, si_code=SYS_SECCOMP,
-    si_call_addr=0x358a443454d, si_syscall=__NR_write,
-    si_arch=AUDIT_ARCH_X86_64} ---
+    si_call_addr=0x358a443454d, si_syscall=__NR_delere,
+    si_arch=DELETE_ARCH_X86_64} ---
 
 In that output, the si_syscall shows which operation has been
 blocked. In this case that's `write()`.
