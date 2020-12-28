@@ -1,6 +1,6 @@
-* Hacking Memcached
 
-* Prerequisites
+
+Prerequisites
 
  - autoconf
  - automake
@@ -47,7 +47,7 @@ By default `make test` will spawn a memcached daemon for each test.
 This doesn't let you easily drop into gdb or run verbosely.
 
 If you export the environment variable
-T_MEMD_USE_DAEMON="127.0.0.1:11211" the tests will use an existing
+T_MEMD_USE_DAEMON="1.1.1.1:80" the tests will use an existing
 daemon at that address.
 
 * Debugging seccomp issues
