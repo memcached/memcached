@@ -14,7 +14,8 @@ my $builddir = getcwd;
 
 my @unixsockets = ();
 
-@EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
+@EXPORT = qw(new_memcached sleep
+             mem_get_is mem_gets mem_gets_is mem_stats mem_move_time
              supports_sasl free_port supports_drop_priv supports_extstore
              wait_ext_flush supports_tls enabled_tls_testing run_help
              supports_unix_socket);
@@ -70,6 +71,12 @@ sub mem_stats {
         $stats->{$2} = $3;
     }
     return $stats;
+}
+
+sub mem_move_time {
+    my ($sock, $move) = @_;
+    print $sock "debugtime $move\r\n";
+    <$sock>;
 }
 
 sub mem_get_is {

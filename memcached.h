@@ -803,6 +803,11 @@ extern conn **conns;
 /* current time of day (updated periodically) */
 extern volatile rel_time_t current_time;
 
+#ifdef MEMCACHED_DEBUG
+extern volatile bool is_paused;
+extern volatile int64_t delta;
+#endif
+
 /* TODO: Move to slabs.h? */
 extern volatile int slab_rebalance_signal;
 
