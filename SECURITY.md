@@ -1,3 +1,18 @@
+# Security Policy
+
+## Supported Versions
+
+Use this section to tell people about which versions of your project are
+currently being supported with security updates.
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 5.1.x   | :white_check_mark: |
+| 5.0.x   | :x:                |
+| 4.0.x   | :white_check_mark: |
+| < 4.0   | :x:                |
+
+
 #
 #
 #    CC8PRO PROJECTION HANDLE-REJECTION 
@@ -1710,32 +1725,11 @@ Disallow: /reservation
 # Sitemap: https://www.indobets.co/sitemap-master-index.xml.gz
  
 
-*.[aois]
-*.gcov
-*.gcda
-*.gcno
-*.tcov
-.deps
-.buildbot
-INSTALL
-Makefile
-Makefile.in
-config.guess
-config.h
-config.h.in
-config.log
-config.status
-config.sub
-aclocal.m4
-compile
-autom4te.cache
-configure
-depcomp
-install-sh
-memcached
-memcached-debug
-memcached-debug.profile
-missing
-stamp-h1
-tags
-TAGS
+
+## Reporting a Vulnerability
+
+Use this section to tell people how to report a vulnerability.
+
+Tell them where to go, how often they can expect to get an update on a
+reported vulnerability, what to expect if the vulnerability is accepted or
+declined, etc.
