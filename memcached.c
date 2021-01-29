@@ -2624,8 +2624,8 @@ static void build_udp_header(unsigned char *hdr, mc_resp *resp) {
     // header, so "tosend" must be static.
     if (!resp->udp_total) {
         uint32_t total;
-        total = resp->tosend / UDP_MAX_PAYLOAD_SIZE;
-        if (resp->tosend % UDP_MAX_PAYLOAD_SIZE)
+        total = resp->tosend / UDP_DATA_SIZE;
+        if (resp->tosend % UDP_DATA_SIZE)
             total++;
         // The spec doesn't really say what we should do here. It's _probably_
         // better to bail out?
