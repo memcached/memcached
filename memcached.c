@@ -282,6 +282,7 @@ static void settings_init(void) {
     settings.crawls_persleep = 1000;
     settings.logger_watcher_buf_size = LOGGER_WATCHER_BUF_SIZE;
     settings.logger_buf_size = LOGGER_BUF_SIZE;
+    settings.logger_max_sleep = 1000000;
     settings.drop_privileges = false;
     settings.watch_enabled = true;
     settings.read_buf_mem_limit = 0;
@@ -3885,6 +3886,7 @@ static void usage(void) {
            "   - watcher_logbuf_size: size in kilobytes of per-watcher write buffer. (default: %u)\n"
            "   - worker_logbuf_size:  size in kilobytes of per-worker-thread buffer\n"
            "                          read by background thread, then written to watchers. (default: %u)\n"
+           "   - logger_max_sleep:    time in miliseconds of logger maximum sleep.\n"
            "   - track_sizes:         enable dynamic reports for 'stats sizes' command.\n"
            "   - no_hashexpand:       disables hash table expansion (dangerous)\n"
            "   - modern:              enables options which will be default in future.\n"
@@ -4553,6 +4555,7 @@ int main (int argc, char **argv) {
         IDLE_TIMEOUT,
         WATCHER_LOGBUF_SIZE,
         WORKER_LOGBUF_SIZE,
+        LOGGER_MAX_SLEEP,
         SLAB_SIZES,
         SLAB_CHUNK_MAX,
         TRACK_SIZES,
@@ -4606,6 +4609,7 @@ int main (int argc, char **argv) {
         [IDLE_TIMEOUT] = "idle_timeout",
         [WATCHER_LOGBUF_SIZE] = "watcher_logbuf_size",
         [WORKER_LOGBUF_SIZE] = "worker_logbuf_size",
+        [LOGGER_MAX_SLEEP] = "logger_max_sleep",
         [SLAB_SIZES] = "slab_sizes",
         [SLAB_CHUNK_MAX] = "slab_chunk_max",
         [TRACK_SIZES] = "track_sizes",
@@ -5180,6 +5184,17 @@ int main (int argc, char **argv) {
                 settings.logger_buf_size *= 1024; /* kilobytes */
             case SLAB_SIZES:
                 slab_sizes_unparsed = strdup(subopts_value);
+                break;
+            case LOGGER_MAX_SLEEP:
+                if (subopts_value == NULL) {
+                    fprintf(stderr, "Missing logger_max_sleep argument\n");
+                    return 1;
+                }
+                if (!safe_strtoul(subopts_value, &settings.logger_max_sleep)) {
+                    fprintf(stderr, "could not parse argument to logger_max_sleep\n");
+                    return 1;
+                }
+                settings.logger_max_sleep *= 1000; /* microseconds */
                 break;
             case SLAB_CHUNK_MAX:
                 if (subopts_value == NULL) {

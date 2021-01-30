@@ -455,6 +455,7 @@ struct settings {
     int idle_timeout;       /* Number of seconds to let connections idle */
     unsigned int logger_watcher_buf_size; /* size of logger's per-watcher buffer */
     unsigned int logger_buf_size; /* size of per-thread logger buffer */
+    unsigned int logger_max_sleep; /* max sleep time of logger */
     unsigned int read_buf_mem_limit; /* total megabytes allowable for net buffers */
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
     bool watch_enabled; /* allows watch commands to be dropped */
