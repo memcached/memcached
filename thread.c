@@ -986,6 +986,7 @@ void memcached_thread_init(int nthreads, void *arg) {
 
     threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
     if (! threads) {
+        free(item_locks);
         perror("Can't allocate thread descriptors");
         exit(1);
     }
@@ -993,6 +994,8 @@ void memcached_thread_init(int nthreads, void *arg) {
     for (i = 0; i < nthreads; i++) {
         int fds[2];
         if (pipe(fds)) {
+            free(item_locks);
+            free(threads);
             perror("Can't create notify pipe");
             exit(1);
         }
