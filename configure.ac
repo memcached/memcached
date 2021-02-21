@@ -803,11 +803,21 @@ AC_CHECK_FUNCS(cap_enter, [
    ], [])
 ],[])
 
+AC_CHECK_FUNCS(sandbox_init, [
+   AC_CHECK_HEADER(sandbox.h, [
+      AC_DEFINE([HAVE_DROP_PRIVILEGES], 1,
+         [Define this if you have an implementation of drop_privileges()])
+      build_darwin_privs=yes
+   ], [])
+],[])
+
+
 
 AM_CONDITIONAL([BUILD_SOLARIS_PRIVS],[test "$build_solaris_privs" = "yes"])
 AM_CONDITIONAL([BUILD_LINUX_PRIVS],[test "$build_linux_privs" = "yes"])
 AM_CONDITIONAL([BUILD_OPENBSD_PRIVS],[test "$build_openbsd_privs" = "yes"])
 AM_CONDITIONAL([BUILD_FREEBSD_PRIVS],[test "$build_freebsd_privs" = "yes"])
+AM_CONDITIONAL([BUILD_DARWIN_PRIVS],[test "$build_darwin_privs" = "yes"])
 
 AC_ARG_ENABLE(docs,
   [AS_HELP_STRING([--disable-docs],[Disable documentation generation])])
