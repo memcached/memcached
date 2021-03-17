@@ -38,6 +38,10 @@ struct extstore_stats {
     struct extstore_page_data *page_data;
 };
 
+enum extstore_io_engine {
+    EXTSTORE_IO_ENGINE_SYNC = 0,
+};
+
 // TODO: Temporary configuration structure. A "real" library should have an
 // extstore_set(enum, void *ptr) which hides the implementation.
 // this is plenty for quick development.
@@ -50,6 +54,7 @@ struct extstore_conf {
     unsigned int wbuf_count; // this might get locked to "2 per active page"
     unsigned int io_threadcount;
     unsigned int io_depth; // with normal I/O, hits locks less. req'd for AIO
+    enum extstore_io_engine io_engine; // "sync"
 };
 
 struct extstore_conf_file {
@@ -87,6 +92,7 @@ struct _obj_io {
     enum obj_io_mode mode;
     /* callback pointers? */
     obj_io_cb cb;
+    bool offload; /* This flag is set when the callback is scheduled to run on the IO thread */
 };
 
 enum extstore_res {
@@ -100,11 +106,24 @@ enum extstore_res {
     EXTSTORE_INIT_THREAD_FAIL
 };
 
+struct extstore_context {
+    struct store_engine *e;
+    struct event event;
+};
+
+struct extstore_engine_ops {
+    int (*init)(void *ptr, struct extstore_conf_file *fh, struct extstore_conf *cf);
+    void (*stats)(void *ptr, struct extstore_stats *st);
+    struct extstore_context *(*init_context)(void *ptr, enum extstore_res *res);
+    int (*submit)(struct extstore_context *ctx, obj_io *io);
+};
+
 const char *extstore_err(enum extstore_res res);
 void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf, enum extstore_res *res);
-int extstore_write_request(void *ptr, unsigned int bucket, unsigned int free_bucket, obj_io *io);
+struct extstore_context *extstore_init_context(void *ptr, enum extstore_res *res);
+int extstore_write_request(struct extstore_context *ctx, unsigned int bucket, unsigned int free_bucket, obj_io *io);
 void extstore_write(void *ptr, obj_io *io);
-int extstore_submit(void *ptr, obj_io *io);
+int extstore_submit(struct extstore_context *ctx, obj_io *io);
 /* count are the number of objects being removed, bytes are the original
  * length of those objects. Bytes is optional but you can't track
  * fragmentation without it.

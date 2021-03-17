@@ -1,5 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
+#include "config.h"
 // FIXME: config.h?
 #include <stdint.h>
 #include <stdbool.h>
@@ -7,6 +8,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <pthread.h>
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
@@ -15,8 +17,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <event.h>
 #include "extstore.h"
-#include "config.h"
 
 // TODO: better if an init option turns this on/off.
 #ifdef EXTSTORE_DEBUG
@@ -93,15 +95,12 @@ struct store_engine {
     store_page *pages; /* directly addressable page list */
     _store_wbuf *wbuf_stack; /* wbuf freelist */
     obj_io *io_stack; /* IO's to use with submitting wbuf's */
-    store_io_thread *io_threads;
     store_maint_thread *maint_thread;
     store_page *page_freelist;
     store_page **page_buckets; /* stack of pages currently allocated to each bucket */
     store_page **free_page_buckets; /* stack of use-case isolated free pages */
     size_t page_size;
     unsigned int version; /* global version counter */
-    unsigned int last_io_thread; /* round robin the IO threads */
-    unsigned int io_threadcount; /* count of IO threads */
     unsigned int page_count;
     unsigned int page_free; /* unallocated pages */
     unsigned int page_bucketcount; /* count of potential page buckets */
@@ -109,6 +108,14 @@ struct store_engine {
     unsigned int io_depth; /* FIXME: Might cache into thr struct */
     pthread_mutex_t stats_mutex;
     struct extstore_stats stats;
+    const struct extstore_engine_ops *ops;
+    void *priv;
+};
+
+struct store_sync_engine {
+    store_io_thread *io_threads;
+    unsigned int last_io_thread; /* round robin the IO threads */
+    unsigned int io_threadcount; /* count of IO threads */
 };
 
 static _store_wbuf *wbuf_new(size_t size) {
@@ -126,10 +133,9 @@ static _store_wbuf *wbuf_new(size_t size) {
     return b;
 }
 
-static store_io_thread *_get_io_thread(store_engine *e) {
+static store_io_thread *_get_io_thread(struct store_sync_engine *e) {
     int tid = -1;
     long long int low = LLONG_MAX;
-    pthread_mutex_lock(&e->mutex);
     // find smallest queue. ignoring lock since being wrong isn't fatal.
     // TODO: if average queue depth can be quickly tracked, can break as soon
     // as we see a thread that's less than average, and start from last_io_thread
@@ -142,7 +148,6 @@ static store_io_thread *_get_io_thread(store_engine *e) {
             low = e->io_threads[x].depth;
         }
     }
-    pthread_mutex_unlock(&e->mutex);
 
     return &e->io_threads[tid];
 }
@@ -166,12 +171,7 @@ void extstore_get_stats(void *ptr, struct extstore_stats *st) {
     st->pages_free = e->page_free;
     st->pages_used = e->page_count - e->page_free;
     pthread_mutex_unlock(&e->mutex);
-    st->io_queue = 0;
-    for (int x = 0; x < e->io_threadcount; x++) {
-        pthread_mutex_lock(&e->io_threads[x].mutex);
-        st->io_queue += e->io_threads[x].depth;
-        pthread_mutex_unlock(&e->io_threads[x].mutex);
-    }
+    e->ops->stats(e, st);
     // calculate bytes_fragmented.
     // note that open and yet-filled pages count against fragmentation.
     st->bytes_fragmented = st->pages_used * e->page_size -
@@ -216,6 +216,138 @@ const char *extstore_err(enum extstore_res res) {
     return rv;
 }
 
+static enum extstore_res extstore_init_file(store_engine *e, struct extstore_conf_file *fh) {
+    struct extstore_conf_file *f;
+
+    for (f = fh; f != NULL; f = f->next) {
+        f->fd = open(f->file, O_RDWR | O_CREAT, 0644);
+        if (f->fd < 0) {
+#ifdef EXTSTORE_DEBUG
+            perror("extstore open");
+#endif
+            return EXTSTORE_INIT_OPEN_FAIL;
+        }
+        // use an fcntl lock to help avoid double starting.
+        struct flock lock;
+        lock.l_type = F_WRLCK;
+        lock.l_start = 0;
+        lock.l_whence = SEEK_SET;
+        lock.l_len = 0;
+        if (fcntl(f->fd, F_SETLK, &lock) < 0) {
+            return EXTSTORE_INIT_OPEN_FAIL;
+        }
+        if (ftruncate(f->fd, 0) < 0) {
+            return EXTSTORE_INIT_OPEN_FAIL;
+        }
+    }
+
+    return 0;
+}
+
+static int store_sync_engine_init(void *ptr, struct extstore_conf_file *fh, struct extstore_conf *cf)
+{
+    int i;
+    store_engine *e = (store_engine *)ptr;
+    enum extstore_res res;
+    struct store_sync_engine *engine;
+    pthread_t thread;
+
+    res = extstore_init_file(e, fh);
+    if (res) {
+        return res;
+    }
+
+    engine = calloc(1, sizeof(*engine));
+    if (engine == NULL)
+        return EXTSTORE_INIT_OOM;
+
+    e->priv = engine;
+
+    // spawn threads
+    engine->io_threads = calloc(cf->io_threadcount, sizeof(store_io_thread));
+    for (i = 0; i < cf->io_threadcount; i++) {
+        pthread_mutex_init(&engine->io_threads[i].mutex, NULL);
+        pthread_cond_init(&engine->io_threads[i].cond, NULL);
+        engine->io_threads[i].e = e;
+        // FIXME: error handling
+        pthread_create(&thread, NULL, extstore_io_thread, &engine->io_threads[i]);
+    }
+    engine->io_threadcount = cf->io_threadcount;
+
+    return 0;
+}
+
+struct store_sync_context {
+    /* ctx must be the first member */
+    struct extstore_context ctx;
+};
+
+static void store_sync_engine_event_handler(const evutil_socket_t fd, const short which, void *arg) {
+    E_DEBUG("dummy event handler should never be called\n");
+    assert(0);
+}
+
+static struct extstore_context *store_sync_engine_init_context(void *ptr, enum extstore_res *res) {
+    store_engine *e = (store_engine *)ptr;
+    struct store_sync_context *ctx;
+
+    ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        *res = EXTSTORE_INIT_OOM;
+        return NULL;
+    }
+
+    event_set(&ctx->ctx.event, -1, EV_READ | EV_PERSIST, store_sync_engine_event_handler, ctx);
+    ctx->ctx.e = e;
+
+    return &ctx->ctx;
+}
+
+static void store_sync_engine_stats(void *ptr, struct extstore_stats *st) {
+    store_engine *e = (store_engine *)ptr;
+    struct store_sync_engine *engine = e->priv;
+
+    st->io_queue = 0;
+    for (int x = 0; x < engine->io_threadcount; x++) {
+        pthread_mutex_lock(&engine->io_threads[x].mutex);
+        st->io_queue += engine->io_threads[x].depth;
+        pthread_mutex_unlock(&engine->io_threads[x].mutex);
+    }
+}
+
+static int store_sync_engine_submit(struct extstore_context *ctx, obj_io *io);
+
+static const struct extstore_engine_ops store_sync_engine_ops = {
+    .init = store_sync_engine_init,
+    .init_context = store_sync_engine_init_context,
+    .stats = store_sync_engine_stats,
+    .submit = store_sync_engine_submit,
+};
+
+static void extstore_io_done(store_engine *e, obj_io *io, int ret) {
+    store_page *p = &e->pages[io->page_id];
+
+    if (ret == 0) {
+        E_DEBUG("read/write returned nothing\n");
+    }
+
+#ifdef EXTSTORE_DEBUG
+    if (ret == -1) {
+        perror("read/write op failed");
+    }
+#endif
+
+    io->cb(e, io, ret);
+
+    // FIXME: Should hold refcount during write. doesn't
+    // currently matter since page can't free while active.
+    if (io->mode != OBJ_IO_WRITE) {
+        pthread_mutex_lock(&p->mutex);
+        p->refcount--;
+        pthread_mutex_unlock(&p->mutex);
+    }
+}
+
 // TODO: #define's for DEFAULT_BUCKET, FREE_VERSION, etc
 void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
         enum extstore_res *res) {
@@ -250,35 +382,16 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
         return NULL;
     }
 
+    switch (cf->io_engine) {
+        case EXTSTORE_IO_ENGINE_SYNC:
+        default:
+            e->ops = &store_sync_engine_ops;
+            break;
+    }
+
     e->page_size = cf->page_size;
     uint64_t temp_page_count = 0;
     for (f = fh; f != NULL; f = f->next) {
-        f->fd = open(f->file, O_RDWR | O_CREAT, 0644);
-        if (f->fd < 0) {
-            *res = EXTSTORE_INIT_OPEN_FAIL;
-#ifdef EXTSTORE_DEBUG
-            perror("extstore open");
-#endif
-            free(e);
-            return NULL;
-        }
-        // use an fcntl lock to help avoid double starting.
-        struct flock lock;
-        lock.l_type = F_WRLCK;
-        lock.l_start = 0;
-        lock.l_whence = SEEK_SET;
-        lock.l_len = 0;
-        if (fcntl(f->fd, F_SETLK, &lock) < 0) {
-            *res = EXTSTORE_INIT_OPEN_FAIL;
-            free(e);
-            return NULL;
-        }
-        if (ftruncate(f->fd, 0) < 0) {
-            *res = EXTSTORE_INIT_OPEN_FAIL;
-            free(e);
-            return NULL;
-        }
-
         temp_page_count += f->page_count;
         f->offset = 0;
     }
@@ -289,6 +402,14 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
         return NULL;
     }
     e->page_count = temp_page_count;
+
+    e->io_depth = MAX(1, cf->io_depth);
+
+    *res = e->ops->init(e, fh, cf);
+    if (*res) {
+            free(e);
+            return NULL;
+    }
 
     e->pages = calloc(e->page_count, sizeof(store_page));
     if (e->pages == NULL) {
@@ -357,7 +478,10 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     for (i = 0; i < cf->wbuf_count; i++) {
         _store_wbuf *w = wbuf_new(cf->wbuf_size);
         obj_io *io = calloc(1, sizeof(obj_io));
-        /* TODO: on error, loop again and free stack. */
+        if (io == NULL) {
+            *res = EXTSTORE_INIT_OOM;
+            goto free_pages;
+        }
         w->next = e->wbuf_stack;
         e->wbuf_stack = w;
         io->next = e->io_stack;
@@ -366,19 +490,6 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
 
     pthread_mutex_init(&e->mutex, NULL);
     pthread_mutex_init(&e->stats_mutex, NULL);
-
-    e->io_depth = cf->io_depth;
-
-    // spawn threads
-    e->io_threads = calloc(cf->io_threadcount, sizeof(store_io_thread));
-    for (i = 0; i < cf->io_threadcount; i++) {
-        pthread_mutex_init(&e->io_threads[i].mutex, NULL);
-        pthread_cond_init(&e->io_threads[i].cond, NULL);
-        e->io_threads[i].e = e;
-        // FIXME: error handling
-        pthread_create(&thread, NULL, extstore_io_thread, &e->io_threads[i]);
-    }
-    e->io_threadcount = cf->io_threadcount;
 
     e->maint_thread = calloc(1, sizeof(store_maint_thread));
     e->maint_thread->e = e;
@@ -390,6 +501,33 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     extstore_run_maint(e);
 
     return (void *)e;
+
+free_pages:
+    while (e->wbuf_stack) {
+        _store_wbuf *w = e->wbuf_stack;
+
+        e->wbuf_stack = w->next;
+        free(w->buf);
+        free(w);
+    }
+    while (e->io_stack) {
+        obj_io *io = e->io_stack;
+
+        e->io_stack = io->next;
+        free(io);
+    }
+    free(e->pages);
+    free(e);
+
+    return NULL;
+}
+
+struct extstore_context *extstore_init_context(void *ptr, enum extstore_res *res) {
+    store_engine *e = ptr;
+
+    *res = 0;
+
+    return e ? e->ops->init_context(e, res) : NULL;
 }
 
 void extstore_run_maint(void *ptr) {
@@ -494,7 +632,8 @@ static void _wbuf_cb(void *ep, obj_io *io, int ret) {
 /* Wraps pages current wbuf in an io and submits to IO thread.
  * Called with p locked, locks e.
  */
-static void _submit_wbuf(store_engine *e, store_page *p) {
+static void _submit_wbuf(struct extstore_context *ctx, store_page *p) {
+    store_engine *e = ctx->e;
     _store_wbuf *w;
     pthread_mutex_lock(&e->mutex);
     obj_io *io = e->io_stack;
@@ -514,7 +653,7 @@ static void _submit_wbuf(store_engine *e, store_page *p) {
     io->buf = w->buf;
     io->cb = _wbuf_cb;
 
-    extstore_submit(e, io);
+    extstore_submit(ctx, io);
 }
 
 /* engine write function; takes engine, item_io.
@@ -526,9 +665,9 @@ static void _submit_wbuf(store_engine *e, store_page *p) {
  * new page. best if used from a background thread that can harmlessly retry.
  */
 
-int extstore_write_request(void *ptr, unsigned int bucket,
+int extstore_write_request(struct extstore_context *ctx, unsigned int bucket,
         unsigned int free_bucket, obj_io *io) {
-    store_engine *e = (store_engine *)ptr;
+    store_engine *e = ctx->e;
     store_page *p;
     int ret = -1;
     if (bucket >= e->page_bucketcount)
@@ -558,7 +697,7 @@ int extstore_write_request(void *ptr, unsigned int bucket,
 
     // if io won't fit, submit IO for wbuf and find new one.
     if (p->wbuf && p->wbuf->free < io->len && !p->wbuf->full) {
-        _submit_wbuf(e, p);
+        _submit_wbuf(ctx, p);
         p->wbuf->full = true;
     }
 
@@ -607,9 +746,20 @@ void extstore_write(void *ptr, obj_io *io) {
  * signal io thread to wake.
  * return success.
  */
-int extstore_submit(void *ptr, obj_io *io) {
-    store_engine *e = (store_engine *)ptr;
-    store_io_thread *t = _get_io_thread(e);
+int extstore_submit(struct extstore_context *ctx, obj_io *io) {
+    store_engine *e = ctx->e;
+
+    return e->ops->submit(ctx, io);
+}
+
+static int store_sync_engine_submit(struct extstore_context *ctx, obj_io *io) {
+    store_engine *e = ctx->e;
+    store_io_thread *t;
+
+    io->offload = true;
+    pthread_mutex_lock(&e->mutex);
+    t = _get_io_thread(e->priv);
+    pthread_mutex_unlock(&e->mutex);
 
     pthread_mutex_lock(&t->mutex);
     if (t->queue == NULL) {
@@ -727,6 +877,39 @@ static inline int _read_from_wbuf(store_page *p, obj_io *io) {
     return io->len;
 }
 
+static bool extstore_read_from_wbuf(store_engine *e, obj_io *io) {
+    int ret = 0;
+    bool done = false;
+    store_page *p = &e->pages[io->page_id];
+
+    // Page is currently open. deal if read is past the end.
+    pthread_mutex_lock(&p->mutex);
+    if (!p->free && !p->closed && p->version == io->page_version) {
+        if (p->active && io->offset >= p->written) {
+            ret = _read_from_wbuf(p, io);
+            done = true;
+        } else {
+            p->refcount++;
+        }
+        STAT_L(e);
+        e->stats.bytes_read += io->len;
+        e->stats.objects_read++;
+        STAT_UL(e);
+    } else {
+        done = true;
+        ret = -2; // TODO: enum in IO for status?
+    }
+    pthread_mutex_unlock(&p->mutex);
+
+    if (done) {
+        io->cb(e, io, ret);
+    }
+
+    return done;
+}
+
+static void extstore_io(store_io_thread *t, obj_io *cur_io);
+
 /* engine IO thread; takes engine context
  * manage writes/reads
  * runs IO callbacks inline after each IO
@@ -762,82 +945,59 @@ static void *extstore_io_thread(void *arg) {
         pthread_mutex_unlock(&me->mutex);
 
         obj_io *cur_io = io_stack;
+        extstore_io(me, cur_io);
+    }
+
+    return NULL;
+}
+
+static int extstore_read(store_page *p, obj_io *io) {
+    assert(io->mode == OBJ_IO_READ);
+#if !defined(HAVE_PREAD) || !defined(HAVE_PREADV)
+    // TODO: lseek offset is natively 64-bit on OS X, but
+    // perhaps not on all platforms? Else use lseek64()
+    int ret = lseek(p->fd, p->offset + io->offset, SEEK_SET);
+    if (ret >= 0) {
+        if (io->iov == NULL) {
+            ret = read(p->fd, io->buf, io->len);
+        } else {
+            ret = readv(p->fd, io->iov, io->iovcnt);
+        }
+    }
+    return ret;
+#else
+    if (io->iov == NULL) {
+        return pread(p->fd, io->buf, io->len, p->offset + io->offset);
+    } else {
+        return preadv(p->fd, io->iov, io->iovcnt, p->offset + io->offset);
+    }
+#endif
+}
+
+static void extstore_io(store_io_thread *t, obj_io *cur_io) {
+    store_engine *e = t->e;
+
         while (cur_io) {
             // We need to note next before the callback in case the obj_io
             // gets reused.
             obj_io *next = cur_io->next;
             int ret = 0;
-            int do_op = 1;
             store_page *p = &e->pages[cur_io->page_id];
             // TODO: loop if not enough bytes were read/written.
             switch (cur_io->mode) {
                 case OBJ_IO_READ:
-                    // Page is currently open. deal if read is past the end.
-                    pthread_mutex_lock(&p->mutex);
-                    if (!p->free && !p->closed && p->version == cur_io->page_version) {
-                        if (p->active && cur_io->offset >= p->written) {
-                            ret = _read_from_wbuf(p, cur_io);
-                            do_op = 0;
-                        } else {
-                            p->refcount++;
-                        }
-                        STAT_L(e);
-                        e->stats.bytes_read += cur_io->len;
-                        e->stats.objects_read++;
-                        STAT_UL(e);
-                    } else {
-                        do_op = 0;
-                        ret = -2; // TODO: enum in IO for status?
-                    }
-                    pthread_mutex_unlock(&p->mutex);
-                    if (do_op) {
-#if !defined(HAVE_PREAD) || !defined(HAVE_PREADV)
-                        // TODO: lseek offset is natively 64-bit on OS X, but
-                        // perhaps not on all platforms? Else use lseek64()
-                        ret = lseek(p->fd, p->offset + cur_io->offset, SEEK_SET);
-                        if (ret >= 0) {
-                            if (cur_io->iov == NULL) {
-                                ret = read(p->fd, cur_io->buf, cur_io->len);
-                            } else {
-                                ret = readv(p->fd, cur_io->iov, cur_io->iovcnt);
-                            }
-                        }
-#else
-                        if (cur_io->iov == NULL) {
-                            ret = pread(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
-                        } else {
-                            ret = preadv(p->fd, cur_io->iov, cur_io->iovcnt, p->offset + cur_io->offset);
-                        }
-#endif
+                    if (!extstore_read_from_wbuf(e, cur_io)) {
+                        ret = extstore_read(p, cur_io);
+                        extstore_io_done(e, cur_io, ret);
                     }
                     break;
                 case OBJ_IO_WRITE:
-                    do_op = 0;
-                    // FIXME: Should hold refcount during write. doesn't
-                    // currently matter since page can't free while active.
                     ret = pwrite(p->fd, cur_io->buf, cur_io->len, p->offset + cur_io->offset);
+                    extstore_io_done(e, cur_io, ret);
                     break;
-            }
-            if (ret == 0) {
-                E_DEBUG("read returned nothing\n");
-            }
-
-#ifdef EXTSTORE_DEBUG
-            if (ret == -1) {
-                perror("read/write op failed");
-            }
-#endif
-            cur_io->cb(e, cur_io, ret);
-            if (do_op) {
-                pthread_mutex_lock(&p->mutex);
-                p->refcount--;
-                pthread_mutex_unlock(&p->mutex);
             }
             cur_io = next;
         }
-    }
-
-    return NULL;
 }
 
 // call with *p locked.

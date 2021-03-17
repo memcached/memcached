@@ -624,6 +624,7 @@ typedef struct {
     cache_t *io_cache;          /* IO objects */
 #ifdef EXTSTORE
     void *storage;              /* data object for storage system */
+    void *storage_ctx;          /* thread-specific data object for storage system */
 #endif
     logger *l;                  /* logger buffer */
     void *lru_bump_buf;         /* async LRU bump buffer */
@@ -869,6 +870,7 @@ void redispatch_conn(conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size,
     enum network_transport transport, void *ssl);
 void sidethread_conn_close(conn *c);
+struct event_base *event_base_new_with_nolock_config(void);
 
 /* Lock wrappers for cache functions that are called from main loop. */
 enum delta_result_type add_delta(conn *c, const char *key,

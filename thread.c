@@ -387,15 +387,7 @@ void accept_new_conns(const bool do_accept) {
  * Set up a thread's information.
  */
 static void setup_thread(LIBEVENT_THREAD *me) {
-#if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
-    struct event_config *ev_config;
-    ev_config = event_config_new();
-    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
-    me->base = event_base_new_with_config(ev_config);
-    event_config_free(ev_config);
-#else
-    me->base = event_init();
-#endif
+    me->base = event_base_new_with_nolock_config();
 
     if (! me->base) {
         fprintf(stderr, "Can't allocate event base\n");
@@ -454,6 +446,10 @@ static void setup_thread(LIBEVENT_THREAD *me) {
             exit(EXIT_FAILURE);
         }
     }
+#endif
+
+#ifdef EXTSTORE
+    me->storage_ctx = storage_init_context(me->storage, me->base);
 #endif
 }
 
@@ -538,7 +534,7 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                     c->thread = me;
 #ifdef EXTSTORE
                     if (c->thread->storage) {
-                        conn_io_queue_add(c, IO_QUEUE_EXTSTORE, c->thread->storage,
+                        conn_io_queue_add(c, IO_QUEUE_EXTSTORE, c->thread,
                             storage_submit_cb, storage_complete_cb, storage_finalize_cb);
                     }
 #endif

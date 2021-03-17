@@ -227,7 +227,12 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
     // All IO's have returned, lets re-attach this connection to our original
     // thread.
     if (p->q->count == 0) {
-        redispatch_conn(c);
+        if (io->offload) {
+            redispatch_conn(c);
+        } else {
+            //conn_worker_readd(c);
+            redispatch_conn(c);
+        }
     }
 }
 
@@ -364,8 +369,10 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 }
 
 void storage_submit_cb(void *ctx, void *stack) {
+    LIBEVENT_THREAD *thread = ctx;
+
     // Don't need to do anything special for extstore.
-    extstore_submit(ctx, stack);
+    extstore_submit(thread->storage_ctx, stack);
 }
 
 static void recache_or_free(io_pending_t *pending) {
@@ -464,7 +471,7 @@ void storage_finalize_cb(io_pending_t *pending) {
  * WRITE FLUSH THREAD
  */
 
-static int storage_write(void *storage, const int clsid, const int item_age) {
+static int storage_write(struct extstore_context *ctx, const int clsid, const int item_age) {
     int did_moves = 0;
     struct lru_pull_tail_return it_info;
 
@@ -502,7 +509,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
             assert(it->refcount >= 2);
             // NOTE: write bucket vs free page bucket will disambiguate once
             // lowttl feature is better understood.
-            if (extstore_write_request(storage, bucket, bucket, &io) == 0) {
+            if (extstore_write_request(ctx, bucket, bucket, &io) == 0) {
                 // cuddle the hash value into the time field so we don't have
                 // to recalculate it.
                 item *buf_it = (item *) io.buf;
@@ -533,7 +540,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
                 // crc what we copied so we can do it sequentially.
                 buf_it->it_flags &= ~ITEM_LINKED;
                 buf_it->exptime = crc32c(0, (char*)io.buf+STORE_OFFSET, orig_ntotal-STORE_OFFSET);
-                extstore_write(storage, &io);
+                extstore_write(ctx->e, &io);
                 item_hdr *hdr = (item_hdr *) ITEM_data(hdr_it);
                 hdr->page_version = io.page_version;
                 hdr->page_id = io.page_id;
@@ -567,6 +574,8 @@ static pthread_mutex_t storage_write_plock;
 
 static void *storage_write_thread(void *arg) {
     void *storage = arg;
+    void *storage_ctx;
+    struct event_base *base;
     // NOTE: ignoring overflow since that would take years of uptime in a
     // specific load pattern of never going to sleep.
     unsigned int backoff[MAX_NUMBER_OF_SLAB_CLASSES] = {0};
@@ -577,6 +586,9 @@ static void *storage_write_thread(void *arg) {
         fprintf(stderr, "Failed to allocate logger for storage compaction thread\n");
         abort();
     }
+
+    base = event_base_new_with_nolock_config();
+    storage_ctx = storage_init_context(storage, base);
 
     pthread_mutex_lock(&storage_write_plock);
 
@@ -613,7 +625,7 @@ static void *storage_write_thread(void *arg) {
                 } else {
                     item_age = settings.ext_item_age;
                 }
-                if (storage_write(storage, x, item_age)) {
+                if (storage_write(storage_ctx, x, item_age)) {
                     chunks_free++; // Allow stopping if we've done enough this loop
                     did_move = true;
                     do_sleep = false;
@@ -637,6 +649,7 @@ static void *storage_write_thread(void *arg) {
             usleep(to_sleep);
             to_sleep *= 2;
         }
+        event_base_loop(base, EVLOOP_NONBLOCK);
         pthread_mutex_lock(&storage_write_plock);
     }
     return NULL;
@@ -766,9 +779,9 @@ struct storage_compact_wrap {
     bool miss; // version flipped out from under us
 };
 
-static void storage_compact_readback(void *storage, logger *l,
+static void storage_compact_readback(struct extstore_context *ctx, logger *l,
         bool drop_unread, char *readback_buf,
-        uint32_t page_id, uint64_t page_version, uint64_t read_size) {
+        uint32_t page_id, uint64_t page_version, uint64_t read_size, struct event_base *base) {
     uint64_t offset = 0;
     unsigned int rescues = 0;
     unsigned int lost = 0;
@@ -799,7 +812,7 @@ static void storage_compact_readback(void *storage, logger *l,
                 hdr = (item_hdr *)ITEM_data(hdr_it);
                 if (hdr->page_id == page_id && hdr->page_version == page_version) {
                     // Item header is still completely valid.
-                    extstore_delete(storage, page_id, page_version, 1, ntotal);
+                    extstore_delete(ctx->e, page_id, page_version, 1, ntotal);
                     // drop inactive items.
                     if (drop_unread && GET_LRU(hdr_it->slabs_clsid) == COLD_LRU) {
                         do_write = false;
@@ -817,13 +830,14 @@ static void storage_compact_readback(void *storage, logger *l,
                 io.len = ntotal;
                 io.mode = OBJ_IO_WRITE;
                 for (tries = 10; tries > 0; tries--) {
-                    if (extstore_write_request(storage, PAGE_BUCKET_COMPACT, PAGE_BUCKET_COMPACT, &io) == 0) {
+                    if (extstore_write_request(ctx, PAGE_BUCKET_COMPACT, PAGE_BUCKET_COMPACT, &io) == 0) {
                         memcpy(io.buf, it, io.len);
-                        extstore_write(storage, &io);
+                        extstore_write(ctx->e, &io);
                         do_update = true;
                         break;
                     } else {
                         usleep(1000);
+                        event_base_loop(base, EVLOOP_NONBLOCK);
                     }
                 }
 
@@ -863,15 +877,16 @@ static void storage_compact_readback(void *storage, logger *l,
 static void _storage_compact_cb(void *e, obj_io *io, int ret) {
     struct storage_compact_wrap *wrap = (struct storage_compact_wrap *)io->data;
     assert(wrap->submitted == true);
-
-    pthread_mutex_lock(&wrap->lock);
+    if (io->offload)
+        pthread_mutex_lock(&wrap->lock);
 
     if (ret < 1) {
         wrap->miss = true;
     }
     wrap->done = true;
 
-    pthread_mutex_unlock(&wrap->lock);
+    if (io->offload)
+        pthread_mutex_unlock(&wrap->lock);
 }
 
 // TODO: hoist the storage bits from lru_maintainer_thread in here.
@@ -879,6 +894,8 @@ static void _storage_compact_cb(void *e, obj_io *io, int ret) {
 // I guess it's only COLD. that's probably fine.
 static void *storage_compact_thread(void *arg) {
     void *storage = arg;
+    void *storage_ctx;
+    struct event_base *base;
     useconds_t to_sleep = MAX_STORAGE_COMPACT_SLEEP;
     bool compacting = false;
     uint64_t page_version = 0;
@@ -894,6 +911,9 @@ static void *storage_compact_thread(void *arg) {
         fprintf(stderr, "Failed to allocate logger for storage compaction thread\n");
         abort();
     }
+
+    base = event_base_new_with_nolock_config();
+    storage_ctx = storage_init_context(storage, base);
 
     readback_buf = malloc(settings.ext_wbuf_size);
     if (readback_buf == NULL) {
@@ -919,6 +939,7 @@ static void *storage_compact_thread(void *arg) {
             extstore_run_maint(storage);
             usleep(to_sleep);
         }
+        event_base_loop(base, EVLOOP_NONBLOCK);
         pthread_mutex_lock(&storage_compact_plock);
 
         if (!compacting && storage_compact_check(storage, l,
@@ -940,7 +961,7 @@ static void *storage_compact_thread(void *arg) {
                 wrap.submitted = true;
                 wrap.miss = false;
 
-                extstore_submit(storage, &wrap.io);
+                extstore_submit(storage_ctx, &wrap.io);
             } else if (wrap.miss) {
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_ABORT,
                         NULL, page_id);
@@ -950,8 +971,8 @@ static void *storage_compact_thread(void *arg) {
             } else if (wrap.submitted && wrap.done) {
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_READ_START,
                         NULL, page_id, page_offset);
-                storage_compact_readback(storage, l, drop_unread,
-                        readback_buf, page_id, page_version, settings.ext_wbuf_size);
+                storage_compact_readback(storage_ctx, l, drop_unread,
+                        readback_buf, page_id, page_version, settings.ext_wbuf_size, base);
                 page_offset += settings.ext_wbuf_size;
                 wrap.done = false;
                 wrap.submitted = false;
@@ -1122,6 +1143,7 @@ void *storage_init_config(struct settings *s) {
     cf->ext_cf.wbuf_size = settings.ext_wbuf_size;
     cf->ext_cf.io_threadcount = settings.ext_io_threadcount;
     cf->ext_cf.io_depth = 1;
+    cf->ext_cf.io_engine = EXTSTORE_IO_ENGINE_SYNC;
     cf->ext_cf.page_buckets = 4;
     cf->ext_cf.wbuf_count = cf->ext_cf.page_buckets;
 
@@ -1139,6 +1161,7 @@ int storage_read_config(void *conf, char **subopt) {
         EXT_WBUF_SIZE,
         EXT_THREADS,
         EXT_IO_DEPTH,
+        EXT_IO_ENGINE,
         EXT_PATH,
         EXT_ITEM_SIZE,
         EXT_ITEM_AGE,
@@ -1156,6 +1179,7 @@ int storage_read_config(void *conf, char **subopt) {
         [EXT_WBUF_SIZE] = "ext_wbuf_size",
         [EXT_THREADS] = "ext_threads",
         [EXT_IO_DEPTH] = "ext_io_depth",
+        [EXT_IO_ENGINE] = "ext_io_engine",
         [EXT_PATH] = "ext_path",
         [EXT_ITEM_SIZE] = "ext_item_size",
         [EXT_ITEM_AGE] = "ext_item_age",
@@ -1214,6 +1238,18 @@ int storage_read_config(void *conf, char **subopt) {
             }
             if (!safe_strtoul(subopts_value, &ext_cf->io_depth)) {
                 fprintf(stderr, "could not parse argument to ext_io_depth\n");
+                return 1;
+            }
+            break;
+        case EXT_IO_ENGINE:
+            if (subopts_value == NULL) {
+                fprintf(stderr, "Missing ext_io_engine argument\n");
+                return 1;
+            }
+            if (strcmp(subopts_value, "sync") == 0) {
+                ext_cf->io_engine = EXTSTORE_IO_ENGINE_SYNC;
+            } else {
+                fprintf(stderr, "Unknown ext_io_engine option\n");
                 return 1;
             }
             break;
@@ -1374,6 +1410,27 @@ void *storage_init(void *conf) {
     }
 
     return storage;
+}
+
+void *storage_init_context(void *e, struct event_base *base) {
+    enum extstore_res eres;
+    struct extstore_context *ctx = extstore_init_context(e, &eres);
+
+    if (eres) {
+        fprintf(stderr, "Failed to initialize external storage for each thread: %s\n",
+            extstore_err(eres));
+        abort();
+    }
+
+    if (ctx) {
+        event_base_set(base, &ctx->event);
+        if (event_add(&ctx->event, 0) == -1) {
+            fprintf(stderr, "Can't monitor libevent storage\n");
+            abort();
+        }
+    }
+
+    return ctx;
 }
 
 #endif

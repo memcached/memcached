@@ -36,6 +36,7 @@ void *storage_init_config(struct settings *s);
 int storage_read_config(void *conf, char **subopt);
 int storage_check_config(void *conf);
 void *storage_init(void *conf);
+void *storage_init_context(void *e, struct event_base *base);
 
 // Ignore pointers and header bits from the CRC
 #define STORE_OFFSET offsetof(item, nbytes)

@@ -4499,6 +4499,24 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
     return reuse_mmap;
 }
 
+struct event_base *event_base_new_with_nolock_config(void) {
+    struct event_base *base;
+
+#if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
+    /* If libevent version is larger/equal to 2.0.2-alpha, use newer version */
+    struct event_config *ev_config;
+    ev_config = event_config_new();
+    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
+    base = event_base_new_with_config(ev_config);
+    event_config_free(ev_config);
+#else
+    /* Otherwise, use older API */
+    base = event_init();
+#endif
+
+    return base;
+}
+
 int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
@@ -5628,17 +5646,7 @@ int main (int argc, char **argv) {
     }
 
     /* initialize main thread libevent instance */
-#if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
-    /* If libevent version is larger/equal to 2.0.2-alpha, use newer version */
-    struct event_config *ev_config;
-    ev_config = event_config_new();
-    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
-    main_base = event_base_new_with_config(ev_config);
-    event_config_free(ev_config);
-#else
-    /* Otherwise, use older API */
-    main_base = event_init();
-#endif
+    main_base = event_base_new_with_nolock_config();
 
     /* Load initial auth file if required */
     if (settings.auth_file) {
