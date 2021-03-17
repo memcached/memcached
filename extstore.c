@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <sys/param.h>
+#include <sys/queue.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
@@ -19,6 +20,7 @@
 #include <assert.h>
 #include <event.h>
 #include "extstore.h"
+#include "util.h"
 
 // TODO: better if an init option turns this on/off.
 #ifdef EXTSTORE_DEBUG
@@ -43,6 +45,12 @@
     e->stats.stat -= amount; \
     pthread_mutex_unlock(&e->stats_mutex); \
 }
+
+#ifdef O_DIRECT
+#define OS_O_DIRECT O_DIRECT
+#else
+#define OS_O_DIRECT 0
+#endif
 
 typedef struct __store_wbuf {
     struct __store_wbuf *next;
@@ -82,6 +90,7 @@ typedef struct {
     obj_io *queue;
     store_engine *e;
     unsigned int depth; // queue depth
+    void *direct_buf;
 } store_io_thread;
 
 typedef struct {
@@ -106,6 +115,9 @@ struct store_engine {
     unsigned int page_bucketcount; /* count of potential page buckets */
     unsigned int free_page_bucketcount; /* count of free page buckets */
     unsigned int io_depth; /* FIXME: Might cache into thr struct */
+    unsigned int io_align;
+    unsigned int max_io_size;
+    bool direct;
     pthread_mutex_t stats_mutex;
     struct extstore_stats stats;
     const struct extstore_engine_ops *ops;
@@ -122,8 +134,7 @@ static _store_wbuf *wbuf_new(size_t size) {
     _store_wbuf *b = calloc(1, sizeof(_store_wbuf));
     if (b == NULL)
         return NULL;
-    b->buf = calloc(size, sizeof(char));
-    if (b->buf == NULL) {
+    if (posix_memalign((void **)&b->buf, 1024 * 1024 * 2, size)) {
         free(b);
         return NULL;
     }
@@ -192,6 +203,9 @@ const char *extstore_err(enum extstore_res res) {
         case EXTSTORE_INIT_BAD_WBUF_SIZE:
             rv = "page_size must be divisible by wbuf_size";
             break;
+        case EXTSTORE_INIT_BAD_IO_SIZE:
+            rv = "io_align must be a power of 2 and max_io_size must be divisible by io_align";
+            break;
         case EXTSTORE_INIT_NEED_MORE_WBUF:
             rv = "wbuf_count must be >= page_buckets";
             break;
@@ -220,7 +234,10 @@ static enum extstore_res extstore_init_file(store_engine *e, struct extstore_con
     struct extstore_conf_file *f;
 
     for (f = fh; f != NULL; f = f->next) {
-        f->fd = open(f->file, O_RDWR | O_CREAT, 0644);
+        int flags = O_RDWR | O_CREAT;
+        if  (e->direct)
+            flags |= OS_O_DIRECT;
+        f->fd = open(f->file, flags, 0644);
         if (f->fd < 0) {
 #ifdef EXTSTORE_DEBUG
             perror("extstore open");
@@ -268,6 +285,11 @@ static int store_sync_engine_init(void *ptr, struct extstore_conf_file *fh, stru
     for (i = 0; i < cf->io_threadcount; i++) {
         pthread_mutex_init(&engine->io_threads[i].mutex, NULL);
         pthread_cond_init(&engine->io_threads[i].cond, NULL);
+        if (e->direct) {
+            if (posix_memalign(&engine->io_threads[i].direct_buf, e->io_align, e->max_io_size)) {
+                return EXTSTORE_INIT_OOM;
+            }
+        }
         engine->io_threads[i].e = e;
         // FIXME: error handling
         pthread_create(&thread, NULL, extstore_io_thread, &engine->io_threads[i]);
@@ -404,6 +426,19 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     e->page_count = temp_page_count;
 
     e->io_depth = MAX(1, cf->io_depth);
+    e->direct = cf->direct;
+    if (e->direct) {
+        e->io_align = MAX(512, cf->io_align);
+    } else {
+        e->io_align = 1;
+    }
+    e->max_io_size = MAX(e->io_align, cf->max_io_size);
+
+    if ((e->max_io_size % e->io_align) != 0 || !mc_powerof2(e->io_align)) {
+        *res = EXTSTORE_INIT_BAD_IO_SIZE;
+        free(e);
+        return NULL;
+    }
 
     *res = e->ops->init(e, fh, cf);
     if (*res) {
@@ -974,6 +1009,74 @@ static int extstore_read(store_page *p, obj_io *io) {
 #endif
 }
 
+static int extstore_read_direct(store_io_thread *t, store_page *p, obj_io *io) {
+    uint64_t offset = p->offset + io->offset;
+    uint64_t start_offset = mc_rounddown(offset, t->e->io_align);
+    uint64_t end_offset = mc_roundup(offset + io->len, t->e->io_align);
+    uint64_t start_indent = offset - start_offset;
+    uint64_t end_indent = end_offset - (offset + io->len);
+    char *read_buf;
+    ssize_t ret = 0;
+    int iov_index = 0;
+    uint64_t iov_offset = 0;
+
+    assert(io->mode == OBJ_IO_READ);
+
+    if (start_indent == 0 && end_indent == 0) {
+        if (io->iov == NULL && mc_is_aligned((uintptr_t)io->buf, t->e->io_align))
+            return extstore_read(p, io);
+    }
+
+    read_buf = t->direct_buf;
+
+    while (start_offset < end_offset) {
+        size_t to_copy;
+        char *src = read_buf;
+
+        ret = pread(p->fd, src, MIN(end_offset - start_offset, t->e->max_io_size), start_offset);
+        if (ret <= 0) {
+            if (errno == EAGAIN) {
+                continue;
+            }
+            break;
+        }
+
+        assert((ret % t->e->io_align) == 0);
+        to_copy = ret;
+
+        if (start_indent) {
+            src += start_indent;
+            to_copy -= start_indent;
+            start_indent = 0;
+        }
+        if (start_offset + ret == end_offset) {
+            to_copy -= end_indent;
+        }
+
+        if (io->iov) {
+            while (to_copy) {
+                size_t len = MIN(io->iov[iov_index].iov_len - iov_offset, to_copy);
+
+                memcpy((char *)io->iov[iov_index].iov_base + iov_offset, src, len);
+                iov_offset += len;
+                src += len;
+                to_copy -= len;
+                if (iov_offset == io->iov[iov_index].iov_len && iov_index < io->iovcnt - 1) {
+                    iov_index++;
+                    iov_offset = 0;
+                }
+            }
+        } else {
+            memcpy(io->buf + iov_offset, src, to_copy);
+            iov_offset += to_copy;
+        }
+
+        start_offset += ret;
+    }
+
+    return ret <= 0 ? ret : io->len;
+}
+
 static void extstore_io(store_io_thread *t, obj_io *cur_io) {
     store_engine *e = t->e;
 
@@ -987,7 +1090,10 @@ static void extstore_io(store_io_thread *t, obj_io *cur_io) {
             switch (cur_io->mode) {
                 case OBJ_IO_READ:
                     if (!extstore_read_from_wbuf(e, cur_io)) {
-                        ret = extstore_read(p, cur_io);
+                        if (e->direct)
+                            ret = extstore_read_direct(t, p, cur_io);
+                        else
+                            ret = extstore_read(p, cur_io);
                         extstore_io_done(e, cur_io, ret);
                     }
                     break;

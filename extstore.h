@@ -54,7 +54,10 @@ struct extstore_conf {
     unsigned int wbuf_count; // this might get locked to "2 per active page"
     unsigned int io_threadcount;
     unsigned int io_depth; // with normal I/O, hits locks less. req'd for AIO
+    unsigned int io_align; // boundary to which memcached will align direct I/O units
+    unsigned int max_io_size; // maximum size in bytes of a single direct I/O
     enum extstore_io_engine io_engine; // "sync"
+    bool direct; // use direct I/O (O_DIRECT)
 };
 
 struct extstore_conf_file {
@@ -97,6 +100,7 @@ struct _obj_io {
 
 enum extstore_res {
     EXTSTORE_INIT_BAD_WBUF_SIZE = 1,
+    EXTSTORE_INIT_BAD_IO_SIZE,
     EXTSTORE_INIT_NEED_MORE_WBUF,
     EXTSTORE_INIT_NEED_MORE_BUCKETS,
     EXTSTORE_INIT_PAGE_WBUF_ALIGNMENT,

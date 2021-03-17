@@ -1143,7 +1143,10 @@ void *storage_init_config(struct settings *s) {
     cf->ext_cf.wbuf_size = settings.ext_wbuf_size;
     cf->ext_cf.io_threadcount = settings.ext_io_threadcount;
     cf->ext_cf.io_depth = 1;
+    cf->ext_cf.io_align= 4096;
+    cf->ext_cf.max_io_size = 64 * 1024;
     cf->ext_cf.io_engine = EXTSTORE_IO_ENGINE_SYNC;
+    cf->ext_cf.direct = false;
     cf->ext_cf.page_buckets = 4;
     cf->ext_cf.wbuf_count = cf->ext_cf.page_buckets;
 
@@ -1161,7 +1164,11 @@ int storage_read_config(void *conf, char **subopt) {
         EXT_WBUF_SIZE,
         EXT_THREADS,
         EXT_IO_DEPTH,
+        EXT_IO_ALIGN,
+        EXT_MAX_IO_SIZE,
         EXT_IO_ENGINE,
+        EXT_DIRECT,
+        EXT_BUFFERED,
         EXT_PATH,
         EXT_ITEM_SIZE,
         EXT_ITEM_AGE,
@@ -1179,7 +1186,11 @@ int storage_read_config(void *conf, char **subopt) {
         [EXT_WBUF_SIZE] = "ext_wbuf_size",
         [EXT_THREADS] = "ext_threads",
         [EXT_IO_DEPTH] = "ext_io_depth",
+        [EXT_IO_ALIGN] = "ext_io_align",
+        [EXT_MAX_IO_SIZE] = "ext_max_io_size",
         [EXT_IO_ENGINE] = "ext_io_engine",
+        [EXT_DIRECT] = "ext_direct",
+        [EXT_BUFFERED] = "ext_buffered",
         [EXT_PATH] = "ext_path",
         [EXT_ITEM_SIZE] = "ext_item_size",
         [EXT_ITEM_AGE] = "ext_item_age",
@@ -1241,6 +1252,26 @@ int storage_read_config(void *conf, char **subopt) {
                 return 1;
             }
             break;
+        case EXT_IO_ALIGN:
+            if (subopts_value == NULL) {
+                fprintf(stderr, "Missing ext_io_align argument\n");
+                return 1;
+            }
+            if (!safe_strtoul(subopts_value, &ext_cf->io_align)) {
+                fprintf(stderr, "could not parse argument to ext_io_align\n");
+                return 1;
+            }
+            break;
+        case EXT_MAX_IO_SIZE:
+            if (subopts_value == NULL) {
+                fprintf(stderr, "Missing ext_max_io_size argument\n");
+                return 1;
+            }
+            if (!safe_strtoul(subopts_value, &ext_cf->max_io_size)) {
+                fprintf(stderr, "could not parse argument to ext_max_io_size\n");
+                return 1;
+            }
+            break;
         case EXT_IO_ENGINE:
             if (subopts_value == NULL) {
                 fprintf(stderr, "Missing ext_io_engine argument\n");
@@ -1252,6 +1283,12 @@ int storage_read_config(void *conf, char **subopt) {
                 fprintf(stderr, "Unknown ext_io_engine option\n");
                 return 1;
             }
+            break;
+        case EXT_DIRECT:
+            ext_cf->direct = true;
+            break;
+        case EXT_BUFFERED:
+            ext_cf->direct = false;
             break;
         case EXT_ITEM_SIZE:
             if (subopts_value == NULL) {
