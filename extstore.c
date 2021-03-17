@@ -21,6 +21,12 @@
 #include <event.h>
 #include "extstore.h"
 #include "util.h"
+#ifdef LIBURING
+#include <liburing.h>
+#include <sys/eventfd.h>
+#endif
+
+#define EXTSTORE_DEBUG
 
 // TODO: better if an init option turns this on/off.
 #ifdef EXTSTORE_DEBUG
@@ -206,6 +212,9 @@ const char *extstore_err(enum extstore_res res) {
         case EXTSTORE_INIT_BAD_IO_SIZE:
             rv = "io_align must be a power of 2 and max_io_size must be divisible by io_align";
             break;
+        case EXTSTORE_INIT_IO_URING_FAIL:
+            rv = "fail to initialize io_uring";
+            break;
         case EXTSTORE_INIT_NEED_MORE_WBUF:
             rv = "wbuf_count must be >= page_buckets";
             break;
@@ -370,6 +379,423 @@ static void extstore_io_done(store_engine *e, obj_io *io, int ret) {
     }
 }
 
+#ifdef LIBURING
+
+struct store_io_data {
+    /* file offset at which to start reading or writing */
+    uint64_t start_offset;
+    /* file offset at which to end reading or writing */
+    uint64_t end_offset;
+    /* number of bytes to skip before copying from start_offset */
+    uint64_t start_indent;
+    /* number of bytes not to copy before reaching to end_offset */
+    uint64_t end_indent;
+    int iov_index;
+    uint64_t iov_offset;
+    int fd;
+    void *read_buf;
+    /* this is used when io->iov is NULL or resubmitting after short read/write */
+    struct iovec iov_oneshot;
+    struct iovec *iov;
+    unsigned int iovcnt;
+    obj_io *io;
+    LIST_ENTRY(store_io_data) link;
+};
+
+struct store_uring_context {
+    /* ctx must be the first member */
+    struct extstore_context ctx;
+    int eventfd;
+    struct io_uring ring;
+    LIST_HEAD(, store_io_data) iod_free;
+    LIST_HEAD(, store_io_data) iod_inflight;
+    unsigned int depth;
+    LIST_ENTRY(store_uring_context) link;
+};
+
+struct store_uring_engine {
+    pthread_mutex_t lock;
+    LIST_HEAD(, store_uring_context) contexts;
+};
+
+static void store_io_data_init(struct store_io_data *data, store_engine *e, obj_io *io) {
+    store_page *p = &e->pages[io->page_id];
+    uint64_t offset = p->offset + io->offset;
+
+    data->start_offset = mc_rounddown(offset, e->io_align);
+    data->start_indent = offset - data->start_offset;
+    data->end_offset = mc_roundup(offset + io->len, e->io_align);
+    data->end_indent = data->end_offset - (offset + io->len);
+    data->io = io;
+    data->iov_index = 0;
+    data->iov_offset = 0;
+    data->fd = p->fd;
+
+    if (e->direct && io->mode == OBJ_IO_READ) {
+        data->iov_oneshot.iov_base = data->read_buf;
+        data->iov_oneshot.iov_len = MIN(data->end_offset - data->start_offset, e->max_io_size);
+        data->iov = &data->iov_oneshot;
+        data->iovcnt = 1;
+    } else if (io->iov) {
+        data->iov = io->iov;
+        data->iovcnt = io->iovcnt;
+    } else {
+        data->iov_oneshot.iov_base = io->buf;
+        data->iov_oneshot.iov_len = io->len;
+        data->iov = &data->iov_oneshot;
+        data->iovcnt = 1;
+    }
+
+    if (io->mode == OBJ_IO_WRITE) {
+        assert(data->start_indent == 0 && data->end_indent == 0);
+        assert(!io->iov && mc_is_aligned((uintptr_t)io->buf, e->io_align));
+    }
+}
+
+static bool store_io_data_done(struct store_io_data *data, store_engine *e, size_t bytes) {
+    if (bytes == 0)
+        return false;
+
+    data->start_offset += bytes;
+
+    if (e->direct && data->io->mode == OBJ_IO_READ) {
+        size_t to_copy = bytes;
+        char *src = data->read_buf;
+
+        if (data->start_indent) {
+            src += data->start_indent;
+            to_copy -= data->start_indent;
+            data->start_indent = 0;
+        }
+        if (data->start_offset == data->end_offset) {
+            to_copy -= data->end_indent;
+        }
+
+        if (data->io->iov) {
+            while (to_copy) {
+                size_t len = MIN(data->io->iov[data->iov_index].iov_len - data->iov_offset, to_copy);
+
+                memcpy((char *)data->io->iov[data->iov_index].iov_base + data->iov_offset, src, len);
+                data->iov_offset += len;
+                src += len;
+                to_copy -= len;
+                if (data->iov_offset == data->io->iov[data->iov_index].iov_len && data->iov_index < data->io->iovcnt - 1) {
+                    data->iov_index++;
+                    data->iov_offset = 0;
+                }
+            }
+        } else {
+            memcpy(data->io->buf + data->iov_offset, src, to_copy);
+            data->iov_offset += to_copy;
+        }
+
+        data->iov_oneshot.iov_len = MIN(data->end_offset - data->start_offset, e->max_io_size);
+    } else if (data->io->iov) {
+        size_t to_skip = bytes;
+
+        while (to_skip) {
+            size_t len = MIN(data->io->iov[data->iov_index].iov_len - data->iov_offset, to_skip);
+
+            data->iov_offset += len;
+            to_skip -= len;
+            if (data->iov_offset == data->io->iov[data->iov_index].iov_len && data->iov_index < data->io->iovcnt - 1) {
+                data->iov_index++;
+                data->iov_offset = 0;
+            }
+        }
+
+        data->iov_oneshot.iov_base = (char *)data->io->iov[data->iov_index].iov_base + data->iov_offset;
+        data->iov_oneshot.iov_len = data->io->iov[data->iov_index].iov_len - data->iov_offset;
+        data->iov = &data->iov_oneshot;
+        data->iovcnt = 1;
+    } else {
+        data->iov_offset += bytes;
+        data->iov_oneshot.iov_base = data->io->buf + data->iov_offset;
+        data->iov_oneshot.iov_len = data->end_offset - data->start_offset;
+    }
+
+    return data->start_offset == data->end_offset;
+}
+
+static void store_io_uring_prep(struct store_io_data *data, struct io_uring_sqe *sqe) {
+    if (data->io->mode == OBJ_IO_READ) {
+        io_uring_prep_readv(sqe, data->fd, data->iov, data->iovcnt, data->start_offset);
+    } else {
+        io_uring_prep_writev(sqe, data->fd, data->iov, data->iovcnt, data->start_offset);
+    }
+
+    io_uring_sqe_set_data(sqe, data);
+}
+
+static void store_uring_engine_event_handler(const evutil_socket_t fd, const short which, void *arg);
+
+static int store_uring_engine_submit_io(store_engine *e, obj_io *io, struct store_uring_context *ctx) {
+    struct store_io_data *iod;
+    struct io_uring_sqe *sqe;
+    int ret;
+
+    while (!(iod = LIST_FIRST(&ctx->iod_free))) {
+        store_uring_engine_event_handler(ctx->eventfd, 0, ctx);
+    }
+
+    LIST_REMOVE(iod, link);
+
+    sqe = io_uring_get_sqe(&ctx->ring);
+    if (!sqe) {
+        E_DEBUG("get sqe failed\n");
+        ret = -1;
+        goto error;
+    }
+
+    store_io_data_init(iod, e, io);
+    store_io_uring_prep(iod, sqe);
+
+    LIST_INSERT_HEAD(&ctx->iod_inflight, iod, link);
+
+    ret = io_uring_submit(&ctx->ring);
+    if (ret < 0) {
+        E_DEBUG("io_uring_submit: %s\n", strerror(-ret));
+        LIST_REMOVE(iod, link);
+        ret = -1;
+        goto error;
+    }
+    ctx->depth++;
+
+    return 0;
+
+error:
+    extstore_io_done(e, iod->io, ret);
+    LIST_INSERT_HEAD(&ctx->iod_free, iod, link);
+
+    return -1;
+}
+
+static int store_uring_engine_complete_io(struct store_uring_context *ctx) {
+    struct io_uring_cqe *cqe;
+    struct store_io_data *iod;
+    int ret;
+    bool done;
+
+    if (LIST_EMPTY(&ctx->iod_inflight)) {
+        return -1;
+    }
+
+    ret = io_uring_wait_cqe(&ctx->ring, &cqe);
+    if (ret < 0) {
+        E_DEBUG("io_uring_wait_cqe: %s\n", strerror(-ret));
+        return -1;
+    }
+
+    iod = io_uring_cqe_get_data(cqe);
+
+    ret = cqe->res;
+    if (ret == -EAGAIN) {
+        ret = 0;
+    } else if (ret <= 0) {
+        if (ret == 0) {
+            E_DEBUG("read/write returned nothing\n");
+        } else {
+            E_DEBUG("read/write op failed: %s\n", strerror(-ret));
+            ret = -1;
+        }
+        io_uring_cqe_seen(&ctx->ring, cqe);
+        goto done;
+    }
+
+    assert((ret % ctx->ctx.e->io_align) == 0);
+    done = store_io_data_done(iod, ctx->ctx.e, ret);
+    io_uring_cqe_seen(&ctx->ring, cqe);
+
+    if (done) {
+        ret = iod->io->len;
+    } else {
+        struct io_uring_sqe *sqe = io_uring_get_sqe(&ctx->ring);
+
+        if (!sqe) {
+           E_DEBUG("get sqe failed\n");
+           ret = -1;
+           goto done;
+        }
+
+        store_io_uring_prep(iod, sqe);
+
+        ret = io_uring_submit(&ctx->ring);
+        if (ret < 0) {
+           E_DEBUG("io_uring_submit: %s\n", strerror(-ret));
+           ret = -1;
+           goto done;
+        }
+
+        return 0;
+    }
+
+done:
+    extstore_io_done(ctx->ctx.e, iod->io, ret);
+
+    ctx->depth--;
+    LIST_REMOVE(iod, link);
+    LIST_INSERT_HEAD(&ctx->iod_free, iod, link);
+
+    return 0;
+}
+
+static void store_uring_engine_event_handler(const evutil_socket_t fd, const short which, void *arg) {
+    struct store_uring_context *ctx = arg;
+    eventfd_t value;
+    int ret;
+
+    ret = eventfd_read(fd, &value);
+    if (ret < 0) {
+        E_DEBUG("eventfd_read: %s\n", strerror(-ret));
+        return;
+    }
+
+    for (eventfd_t i = 0; i < value; i++) {
+        store_uring_engine_complete_io(ctx);
+    }
+}
+
+static struct extstore_context *store_uring_engine_init_context(void *ptr, enum extstore_res *res) {
+    store_engine *e = (store_engine *)ptr;
+    struct store_uring_engine *engine = e->priv;
+    struct store_uring_context *ctx;
+    int ret;
+
+    ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        *res = EXTSTORE_INIT_OOM;
+        return NULL;
+    }
+
+    ret = io_uring_queue_init(e->io_depth, &ctx->ring, 0);
+    if (ret) {
+        *res = EXTSTORE_INIT_IO_URING_FAIL;
+        return NULL;
+    }
+    ctx->eventfd = eventfd(0, EFD_CLOEXEC);
+    if (ctx->eventfd < 0) {
+        *res = EXTSTORE_INIT_IO_URING_FAIL;
+        return NULL;
+    }
+    ret = io_uring_register_eventfd(&ctx->ring, ctx->eventfd);
+    if (ret) {
+        *res = EXTSTORE_INIT_IO_URING_FAIL;
+        return NULL;
+    }
+    event_set(&ctx->ctx.event, ctx->eventfd, EV_READ | EV_PERSIST, store_uring_engine_event_handler, ctx);
+
+    LIST_INIT(&ctx->iod_free);
+    LIST_INIT(&ctx->iod_inflight);
+    ctx->ctx.e = e;
+
+    for (int i = 0; i < e->io_depth; i++) {
+        struct store_io_data *iod = malloc(sizeof(*iod));
+
+        if (!iod) {
+            goto error;
+        }
+        if (e->direct) {
+            if (posix_memalign(&iod->read_buf, e->io_align, e->max_io_size)) {
+                free(iod);
+                goto error;
+            }
+        }
+        LIST_INSERT_HEAD(&ctx->iod_free, iod, link);
+    }
+
+    pthread_mutex_lock(&engine->lock);
+    LIST_INSERT_HEAD(&engine->contexts, ctx, link);
+    pthread_mutex_unlock(&engine->lock);
+
+    return &ctx->ctx;
+error:
+    while (!LIST_EMPTY(&ctx->iod_free)) {
+        struct store_io_data *iod = LIST_FIRST(&ctx->iod_free);
+
+        LIST_REMOVE(iod, link);
+        free(iod->read_buf);
+        free(iod);
+    }
+
+    *res = EXTSTORE_INIT_OOM;
+
+    return NULL;
+}
+
+static int store_uring_engine_init(void *ptr, struct extstore_conf_file *fh, struct extstore_conf *cf)
+{
+    store_engine *e = (store_engine *)ptr;
+    enum extstore_res res;
+    struct store_uring_engine *engine;
+
+    res = extstore_init_file(e, fh);
+    if (res) {
+        return res;
+    }
+
+    engine = calloc(1, sizeof(*engine));
+    if (engine == NULL)
+        return EXTSTORE_INIT_OOM;
+
+    pthread_mutex_init(&engine->lock, NULL);
+    LIST_INIT(&engine->contexts);
+
+    e->priv = engine;
+
+    return 0;
+}
+
+static void store_uring_engine_stats(void *ptr, struct extstore_stats *st) {
+    store_engine *e = (store_engine *)ptr;
+    struct store_uring_engine *engine = e->priv;
+    struct store_uring_context *ctx;
+
+    st->io_queue = 0;
+
+    pthread_mutex_lock(&engine->lock);
+    LIST_FOREACH(ctx, &engine->contexts, link) {
+        st->io_queue += ctx->depth;
+    }
+    pthread_mutex_unlock(&engine->lock);
+}
+
+static bool extstore_read_from_wbuf(store_engine *e, obj_io *io);
+
+static int store_uring_engine_submit(struct extstore_context *ctx, obj_io *io) {
+    store_engine *e = ctx->e;
+
+    while (io) {
+        obj_io *next = io->next;
+
+        if ((io->mode != OBJ_IO_READ) || !extstore_read_from_wbuf(e, io))
+            store_uring_engine_submit_io(e, io, (struct store_uring_context *)ctx);
+
+        io = next;
+    }
+
+    return 0;
+}
+
+static const struct extstore_engine_ops store_uring_engine_ops = {
+    .init = store_uring_engine_init,
+    .init_context = store_uring_engine_init_context,
+    .stats = store_uring_engine_stats,
+    .submit = store_uring_engine_submit,
+};
+
+#else
+
+static int store_uring_engine_init(void *ptr, struct extstore_conf_file *fh, struct extstore_conf *cf)
+{
+    return EXTSTORE_INIT_IO_URING_FAIL;
+}
+
+static const struct extstore_engine_ops store_uring_engine_ops = {
+    .init = store_uring_engine_init,
+};
+
+#endif /* LIBURING */
+
 // TODO: #define's for DEFAULT_BUCKET, FREE_VERSION, etc
 void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
         enum extstore_res *res) {
@@ -405,6 +831,9 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     }
 
     switch (cf->io_engine) {
+        case EXTSTORE_IO_ENGINE_IO_URING:
+            e->ops = &store_uring_engine_ops;
+            break;
         case EXTSTORE_IO_ENGINE_SYNC:
         default:
             e->ops = &store_sync_engine_ops;

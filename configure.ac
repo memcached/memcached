@@ -104,6 +104,8 @@ AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
 AC_ARG_ENABLE(tls,
   [AS_HELP_STRING([--enable-tls], [Enable Transport Layer Security EXPERIMENTAL ])])
 
+AC_ARG_ENABLE(liburing,
+  [AS_HELP_STRING([--enable-liburing], [Enable liburing])])
 
 AC_ARG_ENABLE(asan,
   [AS_HELP_STRING([--enable-asan], [Compile with ASAN EXPERIMENTAL ])])
@@ -205,6 +207,10 @@ if test "x$enable_tls" = "xyes"; then
     AC_DEFINE([TLS],1,[Set to nonzero if you want to enable TLS])
 fi
 
+if test "x$enable_liburing" = "xyes"; then
+    AC_DEFINE([LIBURING],1,[Set to nonzero if you want to enable liburing])
+fi
+
 if test "x$enable_asan" = "xyes"; then
     AC_DEFINE([ASAN],1,[Set to nonzero if you want to compile using ASAN])
 fi
@@ -223,6 +229,7 @@ AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
 AM_CONDITIONAL([ENABLE_EXTSTORE],[test "$enable_extstore" != "no"])
 AM_CONDITIONAL([ENABLE_ARM_CRC32],[test "$enable_arm_crc32" = "yes"])
 AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
+AM_CONDITIONAL([ENABLE_LIBURING],[test "$enable_liburing" = "yes"])
 AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
 AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
@@ -492,6 +499,99 @@ if test "x$enable_tls" = "xyes"; then
     fi
   fi
 fi
+
+tryliburingdir=""
+AC_ARG_WITH(liburing,
+       [  --with-liburing=PATH     Specify path to liburing installation ],
+       [
+                if test "x$withval" != "xno" ; then
+                        tryliburingdir=$withval
+                fi
+       ]
+)
+
+dnl ----------------------------------------------------------------------------
+dnl liburing detection.  swiped from libssl.  modified for liburing detection.
+
+LIBURING_URL=https://github.com/axboe/liburing
+if test "x$enable_liburing" = "xyes"; then
+  AC_CACHE_CHECK([for liburing directory], ac_cv_liburing_dir, [
+    saved_LIBS="$LIBS"
+    saved_LDFLAGS="$LDFLAGS"
+    saved_CPPFLAGS="$CPPFLAGS"
+    le_found=no
+    for ledir in $tryliburingdir "" $prefix /usr/local ; do
+      LDFLAGS="$saved_LDFLAGS"
+      LIBS="-luring $saved_LIBS"
+
+      # Skip the directory if it isn't there.
+      if test ! -z "$ledir" -a ! -d "$ledir" ; then
+         continue;
+      fi
+      if test ! -z "$ledir" ; then
+        if test -d "$ledir/lib" ; then
+          LDFLAGS="-L$ledir/lib $LDFLAGS"
+        else
+          LDFLAGS="-L$ledir $LDFLAGS"
+        fi
+        if test -d "$ledir/include" ; then
+          CPPFLAGS="-I$ledir/include $CPPFLAGS"
+        else
+          CPPFLAGS="-I$ledir $CPPFLAGS"
+        fi
+      fi
+      # Can I compile and link it?
+      AC_TRY_LINK([
+#include <sys/time.h>
+#include <sys/types.h>
+#include <assert.h>
+#include <liburing.h>
+         ], [
+  struct io_uring ring;
+  io_uring_queue_init(4, &ring, 0);
+         ],[ liburing_linked=yes ], [ liburing_linked=no ])
+      if test $liburing_linked = yes; then
+         if test ! -z "$ledir" ; then
+           ac_cv_liburing_dir=$ledir
+           _myos=`echo $target_os | cut -f 1 -d .`
+           AS_IF(test "$SUNCC" = "yes" -o "x$_myos" = "xsolaris2",
+                 [saved_LDFLAGS="$saved_LDFLAGS -Wl,-R$ledir/lib"],
+                 [AS_IF(test "$GCC" = "yes",
+                       [saved_LDFLAGS="$saved_LDFLAGS -Wl,-rpath,$ledir/lib"])])
+         else
+           ac_cv_liburing_dir="(system)"
+         fi
+         le_found=yes
+         break
+      fi
+    done
+    LIBS="$saved_LIBS"
+    LDFLAGS="$saved_LDFLAGS"
+    CPPFLAGS="$saved_CPPFLAGS"
+    if test $le_found = no ; then
+      AC_MSG_ERROR([liburing is required.  You can get it from $LIBURING_URL
+
+        If it's already installed, specify its path using --with-liburing=/dir/
+  ])
+    fi
+  ])
+  LIBS="-luring $LIBS"
+  if test $ac_cv_liburing_dir != "(system)"; then
+    if test -d "$ac_cv_liburing_dir/lib" ; then
+      LDFLAGS="-L$ac_cv_liburing_dir/lib $LDFLAGS"
+      le_libdir="$ac_cv_liburing_dir/lib"
+    else
+      LDFLAGS="-L$ac_cv_liburing_dir $LDFLAGS"
+      le_libdir="$ac_cv_liburing_dir"
+    fi
+    if test -d "$ac_cv_liburing_dir/include" ; then
+      CPPFLAGS="-I$ac_cv_liburing_dir/include $CPPFLAGS"
+    else
+      CPPFLAGS="-I$ac_cv_liburing_dir $CPPFLAGS"
+    fi
+  fi
+fi
+
 
 if test "x$enable_static" = "xyes"; then
   LIBS="$LIBS -ldl"

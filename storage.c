@@ -1277,10 +1277,12 @@ int storage_read_config(void *conf, char **subopt) {
                 fprintf(stderr, "Missing ext_io_engine argument\n");
                 return 1;
             }
-            if (strcmp(subopts_value, "sync") == 0) {
+            if (strcmp(subopts_value, "io_uring") == 0) {
+                ext_cf->io_engine = EXTSTORE_IO_ENGINE_IO_URING;
+            } else if (strcmp(subopts_value, "sync") == 0) {
                 ext_cf->io_engine = EXTSTORE_IO_ENGINE_SYNC;
             } else {
-                fprintf(stderr, "Unknown ext_io_engine option\n");
+                fprintf(stderr, "Unknown ext_io_engine option (sync or io_uring)\n");
                 return 1;
             }
             break;
