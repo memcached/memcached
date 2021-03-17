@@ -307,6 +307,10 @@ sub new_memcached {
         push(@unixsockets, $file);
     }
 
+    if ($ENV{MEMCACHED_EXTRA_ARGS}) {
+        $args .= " $ENV{MEMCACHED_EXTRA_ARGS}";
+    }
+
     my $childpid = fork();
 
     my $exe = get_memcached_exe();
