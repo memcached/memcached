@@ -715,6 +715,10 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         process_stats_conns(&append_stats, c);
 #ifdef EXTSTORE
     } else if (strcmp(subcommand, "extstore") == 0) {
+        if (ext_storage == NULL) {
+            out_string(c, "SERVER_ERROR storage file not specified");
+            return;
+        }
         process_extstore_stats(&append_stats, c);
 #endif
     } else {
