@@ -3872,7 +3872,7 @@ static void usage(void) {
            "                          forcefully killing LRU tail item.\n"
            "                          disabled by default; very dangerous option.\n"
            "   - hash_algorithm:      the hash table algorithm\n"
-           "                          default is murmur3 hash. options: jenkins, murmur3\n"
+           "                          default is murmur3 hash. options: jenkins, murmur3, xxh3\n"
            "   - no_lru_crawler:      disable LRU Crawler background thread.\n"
            "   - lru_crawler_sleep:   microseconds to sleep between items\n"
            "                          default is %d.\n"
@@ -5080,8 +5080,10 @@ int main (int argc, char **argv) {
                     hash_type = JENKINS_HASH;
                 } else if (strcmp(subopts_value, "murmur3") == 0) {
                     hash_type = MURMUR3_HASH;
+                } else if (strcmp(subopts_value, "xxh3") == 0) {
+                    hash_type = XXH3_HASH;
                 } else {
-                    fprintf(stderr, "Unknown hash_algorithm option (jenkins, murmur3)\n");
+                    fprintf(stderr, "Unknown hash_algorithm option (jenkins, murmur3, xxh3)\n");
                     return 1;
                 }
                 break;
