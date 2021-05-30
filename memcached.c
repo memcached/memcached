@@ -526,6 +526,8 @@ void conn_close_idle(conn *c) {
         c->thread->stats.idle_kicks++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
+        c->close_reason = IDLE_TIMEOUT_CLOSE;
+
         conn_set_state(c, conn_closing);
         drive_machine(c);
     }
@@ -670,6 +672,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             perror("getpeername");
             memset(&c->request_addr, 0, sizeof(c->request_addr));
         }
+    }
+
+    if (init_state == conn_new_cmd) {
+        LOGGER_LOG(NULL, LOG_CONNEVENTS, LOGGER_CONNECTION_NEW, NULL,
+                (struct sockaddr *) &c->request_addr, c->transport, 0, sfd);
     }
 
     if (settings.verbose > 1) {
@@ -855,6 +862,12 @@ void conn_free(conn *c) {
 static void conn_close(conn *c) {
     assert(c != NULL);
 
+    if (c->thread) {
+        LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_CLOSE, NULL,
+                (struct sockaddr *) &c->request_addr, c->transport,
+                c->close_reason, c->sfd);
+    }
+
     /* delete the event, the socket and the conn */
     event_del(&c->event);
 
@@ -878,6 +891,7 @@ static void conn_close(conn *c) {
     }
 #endif
     close(c->sfd);
+    c->close_reason = 0;
     pthread_mutex_lock(&conn_lock);
     allow_new_conns = true;
     pthread_mutex_unlock(&conn_lock);
@@ -2378,6 +2392,7 @@ static enum try_read_result try_read_network(conn *c) {
             }
         }
         if (res == 0) {
+            c->close_reason = NORMAL_CLOSE;
             return READ_ERROR;
         }
         if (res == -1) {
@@ -3118,6 +3133,7 @@ static void drive_machine(conn *c) {
             }
 
             if (res == 0) { /* end of stream */
+                c->close_reason = NORMAL_CLOSE;
                 conn_set_state(c, conn_closing);
                 break;
             }
@@ -3183,6 +3199,7 @@ static void drive_machine(conn *c) {
                 break;
             }
             if (res == 0) { /* end of stream */
+                c->close_reason = NORMAL_CLOSE;
                 conn_set_state(c, conn_closing);
                 break;
             }
