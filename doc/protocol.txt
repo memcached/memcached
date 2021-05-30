@@ -1125,7 +1125,7 @@ Watchers are a way to connect to memcached and inspect what's going on
 internally. This is an evolving feature so new endpoints should show up over
 time.
 
-watch <fetchers|mutations|evictions>
+watch <fetchers|mutations|evictions|connevents>
 
 - Turn connection into a watcher. Options can be stacked and are
   space-separated. Logs will be sent to the watcher until it disconnects.
@@ -1159,6 +1159,11 @@ The arguments are:
 - "evictions": Shows some information about items as they are evicted from the
   cache. Useful in seeing if items being evicted were actually used, and which
   keys are getting removed.
+
+- "connevents": Emits logs when connections are opened and closed, i.e. when
+  clients connect or disconnect. For TCP transports, logs indicate the remote
+  address IP and port. Connection close events additionally supply a reason for
+  closing the connection.
 
 Statistics
 ----------

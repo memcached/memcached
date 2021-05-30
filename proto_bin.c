@@ -1032,6 +1032,7 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
                 write_bin_response(c, NULL, 0, 0, 0);
                 conn_set_state(c, conn_mwrite);
                 c->close_after_write = true;
+                c->close_reason = NORMAL_CLOSE;
             } else {
                 protocol_error = 1;
             }

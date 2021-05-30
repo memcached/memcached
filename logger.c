@@ -1,5 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
+#include <arpa/inet.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -56,6 +57,8 @@ static const entry_details default_entries[] = {
     [LOGGER_SLAB_MOVE] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
         "type=slab_move src=%d dst=%d"
     },
+    [LOGGER_CONNECTION_NEW] = {LOGGER_CONNECTION_NEW_ENTRY, 512, LOG_CONNEVENTS, NULL},
+    [LOGGER_CONNECTION_CLOSE] = {LOGGER_CONNECTION_CLOSE_ENTRY, 512, LOG_CONNEVENTS, NULL},
 #ifdef EXTSTORE
     [LOGGER_EXTSTORE_WRITE] = {LOGGER_EXT_WRITE_ENTRY, 512, LOG_EVICTIONS, NULL},
     [LOGGER_COMPACT_START] = {LOGGER_TEXT_ENTRY, 512, LOG_SYSEVENTS,
@@ -177,6 +180,38 @@ static void logger_set_flags(void) {
 }
 
 /*************************
+ * Util functions used by the logger background thread
+ *************************/
+
+static int _logger_util_addr_endpoint(struct sockaddr *addr, char *rip,
+        size_t riplen, unsigned short *rport) {
+    memset(rip, 0, riplen);
+
+    switch (addr->sa_family) {
+        case AF_INET:
+            inet_ntop(AF_INET, &((struct sockaddr_in *) addr)->sin_addr,
+                    rip, riplen - 1);
+            *rport = ntohs(((struct sockaddr_in *) addr)->sin_port);
+            break;
+        case AF_INET6:
+            inet_ntop(AF_INET6, &((struct sockaddr_in6 *) addr)->sin6_addr,
+                    rip, riplen - 1);
+            *rport = ntohs(((struct sockaddr_in6 *) addr)->sin6_port);
+            break;
+#ifndef DISABLE_UNIX_SOCKET
+        // Connections on Unix socket transports have c->request_addr zeroed out.
+        case AF_UNSPEC:
+        case AF_UNIX:
+            strncpy(rip, "unix", strlen("unix") + 1);
+            *rport = 0;
+            break;
+#endif /* #ifndef DISABLE_UNIX_SOCKET */
+    }
+
+    return 0;
+}
+
+/*************************
  * Logger background thread functions. Aggregates per-worker buffers and
  * writes to any watchers.
  *************************/
@@ -235,6 +270,7 @@ static int _logger_thread_parse_ee(logentry *e, char *scratch) {
 
     return total;
 }
+
 #ifdef EXTSTORE
 static int _logger_thread_parse_extw(logentry *e, char *scratch) {
     int total;
@@ -250,6 +286,43 @@ static int _logger_thread_parse_extw(logentry *e, char *scratch) {
     return total;
 }
 #endif
+
+static int _logger_thread_parse_cne(logentry *e, char *scratch) {
+    int total;
+    unsigned short rport;
+    char rip[64];
+    struct logentry_conn_event *le = (struct logentry_conn_event *) e->data;
+    const char * const transport_map[] = { "local", "tcp", "udp" };
+
+    _logger_util_addr_endpoint(&le->addr, rip, sizeof(rip), &rport);
+
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%d.%d gid=%llu type=conn_new rip=%s rport=%hu transport=%s cfd=%d\n",
+            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            rip, rport, transport_map[le->transport], le->sfd);
+
+    return total;
+}
+
+static int _logger_thread_parse_cce(logentry *e, char *scratch) {
+    int total;
+    unsigned short rport;
+    char rip[64];
+    struct logentry_conn_event *le = (struct logentry_conn_event *) e->data;
+    const char * const transport_map[] = { "local", "tcp", "udp" };
+    const char * const reason_map[] = { "error", "normal", "idle_timeout", "shutdown" };
+
+    _logger_util_addr_endpoint(&le->addr, rip, sizeof(rip), &rport);
+
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%d.%d gid=%llu type=conn_close rip=%s rport=%hu transport=%s reason=%s cfd=%d\n",
+            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            rip, rport, transport_map[le->transport],
+            reason_map[le->reason], le->sfd);
+
+    return total;
+}
+
 /* Completes rendering of log line. */
 static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct logger_stats *ls,
         char *scratch, int *scratch_len) {
@@ -274,6 +347,12 @@ static enum logger_parse_entry_ret logger_thread_parse_entry(logentry *e, struct
             break;
         case LOGGER_ITEM_STORE_ENTRY:
             total = _logger_thread_parse_ise(e, scratch);
+            break;
+        case LOGGER_CONNECTION_NEW_ENTRY:
+            total = _logger_thread_parse_cne(e, scratch);
+            break;
+        case LOGGER_CONNECTION_CLOSE_ENTRY:
+            total = _logger_thread_parse_cce(e, scratch);
             break;
 
     }
@@ -696,6 +775,17 @@ static void _logger_log_item_store(logentry *e, const enum store_item_type statu
     e->size = sizeof(struct logentry_item_store) + nkey;
 }
 
+static void _logger_log_conn_event(logentry *e, struct sockaddr *addr,
+        enum network_transport transport, enum close_reasons reason, int sfd) {
+    struct logentry_conn_event *le = (struct logentry_conn_event *) e->data;
+
+    memcpy(&le->addr, addr, sizeof(struct sockaddr));
+    le->sfd = sfd;
+    le->transport = transport;
+    le->reason = reason;
+    e->size = sizeof(struct logentry_conn_event);
+}
+
 /* Public function for logging an entry.
  * Tries to encapsulate as much of the formatting as possible to simplify the
  * caller's code.
@@ -776,6 +866,16 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
             int ssfd = va_arg(ap, int);
             _logger_log_item_store(e, status, comm, skey, snkey, snbytes, sttl, sclsid, ssfd);
             va_end(ap);
+            break;
+        case LOGGER_CONNECTION_NEW_ENTRY:
+        case LOGGER_CONNECTION_CLOSE_ENTRY:
+            va_start(ap, entry);
+            struct sockaddr *addr = va_arg(ap, struct sockaddr *);
+            enum network_transport transport = va_arg(ap, enum network_transport);
+            enum close_reasons reason = va_arg(ap, enum close_reasons);
+            int csfd = va_arg(ap, int);
+            va_end(ap);
+            _logger_log_conn_event(e, addr, transport, reason, csfd);
             break;
     }
 

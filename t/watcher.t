@@ -5,7 +5,7 @@ use strict;
 use warnings;
 use Socket qw/SO_RCVBUF/;
 
-use Test::More tests => 20;
+use Test::More tests => 25;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -70,6 +70,40 @@ if ($res eq "STORED\r\n") {
     my @tab = split(/\s+/, $watch_res);
     is (length($tab[3]), $max_uri_keylen, "got the correct uri encoded key length");;
 }
+}
+
+# test connection events
+{
+    # start a dedicated server so that connection close events from previous
+    # tests don't leak into this one due to races.
+    my $conn_server = new_memcached('-m 60 -o watcher_logbuf_size=8');
+    my $conn_watcher = $conn_server->new_sock;
+
+    print $conn_watcher "watch connevents\n";
+    $res = <$conn_watcher>;
+    is($res, "OK\r\n", 'connevents watcher enabled');
+
+    # normal close
+    my $conn_client = $conn_server->new_sock;
+    print $conn_client "version\r\n";
+    $res = <$conn_client>;
+    print $conn_client "quit\r\n";
+    $res = <$conn_watcher>;
+    like($res, qr/ts=\d+\.\d+\ gid=\d+ type=conn_new .+ transport=local/,
+        'logged new connection');
+    $res = <$conn_watcher>;
+    like($res, qr/ts=\d+\.\d+\ gid=\d+ type=conn_close .+ transport=local reason=normal/,
+        'logged closed connection due to client disconnect');
+
+    # error close
+    $conn_client = $conn_server->new_sock;
+    print $conn_client "GET / HTTP/1.1\r\n";
+    $res = <$conn_watcher>;
+    like($res, qr/ts=\d+\.\d+\ gid=\d+ type=conn_new .+ transport=local/,
+        'logged new connection');
+    $res = <$conn_watcher>;
+    like($res, qr/ts=\d+\.\d+\ gid=\d+ type=conn_close .+ transport=local reason=error/,
+        'logged closed connection due to client protocol error');
 }
 
 # test combined logs
