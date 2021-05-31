@@ -177,13 +177,12 @@ static bool load_server_certificates(char **errmsg) {
  */
 int ssl_init(void) {
     assert(settings.ssl_enabled);
+
     // SSL context for the process. All connections will share one
     // process level context.
     settings.ssl_ctx = SSL_CTX_new(TLS_server_method());
-    // Clients should use at least TLSv1.2
-    int flags = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 |
-                SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1;
-    SSL_CTX_set_options(settings.ssl_ctx, flags);
+
+    SSL_CTX_set_min_proto_version(settings.ssl_ctx, settings.ssl_min_version);
 
     // The server certificate, private key and validations.
     char *error_msg;
@@ -248,5 +247,22 @@ int ssl_new_session_callback(SSL *s, SSL_SESSION *sess) {
 
 bool refresh_certs(char **errmsg) {
     return load_server_certificates(errmsg);
+}
+
+const char *ssl_proto_text(int version) {
+    switch (version) {
+        case TLS1_VERSION:
+            return "tlsv1.0";
+        case TLS1_1_VERSION:
+            return "tlsv1.1";
+        case TLS1_2_VERSION:
+            return "tlsv1.2";
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+        case TLS1_3_VERSION:
+            return "tlsv1.3";
+#endif
+        default:
+            return "unknown";
+    }
 }
 #endif
