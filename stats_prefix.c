@@ -127,8 +127,10 @@ char *stats_prefix_dump(int *length) {
     PREFIX_STATS *pfs;
     char *buf;
     int i, pos;
-    size_t size = 0, written = 0, total_written = 0;
-
+    size_t size = 0, written = 0;
+#ifndef NDEBUG
+    size_t total_written = 0;
+#endif
     /*
      * Figure out how big the buffer needs to be. This is the sum of the
      * lengths of the prefixes themselves, plus the size of one copy of
@@ -154,8 +156,10 @@ char *stats_prefix_dump(int *length) {
                            pfs->prefix, pfs->num_gets, pfs->num_hits,
                            pfs->num_sets, pfs->num_deletes);
             pos += written;
+#ifndef NDEBUG
             total_written += written;
             assert(total_written < size);
+#endif
         }
     }
 
