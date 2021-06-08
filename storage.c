@@ -69,6 +69,9 @@ void process_extstore_stats(ADD_STAT add_stats, conn *c) {
     assert(add_stats);
 
     void *storage = c->thread->storage;
+    if (storage == NULL) {
+        return;
+    }
     extstore_get_stats(storage, &st);
     st.page_data = calloc(st.page_count, sizeof(struct extstore_page_data));
     extstore_get_page_data(storage, &st);
