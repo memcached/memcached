@@ -993,14 +993,17 @@ static int _meta_flag_preparse(token_t *tokens, const size_t ntokens,
     p += 2; \
 }
 
-// TODO: calc bytes remaining in buffer
+// NOTE: being a little casual with the write buffer.
+// the buffer needs to be sized that the longest possible meta response will
+// fit. Here we allow the key to fill up to half the write buffer, in case
+// something terrible has gone wrong.
 #define META_KEY(p, key, nkey, bin) { \
     META_CHAR(p, 'k'); \
     if (!bin) { \
         memcpy(p, key, nkey); \
         p += nkey; \
     } else { \
-        p += base64_encode((unsigned char *) key, nkey, (unsigned char *)p, WRITE_BUFFER_SIZE); \
+        p += base64_encode((unsigned char *) key, nkey, (unsigned char *)p, WRITE_BUFFER_SIZE / 2); \
         *p = ' '; \
         *(p+1) = 'b'; \
         p += 2; \
