@@ -76,18 +76,19 @@ A command line always starts with the name of the command, followed by
 parameters (if any) delimited by whitespace. Command names are
 lower-case and are case-sensitive.
 
-Meta Commands [EXPERIMENTAL: MAY CHANGE]
+Meta Commands
 -------------
 
 Meta commands are a set of new ASCII-based commands. They follow the same
-structure of the basic commands but have a new flexible feature set.
+structure of the original commands but have a new flexible feature set.
 Meta commands incorporate most features available in the binary protocol, as
 well as a flag system to make the commands flexible rather than having a
 large number of high level commands. These commands completely replace the
 usage of basic Storage and Retrieval commands.
 
-Meta commands are EXPERIMENTAL and may change syntax as of this writing. They
-are documented below the basic commands.
+Meta flags are not to be confused with client bitflags, which is an opaque
+number passed by the client. Meta flags change how the command operates, but
+they are not stored in cache.
 
 These work mixed with normal protocol commands on the same connection. All
 existing commands continue to work. The meta commands will not replace
@@ -99,7 +100,7 @@ All meta commands follow a basic syntax:
 <cm> <key> <datalen*> <flag1> <flag2> <...>\r\n
 
 Where <cm> is a 2 character command code.
-<datalen> is only for commands with payloads, which is set.
+<datalen> is only for commands with payloads, like set.
 
 Responses look like:
 
@@ -111,10 +112,9 @@ based off of the flags supplied.
 <datalen> is only for responses with payloads, with the return code 'VA'.
 
 Flags are single character codes, ie 'q' or 'k' or 'I', which adjust the
-behavior of the command. The flags are reflected in the response. The order of
-which tokens are consumed or returned depend on the order of the flags given.
-For example, a metaget with flags of 'st' would return tokens for "size" and
-"TTL remaining" in that order. 'ts' would return "TTL remaining" then "size".
+behavior of the command. If a flag requests a response flag (ie 't' for TTL
+remaining), it is returned in the same order as they were in the original
+command, though this is not strict.
 
 Flags are single character codes, ie 'q' or 'k' or 'O', which adjust the
 behavior of a command. Flags may contain token arguments, which come after the
@@ -496,7 +496,7 @@ mg <key> <flags>*\r\n
 - <key> means one key string. Unlike "get" metaget can only take a single key.
 
 - <flags> are a set of single character codes ended with a space or newline.
-  flags may have strings after the initial character.
+  flags may have token strings after the initial character.
 
 After this command, the client expects an item to be returned, received as a
 text line followed by an optional data block.
@@ -514,7 +514,7 @@ VA <size> <flags>*\r\n
 
 - <size> is the size of <data block> in bytes, minus the \r\n
 
-- <flags>* are tokens returned by the server, based on the flags supplied.
+- <flags>* are flags returned by the server, based on the command flags.
   They are added in order specified by the flags sent.
 
 - <data block> is the data for this item. Note that the data block is
@@ -694,7 +694,7 @@ After this line, the client sends the data block:
 After sending the command line and the data block the client awaits
 the reply, which is of the format:
 
-<CD> <flags> <tokens>*\r\n
+<CD> <flags>*\r\n
 
 Where CD is one of:
 
