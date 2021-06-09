@@ -900,21 +900,20 @@ struct _meta_flags {
     rel_time_t exptime;
     rel_time_t autoviv_exptime;
     rel_time_t recache_time;
-    int32_t value_len;
     uint32_t client_flags;
     uint64_t req_cas_id;
     uint64_t delta; // ma
     uint64_t initial; // ma
 };
 
-static int _meta_flag_preparse(token_t *tokens, const size_t ntokens,
+static int _meta_flag_preparse(token_t *tokens, const size_t start,
         struct _meta_flags *of, char **errstr) {
     unsigned int i;
     size_t ret;
     int32_t tmp_int;
     uint8_t seen[127] = {0};
     // Start just past the key token. Look at first character of each token.
-    for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+    for (i = start; tokens[i].length != 0; i++) {
         uint8_t o = (uint8_t)tokens[i].value[0];
         // zero out repeat flags so we don't over-parse for return data.
         if (o >= 127 || seen[o] != 0) {
@@ -998,20 +997,6 @@ static int _meta_flag_preparse(token_t *tokens, const size_t ntokens,
                     of->has_error = true;
                 }
                 break;
-            case 'S':
-                if (!safe_strtol(tokens[i].value+1, &tmp_int)) {
-                    of->has_error = true;
-                } else {
-                    // Size is adjusted for underflow or overflow once the
-                    // \r\n terminator is added.
-                    if (tmp_int < 0 || tmp_int > (INT_MAX - 2)) {
-                        *errstr = "CLIENT_ERROR invalid length";
-                        of->has_error = true;
-                    } else {
-                        of->value_len = tmp_int + 2; // \r\n
-                    }
-                }
-                break;
             case 'C': // mset, mdelete, marithmetic
                 if (!safe_strtoull(tokens[i].value+1, &of->req_cas_id)) {
                     *errstr = "CLIENT_ERROR bad token in command line format";
@@ -1090,7 +1075,8 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     }
 
     // scrubs duplicated options and sets flags for how to load the item.
-    if (_meta_flag_preparse(tokens, ntokens, &of, &errstr) != 0) {
+    // we pass in the first token that should be a flag.
+    if (_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
         out_errstring(c, errstr);
         return;
     }
@@ -1358,7 +1344,8 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     short comm = NREAD_SET;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
-    uint32_t hv;
+    uint32_t hv; // cached hash value.
+    int vlen = 0; // value from data line.
     mc_resp *resp = c->resp;
     char *p = resp->wbuf;
 
@@ -1385,9 +1372,21 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     // final buffer in complete_nread_ascii.
     p = resp->wbuf;
 
+    if (!safe_strtol(tokens[KEY_TOKEN + 1].value, (int32_t*)&vlen)) {
+        out_errstring(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    if (vlen < 0 || vlen > (INT_MAX - 2)) {
+        out_errstring(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+    vlen += 2;
+
     // We need to at least try to get the size to properly slurp bad bytes
     // after an error.
-    if (_meta_flag_preparse(tokens, ntokens, &of, &errstr) != 0) {
+    // we pass in the first token that should be a flag.
+    if (_meta_flag_preparse(tokens, 3, &of, &errstr) != 0) {
         goto error;
     }
 
@@ -1459,13 +1458,13 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     if (has_error)
         goto error;
 
-    it = item_alloc(key, nkey, of.client_flags, of.exptime, of.value_len);
+    it = item_alloc(key, nkey, of.client_flags, of.exptime, vlen);
 
     if (it == 0) {
         enum store_item_type status;
         // TODO: These could be normalized codes (TL and OM). Need to
         // reorganize the output stuff a bit though.
-        if (! item_size_ok(nkey, of.client_flags, of.value_len)) {
+        if (! item_size_ok(nkey, of.client_flags, vlen)) {
             errstr = "SERVER_ERROR object too large for cache";
             status = TOO_LARGE;
         } else {
@@ -1519,7 +1518,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     return;
 error:
     /* swallow the data line */
-    c->sbytes = of.value_len;
+    c->sbytes = vlen;
 
     // Note: no errors possible after the item was successfully allocated.
     // So we're just looking at dumping error codes and returning.
@@ -1556,8 +1555,9 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     }
 
     // scrubs duplicated options and sets flags for how to load the item.
+    // we pass in the first token that should be a flag.
     // FIXME: not using the preparse errstr?
-    if (_meta_flag_preparse(tokens, ntokens, &of, &errstr) != 0) {
+    if (_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
         out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
@@ -1685,7 +1685,8 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     }
 
     // scrubs duplicated options and sets flags for how to load the item.
-    if (_meta_flag_preparse(tokens, ntokens, &of, &errstr) != 0) {
+    // we pass in the first token that should be a flag.
+    if (_meta_flag_preparse(tokens, 2, &of, &errstr) != 0) {
         out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }

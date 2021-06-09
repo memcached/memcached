@@ -96,16 +96,19 @@ noted in the 'Commands' section above.
 
 All meta commands follow a basic syntax:
 
-<cm> <key> <flag1> <flag2> <...>\r\n
+<cm> <key> <datalen*> <flag1> <flag2> <...>\r\n
 
 Where <cm> is a 2 character command code.
+<datalen> is only for commands with payloads, which is set.
 
 Responses look like:
 
-<RC> <flag1> <flag2> <...>\r\n
+<RC> <datalen*> <flag1> <flag2> <...>\r\n
 
 Where <RC> is a 2 character return code. The number of flags returned are
 based off of the flags supplied.
+
+<datalen> is only for responses with payloads, with the return code 'VA'.
 
 Flags are single character codes, ie 'q' or 'k' or 'I', which adjust the
 behavior of the command. The flags are reflected in the response. The order of
@@ -671,9 +674,11 @@ The meta set command a generic command for storing data to memcached. Based
 on the flags supplied, it can replace all storage commands (see token M) as
 well as adds new options.
 
-ms <key> <flags>*\r\n
+ms <key> <datalen> <flags>*\r\n
 
 - <key> means one key string.
+
+- <datalen> is the length of the payload data.
 
 - <flags> are a set of single character codes ended with a space or newline.
   flags may have strings after the initial character.
@@ -713,7 +718,6 @@ The flags used by the 'ms' command are:
 - k: return key as a token
 - O(token): opaque value, consumes a token and copies back with response
 - q: use noreply semantics for return codes
-- S(token): size of <data block> to store
 - T(token): Time-To-Live for item, see "Expiration" above.
 - M(token): mode switch to change behavior to add, replace, append, prepend
 
