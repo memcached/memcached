@@ -60,7 +60,11 @@ static void _finalize_mset(conn *c, enum store_item_type ret) {
 
     switch (ret) {
     case STORED:
-      memcpy(p, "OK", 2);
+      if (settings.meta_response_old) {
+          memcpy(p, "OK", 2);
+      } else {
+          memcpy(p, "HD", 2);
+      }
       // Only place noreply is used for meta cmds is a nominal response.
       if (c->noreply) {
           resp->skip = true;
@@ -1129,7 +1133,11 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             memcpy(p, "VA ", 3);
             p = itoa_u32(it->nbytes-2, p+3);
         } else {
-            memcpy(p, "OK", 2);
+            if (settings.meta_response_old) {
+                memcpy(p, "OK", 2);
+            } else {
+                memcpy(p, "HD", 2);
+            }
             p += 2;
         }
 
@@ -1615,7 +1623,11 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             // Clients can noreply nominal responses.
             if (c->noreply)
                 resp->skip = true;
-            memcpy(resp->wbuf, "OK ", 3);
+            if (settings.meta_response_old) {
+                memcpy(resp->wbuf, "OK ", 3);
+            } else {
+                memcpy(resp->wbuf, "HD ", 3);
+            }
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
@@ -1625,7 +1637,11 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             STORAGE_delete(c->thread->storage, it);
             if (c->noreply)
                 resp->skip = true;
-            memcpy(resp->wbuf, "OK ", 3);
+            if (settings.meta_response_old) {
+                memcpy(resp->wbuf, "OK ", 3);
+            } else {
+                memcpy(resp->wbuf, "HD ", 3);
+            }
         }
         goto cleanup;
     } else {
@@ -1728,7 +1744,11 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     case OK:
         if (c->noreply)
             resp->skip = true;
-        memcpy(resp->wbuf, "OK ", 3);
+        if (settings.meta_response_old) {
+            memcpy(resp->wbuf, "OK ", 3);
+        } else {
+            memcpy(resp->wbuf, "HD ", 3);
+        }
         break;
     case NON_NUMERIC:
         errstr = "CLIENT_ERROR cannot increment or decrement non-numeric value";
@@ -1786,7 +1806,11 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
             memcpy(p, "VA ", 3);
             p = itoa_u32(vlen, p+3);
         } else {
-            memcpy(p, "OK", 2);
+            if (settings.meta_response_old) {
+                memcpy(p, "OK", 2);
+            } else {
+                memcpy(p, "HD", 2);
+            }
             p += 2;
         }
 
