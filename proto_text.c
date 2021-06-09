@@ -14,12 +14,106 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define META_SPACE(p) { \
+    *p = ' '; \
+    p++; \
+}
+
+#define META_CHAR(p, c) { \
+    *p = ' '; \
+    *(p+1) = c; \
+    p += 2; \
+}
+
+// NOTE: being a little casual with the write buffer.
+// the buffer needs to be sized that the longest possible meta response will
+// fit. Here we allow the key to fill up to half the write buffer, in case
+// something terrible has gone wrong.
+#define META_KEY(p, key, nkey, bin) { \
+    META_CHAR(p, 'k'); \
+    if (!bin) { \
+        memcpy(p, key, nkey); \
+        p += nkey; \
+    } else { \
+        p += base64_encode((unsigned char *) key, nkey, (unsigned char *)p, WRITE_BUFFER_SIZE / 2); \
+        *p = ' '; \
+        *(p+1) = 'b'; \
+        p += 2; \
+    } \
+}
+
 static void process_command(conn *c, char *command);
 
 typedef struct token_s {
     char *value;
     size_t length;
 } token_t;
+
+static void _finalize_mset(conn *c, enum store_item_type ret) {
+    mc_resp *resp = c->resp;
+    item *it = c->item;
+    conn_set_state(c, conn_new_cmd);
+
+    // information about the response line has been stashed in wbuf.
+    char *p = resp->wbuf + resp->wbytes;
+    char *end = p; // end of the stashed data portion.
+
+    switch (ret) {
+    case STORED:
+      memcpy(p, "OK", 2);
+      // Only place noreply is used for meta cmds is a nominal response.
+      if (c->noreply) {
+          resp->skip = true;
+      }
+      break;
+    case EXISTS:
+      memcpy(p, "EX", 2);
+      break;
+    case NOT_FOUND:
+      memcpy(p, "NF", 2);
+      break;
+    case NOT_STORED:
+      memcpy(p, "NS", 2);
+      break;
+    default:
+      c->noreply = false;
+      out_string(c, "SERVER_ERROR Unhandled storage type.");
+      return;
+    }
+    p += 2;
+
+    for (char *fp = resp->wbuf; fp < end; fp++) {
+        switch (*fp) {
+            case 'O':
+                // Copy stashed opaque.
+                META_SPACE(p);
+                while (fp < end && *fp != ' ') {
+                    *p = *fp;
+                    p++;
+                    fp++;
+                }
+                break;
+            case 'k':
+                // Encode the key here instead of earlier to minimize copying.
+                META_KEY(p, ITEM_key(it), it->nkey, (it->it_flags & ITEM_KEY_BINARY));
+                break;
+            case 'c':
+                // We don't have the CAS until this point, which is why we
+                // generate this line so late.
+                META_CHAR(p, 'c');
+                p = itoa_u64(ITEM_get_cas(it), p);
+                break;
+            default:
+                break;
+        }
+    }
+
+    memcpy(p, "\r\n", 2);
+    p += 2;
+    // we're offset into wbuf, but good convention to track wbytes.
+    resp->wbytes = p - resp->wbuf;
+    resp_add_iov(resp, end, p - end);
+}
 
 /*
  * we get here after reading the value in set/add/replace commands. The command
@@ -105,31 +199,7 @@ void complete_nread_ascii(conn *c) {
 #endif
 
       if (c->mset_res) {
-          // Replace the status code in the response.
-          // Rest was prepared during mset parsing.
-          mc_resp *resp = c->resp;
-          conn_set_state(c, conn_new_cmd);
-          switch (ret) {
-          case STORED:
-              memcpy(resp->wbuf, "OK ", 3);
-              // Only place noreply is used for meta cmds is a nominal response.
-              if (c->noreply) {
-                  resp->skip = true;
-              }
-              break;
-          case EXISTS:
-              memcpy(resp->wbuf, "EX ", 3);
-              break;
-          case NOT_FOUND:
-              memcpy(resp->wbuf, "NF ", 3);
-              break;
-          case NOT_STORED:
-              memcpy(resp->wbuf, "NS ", 3);
-              break;
-          default:
-              c->noreply = false;
-              out_string(c, "SERVER_ERROR Unhandled storage type.");
-          }
+          _finalize_mset(c, ret);
       } else {
           switch (ret) {
           case STORED:
@@ -982,34 +1052,6 @@ static int _meta_flag_preparse(token_t *tokens, const size_t ntokens,
     return of->has_error ? -1 : 0;
 }
 
-#define META_SPACE(p) { \
-    *p = ' '; \
-    p++; \
-}
-
-#define META_CHAR(p, c) { \
-    *p = ' '; \
-    *(p+1) = c; \
-    p += 2; \
-}
-
-// NOTE: being a little casual with the write buffer.
-// the buffer needs to be sized that the longest possible meta response will
-// fit. Here we allow the key to fill up to half the write buffer, in case
-// something terrible has gone wrong.
-#define META_KEY(p, key, nkey, bin) { \
-    META_CHAR(p, 'k'); \
-    if (!bin) { \
-        memcpy(p, key, nkey); \
-        p += nkey; \
-    } else { \
-        p += base64_encode((unsigned char *) key, nkey, (unsigned char *)p, WRITE_BUFFER_SIZE / 2); \
-        *p = ' '; \
-        *(p+1) = 'b'; \
-        p += 2; \
-    } \
-}
-
 static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
@@ -1339,9 +1381,9 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
         return;
     }
 
-    // leave space for the status code.
-    // FIXME: two spaces after the OK line :(
-    p = resp->wbuf + 3;
+    // We note tokens into the front of the write buffer, so we can create the
+    // final buffer in complete_nread_ascii.
+    p = resp->wbuf;
 
     // We need to at least try to get the size to properly slurp bad bytes
     // after an error.
@@ -1370,7 +1412,11 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
                 p += tokens[i].length;
                 break;
             case 'k':
-                META_KEY(p, key, nkey, of.key_binary);
+                META_CHAR(p, 'k');
+                break;
+            case 'c':
+                // need to set the cas value post-assignment.
+                META_CHAR(p, 'c');
                 break;
         }
     }
@@ -1466,10 +1512,8 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
         c->set_stale = true;
     }
     resp->wbytes = p - resp->wbuf;
-    memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
-    resp->wbytes += 2;
-    // We've written the status line into wbuf, use wbytes to finalize later.
-    resp_add_iov(resp, resp->wbuf, resp->wbytes);
+    // we don't set up the iov here, instead after complete_nread_ascii when
+    // we have the full status code and item data.
     c->mset_res = true;
     conn_set_state(c, conn_nread);
     return;

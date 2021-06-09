@@ -153,7 +153,7 @@ my $sock = $server->sock;
     # 44OG44K544OI is "tesuto" in katakana
     my $tesuto = "44OG44K544OI";
     print $sock "ms $tesuto S2 b\r\npo\r\n";
-    like(scalar <$sock>, qr/^OK /, "set with encoded key");
+    like(scalar <$sock>, qr/^OK/, "set with encoded key");
 
     my $res = mget($sock, $tesuto, 'v');
     ok(! exists $res->{val}, "encoded key doesn't exist");
@@ -236,7 +236,7 @@ my $sock = $server->sock;
 {
     diag "mset mode switch";
     print $sock "ms modedefault S2 T120\r\naa\r\n";
-    like(scalar <$sock>, qr/^OK /, "default set mode");
+    like(scalar <$sock>, qr/^OK/, "default set mode");
     mget_is({ sock => $sock,
               flags => 's v',
               eflags => 's2' },
@@ -244,10 +244,10 @@ my $sock = $server->sock;
 
     # Fail an add
     print $sock "ms modedefault S2 T120 ME\r\naa\r\n";
-    like(scalar <$sock>, qr/^NS /, "add mode gets NOT_STORED");
+    like(scalar <$sock>, qr/^NS/, "add mode gets NOT_STORED");
     # Win an add
     print $sock "ms modetest S2 T120 ME\r\nbb\r\n";
-    like(scalar <$sock>, qr/^OK /, "add mode");
+    like(scalar <$sock>, qr/^OK/, "add mode");
     mget_is({ sock => $sock,
               flags => 's v',
               eflags => 's2' },
@@ -255,14 +255,14 @@ my $sock = $server->sock;
 
     # append
     print $sock "ms modetest S2 T120 MA\r\ncc\r\n";
-    like(scalar <$sock>, qr/^OK /, "append mode");
+    like(scalar <$sock>, qr/^OK/, "append mode");
     mget_is({ sock => $sock,
               flags => 's v',
               eflags => 's4' },
             'modetest', 'bbcc', "retrieved test value");
     # prepend
     print $sock "ms modetest S2 T120 MP\r\naa\r\n";
-    like(scalar <$sock>, qr/^OK /, "append mode");
+    like(scalar <$sock>, qr/^OK/, "append mode");
     mget_is({ sock => $sock,
               flags => 's v',
               eflags => 's6' },
@@ -270,9 +270,9 @@ my $sock = $server->sock;
 
     # replace
     print $sock "ms modereplace S2 T120 MR\r\nzz\r\n";
-    like(scalar <$sock>, qr/^NS /, "fail replace mode");
+    like(scalar <$sock>, qr/^NS/, "fail replace mode");
     print $sock "ms modetest S2 T120 MR\r\nxx\r\n";
-    like(scalar <$sock>, qr/^OK /, "replace mode");
+    like(scalar <$sock>, qr/^OK/, "replace mode");
     mget_is({ sock => $sock,
               flags => 's v',
               eflags => 's2' },
@@ -280,7 +280,7 @@ my $sock = $server->sock;
 
     # explicit set
     print $sock "ms modetest S2 T120 MS\r\nyy\r\n";
-    like(scalar <$sock>, qr/^OK /, "force set mode");
+    like(scalar <$sock>, qr/^OK/, "force set mode");
 
     # invalid mode
     print $sock "ms modetest S2 T120 MZ\r\ntt\r\n";
@@ -316,13 +316,13 @@ my $sock = $server->sock;
 
     # set back with the wrong CAS
     print $sock "ms needwin C5000 S2 T120\r\nnu\r\n";
-    like(scalar <$sock>, qr/^EX /, "failed to SET: CAS didn't match");
+    like(scalar <$sock>, qr/^EX/, "failed to SET: CAS didn't match");
 
     # again, but succeed.
     # TODO: the actual CAS command should work here too?
     my $cas = get_flag($res, 'c');
     print $sock "ms needwin C$cas S2 T120\r\nmu\r\n";
-    like(scalar <$sock>, qr/^OK /, "SET: CAS matched");
+    like(scalar <$sock>, qr/^OK/, "SET: CAS matched");
 
     # now we repeat the original mget, but the data should be different.
     $res = mget($sock, 'needwin', 's k t c v N30');
@@ -354,7 +354,7 @@ my $sock = $server->sock;
     # again, but succeed.
     $cas = get_flag($res, 'c');
     print $sock "ms needwin C$cas S4 T300\r\nzuuu\r\n";
-    like(scalar <$sock>, qr/^OK /, "SET: CAS matched");
+    like(scalar <$sock>, qr/^OK/, "SET: CAS matched");
 
     # now we repeat the original mget, but the data should be different.
     $res = mget($sock, 'needwin', 's t c v N30');
@@ -372,7 +372,7 @@ my $sock = $server->sock;
 {
     # Set key with lower initial TTL.
     print $sock "ms gatkey S4 T100\r\nooom\r\n";
-    like(scalar <$sock>, qr/^OK /, "set gatkey");
+    like(scalar <$sock>, qr/^OK/, "set gatkey");
 
     # Coolish side feature and/or bringer of bugs: 't' before 'T' gives TTL
     # before adjustment. 'T' before 't' gives TTL after adjustment.
@@ -388,7 +388,7 @@ my $sock = $server->sock;
 {
     # Set key with lower initial TTL.
     print $sock "ms hidevalue S4 T100\r\nhide\r\n";
-    like(scalar <$sock>, qr/^OK /, "set hidevalue");
+    like(scalar <$sock>, qr/^OK/, "set hidevalue");
 
     my $res = mget($sock, 'hidevalue', 's t');
     ok(keys %$res, "not a miss");
@@ -402,7 +402,7 @@ my $sock = $server->sock;
 # test hit-before? flag
 {
     print $sock "ms hitflag S3 T100\r\nhit\r\n";
-    like(scalar <$sock>, qr/^OK /, "set hitflag");
+    like(scalar <$sock>, qr/^OK/, "set hitflag");
 
     my $res = mget($sock, 'hitflag', 's t h');
     ok(keys %$res, "not a miss");
@@ -416,7 +416,7 @@ my $sock = $server->sock;
 # test no-update flag
 {
     print $sock "ms noupdate S3 T100\r\nhit\r\n";
-    like(scalar <$sock>, qr/^OK /, "set noupdate");
+    like(scalar <$sock>, qr/^OK/, "set noupdate");
 
     my $res = mget($sock, 'noupdate', 's t u h');
     ok(keys %$res, "not a miss");
@@ -434,7 +434,7 @@ my $sock = $server->sock;
 # test last-access time
 {
     print $sock "ms la_test S2 T100\r\nla\r\n";
-    like(scalar <$sock>, qr/^OK /, "set la_test");
+    like(scalar <$sock>, qr/^OK/, "set la_test");
     sleep 2;
 
     my $res = mget($sock, 'la_test', 's t l');
@@ -483,10 +483,10 @@ my $sock = $server->sock;
 
     diag "trying to fail then stale set via mset";
     print $sock "ms toinv S1 T90 C0\r\nf\r\n";
-    like(scalar <$sock>, qr/^EX /, "failed to SET: low CAS didn't match");
+    like(scalar <$sock>, qr/^EX/, "failed to SET: low CAS didn't match");
 
     print $sock "ms toinv S1 I T90 C1\r\nf\r\n";
-    like(scalar <$sock>, qr/^OK /, "SET an invalid/stale item");
+    like(scalar <$sock>, qr/^OK/, "SET an invalid/stale item");
 
     diag "confirm item still stale, and TTL wasn't raised.";
     $res = mget($sock, 'toinv', 's t c v');
@@ -501,7 +501,7 @@ my $sock = $server->sock;
     diag "do valid mset";
     $cas = get_flag($res, 'c');
     print $sock "ms toinv S1 T90 C$cas\r\ng\r\n";
-    like(scalar <$sock>, qr/^OK /, "SET over the stale item");
+    like(scalar <$sock>, qr/^OK/, "SET over the stale item");
 
     $res = mget($sock, 'toinv', 's t c v');
     ok(keys %$res, "not a miss");
@@ -546,7 +546,7 @@ my $sock = $server->sock;
     my $k = 'otest';
     diag "testing mget opaque";
     print $sock "ms $k S2 T100\r\nra\r\n";
-    like(scalar <$sock>, qr/^OK /, "set $k");
+    like(scalar <$sock>, qr/^OK/, "set $k");
 
     my $res = mget($sock, $k, 't v Oopaque');
     is(get_flag($res, 'O'), 'opaque', "O flag returned opaque");
@@ -561,7 +561,7 @@ my $sock = $server->sock;
 {
     diag "pipeline test";
     print $sock "ms foo S2 T100\r\nna\r\n";
-    like(scalar <$sock>, qr/^OK /, "set foo");
+    like(scalar <$sock>, qr/^OK/, "set foo");
     print $sock "mg foo s\r\nmg foo s\r\nquit\r\nmg foo s\r\n";
     like(scalar <$sock>, qr/^OK /, "got resp");
     like(scalar <$sock>, qr/^OK /, "got resp");
