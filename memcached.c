@@ -4586,6 +4586,7 @@ int main (int argc, char **argv) {
         DROP_PRIVILEGES,
         RESP_OBJ_MEM_LIMIT,
         READ_BUF_MEM_LIMIT,
+        META_RESPONSE_OLD,
 #ifdef TLS
         SSL_CERT,
         SSL_KEY,
@@ -4639,6 +4640,7 @@ int main (int argc, char **argv) {
         [DROP_PRIVILEGES] = "drop_privileges",
         [RESP_OBJ_MEM_LIMIT] = "resp_obj_mem_limit",
         [READ_BUF_MEM_LIMIT] = "read_buf_mem_limit",
+        [META_RESPONSE_OLD] = "meta_response_old",
 #ifdef TLS
         [SSL_CERT] = "ssl_chain_cert",
         [SSL_KEY] = "ssl_key",
@@ -5234,6 +5236,9 @@ int main (int argc, char **argv) {
             case NO_LRU_MAINTAINER:
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
+                break;
+            case META_RESPONSE_OLD:
+                settings.meta_response_old = true;
                 break;
 #ifdef TLS
             case SSL_CERT:
