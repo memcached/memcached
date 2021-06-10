@@ -242,6 +242,8 @@ static void settings_init(void) {
     settings.oldest_live = 0;
     settings.oldest_cas = 0;          /* supplements accuracy of oldest_live */
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
+    settings.listen_fd = -1;          /* disabled */
+    settings.listen_fd_transport = local_transport;
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.auth_file = NULL;        /* by default, not using ASCII authentication tokens */
     settings.factor = 1.25;
@@ -504,6 +506,22 @@ static const char *prot_text(enum protocol prot) {
             break;
         case negotiating_prot:
             rv = "auto-negotiate";
+            break;
+    }
+    return rv;
+}
+
+static const char *network_transport_text(enum network_transport transport) {
+    char *rv = "unknown";
+    switch (transport) {
+        case local_transport:
+            rv = "local";
+            break;
+        case tcp_transport:
+            rv = "tcp";
+            break;
+        case udp_transport:
+            rv = "udp";
             break;
     }
     return rv;
@@ -1819,6 +1837,9 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("domain_socket", "%s",
                 settings.socketpath ? settings.socketpath : "NULL");
     APPEND_STAT("umask", "%o", settings.access);
+    APPEND_STAT("fd", "%d", settings.listen_fd);
+    APPEND_STAT("fd_transport", "%s",
+                network_transport_text(settings.listen_fd_transport));
     APPEND_STAT("growth_factor", "%.2f", settings.factor);
     APPEND_STAT("chunk_size", "%d", settings.chunk_size);
     APPEND_STAT("num_threads", "%d", settings.num_threads);
