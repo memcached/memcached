@@ -32,6 +32,8 @@ static unsigned int logger_count = 0;
 static volatile int do_run_logger_thread = 1;
 static pthread_t logger_tid;
 pthread_mutex_t logger_stack_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t logger_pause_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t logger_pause_lock = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_key_t logger_key;
 
@@ -526,8 +528,15 @@ static void *logger_thread(void *arg) {
         memset(&ls, 0, sizeof(struct logger_stats));
 
         /* only sleep if we're *above* the minimum */
-        if (to_sleep > MIN_LOGGER_SLEEP)
-            usleep(to_sleep);
+        if (to_sleep > MIN_LOGGER_SLEEP) {
+            if (watcher_count > 0) {
+              usleep(to_sleep);
+            } else {
+              mutex_lock(&logger_pause_lock);
+              pthread_cond_wait(&logger_pause_cond, &logger_pause_lock);
+              mutex_unlock(&logger_pause_lock);
+            }
+        }
 
         /* Call function to iterate each logger. */
         pthread_mutex_lock(&logger_stack_lock);
@@ -568,7 +577,12 @@ static int start_logger_thread(void) {
 }
 
 static int stop_logger_thread(void) {
+    mutex_lock(&logger_pause_lock);
     do_run_logger_thread = 0;
+    pthread_cond_signal(&logger_pause_cond);
+    mutex_unlock(&logger_pause_lock);
+
+    /* Wait for the logger thread to stop */
     pthread_join(logger_tid, NULL);
     return 0;
 }
@@ -838,6 +852,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
 
     watchers[x] = w;
     watcher_count++;
+    pthread_cond_signal(&logger_pause_cond);
     /* Update what flags the global logs will watch */
     logger_set_flags();
 
