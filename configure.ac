@@ -473,9 +473,19 @@ if test "x$enable_tls" = "xyes"; then
       AC_MSG_ERROR([libssl (at least version 1.1.0) is required.  You can get it from $OPENSSL_URL
 
         If it's already installed, specify its path using --with-libssl=/dir/
-  ])
+      ])
     fi
   ])
+  # Set define for usage of features available in OpenSSL 1.1.1 and newer
+  AC_RUN_IFELSE([AC_LANG_PROGRAM([
+    #include <assert.h>
+    #include <openssl/ssl.h>
+  ],[
+    assert(OPENSSL_VERSION_NUMBER >= 0x10101000L);
+  ])], [ libssl_111=yes ])
+  if test $libssl_111 = yes; then
+    AC_DEFINE(HAVE_OPENSSL_111, 1, [OpenSSL version is >= 1.1.1])
+  fi
   LIBS="-lssl -lcrypto $LIBS"
   if test $ac_cv_libssl_dir != "(system)"; then
     if test -d "$ac_cv_libssl_dir/lib" ; then

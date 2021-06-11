@@ -28,10 +28,11 @@ is($settings->{'ssl_keyformat'}, 1);
 is($settings->{'ssl_ciphers'}, 'NULL');
 is($settings->{'ssl_ca_cert'}, 'NULL');
 is($settings->{'ssl_wbuf_size'}, 16384);
+is($settings->{'ssl_min_version'}, 'tlsv1.2');
 
 $server->DESTROY();
 $server = new_memcached("-o ssl_wbuf_size=64");
 $settings = mem_stats($server->sock, ' settings');
-is($settings->{'ssl_wbuf_size'},65536);
+is($settings->{'ssl_wbuf_size'}, 65536);
 
 done_testing();

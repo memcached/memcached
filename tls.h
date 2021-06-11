@@ -15,5 +15,6 @@ int ssl_init(void);
 bool refresh_certs(char **errmsg);
 void ssl_callback(const SSL *s, int where, int ret);
 int ssl_new_session_callback(SSL *s, SSL_SESSION *sess);
+const char *ssl_proto_text(int version);
 
 #endif
