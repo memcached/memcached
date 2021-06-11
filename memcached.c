@@ -3826,6 +3826,9 @@ static void usage(void) {
     printf("-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: %o)\n",
             settings.access);
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
+    printf("-j  --fd=<num>            file descriptor to listen on (disables network support)\n"
+           "-J  --fd-transport=<name> network transport used by the file descriptor listener;\n"
+           "                          one of local, tcp, or udp\n");
     printf("-A, --enable-shutdown     enable ascii \"shutdown\" command\n");
     printf("-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n");
 #ifdef TLS
@@ -4713,6 +4716,8 @@ int main (int argc, char **argv) {
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
+          "j:"  /* bound file descriptor to listen on */
+          "J:"  /* network transport for the file descriptor listener */
           "m:"  /* max memory to use for items in megabytes */
           "M"   /* return error on memory exhausted */
           "c:"  /* max simultaneous connections */
@@ -4753,6 +4758,8 @@ int main (int argc, char **argv) {
         {"port", required_argument, 0, 'p'},
         {"unix-socket", required_argument, 0, 's'},
         {"udp-port", required_argument, 0, 'U'},
+        {"fd", required_argument, 0, 'j'},
+        {"fd-transport", required_argument, 0, 'J'},
         {"memory-limit", required_argument, 0, 'm'},
         {"disable-evictions", no_argument, 0, 'M'},
         {"conn-limit", required_argument, 0, 'c'},
@@ -4829,6 +4836,21 @@ int main (int argc, char **argv) {
             fprintf(stderr, "This server is not built with unix socket support.\n");
             exit(EX_USAGE);
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
+            break;
+        case 'j':
+            settings.listen_fd = atoi(optarg);
+            break;
+        case 'J':
+            if (!strncmp(optarg, "local", 5)) {
+                settings.listen_fd_transport = local_transport;
+            } else if (!strncmp(optarg, "tcp", 3)) {
+                settings.listen_fd_transport = tcp_transport;
+            } else if (!strncmp(optarg, "udp", 3)) {
+                settings.listen_fd_transport = udp_transport;
+            } else {
+                fprintf(stderr, "Unknown transport type; use one of local, tcp, or udp\n");
+                exit(EX_USAGE);
+            }
             break;
         case 'm':
             settings.maxbytes = ((size_t)atoi(optarg)) * 1024 * 1024;
@@ -5537,6 +5559,14 @@ int main (int argc, char **argv) {
 
     if (udp_specified && settings.udpport != 0 && !tcp_specified) {
         settings.port = settings.udpport;
+    }
+
+    if (settings.listen_fd != -1) {
+        if (fcntl(settings.listen_fd, F_GETFD) < 0) {
+            fprintf(stderr, "Invalid listen file descriptor: %s\n",
+                    strerror(errno));
+            exit(EX_USAGE);
+        }
     }
 
 
