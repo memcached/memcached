@@ -242,6 +242,8 @@ static void settings_init(void) {
     settings.oldest_live = 0;
     settings.oldest_cas = 0;          /* supplements accuracy of oldest_live */
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
+    settings.listen_fd = -1;          /* disabled */
+    settings.listen_fd_transport = local_transport;
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.auth_file = NULL;        /* by default, not using ASCII authentication tokens */
     settings.factor = 1.25;
@@ -504,6 +506,22 @@ static const char *prot_text(enum protocol prot) {
             break;
         case negotiating_prot:
             rv = "auto-negotiate";
+            break;
+    }
+    return rv;
+}
+
+static const char *network_transport_text(enum network_transport transport) {
+    char *rv = "unknown";
+    switch (transport) {
+        case local_transport:
+            rv = "local";
+            break;
+        case tcp_transport:
+            rv = "tcp";
+            break;
+        case udp_transport:
+            rv = "udp";
             break;
     }
     return rv;
@@ -1819,6 +1837,9 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("domain_socket", "%s",
                 settings.socketpath ? settings.socketpath : "NULL");
     APPEND_STAT("umask", "%o", settings.access);
+    APPEND_STAT("fd", "%d", settings.listen_fd);
+    APPEND_STAT("fd_transport", "%s",
+                network_transport_text(settings.listen_fd_transport));
     APPEND_STAT("growth_factor", "%.2f", settings.factor);
     APPEND_STAT("chunk_size", "%d", settings.chunk_size);
     APPEND_STAT("num_threads", "%d", settings.num_threads);
@@ -3706,6 +3727,39 @@ static int server_socket_unix(const char *path, int access_mask) {
 #define server_socket_unix(path, access_mask)   -1
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
 
+static int server_socket_fd(int sfd, enum network_transport transport) {
+    struct sockaddr_in addr;
+
+    memset(&addr, 0, sizeof(struct sockaddr_in));
+
+    if (settings.listen_fd_transport == local_transport) {
+        for (int i = 0; i < settings.num_threads; i++) {
+            int threadfd;
+
+            if (i == 0) {
+                threadfd = sfd;
+            } else {
+                threadfd = dup(sfd);
+            }
+
+            dispatch_conn_new(threadfd, conn_new_cmd,
+                              EV_READ | EV_PERSIST, READ_BUFFER_CACHED,
+                              settings.listen_fd_transport, NULL);
+        }
+
+        return 0;
+    }
+
+    if (!conn_new(sfd, conn_listening,
+                  EV_READ | EV_PERSIST, 1,
+                  settings.listen_fd_transport, main_base, NULL)) {
+        fprintf(stderr, "failed to create listening connection\n");
+        exit(EXIT_FAILURE);
+    }
+
+    return 0;
+}
+
 /*
  * We keep the current time of day in a global variable that's updated by a
  * timer event. This saves us a bunch of time() system calls (we really only
@@ -3805,6 +3859,9 @@ static void usage(void) {
     printf("-a, --unix-mask=<mask>    access mask for UNIX socket, in octal (default: %o)\n",
             settings.access);
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
+    printf("-j  --fd=<num>            file descriptor to listen on (disables network support)\n"
+           "-J  --fd-transport=<name> network transport used by the file descriptor listener;\n"
+           "                          one of local, tcp, or udp\n");
     printf("-A, --enable-shutdown     enable ascii \"shutdown\" command\n");
     printf("-l, --listen=<addr>       interface to listen on (default: INADDR_ANY)\n");
 #ifdef TLS
@@ -4692,6 +4749,8 @@ int main (int argc, char **argv) {
           "p:"  /* TCP port number to listen on */
           "s:"  /* unix socket path to listen on */
           "U:"  /* UDP port number to listen on */
+          "j:"  /* bound file descriptor to listen on */
+          "J:"  /* network transport for the file descriptor listener */
           "m:"  /* max memory to use for items in megabytes */
           "M"   /* return error on memory exhausted */
           "c:"  /* max simultaneous connections */
@@ -4732,6 +4791,8 @@ int main (int argc, char **argv) {
         {"port", required_argument, 0, 'p'},
         {"unix-socket", required_argument, 0, 's'},
         {"udp-port", required_argument, 0, 'U'},
+        {"fd", required_argument, 0, 'j'},
+        {"fd-transport", required_argument, 0, 'J'},
         {"memory-limit", required_argument, 0, 'm'},
         {"disable-evictions", no_argument, 0, 'M'},
         {"conn-limit", required_argument, 0, 'c'},
@@ -4808,6 +4869,21 @@ int main (int argc, char **argv) {
             fprintf(stderr, "This server is not built with unix socket support.\n");
             exit(EX_USAGE);
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
+            break;
+        case 'j':
+            settings.listen_fd = atoi(optarg);
+            break;
+        case 'J':
+            if (!strncmp(optarg, "local", 5)) {
+                settings.listen_fd_transport = local_transport;
+            } else if (!strncmp(optarg, "tcp", 3)) {
+                settings.listen_fd_transport = tcp_transport;
+            } else if (!strncmp(optarg, "udp", 3)) {
+                settings.listen_fd_transport = udp_transport;
+            } else {
+                fprintf(stderr, "Unknown transport type; use one of local, tcp, or udp\n");
+                exit(EX_USAGE);
+            }
             break;
         case 'm':
             settings.maxbytes = ((size_t)atoi(optarg)) * 1024 * 1024;
@@ -5518,6 +5594,14 @@ int main (int argc, char **argv) {
         settings.port = settings.udpport;
     }
 
+    if (settings.listen_fd != -1) {
+        if (fcntl(settings.listen_fd, F_GETFD) < 0) {
+            fprintf(stderr, "Invalid listen file descriptor: %s\n",
+                    strerror(errno));
+            exit(EX_USAGE);
+        }
+    }
+
 
 #ifdef TLS
     /*
@@ -5831,17 +5915,22 @@ int main (int argc, char **argv) {
 #endif
     clock_handler(0, 0, 0);
 
-    /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
+        /* create unix mode sockets after dropping privileges */
         errno = 0;
         if (server_socket_unix(settings.socketpath,settings.access)) {
             vperror("failed to listen on UNIX socket: %s", settings.socketpath);
             exit(EX_OSERR);
         }
-    }
-
-    /* create the listening socket, bind it, and init */
-    if (settings.socketpath == NULL) {
+    } else if (settings.listen_fd != -1) {
+        /* listen directly on a bound file descriptor */
+        if (server_socket_fd(settings.listen_fd, settings.listen_fd_transport)) {
+            vperror("failed to listen on file descriptor: %d (%s)",
+                    settings.listen_fd, network_transport_text(settings.listen_fd_transport));
+            exit(EX_OSERR);
+        }
+    } else {
+        /* create the listening socket, bind it, and init */
         const char *portnumber_filename = getenv("MEMCACHED_PORT_FILENAME");
         char *temp_portnumber_filename = NULL;
         size_t len;
