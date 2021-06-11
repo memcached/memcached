@@ -3727,6 +3727,39 @@ static int server_socket_unix(const char *path, int access_mask) {
 #define server_socket_unix(path, access_mask)   -1
 #endif /* #ifndef DISABLE_UNIX_SOCKET */
 
+static int server_socket_fd(int sfd, enum network_transport transport) {
+    struct sockaddr_in addr;
+
+    memset(&addr, 0, sizeof(struct sockaddr_in));
+
+    if (settings.listen_fd_transport == local_transport) {
+        for (int i = 0; i < settings.num_threads; i++) {
+            int threadfd;
+
+            if (i == 0) {
+                threadfd = sfd;
+            } else {
+                threadfd = dup(sfd);
+            }
+
+            dispatch_conn_new(threadfd, conn_new_cmd,
+                              EV_READ | EV_PERSIST, READ_BUFFER_CACHED,
+                              settings.listen_fd_transport, NULL);
+        }
+
+        return 0;
+    }
+
+    if (!conn_new(sfd, conn_listening,
+                  EV_READ | EV_PERSIST, 1,
+                  settings.listen_fd_transport, main_base, NULL)) {
+        fprintf(stderr, "failed to create listening connection\n");
+        exit(EXIT_FAILURE);
+    }
+
+    return 0;
+}
+
 /*
  * We keep the current time of day in a global variable that's updated by a
  * timer event. This saves us a bunch of time() system calls (we really only
@@ -5882,17 +5915,22 @@ int main (int argc, char **argv) {
 #endif
     clock_handler(0, 0, 0);
 
-    /* create unix mode sockets after dropping privileges */
     if (settings.socketpath != NULL) {
+        /* create unix mode sockets after dropping privileges */
         errno = 0;
         if (server_socket_unix(settings.socketpath,settings.access)) {
             vperror("failed to listen on UNIX socket: %s", settings.socketpath);
             exit(EX_OSERR);
         }
-    }
-
-    /* create the listening socket, bind it, and init */
-    if (settings.socketpath == NULL) {
+    } else if (settings.listen_fd != -1) {
+        /* listen directly on a bound file descriptor */
+        if (server_socket_fd(settings.listen_fd, settings.listen_fd_transport)) {
+            vperror("failed to listen on file descriptor: %d (%s)",
+                    settings.listen_fd, network_transport_text(settings.listen_fd_transport));
+            exit(EX_OSERR);
+        }
+    } else {
+        /* create the listening socket, bind it, and init */
         const char *portnumber_filename = getenv("MEMCACHED_PORT_FILENAME");
         char *temp_portnumber_filename = NULL;
         size_t len;
