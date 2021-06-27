@@ -1367,6 +1367,7 @@ other stats command.
 | evictions         | on/off   | When off, LRU evictions are disabled.        |
 | domain_socket     | string   | Path to the domain socket (if any).          |
 | umask             | 32 (oct) | umask for the creation of the domain socket. |
+| shutdown_command  | yes/no   | If shutdown admin command is enabled.        |
 | growth_factor     | float    | Chunk size growth factor.                    |
 | chunk_size        | 32       | Minimum space allocated for key+value+flags. |
 | num_threads       | 32       | Number of threads (including dispatch).      |
