@@ -53,7 +53,7 @@ ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags) {
     // the sendmsg method. Also, set c->ssl_wbuf  when the side thread
     // start owning the connection and reset the pointer in
     // conn_worker_readd.
-    // Currntly this connection would not be served by a different thread
+    // Currently this connection would not be served by a different thread
     // than the one it's assigned.
     assert(pthread_equal(c->thread->thread_id, pthread_self()) != 0);
 

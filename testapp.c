@@ -906,7 +906,7 @@ static enum test_return test_crc32c(void) {
     for (int x = 0; x < 256; x++)
         buffer[x] = x;
 
-    /* Compare harware to software implementaiton */
+    /* Compare hardware to software implementation */
     crc_hw = crc32c(0, buffer, 256);
     crc_sw = crc32c_sw(0, buffer, 256);
     assert(crc_hw == 0x9c44184b);
