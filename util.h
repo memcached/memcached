@@ -41,3 +41,8 @@ extern uint64_t ntohll(uint64_t);
  */
 void vperror(const char *fmt, ...)
     __gcc_attribute__ ((format (printf, 1, 2)));
+
+#define mc_powerof2(n) ((n) && !(((n) - 1) & (n)))
+#define mc_rounddown(x, y) ((x) - ((x) % (y)))
+#define mc_roundup(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
+#define mc_is_aligned(x, a) (((x) & ((typeof(x))(a) - 1)) == 0)
