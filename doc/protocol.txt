@@ -554,7 +554,7 @@ These flags can modify the item:
 These extra flags can be added to the response:
 - W: client has "won" the recache flag
 - X: item is stale
-- Z: tem has already sent a winning flag
+- Z: item has already sent a winning flag
 
 The flags are now repeated with detailed information where useful:
 
@@ -1334,7 +1334,7 @@ integers separated by a colon (treat this as a floating point number).
 | log_worker_written    | 64u     | Logs written by a worker, to be picked up |
 | log_watcher_skipped   | 64u     | Logs not sent to slow watchers.           |
 | log_watcher_sent      | 64u     | Logs written to watchers.                 |
-| unexected_napi_ids    | 64u     | Number of times an unexpected napi id is  |
+| unexpected_napi_ids   | 64u     | Number of times an unexpected napi id is  |
 |                       |         | is received. See doc/napi_ids.txt         |
 | round_robin_fallback  | 64u     | Number of times napi id of 0 is received  |
 |                       |         | resulting in fallback to round robin      |
