@@ -483,7 +483,7 @@ struct settings {
     char *ssl_chain_cert; /* path to the server SSL chain certificate */
     char *ssl_key; /* path to the server key */
     int ssl_verify_mode; /* client certificate verify mode */
-    int ssl_keyformat; /* key format , defult is PEM */
+    int ssl_keyformat; /* key format , default is PEM */
     char *ssl_ciphers; /* list of SSL ciphers */
     char *ssl_ca_cert; /* certificate with CAs. */
     rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */

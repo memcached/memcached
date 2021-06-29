@@ -3025,7 +3025,7 @@ static void drive_machine(conn *c) {
         case conn_parse_cmd:
             c->noreply = false;
             if (c->try_read_command(c) == 0) {
-                /* wee need more data! */
+                /* we need more data! */
                 if (c->resp_head) {
                     // Buffered responses waiting, flush in the meantime.
                     conn_set_state(c, conn_mwrite);
@@ -4249,7 +4249,7 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     // TODO: should get a version of version which is numeric, else
     // comparisons for compat reasons are difficult.
     // it may be possible to punt on this for now; since we can test for the
-    // absense of another key... such as the new numeric version.
+    // absence of another key... such as the new numeric version.
     //restart_set_kv(ctx, "version", "%s", VERSION);
     // We hold the original factor or subopts _string_
     // it can be directly compared without roundtripping through floats or
