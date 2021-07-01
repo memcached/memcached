@@ -1819,6 +1819,8 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("domain_socket", "%s",
                 settings.socketpath ? settings.socketpath : "NULL");
     APPEND_STAT("umask", "%o", settings.access);
+    APPEND_STAT("shutdown_command", "%s",
+                settings.shutdown_command ? "yes" : "no");
     APPEND_STAT("growth_factor", "%.2f", settings.factor);
     APPEND_STAT("chunk_size", "%d", settings.chunk_size);
     APPEND_STAT("num_threads", "%d", settings.num_threads);

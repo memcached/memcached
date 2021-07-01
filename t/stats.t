@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 108;
+use Test::More tests => 109;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -147,6 +147,7 @@ if (enabled_tls_testing() || !supports_unix_socket()) {
 is('on', $settings->{'evictions'});
 is('yes', $settings->{'cas_enabled'});
 is('no', $settings->{'auth_enabled_sasl'});
+is('no', $settings->{'shutdown_command'});
 
 print $sock "stats reset\r\n";
 is(scalar <$sock>, "RESET\r\n", "good stats reset");
