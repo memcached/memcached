@@ -175,7 +175,7 @@ function prefix_factory(pattern, list, default)
         local route = l[string.match(r:key(), p)]
         if route == nil then
             -- example counter: tick when default route hit.
-            s(EXAMPLE_STAT, 1)
+            s(STAT_EXAMPLE, 1)
             return d(r)
         end
         return route(r)
