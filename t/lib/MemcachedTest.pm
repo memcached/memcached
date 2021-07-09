@@ -18,7 +18,7 @@ my @unixsockets = ();
              mem_get_is mem_gets mem_gets_is mem_stats mem_move_time
              supports_sasl free_port supports_drop_priv supports_extstore
              wait_ext_flush supports_tls enabled_tls_testing run_help
-             supports_unix_socket);
+             supports_unix_socket get_memcached_exe);
 
 use constant MAX_READ_WRITE_SIZE => 16384;
 use constant SRV_CRT => "server_crt.pem";

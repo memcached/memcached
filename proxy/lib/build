@@ -1,0 +1,11 @@
+#!/bin/bash
+# TODO: when building with liblua.a instead of .so we end up duplicating the
+# code which can have some performance implications.
+
+# lua needs to be built with -fPIC for this to work.
+# build with: cd vendor/lua ; make linux MYCFLAGS="-fPIC" or edit the Makefile
+gcc -g -O2 -fPIC -c ketama.c md5.c -I../../vendor/lua/src
+gcc -g -O2 -fPIC -c md5.c -I../../vendor/lua/src
+gcc -fpic -shared -o ketama.so ketama.o md5.o \
+           -L../../vendor/lua/src -llua
+echo -e "you probably want to:\ncp ketama.so ../../"

@@ -322,6 +322,12 @@ struct slab_stats {
     X(badcrc_from_extstore)
 #endif
 
+#ifdef PROXY
+#define PROXY_THREAD_STATS_FIELDS \
+    X(proxy_conn_requests) \
+    X(proxy_conn_errors)
+#endif
+
 /**
  * Stats stored per-thread.
  */
@@ -331,6 +337,9 @@ struct thread_stats {
     THREAD_STATS_FIELDS
 #ifdef EXTSTORE
     EXTSTORE_THREAD_STATS_FIELDS
+#endif
+#ifdef PROXY
+    PROXY_THREAD_STATS_FIELDS
 #endif
 #undef X
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -460,6 +469,7 @@ struct settings {
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
     bool watch_enabled; /* allows watch commands to be dropped */
     bool relaxed_privileges;   /* Relax process restrictions when running testapp */
+    bool meta_response_old; /* use "OK" instead of "HD". for response code TEMPORARY! */
 #ifdef EXTSTORE
     unsigned int ext_io_threadcount; /* number of IO threads to run. */
     unsigned int ext_page_size; /* size in megabytes of storage pages. */
@@ -491,6 +501,11 @@ struct settings {
 #endif
     int num_napi_ids;   /* maximum number of NAPI IDs */
     char *memory_file;  /* warm restart memory file path */
+#ifdef PROXY
+    bool proxy_enabled;
+    char *proxy_startfile; /* lua file to run when workers start */
+    void *proxy_ctx; /* proxy's state context */
+#endif
 };
 
 extern struct stats stats;
@@ -634,7 +649,12 @@ typedef struct {
     char   *ssl_wbuf;
 #endif
     int napi_id;                /* napi id associated with this thread */
-
+#ifdef PROXY
+    void *L;
+    void *proxy_hooks;
+    void *proxy_stats;
+    // TODO: add ctx object so we can attach to queue.
+#endif
 } LIBEVENT_THREAD;
 
 /**
@@ -684,6 +704,7 @@ typedef struct conn conn;
 
 #define IO_QUEUE_NONE 0
 #define IO_QUEUE_EXTSTORE 1
+#define IO_QUEUE_PROXY 2
 
 typedef void (*io_queue_stack_cb)(void *ctx, void *stack);
 typedef void (*io_queue_cb)(io_pending_t *pending);
@@ -913,6 +934,7 @@ void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
+LIBEVENT_THREAD *get_worker_thread(int id);
 
 /* Stat processing functions */
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,

@@ -6,6 +6,9 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
+#ifdef PROXY
+#include "proto_proxy.h"
+#endif
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
@@ -455,6 +458,13 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         }
     }
 #endif
+#ifdef PROXY
+    // TODO: maybe register hooks to be called here from sub-packages? ie;
+    // extstore, TLS, proxy.
+    if (settings.proxy_enabled) {
+        proxy_thread_init(me);
+    }
+#endif
 }
 
 /*
@@ -542,6 +552,10 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                             storage_submit_cb, storage_complete_cb, storage_finalize_cb);
                     }
 #endif
+#ifdef PROXY
+                    conn_io_queue_add(c, IO_QUEUE_PROXY, settings.proxy_ctx, proxy_submit_cb,
+                            proxy_complete_cb, proxy_finalize_cb);
+#endif
                     conn_io_queue_add(c, IO_QUEUE_NONE, NULL, NULL, NULL, NULL);
 
 #ifdef TLS
@@ -581,7 +595,18 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
     case 's':
         event_base_loopexit(me->base, NULL);
         break;
+#ifdef PROXY
+    case 'P':
+        proxy_worker_reload(settings.proxy_ctx, me);
+        break;
+#endif
     }
+}
+
+// NOTE: need better encapsulation.
+// used by the proxy module to iterate the worker threads.
+LIBEVENT_THREAD *get_worker_thread(int id) {
+    return &threads[id];
 }
 
 /* Which thread we assigned a connection to most recently. */
@@ -869,6 +894,9 @@ void threadlocal_stats_reset(void) {
 #ifdef EXTSTORE
         EXTSTORE_THREAD_STATS_FIELDS
 #endif
+#ifdef PROXY
+        PROXY_THREAD_STATS_FIELDS
+#endif
 #undef X
 
         memset(&threads[ii].stats.slab_stats, 0,
@@ -893,6 +921,9 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
         THREAD_STATS_FIELDS
 #ifdef EXTSTORE
         EXTSTORE_THREAD_STATS_FIELDS
+#endif
+#ifdef PROXY
+        PROXY_THREAD_STATS_FIELDS
 #endif
 #undef X
 
