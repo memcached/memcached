@@ -20,6 +20,8 @@ enum log_entry_type {
     LOGGER_ITEM_STORE,
     LOGGER_CRAWLER_STATUS,
     LOGGER_SLAB_MOVE,
+    LOGGER_CONNECTION_NEW,
+    LOGGER_CONNECTION_CLOSE,
 #ifdef EXTSTORE
     LOGGER_EXTSTORE_WRITE,
     LOGGER_COMPACT_START,
@@ -36,6 +38,8 @@ enum log_entry_subtype {
     LOGGER_EVICTION_ENTRY,
     LOGGER_ITEM_GET_ENTRY,
     LOGGER_ITEM_STORE_ENTRY,
+    LOGGER_CONNECTION_NEW_ENTRY,
+    LOGGER_CONNECTION_CLOSE_ENTRY,
 #ifdef EXTSTORE
     LOGGER_EXT_WRITE_ENTRY,
 #endif
@@ -96,6 +100,14 @@ struct logentry_item_store {
     uint8_t clsid;
     int sfd;
     char key[];
+};
+
+struct logentry_conn_event {
+    char rip[64];
+    unsigned short rport;
+    int transport;
+    int reason;
+    int sfd;
 };
 
 /* end intermediary structures */
