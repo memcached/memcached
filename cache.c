@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <assert.h>
 
 #ifndef NDEBUG
 #include <signal.h>
@@ -10,37 +11,29 @@
 #include "cache.h"
 
 #ifndef NDEBUG
-const uint64_t redzone_pattern = 0xdeadbeefcafebabe;
+const uint64_t redzone_pattern = 0xdeadbeefcafedeed;
 int cache_error = 0;
 #endif
 
-const int initial_pool_size = 64;
-
-cache_t* cache_create(const char *name, size_t bufsize, size_t align,
-                      cache_constructor_t* constructor,
-                      cache_destructor_t* destructor) {
+cache_t* cache_create(const char *name, size_t bufsize, size_t align) {
     cache_t* ret = calloc(1, sizeof(cache_t));
     char* nm = strdup(name);
-    void** ptr = calloc(initial_pool_size, sizeof(void*));
-    if (ret == NULL || nm == NULL || ptr == NULL ||
+    if (ret == NULL || nm == NULL ||
         pthread_mutex_init(&ret->mutex, NULL) == -1) {
         free(ret);
         free(nm);
-        free(ptr);
         return NULL;
     }
 
     ret->name = nm;
-    ret->ptr = ptr;
-    ret->freetotal = initial_pool_size;
-    ret->constructor = constructor;
-    ret->destructor = destructor;
+    STAILQ_INIT(&ret->head);
 
 #ifndef NDEBUG
     ret->bufsize = bufsize + 2 * sizeof(redzone_pattern);
 #else
     ret->bufsize = bufsize;
 #endif
+    assert(ret->bufsize >= sizeof(struct cache_free_s));
 
     return ret;
 }
@@ -61,15 +54,12 @@ static inline void* get_object(void *ptr) {
 }
 
 void cache_destroy(cache_t *cache) {
-    while (cache->freecurr > 0) {
-        void *ptr = cache->ptr[--cache->freecurr];
-        if (cache->destructor) {
-            cache->destructor(get_object(ptr), NULL);
-        }
-        free(ptr);
+    while (!STAILQ_EMPTY(&cache->head)) {
+        struct cache_free_s *o = STAILQ_FIRST(&cache->head);
+        STAILQ_REMOVE_HEAD(&cache->head, c_next);
+        free(o);
     }
     free(cache->name);
-    free(cache->ptr);
     pthread_mutex_destroy(&cache->mutex);
     free(cache);
 }
@@ -86,18 +76,15 @@ void* do_cache_alloc(cache_t *cache) {
     void *ret;
     void *object;
     if (cache->freecurr > 0) {
-        ret = cache->ptr[--cache->freecurr];
+        ret = STAILQ_FIRST(&cache->head);
+        STAILQ_REMOVE_HEAD(&cache->head, c_next);
         object = get_object(ret);
+        cache->freecurr--;
     } else if (cache->limit == 0 || cache->total < cache->limit) {
         object = ret = malloc(cache->bufsize);
         if (ret != NULL) {
             object = get_object(ret);
 
-            if (cache->constructor != NULL &&
-                cache->constructor(object, NULL, 0) != 0) {
-                free(ret);
-                object = NULL;
-            }
             cache->total++;
         }
     } else {
@@ -143,29 +130,11 @@ void do_cache_free(cache_t *cache, void *ptr) {
     ptr = pre;
 #endif
     if (cache->limit != 0 && cache->limit < cache->total) {
-        /* Allow freeing in case the limit was revised downward */
-        if (cache->destructor) {
-            cache->destructor(ptr, NULL);
-        }
         free(ptr);
         cache->total--;
-    } else if (cache->freecurr < cache->freetotal) {
-        cache->ptr[cache->freecurr++] = ptr;
     } else {
-        /* try to enlarge free connections array */
-        size_t newtotal = cache->freetotal * 2;
-        void **new_free = realloc(cache->ptr, sizeof(char *) * newtotal);
-        if (new_free) {
-            cache->freetotal = newtotal;
-            cache->ptr = new_free;
-            cache->ptr[cache->freecurr++] = ptr;
-        } else {
-            if (cache->destructor) {
-                cache->destructor(ptr, NULL);
-            }
-            free(ptr);
-            cache->total--;
-        }
+        STAILQ_INSERT_TAIL(&cache->head, (struct cache_free_s *)ptr, c_next);
+        cache->freecurr++;
     }
 }
 

@@ -2,31 +2,18 @@
 #ifndef CACHE_H
 #define CACHE_H
 #include <pthread.h>
+#include "queue.h"
 
 #ifndef NDEBUG
 /* may be used for debug purposes */
 extern int cache_error;
 #endif
 
-/**
- * Constructor used to initialize allocated objects
- *
- * @param obj pointer to the object to initialized.
- * @param notused1 This parameter is currently not used.
- * @param notused2 This parameter is currently not used.
- * @return you should return 0, but currently this is not checked
- */
-typedef int cache_constructor_t(void* obj, void* notused1, int notused2);
-/**
- * Destructor used to clean up allocated objects before they are
- * returned to the operating system.
- *
- * @param obj pointer to the object to clean up.
- * @param notused This parameter is currently not used.
- * @return you should return 0, but currently this is not checked
- */
-typedef void cache_destructor_t(void* obj, void* notused);
+struct cache_free_s {
+    STAILQ_ENTRY(cache_free_s) c_next;
+};
 
+//typedef STAILQ_HEAD(cache_head_s, cache_free_s) cache_head_t;
 /**
  * Definition of the structure to keep track of the internal details of
  * the cache allocator. Touching any of these variables results in
@@ -37,8 +24,8 @@ typedef struct {
     pthread_mutex_t mutex;
     /** Name of the cache objects in this cache (provided by the caller) */
     char *name;
-    /** List of pointers to available buffers in this cache */
-    void **ptr;
+    /** freelist of available buffers */
+    STAILQ_HEAD(cache_head, cache_free_s) head;
     /** The size of each element in this cache */
     size_t bufsize;
     /** The capacity of the list of elements */
@@ -49,10 +36,6 @@ typedef struct {
     int freecurr;
     /** A limit on the total number of elements */
     int limit;
-    /** The constructor to be called each time we allocate more memory */
-    cache_constructor_t* constructor;
-    /** The destructor to be called each time before we release memory */
-    cache_destructor_t* destructor;
 } cache_t;
 
 /**
@@ -73,9 +56,8 @@ typedef struct {
  *                   to the os.
  * @return a handle to an object cache if successful, NULL otherwise.
  */
-cache_t* cache_create(const char* name, size_t bufsize, size_t align,
-                      cache_constructor_t* constructor,
-                      cache_destructor_t* destructor);
+cache_t* cache_create(const char* name, size_t bufsize, size_t align);
+
 /**
  * Destroy an object cache.
  *

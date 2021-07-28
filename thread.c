@@ -424,7 +424,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         exit(EXIT_FAILURE);
     }
 
-    me->rbuf_cache = cache_create("rbuf", READ_BUFFER_SIZE, sizeof(char *), NULL, NULL);
+    me->rbuf_cache = cache_create("rbuf", READ_BUFFER_SIZE, sizeof(char *));
     if (me->rbuf_cache == NULL) {
         fprintf(stderr, "Failed to create read buffer cache\n");
         exit(EXIT_FAILURE);
@@ -441,7 +441,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         cache_set_limit(me->rbuf_cache, limit);
     }
 
-    me->io_cache = cache_create("io", sizeof(io_pending_t), sizeof(char*), NULL, NULL);
+    me->io_cache = cache_create("io", sizeof(io_pending_t), sizeof(char*));
     if (me->io_cache == NULL) {
         fprintf(stderr, "Failed to create IO object cache\n");
         exit(EXIT_FAILURE);

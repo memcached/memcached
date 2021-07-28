@@ -97,75 +97,16 @@ static void close_conn() {
 
 static enum test_return cache_create_test(void)
 {
-    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
-                                  NULL, NULL);
+    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*));
     assert(cache != NULL);
     cache_destroy(cache);
     return TEST_PASS;
 }
 
-const uint64_t constructor_pattern = 0xdeadcafebabebeef;
-
-static int cache_constructor(void *buffer, void *notused1, int notused2) {
-    uint64_t *ptr = buffer;
-    *ptr = constructor_pattern;
-    return 0;
-}
-
-static enum test_return cache_constructor_test(void)
-{
-    cache_t *cache = cache_create("test", sizeof(uint64_t), sizeof(uint64_t),
-                                  cache_constructor, NULL);
-    assert(cache != NULL);
-    uint64_t *ptr = cache_alloc(cache);
-    uint64_t pattern = *ptr;
-    cache_free(cache, ptr);
-    cache_destroy(cache);
-    return (pattern == constructor_pattern) ? TEST_PASS : TEST_FAIL;
-}
-
-static int cache_fail_constructor(void *buffer, void *notused1, int notused2) {
-    return 1;
-}
-
-static enum test_return cache_fail_constructor_test(void)
-{
-    enum test_return ret = TEST_PASS;
-
-    cache_t *cache = cache_create("test", sizeof(uint64_t), sizeof(uint64_t),
-                                  cache_fail_constructor, NULL);
-    assert(cache != NULL);
-    uint64_t *ptr = cache_alloc(cache);
-    if (ptr != NULL) {
-        ret = TEST_FAIL;
-    }
-    cache_destroy(cache);
-    return ret;
-}
-
-static void *destruct_data = 0;
-
-static void cache_destructor(void *buffer, void *notused) {
-    destruct_data = buffer;
-}
-
-static enum test_return cache_destructor_test(void)
-{
-    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
-                                  NULL, cache_destructor);
-    assert(cache != NULL);
-    char *ptr = cache_alloc(cache);
-    cache_free(cache, ptr);
-    cache_destroy(cache);
-
-    return (ptr == destruct_data) ? TEST_PASS : TEST_FAIL;
-}
-
 static enum test_return cache_reuse_test(void)
 {
     int ii;
-    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
-                                  NULL, NULL);
+    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*));
     if (cache == NULL) {
         return TEST_FAIL;
     }
@@ -183,8 +124,7 @@ static enum test_return cache_reuse_test(void)
 
 static enum test_return cache_bulkalloc(size_t datasize)
 {
-    cache_t *cache = cache_create("test", datasize, sizeof(char*),
-                                  NULL, NULL);
+    cache_t *cache = cache_create("test", datasize, sizeof(char*));
     if (cache == NULL) {
         return TEST_FAIL;
     }
@@ -219,8 +159,7 @@ static enum test_return test_issue_161(void)
 static enum test_return cache_redzone_test(void)
 {
 #ifndef HAVE_UMEM_H
-    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
-                                  NULL, NULL);
+    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*));
 
     if (cache == NULL) {
         return TEST_FAIL;
@@ -259,8 +198,7 @@ static enum test_return cache_limit_revised_downward_test(void)
     int limit = 10, allocated_num = limit + 1, i;
     char ** alloc_objs = calloc(allocated_num, sizeof(char *));
 
-    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*),
-                                  NULL, NULL);
+    cache_t *cache = cache_create("test", sizeof(uint32_t), sizeof(char*));
     assert(cache != NULL);
 
     /* cache->limit is 0 and we can allocate limit+1 items */
@@ -2307,9 +2245,6 @@ struct testcase {
 
 struct testcase testcases[] = {
     { "cache_create", cache_create_test },
-    { "cache_constructor", cache_constructor_test },
-    { "cache_constructor_fail", cache_fail_constructor_test },
-    { "cache_destructor", cache_destructor_test },
     { "cache_reuse", cache_reuse_test },
     { "cache_redzone", cache_redzone_test },
     { "cache_limit_revised_downward", cache_limit_revised_downward_test },
