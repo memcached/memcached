@@ -301,11 +301,9 @@ static pthread_cond_t conn_timeout_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t conn_timeout_lock = PTHREAD_MUTEX_INITIALIZER;
 
 #define CONNS_PER_SLICE 100
-#define TIMEOUT_MSG_SIZE (1 + sizeof(int))
 static void *conn_timeout_thread(void *arg) {
     int i;
     conn *c;
-    char buf[TIMEOUT_MSG_SIZE];
     rel_time_t oldest_last_cmd;
     int sleep_time;
     int sleep_slice = max_fds / CONNS_PER_SLICE;
@@ -341,11 +339,7 @@ static void *conn_timeout_thread(void *arg) {
                 continue;
 
             if ((current_time - c->last_cmd_time) > settings.idle_timeout) {
-                buf[0] = 't';
-                memcpy(&buf[1], &i, sizeof(int));
-                if (write(c->thread->notify_send_fd, buf, TIMEOUT_MSG_SIZE)
-                    != TIMEOUT_MSG_SIZE)
-                    perror("Failed to write timeout to notify pipe");
+                timeout_conn(c);
             } else {
                 if (c->last_cmd_time < oldest_last_cmd)
                     oldest_last_cmd = c->last_cmd_time;
