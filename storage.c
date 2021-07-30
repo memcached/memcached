@@ -366,9 +366,9 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     return 0;
 }
 
-void storage_submit_cb(void *ctx, void *stack) {
+void storage_submit_cb(io_queue_t *q) {
     // Don't need to do anything special for extstore.
-    extstore_submit(ctx, stack);
+    extstore_submit(q->ctx, q->stack_ctx);
 }
 
 static void recache_or_free(io_pending_t *pending) {
@@ -446,12 +446,14 @@ static void recache_or_free(io_pending_t *pending) {
 // TODO: stubbed with a reminder: should be able to move most of the extstore
 // callback code into this code instead, executing on worker thread instead of
 // IO thread.
-void storage_complete_cb(void *ctx, void *stack_ctx) {
+void storage_complete_cb(io_queue_t *q) {
+    // need to reset the stack for next use.
+    q->stack_ctx = NULL;
     return;
 }
 
 // Called after responses have been transmitted. Need to free up related data.
-void storage_finalize_cb(io_pending_t *pending) {
+int storage_finalize_cb(io_pending_t *pending) {
     recache_or_free(pending);
     io_pending_storage_t *p = (io_pending_storage_t *)pending;
     obj_io *io = &p->io_ctx;
@@ -461,6 +463,7 @@ void storage_finalize_cb(io_pending_t *pending) {
         io->iov = NULL;
     }
     // don't need to free the main context, since it's embedded.
+    return 0; // return code ignored.
 }
 
 /*

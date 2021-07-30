@@ -35,6 +35,7 @@ enum conn_queue_item_modes {
     queue_timeout,    /* socket sfd timed out */
     queue_redispatch, /* return conn from side thread */
     queue_stop,       /* exit thread */
+    queue_return_io,  /* returning a pending IO object immediately */
 };
 typedef struct conn_queue_item CQ_ITEM;
 struct conn_queue_item {
@@ -46,6 +47,7 @@ struct conn_queue_item {
     enum conn_queue_item_modes mode;
     conn *c;
     void    *ssl;
+    io_pending_t *io; // IO when used for deferred IO handling.
     STAILQ_ENTRY(conn_queue_item) i_next;
 };
 
@@ -321,6 +323,12 @@ static void cqi_free(CQ *cq, CQ_ITEM *item) {
     cache_free(cq->cache, item);
 }
 
+// TODO: Skip notify if queue wasn't empty?
+// - Requires cq_push() returning a "was empty" flag
+// - Requires event handling loop to pop the entire queue and work from that
+// instead of the ev_count work there now.
+// In testing this does result in a large performance uptick, but unclear how
+// much that will transfer from a synthetic benchmark.
 static void notify_worker(LIBEVENT_THREAD *t, CQ_ITEM *item) {
     cq_push(t->ev_queue, item);
 #ifdef HAVE_EVENTFD
@@ -558,10 +566,10 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
 #ifdef EXTSTORE
                     if (c->thread->storage) {
                         conn_io_queue_add(c, IO_QUEUE_EXTSTORE, c->thread->storage,
-                            storage_submit_cb, storage_complete_cb, storage_finalize_cb);
+                            storage_submit_cb, storage_complete_cb, NULL, storage_finalize_cb);
                     }
 #endif
-                    conn_io_queue_add(c, IO_QUEUE_NONE, NULL, NULL, NULL, NULL);
+                    conn_io_queue_add(c, IO_QUEUE_NONE, NULL, NULL, NULL, NULL, NULL);
 
 #ifdef TLS
                     if (settings.ssl_enabled && c->ssl != NULL) {
@@ -586,6 +594,10 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
             case queue_stop:
                 /* asked to stop */
                 event_base_loopexit(me->base, NULL);
+                break;
+            case queue_return_io:
+                /* getting an individual IO object back */
+                conn_io_queue_return(item->io);
                 break;
         }
 
@@ -712,6 +724,22 @@ void redispatch_conn(conn *c) {
 
 void timeout_conn(conn *c) {
     notify_worker_fd(c->thread, c->sfd, queue_timeout);
+}
+
+void return_io_pending(conn *c, io_pending_t *io) {
+    CQ_ITEM *item = cqi_new(c->thread->ev_queue);
+    if (item == NULL) {
+        // TODO: how can we avoid this?
+        // In the main case I just loop, since a malloc failure here for a
+        // tiny object that's generally in a fixed size queue is going to
+        // implode shortly.
+        return;
+    }
+
+    item->mode = queue_return_io;
+    item->io = io;
+
+    notify_worker(c->thread, item);
 }
 
 /* This misses the allow_new_conns flag :( */

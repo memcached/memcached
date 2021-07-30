@@ -558,7 +558,7 @@ void conn_worker_readd(conn *c) {
     }
 }
 
-void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb fin_cb) {
+void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb ret_cb, io_queue_cb fin_cb) {
     io_queue_t *q = c->io_queues;
     while (q->type != IO_QUEUE_NONE) {
         q++;
@@ -569,6 +569,7 @@ void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_stack_cb cb, io_qu
     q->submit_cb = cb;
     q->complete_cb = com_cb;
     q->finalize_cb = fin_cb;
+    q->return_cb   = ret_cb;
     return;
 }
 
@@ -589,15 +590,25 @@ io_queue_t *conn_io_queue_get(conn *c, int type) {
 static void conn_io_queue_complete(conn *c) {
     io_queue_t *q = c->io_queues;
     while (q->type != IO_QUEUE_NONE) {
-        // Reuse the same submit stack. We zero it out first so callbacks can
-        // queue new IO's if necessary.
         if (q->stack_ctx) {
-            void *tmp = q->stack_ctx;
-            q->stack_ctx = NULL;
-            q->complete_cb(q->ctx, tmp);
+            q->complete_cb(q);
         }
         q++;
     }
+}
+
+// called to return a single IO object to the original worker thread.
+void conn_io_queue_return(io_pending_t *io) {
+    io_queue_t *q = io->q;
+    int ret = q->return_cb(io);
+    // An IO may or may not count against the pending responses.
+    if (ret) {
+        q->count--;
+        if (q->count == 0) {
+            conn_worker_readd(io->c);
+        }
+    }
+    return;
 }
 
 conn *conn_new(const int sfd, enum conn_states init_state,
@@ -3227,7 +3238,7 @@ static void drive_machine(conn *c) {
                     if (q->count != 0) {
                         assert(q->stack_ctx != NULL);
                         hit = true;
-                        q->submit_cb(q->ctx, q->stack_ctx);
+                        q->submit_cb(q);
                         c->io_queues_submitted++;
                     }
                 }

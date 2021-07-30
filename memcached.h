@@ -697,8 +697,9 @@ typedef struct conn conn;
 #define IO_QUEUE_NONE 0
 #define IO_QUEUE_EXTSTORE 1
 
-typedef void (*io_queue_stack_cb)(void *ctx, void *stack);
-typedef void (*io_queue_cb)(io_pending_t *pending);
+typedef struct io_queue_s io_queue_t;
+typedef void (*io_queue_stack_cb)(io_queue_t *q);
+typedef int (*io_queue_cb)(io_pending_t *pending);
 // this structure's ownership gets passed between threads:
 // - owned normally by the worker thread.
 // - multiple queues can be submitted at the same time.
@@ -714,15 +715,16 @@ typedef void (*io_queue_cb)(io_pending_t *pending);
 //
 // All of this is to avoid having to hit a mutex owned by the connection
 // thread that gets pinged for each thread (or an equivalent atomic).
-typedef struct {
+struct io_queue_s {
     void *ctx; // untouched ptr for specific context
     void *stack_ctx; // module-specific context to be batch-submitted
     io_queue_stack_cb submit_cb; // callback given a full stack of pending IO's at once.
     io_queue_stack_cb complete_cb;
+    io_queue_cb return_cb; // called on worker thread.
     io_queue_cb finalize_cb; // called back on the worker thread.
     int type;
     int count; // ios to process before returning. only accessed by queue processor once submitted
-} io_queue_t;
+};
 
 struct _io_pending_t {
     io_queue_t *q;
@@ -859,8 +861,9 @@ enum delta_result_type do_add_delta(conn *c, const char *key,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
 enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
-void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb fin_cb);
+void conn_io_queue_add(conn *c, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb ret_cb, io_queue_cb fin_cb);
 io_queue_t *conn_io_queue_get(conn *c, int type);
+void conn_io_queue_return(io_pending_t *io);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size,
     enum network_transport transport, struct event_base *base, void *ssl);
 
@@ -888,6 +891,7 @@ extern int daemonize(int nochdir, int noclose);
 void memcached_thread_init(int nthreads, void *arg);
 void redispatch_conn(conn *c);
 void timeout_conn(conn *c);
+void return_io_pending(conn *c, io_pending_t *io);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size,
     enum network_transport transport, void *ssl);
 void sidethread_conn_close(conn *c);
