@@ -468,6 +468,14 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         }
     }
 #endif
+#ifdef EXTSTORE
+    // me->storage is set just before this function is called.
+    if (me->storage) {
+        thread_io_queue_add(me, IO_QUEUE_EXTSTORE, me->storage,
+            storage_submit_cb, storage_complete_cb, NULL, storage_finalize_cb);
+    }
+#endif
+    thread_io_queue_add(me, IO_QUEUE_NONE, NULL, NULL, NULL, NULL, NULL);
 }
 
 /*
@@ -563,14 +571,7 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                     }
                 } else {
                     c->thread = me;
-#ifdef EXTSTORE
-                    if (c->thread->storage) {
-                        conn_io_queue_add(c, IO_QUEUE_EXTSTORE, c->thread->storage,
-                            storage_submit_cb, storage_complete_cb, NULL, storage_finalize_cb);
-                    }
-#endif
-                    conn_io_queue_add(c, IO_QUEUE_NONE, NULL, NULL, NULL, NULL, NULL);
-
+                    conn_io_queue_setup(c);
 #ifdef TLS
                     if (settings.ssl_enabled && c->ssl != NULL) {
                         assert(c->thread && c->thread->ssl_wbuf);
@@ -726,8 +727,8 @@ void timeout_conn(conn *c) {
     notify_worker_fd(c->thread, c->sfd, queue_timeout);
 }
 
-void return_io_pending(conn *c, io_pending_t *io) {
-    CQ_ITEM *item = cqi_new(c->thread->ev_queue);
+void return_io_pending(io_pending_t *io) {
+    CQ_ITEM *item = cqi_new(io->thread->ev_queue);
     if (item == NULL) {
         // TODO: how can we avoid this?
         // In the main case I just loop, since a malloc failure here for a
@@ -739,7 +740,7 @@ void return_io_pending(conn *c, io_pending_t *io) {
     item->mode = queue_return_io;
     item->io = io;
 
-    notify_worker(c->thread, item);
+    notify_worker(io->thread, item);
 }
 
 /* This misses the allow_new_conns flag :( */
