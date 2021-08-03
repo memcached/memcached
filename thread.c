@@ -483,7 +483,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
 #endif
 #ifdef PROXY
     thread_io_queue_add(me, IO_QUEUE_PROXY, settings.proxy_ctx, proxy_submit_cb,
-            proxy_complete_cb, NULL, proxy_finalize_cb);
+            proxy_complete_cb, proxy_return_cb, proxy_finalize_cb);
 
     // TODO: maybe register hooks to be called here from sub-packages? ie;
     // extstore, TLS, proxy.

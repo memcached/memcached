@@ -920,7 +920,11 @@ void proxy_submit_cb(io_queue_t *q) {
         // insert into tail so head is oldest request.
         STAILQ_INSERT_TAIL(&head, p, io_next);
         p = p->next;
+        q->count++;
     }
+
+    // clear out the submit queue so we can re-queue new IO's inline.
+    q->stack_ctx = NULL;
 
     // Transfer request stack to event thread.
     pthread_mutex_lock(&e->mutex);
@@ -947,6 +951,7 @@ void proxy_submit_cb(io_queue_t *q) {
 }
 
 void proxy_complete_cb(io_queue_t *q) {
+    /*
     io_pending_proxy_t *p = q->stack_ctx;
     q->stack_ctx = NULL;
 
@@ -970,6 +975,31 @@ void proxy_complete_cb(io_queue_t *q) {
         p = next;
     }
     return;
+    */
+}
+
+// called from worker thread after an individual IO has been returned back to
+// the worker thread. Do post-IO run and cleanup work.
+void proxy_return_cb(io_pending_t *pending) {
+    io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
+    lua_State *Lc = p->coro;
+
+    // in order to resume we need to remove the objects that were
+    // originally returned
+    // what's currently on the top of the stack is what we want to keep.
+    lua_rotate(Lc, 1, 1);
+    // We kept the original results from the yield so lua would not
+    // collect them in the meantime. We can drop those now.
+    lua_settop(Lc, 1);
+
+    proxy_run_coroutine(Lc, p->resp, p, NULL);
+
+    io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
+    q->count--;
+    if (q->count == 0) {
+        // call re-add directly since we're already in the worker thread.
+        conn_worker_readd(p->c);
+    }
 }
 
 // called from the worker thread as an mc_resp is being freed.
@@ -1663,15 +1693,9 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
             }
 
             // have to do the q->count-- and == 0 and redispatch_conn()
-            // stuff here. The moment we call that write we
+            // stuff here. The moment we call return_io here we
             // don't own *p anymore.
-            // FIXME: are there any other spots where p->q or p's p->next
-            // stack are examined from what would be multiple servers at once?
-            io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
-            q->count--;
-            if (q->count == 0) {
-                redispatch_conn(p->c);
-            }
+            return_io_pending((io_pending_t *)p);
 
             // mcmc_buffer_consume() - if leftover, keep processing
             // IO's.
@@ -1719,11 +1743,7 @@ static int _reset_bad_backend(mcp_backend_t *be) {
         // TODO: Unsure if this is the best way of surfacing errors to lua,
         // but will do for V1.
         io->client_resp->status = MCMC_ERR;
-        io_queue_t *q = conn_io_queue_get(io->c, io->io_queue_type);
-        q->count--;
-        if (q->count == 0) {
-            redispatch_conn(io->c);
-        }
+        return_io_pending((io_pending_t *)io);
     }
 
     STAILQ_INIT(&be->io_head);
@@ -2058,6 +2078,7 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     memset(p, 0, sizeof(io_pending_proxy_t));
     // set up back references.
     p->io_queue_type = IO_QUEUE_PROXY;
+    p->thread = c->thread;
     p->c = c;
     p->resp = resp;
     p->client_resp = r;
@@ -2091,7 +2112,6 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     // link into the batch chain.
     p->next = q->stack_ctx;
     q->stack_ctx = p;
-    q->count++;
 
     return;
 }
