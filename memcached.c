@@ -3252,8 +3252,7 @@ static void drive_machine(conn *c) {
             assert(c->io_queues_submitted == 0);
 
             for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
-                if (q->count != 0) {
-                    assert(q->stack_ctx != NULL);
+                if (q->stack_ctx != NULL) {
                     io_queue_cb_t *qcb = thread_io_queue_get(c->thread, q->type);
                     qcb->submit_cb(q);
                     c->io_queues_submitted++;
