@@ -642,6 +642,7 @@ typedef struct {
 
 #define IO_QUEUE_NONE 0
 #define IO_QUEUE_EXTSTORE 1
+#define IO_QUEUE_PROXY 2
 
 typedef struct _io_pending_t io_pending_t;
 typedef struct io_queue_s io_queue_t;
@@ -924,6 +925,9 @@ extern int daemonize(int nochdir, int noclose);
 void memcached_thread_init(int nthreads, void *arg);
 void redispatch_conn(conn *c);
 void timeout_conn(conn *c);
+#ifdef PROXY
+void proxy_reload_notify(LIBEVENT_THREAD *t);
+#endif
 void return_io_pending(io_pending_t *io);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size,
     enum network_transport transport, void *ssl);

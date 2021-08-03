@@ -482,8 +482,8 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     }
 #endif
 #ifdef PROXY
-    conn_io_queue_add(c, IO_QUEUE_PROXY, settings.proxy_ctx, proxy_submit_cb,
-            proxy_complete_cb, proxy_finalize_cb);
+    thread_io_queue_add(me, IO_QUEUE_PROXY, settings.proxy_ctx, proxy_submit_cb,
+            proxy_complete_cb, NULL, proxy_finalize_cb);
 
     // TODO: maybe register hooks to be called here from sub-packages? ie;
     // extstore, TLS, proxy.
@@ -753,6 +753,11 @@ void redispatch_conn(conn *c) {
 void timeout_conn(conn *c) {
     notify_worker_fd(c->thread, c->sfd, queue_timeout);
 }
+#ifdef PROXY
+void proxy_reload_notify(LIBEVENT_THREAD *t) {
+    notify_worker_fd(t, 0, queue_proxy_reload);
+}
+#endif
 
 void return_io_pending(io_pending_t *io) {
     CQ_ITEM *item = cqi_new(io->thread->ev_queue);

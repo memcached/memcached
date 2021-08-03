@@ -297,7 +297,8 @@ typedef struct {
 // re-cast an io_pending_t into this more descriptive structure.
 // the first few items _must_ match the original struct.
 struct _io_pending_proxy_t {
-    io_queue_t *q;
+    int io_queue_type;
+    LIBEVENT_THREAD *thread;
     conn *c;
     mc_resp *resp;  // original struct ends here
 
@@ -540,20 +541,13 @@ static void *_proxy_config_thread(void *arg) {
         // IE: the config VM _must_ hold references to selectors and backends
         // as long as they exist in any worker for any reason.
 
-        char buf[1];
-        buf[0] = 'P';
         for (int x = 0; x < settings.num_threads; x++) {
             LIBEVENT_THREAD *thr = get_worker_thread(x);
 
             pthread_mutex_lock(&ctx->worker_lock);
             ctx->worker_done = false;
             ctx->worker_failed = false;
-            if (write(thr->notify_send_fd, buf, 1) != 1) {
-                perror("Failed writing to nofiy pipe");
-                pthread_mutex_unlock(&ctx->worker_lock);
-                STAT_INCR(ctx, config_reload_fails, 1);
-                continue;
-            }
+            proxy_reload_notify(thr);
             while (!ctx->worker_done) {
                 // in case of spurious wakeup.
                 pthread_cond_wait(&ctx->worker_cond, &ctx->worker_lock);
@@ -905,9 +899,9 @@ void proxy_thread_init(LIBEVENT_THREAD *thr) {
 }
 
 // ctx_stack is a stack of io_pending_proxy_t's.
-void proxy_submit_cb(void *ctx, void *ctx_stack) {
-    proxy_event_thread_t *e = ((proxy_ctx_t *)ctx)->proxy_threads;
-    io_pending_proxy_t *p = ctx_stack;
+void proxy_submit_cb(io_queue_t *q) {
+    proxy_event_thread_t *e = ((proxy_ctx_t *)q->ctx)->proxy_threads;
+    io_pending_proxy_t *p = q->stack_ctx;
     io_head_t head;
     STAILQ_INIT(&head);
 
@@ -952,8 +946,9 @@ void proxy_submit_cb(void *ctx, void *ctx_stack) {
     return;
 }
 
-void proxy_complete_cb(void *ctx, void *ctx_stack) {
-    io_pending_proxy_t *p = ctx_stack;
+void proxy_complete_cb(io_queue_t *q) {
+    io_pending_proxy_t *p = q->stack_ctx;
+    q->stack_ctx = NULL;
 
     while (p) {
         io_pending_proxy_t *next = p->next;
@@ -1672,8 +1667,9 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
             // don't own *p anymore.
             // FIXME: are there any other spots where p->q or p's p->next
             // stack are examined from what would be multiple servers at once?
-            p->q->count--;
-            if (p->q->count == 0) {
+            io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
+            q->count--;
+            if (q->count == 0) {
                 redispatch_conn(p->c);
             }
 
@@ -1723,8 +1719,9 @@ static int _reset_bad_backend(mcp_backend_t *be) {
         // TODO: Unsure if this is the best way of surfacing errors to lua,
         // but will do for V1.
         io->client_resp->status = MCMC_ERR;
-        io->q->count--;
-        if (io->q->count == 0) {
+        io_queue_t *q = conn_io_queue_get(io->c, io->io_queue_type);
+        q->count--;
+        if (q->count == 0) {
             redispatch_conn(io->c);
         }
     }
@@ -2060,7 +2057,7 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     assert(sizeof(io_pending_t) >= sizeof(io_pending_proxy_t));
     memset(p, 0, sizeof(io_pending_proxy_t));
     // set up back references.
-    p->q = q;
+    p->io_queue_type = IO_QUEUE_PROXY;
     p->c = c;
     p->resp = resp;
     p->client_resp = r;

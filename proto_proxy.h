@@ -15,8 +15,8 @@ void proxy_start_reload(void *arg);
 int proxy_load_config(void *arg);
 void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr);
 
-void proxy_submit_cb(void *ctx, void *ctx_stack);
-void proxy_complete_cb(void *ctx, void *ctx_stack);
+void proxy_submit_cb(io_queue_t *q);
+void proxy_complete_cb(io_queue_t *q);
 void proxy_finalize_cb(io_pending_t *pending);
 
 /* lua */
