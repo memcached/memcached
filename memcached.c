@@ -585,6 +585,14 @@ void conn_io_queue_setup(conn *c) {
     }
 }
 
+// To be called from conn_release_items to ensure the stack ptrs are reset.
+static void conn_io_queue_reset(conn *c) {
+    for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
+        assert(q->count == 0);
+        q->stack_ctx = NULL;
+    }
+}
+
 io_queue_cb_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type) {
     io_queue_cb_t *q = t->io_queues;
     while (q->type != IO_QUEUE_NONE) {
@@ -842,6 +850,7 @@ void conn_release_items(conn *c) {
             }
             resp = resp_finish(c, resp);
         }
+        conn_io_queue_reset(c);
     }
 }
 

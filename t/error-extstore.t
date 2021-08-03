@@ -68,6 +68,14 @@ wait_for_ext();
     cmp_ok($stats->{get_aborted_extstore}, '>', 1, 'some extstore queries aborted');
 }
 
+# Infinite loop: if we aborted some extstore requests, the next request would hang
+# the daemon.
+{
+    my $size = 3000 * 1024;
+    my $data = "x" x $size;
+    mem_get_is($sock, "foo1", $data);
+}
+
 # Disable automatic page balancing, then move enough pages that the large
 # items can no longer be loaded from extstore
 {
