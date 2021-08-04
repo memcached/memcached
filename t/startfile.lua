@@ -207,11 +207,9 @@ function walkall_factory(pool)
     end
     local x = #p -- FIXME: did #n get accelerated?
     return function(r)
-        local res
-        for i=1,x,1 do
-            res = p[i](r)
-        end
-        return res
+        local restable = mcp.await(r, p)
+        -- TODO: walk results and return a "good" hit?
+        return restable[1]
     end
 end
 
@@ -226,7 +224,7 @@ function mcp_config_routes(main_zones)
         map[mcp.CMD_SET] = setdel
         -- NOTE: in t/proxy.t all the backends point to the same place
         -- which makes replicating delete return NOT_FOUND
-        map[mcp.CMD_DELETE] = failover_factory(z, my_zone)
+        map[mcp.CMD_DELETE] = all
         -- similar with ADD. will get an NOT_STORED back.
         -- need better routes designed for the test suite (edit the key
         -- prefix or something)
