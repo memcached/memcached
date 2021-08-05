@@ -3126,6 +3126,7 @@ static int mcplib_await(lua_State *L) {
 
     // stack will be only the await object now
     mcp_await_t *aw = lua_newuserdatauv(L, sizeof(mcp_await_t), 0);
+    memset(aw, 0, sizeof(mcp_await_t));
     aw->wait_for = wait_for;
     aw->pending = n;
     aw->argtable_ref = argtable_ref;
@@ -3272,13 +3273,13 @@ static int mcplib_await_return(io_pending_proxy_t *p) {
     bool cleanup = false;
     bool valid = false;
     bool completing = false;
-    P_DEBUG("%s: start\n", __func__);
 
     // TODO: just push the await ptr into *p?
     lua_rawgeti(L, LUA_REGISTRYINDEX, p->await_ref);
     aw = lua_touserdata(L, -1);
     lua_pop(L, 1); // remove AW object from stack
     assert(aw != NULL);
+    P_DEBUG("%s: start [pending: %d]\n", __func__, aw->pending);
     //dump_stack(L);
 
     aw->pending--;
@@ -3353,13 +3354,17 @@ static int mcplib_await_return(io_pending_proxy_t *p) {
     }
 
     if (cleanup) {
-        P_DEBUG("%s: cleanup\n", __func__);
+        P_DEBUG("%s: cleanup [completed: %d]\n", __func__, aw->completed);
         luaL_unref(L, LUA_REGISTRYINDEX, aw->argtable_ref);
+        luaL_unref(L, LUA_REGISTRYINDEX, aw->req_ref);
         luaL_unref(L, LUA_REGISTRYINDEX, p->await_ref);
     }
 
     // Just remove anything we could have left on the primary VM stack
     lua_settop(L, 0);
+
+    // always return free this sub-IO object.
+    do_cache_free(p->thread->io_cache, p);
 
     return 0;
 }

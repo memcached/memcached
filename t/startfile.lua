@@ -209,6 +209,7 @@ function walkall_factory(pool)
     return function(r)
         local restable = mcp.await(r, p)
         -- TODO: walk results and return a "good" hit?
+        -- print("length of await result table", #restable)
         return restable[1]
     end
 end
