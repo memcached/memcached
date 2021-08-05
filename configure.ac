@@ -114,8 +114,8 @@ AC_ARG_ENABLE(static,
 AC_ARG_ENABLE(unix_socket,
   [AS_HELP_STRING([--disable-unix-socket], [Disable unix domain socket])])
 
-AC_ARG_ENABLE(enable_linking_jemalloc,
-  [AS_HELP_STRING([--enable_linking_jemalloc], [Link jemalloc as the memory allocator implementation])])
+AC_ARG_ENABLE(enable_jemalloc,
+  [AS_HELP_STRING([--enable-jemalloc], [Link jemalloc as the memory allocator implementation])])
 
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
@@ -220,7 +220,7 @@ if test "x$enable_unix_socket" = "xno"; then
     AC_DEFINE([DISABLE_UNIX_SOCKET],1,[Set to nonzero if you want to disable unix domain socket])
 fi
 
-if test "x$enable_linking_jemalloc" = "xyes"; then
+if test "x$enable_jemalloc" = "xyes"; then
     LIBS="$LIBS -ljemalloc"
 fi
 
@@ -233,6 +233,7 @@ AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
 AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
 AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
+AM_CONDITIONAL([ENABLE_JEMALLOC],[test "$enable_jemalloc" = "yes"])
 
 
 AC_SUBST(DTRACE)
