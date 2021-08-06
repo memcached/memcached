@@ -129,7 +129,7 @@ test:	memcached-debug sizes testapp
 	$(builddir)/sizes
 	$(builddir)/testapp
 if ENABLE_JEMALLOC
-	@prove $(srcdir)/t/jemalloc.t
+	@JEMALLOC_TEST=1 prove $(srcdir)/t/jemalloc.t
 endif
 if ENABLE_TLS
 	@if test $(SSL_TEST)1 = 1; then \
