@@ -244,6 +244,7 @@ struct mcp_backend_s {
     char port[MAX_PORTLEN+1];
     double weight;
     int depth;
+    int failed_count; // number of fails (timeouts) in a row
     pthread_mutex_t mutex; // covers stack.
     proxy_event_thread_t *event_thread; // event thread owning this backend.
     void *client; // mcmc client
@@ -255,6 +256,7 @@ struct mcp_backend_s {
     bool connecting; // in the process of an asynch connection.
     bool can_write; // recently got a WANT_WRITE or are connecting.
     bool stacked; // if backend already queued for syscalls.
+    bool bad; // timed out, marked as bad.
 };
 typedef STAILQ_HEAD(be_head_s, mcp_backend_s) be_head_t;
 
@@ -364,7 +366,7 @@ static void *proxy_event_thread(void *arg);
 static void proxy_out_errstring(mc_resp *resp, const char *str);
 static int _flush_pending_write(mcp_backend_t *be, io_pending_proxy_t *p);
 static int _reset_bad_backend(mcp_backend_t *be);
-static void _set_event(mcp_backend_t *be, struct event_base *base, int flags, struct timeval t);
+static void _set_event(mcp_backend_t *be, struct event_base *base, int flags, struct timeval t, event_callback_fn callback);
 static int proxy_thread_loadconf(LIBEVENT_THREAD *thr);
 
 /******** EXTERNAL FUNCTIONS ******/
@@ -1168,6 +1170,12 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
 
         // _no_ mutex on backends. they are owned by the event thread.
         STAILQ_REMOVE_HEAD(&head, io_next);
+        if (be->bad) {
+            P_DEBUG("%s: fast failing request to bad backend\n", __func__);
+            io->client_resp->status = MCMC_ERR;
+            return_io_pending((io_pending_t *)io);
+            continue;
+        }
         STAILQ_INSERT_TAIL(&be->io_head, io, io_next);
         be->depth++;
         io_count++;
@@ -1234,7 +1242,7 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
             _reset_bad_backend(be);
         } else {
             flags = be->can_write ? EV_READ|EV_TIMEOUT : EV_READ|EV_WRITE|EV_TIMEOUT;
-            _set_event(be, t->base, flags, tmp_time);
+            _set_event(be, t->base, flags, tmp_time, proxy_backend_handler);
         }
     }
 
@@ -1363,7 +1371,7 @@ static void proxy_lua_ferror(lua_State *L, const char *fmt, ...) {
 }
 
 // FIXME: if we use the newer API the various pending checks can be adjusted.
-static void _set_event(mcp_backend_t *be, struct event_base *base, int flags, struct timeval t) {
+static void _set_event(mcp_backend_t *be, struct event_base *base, int flags, struct timeval t, event_callback_fn callback) {
     // FIXME: chicken and egg.
     // can't check if pending if the structure is was calloc'ed (sigh)
     // don't want to double test here. should be able to event_assign but
@@ -1382,7 +1390,7 @@ static void _set_event(mcp_backend_t *be, struct event_base *base, int flags, st
     // successfully? The flags could be tracked on *be and reset in the
     // handler, perhaps?
     event_assign(&be->event, base, mcmc_fd(be->client),
-            flags, proxy_backend_handler, be);
+            flags, callback, be);
     event_add(&be->event, &t);
 }
 
@@ -1757,6 +1765,41 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
     return flags;
 }
 
+// TODO: surface to option
+#define BACKEND_FAILURE_LIMIT 3
+
+// All we need to do here is schedule the backend to attempt to connect again.
+static void proxy_backend_retry_handler(const int fd, const short which, void *arg) {
+    mcp_backend_t *be = arg;
+    assert(which & EV_TIMEOUT);
+    struct timeval tmp_time = {5,0}; // FIXME: temporary hard coded response timeout.
+    _set_event(be, be->event_thread->base, EV_WRITE|EV_TIMEOUT, tmp_time, proxy_backend_handler);
+}
+
+// currently just for timeouts, but certain errors should consider a backend
+// to be "bad" as well.
+// must be called before _reset_bad_backend(), so the backend is currently
+// clear.
+// TODO: currently only notes for "bad backends" in cases of timeouts or
+// connect failures. We need a specific connect() handler that executes a
+// "version" call to at least check that the backend isn't speaking garbage.
+// In theory backends can fail such that responses are constantly garbage,
+// but it's more likely an app is doing something bad and culling the backend
+// may prevent any other clients from talking to that backend. In
+// that case we need to track if clients are causing errors consistently and
+// block them instead. That's more challenging so leaving a note instead
+// of doing this now :)
+static void _backend_failed(mcp_backend_t *be) {
+    struct timeval tmp_time = {5,0}; // FIXME: temporary hard coded response timeout.
+    if (++be->failed_count > BACKEND_FAILURE_LIMIT) {
+        P_DEBUG("%s: marking backend as bad\n", __func__);
+        be->bad = true;
+       _set_event(be, be->event_thread->base, EV_TIMEOUT, tmp_time, proxy_backend_retry_handler);
+    } else {
+        _set_event(be, be->event_thread->base, EV_WRITE|EV_TIMEOUT, tmp_time, proxy_backend_handler);
+    }
+}
+
 // TODO: add a second argument for assigning a specific error to all pending
 // IO's (ie; timeout).
 // The backend has gotten into a bad state (timed out, protocol desync, or
@@ -1860,6 +1903,7 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
     if (which & EV_TIMEOUT) {
         P_DEBUG("%s: timeout received, killing backend queue\n", __func__);
         _reset_bad_backend(be);
+        _backend_failed(be);
         return;
     }
 
@@ -1876,10 +1920,15 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
                 // FIXME: if a connect fails, anything currently in the queue
                 // should be safe to hold up until their timeout.
                 _reset_bad_backend(be);
+                _backend_failed(be);
+                P_DEBUG("%s: backend failed to connect\n", __func__);
                 return;
             }
+            P_DEBUG("%s: backend connected\n", __func__);
             be->connecting = false;
             be->state = mcp_backend_read;
+            be->bad = false;
+            be->failed_count = 0;
         }
         io_pending_proxy_t *io = NULL;
         int res = 0;
@@ -1920,7 +1969,7 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
     // TODO: need to handle errors from above so we don't go to sleep here.
     if (!STAILQ_EMPTY(&be->io_head)) {
         flags |= EV_READ; // FIXME: might not be necessary here, but ensures we get a disconnect event.
-        _set_event(be, be->event_thread->base, flags, tmp_time);
+        _set_event(be, be->event_thread->base, flags, tmp_time, proxy_backend_handler);
     }
 }
 
@@ -2265,11 +2314,13 @@ static int mcplib_backend(lua_State *L) {
     be->weight = weight;
     be->depth = 0;
     be->rbuf = NULL;
+    be->failed_count = 0;
     STAILQ_INIT(&be->io_head);
     be->state = mcp_backend_read;
     be->connecting = false;
     be->can_write = false;
     be->stacked = false;
+    be->bad = false;
 
     // initialize libevent.
     memset(&be->event, 0, sizeof(be->event));
