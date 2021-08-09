@@ -33,18 +33,6 @@ enum log_entry_type {
 #endif
 };
 
-enum log_entry_subtype {
-    LOGGER_TEXT_ENTRY = 0,
-    LOGGER_EVICTION_ENTRY,
-    LOGGER_ITEM_GET_ENTRY,
-    LOGGER_ITEM_STORE_ENTRY,
-    LOGGER_CONNECTION_NEW_ENTRY,
-    LOGGER_CONNECTION_CLOSE_ENTRY,
-#ifdef EXTSTORE
-    LOGGER_EXT_WRITE_ENTRY,
-#endif
-};
-
 enum logger_ret_type {
     LOGGER_RET_OK = 0,
     LOGGER_RET_NOSPACE,
@@ -57,12 +45,19 @@ enum logger_parse_entry_ret {
     LOGGER_PARSE_ENTRY_FAILED
 };
 
-typedef const struct {
-    enum log_entry_subtype subtype;
+typedef struct _logentry logentry;
+typedef struct _entry_details entry_details;
+
+typedef void (*entry_log_cb)(logentry *e, const entry_details *d, const void *entry, va_list ap);
+typedef int (*entry_parse_cb)(logentry *e, char *scratch);
+
+struct _entry_details {
     int reqlen;
     uint16_t eflags;
+    entry_log_cb log_cb;
+    entry_parse_cb parse_cb;
     char *format;
-} entry_details;
+};
 
 /* log entry intermediary structures */
 struct logentry_eviction {
@@ -117,8 +112,8 @@ struct logentry_conn_event {
 /* WARNING: cuddled items aren't compatible with warm restart. more code
  * necessary to ensure log streams are all flushed/processed before stopping
  */
-typedef struct _logentry {
-    enum log_entry_subtype event;
+struct _logentry {
+    enum log_entry_type event;
     uint8_t pad;
     uint16_t eflags;
     uint64_t gid;
@@ -127,7 +122,7 @@ typedef struct _logentry {
     union {
         char end;
     } data[];
-} logentry;
+};
 
 #define LOG_SYSEVENTS  (1<<1) /* threads start/stop/working */
 #define LOG_FETCHERS   (1<<2) /* get/gets/etc */
