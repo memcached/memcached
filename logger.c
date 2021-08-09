@@ -33,6 +33,7 @@ static unsigned int logger_count = 0;
 static volatile int do_run_logger_thread = 1;
 static pthread_t logger_tid;
 pthread_mutex_t logger_stack_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t logger_stack_cond = PTHREAD_COND_INITIALIZER;
 
 pthread_key_t logger_key;
 
@@ -375,7 +376,7 @@ static void logger_thread_write_entry(logentry *e, struct logger_stats *ls,
     for (x = 0; x < WATCHER_LIMIT; x++) {
         logger_watcher *w = watchers[x];
         char *skip_scr = NULL;
-        if (w == NULL || (e->eflags & w->eflags) == 0)
+        if (w == NULL || (e->eflags & w->eflags) == 0 || (e->gid < w->min_gid))
             continue;
 
          /* Avoid poll()'ing constantly when buffer is full by resetting a
@@ -613,6 +614,11 @@ static void *logger_thread(void *arg) {
 
         /* Call function to iterate each logger. */
         pthread_mutex_lock(&logger_stack_lock);
+        if (watcher_count == 0) {
+            // Not bothering to loop on the condition here since it's fine to
+            // walk through with zero watchers.
+            pthread_cond_wait(&logger_stack_cond, &logger_stack_lock);
+        }
         for (l = logger_stack_head; l != NULL; l=l->next) {
             /* lock logger, call function to manipulate it */
             found_logs += logger_thread_read(l, &ls);
@@ -651,6 +657,7 @@ static int start_logger_thread(void) {
 
 static int stop_logger_thread(void) {
     do_run_logger_thread = 0;
+    pthread_cond_signal(&logger_stack_cond);
     pthread_join(logger_tid, NULL);
     return 0;
 }
@@ -937,6 +944,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
     }
     w->id = x;
     w->eflags = f;
+    w->min_gid = logger_get_gid();
     w->buf = bipbuf_new(settings.logger_watcher_buf_size);
     if (w->buf == NULL) {
         free(w);
@@ -949,6 +957,7 @@ enum logger_add_watcher_ret logger_add_watcher(void *c, const int sfd, uint16_t 
     watcher_count++;
     /* Update what flags the global logs will watch */
     logger_set_flags();
+    pthread_cond_signal(&logger_stack_cond);
 
     pthread_mutex_unlock(&logger_stack_lock);
     return LOGGER_ADD_WATCHER_OK;

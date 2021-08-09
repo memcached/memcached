@@ -162,6 +162,7 @@ typedef struct  {
     int sfd; /* client fd */
     int id; /* id number for watcher list */
     uint64_t skipped; /* lines skipped since last successful print */
+    uint64_t min_gid; /* don't show log entries older than this GID */
     bool failed_flush; /* recently failed to write out (EAGAIN), wait before retry */
     enum logger_watcher_type t; /* stderr, client, syslog, etc */
     uint16_t eflags; /* flags we are interested in */
