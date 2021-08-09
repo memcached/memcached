@@ -124,7 +124,6 @@ test_basic_tls:
 	fi
 endif
 
-
 test:	memcached-debug sizes testapp
 	$(builddir)/sizes
 	$(builddir)/testapp
