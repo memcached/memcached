@@ -104,7 +104,6 @@ AS_IF([test "x$enable_sasl_pwdb" = "xyes"],
 AC_ARG_ENABLE(tls,
   [AS_HELP_STRING([--enable-tls], [Enable Transport Layer Security EXPERIMENTAL ])])
 
-
 AC_ARG_ENABLE(asan,
   [AS_HELP_STRING([--enable-asan], [Compile with ASAN EXPERIMENTAL ])])
 
@@ -114,7 +113,7 @@ AC_ARG_ENABLE(static,
 AC_ARG_ENABLE(unix_socket,
   [AS_HELP_STRING([--disable-unix-socket], [Disable unix domain socket])])
 
-AC_ARG_ENABLE(enable_jemalloc,
+AC_ARG_ENABLE(jemalloc,
   [AS_HELP_STRING([--enable-jemalloc], [Link jemalloc as the memory allocator implementation])])
 
 dnl **********************************************************************
@@ -221,6 +220,9 @@ if test "x$enable_unix_socket" = "xno"; then
 fi
 
 if test "x$enable_jemalloc" = "xyes"; then
+    if test "`ldconfig -pv | grep -i libjemalloc | wc -l`" = "0"; then
+        AC_MSG_ERROR(libjemalloc is required)
+    fi
     LIBS="$LIBS -ljemalloc"
 fi
 

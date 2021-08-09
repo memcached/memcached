@@ -128,9 +128,6 @@ endif
 test:	memcached-debug sizes testapp
 	$(builddir)/sizes
 	$(builddir)/testapp
-if ENABLE_JEMALLOC
-	@JEMALLOC_TEST=1 prove $(srcdir)/t/jemalloc.t
-endif
 if ENABLE_TLS
 	@if test $(SSL_TEST)1 = 1; then \
           $(MAKE) SSL_TEST=1  test_basic_tls; \
