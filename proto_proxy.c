@@ -861,6 +861,8 @@ static int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
         if (thr->proxy_stats == NULL) {
             tus = calloc(1, sizeof(struct proxy_user_stats));
             thr->proxy_stats = tus;
+        } else {
+            tus = thr->proxy_stats;
         }
 
         // originally this was a realloc routine but it felt fragile.
