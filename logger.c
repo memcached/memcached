@@ -303,6 +303,32 @@ static int _logger_parse_cce(logentry *e, char *scratch) {
     return total;
 }
 
+#ifdef PROXY
+static void _logger_log_proxy_raw(logentry *e, const entry_details *d, const void *entry, va_list ap) {
+    struct timeval start = va_arg(ap, struct timeval);
+    unsigned short type = va_arg(ap, int);
+    unsigned short code = va_arg(ap, int);
+
+    struct logentry_proxy_raw *le = (void *)e->data;
+    struct timeval end;
+    gettimeofday(&end, NULL);
+    le->type = type;
+    le->code = code;
+    le->elapsed = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
+}
+
+static int _logger_parse_prx_raw(logentry *e, char *scratch) {
+    int total;
+    struct logentry_proxy_raw *le = (void *)e->data;
+
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%d.%d gid=%llu type=proxy_raw elapsed=%lu type=%d code=%d\n",
+            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            le->elapsed, le->type, le->code);
+    return total;
+}
+#endif
+
 /* Should this go somewhere else? */
 static const entry_details default_entries[] = {
     [LOGGER_ASCII_CMD] = {512, LOG_RAWCMDS, _logger_log_text, _logger_parse_text, "<%d %s"},
@@ -337,6 +363,12 @@ static const entry_details default_entries[] = {
     [LOGGER_COMPACT_FRAGINFO] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
         "type=compact_fraginfo ratio=%.2f bytes=%lu"
     },
+#endif
+#ifdef PROXY
+    [LOGGER_PROXY_CONFIG] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
+        "type=proxy_conf status=%s"
+    },
+    [LOGGER_PROXY_RAW] = {512, LOG_RAWCMDS, _logger_log_proxy_raw, _logger_parse_prx_raw, NULL},
 #endif
 };
 

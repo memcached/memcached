@@ -231,6 +231,7 @@ struct mcp_parser_s {
 #define MAX_REQ_TOKENS 2
 struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
+    struct timeval start; // time this object was created.
     mcp_backend_t *be; // backend handling this request.
     bool lua_key; // if we've pushed the key to lua.
     bool ascii_multiget; // ascii multiget mode. (hide errors/END)
@@ -289,6 +290,7 @@ struct proxy_event_io_thread_s {
 
 typedef struct {
     mcmc_resp_t resp;
+    struct timeval start; // start time inherited from paired request
     int status; // status code from mcmc_read()
     item *it; // for buffering large responses.
     char *buf; // response line + potentially value.
@@ -521,9 +523,11 @@ static void *_proxy_manager_thread(void *arg) {
 static void *_proxy_config_thread(void *arg) {
     proxy_ctx_t *ctx = arg;
 
+    logger_create();
     pthread_mutex_lock(&ctx->config_lock);
     while (1) {
         pthread_cond_wait(&ctx->config_cond, &ctx->config_lock);
+        LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "start");
         STAT_INCR(ctx, config_reloads, 1);
         lua_State *L = ctx->proxy_state;
         lua_settop(L, 0); // clear off any crud that could have been left on the stack.
@@ -539,6 +543,7 @@ static void *_proxy_config_thread(void *arg) {
         if (proxy_load_config(ctx) != 0) {
             // TODO: Failed to load. log and wait for a retry.
             STAT_INCR(ctx, config_reload_fails, 1);
+            LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
             continue;
         }
 
@@ -564,9 +569,11 @@ static void *_proxy_config_thread(void *arg) {
             // Code load bailed.
             if (ctx->worker_failed) {
                 STAT_INCR(ctx, config_reload_fails, 1);
+                LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
                 continue;
             }
         }
+        LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "done");
     }
 
     return NULL;
@@ -1416,6 +1423,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
         int type = lua_type(Lc, -1);
         if (type == LUA_TUSERDATA) {
             mcp_resp_t *r = luaL_checkudata(Lc, -1, "mcp.response");
+            LOGGER_LOG(NULL, LOG_RAWCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->resp.type, r->resp.code);
             if (r->buf) {
                 // response set from C.
                 // FIXME: write_and_free() ? it's a bit wrong for here.
@@ -2145,6 +2153,7 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     // TODO: check *r
     r->buf = NULL;
     r->blen = 0;
+    r->start = rq->start; // need to inherit the original start time.
 
     luaL_getmetatable(Lc, "mcp.response");
     lua_setmetatable(Lc, -2);
@@ -2826,6 +2835,8 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
                 cmd = CMD_STATS;
                 ret = _process_request_key(pr);
                 // :key() should give the stats sub-command?
+            } else if (strncmp(cm, "watch", 5) == 0) {
+                cmd = CMD_WATCH;
             }
             break;
         case 6:
@@ -2873,6 +2884,7 @@ static mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char
     memcpy(request_copy, command, cmdlen);
     rq->pr.request = request_copy;
     rq->pr.reqlen = cmdlen;
+    gettimeofday(&rq->start, NULL);
 
     luaL_getmetatable(L, "mcp.request");
     lua_setmetatable(L, -2);
@@ -2905,6 +2917,7 @@ static int mcplib_request(lua_State *L) {
         // TODO: check malloc failure.
         memcpy(rq->pr.vbuf, val, vlen);
     }
+    gettimeofday(&rq->start, NULL);
 
     // rq is now created, parsed, and on the stack.
     if (rq == NULL) {
@@ -3206,6 +3219,7 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     memset(r, 0, sizeof(mcp_resp_t));
     r->buf = NULL;
     r->blen = 0;
+    r->start = rq->start;
 
     luaL_getmetatable(Lc, "mcp.response");
     lua_setmetatable(Lc, -2);
