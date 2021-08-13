@@ -94,6 +94,7 @@ my $bdata = 'x' x 256000;
         print $sock "set /foo/big$_ 0 0 256000\r\n$bdata\r\n";
         is(scalar <$sock>, "STORED\r\n", "stored big value");
     }
+    diag "set large values";
 }
 
 # fetch through proxy.
@@ -101,7 +102,9 @@ my $bdata = 'x' x 256000;
     for (1..20) {
         mem_get_is($p_sock, "/foo/a$_", "hi");
     }
+    diag "fetched small values";
     mem_get_is($p_sock, "/foo/big1", $bdata);
+    diag "fetched big value";
 }
 
 sub run_server {

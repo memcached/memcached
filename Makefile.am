@@ -99,6 +99,11 @@ memcached_LDADD += vendor/lua/src/liblua.a
 memcached_debug_LDADD += vendor/lua/src/liblua.a
 endif
 
+if ENABLE_PROXY_URING
+memcached_LDADD += vendor/liburing/src/liburing.a
+memcached_debug_LDADD += vendor/liburing/src/liburing.a
+endif
+
 memcached_debug_CFLAGS += -DMEMCACHED_DEBUG
 
 memcached_dtrace.h: memcached_dtrace.d
