@@ -1017,13 +1017,15 @@ void proxy_return_cb(io_pending_t *pending) {
         // collect them in the meantime. We can drop those now.
         lua_settop(Lc, 1);
 
+        // p can be freed/changed from the call below, so fetch the queue now.
+        io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
+        conn *c = p->c;
         proxy_run_coroutine(Lc, p->resp, p, NULL);
 
-        io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
         q->count--;
         if (q->count == 0) {
             // call re-add directly since we're already in the worker thread.
-            conn_worker_readd(p->c);
+            conn_worker_readd(c);
         }
     }
 }
