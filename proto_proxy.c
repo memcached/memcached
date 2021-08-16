@@ -648,7 +648,7 @@ static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
 
     int ret = io_uring_queue_init_params(PRING_QUEUE_ENTRIES, &t->ring, &p);
     if (ret) {
-        fprintf(stderr, "io_uring_init_failed: %d\n", ret);
+        perror("io_uring_queue_init_params");
         exit(1);
     }
     if (!(p.features & IORING_FEAT_NODROP)) {
