@@ -104,7 +104,7 @@ struct logentry_conn_event {
     int transport;
     int reason;
     int sfd;
-    struct sockaddr addr;
+    struct sockaddr_in6 addr;
 };
 
 /* end intermediary structures */

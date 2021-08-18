@@ -708,7 +708,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     if (init_state == conn_new_cmd) {
         LOGGER_LOG(NULL, LOG_CONNEVENTS, LOGGER_CONNECTION_NEW, NULL,
-                (struct sockaddr *) &c->request_addr, c->transport, 0, sfd);
+                &c->request_addr, c->request_addr_size, c->transport, 0, sfd);
     }
 
     if (settings.verbose > 1) {
@@ -897,7 +897,7 @@ static void conn_close(conn *c) {
 
     if (c->thread) {
         LOGGER_LOG(c->thread->l, LOG_CONNEVENTS, LOGGER_CONNECTION_CLOSE, NULL,
-                (struct sockaddr *) &c->request_addr, c->transport,
+                &c->request_addr, c->request_addr_size, c->transport,
                 c->close_reason, c->sfd);
     }
 

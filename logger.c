@@ -138,14 +138,15 @@ static void _logger_log_item_store(logentry *e, const entry_details *d, const vo
 }
 
 static void _logger_log_conn_event(logentry *e, const entry_details *d, const void *entry, va_list ap) {
-    struct sockaddr *addr = va_arg(ap, struct sockaddr *);
+    struct sockaddr_in6 *addr = va_arg(ap, struct sockaddr_in6 *);
+    socklen_t addrlen = va_arg(ap, socklen_t);
     enum network_transport transport = va_arg(ap, enum network_transport);
     enum close_reasons reason = va_arg(ap, enum close_reasons);
     int sfd = va_arg(ap, int);
 
     struct logentry_conn_event *le = (struct logentry_conn_event *) e->data;
 
-    memcpy(&le->addr, addr, sizeof(struct sockaddr));
+    memcpy(&le->addr, addr, addrlen);
     le->sfd = sfd;
     le->transport = transport;
     le->reason = reason;
@@ -156,11 +157,11 @@ static void _logger_log_conn_event(logentry *e, const entry_details *d, const vo
  * Util functions used by the logger background thread
  *************************/
 
-static int _logger_util_addr_endpoint(struct sockaddr *addr, char *rip,
+static int _logger_util_addr_endpoint(struct sockaddr_in6 *addr, char *rip,
         size_t riplen, unsigned short *rport) {
     memset(rip, 0, riplen);
 
-    switch (addr->sa_family) {
+    switch (addr->sin6_family) {
         case AF_INET:
             inet_ntop(AF_INET, &((struct sockaddr_in *) addr)->sin_addr,
                     rip, riplen - 1);
