@@ -5,7 +5,7 @@ use strict;
 use warnings;
 use Socket qw/SO_RCVBUF/;
 
-use Test::More tests => 25;
+use Test::More tests => 30;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -190,6 +190,35 @@ SKIP: {
         "logged item store with correct size");
     like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=item_get key=vfoo .+ size=4/,
         "logged item get with correct size");
+}
+
+# test watcher stats
+{
+    my $stats_server = new_memcached('-m 60 -o watcher_logbuf_size=8');
+    my $stats_client = $stats_server->sock;
+    my $stats;
+
+    my $watcher1 = $stats_server->new_sock;
+    print $watcher1 "watch fetchers\n";
+    $res = <$watcher1>;
+    is($res, "OK\r\n", 'fetchers watcher enabled');
+    sleep 1;
+    $stats = mem_stats($stats_client);
+    is($stats->{log_watchers}, 1, 'tracked new fetchers watcher');
+
+    my $watcher2 = $stats_server->new_sock;
+    print $watcher2 "watch fetchers\n";
+    $res = <$watcher2>;
+    is($res, "OK\r\n", 'mutations watcher enabled');
+    sleep 1;
+    $stats = mem_stats($stats_client);
+    is($stats->{log_watchers}, 2, 'tracked new mutations watcher');
+
+    $watcher1->close();
+    $watcher2->close();
+    sleep 1;
+    $stats = mem_stats($stats_client);
+    is($stats->{log_watchers}, 0, 'untracked all watchers');
 }
 
 # test no_watch option
