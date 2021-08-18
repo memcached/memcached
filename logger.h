@@ -170,6 +170,7 @@ struct logger_stats {
     uint64_t worker_written;
     uint64_t watcher_skipped;
     uint64_t watcher_sent;
+    uint64_t watcher_count;
 };
 
 extern pthread_key_t logger_key;

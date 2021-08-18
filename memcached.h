@@ -396,6 +396,7 @@ struct stats_state {
     unsigned int  conn_structs;
     unsigned int  reserved_fds;
     unsigned int  hash_power_level; /* Better hope it's not over 9000 */
+    unsigned int  log_watchers; /* number of currently active watchers */
     bool          hash_is_expanding; /* If the hash table is being expanded */
     bool          accepting_conns;  /* whether we are currently accepting */
     bool          slab_reassign_running; /* slab reassign in progress */

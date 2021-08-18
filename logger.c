@@ -667,12 +667,13 @@ static int logger_thread_poll_watchers(int force_poll, int watcher) {
     return flushed;
 }
 
-static void logger_thread_sum_stats(struct logger_stats *ls) {
+static void logger_thread_flush_stats(struct logger_stats *ls) {
     STATS_LOCK();
     stats.log_worker_dropped  += ls->worker_dropped;
     stats.log_worker_written  += ls->worker_written;
     stats.log_watcher_skipped += ls->watcher_skipped;
     stats.log_watcher_sent    += ls->watcher_sent;
+    stats_state.log_watchers   = ls->watcher_count;
     STATS_UNLOCK();
 }
 
@@ -708,6 +709,10 @@ static void *logger_thread(void *arg) {
         }
 
         logger_thread_poll_watchers(1, WATCHER_ALL);
+
+        /* capture the current count within mutual exclusion of the lock */
+        ls.watcher_count = watcher_count;
+
         pthread_mutex_unlock(&logger_stack_lock);
 
         /* TODO: abstract into a function and share with lru_crawler */
@@ -721,7 +726,7 @@ static void *logger_thread(void *arg) {
             if (to_sleep < MIN_LOGGER_SLEEP)
                 to_sleep = MIN_LOGGER_SLEEP;
         }
-        logger_thread_sum_stats(&ls);
+        logger_thread_flush_stats(&ls);
     }
 
     return NULL;

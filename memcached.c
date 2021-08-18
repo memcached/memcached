@@ -1804,6 +1804,7 @@ void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("log_worker_written", "%llu", (unsigned long long)stats.log_worker_written);
     APPEND_STAT("log_watcher_skipped", "%llu", (unsigned long long)stats.log_watcher_skipped);
     APPEND_STAT("log_watcher_sent", "%llu", (unsigned long long)stats.log_watcher_sent);
+    APPEND_STAT("log_watchers", "%llu", (unsigned long long)stats_state.log_watchers);
     STATS_UNLOCK();
 #ifdef EXTSTORE
     storage_stats(add_stats, c);
