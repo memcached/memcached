@@ -19,15 +19,19 @@ my $builddir = getcwd;
 
 # FIXME: this listend on unix socket still. either need a manual runner or a
 # fix upstream.
-my $srv = run_server('-p 11212', 11212);
-my $sock = $srv->sock;
+my @srv = ();
+for (2 .. 6) {
+    my $srv = run_server("-p 1121$_", 11210 + $_);
+    push(@srv, $srv);
+}
+#my $sock = $srv->sock;
+
+my $p_srv = new_memcached('-o proxy_config=./t/startfile.lua -l 127.0.0.1', 11211);
+my $p_sock = $p_srv->sock;
 
 # hack to help me use T_MEMD_USE_DAEMON for proxy.
 #print STDERR "Sleeping\n";
-#sleep 4;
-
-my $p_srv = new_memcached('-o proxy_config=./t/startfile.lua');
-my $p_sock = $p_srv->sock;
+#sleep 8;
 
 # cmds to test:
 # - noreply for main text commands?
@@ -79,20 +83,20 @@ my $p_sock = $p_srv->sock;
     is(scalar <$p_sock>, "STORED\r\n", "stored test value through proxy");
 }
 
-# Load some keys to backend server.
+# Load some keys through proxy.
 my $bdata = 'x' x 256000;
 {
     for (1..20) {
-        print $sock "set /foo/a$_ 0 0 2\r\nhi\r\n";
-        is(scalar <$sock>, "STORED\r\n", "stored test value");
-        print $sock "set /bar/b$_ 0 0 2\r\nhi\r\n";
-        is(scalar <$sock>, "STORED\r\n", "stored test value");
+        print $p_sock "set /foo/a$_ 0 0 2\r\nhi\r\n";
+        is(scalar <$p_sock>, "STORED\r\n", "stored test value");
+        print $p_sock "set /bar/b$_ 0 0 2\r\nhi\r\n";
+        is(scalar <$p_sock>, "STORED\r\n", "stored test value");
     }
 
     # load a couple larger values
     for (1..4) {
-        print $sock "set /foo/big$_ 0 0 256000\r\n$bdata\r\n";
-        is(scalar <$sock>, "STORED\r\n", "stored big value");
+        print $p_sock "set /foo/big$_ 0 0 256000\r\n$bdata\r\n";
+        is(scalar <$p_sock>, "STORED\r\n", "stored big value");
     }
     diag "set large values";
 }

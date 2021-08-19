@@ -28,37 +28,39 @@ function mcp_config_selectors(oldss)
     }
     pfx = 'fooz2'
     local fooz2 = {
-        srv(pfx .. 'srv1', '127.2.1.1', 11212, 1),
-        srv(pfx .. 'srv2', '127.2.1.2', 11212, 1),
-        srv(pfx .. 'srv3', '127.2.1.3', 11212, 1),
+        srv(pfx .. 'srv1', '127.2.1.1', 11213, 1),
+        srv(pfx .. 'srv2', '127.2.1.2', 11213, 1),
+        srv(pfx .. 'srv3', '127.2.1.3', 11213, 1),
     }
     pfx = 'fooz3'
     local fooz3 = {
-        srv(pfx .. 'srv1', '127.3.1.1', 11212, 1),
-        srv(pfx .. 'srv2', '127.3.1.2', 11212, 1),
-        srv(pfx .. 'srv3', '127.3.1.3', 11212, 1),
+        srv(pfx .. 'srv1', '127.3.1.1', 11214, 1),
+        srv(pfx .. 'srv2', '127.3.1.2', 11214, 1),
+        srv(pfx .. 'srv3', '127.3.1.3', 11214, 1),
     }
 
     pfx = 'barz1'
+    -- zone "/bar/"-s primary zone should fail; all down.
     local barz1 = {
-        srv(pfx .. 'srv1', '127.1.2.1', 11212, 1),
-        srv(pfx .. 'srv2', '127.1.2.1', 11212, 1),
-        srv(pfx .. 'srv3', '127.1.2.1', 11212, 1),
+        srv(pfx .. 'srv1', '127.1.2.1', 11210, 1),
+        srv(pfx .. 'srv2', '127.1.2.1', 11210, 1),
+        srv(pfx .. 'srv3', '127.1.2.1', 11210, 1),
     }
     pfx = 'barz2'
     local barz2 = {
-        srv(pfx .. 'srv1', '127.2.2.2', 11212, 1),
-        srv(pfx .. 'srv2', '127.2.2.2', 11212, 1),
-        srv(pfx .. 'srv3', '127.2.2.2', 11212, 1),
+        srv(pfx .. 'srv1', '127.2.2.2', 11215, 1),
+        srv(pfx .. 'srv2', '127.2.2.2', 11215, 1),
+        srv(pfx .. 'srv3', '127.2.2.2', 11215, 1),
     }
     pfx = 'barz3'
     local barz3 = {
-        srv(pfx .. 'srv1', '127.3.2.3', 11212, 1),
-        srv(pfx .. 'srv2', '127.3.2.3', 11212, 1),
-        srv(pfx .. 'srv3', '127.3.2.3', 11212, 1),
+        srv(pfx .. 'srv1', '127.3.2.3', 11216, 1),
+        srv(pfx .. 'srv2', '127.3.2.3', 11216, 1),
+        srv(pfx .. 'srv3', '127.3.2.3', 11216, 1),
     }
 
     -- fallback cache for any zone
+    -- NOT USED YET
     pfx = 'fallz1'
     local fallz1 = {
         srv(pfx .. 'srv1', '127.0.2.1', 11212, 1),
@@ -75,7 +77,7 @@ function mcp_config_selectors(oldss)
     local main_zones = {
         foo = { z1 = fooz1, z2 = fooz2, z3 = fooz3 },
         bar = { z1 = barz1, z2 = barz2, z3 = barz3 },
-        fall = { z1 = fallz1, z2 = fallz2, z3 = fallz3 },
+        -- fall = { z1 = fallz1, z2 = fallz2, z3 = fallz3 },
     }
 
     -- FIXME: should we copy the table to keep the pool tables around?
@@ -205,11 +207,17 @@ function walkall_factory(pool)
     for _, v in pairs(pool) do
         table.insert(p, v)
     end
-    local x = #p -- FIXME: did #n get accelerated?
+    local x = #p
     return function(r)
         local restable = mcp.await(r, p)
-        -- TODO: walk results and return a "good" hit?
+        -- walk results and return "best" result
         -- print("length of await result table", #restable)
+        for _, res in pairs(restable) do
+            if res:ok() then
+                return res
+            end
+        end
+        -- else we return the first result.
         return restable[1]
     end
 end
@@ -222,7 +230,7 @@ function mcp_config_routes(main_zones)
         local all = walkall_factory(main_zones[pfx])
         local setdel = setinvalidate_factory(z, my_zone)
         local map = {}
-        map[mcp.CMD_SET] = setdel
+        map[mcp.CMD_SET] = all
         -- NOTE: in t/proxy.t all the backends point to the same place
         -- which makes replicating delete return NOT_FOUND
         map[mcp.CMD_DELETE] = all
@@ -235,19 +243,9 @@ function mcp_config_routes(main_zones)
 
     local routetop = prefix_factory("^/(%a+)/", prefixes, function(r) return "SERVER_ERROR no route\r\n" end)
 
-    -- TODO: we will have a way of handling these internally.
-    local top_map = {}
-    top_map[mcp.CMD_VERSION] = function(r)
-        return "VERSION 1.6.9\r\n"
-    end
-
-    top_map[mcp.CMD_STATS] = function(r)
-        return "STAT na 0\r\nEND\r\n"
-    end
-
     -- internally run parser at top of tree
     -- also wrap the request string with a convenience object until the C bits
     -- are attached to the internal parser.
     --mcp.attach(mcp.CMD_ANY, function (r) return routetop(r) end)
-    mcp.attach(mcp.CMD_ANY_STORAGE, command_factory(top_map, routetop))
+    mcp.attach(mcp.CMD_ANY_STORAGE, routetop)
 end
