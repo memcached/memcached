@@ -21,7 +21,8 @@
 #ifdef HAVE_LIBURING
 #include <liburing.h>
 #include <poll.h> // POLLOUT for liburing.
-#define PRING_QUEUE_ENTRIES 1024
+#define PRING_QUEUE_SQ_ENTRIES 2048
+#define PRING_QUEUE_CQ_ENTRIES 16384
 #endif
 
 #include "memcached.h"
@@ -185,7 +186,6 @@ typedef struct {
 } proxy_ctx_t;
 
 struct proxy_hook {
-    // TODO: C func ptr. If non-null, call directly instead of via lua.
     int lua_ref;
     bool is_lua; // pull the lua reference and call it as a lua function.
 };
@@ -272,7 +272,7 @@ struct mcp_backend_s {
     void *client; // mcmc client
     STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
     io_head_t io_head; // stack of requests.
-    char *rbuf; // TODO: from thread's rbuf cache.
+    char *rbuf; // static allocated read buffer.
     struct event event; // libevent
 #ifdef HAVE_LIBURING
     proxy_event_t ur_rd_ev; // liburing.
@@ -352,12 +352,7 @@ struct _io_pending_proxy_t {
     bool is_await; // are we an await object?
 };
 
-// TODO: hash func should take an initializer
-// so we can hash a few things together.
-// also, 64bit? 32bit? either?
-// TODO: hash selectors should hash to a list of "Things"
-// things can be anything callable: lua funcs, hash selectors, backends.
-// TODO: does *be have to be a sub-struct? how stable are userdata pointers?
+// Note: does *be have to be a sub-struct? how stable are userdata pointers?
 // https://stackoverflow.com/questions/38718475/lifetime-of-lua-userdata-pointers
 // - says no.
 typedef struct {
@@ -573,7 +568,7 @@ static void *_proxy_config_thread(void *arg) {
         //   - run mcp_config_routes()
 
         if (proxy_load_config(ctx) != 0) {
-            // TODO: Failed to load. log and wait for a retry.
+            // Failed to load. log and wait for a retry.
             STAT_INCR(ctx, config_reload_fails, 1);
             LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
             continue;
@@ -642,11 +637,15 @@ static int _start_proxy_config_threads(proxy_ctx_t *ctx) {
 static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
 #ifdef HAVE_LIBURING
     bool use_uring = true;
-    struct io_uring_params p;
-    memset(&p, 0, sizeof(p));
+    struct io_uring_params p = {0};
     assert(t->event_fd); // uring only exists where eventfd also does.
 
-    int ret = io_uring_queue_init_params(PRING_QUEUE_ENTRIES, &t->ring, &p);
+    // Setup the CQSIZE to be much larger than SQ size, since backpressure
+    // issues can cause us to block on SQ submissions and as a network server,
+    // stuff happens.
+    p.flags = IORING_SETUP_CQSIZE;
+    p.cq_entries = PRING_QUEUE_CQ_ENTRIES;
+    int ret = io_uring_queue_init_params(PRING_QUEUE_SQ_ENTRIES, &t->ring, &p);
     if (ret) {
         perror("io_uring_queue_init_params");
         exit(1);
@@ -676,7 +675,8 @@ static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
         t->use_uring = true;
         return;
     } else {
-        // TODO: dealloc the ring since we decided to not use it
+        // Decided to not use io_uring, so don't waste memory.
+        io_uring_queue_exit(&t->ring);
     }
 #endif
 
@@ -1124,7 +1124,7 @@ void proxy_finalize_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
 
     // release our coroutine reference.
-    // TODO: coroutines are reusable in latest lua. we can stack this onto a freelist
+    // TODO: coroutines are reusable in lua 5.4. we can stack this onto a freelist
     // after a lua_resetthread(Lc) call.
     if (p->coro_ref) {
         // Note: lua registry is the same for main thread or a coroutine.
@@ -1460,6 +1460,11 @@ static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t) {
 // foreach.
 // There might be better places to do this, but I think it's cleaner if
 // submission and cqe can stay in this function.
+// TODO: The problem is io_submit() can deadlock if too many cqe's are
+// waiting.
+// Need to understand if this means "CQE's ready to be picked up" or "CQE's in
+// flight", because the former is much easier to work around (ie; only run the
+// backend handler after dequeuing everything else)
 static void *proxy_event_thread_ur(void *arg) {
     proxy_event_thread_t *t = arg;
     struct io_uring_cqe *cqe;
@@ -1900,7 +1905,6 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
             // we need to ensure the next data in the stream is "END\r\n"
             // if not, the stack is desynced and we lose it.
 
-            // TODO: WANT_READ can happen here.
             r->status = mcmc_parse_buf(be->client, be->rbuf, bread, &tmp_resp);
             P_DEBUG("%s [read_end]: r->status: %d, bread: %d resp.type:%d\n", __func__, r->status, bread, tmp_resp.type);
             if (r->status != MCMC_OK) {
@@ -1934,7 +1938,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
         case mcp_backend_want_read:
             // Continuing a read from earlier
             r = p->client_resp;
-            // TODO: take bread input and see if we're done reading the value,
+            // take bread input and see if we're done reading the value,
             // else advance, set buffers, return next.
             if (bread > 0) {
                 r->bread += bread;
@@ -2253,8 +2257,6 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     lua_State *L = thr->L;
     mcp_parser_t pr = {0};
 
-    // TODO: logger integration!
-
     // Avoid doing resp_start() here, instead do it a bit later or as-needed.
     // This allows us to hop over to the internal text protocol parser, which
     // also calls resp_start().
@@ -2326,9 +2328,6 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
 
             // now advance to the next key.
             _process_request_key(&pr);
-
-            // TODO: somehow we need to chop the END\r\n from each
-            // sub-request.
         }
 
         if (!resp_start(c)) {
@@ -2616,8 +2615,8 @@ static int mcplib_backend(lua_State *L) {
         proxy_lua_error(L, "out of memory allocating backend");
         return 0;
     }
-    // TODO: connect elsewhere? Any reason not to immediately shoot off a
-    // connect?
+    // TODO: connect elsewhere. When there're multiple backend owners, or
+    // sockets per backend, etc. We'll want to kick off connects as use time.
     int status = mcmc_connect(be->client, be->ip, be->port, MCMC_OPTION_NONBLOCK);
     if (status == MCMC_CONNECTED) {
         // FIXME: is this possible? do we ever want to allow blocking
@@ -3024,7 +3023,6 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
             // falls through with cmd as -1. should error.
             break;
         case 2:
-            // TODO: meta support is gated on some protocol fixes.
             if (cm[0] == 'm') {
                 switch (cm[1]) {
                     case 'g':
@@ -3716,9 +3714,6 @@ static int mcplib_await_return(io_pending_proxy_t *p) {
 int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
     lua_State *L = ctx;
 
-    // TODO: stash into a table with weak references?
-    // then if no pools/code has references still, can ditch?
-    // TODO: __gc
     const struct luaL_Reg mcplib_backend_m[] = {
         {"set", NULL},
         {"__gc", mcplib_backend_gc},
