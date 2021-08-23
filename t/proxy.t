@@ -35,6 +35,10 @@ my $p_sock = $p_srv->sock;
 
 # cmds to test:
 # - noreply for main text commands?
+# touch
+# gets
+# gat
+# cas
 # meta:
 # me
 # mn
@@ -45,6 +49,21 @@ my $p_sock = $p_srv->sock;
 # - noreply?
 # stats
 # pass-thru?
+
+# command endings
+# NOTE: memcached always allowed [\r]\n for single command lines, but payloads
+# (set/etc) require exactly \r\n as termination.
+# doc/protocol.txt has always specified \r\n for command/response.
+# Proxy is more strict than normal server in this case.
+{
+    my $s = $srv[0]->sock;
+    print $s "version\n";
+    like(<$s>, qr/VERSION/, "direct server version cmd with just newline");
+    print $p_sock "version\n";
+    like(<$p_sock>, qr/SERVER_ERROR/, "proxy version cmd with just newline");
+    print $p_sock "version\r\n";
+    like(<$p_sock>, qr/VERSION/, "proxy version cmd with full CRLF");
+}
 
 # set through proxy.
 {
