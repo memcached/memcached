@@ -31,14 +31,11 @@ my $p_sock = $p_srv->sock;
 
 # hack to help me use T_MEMD_USE_DAEMON for proxy.
 #print STDERR "Sleeping\n";
-#sleep 8;
+#sleep 900;
 
 # cmds to test:
 # - noreply for main text commands?
-# touch
-# gets
 # gat
-# cas
 # meta:
 # me
 # mn
@@ -49,6 +46,78 @@ my $p_sock = $p_srv->sock;
 # - noreply?
 # stats
 # pass-thru?
+
+# gat
+{
+    # cache miss
+    print $p_sock "gat 10 /foo/foo1\r\n";
+    is(scalar <$p_sock>, "END\r\n", "cache miss");
+
+    # set /foo/foo1 and /foo/foo2 (and should get it)
+    print $p_sock "set /foo/foo1 0 2 7\r\nfooval1\r\n";
+    is(scalar <$p_sock>, "STORED\r\n", "stored foo");
+
+    print $p_sock "set /foo/foo2 0 2 7\r\nfooval2\r\n";
+    is(scalar <$p_sock>, "STORED\r\n", "stored /foo/foo2");
+
+    # get and touch it with cas
+    print $p_sock "gats 10 /foo/foo1 /foo/foo2\r\n";
+    like(scalar <$p_sock>, qr/VALUE \/foo\/foo1 0 7 (\d+)\r\n/, "get and touch foo1 with cas regexp success");
+    is(scalar <$p_sock>, "fooval1\r\n","value");
+    like(scalar <$p_sock>, qr/VALUE \/foo\/foo2 0 7 (\d+)\r\n/, "get and touch foo2 with cas regexp success");
+    is(scalar <$p_sock>, "fooval2\r\n","value");
+    is(scalar <$p_sock>, "END\r\n", "end");
+
+    # get and touch it without cas
+    print $p_sock "gat 10 /foo/foo1 /foo/foo2\r\n";
+    like(scalar <$p_sock>, qr/VALUE \/foo\/foo1 0 7\r\n/, "get and touch foo1 without cas regexp success");
+    is(scalar <$p_sock>, "fooval1\r\n","value");
+    like(scalar <$p_sock>, qr/VALUE \/foo\/foo2 0 7\r\n/, "get and touch foo2 without cas regexp success");
+    is(scalar <$p_sock>, "fooval2\r\n","value");
+    is(scalar <$p_sock>, "END\r\n", "end");
+}
+
+# gets/cas
+{
+    print $p_sock "add /foo/moo 0 0 6\r\nmooval\r\n";
+    is(scalar <$p_sock>, "STORED\r\n", "stored mooval");
+    mem_get_is($p_sock, "/foo/moo", "mooval");
+
+    # check-and-set (cas) failure case, try to set value with incorrect cas unique val
+    print $p_sock "cas /foo/moo 0 0 6 0\r\nMOOVAL\r\n";
+    is(scalar <$p_sock>, "EXISTS\r\n", "check and set with invalid id");
+
+    # test "gets", grab unique ID
+    print $p_sock "gets /foo/moo\r\n";
+    # VALUE moo 0 6 3084947704
+    #
+    my @retvals = split(/ /, scalar <$p_sock>);
+    my $data = scalar <$p_sock>; # grab data
+    my $dot  = scalar <$p_sock>; # grab dot on line by itself
+    is($retvals[0], "VALUE", "get value using 'gets'");
+    my $unique_id = $retvals[4];
+    # clean off \r\n
+    $unique_id =~ s/\r\n$//;
+    ok($unique_id =~ /^\d+$/, "unique ID '$unique_id' is an integer");
+    # now test that we can store moo with the correct unique id
+    print $p_sock "cas /foo/moo 0 0 6 $unique_id\r\nMOOVAL\r\n";
+    is(scalar <$p_sock>, "STORED\r\n");
+    mem_get_is($p_sock, "/foo/moo", "MOOVAL");
+}
+
+# touch
+{
+    print $p_sock "set /foo/t 0 2 6\r\nfooval\r\n";
+    is(scalar <$p_sock>, "STORED\r\n", "stored foo");
+    mem_get_is($p_sock, "/foo/t", "fooval");
+
+    # touch it
+    print $p_sock "touch /foo/t 10\r\n";
+    is(scalar <$p_sock>, "TOUCHED\r\n", "touched foo");
+
+    # don't need to sleep/validate the touch worked. We're testing the
+    # protocol, not the functionality.
+}
 
 # command endings
 # NOTE: memcached always allowed [\r]\n for single command lines, but payloads

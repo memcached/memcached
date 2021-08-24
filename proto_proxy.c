@@ -2309,22 +2309,36 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         // TODO: need some way to abort this.
         while (pr.klen != 0) {
             char temp[KEY_MAX_LENGTH + 30];
-            size_t off = 0;
+            char *cur = temp;
             switch (pr.command) {
                 case CMD_GET:
                     memcpy(temp, "get ", 4);
-                    off += 4;
+                    cur += 4;
                     break;
                 case CMD_GETS:
+                    memcpy(temp, "gets ", 5);
+                    cur += 5;
                     break;
                 case CMD_GAT:
+                    memcpy(temp, "gat ", 4);
+                    cur += 4;
+                    cur = itoa_u32(pr.t.get.exptime, cur);
+                    *cur = ' ';
+                    cur++;
                     break;
                 case CMD_GATS:
+                    memcpy(temp, "gats ", 5);
+                    cur += 5;
+                    cur = itoa_u32(pr.t.get.exptime, cur);
+                    *cur = ' ';
+                    cur++;
                     break;
             }
-            memcpy(temp+off, MCP_PARSER_KEY(pr), pr.klen);
-            memcpy(temp+off+pr.klen, "\r\n", 2);
-            proxy_process_command(c, temp, off+pr.klen+2, PROCESS_MULTIGET);
+            memcpy(cur, MCP_PARSER_KEY(pr), pr.klen);
+            cur += pr.klen;
+            memcpy(cur, "\r\n", 2);
+            cur += 2;
+            proxy_process_command(c, temp, cur - temp, PROCESS_MULTIGET);
 
             // now advance to the next key.
             _process_request_key(&pr);
@@ -2890,6 +2904,55 @@ static int _process_request_key(mcp_parser_t *pr) {
     return 0;
 }
 
+// gat[s] <exptime> <key>*\r\n
+static int _process_request_gat(mcp_parser_t *pr) {
+    pr->has_space = false;
+    const char *cur = pr->request + pr->parsed;
+    int remain = pr->reqlen - (pr->parsed + 2);
+    if (remain <= 0) {
+        pr->key = 0;
+        pr->klen = 0;
+        return 0;
+    }
+
+    errno = 0;
+    char *n = NULL;
+    int exptime = strtol(cur, &n, 10);
+    if ((errno == ERANGE) || (cur == n) || (*n != ' ')) {
+        return -1;
+    }
+    remain -= n - cur;
+    pr->parsed += n - cur;
+    cur = n;
+
+    while (remain) {
+        if (*cur != ' ') {
+            break;
+        }
+        pr->parsed++;
+        remain--;
+        cur++;
+    }
+
+    const char *s = memchr(cur, ' ', remain);
+    pr->key = cur - pr->request; // key offset.
+    if (s != NULL) {
+        // key is up to the next space.
+        pr->klen = s - cur;
+        if (*s == ' ') {
+            pr->has_space = true;
+        }
+    } else {
+        pr->klen = remain;
+    }
+    pr->parsed += pr->klen+1;
+
+    pr->t.get.exptime = exptime;
+
+    return 0;
+}
+
+
 // TODO: note TODO's from request_storage()
 static int _process_request_mset(mcp_parser_t *pr) {
     const char *cur = pr->request + pr->parsed;
@@ -3064,7 +3127,7 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
                 if (cm[1] == 'a' && cm[2] == 't') {
                     type = CMD_TYPE_GET;
                     cmd = CMD_GAT;
-                    // TODO: gat <exptime> <key>*\r\n
+                    ret = _process_request_gat(pr);
                 }
             } else if (cm[0] == 's' && cm[1] == 'e' && cm[2] == 't') {
                 cmd = CMD_SET;
@@ -3078,22 +3141,22 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
             }
             break;
         case 4:
-            if (cm[0] == 'g' && cm[1] == 'e' && cm[2] == 't' && cm[3] == 's') {
+            if (strncmp(cm, "gets", 4) == 0) {
                 cmd = CMD_GETS;
                 type = CMD_TYPE_GET;
                 ret = _process_request_key(pr);
-            } else if (cm[0] == 'i' && cm[1] == 'n' && cm[2] == 'c' && cm[3] == 'r') {
+            } else if (strncmp(cm, "incr", 4) == 0) {
                 cmd = CMD_INCR;
                 // TODO: incr <key> <value>
                 ret = _process_request_key(pr);
-            } else if (cm[0] == 'd' && cm[1] == 'e' && cm[2] == 'c' && cm[3] == 'r') {
+            } else if (strncmp(cm, "decr", 4) == 0) {
                 cmd = CMD_DECR;
                 // TODO: decr <key> <value>
                 ret = _process_request_key(pr);
-            } else if (cm[0] == 'g' && cm[1] == 'a' && cm[2] == 't' && cm[3] == 's') {
+            } else if (strncmp(cm, "gats", 4) == 0) {
                 cmd = CMD_GATS;
                 type = CMD_TYPE_GET;
-                // TODO: gats <exptime> <key>*\r\n
+                ret = _process_request_gat(pr);
             } else if (strncmp(cm, "quit", 4) == 0) {
                 cmd = CMD_QUIT;
             }
