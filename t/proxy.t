@@ -47,6 +47,30 @@ my $p_sock = $p_srv->sock;
 # stats
 # pass-thru?
 
+# incr/decr
+{
+    print $p_sock "set /foo/num 0 0 1\r\n1\r\n";
+    is(scalar <$p_sock>, "STORED\r\n", "stored num");
+    mem_get_is($p_sock, "/foo/num", 1, "stored 1");
+
+    print $p_sock "incr /foo/num 1\r\n";
+    is(scalar <$p_sock>, "2\r\n", "+ 1 = 2");
+    mem_get_is($p_sock, "/foo/num", 2);
+
+    print $p_sock "incr /foo/num 8\r\n";
+    is(scalar <$p_sock>, "10\r\n", "+ 8 = 10");
+    mem_get_is($p_sock, "/foo/num", 10);
+
+    print $p_sock "decr /foo/num 1\r\n";
+    is(scalar <$p_sock>, "9\r\n", "- 1 = 9");
+
+    print $p_sock "decr /foo/num 9\r\n";
+    is(scalar <$p_sock>, "0\r\n", "- 9 = 0");
+
+    print $p_sock "decr /foo/num 5\r\n";
+    is(scalar <$p_sock>, "0\r\n", "- 5 = 0");
+}
+
 # gat
 {
     # cache miss

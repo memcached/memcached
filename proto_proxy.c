@@ -224,6 +224,10 @@ struct mcp_parser_get_s {
     int exptime; // in cases of gat/gats.
 };
 
+struct mcp_parser_delta_s {
+    uint64_t delta;
+};
+
 // Note that we must use offsets into request for tokens,
 // as *request can change between parsing and later accessors.
 // TODO: just use uint16_t off/len token array?
@@ -241,6 +245,7 @@ struct mcp_parser_s {
     union {
         struct mcp_parser_set_s set;
         struct mcp_parser_get_s get;
+        struct mcp_parser_delta_s delta;
     } t;
 };
 
@@ -2952,6 +2957,35 @@ static int _process_request_gat(mcp_parser_t *pr) {
     return 0;
 }
 
+// TODO: incr <key> <value>
+static int _process_request_incrdecr(mcp_parser_t *pr) {
+    const char *cur = pr->request + pr->parsed;
+    if (!pr->has_space) {
+        return -1;
+    }
+
+    const char *s = memchr(cur, ' ', pr->reqlen - (pr->parsed + 2));
+    if (s != NULL) {
+        // Found another space, which means we at least have a key.
+        pr->key = cur - pr->request;
+        pr->klen = s - cur;
+        cur = s + 1;
+    } else {
+        return -1;
+    }
+
+    errno = 0;
+    char *n = NULL;
+    uint64_t delta = strtoull(cur, &n, 10);
+    if ((errno == ERANGE) || (cur == n)) {
+        return -1;
+    }
+    cur = n;
+
+    pr->t.delta.delta = delta;
+
+    return 0;
+}
 
 // TODO: note TODO's from request_storage()
 static int _process_request_mset(mcp_parser_t *pr) {
@@ -3147,12 +3181,10 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
                 ret = _process_request_key(pr);
             } else if (strncmp(cm, "incr", 4) == 0) {
                 cmd = CMD_INCR;
-                // TODO: incr <key> <value>
-                ret = _process_request_key(pr);
+                ret = _process_request_incrdecr(pr);
             } else if (strncmp(cm, "decr", 4) == 0) {
                 cmd = CMD_DECR;
-                // TODO: decr <key> <value>
-                ret = _process_request_key(pr);
+                ret = _process_request_incrdecr(pr);
             } else if (strncmp(cm, "gats", 4) == 0) {
                 cmd = CMD_GATS;
                 type = CMD_TYPE_GET;
@@ -3168,8 +3200,8 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
                 ret = _process_request_key(pr);
             } else if (strncmp(cm, "stats", 5) == 0) {
                 cmd = CMD_STATS;
+                // :key() should give the stats sub-command
                 ret = _process_request_key(pr);
-                // :key() should give the stats sub-command?
             } else if (strncmp(cm, "watch", 5) == 0) {
                 cmd = CMD_WATCH;
             }
