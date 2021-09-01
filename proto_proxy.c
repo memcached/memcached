@@ -67,15 +67,15 @@
 // FIXME: do include dir properly.
 #include "vendor/mcmc/mcmc.h"
 
+// Note: value created from thin air. Could be shorter.
+#define MCP_REQUEST_MAXLEN KEY_MAX_LENGTH * 2
+
 #define ENDSTR "END\r\n"
 #define ENDLEN sizeof(ENDSTR)-1
 
 #define MCP_THREAD_UPVALUE 1
 #define MCP_ATTACH_UPVALUE 2
 #define MCP_BACKEND_UPVALUE 3
-
-// NOTE: unused right now.
-//#define PROXY_EVENT_IO_THREADS 4
 
 // all possible commands.
 #define CMD_FIELDS \
@@ -228,6 +228,10 @@ struct mcp_parser_delta_s {
     uint64_t delta;
 };
 
+struct mcp_parser_meta_s {
+    uint64_t flags;
+};
+
 // Note that we must use offsets into request for tokens,
 // as *request can change between parsing and later accessors.
 // TODO: just use uint16_t off/len token array?
@@ -246,6 +250,7 @@ struct mcp_parser_s {
         struct mcp_parser_set_s set;
         struct mcp_parser_get_s get;
         struct mcp_parser_delta_s delta;
+        struct mcp_parser_meta_s meta;
     } t;
 };
 
@@ -261,6 +266,7 @@ struct mcp_request_s {
     mcp_backend_t *be; // backend handling this request.
     bool lua_key; // if we've pushed the key to lua.
     bool ascii_multiget; // ascii multiget mode. (hide errors/END)
+    char request[];
 };
 
 typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
@@ -1218,6 +1224,7 @@ void complete_nread_proxy(conn *c) {
     }
     rq->pr.vbuf = c->item;
     c->item = NULL;
+    c->item_malloced = false;
 
     proxy_run_coroutine(Lc, c->resp, NULL, c);
 
@@ -2364,6 +2371,19 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         return;
     }
 
+    // We test the command length all the way down here because multigets can
+    // be very long, and they're chopped up by now.
+    if (cmdlen >= MCP_REQUEST_MAXLEN) {
+        WSTAT_INCR(c, proxy_conn_errors, 1);
+        if (!resp_start(c)) {
+            conn_set_state(c, conn_closing);
+            return;
+        }
+        proxy_out_errstring(c->resp, "request too long");
+        conn_set_state(c, conn_closing);
+        return;
+    }
+
     if (!resp_start(c)) {
         conn_set_state(c, conn_closing);
         return;
@@ -2909,6 +2929,81 @@ static int _process_request_key(mcp_parser_t *pr) {
     return 0;
 }
 
+static int _process_request_metaflags(mcp_parser_t *pr) {
+    const char *cur = pr->request + pr->parsed;
+    const char *end = pr->request + pr->reqlen - 2;
+
+    // To give the function some future proofing we blindly convert flags into
+    // bits, since the range of possible flags is deliberately < 64.
+    int state = 0;
+    while (cur != end) {
+        switch (state) {
+            case 0:
+                if (*cur == ' ') {
+                    cur++;
+                } else {
+                    if (*cur < 65 || *cur > 122) {
+                        return -1;
+                    }
+                    P_DEBUG("%s: setting meta flag: %d\n", __func__, *cur - 65);
+                    pr->t.meta.flags |= 1 << (*cur - 65);
+                    state = 1;
+                }
+                break;
+            case 1:
+                if (*cur != ' ') {
+                    cur++;
+                } else {
+                    state = 0;
+                }
+                break;
+        }
+    }
+
+    return 0;
+}
+
+// All meta commands are of form: "cm key f l a g S100"
+static int _process_request_meta(mcp_parser_t *pr) {
+    _process_request_key(pr);
+
+    if (!pr->has_space)
+        return 0;
+
+    return _process_request_metaflags(pr);
+
+    return 0;
+}
+
+// TODO: note TODO's from request_storage()
+// ms <key> <datalen> <flags>*\r\n
+static int _process_request_mset(mcp_parser_t *pr) {
+    _process_request_key(pr);
+
+    if (!pr->has_space)
+        return -1;
+
+    const char *cur = pr->request + pr->parsed;
+
+    errno = 0;
+    char *n = NULL;
+    int vlen = strtol(cur, &n, 10);
+    if ((errno == ERANGE) || (cur == n)) {
+        return -1;
+    }
+
+    if (vlen < 0 || vlen > (INT_MAX - 2)) {
+       return -1;
+    }
+    vlen += 2;
+
+    pr->vlen = vlen;
+
+    pr->parsed += n - cur;
+
+    return _process_request_metaflags(pr);
+}
+
 // gat[s] <exptime> <key>*\r\n
 static int _process_request_gat(mcp_parser_t *pr) {
     pr->has_space = false;
@@ -2957,7 +3052,7 @@ static int _process_request_gat(mcp_parser_t *pr) {
     return 0;
 }
 
-// TODO: incr <key> <value>
+// incr|decr <key> <value>
 static int _process_request_incrdecr(mcp_parser_t *pr) {
     const char *cur = pr->request + pr->parsed;
     if (!pr->has_space) {
@@ -2983,43 +3078,6 @@ static int _process_request_incrdecr(mcp_parser_t *pr) {
     cur = n;
 
     pr->t.delta.delta = delta;
-
-    return 0;
-}
-
-// TODO: note TODO's from request_storage()
-static int _process_request_mset(mcp_parser_t *pr) {
-    const char *cur = pr->request + pr->parsed;
-    // see mcmc.c's _mcmc_parse_value_line() for the trick
-    // set <key> <datalen> <flags>*\r\n
-    if (!pr->has_space) {
-        return -1;
-    }
-
-    const char *s = memchr(cur, ' ', pr->reqlen - (pr->parsed + 2));
-    if (s != NULL) {
-        // Found another space, which means we at least have a key.
-        pr->key = cur - pr->request;
-        pr->klen = s - cur;
-        cur = s + 1;
-    } else {
-        return -1;
-    }
-
-    errno = 0;
-    char *n = NULL;
-    int vlen = strtol(cur, &n, 10);
-    if ((errno == ERANGE) || (cur == n)) {
-        return -1;
-    }
-    cur = n;
-
-    if (vlen < 0 || vlen > (INT_MAX - 2)) {
-       return -1;
-    }
-    vlen += 2;
-
-    pr->vlen = vlen;
 
     return 0;
 }
@@ -3124,7 +3182,7 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
                 switch (cm[1]) {
                     case 'g':
                         cmd = CMD_MG;
-                        ret = _process_request_key(pr);
+                        ret = _process_request_meta(pr);
                         break;
                     case 's':
                         cmd = CMD_MS;
@@ -3132,7 +3190,7 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
                         break;
                     case 'd':
                         cmd = CMD_MD;
-                        ret = _process_request_key(pr);
+                        ret = _process_request_meta(pr);
                         break;
                     case 'n':
                         // TODO: do we route/handle NOP's at all?
@@ -3141,12 +3199,12 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
                         break;
                     case 'a':
                         cmd = CMD_MA;
-                        ret = _process_request_key(pr);
+                        ret = _process_request_meta(pr);
                         break;
                     case 'e':
                         cmd = CMD_ME;
                         // TODO: not much special processing here; binary keys
-                        ret = _process_request_key(pr);
+                        ret = _process_request_meta(pr);
                         break;
                 }
             }
@@ -3242,14 +3300,12 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
 // FIXME: any reason to pass in command/cmdlen separately?
 static mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen) {
     // reserving an upvalue for key.
-    mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t), 1);
-    memset(rq, 0, sizeof(*rq));
+    mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN * 2 + KEY_MAX_LENGTH, 1);
+    memset(rq, 0, sizeof(mcp_request_t));
     memcpy(&rq->pr, pr, sizeof(*pr));
 
-    // TODO: check rq->request and lua-fail properly
-    char *request_copy = malloc(cmdlen);
-    memcpy(request_copy, command, cmdlen);
-    rq->pr.request = request_copy;
+    memcpy(rq->request, command, cmdlen);
+    rq->pr.request = rq->request;
     rq->pr.reqlen = cmdlen;
     gettimeofday(&rq->start, NULL);
 
@@ -3319,13 +3375,6 @@ static int mcplib_request_command(lua_State *L) {
 
 static int mcplib_request_gc(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
-    if (rq->pr.request != NULL) {
-        // FIXME: discarding const here, fixing an error around free.
-        // Can probably do something cleaner, so leaving a note here.
-        // Think the answer is to move *request to mcp_r_t and only handle
-        // const within the parser code.
-        free((char *)rq->pr.request);
-    }
     // FIXME: during nread c->item is the malloc'ed buffer. not yet put into
     // rq->buf - is this properly freed if the connection dies before
     // complete_nread?

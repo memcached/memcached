@@ -35,7 +35,6 @@ my $p_sock = $p_srv->sock;
 
 # cmds to test:
 # - noreply for main text commands?
-# gat
 # meta:
 # me
 # mn
