@@ -2240,8 +2240,8 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
 }
 
 static int try_read_command_negotiate(conn *c) {
-    assert(c->protocol == negotiating_prot);
     assert(c != NULL);
+    assert(c->protocol == negotiating_prot);
     assert(c->rcurr <= (c->rbuf + c->rsize));
     assert(c->rbytes > 0);
 

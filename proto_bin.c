@@ -262,10 +262,10 @@ static void complete_incr_bin(conn *c, char *extbuf) {
     char tmpbuf[INCR_MAX_STORAGE_LEN];
     uint64_t cas = 0;
 
+    assert(c != NULL);
     protocol_binary_response_incr* rsp = (protocol_binary_response_incr*)c->resp->wbuf;
     protocol_binary_request_incr* req = (void *)extbuf;
 
-    assert(c != NULL);
     //assert(c->wsize >= sizeof(*rsp));
 
     /* fix byteorder in the request */
@@ -1282,10 +1282,9 @@ static void process_bin_delete(conn *c) {
     item *it;
     uint32_t hv;
 
+    assert(c != NULL);
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
-
-    assert(c != NULL);
 
     if (settings.verbose > 1) {
         int ii;
