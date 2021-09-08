@@ -283,10 +283,9 @@ void complete_nread_ascii(conn *c) {
 static size_t tokenize_command(char *command, token_t *tokens, const size_t max_tokens) {
     char *s, *e;
     size_t ntokens = 0;
+    assert(command != NULL && tokens != NULL && max_tokens > 1);
     size_t len = strlen(command);
     unsigned int i = 0;
-
-    assert(command != NULL && tokens != NULL && max_tokens > 1);
 
     s = e = command;
     for (i = 0; i < len; i++) {
@@ -1059,10 +1058,10 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     bool won_token = false;
     bool ttl_set = false;
     char *errstr = "CLIENT_ERROR bad command line format";
+    assert(c != NULL);
     mc_resp *resp = c->resp;
     char *p = resp->wbuf;
 
-    assert(c != NULL);
     WANT_TOKENS_MIN(ntokens, 3);
 
     // FIXME: do we move this check to after preparse?
@@ -1360,10 +1359,10 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     char *errstr = "CLIENT_ERROR bad command line format";
     uint32_t hv; // cached hash value.
     int vlen = 0; // value from data line.
+    assert(c != NULL);
     mc_resp *resp = c->resp;
     char *p = resp->wbuf;
 
-    assert(c != NULL);
     WANT_TOKENS_MIN(ntokens, 3);
 
     // TODO: most of this is identical to mget.
@@ -1550,11 +1549,11 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     uint32_t hv;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
+    assert(c != NULL);
     mc_resp *resp = c->resp;
     // reserve 3 bytes for status code
     char *p = resp->wbuf + 3;
 
-    assert(c != NULL);
     WANT_TOKENS_MIN(ntokens, 3);
 
     // TODO: most of this is identical to mget.
@@ -1575,12 +1574,12 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
+    assert(c != NULL);
     c->noreply = of.no_reply;
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    assert(c != NULL);
     for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
         switch (tokens[i].value[0]) {
             // TODO: macro perhaps?
@@ -1680,6 +1679,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     int i;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
+    assert(c != NULL);
     mc_resp *resp = c->resp;
     // no reservation (like del/set) since we post-process the status line.
     char *p = resp->wbuf;
@@ -1692,7 +1692,6 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     uint32_t hv = 0;
     item *it = NULL; // item returned by do_add_delta.
 
-    assert(c != NULL);
     WANT_TOKENS_MIN(ntokens, 3);
 
     // TODO: most of this is identical to mget.
@@ -1712,12 +1711,12 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
         out_errstring(c, "CLIENT_ERROR invalid or duplicate flag");
         return;
     }
+    assert(c != NULL);
     c->noreply = of.no_reply;
 
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    assert(c != NULL);
     // "mode switch" to alternative commands
     switch (of.mode) {
         case 0: // no switch supplied.
