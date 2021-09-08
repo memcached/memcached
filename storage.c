@@ -377,9 +377,9 @@ static void recache_or_free(io_pending_t *pending) {
 
     conn *c = p->c;
     obj_io *io = &p->io_ctx;
+    assert(io != NULL);
     item *it = (item *)io->buf;
     assert(c != NULL);
-    assert(io != NULL);
     bool do_free = true;
     if (p->active) {
         // If request never dispatched, free the read buffer but leave the
