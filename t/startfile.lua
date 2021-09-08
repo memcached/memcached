@@ -96,7 +96,7 @@ function mcp_config_selectors(oldss)
             -- this line overrides the default bucket size for ketama
             -- subs[k] = mcp.hash_selector(v, ketama, 80)
             -- this line uses the default murmur3 straight hash.
-            subs[k] = mcp.hash_selector(v)
+            subs[k] = mcp.pool(v)
 
             -- use this next line instead for jump hash.
             -- the order of servers in the pool argument _must_ not change!
