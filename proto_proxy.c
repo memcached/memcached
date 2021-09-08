@@ -572,7 +572,7 @@ static void *_proxy_config_thread(void *arg) {
 
         // The main stages of config reload are:
         // - load and execute the config file
-        // - run mcp_config_selectors()
+        // - run mcp_config_pools()
         // - for each worker:
         //   - copy and execute new lua code
         //   - copy selector table
@@ -809,13 +809,13 @@ int proxy_load_config(void *arg) {
         exit(EXIT_FAILURE);
     }
 
-    // call the mcp_config_selectors function to get the central backends.
-    lua_getglobal(L, "mcp_config_selectors");
+    // call the mcp_config_pools function to get the central backends.
+    lua_getglobal(L, "mcp_config_pools");
 
     // TODO: handle explicitly if function is missing.
     lua_pushnil(L); // no "old" config yet.
     if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        fprintf(stderr, "Failed to execute mcp_config_selectors: %s\n", lua_tostring(L, -1));
+        fprintf(stderr, "Failed to execute mcp_config_pools: %s\n", lua_tostring(L, -1));
         exit(EXIT_FAILURE);
     }
 
@@ -2723,10 +2723,22 @@ static int mcplib_pool(lua_State *L) {
         s->ref = luaL_ref(L, LUA_REGISTRYINDEX); // references and pops object.
     }
 
-    if (argc > 1) {
-        luaL_checktype(L, 2, LUA_TTABLE);
-        if (lua_getfield(L, 2, "new") != LUA_TFUNCTION) {
-            proxy_lua_error(L, "hash selector missing 'new' function");
+    if (argc == 1) {
+        // Use default hash selector if none given.
+        p->phc = mcplib_hashfunc_murmur3;
+        return 1;
+    }
+
+    // Supplied with an options table. We inspect this table to decorate the
+    // pool, then pass it along to the a constructor if necessary.
+    luaL_checktype(L, 2, LUA_TTABLE);
+
+    // stack: backends, options, mcp.pool
+    if (lua_getfield(L, 2, "dist") != LUA_TNIL) {
+        // overriding the distribution function.
+        luaL_checktype(L, -1, LUA_TTABLE);
+        if (lua_getfield(L, -1, "new") != LUA_TFUNCTION) {
+            proxy_lua_error(L, "key distribution object missing 'new' function");
             return 0;
         }
 
@@ -2754,21 +2766,14 @@ static int mcplib_pool(lua_State *L) {
             lua_rawseti(L, -2, x);
         }
 
-        // - if argc > 2 we have an option.
-        // this needs to go after the pool copy in the stack:
-        int callargs = 1;
-        if (argc > 2) {
-            // we can either use lua_insert() or possibly _rotate to shift
-            // things into the right place, but simplest is to just copy the
-            // option arg to the end of the stack.
-            lua_pushvalue(L, 3);
-            callargs++;
-            //   - stack should be: pool, hash, func, pool, optN
-        }
+        // we can either use lua_insert() or possibly _rotate to shift
+        // things into the right place, but simplest is to just copy the
+        // option arg to the end of the stack.
+        lua_pushvalue(L, 2);
+        //   - stack should be: pool, opts, func, pooltable, opts
 
-        // call the hash init function.
-        // FIXME: if optarg 1 is + argc-2?
-        int res = lua_pcall(L, callargs, 2, 0);
+        // call the dist new function.
+        int res = lua_pcall(L, 2, 2, 0);
 
         if (res != LUA_OK) {
             lua_error(L); // error should be on the stack already.
@@ -2785,10 +2790,16 @@ static int mcplib_pool(lua_State *L) {
         // -2 was userdata we need to hold a reference to
         p->phc_ref = luaL_ref(L, LUA_REGISTRYINDEX);
         // UD now popped from stack.
+
+        lua_pop(L, 1); // remove the dist table from stack.
     } else {
-        // Use default hash selector if none given.
-        p->phc = mcplib_hashfunc_murmur3;
+        lua_pop(L, 1); // pop the nil.
     }
+
+    // TODO: getfield("filter") and add the function
+    // TODO: getfield("hash") and add the function
+    // TODO: getfield("seed") and use the hash function to calculate a seed
+    // value.
 
     return 1;
 }
@@ -3477,7 +3488,7 @@ static int mcplib_open_jump_hash(lua_State *L) {
 static int mcplib_add_stat(lua_State *L) {
     LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
     if (t != NULL) {
-        proxy_lua_error(L, "add_stat must be called from config_selectors");
+        proxy_lua_error(L, "add_stat must be called from config_pools");
         return 0;
     }
     int idx = luaL_checkinteger(L, -2);

@@ -11,7 +11,7 @@ local my_zone = 'z1'
 local STAT_EXAMPLE <const> = 1
 local STAT_ANOTHER <const> = 2
 
-function mcp_config_selectors(oldss)
+function mcp_config_pools(oldss)
     mcp.add_stat(STAT_EXAMPLE, "example")
     mcp.add_stat(STAT_ANOTHER, "another")
     -- alias mcp.backend for convenience.
@@ -92,9 +92,9 @@ function mcp_config_selectors(oldss)
     for _, subs in pairs(main_zones) do
         for k, v in pairs(subs) do
             -- use next line instead for a third party ketama hash
-            -- subs[k] = mcp.hash_selector(v, ketama)
+            -- subs[k] = mcp.pool(v, { dist = ketama })
             -- this line overrides the default bucket size for ketama
-            -- subs[k] = mcp.hash_selector(v, ketama, 80)
+            -- subs[k] = mcp.pool(v, { dist = ketama, obucket = 80 })
             -- this line uses the default murmur3 straight hash.
             subs[k] = mcp.pool(v)
 
@@ -104,7 +104,7 @@ function mcp_config_selectors(oldss)
             -- for each zone.
             -- NOTE: 'k' may not be the right seed here:
             -- instead stitch main_zone's key + the sub key?
-            --subs[k] = mcp.hash_selector(v, mcp.hash_jump, { seed = k })
+            -- subs[k] = mcp.pool(v, { dist = mcp.hash_jump, seed = k })
         end
     end
 
