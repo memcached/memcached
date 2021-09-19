@@ -214,19 +214,7 @@ typedef struct mcp_backend_s mcp_backend_t;
 typedef struct mcp_request_s mcp_request_t;
 typedef struct mcp_parser_s mcp_parser_t;
 
-// function for finalizing the parsing of a request.
-struct mcp_parser_set_s {
-    uint32_t flags;
-    int exptime;
-};
-
-struct mcp_parser_get_s {
-    int exptime; // in cases of gat/gats.
-};
-
-struct mcp_parser_delta_s {
-    uint64_t delta;
-};
+#define PARSER_MAX_TOKENS 24
 
 struct mcp_parser_meta_s {
     uint64_t flags;
@@ -236,25 +224,24 @@ struct mcp_parser_meta_s {
 // as *request can change between parsing and later accessors.
 // TODO: just use uint16_t off/len token array?
 struct mcp_parser_s {
-    int command;
-    int parsed; // how far into the request we parsed already
     const char *request;
     void *vbuf; // temporary buffer for holding value lengths.
-    int cmd_type; // command class.
-    int reqlen; // full length of request buffer.
+    uint8_t command;
+    uint8_t cmd_type; // command class.
+    uint8_t ntokens;
+    uint8_t keytoken; // because GAT. sigh. also cmds without a key.
+    uint32_t parsed; // how far into the request we parsed already
+    uint32_t reqlen; // full length of request buffer.
     int vlen;
-    int key; // offset of the key.
-    int16_t klen; // length of key.
-    bool has_space; // a space was found after the command token.
+    uint32_t klen; // length of key.
+    uint16_t tokens[PARSER_MAX_TOKENS]; // offsets for start of each token
+    bool has_space; // a space was found after the last byte parsed.
     union {
-        struct mcp_parser_set_s set;
-        struct mcp_parser_get_s get;
-        struct mcp_parser_delta_s delta;
         struct mcp_parser_meta_s meta;
     } t;
 };
 
-#define MCP_PARSER_KEY(pr) (&pr.request[pr.key])
+#define MCP_PARSER_KEY(pr) (&pr.request[pr.tokens[pr.keytoken]])
 
 // TODO: need to confirm that c->rbuf is safe to use the whole time.
 // - I forgot what this was already? need to re-check. have addressed other
@@ -392,7 +379,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
 #define PROCESS_MULTIGET true
 #define PROCESS_NORMAL false
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget);
-static int _process_request_key(mcp_parser_t *pr);
+static size_t _process_request_next_key(mcp_parser_t *pr);
 static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 static void dump_stack(lua_State *L);
 static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc);
@@ -2319,41 +2306,29 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // The way this is detected/passed on is very fragile.
     if (!multiget && pr.cmd_type == CMD_TYPE_GET && pr.has_space) {
         // TODO: need some way to abort this.
+        // FIXME: before the while loop, ensure pr.keytoken isn't too bug for
+        // the local temp buffer here.
+        uint32_t keyoff = pr.tokens[pr.keytoken];
         while (pr.klen != 0) {
             char temp[KEY_MAX_LENGTH + 30];
             char *cur = temp;
-            switch (pr.command) {
-                case CMD_GET:
-                    memcpy(temp, "get ", 4);
-                    cur += 4;
-                    break;
-                case CMD_GETS:
-                    memcpy(temp, "gets ", 5);
-                    cur += 5;
-                    break;
-                case CMD_GAT:
-                    memcpy(temp, "gat ", 4);
-                    cur += 4;
-                    cur = itoa_u32(pr.t.get.exptime, cur);
-                    *cur = ' ';
-                    cur++;
-                    break;
-                case CMD_GATS:
-                    memcpy(temp, "gats ", 5);
-                    cur += 5;
-                    cur = itoa_u32(pr.t.get.exptime, cur);
-                    *cur = ' ';
-                    cur++;
-                    break;
-            }
-            memcpy(cur, MCP_PARSER_KEY(pr), pr.klen);
+            // copy original request up until the original key token.
+            memcpy(cur, pr.request, pr.tokens[pr.keytoken]);
+            cur += pr.tokens[pr.keytoken];
+
+            // now copy in our "current" key.
+            memcpy(cur, &pr.request[keyoff], pr.klen);
             cur += pr.klen;
+
             memcpy(cur, "\r\n", 2);
             cur += 2;
+
+            *cur = '\0';
+            P_DEBUG("%s: new multiget sub request: %s [%u/%u]\n", __func__, temp, keyoff, pr.klen);
             proxy_process_command(c, temp, cur - temp, PROCESS_MULTIGET);
 
             // now advance to the next key.
-            _process_request_key(&pr);
+            keyoff = _process_request_next_key(&pr);
         }
 
         if (!resp_start(c)) {
@@ -2916,32 +2891,103 @@ static void proxy_register_defines(lua_State *L) {
 
 /*** REQUEST PARSER AND OBJECT ***/
 
-static int _process_request_key(mcp_parser_t *pr) {
-    pr->has_space = false;
-    const char *cur = pr->request + pr->parsed;
-    int remain = pr->reqlen - (pr->parsed + 2);
-    if (remain <= 0) {
-        pr->key = 0;
-        pr->klen = 0;
-        return 0;
-    }
-    const char *s = memchr(cur, ' ', remain);
-    pr->key = cur - pr->request; // key offset.
-    if (s != NULL) {
-        // key is up to the next space.
-        pr->klen = s - cur;
-        if (*s == ' ') {
-            pr->has_space = true;
+// Find the starting offsets of each token; ignoring length.
+// This creates a fast small (<= cacheline) index into the request,
+// where we later scan or directly feed data into API's.
+static int _process_tokenize(mcp_parser_t *pr, const size_t max) {
+    const char *s = pr->request;
+    int len = pr->reqlen - 2;
+    // FIXME: die if reqlen too long.
+    // reqlen could be huge if multiget so... need some special casing?
+    const char *end = s + len;
+    int curtoken = 0;
+
+    int state = 0;
+    while (s != end) {
+        switch (state) {
+            case 0:
+                if (*s != ' ') {
+                    pr->tokens[curtoken] = s - pr->request;
+                    if (++curtoken == max) {
+                        goto endloop;
+                    }
+                    state = 1;
+                }
+                s++;
+                break;
+            case 1:
+                if (*s != ' ') {
+                    s++;
+                } else {
+                    state = 0;
+                }
+                break;
         }
-    } else {
-        pr->klen = remain;
     }
-    pr->parsed += pr->klen+1;
+endloop:
+
+    pr->ntokens = curtoken;
+    P_DEBUG("%s: cur_tokens: %d\n", __func__, curtoken);
 
     return 0;
 }
 
-static int _process_request_metaflags(mcp_parser_t *pr) {
+static int _process_token_len(mcp_parser_t *pr, size_t token) {
+    const char *cur = pr->request + pr->tokens[token];
+    int remain = pr->reqlen - pr->tokens[token] - 2; // CRLF
+
+    const char *s = memchr(cur, ' ', remain);
+    return (s != NULL) ? s - cur : remain;
+}
+
+static int _process_request_key(mcp_parser_t *pr) {
+    pr->klen = _process_token_len(pr, pr->keytoken);
+    // advance the parser in case of multikey.
+    pr->parsed = pr->tokens[pr->keytoken] + pr->klen + 1;
+
+    if (pr->request[pr->parsed-1] == ' ') {
+        P_DEBUG("%s: request_key found extra space\n", __func__);
+        pr->has_space = true;
+    } else {
+        pr->has_space = false;
+    }
+    return 0;
+}
+
+// Just for ascii multiget: search for next "key" beyond where we stopped
+// tokenizing before.
+// Returns the offset for the next key.
+static size_t _process_request_next_key(mcp_parser_t *pr) {
+    const char *cur = pr->request + pr->parsed;
+    int remain = pr->reqlen - pr->parsed - 2;
+
+    // chew off any leading whitespace.
+    while (remain) {
+        if (*cur == ' ') {
+            remain--;
+            cur++;
+            pr->parsed++;
+        } else {
+            break;
+        }
+    }
+
+    const char *s = memchr(cur, ' ', remain);
+    if (s != NULL) {
+        pr->klen = s - cur;
+        pr->parsed += s - cur;
+    } else {
+        pr->klen = remain;
+        pr->parsed += remain;
+    }
+
+    return cur - pr->request;
+}
+
+// for later optimization on fast testing flags.
+// for now we tokenize all of the flags and they can be found via the low
+// level API.
+__attribute__((unused)) static int _process_request_metaflags(mcp_parser_t *pr) {
     const char *cur = pr->request + pr->parsed;
     const char *end = pr->request + pr->reqlen - 2;
 
@@ -2977,12 +3023,12 @@ static int _process_request_metaflags(mcp_parser_t *pr) {
 
 // All meta commands are of form: "cm key f l a g S100"
 static int _process_request_meta(mcp_parser_t *pr) {
+    _process_tokenize(pr, PARSER_MAX_TOKENS);
+    pr->keytoken = 1;
     _process_request_key(pr);
 
-    if (!pr->has_space)
-        return 0;
-
-    return _process_request_metaflags(pr);
+    // see note on function.
+    //return _process_request_metaflags(pr);
 
     return 0;
 }
@@ -2990,12 +3036,11 @@ static int _process_request_meta(mcp_parser_t *pr) {
 // TODO: note TODO's from request_storage()
 // ms <key> <datalen> <flags>*\r\n
 static int _process_request_mset(mcp_parser_t *pr) {
+    _process_tokenize(pr, PARSER_MAX_TOKENS);
+    pr->keytoken = 1;
     _process_request_key(pr);
 
-    if (!pr->has_space)
-        return -1;
-
-    const char *cur = pr->request + pr->parsed;
+    const char *cur = pr->request + pr->tokens[2];
 
     errno = 0;
     char *n = NULL;
@@ -3011,145 +3056,61 @@ static int _process_request_mset(mcp_parser_t *pr) {
 
     pr->vlen = vlen;
 
-    pr->parsed += n - cur;
-
-    return _process_request_metaflags(pr);
+    // see note on function.
+    //return _process_request_metaflags(pr);
+    return 0;
 }
 
 // gat[s] <exptime> <key>*\r\n
 static int _process_request_gat(mcp_parser_t *pr) {
-    pr->has_space = false;
-    const char *cur = pr->request + pr->parsed;
-    int remain = pr->reqlen - (pr->parsed + 2);
-    if (remain <= 0) {
-        pr->key = 0;
-        pr->klen = 0;
-        return 0;
-    }
-
-    errno = 0;
-    char *n = NULL;
-    int exptime = strtol(cur, &n, 10);
-    if ((errno == ERANGE) || (cur == n) || (*n != ' ')) {
+    _process_tokenize(pr, 3);
+    if (pr->ntokens < 3) {
+        P_DEBUG("%s: not enough tokens for GAT: %d\n", __func__, pr->ntokens);
         return -1;
     }
-    remain -= n - cur;
-    pr->parsed += n - cur;
-    cur = n;
 
-    while (remain) {
-        if (*cur != ' ') {
-            break;
-        }
-        pr->parsed++;
-        remain--;
-        cur++;
-    }
-
-    const char *s = memchr(cur, ' ', remain);
-    pr->key = cur - pr->request; // key offset.
-    if (s != NULL) {
-        // key is up to the next space.
-        pr->klen = s - cur;
-        if (*s == ' ') {
-            pr->has_space = true;
-        }
-    } else {
-        pr->klen = remain;
-    }
-    pr->parsed += pr->klen+1;
-
-    pr->t.get.exptime = exptime;
-
+    pr->keytoken = 2;
+    _process_request_key(pr);
     return 0;
 }
 
-// incr|decr <key> <value>
-static int _process_request_incrdecr(mcp_parser_t *pr) {
-    const char *cur = pr->request + pr->parsed;
-    if (!pr->has_space) {
+// we need t find the bytes supplied immediately so we can read the request
+// from the client properly.
+// set <key> <flags> <exptime> <bytes> [noreply]\r\n
+static int _process_request_storage(mcp_parser_t *pr, size_t max) {
+    _process_tokenize(pr, max);
+    if (pr->ntokens < 5) {
+        P_DEBUG("%s: not enough tokens to storage command: %d\n", __func__, pr->ntokens);
         return -1;
     }
-
-    const char *s = memchr(cur, ' ', pr->reqlen - (pr->parsed + 2));
-    if (s != NULL) {
-        // Found another space, which means we at least have a key.
-        pr->key = cur - pr->request;
-        pr->klen = s - cur;
-        cur = s + 1;
-    } else {
-        return -1;
-    }
+    pr->keytoken = 1;
+    _process_request_key(pr);
 
     errno = 0;
     char *n = NULL;
-    uint64_t delta = strtoull(cur, &n, 10);
-    if ((errno == ERANGE) || (cur == n)) {
-        return -1;
-    }
-    cur = n;
+    const char *cur = pr->request + pr->tokens[4];
 
-    pr->t.delta.delta = delta;
-
-    return 0;
-}
-
-// TODO: error codes.
-static int _process_request_storage(mcp_parser_t *pr) {
-    const char *cur = pr->request + pr->parsed;
-    // see mcmc.c's _mcmc_parse_value_line() for the trick
-    // set <key> <flags> <exptime> <bytes> [noreply]\r\n
-    if (!pr->has_space) {
-        return -1;
-    }
-
-    // find the key. should this be done here or in main parser?
-    // here is probably better in the short term since we may end up
-    // re-parsing if ultimately passing to internal dispatch.
-    const char *s = memchr(cur, ' ', pr->reqlen - (pr->parsed + 2));
-    if (s != NULL) {
-        // Found another space, which means we at least have a key.
-        pr->key = cur - pr->request;
-        pr->klen = s - cur;
-        cur = s + 1;
-    } else {
-        return -1;
-    }
-
-    errno = 0;
-    char *n = NULL;
-    uint32_t flags = strtoul(cur, &n, 10);
-    if ((errno == ERANGE) || (cur == n) || (*n != ' ')) {
-        return -1;
-    }
-    cur = n;
-
-    errno = 0;
-    int exptime = strtol(cur, &n, 10);
-    if ((errno == ERANGE) || (cur == n) || (*n != ' ')) {
-        return -1;
-    }
-    cur = n;
-
-    errno = 0;
     int vlen = strtol(cur, &n, 10);
     if ((errno == ERANGE) || (cur == n)) {
         return -1;
     }
-    cur = n;
 
     if (vlen < 0 || vlen > (INT_MAX - 2)) {
        return -1;
     }
     vlen += 2;
 
-    // TODO: if *n is ' ' look for a CAS value.
-
     pr->vlen = vlen;
-    pr->t.set.flags = flags;
-    pr->t.set.exptime = exptime;
-    // TODO: if next byte has a space, we check for noreply.
-    // TODO: ensure last character is \r
+
+    return 0;
+}
+
+// common request with key: <cmd> <key> <args>
+static int _process_request_simple(mcp_parser_t *pr, const size_t max) {
+    _process_tokenize(pr, max);
+    pr->keytoken = 1; // second token is usually the key... stupid GAT.
+
+    _process_request_key(pr);
     return 0;
 }
 
@@ -3162,22 +3123,20 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
 
     const char *cm = command;
     size_t cl = 0;
-    bool has_space;
 
     const char *s = memchr(command, ' ', cmdlen-2);
     // TODO: has_space -> has_tokens
     // has_space resered for ascii multiget?
     if (s != NULL) {
         cl = s - command;
-        has_space = true;
     } else {
         cl = cmdlen - 2; // FIXME: ensure cmdlen can never be < 2?
-        has_space = false;
     }
-    pr->has_space = has_space;
+    pr->has_space = false;
     pr->parsed = cl + 1;
     pr->request = command;
     pr->reqlen = cmdlen;
+    int token_max = PARSER_MAX_TOKENS;
 
     //pr->vlen = 0; // FIXME: remove this once set indicator is decided
     int cmd = -1;
@@ -3226,35 +3185,38 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
                 if (cm[1] == 'e' && cm[2] == 't') {
                     cmd = CMD_GET;
                     type = CMD_TYPE_GET;
-                    ret = _process_request_key(pr);
+                    token_max = 2; // don't chew through multigets.
+                    ret = _process_request_simple(pr, 2);
                 }
                 if (cm[1] == 'a' && cm[2] == 't') {
                     type = CMD_TYPE_GET;
                     cmd = CMD_GAT;
+                    token_max = 2; // don't chew through multigets.
                     ret = _process_request_gat(pr);
                 }
             } else if (cm[0] == 's' && cm[1] == 'e' && cm[2] == 't') {
                 cmd = CMD_SET;
-                ret = _process_request_storage(pr);
+                ret = _process_request_storage(pr, token_max);
             } else if (cm[0] == 'a' && cm[1] == 'd' && cm[2] == 'd') {
                 cmd = CMD_ADD;
-                ret = _process_request_storage(pr);
+                ret = _process_request_storage(pr, token_max);
             } else if (cm[0] == 'c' && cm[1] == 'a' && cm[2] == 's') {
                 cmd = CMD_CAS;
-                ret = _process_request_storage(pr);
+                ret = _process_request_storage(pr, token_max);
             }
             break;
         case 4:
             if (strncmp(cm, "gets", 4) == 0) {
                 cmd = CMD_GETS;
                 type = CMD_TYPE_GET;
-                ret = _process_request_key(pr);
+                token_max = 2; // don't chew through multigets.
+                ret = _process_request_simple(pr, 2);
             } else if (strncmp(cm, "incr", 4) == 0) {
                 cmd = CMD_INCR;
-                ret = _process_request_incrdecr(pr);
+                ret = _process_request_simple(pr, 4);
             } else if (strncmp(cm, "decr", 4) == 0) {
                 cmd = CMD_DECR;
-                ret = _process_request_incrdecr(pr);
+                ret = _process_request_simple(pr, 4);
             } else if (strncmp(cm, "gats", 4) == 0) {
                 cmd = CMD_GATS;
                 type = CMD_TYPE_GET;
@@ -3267,33 +3229,35 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
             if (strncmp(cm, "touch", 5) == 0) {
                 cmd = CMD_TOUCH;
                 // TODO: touch <key> <exptime>
-                ret = _process_request_key(pr);
+                ret = _process_request_simple(pr, 4);
             } else if (strncmp(cm, "stats", 5) == 0) {
                 cmd = CMD_STATS;
-                // :key() should give the stats sub-command
-                ret = _process_request_key(pr);
+                // Don't process a key; fetch via arguments.
+                _process_tokenize(pr, token_max);
             } else if (strncmp(cm, "watch", 5) == 0) {
                 cmd = CMD_WATCH;
+                _process_tokenize(pr, token_max);
             }
             break;
         case 6:
             if (strncmp(cm, "delete", 6) == 0) {
                 cmd = CMD_DELETE;
-                ret = _process_request_key(pr);
+                ret = _process_request_simple(pr, 4);
             } else if (strncmp(cm, "append", 6) == 0) {
                 cmd = CMD_APPEND;
-                ret = _process_request_storage(pr);
+                ret = _process_request_storage(pr, token_max);
             }
             break;
         case 7:
             if (strncmp(cm, "replace", 7) == 0) {
                 cmd = CMD_REPLACE;
-                ret = _process_request_storage(pr);
+                ret = _process_request_storage(pr, token_max);
             } else if (strncmp(cm, "prepend", 7) == 0) {
                 cmd = CMD_PREPEND;
-                ret = _process_request_storage(pr);
+                ret = _process_request_storage(pr, token_max);
             } else if (strncmp(cm, "version", 7) == 0) {
                 cmd = CMD_VERSION;
+                _process_tokenize(pr, token_max);
             }
             break;
     }
@@ -3302,7 +3266,7 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
     if (cmd == -1 || ret != 0) {
         return -1;
     }
-    // TODO: check if cmd unfound? need special code?
+
     pr->command = cmd;
     pr->cmd_type = type;
 
