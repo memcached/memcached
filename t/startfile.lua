@@ -168,6 +168,30 @@ function setinvalidate_factory(zones, local_zone)
     end
 end
 
+-- NOTE: this function is culling key prefixes. it is an error to use it
+-- without a left anchored (^) pattern.
+function prefixtrim_factory(pattern, list, default)
+    local p = pattern
+    local l = list
+    local d = default
+    local s = mcp.stat
+    return function(r)
+        local i, j, match = string.find(r:key(), p)
+        local route
+        if match ~= nil then
+            -- remove the key prefix so we don't waste storage.
+            r:ltrimkey(j)
+            route = l[match]
+            if route == nil then
+                -- example counter: tick when default route hit.
+                s(STAT_EXAMPLE, 1)
+                return d(r)
+            end
+        end
+        return route(r)
+    end
+end
+
 function prefix_factory(pattern, list, default)
     local p = pattern
     local l = list

@@ -251,7 +251,6 @@ struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
     struct timeval start; // time this object was created.
     mcp_backend_t *be; // backend handling this request.
-    bool lua_key; // if we've pushed the key to lua.
     bool ascii_multiget; // ascii multiget mode. (hide errors/END)
     char request[];
 };
@@ -3325,21 +3324,115 @@ static int mcplib_request(lua_State *L) {
     return 1;
 }
 
-// TODO: trace lua to confirm keeping the string in the uservalue ensures we
-// don't create it multiple times if lua asks for it in a loop.
 static int mcplib_request_key(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
+    lua_pushlstring(L, MCP_PARSER_KEY(rq->pr), rq->pr.klen);
+    return 1;
+}
 
-    if (!rq->lua_key) {
-        rq->lua_key = true;
-        lua_pushlstring(L, MCP_PARSER_KEY(rq->pr), rq->pr.klen);
-        lua_pushvalue(L, -1); // push an extra copy to gobble.
-        lua_setiuservalue(L, -3, 1);
-        // TODO: push nil if no key parsed.
-    } else{
-        // FIXME: ensure != LUA_TNONE?
-        lua_getiuservalue(L, -1, 1);
+// NOTE: I've mixed up const/non-const strings in the request. During parsing
+// we want it to be const, but after that's done the request is no longer
+// const. It might be better to just remove the const higher up the chain, but
+// I'd rather not. So for now these functions will be dumping the const to
+// modify the string.
+static int mcplib_request_ltrimkey(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, -2, "mcp.request");
+    int totrim = luaL_checkinteger(L, -1);
+    char *key = (char *) MCP_PARSER_KEY(rq->pr);
+
+    if (totrim > rq->pr.klen) {
+        proxy_lua_error(L, "ltrimkey cannot zero out key");
+        return 0;
+    } else {
+        memset(key, ' ', totrim);
+        rq->pr.klen -= totrim;
+        rq->pr.tokens[rq->pr.keytoken] += totrim;
     }
+    return 1;
+}
+
+static int mcplib_request_rtrimkey(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, -2, "mcp.request");
+    int totrim = luaL_checkinteger(L, -1);
+    char *key = (char *) MCP_PARSER_KEY(rq->pr);
+
+    if (totrim > rq->pr.klen) {
+        proxy_lua_error(L, "rtrimkey cannot zero out key");
+        return 0;
+    } else {
+        memset(key + (rq->pr.klen - totrim), ' ', totrim);
+        rq->pr.klen -= totrim;
+        // don't need to change the key token.
+    }
+    return 1;
+}
+
+// Virtual table operations on the request.
+static int mcplib_request_token(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    int argc = lua_gettop(L);
+
+    if (argc == 1) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    int token = luaL_checkinteger(L, 2);
+
+    if (token < 1 || token > rq->pr.ntokens) {
+        // maybe an error?
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // we hold overwritten or parsed tokens in a lua table.
+    if (lua_getiuservalue(L, 1, 1) == LUA_TNIL) {
+        lua_pop(L, 1); // chuck the nil it pushed.
+        // create a presized table that can hold our tokens.
+        lua_createtable(L, rq->pr.ntokens, 0);
+        // duplicate value to set back
+        lua_pushvalue(L, -1);
+        lua_setiuservalue(L, 1, 1); // pops table copy
+    }
+    // top of stack should be token table.
+
+    size_t vlen = 0;
+    if (argc > 2) {
+        // overwriting a token.
+        luaL_checklstring(L, 3, &vlen);
+        lua_pushvalue(L, 3); // copy to top of stack
+        lua_rawseti(L, -2, token);
+        return 0;
+    } else {
+        // fetching a token.
+        if (lua_rawgeti(L, -1, token) != LUA_TSTRING) {
+            lua_pop(L, 1); // got a nil, drop it.
+
+            // token not uploaded yet. find the len.
+            char *s = (char *) &rq->pr.request[rq->pr.tokens[token-1]];
+            char *e = s;
+            while (*e != ' ') {
+                e++;
+            }
+            vlen = e - s;
+
+            P_DEBUG("%s: pushing token of len: %lu\n", __func__, vlen);
+            lua_pushlstring(L, s, vlen);
+            lua_pushvalue(L, -1); // copy
+
+            lua_rawseti(L, -3, token); // pops copy.
+        }
+
+        // return fetched token or copy of new token.
+        return 1;
+    }
+
+    return 0;
+}
+
+static int mcplib_request_ntokens(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    lua_pushinteger(L, rq->pr.ntokens);
     return 1;
 }
 
@@ -3843,6 +3936,10 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
     const struct luaL_Reg mcplib_request_m[] = {
         {"command", mcplib_request_command},
         {"key", mcplib_request_key},
+        {"ltrimkey", mcplib_request_ltrimkey},
+        {"rtrimkey", mcplib_request_rtrimkey},
+        {"token", mcplib_request_token},
+        {"ntokens", mcplib_request_ntokens},
         {"__tostring", NULL},
         {"__gc", mcplib_request_gc},
         {NULL, NULL}
