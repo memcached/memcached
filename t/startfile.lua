@@ -218,6 +218,10 @@ function command_factory(map, default)
             -- print("default command")
             return d(r)
         end
+        -- testing options replacement...
+        if r:command() == mcp.CMD_SET then
+            r:token(4, "100") -- set exptime.
+        end
         -- print("override command")
         return f(r)
     end

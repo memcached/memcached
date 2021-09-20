@@ -252,6 +252,8 @@ struct mcp_request_s {
     struct timeval start; // time this object was created.
     mcp_backend_t *be; // backend handling this request.
     bool ascii_multiget; // ascii multiget mode. (hide errors/END)
+    bool was_modified; // need to rewrite the request
+    int tokent_ref; // reference to token table if modified.
     char request[];
 };
 
@@ -383,6 +385,7 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
 static void dump_stack(lua_State *L);
 static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc);
 static mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen);
+static void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p);
 static int mcplib_await_run(conn *c, lua_State *L, int coro_ref);
 static int mcplib_await_return(io_pending_proxy_t *p);
 static void proxy_backend_handler(const int fd, const short which, void *arg);
@@ -2460,17 +2463,7 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     // The direct backend object. Lc is holding the reference in the stack
     p->backend = be;
 
-    // The stringified request. This is also referencing into the coroutine
-    // stack, which should be safe from gc.
-    mcp_parser_t *pr = &rq->pr;
-    p->iov[0].iov_base = (char *)pr->request;
-    p->iov[0].iov_len = pr->reqlen;
-    p->iovcnt = 1;
-    if (pr->vlen != 0) {
-        p->iov[1].iov_base = pr->vbuf;
-        p->iov[1].iov_len = pr->vlen;
-        p->iovcnt = 2;
-    }
+    mcp_request_attach(Lc, rq, p);
 
     // link into the batch chain.
     p->next = q->stack_ctx;
@@ -3292,6 +3285,78 @@ static mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char
     return rq;
 }
 
+// TODO:
+// if modified, this will re-serialize every time it's accessed.
+// a simple opt could copy back over the original space
+// a "better" one could A/B the request ptr and clear the modified state
+// each time it gets serialized.
+static void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p) {
+    mcp_parser_t *pr = &rq->pr;
+    char *r = (char *) pr->request;
+    size_t len = pr->reqlen;
+
+    // one or more of the tokens were changed
+    if (rq->was_modified) {
+        assert(rq->tokent_ref);
+        // option table to top of stack.
+        lua_rawgeti(L, LUA_REGISTRYINDEX, rq->tokent_ref);
+
+        // space was reserved in case of modification.
+        char *nr = rq->request + MCP_REQUEST_MAXLEN;
+        r = nr;
+        char *or = NULL;
+
+        for (int x = 0; x < pr->ntokens; x++) {
+            const char *newtok = NULL;
+            size_t newlen = 0;
+            if (x != 0 && x != pr->keytoken) {
+                int type = lua_rawgeti(L, -1, x+1);
+                if (type != LUA_TNIL) {
+                    newtok = lua_tolstring(L, -1, &newlen);
+                    memcpy(nr, newtok, newlen);
+                    nr += newlen;
+                }
+                lua_pop(L, 1);
+            }
+
+            if (newtok == NULL) {
+                // TODO: if we add an extra "end" token that's just reqlen we can
+                // memcpy... however most args are short and that may not be worth
+                // it.
+                or = rq->request + pr->tokens[x];
+                // will walk past the end without the \r test.
+                // if we add the end token trick this can be changed.
+                while (*or != ' ' && *or != '\r') {
+                    *nr = *or;
+                    nr++;
+                    or++;
+                }
+            }
+            *nr = ' ';
+            nr++;
+        }
+        // tag the end bits.
+        memcpy(nr-1, "\r\n\0", 3);
+        nr++;
+
+        len = nr - (rq->request + MCP_REQUEST_MAXLEN);
+        fprintf(stderr, "REQUEST LENGTH OLD/NEW: %u/%lu [%s]\n", pr->reqlen, len, r);
+        lua_pop(L, 1); // pop the table
+    }
+
+    // The stringified request. This is also referencing into the coroutine
+    // stack, which should be safe from gc.
+    p->iov[0].iov_base = r;
+    p->iov[0].iov_len = len;
+    p->iovcnt = 1;
+    if (pr->vlen != 0) {
+        p->iov[1].iov_base = pr->vbuf;
+        p->iov[1].iov_len = pr->vlen;
+        p->iovcnt = 2;
+    }
+
+}
+
 // second argument is optional, for building set requests.
 // TODO: append the \r\n for the VAL?
 static int mcplib_request(lua_State *L) {
@@ -3386,13 +3451,14 @@ static int mcplib_request_token(lua_State *L) {
     }
 
     // we hold overwritten or parsed tokens in a lua table.
-    if (lua_getiuservalue(L, 1, 1) == LUA_TNIL) {
-        lua_pop(L, 1); // chuck the nil it pushed.
+    if (rq->tokent_ref == 0) {
         // create a presized table that can hold our tokens.
         lua_createtable(L, rq->pr.ntokens, 0);
         // duplicate value to set back
         lua_pushvalue(L, -1);
-        lua_setiuservalue(L, 1, 1); // pops table copy
+        rq->tokent_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    } else {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, rq->tokent_ref);
     }
     // top of stack should be token table.
 
@@ -3402,6 +3468,7 @@ static int mcplib_request_token(lua_State *L) {
         luaL_checklstring(L, 3, &vlen);
         lua_pushvalue(L, 3); // copy to top of stack
         lua_rawseti(L, -2, token);
+        rq->was_modified = true;
         return 0;
     } else {
         // fetching a token.
@@ -3449,6 +3516,10 @@ static int mcplib_request_gc(lua_State *L) {
     // complete_nread?
     if (rq->pr.vbuf != NULL) {
         free(rq->pr.vbuf);
+    }
+
+    if (rq->tokent_ref != 0) {
+        luaL_unref(L, LUA_REGISTRYINDEX, rq->tokent_ref);
     }
     return 0;
 }
@@ -3739,17 +3810,7 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     // The direct backend object. await object is holding reference
     p->backend = be;
 
-    // The stringified request. This is also referencing into the coroutine
-    // stack, which should be safe from gc.
-    mcp_parser_t *pr = &rq->pr;
-    p->iov[0].iov_base = (char *)pr->request;
-    p->iov[0].iov_len = pr->reqlen;
-    p->iovcnt = 1;
-    if (pr->vlen != 0) {
-        p->iov[1].iov_base = pr->vbuf;
-        p->iov[1].iov_len = pr->vlen;
-        p->iovcnt = 2;
-    }
+    mcp_request_attach(Lc, rq, p);
 
     // link into the batch chain.
     p->next = q->stack_ctx;
