@@ -2976,15 +2976,18 @@ static size_t _process_request_next_key(mcp_parser_t *pr) {
     return cur - pr->request;
 }
 
-// for later optimization on fast testing flags.
-// for now we tokenize all of the flags and they can be found via the low
-// level API.
-__attribute__((unused)) static int _process_request_metaflags(mcp_parser_t *pr) {
-    const char *cur = pr->request + pr->parsed;
+// for fast testing of existence of meta flags.
+// meta has all flags as final tokens
+static int _process_request_metaflags(mcp_parser_t *pr, int token) {
+    if (pr->ntokens <= token) {
+        pr->t.meta.flags = 0; // no flags found.
+        return 0;
+    }
+    const char *cur = pr->request + pr->tokens[token];
     const char *end = pr->request + pr->reqlen - 2;
 
-    // To give the function some future proofing we blindly convert flags into
-    // bits, since the range of possible flags is deliberately < 64.
+    // We blindly convert flags into // bits, since the range of possible
+    // flags is deliberately < 64.
     int state = 0;
     while (cur != end) {
         switch (state) {
@@ -3016,19 +3019,25 @@ __attribute__((unused)) static int _process_request_metaflags(mcp_parser_t *pr) 
 // All meta commands are of form: "cm key f l a g S100"
 static int _process_request_meta(mcp_parser_t *pr) {
     _process_tokenize(pr, PARSER_MAX_TOKENS);
+    if (pr->ntokens < 2) {
+        P_DEBUG("%s: not enough tokens for meta command: %d\n", __func__, pr->ntokens);
+        return -1;
+    }
     pr->keytoken = 1;
     _process_request_key(pr);
 
-    // see note on function.
-    //return _process_request_metaflags(pr);
-
-    return 0;
+    // pass the first flag token.
+    return _process_request_metaflags(pr, 2);
 }
 
 // TODO: note TODO's from request_storage()
 // ms <key> <datalen> <flags>*\r\n
 static int _process_request_mset(mcp_parser_t *pr) {
     _process_tokenize(pr, PARSER_MAX_TOKENS);
+    if (pr->ntokens < 3) {
+        P_DEBUG("%s: not enough tokens for meta set command: %d\n", __func__, pr->ntokens);
+        return -1;
+    }
     pr->keytoken = 1;
     _process_request_key(pr);
 
@@ -3048,9 +3057,8 @@ static int _process_request_mset(mcp_parser_t *pr) {
 
     pr->vlen = vlen;
 
-    // see note on function.
-    //return _process_request_metaflags(pr);
-    return 0;
+    // pass the first flag token
+    return _process_request_metaflags(pr, 3);
 }
 
 // gat[s] <exptime> <key>*\r\n
@@ -3340,7 +3348,6 @@ static void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy
         nr++;
 
         len = nr - (rq->request + MCP_REQUEST_MAXLEN);
-        fprintf(stderr, "REQUEST LENGTH OLD/NEW: %u/%lu [%s]\n", pr->reqlen, len, r);
         lua_pop(L, 1); // pop the table
     }
 
