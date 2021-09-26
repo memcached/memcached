@@ -164,6 +164,12 @@ struct proxy_global_stats {
     uint64_t backend_errors; // errors from backends
 };
 
+struct proxy_timeouts {
+    struct timeval connect;
+    struct timeval retry; // wait time before retrying a dead backend
+    struct timeval read;
+};
+
 typedef STAILQ_HEAD(pool_head_s, mcp_pool_s) pool_head_t;
 typedef struct {
     lua_State *proxy_state;
@@ -182,6 +188,7 @@ typedef struct {
     bool worker_failed; // covered by worker_lock as well.
     struct proxy_global_stats global_stats;
     struct proxy_user_stats user_stats;
+    struct proxy_timeouts timeouts; // NOTE: updates covered by stats_lock
     pthread_mutex_t stats_lock; // used for rare global counters
 } proxy_ctx_t;
 
@@ -285,11 +292,11 @@ struct mcp_backend_s {
 };
 typedef STAILQ_HEAD(be_head_s, mcp_backend_s) be_head_t;
 
-typedef struct proxy_event_io_thread_s proxy_event_io_thread_t;
 struct proxy_event_thread_s {
     pthread_t thread_id;
     struct event_base *base;
     struct event notify_event; // listen event for the notify pipe/eventfd.
+    struct event clock_event; // timer for updating event thread data.
 #ifdef HAVE_LIBURING
     struct io_uring ring;
     proxy_event_t ur_notify_event; // listen on eventfd.
@@ -300,22 +307,14 @@ struct proxy_event_thread_s {
     pthread_cond_t cond; // condition to wait on while stack drains.
     io_head_t io_head_in; // inbound requests to process.
     be_head_t be_head; // stack of backends for processing.
-    mcp_backend_t *iter; // used as an iterator through the be list
-    proxy_event_io_thread_t *bt; // array of io threads.
 #ifdef USE_EVENTFD
     int event_fd;
 #else
     int notify_receive_fd;
     int notify_send_fd;
 #endif
-};
-
-// threads owned by an event thread for submitting syscalls.
-struct proxy_event_io_thread_s {
-    pthread_t thread_id;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    proxy_event_thread_t *ev;
+    proxy_ctx_t *ctx; // main context.
+    struct proxy_timeouts timeouts; // periodically copied from main ctx
 };
 
 typedef struct {
@@ -390,6 +389,7 @@ static int mcplib_await_run(conn *c, lua_State *L, int coro_ref);
 static int mcplib_await_return(io_pending_proxy_t *p);
 static void proxy_backend_handler(const int fd, const short which, void *arg);
 static void proxy_event_handler(evutil_socket_t fd, short which, void *arg);
+static void proxy_event_updater(evutil_socket_t fd, short which, void *arg);
 static void *proxy_event_thread(void *arg);
 static void proxy_out_errstring(mc_resp *resp, const char *str);
 static int _flush_pending_write(mcp_backend_t *be, io_pending_proxy_t *p);
@@ -700,6 +700,12 @@ static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
     event_set(&t->notify_event, t->notify_receive_fd,
           EV_READ | EV_PERSIST, proxy_event_handler, t);
 #endif
+
+    evtimer_set(&t->clock_event, proxy_event_updater, t);
+    event_base_set(t->base, &t->clock_event);
+    struct timeval rate = {.tv_sec = 3, .tv_usec = 0};
+    evtimer_add(&t->clock_event, &rate);
+
     event_base_set(t->base, &t->notify_event);
     if (event_add(&t->notify_event, 0) == -1) {
         fprintf(stderr, "Can't monitor libevent notify pipe\n");
@@ -721,6 +727,12 @@ void proxy_init(void) {
     pthread_mutex_init(&ctx->manager_lock, NULL);
     pthread_cond_init(&ctx->manager_cond, NULL);
     pthread_mutex_init(&ctx->stats_lock, NULL);
+
+    // FIXME: default defines.
+    ctx->timeouts.connect.tv_usec = 5;
+    ctx->timeouts.retry.tv_usec = 3;
+    ctx->timeouts.read.tv_usec = 3;
+
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = luaL_newstate();
     ctx->proxy_state = L;
@@ -756,6 +768,9 @@ void proxy_init(void) {
         STAILQ_INIT(&t->io_head_in);
         pthread_mutex_init(&t->mutex, NULL);
         pthread_cond_init(&t->cond, NULL);
+
+        t->ctx = ctx;
+        memcpy(&t->timeouts, &ctx->timeouts, sizeof(t->timeouts));
 
 #ifdef HAVE_LIBURING
         if (t->use_uring) {
@@ -1497,6 +1512,28 @@ static void *proxy_event_thread_ur(void *arg) {
 }
 #endif // HAVE_LIBURING
 
+// We need to get timeout/retry/etc updates to the event thread(s)
+// occasionally. I'd like to have a better inteface around this where updates
+// are shipped directly; but this is good enough to start with.
+static void proxy_event_updater(evutil_socket_t fd, short which, void *arg) {
+    proxy_event_thread_t *t = arg;
+    proxy_ctx_t *ctx = t->ctx;
+
+    // TODO: double check how much of this boilerplate is still necessary?
+    // reschedule the clock event.
+    evtimer_del(&t->clock_event);
+
+    evtimer_set(&t->clock_event, proxy_event_updater, t);
+    event_base_set(t->base, &t->clock_event);
+    struct timeval rate = {.tv_sec = 3, .tv_usec = 0};
+    evtimer_add(&t->clock_event, &rate);
+
+    // we reuse the "global stats" lock since it's hardly ever used.
+    STAT_L(ctx);
+    memcpy(&t->timeouts, &ctx->timeouts, sizeof(t->timeouts));
+    STAT_UL(ctx);
+}
+
 // event handler for executing backend requests
 static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
     proxy_event_thread_t *t = arg;
@@ -1529,7 +1566,7 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
 
     // Re-walk each backend and check set event as required.
     mcp_backend_t *be = NULL;
-    struct timeval tmp_time = {5,0}; // FIXME: temporary hard coded timeout.
+    struct timeval tmp_time = t->timeouts.connect;
 
     // FIXME: _set_event() is buggy, see notes on function.
     STAILQ_FOREACH(be, &t->be_head, be_next) {
@@ -2023,7 +2060,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
 static void proxy_backend_retry_handler(const int fd, const short which, void *arg) {
     mcp_backend_t *be = arg;
     assert(which & EV_TIMEOUT);
-    struct timeval tmp_time = {5,0}; // FIXME: temporary hard coded response timeout.
+    struct timeval tmp_time = be->event_thread->timeouts.retry;
     _set_event(be, be->event_thread->base, EV_WRITE|EV_TIMEOUT, tmp_time, proxy_backend_handler);
 }
 
@@ -2041,7 +2078,7 @@ static void proxy_backend_retry_handler(const int fd, const short which, void *a
 // block them instead. That's more challenging so leaving a note instead
 // of doing this now :)
 static void _backend_failed(mcp_backend_t *be) {
-    struct timeval tmp_time = {5,0}; // FIXME: temporary hard coded response timeout.
+    struct timeval tmp_time = be->event_thread->timeouts.retry;
     if (++be->failed_count > BACKEND_FAILURE_LIMIT) {
         P_DEBUG("%s: marking backend as bad\n", __func__);
         be->bad = true;
@@ -2149,7 +2186,7 @@ static int _flush_pending_write(mcp_backend_t *be, io_pending_proxy_t *p) {
 static void proxy_backend_handler(const int fd, const short which, void *arg) {
     mcp_backend_t *be = arg;
     int flags = EV_TIMEOUT;
-    struct timeval tmp_time = {5,0}; // FIXME: temporary hard coded response timeout.
+    struct timeval tmp_time = be->event_thread->timeouts.read;
 
     if (which & EV_TIMEOUT) {
         P_DEBUG("%s: timeout received, killing backend queue\n", __func__);
@@ -2822,6 +2859,40 @@ static int mcplib_pool_proxy_call(lua_State *L) {
 
     // now yield request, hash selector up.
     return lua_yield(L, 2);
+}
+
+// TODO: take fractional time and convert.
+static int mcplib_backend_connect_timeout(lua_State *L) {
+    int seconds = luaL_checkinteger(L, -1);
+    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME: get global ctx reference in thread/upvalue.
+
+    STAT_L(ctx);
+    ctx->timeouts.connect.tv_sec = seconds;
+    STAT_UL(ctx);
+
+    return 0;
+}
+
+static int mcplib_backend_retry_timeout(lua_State *L) {
+    int seconds = luaL_checkinteger(L, -1);
+    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME: get global ctx reference in thread/upvalue.
+
+    STAT_L(ctx);
+    ctx->timeouts.retry.tv_sec = seconds;
+    STAT_UL(ctx);
+
+    return 0;
+}
+
+static int mcplib_backend_read_timeout(lua_State *L) {
+    int seconds = luaL_checkinteger(L, -1);
+    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME: get global ctx reference in thread/upvalue.
+
+    STAT_L(ctx);
+    ctx->timeouts.read.tv_sec = seconds;
+    STAT_UL(ctx);
+
+    return 0;
 }
 
 // mcp.attach(mcp.HOOK_NAME, function)
@@ -4039,6 +4110,9 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
         {"add_stat", mcplib_add_stat},
         {"stat", mcplib_stat},
         {"await", mcplib_await},
+        {"backend_connect_timeout", mcplib_backend_connect_timeout},
+        {"backend_retry_timeout", mcplib_backend_retry_timeout},
+        {"backend_read_timeout", mcplib_backend_read_timeout},
         {NULL, NULL}
     };
 
