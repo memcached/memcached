@@ -34,6 +34,7 @@ enum log_entry_type {
 #ifdef PROXY
     LOGGER_PROXY_CONFIG,
     LOGGER_PROXY_RAW,
+    LOGGER_PROXY_ERROR,
 #endif
 };
 

@@ -1772,8 +1772,8 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
             mcp_queue_io(c, resp, coro_ref, Lc);
         }
     } else {
-        // TODO: log entry for the full failure.
         P_DEBUG("%s: Failed to run coroutine: %s\n", __func__, lua_tostring(Lc, -1));
+        LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(Lc, -1));
         proxy_out_errstring(resp, "lua failure");
     }
 

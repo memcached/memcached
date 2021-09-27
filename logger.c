@@ -369,6 +369,9 @@ static const entry_details default_entries[] = {
         "type=proxy_conf status=%s"
     },
     [LOGGER_PROXY_RAW] = {512, LOG_RAWCMDS, _logger_log_proxy_raw, _logger_parse_prx_raw, NULL},
+    [LOGGER_PROXY_ERROR] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
+        "type=proxy_error msg=%s"
+    },
 #endif
 };
 
