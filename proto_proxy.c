@@ -33,7 +33,6 @@
 #define XXH_INLINE_ALL // modifier for xxh3's include below
 #include "xxhash.h"
 
-// TODO: better if an init option turns this on/off.
 #ifdef PROXY_DEBUG
 #define P_DEBUG(...) \
     do { \
@@ -229,7 +228,6 @@ struct mcp_parser_meta_s {
 
 // Note that we must use offsets into request for tokens,
 // as *request can change between parsing and later accessors.
-// TODO: just use uint16_t off/len token array?
 struct mcp_parser_s {
     const char *request;
     void *vbuf; // temporary buffer for holding value lengths.
@@ -250,9 +248,6 @@ struct mcp_parser_s {
 
 #define MCP_PARSER_KEY(pr) (&pr.request[pr.tokens[pr.keytoken]])
 
-// TODO: need to confirm that c->rbuf is safe to use the whole time.
-// - I forgot what this was already? need to re-check. have addressed other
-// prior comments already.
 #define MAX_REQ_TOKENS 2
 struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
@@ -1608,7 +1603,6 @@ static void *proxy_event_thread(void *arg) {
 
 
 // Need a custom function so we can prefix lua strings easily.
-// TODO: can this be made not-necessary somehow?
 static void proxy_out_errstring(mc_resp *resp, const char *str) {
     size_t len;
     const static char error_prefix[] = "SERVER_ERROR ";
@@ -2453,8 +2447,6 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
 
     mcp_request_t *rq = luaL_checkudata(Lc, -1, "mcp.request");
     mcp_backend_t *be = rq->be;
-    // FIXME: need to check for "if request modified" and recreate it.
-    // Use a local function rather than calling __tostring through lua.
 
     // Then we push a response object, which we'll re-use later.
     // reserve one uservalue for a lua-supplied response.
@@ -3101,7 +3093,6 @@ static int _process_request_meta(mcp_parser_t *pr) {
     return _process_request_metaflags(pr, 2);
 }
 
-// TODO: note TODO's from request_storage()
 // ms <key> <datalen> <flags>*\r\n
 static int _process_request_mset(mcp_parser_t *pr) {
     _process_tokenize(pr, PARSER_MAX_TOKENS);
@@ -3299,7 +3290,6 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
         case 5:
             if (strncmp(cm, "touch", 5) == 0) {
                 cmd = CMD_TOUCH;
-                // TODO: touch <key> <exptime>
                 ret = _process_request_simple(pr, 4);
             } else if (strncmp(cm, "stats", 5) == 0) {
                 cmd = CMD_STATS;
