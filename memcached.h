@@ -223,7 +223,10 @@ enum bin_substates {
 enum protocol {
     ascii_prot = 3, /* arbitrary value. */
     binary_prot,
-    negotiating_prot /* Discovering the protocol */
+    negotiating_prot, /* Discovering the protocol */
+#ifdef PROXY
+    proxy_prot,
+#endif
 };
 
 enum network_transport {

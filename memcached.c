@@ -500,6 +500,11 @@ static const char *prot_text(enum protocol prot) {
         case negotiating_prot:
             rv = "auto-negotiate";
             break;
+#ifdef PROXY
+        case proxy_prot:
+            rv = "proxy";
+            break;
+#endif
     }
     return rv;
 }
@@ -797,6 +802,11 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             case negotiating_prot:
                 c->try_read_command = try_read_command_negotiate;
                 break;
+#ifdef PROXY
+            case proxy_prot:
+                c->try_read_command = try_read_command_proxy;
+                break;
+#endif
         }
     }
 
@@ -1418,7 +1428,8 @@ static void reset_cmd_handler(conn *c) {
 static void complete_nread(conn *c) {
     assert(c != NULL);
     assert(c->protocol == ascii_prot
-           || c->protocol == binary_prot);
+           || c->protocol == binary_prot
+           || c->protocol == proxy_prot);
 #ifdef PROXY
     // TODO: audit c->protocol usage to see if we can just hook on that.
     if (settings.proxy_enabled) {
@@ -2317,16 +2328,7 @@ static int try_read_command_negotiate(conn *c) {
     } else {
         // authentication doesn't work with negotiated protocol.
         c->protocol = ascii_prot;
-        // FIXME: when proxy is enabled binprot also needs to be disabled.
-#ifdef PROXY
-        if (settings.proxy_enabled) {
-            c->try_read_command = try_read_command_proxy;
-        } else {
-            c->try_read_command = try_read_command_ascii;
-        }
-#else
         c->try_read_command = try_read_command_ascii;
-#endif
     }
 
     if (settings.verbose > 1) {
@@ -5500,8 +5502,14 @@ int main (int argc, char **argv) {
                     fprintf(stderr, "Missing proxy_config file argument\n");
                     return 1;
                 }
+                if (protocol_specified) {
+                    fprintf(stderr, "Cannot specify a protocol with proxy mode enabled\n");
+                    return 1;
+                }
                 settings.proxy_startfile = strdup(subopts_value);
                 settings.proxy_enabled = true;
+                settings.binding_protocol = proxy_prot;
+                protocol_specified = true;
                 break;
 #endif
 #ifdef MEMCACHED_DEBUG
