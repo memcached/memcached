@@ -724,9 +724,9 @@ void proxy_init(void) {
     pthread_mutex_init(&ctx->stats_lock, NULL);
 
     // FIXME: default defines.
-    ctx->timeouts.connect.tv_usec = 5;
-    ctx->timeouts.retry.tv_usec = 3;
-    ctx->timeouts.read.tv_usec = 3;
+    ctx->timeouts.connect.tv_sec = 5;
+    ctx->timeouts.retry.tv_sec = 3;
+    ctx->timeouts.read.tv_sec = 3;
 
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = luaL_newstate();
