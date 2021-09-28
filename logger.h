@@ -116,6 +116,7 @@ struct logentry_proxy_raw {
     unsigned short type;
     unsigned short code;
     long elapsed; // elapsed time in usec
+    char cmd[8];
 };
 #endif
 /* end intermediary structures */

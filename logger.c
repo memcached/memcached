@@ -306,6 +306,7 @@ static int _logger_parse_cce(logentry *e, char *scratch) {
 #ifdef PROXY
 static void _logger_log_proxy_raw(logentry *e, const entry_details *d, const void *entry, va_list ap) {
     struct timeval start = va_arg(ap, struct timeval);
+    char *cmd = va_arg(ap, char *);
     unsigned short type = va_arg(ap, int);
     unsigned short code = va_arg(ap, int);
 
@@ -315,6 +316,7 @@ static void _logger_log_proxy_raw(logentry *e, const entry_details *d, const voi
     le->type = type;
     le->code = code;
     le->elapsed = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
+    memcpy(le->cmd, cmd, 9);
 }
 
 static int _logger_parse_prx_raw(logentry *e, char *scratch) {
@@ -322,9 +324,9 @@ static int _logger_parse_prx_raw(logentry *e, char *scratch) {
     struct logentry_proxy_raw *le = (void *)e->data;
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=proxy_raw elapsed=%lu type=%d code=%d\n",
+            "ts=%d.%d gid=%llu type=proxy_raw elapsed=%lu cmd=%s type=%d code=%d\n",
             (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
-            le->elapsed, le->type, le->code);
+            le->elapsed, le->cmd, le->type, le->code);
     return total;
 }
 #endif

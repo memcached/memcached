@@ -312,11 +312,12 @@ struct proxy_event_thread_s {
     struct proxy_timeouts timeouts; // periodically copied from main ctx
 };
 
+#define RESP_CMD_MAX 8
 typedef struct {
     mcmc_resp_t resp;
     struct timeval start; // start time inherited from paired request
+    char cmd[RESP_CMD_MAX+1]; // until we can reverse CMD_*'s to strings directly.
     int status; // status code from mcmc_read()
-    item *it; // for buffering large responses.
     char *buf; // response line + potentially value.
     size_t blen; // total size of the value to read.
     int bread; // amount of bytes read into value so far.
@@ -1693,7 +1694,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
         int type = lua_type(Lc, -1);
         if (type == LUA_TUSERDATA) {
             mcp_resp_t *r = luaL_checkudata(Lc, -1, "mcp.response");
-            LOGGER_LOG(NULL, LOG_RAWCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->resp.type, r->resp.code);
+            LOGGER_LOG(NULL, LOG_RAWCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->cmd, r->resp.type, r->resp.code);
             if (r->buf) {
                 // response set from C.
                 // FIXME: write_and_free() ? it's a bit wrong for here.
@@ -2461,6 +2462,15 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     r->buf = NULL;
     r->blen = 0;
     r->start = rq->start; // need to inherit the original start time.
+    int x;
+    int end = rq->pr.reqlen-2 > RESP_CMD_MAX ? RESP_CMD_MAX : rq->pr.reqlen-2;
+    for (x = 0; x < end; x++) {
+        if (rq->pr.request[x] == ' ') {
+            break;
+        }
+        r->cmd[x] = rq->pr.request[x];
+    }
+    r->cmd[x] = '\0';
 
     luaL_getmetatable(Lc, "mcp.response");
     lua_setmetatable(Lc, -2);
@@ -3844,6 +3854,15 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     r->buf = NULL;
     r->blen = 0;
     r->start = rq->start;
+    int x;
+    int end = rq->pr.reqlen-2 > RESP_CMD_MAX ? RESP_CMD_MAX : rq->pr.reqlen-2;
+    for (x = 0; x < end; x++) {
+        if (rq->pr.request[x] == ' ') {
+            break;
+        }
+        r->cmd[x] = rq->pr.request[x];
+    }
+    r->cmd[x] = '\0';
 
     luaL_getmetatable(Lc, "mcp.response");
     lua_setmetatable(Lc, -2);
