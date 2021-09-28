@@ -52,7 +52,7 @@ memcached_SOURCES += sasl_defs.c
 endif
 
 if ENABLE_PROXY
-memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.c vendor/mcmc/mcmc.h
+memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h
 endif
 
 if ENABLE_EXTSTORE
@@ -95,8 +95,8 @@ CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
 endif
 
 if ENABLE_PROXY
-memcached_LDADD += vendor/lua/src/liblua.a
-memcached_debug_LDADD += vendor/lua/src/liblua.a
+memcached_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
+memcached_debug_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
 endif
 
 if ENABLE_PROXY_URING
@@ -124,7 +124,7 @@ DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md LICENSE.bipbuffer
 
 if ENABLE_PROXY
-SUBDIRS += vendor/lua
+SUBDIRS += vendor/lua vendor/mcmc
 EXTRA_DIST += vendor/lua
 endif
 
