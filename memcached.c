@@ -2318,11 +2318,15 @@ static int try_read_command_negotiate(conn *c) {
         // authentication doesn't work with negotiated protocol.
         c->protocol = ascii_prot;
         // FIXME: when proxy is enabled binprot also needs to be disabled.
+#ifdef PROXY
         if (settings.proxy_enabled) {
             c->try_read_command = try_read_command_proxy;
         } else {
             c->try_read_command = try_read_command_ascii;
         }
+#else
+        c->try_read_command = try_read_command_ascii;
+#endif
     }
 
     if (settings.verbose > 1) {
