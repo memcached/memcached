@@ -180,10 +180,15 @@ end
 -- TODO: r.default_pool instead of the SERVER_ERROR bit
 function mcp_config_routes(c)
     -- print(dump(c))
+    local default = c.r["default_pool"]
+    if c.r["default_pool"] == nil then
+        default = function(r) return "SERVER_ERROR no route\r\n" end
+    end
+
     -- with a non-zoned configuration we can run with a completely flat config
     if c["my_zone"] == nil then
         print("setting up a zoneless route")
-        local top = prefixtrim_factory(c.r.match_prefix, c.pools, function(r) return "SERVER_ERROR no route\r\n" end)
+        local top = prefixtrim_factory(c.r.match_prefix, c.pools, default)
         mcp.attach(mcp.CMD_ANY_STORAGE, top)
     else
         -- else we have a more complex setup.
@@ -206,8 +211,7 @@ function mcp_config_routes(c)
         end
         print(dump(pools))
 
-        local top = prefixtrim_factory(c.r.match_prefix, pools,
-            function(r) return "SERVER_ERROR no route\r\n" end)
+        local top = prefixtrim_factory(c.r.match_prefix, pools, default)
         mcp.attach(mcp.CMD_ANY_STORAGE, top)
     end
 end
