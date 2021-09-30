@@ -103,9 +103,12 @@ end
 
 -- TODO:
 -- v6 formatting
--- giving a specific name (space before or after?)
 function make_backend(host)
     print("making backend for... " .. host)
+    local ip, port, name = string.match(host, "^(.+):(%d+)%s+(%a+)")
+    if ip ~= nil then
+        return mcp.backend(name, ip, port, 1)
+    end
     local ip, port = string.match(host, "^(.+):(%d+)")
     if ip ~= nil then
         return mcp.backend(host, ip, port, 1)
