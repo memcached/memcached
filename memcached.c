@@ -1427,20 +1427,22 @@ static void reset_cmd_handler(conn *c) {
 
 static void complete_nread(conn *c) {
     assert(c != NULL);
+#ifdef PROXY
     assert(c->protocol == ascii_prot
            || c->protocol == binary_prot
            || c->protocol == proxy_prot);
-#ifdef PROXY
-    // TODO: audit c->protocol usage to see if we can just hook on that.
-    if (settings.proxy_enabled) {
-        complete_nread_proxy(c);
-        return;
-    }
+#else
+    assert(c->protocol == ascii_prot
+           || c->protocol == binary_prot);
 #endif
     if (c->protocol == ascii_prot) {
         complete_nread_ascii(c);
     } else if (c->protocol == binary_prot) {
         complete_nread_binary(c);
+#ifdef PROXY
+    } else if (c->protocol == proxy_prot) {
+        complete_nread_proxy(c);
+#endif
     }
 }
 
