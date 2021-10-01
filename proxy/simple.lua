@@ -3,9 +3,11 @@
 -- features is a goal, but I am adding them in a random order unless otherwise
 -- informed.
 
+local M = { c = { pools = {} } }
+
 -- https://stackoverflow.com/questions/9168058/how-to-dump-a-table-to-console
 -- should probably get a really nice one of these for the library instead.
-function dump(o)
+local function dump(o)
    if type(o) == 'table' then
       local s = '{ '
       for k,v in pairs(o) do
@@ -20,7 +22,7 @@ end
 
 -- NOTE: this function is culling key prefixes. it is an error to use it
 -- without a left anchored (^) pattern.
-function prefixtrim_factory(pattern, list, default)
+local function prefixtrim_factory(pattern, list, default)
     -- tag the start anchor so users don't have to remember.
     -- might want to test if it's there first? :)
     local p = "^" .. pattern
@@ -42,7 +44,7 @@ function prefixtrim_factory(pattern, list, default)
     end
 end
 
-function command_factory(map, default)
+local function command_factory(map, default)
     local m = map
     local d = default
     return function(r)
@@ -56,7 +58,7 @@ end
 
 -- TODO: is the return value the average? anything special?
 -- walks a list of selectors and repeats the request.
-function walkall_factory(pool)
+local function walkall_factory(pool)
     local p = {}
     -- TODO: a shuffle could be useful here.
     for _, v in pairs(pool) do
@@ -77,7 +79,7 @@ function walkall_factory(pool)
     end
 end
 
-function failover_factory(zones, local_zone)
+local function failover_factory(zones, local_zone)
     local near_zone = zones[local_zone]
     local far_zones = {}
     -- NOTE: could shuffle/sort to re-order zone retry order
@@ -103,7 +105,7 @@ end
 
 -- TODO:
 -- v6 formatting
-function make_backend(host)
+local function make_backend(host)
     print("making backend for... " .. host)
     local ip, port, name = string.match(host, "^(.+):(%d+)%s+(%a+)")
     if ip ~= nil then
@@ -116,26 +118,32 @@ function make_backend(host)
     error(host .. " is an invalid backend string")
 end
 
+function M.pool(a)
+    -- print(dump(a))
+    M.c.pools[a.name] = a
+end
+function M.router(a)
+    -- print(dump(a))
+    M.c.r = a
+end
+function M.my_zone(zone)
+    -- print(zone)
+    M.c.my_zone = zone
+end
+
+-- place/replace the global function
 function mcp_config_pools(old)
-    local c = { pools = {} }
+    local c = M.c
 	local r = {
         router_type = "keyprefix",
         match_prefix = "/(%a+)/",
     }
-
-    function pool(a) 
-    	-- print(dump(a))
-		c.pools[a.name] = a
-	end
-	function router(a)
-		-- print(dump(a))
-		r = a
-	end
-	function my_zone(zone)
-		-- print(zone)
-		c.my_zone = zone
-	end
-    dofile("./proxy/pooldata.lua")
+    -- TODO: This ends up blanking _all_ defaults if the user supplies a route
+    -- function. Should we merge them instead? (maybe not: impossible to
+    -- delete items since setting to nil removes from a table)
+    if M.c["r"] ~= nil then
+        r = M.c.r
+    end
 
 	--print("read:\n")
     --print(dump(c), dump(r))
@@ -174,9 +182,12 @@ function mcp_config_pools(old)
 
     -- TODO: figure out the router configuration bits
     o.r = r
+    -- reset the module's configuration so reload will work.
+    M.c = { pools = {} }
     return o
 end
 
+-- also intentionally creating a global.
 -- TODO: r.default_pool instead of the SERVER_ERROR bit
 function mcp_config_routes(c)
     -- print(dump(c))
@@ -215,3 +226,5 @@ function mcp_config_routes(c)
         mcp.attach(mcp.CMD_ANY_STORAGE, top)
     end
 end
+
+return M
