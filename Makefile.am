@@ -125,7 +125,7 @@ EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.m
 
 if ENABLE_PROXY
 SUBDIRS += vendor/lua vendor/mcmc
-EXTRA_DIST += vendor/lua
+EXTRA_DIST += vendor/lua vendor/mcmc
 endif
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
