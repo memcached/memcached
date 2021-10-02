@@ -122,10 +122,10 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md LICENSE.bipbuffer
+EXTRA_DIST += vendor/Makefile vendor/lua vendor/mcmc
 
 if ENABLE_PROXY
-SUBDIRS += vendor/lua vendor/mcmc
-EXTRA_DIST += vendor/lua vendor/mcmc
+SUBDIRS += vendor
 endif
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
