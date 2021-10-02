@@ -317,7 +317,9 @@ struct slab_stats {
     X(response_obj_oom) \
     X(response_obj_count) \
     X(response_obj_bytes) \
-    X(read_buf_oom)
+    X(read_buf_oom) \
+    X(store_too_large) \
+    X(store_no_memory)
 
 #ifdef EXTSTORE
 #define EXTSTORE_THREAD_STATS_FIELDS \

@@ -1799,6 +1799,8 @@ void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cas_badval", "%llu", (unsigned long long)slab_stats.cas_badval);
     APPEND_STAT("touch_hits", "%llu", (unsigned long long)slab_stats.touch_hits);
     APPEND_STAT("touch_misses", "%llu", (unsigned long long)thread_stats.touch_misses);
+    APPEND_STAT("store_too_large", "%llu", (unsigned long long)thread_stats.store_too_large);
+    APPEND_STAT("store_no_memory", "%llu", (unsigned long long)thread_stats.store_no_memory);
     APPEND_STAT("auth_cmds", "%llu", (unsigned long long)thread_stats.auth_cmds);
     APPEND_STAT("auth_errors", "%llu", (unsigned long long)thread_stats.auth_errors);
     if (settings.idle_timeout) {
