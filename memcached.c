@@ -4030,6 +4030,9 @@ static void usage(void) {
            settings.ext_max_frag, settings.slab_automove_freeratio);
     verify_default("ext_item_age", settings.ext_item_age == UINT_MAX);
 #endif
+#ifdef PROXY
+    printf("   - proxy_config:        path to lua config file.\n");
+#endif
 #ifdef TLS
     printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"
            "   - ssl_key:             private key, if not part of the -ssl_chain_cert\n"

@@ -13,6 +13,11 @@ use MemcachedTest;
 use Cwd;
 my $builddir = getcwd;
 
+if (!supports_proxy()) {
+    plan skip_all => 'proxy not enabled';
+    exit 0;
+}
+
 # TODO: the lua file has hardcoded ports. any way to make this dynamic?
 # TODO: once basic tests are done, actually split out the instances rather
 # than the shared backend; validate keys go where they should be going.
