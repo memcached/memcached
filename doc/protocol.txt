@@ -1267,6 +1267,12 @@ integers separated by a colon (treat this as a floating point number).
 |                       |         | with a new expiration time                |
 | touch_misses          | 64u     | Number of items that have been touched    |
 |                       |         | and not found                             |
+| store_too_large       | 64u     | Number of rejected storage requests       |
+|                       |         | caused by attempting to write a value     |
+|                       |         | larger than the -I limit                  |
+| store_no_memory       | 64u     | Number of rejected storage requests       |
+|                       |         | caused by exhaustion of the -m memory     |
+|                       |         | limit (relevant when -M is used)          |
 | auth_cmds             | 64u     | Number of authentication commands         |
 |                       |         | handled, success or failure.              |
 | auth_errors           | 64u     | Number of failed authentications.         |

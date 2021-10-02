@@ -1480,9 +1480,15 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
         if (! item_size_ok(nkey, of.client_flags, vlen)) {
             errstr = "SERVER_ERROR object too large for cache";
             status = TOO_LARGE;
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.store_too_large++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
         } else {
             errstr = "SERVER_ERROR out of memory storing object";
             status = NO_MEMORY;
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.store_no_memory++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
         }
         // FIXME: LOGGER_LOG specific to mset, include options.
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
@@ -1962,9 +1968,15 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         if (! item_size_ok(nkey, flags, vlen)) {
             out_string(c, "SERVER_ERROR object too large for cache");
             status = TOO_LARGE;
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.store_too_large++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
         } else {
             out_of_memory(c, "SERVER_ERROR out of memory storing object");
             status = NO_MEMORY;
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.store_no_memory++;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
         }
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
                 NULL, status, comm, key, nkey, 0, 0, c->sfd);
