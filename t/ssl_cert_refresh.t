@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 use File::Copy;
+use File::Temp;
 use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
@@ -13,18 +14,23 @@ if (!enabled_tls_testing()) {
     exit 0;
 }
 
-my $ca_cert = "t/" . MemcachedTest::CA_CRT;
-my $cert = "t/". MemcachedTest::SRV_CRT;
-my $key = "t/". MemcachedTest::SRV_KEY;
-my $ca_cert_back = "t/ca_cert_back";
-my $cert_back = "t/cert_back";
-my $key_back = "t/pkey_back";
-my $new_cert_key = "t/server.pem";
+my $ca_cert = File::Temp->new()->filename;
+my $cert = File::Temp->new()->filename;
+my $key = File::Temp->new()->filename;
+my $new_cert_key = File::Temp->new()->filename;
+my $ca_cert_back = $ca_cert . ".bak";
+my $cert_back = $cert . ".bak";
+my $key_back = $key . ".bak";
+
+copy("t/" . MemcachedTest::CA_CRT, $ca_cert);
+copy("t/" . MemcachedTest::SRV_CRT, $cert);
+copy("t/" . MemcachedTest::SRV_KEY, $key);
+copy("t/server.pem", $new_cert_key);
+
 my $default_crt_ou = "OU=Subunit of Test Organization";
 
-my $server = new_memcached("-o ssl_ca_cert=$ca_cert");
+my $server = new_memcached("-o ssl_ca_cert=$ca_cert -o ssl_chain_cert=$cert -o ssl_key=$key");
 my $stats = mem_stats($server->sock);
-my $pid = $stats->{pid};
 my $sock = $server->sock;
 
 # This connection should return the default server certificate
@@ -56,7 +62,7 @@ is($1, $default_crt_ou, 'Old connection still has the old cert');
 
 # Just sleep a while to test the time_since_server_cert_refresh as it's counted
 # in seconds.
-sleep 2;
+sleep 5;
 $stats = mem_stats($sock);
 
 # Restore and ensure previous certificate is back for new connections.
@@ -79,3 +85,10 @@ cmp_ok($stats_after->{time_since_server_cert_refresh}, '<',
     $stats->{time_since_server_cert_refresh}, 'Certs refreshed');
 
 done_testing();
+
+END {
+    unlink $ca_cert if $ca_cert;
+    unlink $cert if $cert;
+    unlink $key if $key;
+    unlink $new_cert_key if $new_cert_key;
+}

@@ -311,7 +311,13 @@ sub new_memcached {
             $args .= " -U $udpport";
         }
         if ($ssl_enabled) {
-            $args .= " -Z -o ssl_chain_cert=$server_crt -o ssl_key=$server_key";
+            $args .= " -Z";
+            if ($args !~ /-o ssl_chain_cert=(\S+)/) {
+                $args .= " -o ssl_chain_cert=$server_crt";
+            }
+            if ($args !~ /-o ssl_key=(\S+)/) {
+                $args .= " -o ssl_key=$server_key";
+            }
         }
     } elsif ($args !~ /-s (\S+)/) {
         my $num = @unixsockets;
