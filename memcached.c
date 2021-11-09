@@ -4047,7 +4047,7 @@ static void usage(void) {
     printf("   - ssl_session_cache:   enable server-side SSL session cache, to support session\n"
            "                          resumption\n"
            "   - ssl_min_version:     minimum protocol version to accept (default: %s)\n"
-#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+#if defined(TLS1_3_VERSION)
            "                          valid values are 0(%s), 1(%s), 2(%s), or 3(%s).\n",
            ssl_proto_text(settings.ssl_min_version),
            ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
@@ -5453,7 +5453,7 @@ int main (int argc, char **argv) {
                     case 2:
                         settings.ssl_min_version = TLS1_2_VERSION;
                         break;
-#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+#if defined(TLS1_3_VERSION)
                     case 3:
                         settings.ssl_min_version = TLS1_3_VERSION;
                         break;
