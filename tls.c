@@ -257,7 +257,7 @@ const char *ssl_proto_text(int version) {
             return "tlsv1.1";
         case TLS1_2_VERSION:
             return "tlsv1.2";
-#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+#if defined(TLS1_3_VERSION)
         case TLS1_3_VERSION:
             return "tlsv1.3";
 #endif
