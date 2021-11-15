@@ -78,6 +78,7 @@ typedef struct {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
     obj_io *queue;
+    obj_io *queue_tail;
     store_engine *e;
     unsigned int depth; // queue depth
 } store_io_thread;
@@ -609,28 +610,31 @@ void extstore_write(void *ptr, obj_io *io) {
  */
 int extstore_submit(void *ptr, obj_io *io) {
     store_engine *e = (store_engine *)ptr;
-    store_io_thread *t = _get_io_thread(e);
 
-    pthread_mutex_lock(&t->mutex);
-    if (t->queue == NULL) {
-        t->queue = io;
-    } else {
-        /* Have to put the *io stack at the end of current queue.
-         * FIXME: Optimize by tracking tail.
-         */
-        obj_io *tmp = t->queue;
-        while (tmp->next != NULL) {
-            tmp = tmp->next;
-            assert(tmp != t->queue);
-        }
-        tmp->next = io;
-    }
-    // TODO: extstore_submit(ptr, io, count)
+    unsigned int depth = 0;
     obj_io *tio = io;
+    obj_io *tail = NULL;
     while (tio != NULL) {
-        t->depth++;
+        tail = tio; // keep updating potential tail.
+        depth++;
         tio = tio->next;
     }
+
+    store_io_thread *t = _get_io_thread(e);
+    pthread_mutex_lock(&t->mutex);
+
+    t->depth += depth;
+    if (t->queue == NULL) {
+        t->queue = io;
+        t->queue_tail = tail;
+    } else {
+        // Have to put the *io stack at the end of current queue.
+        assert(tail->next == NULL);
+        assert(t->queue_tail->next == NULL);
+        t->queue_tail->next = io;
+        t->queue_tail = tail;
+    }
+
     pthread_mutex_unlock(&t->mutex);
 
     //pthread_mutex_lock(&t->mutex);
@@ -743,6 +747,9 @@ static void *extstore_io_thread(void *arg) {
         }
 
         // Pull and disconnect a batch from the queue
+        // Chew small batches from the queue so the IO thread picker can keep
+        // the IO queue depth even, instead of piling on threads one at a time
+        // as they gobble a queue.
         if (me->queue != NULL) {
             int i;
             obj_io *end = NULL;
@@ -752,6 +759,7 @@ static void *extstore_io_thread(void *arg) {
                 if (end->next) {
                     end = end->next;
                 } else {
+                    me->queue_tail = end->next;
                     break;
                 }
             }
