@@ -1286,7 +1286,11 @@ static void proxy_backend_handler_ur(void *udata, struct io_uring_cqe *cqe) {
     int bread = cqe->res;
     char *rbuf = NULL;
     size_t toread = 0;
-    // TODO: check bread for disconnect/etc.
+    // Error or disconnection.
+    if (bread <= 0) {
+        _reset_bad_backend(be);
+        return;
+    }
 
     int res = proxy_backend_drive_machine(be, bread, &rbuf, &toread);
     P_DEBUG("%s: bread: %d res: %d toread: %lu\n", __func__, bread, res, toread);
@@ -1477,6 +1481,18 @@ static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t) {
 // Need to understand if this means "CQE's ready to be picked up" or "CQE's in
 // flight", because the former is much easier to work around (ie; only run the
 // backend handler after dequeuing everything else)
+// TODO: IOURING_FEAT_NODROP: uring_submit() should return -EBUSY if out of CQ
+// events slots. Therefore might starve SQE's if we were low beforehand.
+// - switch from for_each_cqe to doing one at a time (for now?)
+// - track # of sqe's allocated in the cqe loop.
+// - stop and submit if we've >= half the queue.
+// - ??? when can a CQE generate > 1 SQE?
+//   - wrhandler_ur can set both wrpoll and read
+// - if CQE's can gen > 1 SQE at a time, we'll eventually starve.
+// - proper flow: CQE's can enqueue backends to be processed.
+// - after CQE's are processed, backends are processed (ouch?)
+//   - if SQE's starve here, bail but keep the BE queue.
+// - then submit SQE's
 static void *proxy_event_thread_ur(void *arg) {
     proxy_event_thread_t *t = arg;
     struct io_uring_cqe *cqe;
