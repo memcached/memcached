@@ -167,6 +167,11 @@ struct proxy_timeouts {
     struct timeval connect;
     struct timeval retry; // wait time before retrying a dead backend
     struct timeval read;
+#ifdef HAVE_LIBURING
+    struct __kernel_timespec connect_ur;
+    struct __kernel_timespec retry_ur;
+    struct __kernel_timespec read_ur;
+#endif // HAVE_LIBURING
 };
 
 typedef STAILQ_HEAD(pool_head_s, mcp_pool_s) pool_head_t;
@@ -728,6 +733,11 @@ void proxy_init(void) {
     ctx->timeouts.connect.tv_sec = 5;
     ctx->timeouts.retry.tv_sec = 3;
     ctx->timeouts.read.tv_sec = 3;
+#ifdef HAVE_LIBURING
+    ctx->timeouts.connect_ur.tv_sec = 5;
+    ctx->timeouts.retry_ur.tv_sec = 3;
+    ctx->timeouts.read_ur.tv_sec = 3;
+#endif // HAVE_LIBURING
 
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = luaL_newstate();
@@ -1277,8 +1287,8 @@ static int _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
 }
 
 #ifdef HAVE_LIBURING
-static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len);
-static void _proxy_evthr_evset_be_wrpoll(mcp_backend_t *be);
+static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len, struct __kernel_timespec *ts);
+static void _proxy_evthr_evset_be_wrpoll(mcp_backend_t *be, struct __kernel_timespec *ts);
 
 // read handler.
 static void proxy_backend_handler_ur(void *udata, struct io_uring_cqe *cqe) {
@@ -1296,7 +1306,7 @@ static void proxy_backend_handler_ur(void *udata, struct io_uring_cqe *cqe) {
     P_DEBUG("%s: bread: %d res: %d toread: %lu\n", __func__, bread, res, toread);
 
     if (res > 0) {
-        _proxy_evthr_evset_be_read(be, rbuf, toread);
+        _proxy_evthr_evset_be_read(be, rbuf, toread, &be->event_thread->timeouts.read_ur);
     } else if (res == -1) {
         _reset_bad_backend(be);
         return;
@@ -1304,7 +1314,7 @@ static void proxy_backend_handler_ur(void *udata, struct io_uring_cqe *cqe) {
 
     // FIXME: when exactly do we need to reset the backend handler?
     if (!STAILQ_EMPTY(&be->io_head)) {
-        _proxy_evthr_evset_be_read(be, be->rbuf, READ_BUFFER_SIZE);
+        _proxy_evthr_evset_be_read(be, be->rbuf, READ_BUFFER_SIZE, &be->event_thread->timeouts.read_ur);
     }
 }
 
@@ -1350,10 +1360,10 @@ static void proxy_backend_wrhandler_ur(void *udata, struct io_uring_cqe *cqe) {
     }
 
     if (flags & EV_WRITE) {
-        _proxy_evthr_evset_be_wrpoll(be);
+        _proxy_evthr_evset_be_wrpoll(be, &be->event_thread->timeouts.connect_ur);
     }
 
-    _proxy_evthr_evset_be_read(be, be->rbuf, READ_BUFFER_SIZE);
+    _proxy_evthr_evset_be_read(be, be->rbuf, READ_BUFFER_SIZE, &be->event_thread->timeouts.read_ur);
 }
 
 static void proxy_event_handler_ur(void *udata, struct io_uring_cqe *cqe) {
@@ -1384,7 +1394,6 @@ static void proxy_event_handler_ur(void *udata, struct io_uring_cqe *cqe) {
 
     // Re-walk each backend and check set event as required.
     mcp_backend_t *be = NULL;
-    //struct timeval tmp_time = {5,0}; // FIXME: temporary hard coded timeout.
 
     // TODO: for each backend, queue writev's into sqe's
     // move the backend sqe bits into a write complete handler
@@ -1412,16 +1421,16 @@ static void proxy_event_handler_ur(void *udata, struct io_uring_cqe *cqe) {
             // FIXME: can't actually set the read here? need to confirm _some_
             // write first?
             if (flags & EV_WRITE) {
-                _proxy_evthr_evset_be_wrpoll(be);
+                _proxy_evthr_evset_be_wrpoll(be, &t->timeouts.connect_ur);
             }
             if (flags & EV_READ) {
-                _proxy_evthr_evset_be_read(be, be->rbuf, READ_BUFFER_SIZE);
+                _proxy_evthr_evset_be_read(be, be->rbuf, READ_BUFFER_SIZE, &t->timeouts.read_ur);
             }
         }
     }
 }
 
-static void _proxy_evthr_evset_be_wrpoll(mcp_backend_t *be) {
+static void _proxy_evthr_evset_be_wrpoll(mcp_backend_t *be, struct __kernel_timespec *ts) {
     struct io_uring_sqe *sqe;
     if (be->ur_wr_ev.set)
         return;
@@ -1435,9 +1444,18 @@ static void _proxy_evthr_evset_be_wrpoll(mcp_backend_t *be) {
     io_uring_prep_poll_add(sqe, mcmc_fd(be->client), POLLOUT);
     io_uring_sqe_set_data(sqe, &be->ur_wr_ev);
     be->ur_wr_ev.set = true;
+
+    sqe->flags |= IOSQE_IO_LINK;
+
+    // TODO: special timeout callback that we ignore?
+    // add a timeout.
+    sqe = io_uring_get_sqe(&be->event_thread->ring);
+
+    io_uring_prep_link_timeout(sqe, ts, 0);
+    io_uring_sqe_set_data(sqe, 0);
 }
 
-static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len) {
+static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len, struct __kernel_timespec *ts) {
     P_DEBUG("%s: setting: %lu\n", __func__, len);
     struct io_uring_sqe *sqe;
     if (be->ur_rd_ev.set) {
@@ -1454,6 +1472,14 @@ static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len)
     io_uring_prep_recv(sqe, mcmc_fd(be->client), buf, len, 0);
     io_uring_sqe_set_data(sqe, &be->ur_rd_ev);
     be->ur_rd_ev.set = true;
+
+    sqe->flags |= IOSQE_IO_LINK;
+
+    // add a timeout.
+    sqe = io_uring_get_sqe(&be->event_thread->ring);
+
+    io_uring_prep_link_timeout(sqe, ts, 0);
+    io_uring_sqe_set_data(sqe, 0);
 }
 
 static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t) {
@@ -1500,6 +1526,7 @@ static void *proxy_event_thread_ur(void *arg) {
     P_DEBUG("%s: starting\n", __func__);
 
     while (1) {
+        P_DEBUG("%s: submit and wait\n", __func__);
         io_uring_submit_and_wait(&t->ring, 1);
         //P_DEBUG("%s: sqe submitted: %d\n", __func__, ret);
 
@@ -1510,8 +1537,12 @@ static void *proxy_event_thread_ur(void *arg) {
             P_DEBUG("%s: got a CQE [count:%d]\n", __func__, count);
 
             proxy_event_t *pe = io_uring_cqe_get_data(cqe);
-            pe->set = false;
-            pe->cb(pe->udata, cqe);
+            if (pe) {
+                pe->set = false;
+                pe->cb(pe->udata, cqe);
+            } else {
+                P_DEBUG("%s: probably got a CQE for a timeout? [%d]\n", __func__, cqe->res);
+            }
 
             count++;
         }
@@ -1578,6 +1609,7 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
 
     // Re-walk each backend and check set event as required.
     mcp_backend_t *be = NULL;
+    // FIXME: should this be timeouts.read?
     struct timeval tmp_time = t->timeouts.connect;
 
     // FIXME: _set_event() is buggy, see notes on function.
@@ -2886,6 +2918,7 @@ static int mcplib_backend_connect_timeout(lua_State *L) {
 
     STAT_L(ctx);
     ctx->timeouts.connect.tv_sec = seconds;
+    ctx->timeouts.connect_ur.tv_sec = seconds;
     STAT_UL(ctx);
 
     return 0;
@@ -2897,6 +2930,7 @@ static int mcplib_backend_retry_timeout(lua_State *L) {
 
     STAT_L(ctx);
     ctx->timeouts.retry.tv_sec = seconds;
+    ctx->timeouts.retry_ur.tv_sec = seconds;
     STAT_UL(ctx);
 
     return 0;
@@ -2908,6 +2942,7 @@ static int mcplib_backend_read_timeout(lua_State *L) {
 
     STAT_L(ctx);
     ctx->timeouts.read.tv_sec = seconds;
+    ctx->timeouts.read_ur.tv_sec = seconds;
     STAT_UL(ctx);
 
     return 0;
