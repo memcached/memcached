@@ -143,8 +143,11 @@ typedef struct {
     bool set; // NOTE: not sure if necessary if code structured properly
 } proxy_event_t;
 
+static struct __kernel_timespec updater_ts = {.tv_sec = 3, .tv_nsec = 0};
 static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t);
+static void _proxy_evthr_evset_clock(proxy_event_thread_t *t);
 static void *proxy_event_thread_ur(void *arg);
+static void proxy_event_updater_ur(void *udata, struct io_uring_cqe *cqe);
 #endif
 
 struct proxy_user_stats {
@@ -301,6 +304,7 @@ struct proxy_event_thread_s {
 #ifdef HAVE_LIBURING
     struct io_uring ring;
     proxy_event_t ur_notify_event; // listen on eventfd.
+    proxy_event_t ur_clock_event; // timer for updating event thread data.
     eventfd_t event_counter;
     bool use_uring;
 #endif
@@ -674,6 +678,13 @@ static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
         // FIXME: hack for event init.
         t->ur_notify_event.set = false;
         _proxy_evthr_evset_notifier(t);
+
+        // periodic data updater for event thread
+        t->ur_clock_event.cb = proxy_event_updater_ur;
+        t->ur_clock_event.udata = t;
+        t->ur_clock_event.set = false;
+        _proxy_evthr_evset_clock(t);
+
         t->use_uring = true;
         return;
     } else {
@@ -1292,6 +1303,18 @@ static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len,
 static void _proxy_evthr_evset_be_wrpoll(mcp_backend_t *be, struct __kernel_timespec *ts);
 static void _proxy_evthr_evset_be_retry(mcp_backend_t *be);
 
+static void proxy_event_updater_ur(void *udata, struct io_uring_cqe *cqe) {
+    proxy_event_thread_t *t = udata;
+    proxy_ctx_t *ctx = t->ctx;
+
+    _proxy_evthr_evset_clock(t);
+
+    // we reuse the "global stats" lock since it's hardly ever used.
+    STAT_L(ctx);
+    memcpy(&t->timeouts, &ctx->timeouts, sizeof(t->timeouts));
+    STAT_UL(ctx);
+}
+
 // TODO: move define or move to option.
 #define BACKEND_FAILURE_LIMIT 3
 
@@ -1534,6 +1557,17 @@ static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len,
 
     io_uring_prep_link_timeout(sqe, ts, 0);
     io_uring_sqe_set_data(sqe, &be->ur_te_ev);
+}
+
+static void _proxy_evthr_evset_clock(proxy_event_thread_t *t) {
+    struct io_uring_sqe *sqe;
+
+    sqe = io_uring_get_sqe(&t->ring);
+    // FIXME: NULL?
+
+    io_uring_prep_timeout(sqe, &updater_ts, 0, 0);
+    io_uring_sqe_set_data(sqe, &t->ur_clock_event);
+    t->ur_clock_event.set = true;
 }
 
 static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t) {
