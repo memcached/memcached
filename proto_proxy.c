@@ -3002,7 +3002,9 @@ static int mcplib_backend_connect_timeout(lua_State *L) {
 
     STAT_L(ctx);
     ctx->timeouts.connect.tv_sec = seconds;
+#ifdef HAVE_LIBURING
     ctx->timeouts.connect_ur.tv_sec = seconds;
+#endif
     STAT_UL(ctx);
 
     return 0;
@@ -3014,7 +3016,9 @@ static int mcplib_backend_retry_timeout(lua_State *L) {
 
     STAT_L(ctx);
     ctx->timeouts.retry.tv_sec = seconds;
+#ifdef HAVE_LIBURING
     ctx->timeouts.retry_ur.tv_sec = seconds;
+#endif
     STAT_UL(ctx);
 
     return 0;
@@ -3026,7 +3030,9 @@ static int mcplib_backend_read_timeout(lua_State *L) {
 
     STAT_L(ctx);
     ctx->timeouts.read.tv_sec = seconds;
+#ifdef HAVE_LIBURING
     ctx->timeouts.read_ur.tv_sec = seconds;
+#endif
     STAT_UL(ctx);
 
     return 0;
