@@ -121,6 +121,7 @@ int main (int argc, char *agv[]) {
     if (status != MCMC_CONNECTED) {
         // TODO: mc_strerr(c);
         fprintf(stderr, "Failed to connect to memcached\n");
+        free(rbuf);
         return -1;
     }
 

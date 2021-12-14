@@ -4786,6 +4786,7 @@ int main (int argc, char **argv) {
     bool storage_enabled = false;
     if (storage_cf == NULL) {
         fprintf(stderr, "failed to allocate extstore config\n");
+        free(meta);
         return 1;
     }
 #endif
