@@ -107,7 +107,7 @@ static void _finalize_mset(conn *c, enum store_item_type ret) {
                 // We don't have the CAS until this point, which is why we
                 // generate this line so late.
                 META_CHAR(p, 'c');
-                p = itoa_u64(ITEM_get_cas(it), p);
+                p = itoa_u64(c->cas, p);
                 break;
             default:
                 break;
@@ -1408,6 +1408,8 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // Set noreply after tokens are understood.
     c->noreply = of.no_reply;
+    // Clear cas return value
+    c->cas = 0;
 
     bool has_error = false;
     for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
