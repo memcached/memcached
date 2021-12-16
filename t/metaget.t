@@ -148,6 +148,41 @@ my $sock = $server->sock;
 }
 
 {
+    diag "basic mset CAS";
+    my $key = "msetcas";
+    print $sock "ms $key 2\r\nbo\r\n";
+    like(scalar <$sock>, qr/^HD/, "set test key");
+
+    my $res = mget($sock, $key, 'c');
+    ok(get_flag($res, 'c'), "got a cas value back");
+
+    my $cas = get_flag($res, 'c');
+    my $badcas = $cas + 10;
+    print $sock "ms $key 2 c C$badcas\r\nio\r\n";
+    like(scalar <$sock>, qr/^EX c0/, "zeroed out cas on return");
+
+    print $sock "ms $key 2 c C$cas\r\nio\r\n";
+    like(scalar <$sock>, qr/^HD c\d+/, "success on correct cas");
+}
+
+{
+    diag "mdelete with cas";
+    my $key = "mdeltest";
+    print $sock "ms $key 2\r\nzo\r\n";
+    like(scalar <$sock>, qr/^HD/, "set test key");
+
+    my $res = mget($sock, $key, 'c');
+    ok(get_flag($res, 'c'), "got a cas value back");
+
+    my $cas = get_flag($res, 'c');
+    my $badcas = $cas + 10;
+    print $sock "md $key C$badcas\r\n";
+    like(scalar <$sock>, qr/^EX/, "mdelete fails for wrong CAS");
+    print $sock "md $key C$cas\r\n";
+    like(scalar <$sock>, qr/^HD/, "mdeleted key");
+}
+
+{
     diag "encoded binary keys";
     # 44OG44K544OI is "tesuto" in katakana
     my $tesuto = "44OG44K544OI";
