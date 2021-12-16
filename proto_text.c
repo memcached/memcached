@@ -1551,7 +1551,6 @@ error:
 static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
-    uint64_t req_cas_id = 0;
     item *it = NULL;
     int i;
     uint32_t hv;
@@ -1611,7 +1610,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
         // allow only deleting/marking if a CAS value matches.
-        if (of.has_cas && ITEM_get_cas(it) != req_cas_id) {
+        if (of.has_cas && ITEM_get_cas(it) != of.req_cas_id) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.delete_misses++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
