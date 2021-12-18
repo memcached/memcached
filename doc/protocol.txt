@@ -712,6 +712,7 @@ with CAS semantics did not exist.
 The flags used by the 'ms' command are:
 
 - b: interpret key as base64 encoded binary value (see metaget)
+- c: return CAS value if successfully stored.
 - C(token): compare CAS value when storing item
 - F(token): set client flags to token (32 bit unsigned numeric)
 - I: invalidate. set-to-invalid if supplied CAS is older than item's CAS
@@ -722,6 +723,10 @@ The flags used by the 'ms' command are:
 - M(token): mode switch to change behavior to add, replace, append, prepend
 
 The flags are now repeated with detailed information where useful:
+
+- c: returns the CAS value on successful storage. Will return 0 on error, but
+  clients must not depend on the return value being zero. In future versions
+this may return the current CAS value for "EX" return code conditions.
 
 - C(token): compare CAS value when storing item
 
@@ -873,7 +878,7 @@ The flags used by the 'ma' command are:
 - M(token): mode switch to change between incr and decr modes.
 - q: use noreply semantics for return codes (see details under mset)
 - t: return current TTL
-- c: return current CAS
+- c: return current CAS value if successful.
 - v: return new value
 
 The flags are now repeated with detailed information where useful:
