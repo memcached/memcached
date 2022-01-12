@@ -440,8 +440,8 @@ bool rbuf_switch_to_malloc(conn *c) {
     if (!tmp)
         return false;
 
-    do_cache_free(c->thread->rbuf_cache, c->rbuf);
     memcpy(tmp, c->rcurr, c->rbytes);
+    do_cache_free(c->thread->rbuf_cache, c->rbuf);
 
     c->rcurr = c->rbuf = tmp;
     c->rsize = size;
