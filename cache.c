@@ -133,7 +133,7 @@ void do_cache_free(cache_t *cache, void *ptr) {
         free(ptr);
         cache->total--;
     } else {
-        STAILQ_INSERT_TAIL(&cache->head, (struct cache_free_s *)ptr, c_next);
+        STAILQ_INSERT_HEAD(&cache->head, (struct cache_free_s *)ptr, c_next);
         cache->freecurr++;
     }
 }
