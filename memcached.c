@@ -3643,6 +3643,8 @@ static int server_sockets(int port, enum network_transport transport,
             fprintf(stderr, "Failed to allocate memory for parsing server interface string\n");
             return 1;
         }
+        // If we encounter any failure, preserve the first errno for the caller.
+        int errno_save = 0;
         for (char *p = strtok_r(list, ";,", &b);
             p != NULL;
             p = strtok_r(NULL, ";,", &b)) {
@@ -3700,8 +3702,10 @@ static int server_sockets(int port, enum network_transport transport,
                 p = NULL;
             }
             ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled);
+            if (ret != 0 && errno_save == 0) errno_save = errno;
         }
         free(list);
+        errno = errno_save;
         return ret;
     }
 }
@@ -6029,7 +6033,11 @@ int main (int argc, char **argv) {
         errno = 0;
         if (settings.port && server_sockets(settings.port, tcp_transport,
                                            portnumber_file)) {
-            vperror("failed to listen on TCP port %d", settings.port);
+            if (settings.inter == NULL) {
+                vperror("failed to listen on TCP port %d", settings.port);
+            } else {
+                vperror("failed to listen on one of interface(s) %s", settings.inter);
+            }
             exit(EX_OSERR);
         }
 
@@ -6044,7 +6052,11 @@ int main (int argc, char **argv) {
         errno = 0;
         if (settings.udpport && server_sockets(settings.udpport, udp_transport,
                                               portnumber_file)) {
-            vperror("failed to listen on UDP port %d", settings.udpport);
+            if (settings.inter == NULL) {
+                vperror("failed to listen on UDP port %d", settings.udpport);
+            } else {
+                vperror("failed to listen on one of interface(s) %s", settings.inter);
+            }
             exit(EX_OSERR);
         }
 
