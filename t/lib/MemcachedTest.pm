@@ -14,10 +14,11 @@ my $builddir = getcwd;
 
 my @unixsockets = ();
 
-@EXPORT = qw(new_memcached sleep mem_get_is mem_gets mem_gets_is mem_stats
+@EXPORT = qw(new_memcached sleep
+             mem_get_is mem_gets mem_gets_is mem_stats mem_move_time
              supports_sasl free_port supports_drop_priv supports_extstore
              wait_ext_flush supports_tls enabled_tls_testing run_help
-             supports_unix_socket);
+             supports_unix_socket get_memcached_exe supports_proxy);
 
 use constant MAX_READ_WRITE_SIZE => 16384;
 use constant SRV_CRT => "server_crt.pem";
@@ -70,6 +71,12 @@ sub mem_stats {
         $stats->{$2} = $3;
     }
     return $stats;
+}
+
+sub mem_move_time {
+    my ($sock, $move) = @_;
+    print $sock "debugtime $move\r\n";
+    <$sock>;
 }
 
 sub mem_get_is {
@@ -208,6 +215,12 @@ sub supports_extstore {
     return 0;
 }
 
+sub supports_proxy {
+    my $output = print_help();
+    return 1 if $output =~ /proxy_config/i;
+    return 0;
+}
+
 sub supports_tls {
     my $output = print_help();
     return 1 if $output =~ /enable-ssl/i;
@@ -298,7 +311,13 @@ sub new_memcached {
             $args .= " -U $udpport";
         }
         if ($ssl_enabled) {
-            $args .= " -Z -o ssl_chain_cert=$server_crt -o ssl_key=$server_key";
+            $args .= " -Z";
+            if ($args !~ /-o ssl_chain_cert=(\S+)/) {
+                $args .= " -o ssl_chain_cert=$server_crt";
+            }
+            if ($args !~ /-o ssl_key=(\S+)/) {
+                $args .= " -o ssl_key=$server_key";
+            }
         }
     } elsif ($args !~ /-s (\S+)/) {
         my $num = @unixsockets;
@@ -387,6 +406,7 @@ END {
 
 ############################################################################
 package Memcached::Handle;
+use POSIX ":sys_wait_h";
 sub new {
     my ($class, %params) = @_;
     return bless \%params, $class;
@@ -405,6 +425,12 @@ sub stop {
 sub graceful_stop {
     my $self = shift;
     kill 'SIGUSR1', $self->{pid};
+}
+
+# -1 if the pid is actually dead.
+sub is_running {
+    my $self = shift;
+    return waitpid($self->{pid}, WNOHANG) >= 0 ? 1 : 0;
 }
 
 sub host { $_[0]{host} }

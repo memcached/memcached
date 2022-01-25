@@ -5,7 +5,7 @@ use strict;
 use warnings;
 use Socket qw/SO_RCVBUF/;
 
-use Test::More tests => 12;
+use Test::More tests => 30;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -72,6 +72,40 @@ if ($res eq "STORED\r\n") {
 }
 }
 
+# test connection events
+{
+    # start a dedicated server so that connection close events from previous
+    # tests don't leak into this one due to races.
+    my $conn_server = new_memcached('-m 60 -o watcher_logbuf_size=8');
+    my $conn_watcher = $conn_server->new_sock;
+
+    print $conn_watcher "watch connevents\n";
+    $res = <$conn_watcher>;
+    is($res, "OK\r\n", 'connevents watcher enabled');
+
+    # normal close
+    my $conn_client = $conn_server->new_sock;
+    print $conn_client "version\r\n";
+    $res = <$conn_client>;
+    print $conn_client "quit\r\n";
+    $res = <$conn_watcher>;
+    like($res, qr/ts=\d+\.\d+\ gid=\d+ type=conn_new .+ transport=(local|tcp)/,
+        'logged new connection');
+    $res = <$conn_watcher>;
+    like($res, qr/ts=\d+\.\d+\ gid=\d+ type=conn_close .+ transport=(local|tcp) reason=normal/,
+        'logged closed connection due to client disconnect');
+
+    # error close
+    $conn_client = $conn_server->new_sock;
+    print $conn_client "GET / HTTP/1.1\r\n";
+    $res = <$conn_watcher>;
+    like($res, qr/ts=\d+\.\d+\ gid=\d+ type=conn_new .+ transport=(local|tcp)/,
+        'logged new connection');
+    $res = <$conn_watcher>;
+    like($res, qr/ts=\d+\.\d+\ gid=\d+ type=conn_close .+ transport=(local|tcp) reason=error/,
+        'logged closed connection due to client protocol error');
+}
+
 # test combined logs
 # fill to evictions, then enable watcher, set again, and look for both lines
 
@@ -82,10 +116,13 @@ if ($res eq "STORED\r\n") {
     for (1 .. $keycount) {
         print $client "set n,foo$_ 0 0 11000 noreply\r\n$value\r\n";
     }
+    # wait for all of the writes to go through.
+    print $client "version\r\n";
+    $res = <$client>;
 
-    $watcher = $server->new_sock;
-    print $watcher "watch mutations evictions\n";
-    $res = <$watcher>;
+    my $mwatcher = $server->new_sock;
+    print $mwatcher "watch mutations evictions\n";
+    $res = <$mwatcher>;
     is($res, "OK\r\n", "new watcher enabled");
     my $watcher2 = $server->new_sock;
     print $watcher2 "watch evictions\n";
@@ -95,7 +132,7 @@ if ($res eq "STORED\r\n") {
     print $client "set bfoo 0 0 11000 noreply\r\n$value\r\n";
     my $found_log = 0;
     my $found_ev  = 0;
-    while (my $log = <$watcher>) {
+    while (my $log = <$mwatcher>) {
         $found_log = 1 if ($log =~ m/type=item_store/);
         $found_ev = 1 if ($log =~ m/type=eviction/);
         last if ($found_log && $found_ev);
@@ -130,6 +167,58 @@ SKIP: {
         last if ($tries-- == 0 || $found_cas);
     }
     is($found_cas, 1, "correctly logged cas command");
+}
+
+# test get/set value sizes
+{
+    my $watcher = $server->new_sock;
+    print $watcher "watch fetchers mutations\n";
+    is(<$watcher>, "OK\r\n", "fetchers and mutations watcher enabled");
+
+    print $client "set vfoo 0 0 4\r\nvbar\r\n";
+    is(<$client>, "STORED\r\n", "stored the key");
+
+    print $client "get vfoo\r\n";
+    is(<$client>, "VALUE vfoo 0 4\r\n", "read the key header");
+    is(<$client>, "vbar\r\n", "read the key value");
+    is(<$client>, "END\r\n", "read the value trailer");
+
+    sleep 1;
+    like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=item_get key=vfoo .+ size=0/,
+        "logged initial item fetch");
+    like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=item_store key=vfoo .+ size=4/,
+        "logged item store with correct size");
+    like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=item_get key=vfoo .+ size=4/,
+        "logged item get with correct size");
+}
+
+# test watcher stats
+{
+    my $stats_server = new_memcached('-m 60 -o watcher_logbuf_size=8');
+    my $stats_client = $stats_server->sock;
+    my $stats;
+
+    my $watcher1 = $stats_server->new_sock;
+    print $watcher1 "watch fetchers\n";
+    $res = <$watcher1>;
+    is($res, "OK\r\n", 'fetchers watcher enabled');
+    sleep 1;
+    $stats = mem_stats($stats_client);
+    is($stats->{log_watchers}, 1, 'tracked new fetchers watcher');
+
+    my $watcher2 = $stats_server->new_sock;
+    print $watcher2 "watch fetchers\n";
+    $res = <$watcher2>;
+    is($res, "OK\r\n", 'mutations watcher enabled');
+    sleep 1;
+    $stats = mem_stats($stats_client);
+    is($stats->{log_watchers}, 2, 'tracked new mutations watcher');
+
+    $watcher1->close();
+    $watcher2->close();
+    sleep 1;
+    $stats = mem_stats($stats_client);
+    is($stats->{log_watchers}, 0, 'untracked all watchers');
 }
 
 # test no_watch option

@@ -1,10 +1,10 @@
 bin_PROGRAMS = memcached
-pkginclude_HEADERS = protocol_binary.h
+pkginclude_HEADERS = protocol_binary.h xxhash.h
 noinst_PROGRAMS = memcached-debug sizes testapp timedrun
 
 BUILT_SOURCES=
 
-testapp_SOURCES = testapp.c util.c util.h stats_prefix.c stats_prefix.h jenkins_hash.c murmur3_hash.c hash.h cache.c
+testapp_SOURCES = testapp.c util.c util.h stats_prefix.c stats_prefix.h jenkins_hash.c murmur3_hash.c hash.h cache.c crc32c.c
 
 timedrun_SOURCES = timedrun.c
 
@@ -12,6 +12,7 @@ memcached_SOURCES = memcached.c memcached.h \
                     hash.c hash.h \
                     jenkins_hash.c jenkins_hash.h \
                     murmur3_hash.c murmur3_hash.h \
+                    queue.h \
                     slabs.c slabs.h \
                     items.c items.h \
                     assoc.c assoc.h \
@@ -20,6 +21,7 @@ memcached_SOURCES = memcached.c memcached.h \
                     util.c util.h \
                     trace.h cache.c cache.h sasl_defs.h \
                     bipbuffer.c bipbuffer.h \
+                    base64.c base64.h \
                     logger.c logger.h \
                     crawler.c crawler.h \
                     itoa_ljust.c itoa_ljust.h \
@@ -47,6 +49,10 @@ endif
 
 if ENABLE_SASL
 memcached_SOURCES += sasl_defs.c
+endif
+
+if ENABLE_PROXY
+memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h
 endif
 
 if ENABLE_EXTSTORE
@@ -88,6 +94,16 @@ memcached_debug_DEPENDENCIES += memcached_debug_dtrace.o
 CLEANFILES += memcached_dtrace.o memcached_debug_dtrace.o
 endif
 
+if ENABLE_PROXY
+memcached_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
+memcached_debug_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
+endif
+
+if ENABLE_PROXY_URING
+memcached_LDADD += vendor/liburing/src/liburing.a
+memcached_debug_LDADD += vendor/liburing/src/liburing.a
+endif
+
 memcached_debug_CFLAGS += -DMEMCACHED_DEBUG
 
 memcached_dtrace.h: memcached_dtrace.d
@@ -106,6 +122,11 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md LICENSE.bipbuffer
+EXTRA_DIST += vendor/Makefile vendor/lua vendor/mcmc
+
+if ENABLE_PROXY
+SUBDIRS += vendor
+endif
 
 MOSTLYCLEANFILES = *.gcov *.gcno *.gcda *.tcov
 

@@ -20,6 +20,8 @@ enum log_entry_type {
     LOGGER_ITEM_STORE,
     LOGGER_CRAWLER_STATUS,
     LOGGER_SLAB_MOVE,
+    LOGGER_CONNECTION_NEW,
+    LOGGER_CONNECTION_CLOSE,
 #ifdef EXTSTORE
     LOGGER_EXTSTORE_WRITE,
     LOGGER_COMPACT_START,
@@ -29,15 +31,10 @@ enum log_entry_type {
     LOGGER_COMPACT_END,
     LOGGER_COMPACT_FRAGINFO,
 #endif
-};
-
-enum log_entry_subtype {
-    LOGGER_TEXT_ENTRY = 0,
-    LOGGER_EVICTION_ENTRY,
-    LOGGER_ITEM_GET_ENTRY,
-    LOGGER_ITEM_STORE_ENTRY,
-#ifdef EXTSTORE
-    LOGGER_EXT_WRITE_ENTRY,
+#ifdef PROXY
+    LOGGER_PROXY_CONFIG,
+    LOGGER_PROXY_RAW,
+    LOGGER_PROXY_ERROR,
 #endif
 };
 
@@ -53,16 +50,24 @@ enum logger_parse_entry_ret {
     LOGGER_PARSE_ENTRY_FAILED
 };
 
-typedef const struct {
-    enum log_entry_subtype subtype;
+typedef struct _logentry logentry;
+typedef struct _entry_details entry_details;
+
+typedef void (*entry_log_cb)(logentry *e, const entry_details *d, const void *entry, va_list ap);
+typedef int (*entry_parse_cb)(logentry *e, char *scratch);
+
+struct _entry_details {
     int reqlen;
     uint16_t eflags;
+    entry_log_cb log_cb;
+    entry_parse_cb parse_cb;
     char *format;
-} entry_details;
+};
 
 /* log entry intermediary structures */
 struct logentry_eviction {
     long long int exptime;
+    int nbytes;
     uint32_t latime;
     uint16_t it_flags;
     uint8_t nkey;
@@ -84,6 +89,7 @@ struct logentry_item_get {
     uint8_t was_found;
     uint8_t nkey;
     uint8_t clsid;
+    int nbytes;
     int sfd;
     char key[];
 };
@@ -94,17 +100,32 @@ struct logentry_item_store {
     rel_time_t ttl;
     uint8_t nkey;
     uint8_t clsid;
+    int nbytes;
     int sfd;
     char key[];
 };
 
+struct logentry_conn_event {
+    int transport;
+    int reason;
+    int sfd;
+    struct sockaddr_in6 addr;
+};
+#ifdef PROXY
+struct logentry_proxy_raw {
+    unsigned short type;
+    unsigned short code;
+    long elapsed; // elapsed time in usec
+    char cmd[8];
+};
+#endif
 /* end intermediary structures */
 
 /* WARNING: cuddled items aren't compatible with warm restart. more code
  * necessary to ensure log streams are all flushed/processed before stopping
  */
-typedef struct _logentry {
-    enum log_entry_subtype event;
+struct _logentry {
+    enum log_entry_type event;
     uint8_t pad;
     uint16_t eflags;
     uint64_t gid;
@@ -113,7 +134,7 @@ typedef struct _logentry {
     union {
         char end;
     } data[];
-} logentry;
+};
 
 #define LOG_SYSEVENTS  (1<<1) /* threads start/stop/working */
 #define LOG_FETCHERS   (1<<2) /* get/gets/etc */
@@ -148,6 +169,7 @@ typedef struct  {
     int sfd; /* client fd */
     int id; /* id number for watcher list */
     uint64_t skipped; /* lines skipped since last successful print */
+    uint64_t min_gid; /* don't show log entries older than this GID */
     bool failed_flush; /* recently failed to write out (EAGAIN), wait before retry */
     enum logger_watcher_type t; /* stderr, client, syslog, etc */
     uint16_t eflags; /* flags we are interested in */
@@ -160,6 +182,7 @@ struct logger_stats {
     uint64_t worker_written;
     uint64_t watcher_skipped;
     uint64_t watcher_sent;
+    uint64_t watcher_count;
 };
 
 extern pthread_key_t logger_key;

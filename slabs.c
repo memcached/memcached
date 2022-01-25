@@ -8,6 +8,7 @@
  * memcached protocol.
  */
 #include "memcached.h"
+#include "storage.h"
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/socket.h>

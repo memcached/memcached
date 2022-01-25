@@ -43,13 +43,17 @@
 #include "logger.h"
 
 #ifdef EXTSTORE
-#include "extstore.h"
 #include "crc32c.h"
 #endif
 
 #include "sasl_defs.h"
 #ifdef TLS
 #include <openssl/ssl.h>
+#endif
+
+/* for NAPI pinning feature */
+#ifndef SO_INCOMING_NAPI_ID
+#define SO_INCOMING_NAPI_ID 56
 #endif
 
 /** Maximum length of a key. */
@@ -67,6 +71,7 @@
 #define UDP_READ_BUFFER_SIZE 65536
 #define UDP_MAX_PAYLOAD_SIZE 1400
 #define UDP_HEADER_SIZE 8
+#define UDP_DATA_SIZE 1392 // UDP_MAX_PAYLOAD_SIZE - UDP_HEADER_SIZE
 #define MAX_SENDBUF_SIZE (256 * 1024 * 1024)
 
 /* Binary protocol stuff */
@@ -196,6 +201,7 @@ enum conn_states {
     conn_mwrite,     /**< writing out many items sequentially */
     conn_closed,     /**< connection is closed */
     conn_watch,      /**< held by the logger thread as a watcher */
+    conn_io_queue,   /**< wait on async. process to get response object */
     conn_max_state   /**< Max state value (used for assertion) */
 };
 
@@ -217,7 +223,10 @@ enum bin_substates {
 enum protocol {
     ascii_prot = 3, /* arbitrary value. */
     binary_prot,
-    negotiating_prot /* Discovering the protocol */
+    negotiating_prot, /* Discovering the protocol */
+#ifdef PROXY
+    proxy_prot,
+#endif
 };
 
 enum network_transport {
@@ -237,6 +246,13 @@ enum stop_reasons {
     NOT_STOP,
     GRACE_STOP,
     EXIT_NORMALLY
+};
+
+enum close_reasons {
+    ERROR_CLOSE,
+    NORMAL_CLOSE,
+    IDLE_TIMEOUT_CLOSE,
+    SHUTDOWN_CLOSE,
 };
 
 #define IS_TCP(x) (x == tcp_transport)
@@ -304,7 +320,9 @@ struct slab_stats {
     X(response_obj_oom) \
     X(response_obj_count) \
     X(response_obj_bytes) \
-    X(read_buf_oom)
+    X(read_buf_oom) \
+    X(store_too_large) \
+    X(store_no_memory)
 
 #ifdef EXTSTORE
 #define EXTSTORE_THREAD_STATS_FIELDS \
@@ -316,6 +334,12 @@ struct slab_stats {
     X(badcrc_from_extstore)
 #endif
 
+#ifdef PROXY
+#define PROXY_THREAD_STATS_FIELDS \
+    X(proxy_conn_requests) \
+    X(proxy_conn_errors)
+#endif
+
 /**
  * Stats stored per-thread.
  */
@@ -325,6 +349,9 @@ struct thread_stats {
     THREAD_STATS_FIELDS
 #ifdef EXTSTORE
     EXTSTORE_THREAD_STATS_FIELDS
+#endif
+#ifdef PROXY
+    PROXY_THREAD_STATS_FIELDS
 #endif
 #undef X
     struct slab_stats slab_stats[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -367,6 +394,8 @@ struct stats {
     uint64_t      ssl_new_sessions; /* successfully negotiated new (non-reused) TLS sessions */
 #endif
     struct timeval maxconns_entered;  /* last time maxconns entered */
+    uint64_t      unexpected_napi_ids;  /* see doc/napi_ids.txt */
+    uint64_t      round_robin_fallback; /* see doc/napi_ids.txt */
 };
 
 /**
@@ -381,6 +410,7 @@ struct stats_state {
     unsigned int  conn_structs;
     unsigned int  reserved_fds;
     unsigned int  hash_power_level; /* Better hope it's not over 9000 */
+    unsigned int  log_watchers; /* number of currently active watchers */
     bool          hash_is_expanding; /* If the hash table is being expanded */
     bool          accepting_conns;  /* whether we are currently accepting */
     bool          slab_reassign_running; /* slab reassign in progress */
@@ -452,6 +482,7 @@ struct settings {
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
     bool watch_enabled; /* allows watch commands to be dropped */
     bool relaxed_privileges;   /* Relax process restrictions when running testapp */
+    bool meta_response_old; /* use "OK" instead of "HD". for response code TEMPORARY! */
 #ifdef EXTSTORE
     unsigned int ext_io_threadcount; /* number of IO threads to run. */
     unsigned int ext_page_size; /* size in megabytes of storage pages. */
@@ -474,12 +505,20 @@ struct settings {
     char *ssl_chain_cert; /* path to the server SSL chain certificate */
     char *ssl_key; /* path to the server key */
     int ssl_verify_mode; /* client certificate verify mode */
-    int ssl_keyformat; /* key format , defult is PEM */
+    int ssl_keyformat; /* key format , default is PEM */
     char *ssl_ciphers; /* list of SSL ciphers */
     char *ssl_ca_cert; /* certificate with CAs. */
     rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
     unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
     bool ssl_session_cache; /* enable SSL server session caching */
+    int ssl_min_version; /* minimum SSL protocol version to accept */
+#endif
+    int num_napi_ids;   /* maximum number of NAPI IDs */
+    char *memory_file;  /* warm restart memory file path */
+#ifdef PROXY
+    bool proxy_enabled;
+    char *proxy_startfile; /* lua file to run when workers start */
+    void *proxy_ctx; /* proxy's state context */
 #endif
 };
 
@@ -511,6 +550,8 @@ extern struct settings settings;
 #define ITEM_TOKEN_RESERVED 1024
 /* if item has been marked as a stale value */
 #define ITEM_STALE 2048
+/* if item key was sent in binary */
+#define ITEM_KEY_BINARY 4096
 
 /**
  * Structure for storing items within memcached.
@@ -601,19 +642,66 @@ typedef struct {
     unsigned short page_id; /* from IO header */
 } item_hdr;
 #endif
+
+#define IO_QUEUE_COUNT 3
+
+#define IO_QUEUE_NONE 0
+#define IO_QUEUE_EXTSTORE 1
+#define IO_QUEUE_PROXY 2
+
+typedef struct _io_pending_t io_pending_t;
+typedef struct io_queue_s io_queue_t;
+typedef void (*io_queue_stack_cb)(io_queue_t *q);
+typedef void (*io_queue_cb)(io_pending_t *pending);
+// this structure's ownership gets passed between threads:
+// - owned normally by the worker thread.
+// - multiple queues can be submitted at the same time.
+// - each queue can be sent to different background threads.
+// - each submitted queue needs to know when to return to the worker.
+// - the worker needs to know when all queues have returned so it can process.
+//
+// io_queue_t's count field is owned by worker until submitted. Then owned by
+// side thread until returned.
+// conn->io_queues_submitted is always owned by the worker thread. it is
+// incremented as the worker submits queues, and decremented as it gets pinged
+// for returned threads.
+//
+// All of this is to avoid having to hit a mutex owned by the connection
+// thread that gets pinged for each thread (or an equivalent atomic).
+struct io_queue_s {
+    void *ctx; // duplicated from io_queue_cb_t
+    void *stack_ctx; // module-specific context to be batch-submitted
+    int count; // ios to process before returning. only accessed by queue processor once submitted
+    int type; // duplicated from io_queue_cb_t
+};
+
+typedef struct io_queue_cb_s {
+    void *ctx; // untouched ptr for specific context
+    io_queue_stack_cb submit_cb; // callback given a full stack of pending IO's at once.
+    io_queue_stack_cb complete_cb;
+    io_queue_cb return_cb; // called on worker thread.
+    io_queue_cb finalize_cb; // called back on the worker thread.
+    int type;
+} io_queue_cb_t;
+
 typedef struct _mc_resp_bundle mc_resp_bundle;
 typedef struct {
     pthread_t thread_id;        /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
     struct event notify_event;  /* listen event for notify pipe */
+#ifdef HAVE_EVENTFD
+    int notify_event_fd;        /* notify counter */
+#else
     int notify_receive_fd;      /* receiving end of notify pipe */
     int notify_send_fd;         /* sending end of notify pipe */
+#endif
     struct thread_stats stats;  /* Stats generated by this thread */
-    struct conn_queue *new_conn_queue; /* queue of new connections to handle */
+    io_queue_cb_t io_queues[IO_QUEUE_COUNT];
+    struct conn_queue *ev_queue; /* Worker/conn event queue */
     cache_t *rbuf_cache;        /* static-sized read buffers */
     mc_resp_bundle *open_bundle;
-#ifdef EXTSTORE
     cache_t *io_cache;          /* IO objects */
+#ifdef EXTSTORE
     void *storage;              /* data object for storage system */
 #endif
     logger *l;                  /* logger buffer */
@@ -621,7 +709,13 @@ typedef struct {
 #ifdef TLS
     char   *ssl_wbuf;
 #endif
-
+    int napi_id;                /* napi id associated with this thread */
+#ifdef PROXY
+    void *L;
+    void *proxy_hooks;
+    void *proxy_stats;
+    // TODO: add ctx object so we can attach to queue.
+#endif
 } LIBEVENT_THREAD;
 
 /**
@@ -634,6 +728,7 @@ typedef struct _mc_resp {
     int wbytes; // bytes to write out of wbuf: might be able to nuke this.
     int tosend; // total bytes to send for this response
     void *write_and_free; /** free this memory after finishing writing */
+    io_pending_t *io_pending; /* pending IO descriptor for this response */
 
     item *item; /* item associated with this response object, with reference held */
     struct iovec iov[MC_RESP_IOVCOUNT]; /* built-in iovecs to simplify network code */
@@ -666,20 +761,15 @@ struct _mc_resp_bundle {
 };
 
 typedef struct conn conn;
-#ifdef EXTSTORE
-typedef struct _io_wrap {
-    obj_io io;
-    struct _io_wrap *next;
+
+struct _io_pending_t {
+    int io_queue_type; // matches one of IO_QUEUE_*
+    LIBEVENT_THREAD *thread;
     conn *c;
-    item *hdr_it;             /* original header item. */
-    mc_resp *resp;            /* associated response object */
-    unsigned int iovec_data;  /* specific index of data iovec */
-    bool noreply;             /* whether the response had noreply set */
-    bool miss;                /* signal a miss to unlink hdr_it */
-    bool badcrc;              /* signal a crc failure */
-    bool active;              /* tells if IO was dispatched or not */
-} io_wrap;
-#endif
+    mc_resp *resp; // associated response object
+    char data[120];
+};
+
 /**
  * The structure representing a connection into memcached.
  */
@@ -692,6 +782,7 @@ struct conn {
     bool mset_res; /** uses mset format for return code */
     bool close_after_write; /** flush write then move to close connection */
     bool rbuf_malloced; /** read buffer was malloc'ed for ascii mget, needs free() */
+    bool item_malloced; /** item for conn_nread state is a temporary malloc */
 #ifdef TLS
     SSL    *ssl;
     char   *ssl_wbuf;
@@ -725,14 +816,14 @@ struct conn {
     /* data for the swallow state */
     int    sbytes;    /* how many bytes to swallow */
 
+    int io_queues_submitted; /* see notes on io_queue_t */
+    io_queue_t io_queues[IO_QUEUE_COUNT]; /* set of deferred IO queues. */
 #ifdef EXTSTORE
-    int io_wrapleft;
     unsigned int recache_counter;
-    io_wrap *io_wraplist; /* linked list of io_wraps */
-    bool io_queued; /* FIXME: debugging flag */
 #endif
     enum protocol protocol;   /* which protocol this connection speaks */
     enum network_transport transport; /* what transport is used by this connection */
+    enum close_reasons close_reason; /* reason for transition into conn_closing */
 
     /* data for UDP clients */
     int    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
@@ -768,6 +859,11 @@ extern conn **conns;
 /* current time of day (updated periodically) */
 extern volatile rel_time_t current_time;
 
+#ifdef MEMCACHED_DEBUG
+extern volatile bool is_paused;
+extern volatile int64_t delta;
+#endif
+
 /* TODO: Move to slabs.h? */
 extern volatile int slab_rebalance_signal;
 
@@ -802,6 +898,11 @@ enum delta_result_type do_add_delta(conn *c, const char *key,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
 enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
+void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb ret_cb, io_queue_cb fin_cb);
+void conn_io_queue_setup(conn *c);
+io_queue_t *conn_io_queue_get(conn *c, int type);
+io_queue_cb_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type);
+void conn_io_queue_return(io_pending_t *io);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size,
     enum network_transport transport, struct event_base *base, void *ssl);
 
@@ -828,6 +929,11 @@ extern int daemonize(int nochdir, int noclose);
  */
 void memcached_thread_init(int nthreads, void *arg);
 void redispatch_conn(conn *c);
+void timeout_conn(conn *c);
+#ifdef PROXY
+void proxy_reload_notify(LIBEVENT_THREAD *t);
+#endif
+void return_io_pending(io_pending_t *io);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size,
     enum network_transport transport, void *ssl);
 void sidethread_conn_close(conn *c);
@@ -867,6 +973,7 @@ void STATS_UNLOCK(void);
 void threadlocal_stats_reset(void);
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
+LIBEVENT_THREAD *get_worker_thread(int id);
 
 /* Stat processing functions */
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
@@ -907,11 +1014,6 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 void stats_reset(void);
 void process_stat_settings(ADD_STAT add_stats, void *c);
 void process_stats_conns(ADD_STAT add_stats, void *c);
-
-#ifdef EXTSTORE
-void process_extstore_stats(ADD_STAT add_stats, conn *c);
-int _get_extstore(conn *c, item *it, mc_resp *resp);
-#endif
 
 #if HAVE_DROP_PRIVILEGES
 extern void setup_privilege_violations_handler(void);

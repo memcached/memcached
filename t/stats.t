@@ -1,12 +1,12 @@
 #!/usr/bin/perl
 
 use strict;
-use Test::More tests => 108;
+use Test::More tests => 113;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached("-o no_lru_crawler,no_lru_maintainer");
+my $server = new_memcached("-I 1024 -o slab_chunk_max=1024,no_lru_crawler,no_lru_maintainer");
 my $sock = $server->sock;
 
 
@@ -28,15 +28,16 @@ if (MemcachedTest::enabled_tls_testing()) {
     # when TLS is enabled, stats contains additional keys:
     #   - ssl_handshake_errors
     #   - time_since_server_cert_refresh
-    is(scalar(keys(%$stats)), 80, "expected count of stats values");
+    is(scalar(keys(%$stats)), 85, "expected count of stats values");
 } else {
-    is(scalar(keys(%$stats)), 78, "expected count of stats values");
+    is(scalar(keys(%$stats)), 83, "expected count of stats values");
 }
 
 # Test initial state
 foreach my $key (qw(curr_items total_items bytes cmd_get cmd_set get_hits evictions get_misses get_expired
                  bytes_written delete_hits delete_misses incr_hits incr_misses decr_hits get_flushed
-                 decr_misses listen_disabled_num lrutail_reflocked time_in_listen_disabled_us)) {
+                 decr_misses listen_disabled_num lrutail_reflocked time_in_listen_disabled_us
+                 store_too_large store_no_memory)) {
     is($stats->{$key}, 0, "initial $key is zero");
 }
 is($stats->{accepting_conns}, 1, "initial accepting_conns is one");
@@ -147,6 +148,7 @@ if (enabled_tls_testing() || !supports_unix_socket()) {
 is('on', $settings->{'evictions'});
 is('yes', $settings->{'cas_enabled'});
 is('no', $settings->{'auth_enabled_sasl'});
+is('no', $settings->{'shutdown_command'});
 
 print $sock "stats reset\r\n";
 is(scalar <$sock>, "RESET\r\n", "good stats reset");
@@ -189,3 +191,13 @@ is(scalar <$sock>, "END\r\n", "flushed item not returned");
 my $stats = mem_stats($sock);
 is($stats->{cmd_flush}, 1, "after one flush cmd_flush is 1");
 is($stats->{get_flushed}, 1, "after flush and a get, get_flushed is 1");
+
+# item too large
+my $large = "B" x 2048;
+my $largelen = length($large);
+print $sock "set too_large 0 0 $largelen\r\n$large\r\n";
+is(scalar <$sock>, "SERVER_ERROR object too large for cache\r\n",
+    "set rejected due to value too large");
+$stats = mem_stats($sock);
+is($stats->{'store_too_large'}, 1,
+    "recorded store failure due to value too large")

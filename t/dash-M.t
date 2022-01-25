@@ -23,11 +23,15 @@ while($resp eq "STORED\r\n") {
 
 my $max_stored = $key - 1;
 
-plan tests => $max_stored + 1;
+plan tests => $max_stored + 2;
 
 print $sock "set dash$key 0 0 $vallen\r\n$value\r\n";
 is(scalar <$sock>, "SERVER_ERROR out of memory storing object\r\n",
    "failed to add another one.");
+
+my $stats = mem_stats($sock);
+is($stats->{"store_no_memory"}, 2,
+    "recorded store failures due to no memory");
 
 for($key = 0; $key < $max_stored; $key++) {
     mem_get_is $sock, "dash$key", $value, "Failed at dash$key";

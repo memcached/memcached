@@ -3,6 +3,7 @@
 *.gcda
 *.gcno
 *.tcov
+.cache
 .deps
 .buildbot
 INSTALL

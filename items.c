@@ -2,8 +2,8 @@
 #include "memcached.h"
 #include "bipbuffer.h"
 #include "slab_automove.h"
-#ifdef EXTSTORE
 #include "storage.h"
+#ifdef EXTSTORE
 #include "slab_automove_extstore.h"
 #endif
 #include <sys/stat.h>
@@ -614,7 +614,8 @@ char *item_cachedump(const unsigned int slabs_clsid, const unsigned int limit, u
 
     while (it != NULL && (limit == 0 || shown < limit)) {
         assert(it->nkey <= KEY_MAX_LENGTH);
-        if (it->nbytes == 0 && it->nkey == 0) {
+        // protect from printing binary keys.
+        if ((it->nbytes == 0 && it->nkey == 0) || (it->it_flags & ITEM_KEY_BINARY)) {
             it = it->next;
             continue;
         }
@@ -1028,8 +1029,8 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
     if (settings.verbose > 2)
         fprintf(stderr, "\n");
     /* For now this is in addition to the above verbose logging. */
-    LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key, nkey,
-               (it) ? ITEM_clsid(it) : 0, c->sfd);
+    LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key,
+               nkey, (it) ? it->nbytes : 0, (it) ? ITEM_clsid(it) : 0, c->sfd);
 
     return it;
 }

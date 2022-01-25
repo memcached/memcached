@@ -33,38 +33,37 @@ enum authfile_ret authfile_load(const char *file) {
     char *auth_data = NULL;
     auth_t auth_entries[MAX_ENTRIES];
 
-    if (stat(file, &sb) == -1) {
-        return AUTHFILE_MISSING;
-    }
-
-    auth_data = calloc(1, sb.st_size);
-
-    if (auth_data == NULL) {
-        return AUTHFILE_OOM;
-    }
-
     FILE *pwfile = fopen(file, "r");
     if (pwfile == NULL) {
-        // not strictly necessary but to be safe.
-        free(auth_data);
         return AUTHFILE_OPENFAIL;
+    } else if (fstat(fileno(pwfile), &sb)) {
+        fclose(pwfile);
+        return AUTHFILE_STATFAIL;
     }
 
+    auth_data = calloc(1, sb.st_size + 1);
+
     char *auth_cur = auth_data;
+    char *auth_end = auth_data + sb.st_size;
     auth_t *entry_cur = auth_entries;
     int used = 0;
 
-    while ((fgets(auth_cur, MAX_ENTRY_LEN, pwfile)) != NULL) {
+    while ((fgets(auth_cur, auth_end - auth_cur < MAX_ENTRY_LEN ? auth_end - auth_cur : MAX_ENTRY_LEN, pwfile)) != NULL) {
         int x;
         int found = 0;
 
         for (x = 0; x < MAX_ENTRY_LEN; x++) {
-            if (!found && auth_cur[x] == ':') {
-                entry_cur->user = auth_cur;
-                entry_cur->ulen = x;
-                entry_cur->pass = &auth_cur[x+1];
-                found = 1;
-            } else if (found) {
+            if (!found) {
+                if (auth_cur[x] == '\0') {
+                    // The username is malformed - this is either the end of the file or a null byte.
+                    break;
+                } else if (auth_cur[x] == ':') {
+                    entry_cur->user = auth_cur;
+                    entry_cur->ulen = x;
+                    entry_cur->pass = &auth_cur[x+1];
+                    found = 1;
+                }
+            } else {
                 // Find end of password.
                 if (auth_cur[x] == '\n' ||
                     auth_cur[x] == '\r' ||

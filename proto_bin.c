@@ -6,6 +6,7 @@
 
 #include "memcached.h"
 #include "proto_bin.h"
+#include "storage.h"
 #ifdef TLS
 #include "tls.h"
 #endif
@@ -261,10 +262,10 @@ static void complete_incr_bin(conn *c, char *extbuf) {
     char tmpbuf[INCR_MAX_STORAGE_LEN];
     uint64_t cas = 0;
 
+    assert(c != NULL);
     protocol_binary_response_incr* rsp = (protocol_binary_response_incr*)c->resp->wbuf;
     protocol_binary_request_incr* req = (void *)extbuf;
 
-    assert(c != NULL);
     //assert(c->wsize >= sizeof(*rsp));
 
     /* fix byteorder in the request */
@@ -523,7 +524,7 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
             /* Add the data minus the CRLF */
 #ifdef EXTSTORE
             if (it->it_flags & ITEM_HDR) {
-                if (_get_extstore(c, it, c->resp) != 0) {
+                if (storage_get_item(c, it, c->resp) != 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.get_oom_extstore++;
                     pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -1031,6 +1032,7 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
                 write_bin_response(c, NULL, 0, 0, 0);
                 conn_set_state(c, conn_mwrite);
                 c->close_after_write = true;
+                c->close_reason = NORMAL_CLOSE;
             } else {
                 protocol_error = 1;
             }
@@ -1281,10 +1283,9 @@ static void process_bin_delete(conn *c) {
     item *it;
     uint32_t hv;
 
+    assert(c != NULL);
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
-
-    assert(c != NULL);
 
     if (settings.verbose > 1) {
         int ii;

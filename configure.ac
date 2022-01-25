@@ -75,17 +75,16 @@ AS_IF([test "$ICC" = "yes" -o "$GCC" = "yes"],
     AS_IF(test "$CLANG" = "no",[CFLAGS="$CFLAGS -pthread"])
 ])
 
+dnl clang will error .arch_extension crc32 assembler directives to allow
+dnl assembling crc instructions without this
+AS_IF(test "$CLANG" = "yes",[CFLAGS="$CFLAGS -Wno-language-extension-token"])
+
 if test "$ICC" = "no"; then
    AC_PROG_CC_C99
 fi
 
 AM_PROG_CC_C_O
 AC_PROG_INSTALL
-
-dnl ARM crc32 optimization is disabled until we have hardware for an automated
-dnl regression test.
-dnl AC_ARG_ENABLE(arm_crc32,
-dnl  [AS_HELP_STRING([--enable-arm-crc32], [Enable ARMv8 CRC32 instructions])])
 
 AC_ARG_ENABLE(extstore,
   [AS_HELP_STRING([--disable-extstore], [Disable external storage (extstore)])])
@@ -114,6 +113,12 @@ AC_ARG_ENABLE(static,
 
 AC_ARG_ENABLE(unix_socket,
   [AS_HELP_STRING([--disable-unix-socket], [Disable unix domain socket])])
+
+AC_ARG_ENABLE(proxy,
+  [AS_HELP_STRING([--enable-proxy], [Enable proxy code EXPERIMENTAL])])
+
+AC_ARG_ENABLE(proxy-uring,
+  [AS_HELP_STRING([--enable-proxy-uring], [Enable proxy io_uring code EXPERIMENTAL])])
 
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
@@ -206,10 +211,6 @@ if test "x$enable_tls" = "xyes"; then
     AC_DEFINE([TLS],1,[Set to nonzero if you want to enable TLS])
 fi
 
-if test "x$enable_arm_crc32" = "xyes"; then
-    AC_DEFINE([ARM_CRC32],1,[Set to nonzero if you want to enable ARMv8 crc32])
-fi
-
 if test "x$enable_asan" = "xyes"; then
     AC_DEFINE([ASAN],1,[Set to nonzero if you want to compile using ASAN])
 fi
@@ -222,6 +223,18 @@ if test "x$enable_unix_socket" = "xno"; then
     AC_DEFINE([DISABLE_UNIX_SOCKET],1,[Set to nonzero if you want to disable unix domain socket])
 fi
 
+if test "x$enable_proxy" = "xyes"; then
+    AC_DEFINE([PROXY],1,[Set to nonzero if you want to enable proxy code])
+    CPPFLAGS="-Ivendor/lua/src -Ivendor/liburing/src/include $CPPFLAGS"
+    dnl lua needs math lib.
+    LIBS="$LIBS -lm -ldl"
+fi
+
+if test "x$enable_proxy_uring" = "xyes"; then
+    AC_DEFINE([HAVE_LIBURING],1,[Set to nonzero if you want to enable proxy uring handling])
+    CPPFLAGS="-Ivendor/liburing/src/include $CPPFLAGS"
+fi
+
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
@@ -231,6 +244,8 @@ AM_CONDITIONAL([ENABLE_TLS],[test "$enable_tls" = "yes"])
 AM_CONDITIONAL([ENABLE_ASAN],[test "$enable_asan" = "yes"])
 AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
+AM_CONDITIONAL([ENABLE_PROXY],[test "$enable_proxy" = "yes"])
+AM_CONDITIONAL([ENABLE_PROXY_URING],[test "$enable_proxy_uring" = "yes"])
 
 
 AC_SUBST(DTRACE)
@@ -392,6 +407,22 @@ if test $ac_cv_libevent_dir != "(system)"; then
     CPPFLAGS="-I$ac_cv_libevent_dir $CPPFLAGS"
   fi
 fi
+
+AC_RUN_IFELSE(
+   [AC_LANG_PROGRAM([
+#include <event.h>
+   ], [dnl
+const char *ver = event_get_version();
+return (ver != NULL && *ver != '1') ? 0 : 1;
+   ])
+   ],[
+     AC_DEFINE(HAVE_LIBEVENT_NEW, 1, [linked to libevent])
+   ],
+   [
+     AC_MSG_ERROR([libevent2 is required])
+   ],
+   []
+[])
 
 trylibssldir=""
 AC_ARG_WITH(libssl,
@@ -633,6 +664,7 @@ AC_CHECK_FUNCS(memcntl)
 AC_CHECK_FUNCS(clock_gettime)
 AC_CHECK_FUNCS(preadv)
 AC_CHECK_FUNCS(pread)
+AC_CHECK_FUNCS(eventfd)
 AC_CHECK_FUNCS([accept4], [AC_DEFINE(HAVE_ACCEPT4, 1, [Define to 1 if support accept4])])
 AC_CHECK_FUNCS([getopt_long], [AC_DEFINE(HAVE_GETOPT_LONG, 1, [Define to 1 if support getopt_long])])
 

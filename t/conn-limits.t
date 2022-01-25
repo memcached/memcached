@@ -8,7 +8,7 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached('-o resp_obj_mem_limit=1,read_buf_mem_limit=1 -t 32 -R 500');
+my $server = new_memcached('-o read_buf_mem_limit=1 -t 32 -R 500');
 my $sock = $server->sock;
 
 # The minimum limit is 1 megabyte. This is then split between each of the
