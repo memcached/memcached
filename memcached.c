@@ -3836,7 +3836,9 @@ static void clock_handler(const evutil_socket_t fd, const short which, void *arg
 
         authfile_load(settings.auth_file);
 #ifdef PROXY
-        proxy_start_reload(settings.proxy_ctx);
+        if (settings.proxy_ctx) {
+            proxy_start_reload(settings.proxy_ctx);
+        }
 #endif
     }
 
