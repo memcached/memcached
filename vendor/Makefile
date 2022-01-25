@@ -6,5 +6,7 @@ clean:
 	cd lua && $(MAKE) clean && cd ..
 	cd mcmc && $(MAKE) clean && cd ..
 
+install: ;
+
 dist: clean
 distdir: clean
