@@ -4246,10 +4246,35 @@ static int enable_large_pages(void) {
     return ret;
 #elif defined(__linux__) && defined(MADV_HUGEPAGE)
     /* check if transparent hugepages is compiled into the kernel */
-    struct stat st;
-    int ret = stat("/sys/kernel/mm/transparent_hugepage/enabled", &st);
-    if (ret || !(st.st_mode & S_IFREG)) {
+    /* RH based systems possibly uses a different path */
+    static const char *mm_thp_paths[] = {
+        "/sys/kernel/mm/transparent_hugepage/enabled",
+        "/sys/kernel/mm/redhat_transparent_hugepage/enabled",
+        NULL
+    };
+
+    char thpb[128] = {0};
+    int pfd = -1;
+    for (const char **p = mm_thp_paths; *p; p++) {
+        if ((pfd = open(*p, O_RDONLY)) != -1)
+            break;
+    }
+
+    if (pfd == -1) {
         fprintf(stderr, "Transparent huge pages support not detected.\n");
+        fprintf(stderr, "Will use default page size.\n");
+        return -1;
+    }
+    ssize_t rd = read(pfd, thpb, sizeof(thpb));
+    close(pfd);
+    if (rd <= 0) {
+        fprintf(stderr, "Transparent huge pages could not read the configuration.\n");
+        fprintf(stderr, "Will use default page size.\n");
+        return -1;
+    }
+    thpb[rd] = 0;
+    if (strstr(thpb, "[never]")) {
+        fprintf(stderr, "Transparent huge pages support disabled.\n");
         fprintf(stderr, "Will use default page size.\n");
         return -1;
     }
