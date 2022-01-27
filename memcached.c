@@ -4040,6 +4040,9 @@ static void usage(void) {
 #endif
 #ifdef PROXY
     printf("   - proxy_config:        path to lua config file.\n");
+#ifdef HAVE_LIBURING
+    printf("   - proxy_uring:         enable IO_URING for proxy backends.\n");
+#endif
 #endif
 #ifdef TLS
     printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"
@@ -4732,6 +4735,7 @@ int main (int argc, char **argv) {
 #endif
 #ifdef PROXY
         PROXY_CONFIG,
+        PROXY_URING,
 #endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
@@ -4790,6 +4794,7 @@ int main (int argc, char **argv) {
 #endif
 #ifdef PROXY
         [PROXY_CONFIG] = "proxy_config",
+        [PROXY_URING] = "proxy_uring",
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
@@ -5549,6 +5554,9 @@ int main (int argc, char **argv) {
                 settings.binding_protocol = proxy_prot;
                 protocol_specified = true;
                 break;
+            case PROXY_URING:
+                settings.proxy_uring = true;
+                break;
 #endif
 #ifdef MEMCACHED_DEBUG
             case RELAXED_PRIVILEGES:
@@ -5955,7 +5963,7 @@ int main (int argc, char **argv) {
     /* start up worker threads if MT mode */
 #ifdef PROXY
     if (settings.proxy_enabled) {
-        proxy_init();
+        proxy_init(settings.proxy_uring);
         if (proxy_load_config(settings.proxy_ctx) != 0) {
             exit(EXIT_FAILURE);
         }

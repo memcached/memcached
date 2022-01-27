@@ -517,6 +517,7 @@ struct settings {
     char *memory_file;  /* warm restart memory file path */
 #ifdef PROXY
     bool proxy_enabled;
+    bool proxy_uring; /* if the proxy should use io_uring */
     char *proxy_startfile; /* lua file to run when workers start */
     void *proxy_ctx; /* proxy's state context */
 #endif

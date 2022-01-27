@@ -193,6 +193,7 @@ typedef struct {
     pool_head_t manager_head; // stack for pool deallocation.
     bool worker_done; // signal variable for the worker lock/cond system.
     bool worker_failed; // covered by worker_lock as well.
+    bool use_uring; // use IO_URING for backend connections.
     struct proxy_global_stats global_stats;
     struct proxy_user_stats user_stats;
     struct proxy_timeouts timeouts; // NOTE: updates covered by stats_lock
@@ -652,54 +653,60 @@ static int _start_proxy_config_threads(proxy_ctx_t *ctx) {
 // event threads.
 static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
 #ifdef HAVE_LIBURING
-    bool use_uring = true;
+    bool use_uring = t->ctx->use_uring;
     struct io_uring_params p = {0};
     assert(t->event_fd); // uring only exists where eventfd also does.
 
     // Setup the CQSIZE to be much larger than SQ size, since backpressure
     // issues can cause us to block on SQ submissions and as a network server,
     // stuff happens.
-    p.flags = IORING_SETUP_CQSIZE;
-    p.cq_entries = PRING_QUEUE_CQ_ENTRIES;
-    int ret = io_uring_queue_init_params(PRING_QUEUE_SQ_ENTRIES, &t->ring, &p);
-    if (ret) {
-        perror("io_uring_queue_init_params");
-        exit(1);
-    }
-    if (!(p.features & IORING_FEAT_NODROP)) {
-        fprintf(stderr, "uring: kernel missing IORING_FEAT_NODROP, using libevent\n");
-        use_uring = false;
-    }
-    if (!(p.features & IORING_FEAT_SINGLE_MMAP)) {
-        fprintf(stderr, "uring: kernel missing IORING_FEAT_SINGLE_MMAP, using libevent\n");
-        use_uring = false;
-    }
-    if (!(p.features & IORING_FEAT_FAST_POLL)) {
-        fprintf(stderr, "uring: kernel missing IORING_FEAT_FAST_POLL, using libevent\n");
-        use_uring = false;
-    }
 
     if (use_uring) {
-        // FIXME: Sigh. we need a blocking event_fd for io_uring but we've a
-        // chicken and egg in here. need a better structure... in meantime
-        // re-create the event_fd.
-        close(t->event_fd);
-        t->event_fd = eventfd(0, 0);
-        // FIXME: hack for event init.
-        t->ur_notify_event.set = false;
-        _proxy_evthr_evset_notifier(t);
+        p.flags = IORING_SETUP_CQSIZE;
+        p.cq_entries = PRING_QUEUE_CQ_ENTRIES;
+        int ret = io_uring_queue_init_params(PRING_QUEUE_SQ_ENTRIES, &t->ring, &p);
+        if (ret) {
+            perror("io_uring_queue_init_params");
+            exit(1);
+        }
+        if (!(p.features & IORING_FEAT_NODROP)) {
+            fprintf(stderr, "uring: kernel missing IORING_FEAT_NODROP, using libevent\n");
+            use_uring = false;
+        }
+        if (!(p.features & IORING_FEAT_SINGLE_MMAP)) {
+            fprintf(stderr, "uring: kernel missing IORING_FEAT_SINGLE_MMAP, using libevent\n");
+            use_uring = false;
+        }
+        if (!(p.features & IORING_FEAT_FAST_POLL)) {
+            fprintf(stderr, "uring: kernel missing IORING_FEAT_FAST_POLL, using libevent\n");
+            use_uring = false;
+        }
 
-        // periodic data updater for event thread
-        t->ur_clock_event.cb = proxy_event_updater_ur;
-        t->ur_clock_event.udata = t;
-        t->ur_clock_event.set = false;
-        _proxy_evthr_evset_clock(t);
+        if (use_uring) {
+            // FIXME: Sigh. we need a blocking event_fd for io_uring but we've a
+            // chicken and egg in here. need a better structure... in meantime
+            // re-create the event_fd.
+            close(t->event_fd);
+            t->event_fd = eventfd(0, 0);
+            // FIXME: hack for event init.
+            t->ur_notify_event.set = false;
+            _proxy_evthr_evset_notifier(t);
 
-        t->use_uring = true;
-        return;
+            // periodic data updater for event thread
+            t->ur_clock_event.cb = proxy_event_updater_ur;
+            t->ur_clock_event.udata = t;
+            t->ur_clock_event.set = false;
+            _proxy_evthr_evset_clock(t);
+
+            t->use_uring = true;
+            return;
+        } else {
+            // Decided to not use io_uring, so don't waste memory.
+            t->use_uring = false;
+            io_uring_queue_exit(&t->ring);
+        }
     } else {
-        // Decided to not use io_uring, so don't waste memory.
-        io_uring_queue_exit(&t->ring);
+        t->use_uring = false;
     }
 #endif
 
@@ -739,9 +746,10 @@ static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
 
 // start the centralized lua state and config thread.
 // TODO: return ctx/state. avoid global vars.
-void proxy_init(void) {
+void proxy_init(bool use_uring) {
     proxy_ctx_t *ctx = calloc(1, sizeof(proxy_ctx_t));
     settings.proxy_ctx = ctx; // FIXME: return and deal with outside?
+    ctx->use_uring = use_uring;
 
     pthread_mutex_init(&ctx->config_lock, NULL);
     pthread_cond_init(&ctx->config_cond, NULL);
@@ -777,6 +785,7 @@ void proxy_init(void) {
     ctx->proxy_threads = threads;
     for (int i = 0; i < 1; i++) {
         proxy_event_thread_t *t = &threads[i];
+        t->ctx = ctx;
 #ifdef USE_EVENTFD
         t->event_fd = eventfd(0, EFD_NONBLOCK);
         // FIXME: eventfd can fail?
@@ -797,7 +806,6 @@ void proxy_init(void) {
         pthread_mutex_init(&t->mutex, NULL);
         pthread_cond_init(&t->cond, NULL);
 
-        t->ctx = ctx;
         memcpy(&t->timeouts, &ctx->timeouts, sizeof(t->timeouts));
 
 #ifdef HAVE_LIBURING
