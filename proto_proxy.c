@@ -1423,8 +1423,7 @@ static void proxy_backend_wrhandler_ur(void *udata, struct io_uring_cqe *cqe) {
         be->bad = false;
         be->failed_count = 0;
     }
-    io_pending_proxy_t *io = NULL;
-    int res = _flush_pendig_write(be);
+    int res = _flush_pending_write(be);
     if (res == -1) {
         _reset_bad_backend(be);
         // FIXME: backend_failed?
@@ -1477,7 +1476,7 @@ static void proxy_event_handler_ur(void *udata, struct io_uring_cqe *cqe) {
             P_DEBUG("%s: deferring IO pending connecting\n", __func__);
             flags |= EV_WRITE;
         } else {
-            flags = flush_pending_write(be);
+            flags = _flush_pending_write(be);
         }
 
         if (flags == -1) {
