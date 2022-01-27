@@ -1248,10 +1248,18 @@ int try_read_command_proxy(conn *c) {
 void complete_nread_proxy(conn *c) {
     assert(c != NULL);
 
-    conn_set_state(c, conn_new_cmd);
-
     LIBEVENT_THREAD *thr = c->thread;
     lua_State *L = thr->L;
+
+    // TODO: (v2) less than ideal method of telling if we need to fall back to
+    // the ascii nread handler: meaning proxy is enabled but this mutation
+    // command wasn't overridden.
+    if (lua_isnil(L, -1)) {
+        complete_nread_ascii(c);
+        return;
+    }
+
+    conn_set_state(c, conn_new_cmd);
     lua_State *Lc = lua_tothread(L, -1);
     // FIXME: could use a quicker method to retrieve the request.
     mcp_request_t *rq = luaL_checkudata(Lc, -1, "mcp.request");
