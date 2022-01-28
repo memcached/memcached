@@ -63,7 +63,7 @@
         pthread_mutex_unlock(&ctx->stats_lock); \
 }
 
-// FIXME: do include dir properly.
+// FIXME (v2): do include dir properly.
 #include "vendor/mcmc/mcmc.h"
 
 // Note: value created from thin air. Could be shorter.
@@ -271,7 +271,7 @@ struct mcp_request_s {
 typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
 #define MAX_IPLEN 45
 #define MAX_PORTLEN 6
-// TODO: IOV_MAX tends to be 1000+ which would allow for more batching but we
+// TODO (v2): IOV_MAX tends to be 1000+ which would allow for more batching but we
 // don't have a good temporary space and don't want to malloc/free on every
 // write. transmit() uses the stack but we can't do that for uring's use case.
 #if (IOV_MAX > 128)
@@ -383,7 +383,7 @@ struct mcp_pool_s {
     STAILQ_ENTRY(mcp_pool_s) next; // stack for deallocator.
     int refcount;
     int phc_ref;
-    int self_ref; // TODO: double check that this is needed.
+    int self_ref; // TODO (v2): double check that this is needed.
     int pool_size;
     mcp_pool_be_t pool[];
 };
@@ -419,8 +419,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
 // functions starting with _ are breakouts for the public functions.
 
 // see also: process_extstore_stats()
-// FIXME: get context off of conn? global variables
-// FIXME: stat coverage
+// FIXME (v2): get context off of conn? global variables
 void proxy_stats(ADD_STAT add_stats, conn *c) {
     if (!settings.proxy_enabled) {
        return;
@@ -554,8 +553,8 @@ static void *_proxy_manager_thread(void *arg) {
 }
 
 // Thread handling the configuration reload sequence.
-// TODO: get a logger instance.
-// TODO: making this "safer" will require a few phases of work.
+// TODO (v2): get a logger instance.
+// TODO (v2): making this "safer" will require a few phases of work.
 // 1) JFDI
 // 2) "test VM" -> from config thread, test the worker reload portion.
 // 3) "unit testing" -> from same temporary worker VM, execute set of
@@ -591,7 +590,7 @@ static void *_proxy_config_thread(void *arg) {
             continue;
         }
 
-        // TODO: create a temporary VM to test-load the worker code into.
+        // TODO (v2): create a temporary VM to test-load the worker code into.
         // failing to load partway through the worker VM reloads can be
         // critically bad if we're not careful about references.
         // IE: the config VM _must_ hold references to selectors and backends
@@ -649,7 +648,7 @@ static int _start_proxy_config_threads(proxy_ctx_t *ctx) {
     return 0;
 }
 
-// TODO: IORING_SETUP_ATTACH_WQ port from bench_event once we have multiple
+// TODO (v2): IORING_SETUP_ATTACH_WQ port from bench_event once we have multiple
 // event threads.
 static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
 #ifdef HAVE_LIBURING
@@ -683,12 +682,12 @@ static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
         }
 
         if (use_uring) {
-            // FIXME: Sigh. we need a blocking event_fd for io_uring but we've a
+            // FIXME (v2): Sigh. we need a blocking event_fd for io_uring but we've a
             // chicken and egg in here. need a better structure... in meantime
             // re-create the event_fd.
             close(t->event_fd);
             t->event_fd = eventfd(0, 0);
-            // FIXME: hack for event init.
+            // FIXME (v2): hack for event init.
             t->ur_notify_event.set = false;
             _proxy_evthr_evset_notifier(t);
 
@@ -722,7 +721,7 @@ static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
 
     // listen for notifications.
     // NULL was thread_libevent_process
-    // FIXME: use modern format? (event_assign)
+    // FIXME (v2): use modern format? (event_assign)
 #ifdef USE_EVENTFD
     event_set(&t->notify_event, t->event_fd,
           EV_READ | EV_PERSIST, proxy_event_handler, t);
@@ -745,10 +744,10 @@ static void _proxy_init_evthread_events(proxy_event_thread_t *t) {
 }
 
 // start the centralized lua state and config thread.
-// TODO: return ctx/state. avoid global vars.
+// TODO (v2): return ctx ptr. avoid global vars.
 void proxy_init(bool use_uring) {
     proxy_ctx_t *ctx = calloc(1, sizeof(proxy_ctx_t));
-    settings.proxy_ctx = ctx; // FIXME: return and deal with outside?
+    settings.proxy_ctx = ctx;
     ctx->use_uring = use_uring;
 
     pthread_mutex_init(&ctx->config_lock, NULL);
@@ -759,7 +758,7 @@ void proxy_init(bool use_uring) {
     pthread_cond_init(&ctx->manager_cond, NULL);
     pthread_mutex_init(&ctx->stats_lock, NULL);
 
-    // FIXME: default defines.
+    // FIXME (v2): default defines.
     ctx->timeouts.connect.tv_sec = 5;
     ctx->timeouts.retry.tv_sec = 3;
     ctx->timeouts.read.tv_sec = 3;
@@ -863,7 +862,6 @@ int proxy_load_config(void *arg) {
     return 0;
 }
 
-// TODO: this will be done differently while implementing config reloading.
 static int _copy_pool(lua_State *from, lua_State *to) {
     // from, -3 should have he userdata.
     mcp_pool_t *p = luaL_checkudata(from, -3, "mcp.pool");
@@ -916,7 +914,7 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
             lua_pushnumber(to, lua_tonumber(from, -1));
             break;
         case LUA_TSTRING:
-            // FIXME: temp var + tolstring worth doing?
+            // FIXME (v2): temp var + tolstring worth doing?
             lua_pushlstring(to, lua_tostring(from, -1), lua_rawlen(from, -1));
             break;
         case LUA_TTABLE:
@@ -947,7 +945,7 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
             // top of to should be the new table.
             break;
         default:
-            // FIXME: error.
+            // FIXME: throw proper error.
             fprintf(stderr, "unhandled type\n");
             exit(1);
     }
@@ -1065,7 +1063,7 @@ void proxy_submit_cb(io_queue_t *q) {
     // order.
     // So we can do with a single list here, but we need to repair the list as
     // responses are parsed. (in the req_remaining-- section)
-    // TODO:
+    // TODO (v2):
     // - except we can't do that because the deferred IO stack isn't
     // compatible with queue.h.
     // So for now we build the secondary list with an STAILQ, which
@@ -1093,10 +1091,9 @@ void proxy_submit_cb(io_queue_t *q) {
     pthread_mutex_unlock(&e->mutex);
 
     // Signal to check queue.
-    // TODO: error handling.
 #ifdef USE_EVENTFD
     uint64_t u = 1;
-    // FIXME: check result? is it ever possible to get a short write/failure
+    // TODO (v2): check result? is it ever possible to get a short write/failure
     // for an eventfd?
     if (write(e->event_fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
         assert(1 == 0);
@@ -1175,7 +1172,7 @@ void proxy_finalize_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
 
     // release our coroutine reference.
-    // TODO: coroutines are reusable in lua 5.4. we can stack this onto a freelist
+    // TODO (v2): coroutines are reusable in lua 5.4. we can stack this onto a freelist
     // after a lua_resetthread(Lc) call.
     if (p->coro_ref) {
         // Note: lua registry is the same for main thread or a coroutine.
@@ -1261,12 +1258,12 @@ void complete_nread_proxy(conn *c) {
 
     conn_set_state(c, conn_new_cmd);
     lua_State *Lc = lua_tothread(L, -1);
-    // FIXME: could use a quicker method to retrieve the request.
+    // TODO (v2): could cache a ptr to remove some lua here.
     mcp_request_t *rq = luaL_checkudata(Lc, -1, "mcp.request");
 
     // validate the data chunk.
     if (strncmp((char *)c->item + rq->pr.vlen - 2, "\r\n", 2) != 0) {
-        // TODO: error handling.
+        // FIXME: throw a proper error.
         lua_settop(L, 0); // clear anything remaining on the main thread.
         return;
     }
@@ -1367,7 +1364,7 @@ static void _proxy_evthr_evset_be_retry(mcp_backend_t *be) {
     be->ur_te_ev.udata = be;
 
     sqe = io_uring_get_sqe(&be->event_thread->ring);
-    // FIXME: NULL?
+    // TODO (v2): NULL?
 
     io_uring_prep_timeout(sqe, &be->event_thread->timeouts.retry_ur, 0, 0);
     io_uring_sqe_set_data(sqe, &be->ur_te_ev);
@@ -1410,7 +1407,7 @@ static void proxy_backend_handler_ur(void *udata, struct io_uring_cqe *cqe) {
         return;
     }
 
-    // FIXME: when exactly do we need to reset the backend handler?
+    // TODO (v2): when exactly do we need to reset the backend handler?
     if (!STAILQ_EMPTY(&be->io_head)) {
         _proxy_evthr_evset_be_read(be, be->rbuf, READ_BUFFER_SIZE, &be->event_thread->timeouts.read_ur);
     }
@@ -1426,7 +1423,7 @@ static void proxy_backend_wrhandler_ur(void *udata, struct io_uring_cqe *cqe) {
         // We were connecting, now ensure we're properly connected.
         if (mcmc_check_nonblock_connect(be->client, &err) != MCMC_OK) {
             // kick the bad backend, clear the queue, retry later.
-            // FIXME: if a connect fails, anything currently in the queue
+            // TODO (v2): if a connect fails, anything currently in the queue
             // should be safe to hold up until their timeout.
             _reset_bad_backend(be);
             _backend_failed_ur(be);
@@ -1442,7 +1439,7 @@ static void proxy_backend_wrhandler_ur(void *udata, struct io_uring_cqe *cqe) {
     int res = _flush_pending_write(be);
     if (res == -1) {
         _reset_bad_backend(be);
-        // FIXME: backend_failed?
+        // FIXME: backend_failed counter?
         return;
     }
 
@@ -1461,14 +1458,14 @@ static void proxy_event_handler_ur(void *udata, struct io_uring_cqe *cqe) {
     assert(cqe->res != -EINVAL);
     if (cqe->res != sizeof(eventfd_t)) {
         P_DEBUG("%s: cqe->res: %d\n", __func__, cqe->res);
-        // FIXME: figure out if this is impossible, and how to handle if not.
+        // FIXME (v2): figure out if this is impossible, and how to handle if not.
         assert(1 == 0);
     }
 
     // need to re-arm the listener every time.
     _proxy_evthr_evset_notifier(t);
 
-    // TODO: sqe queues for writing to backends
+    // TODO (v2): sqe queues for writing to backends
     //  - _ur handler for backend write completion is to set a read event and
     //  re-submit. ugh.
     // Should be possible to have standing reads, but flow is harder and lets
@@ -1482,7 +1479,7 @@ static void proxy_event_handler_ur(void *udata, struct io_uring_cqe *cqe) {
     // Re-walk each backend and check set event as required.
     mcp_backend_t *be = NULL;
 
-    // TODO: for each backend, queue writev's into sqe's
+    // TODO (v2): for each backend, queue writev's into sqe's
     // move the backend sqe bits into a write complete handler
     STAILQ_FOREACH(be, &t->be_head, be_next) {
         be->stacked = false;
@@ -1498,8 +1495,8 @@ static void proxy_event_handler_ur(void *udata, struct io_uring_cqe *cqe) {
         if (flags == -1) {
             _reset_bad_backend(be);
         } else {
-            // FIXME: needs a re-write to handle sqe starvation.
-            // FIXME: can't actually set the read here? need to confirm _some_
+            // FIXME (v2): needs a re-write to handle sqe starvation.
+            // FIXME (v2): can't actually set the read here? need to confirm _some_
             // write first?
             if (flags & EV_WRITE) {
                 _proxy_evthr_evset_be_wrpoll(be, &t->timeouts.connect_ur);
@@ -1520,7 +1517,7 @@ static void _proxy_evthr_evset_be_wrpoll(mcp_backend_t *be, struct __kernel_time
     be->ur_wr_ev.udata = be;
 
     sqe = io_uring_get_sqe(&be->event_thread->ring);
-    // FIXME: NULL?
+    // FIXME (v2): NULL?
 
     io_uring_prep_poll_add(sqe, mcmc_fd(be->client), POLLOUT);
     io_uring_sqe_set_data(sqe, &be->ur_wr_ev);
@@ -1549,7 +1546,7 @@ static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len,
     be->ur_rd_ev.udata = be;
 
     sqe = io_uring_get_sqe(&be->event_thread->ring);
-    // FIXME: NULL?
+    // FIXME (v2): NULL?
     assert(be->rbuf != NULL);
     io_uring_prep_recv(sqe, mcmc_fd(be->client), buf, len, 0);
     io_uring_sqe_set_data(sqe, &be->ur_rd_ev);
@@ -1558,7 +1555,7 @@ static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len,
     sqe->flags |= IOSQE_IO_LINK;
 
     // add a timeout.
-    // TODO: we can pre-set the event data and avoid always re-doing it here.
+    // TODO (v2): we can pre-set the event data and avoid always re-doing it here.
     be->ur_te_ev.cb = proxy_backend_timeout_handler_ur;
     be->ur_te_ev.udata = be;
     sqe = io_uring_get_sqe(&be->event_thread->ring);
@@ -1571,7 +1568,7 @@ static void _proxy_evthr_evset_clock(proxy_event_thread_t *t) {
     struct io_uring_sqe *sqe;
 
     sqe = io_uring_get_sqe(&t->ring);
-    // FIXME: NULL?
+    // FIXME (v2): NULL?
 
     io_uring_prep_timeout(sqe, &updater_ts, 0, 0);
     io_uring_sqe_set_data(sqe, &t->ur_clock_event);
@@ -1588,22 +1585,22 @@ static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t) {
     t->ur_notify_event.udata = t;
 
     sqe = io_uring_get_sqe(&t->ring);
-    // FIXME: NULL?
+    // FIXME (v2): NULL?
     io_uring_prep_read(sqe, t->event_fd, &t->event_counter, sizeof(eventfd_t), 0);
     io_uring_sqe_set_data(sqe, &t->ur_notify_event);
 }
 
-// TODO: CQE's can generate many SQE's, so we might need to occasionally check
+// TODO (v2): CQE's can generate many SQE's, so we might need to occasionally check
 // for space free in the sqe queue and submit in the middle of the cqe
 // foreach.
 // There might be better places to do this, but I think it's cleaner if
 // submission and cqe can stay in this function.
-// TODO: The problem is io_submit() can deadlock if too many cqe's are
+// TODO (v2): The problem is io_submit() can deadlock if too many cqe's are
 // waiting.
 // Need to understand if this means "CQE's ready to be picked up" or "CQE's in
 // flight", because the former is much easier to work around (ie; only run the
 // backend handler after dequeuing everything else)
-// TODO: IOURING_FEAT_NODROP: uring_submit() should return -EBUSY if out of CQ
+// TODO (v2): IOURING_FEAT_NODROP: uring_submit() should return -EBUSY if out of CQ
 // events slots. Therefore might starve SQE's if we were low beforehand.
 // - switch from for_each_cqe to doing one at a time (for now?)
 // - track # of sqe's allocated in the cqe loop.
@@ -1654,7 +1651,7 @@ static void proxy_event_updater(evutil_socket_t fd, short which, void *arg) {
     proxy_event_thread_t *t = arg;
     proxy_ctx_t *ctx = t->ctx;
 
-    // TODO: double check how much of this boilerplate is still necessary?
+    // TODO (v2): double check how much of this boilerplate is still necessary?
     // reschedule the clock event.
     evtimer_del(&t->clock_event);
 
@@ -1681,9 +1678,9 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
     }
 #else
     char buf[1];
-    // TODO: This is a lot more fatal than it should be. can it fail? can
+    // TODO (v2): This is a lot more fatal than it should be. can it fail? can
     // it blow up the server?
-    // FIXME: a cross-platform method of speeding this up would be nice. With
+    // TODO (v2): a cross-platform method of speeding this up would be nice. With
     // event fds we can queue N events and wakeup once here.
     // If we're pulling one byte out of the pipe at a time here it'll just
     // wake us up too often.
@@ -1704,7 +1701,7 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
     // FIXME: should this be timeouts.read?
     struct timeval tmp_time = t->timeouts.connect;
 
-    // FIXME: _set_event() is buggy, see notes on function.
+    // FIXME (v2): _set_event() is buggy, see notes on function.
     STAILQ_FOREACH(be, &t->be_head, be_next) {
         be->stacked = false;
         int flags = 0;
@@ -1731,7 +1728,7 @@ static void *proxy_event_thread(void *arg) {
     event_base_loop(t->base, 0);
     event_base_free(t->base);
 
-    // TODO: join bt threads, free array.
+    // TODO (v2): join bt threads, free array.
 
     return NULL;
 }
@@ -1784,9 +1781,9 @@ static void proxy_lua_ferror(lua_State *L, const char *fmt, ...) {
     lua_error(L);
 }
 
-// FIXME: if we use the newer API the various pending checks can be adjusted.
+// FIXME (v2): if we use the newer API the various pending checks can be adjusted.
 static void _set_event(mcp_backend_t *be, struct event_base *base, int flags, struct timeval t, event_callback_fn callback) {
-    // FIXME: chicken and egg.
+    // FIXME (v2): chicken and egg.
     // can't check if pending if the structure is was calloc'ed (sigh)
     // don't want to double test here. should be able to event_assign but
     // not add anything during initialization, but need the owner thread's
@@ -1800,7 +1797,7 @@ static void _set_event(mcp_backend_t *be, struct event_base *base, int flags, st
     }
 
     // if we can't write, we could be connecting.
-    // TODO: always check for READ in case some commands were sent
+    // TODO (v2): always check for READ in case some commands were sent
     // successfully? The flags could be tracked on *be and reset in the
     // handler, perhaps?
     event_assign(&be->event, base, mcmc_fd(be->client),
@@ -1831,7 +1828,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
             LOGGER_LOG(NULL, LOG_RAWCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->cmd, r->resp.type, r->resp.code);
             if (r->buf) {
                 // response set from C.
-                // FIXME: write_and_free() ? it's a bit wrong for here.
+                // FIXME (v2): write_and_free() ? it's a bit wrong for here.
                 resp->write_and_free = r->buf;
                 resp_add_iov(resp, r->buf, r->blen);
                 r->buf = NULL;
@@ -1897,7 +1894,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
                 coro_ref = luaL_ref(c->thread->L, LUA_REGISTRYINDEX);
                 resp = c->resp;
             }
-            // TODO: c only used for cache alloc? push the above into the func?
+            // TODO (v2): c only used for cache alloc? push the above into the func?
             mcp_queue_io(c, resp, coro_ref, Lc);
         }
     } else {
@@ -1928,7 +1925,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
     if (p == NULL) {
         // got a read event, but nothing was queued.
         // probably means a disconnect event.
-        // TODO: could probably confirm this by attempting to read the
+        // TODO (v2): could probably confirm this by attempting to read the
         // socket, getsockopt, or something else simply for logging or
         // statistical purposes.
         // In this case we know it's going to be a close so error.
@@ -1959,7 +1956,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
         case mcp_backend_parse:
             r = p->client_resp;
             r->status = mcmc_parse_buf(be->client, be->rbuf, bread, &r->resp);
-            // FIXME: Don't like this interface.
+            // FIXME (v2): Don't like how this mcmc API ended up.
             bread = 0; // only add the bread once per loop.
             if (r->status != MCMC_OK) {
                 P_DEBUG("%s: mcmc_read failed [%d]\n", __func__, r->status);
@@ -1976,7 +1973,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
             }
 
             // we actually don't care about anything but the value length
-            // TODO: if vlen != vlen_read, pull an item and copy the data.
+            // TODO (v2): if vlen != vlen_read, pull an item and copy the data.
             int extra_space = 0;
             switch (r->resp.type) {
                 case MCMC_RESP_GET:
@@ -2014,7 +2011,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
                 }
 
                 // r->resp.reslen + r->resp.vlen is the total length of the response.
-                // TODO: need to associate a buffer with this response...
+                // TODO (v2): need to associate a buffer with this response...
                 // for now lets abuse write_and_free on mc_resp and simply malloc the
                 // space we need, stuffing it into the resp object.
 
@@ -2030,7 +2027,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
                 if (r->resp.vlen != r->resp.vlen_read) {
                     P_DEBUG("%s: got a short read, moving to want_read\n", __func__);
                     // copy the partial and advance mcmc's buffer digestion.
-                    // FIXME: should call this for both cases?
+                    // FIXME (v2): should call this for both cases?
                     // special function for advancing mcmc's buffer for
                     // reading a value? perhaps a flag to skip the data copy
                     // when it's unnecessary?
@@ -2057,7 +2054,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
                 // advance the buffer
                 newbuf = mcmc_buffer_consume(be->client, &remain);
                 if (remain != 0) {
-                    // TODO: don't need to shuffle buffer with better API
+                    // TODO (v2): don't need to shuffle buffer with better API
                     memmove(be->rbuf, newbuf, remain);
                 }
 
@@ -2090,7 +2087,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
                 break;
             } else {
                 // response is good.
-                // FIXME: copy what the server actually sent?
+                // FIXME (v2): copy what the server actually sent?
                 if (!p->ascii_multiget) {
                     // sigh... if part of a multiget we need to eat the END
                     // markers down here.
@@ -2171,7 +2168,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
 
             break;
         default:
-            // TODO: at some point (after v1?) this should attempt to recover,
+            // TODO (v2): at some point (after v1?) this should attempt to recover,
             // though we should only get here from memory corruption and
             // bailing may be the right thing to do.
             fprintf(stderr, "%s: invalid backend state: %d\n", __func__, be->state);
@@ -2197,7 +2194,7 @@ static void proxy_backend_retry_handler(const int fd, const short which, void *a
 // to be "bad" as well.
 // must be called before _reset_bad_backend(), so the backend is currently
 // clear.
-// TODO: currently only notes for "bad backends" in cases of timeouts or
+// TODO (v2): currently only notes for "bad backends" in cases of timeouts or
 // connect failures. We need a specific connect() handler that executes a
 // "version" call to at least check that the backend isn't speaking garbage.
 // In theory backends can fail such that responses are constantly garbage,
@@ -2217,7 +2214,7 @@ static void _backend_failed(mcp_backend_t *be) {
     }
 }
 
-// TODO: add a second argument for assigning a specific error to all pending
+// TODO (v2): add a second argument for assigning a specific error to all pending
 // IO's (ie; timeout).
 // The backend has gotten into a bad state (timed out, protocol desync, or
 // some other supposedly unrecoverable error: purge the queue and
@@ -2228,7 +2225,7 @@ static void _backend_failed(mcp_backend_t *be) {
 static int _reset_bad_backend(mcp_backend_t *be) {
     io_pending_proxy_t *io = NULL;
     STAILQ_FOREACH(io, &be->io_head, io_next) {
-        // TODO: Unsure if this is the best way of surfacing errors to lua,
+        // TODO (v2): Unsure if this is the best way of surfacing errors to lua,
         // but will do for V1.
         io->client_resp->status = MCMC_ERR;
         return_io_pending((io_pending_t *)io);
@@ -2239,16 +2236,16 @@ static int _reset_bad_backend(mcp_backend_t *be) {
     mcmc_disconnect(be->client);
     int status = mcmc_connect(be->client, be->ip, be->port, MCMC_OPTION_NONBLOCK);
     if (status == MCMC_CONNECTED) {
-        // TODO: unexpected but lets let it be here.
+        // TODO (v2): unexpected but lets let it be here.
         be->connecting = false;
         be->can_write = true;
     } else if (status == MCMC_CONNECTING) {
         be->connecting = true;
         be->can_write = false;
     } else {
-        // TODO: failed to immediately re-establish the connection.
+        // TODO (v2): failed to immediately re-establish the connection.
         // need to put the BE into a bad/retry state.
-        // FIXME: until we get an event to specifically handle connecting and
+        // FIXME (v2): until we get an event to specifically handle connecting and
         // bad server handling, attempt to force a reconnect here the next
         // time a request comes through.
         // The event thread will attempt to write to the backend, fail, then
@@ -2257,7 +2254,8 @@ static int _reset_bad_backend(mcp_backend_t *be) {
         be->can_write = true;
     }
 
-    // TODO: configure the event as necessary internally.
+    // TODO: configure the event as necessary internally. (I kinda forget what
+    // this meant...)
 
     return 0;
 }
@@ -2272,7 +2270,8 @@ static int _prep_pending_write(mcp_backend_t *be, unsigned int *tosend) {
 
         if (io->iovcnt + iovused > BE_IOV_MAX) {
             // Signal to caller that we need to keep writing, if writeable.
-            // FIXME: can certainly refactor this to do more syscalls.
+            // FIXME (v2): can certainly refactor this to loop instead of waiting
+            // for a writeable event.
             *tosend += 1;
             break;
         }
@@ -2358,7 +2357,7 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
 
     if (which & EV_WRITE) {
         be->can_write = true;
-        // TODO: move connect routine to its own function?
+        // TODO (v2): move connect routine to its own function?
         // - hard to do right now because we can't (easily?) edit libevent
         // events.
         if (be->connecting) {
@@ -2366,7 +2365,7 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
             // We were connecting, now ensure we're properly connected.
             if (mcmc_check_nonblock_connect(be->client, &err) != MCMC_OK) {
                 // kick the bad backend, clear the queue, retry later.
-                // FIXME: if a connect fails, anything currently in the queue
+                // FIXME (v2): if a connect fails, anything currently in the queue
                 // should be safe to hold up until their timeout.
                 _reset_bad_backend(be);
                 _backend_failed(be);
@@ -2432,7 +2431,7 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
     // Still pending requests to read or write.
     // TODO: need to handle errors from above so we don't go to sleep here.
     if (!STAILQ_EMPTY(&be->io_head)) {
-        flags |= EV_READ; // FIXME: might not be necessary here, but ensures we get a disconnect event.
+        flags |= EV_READ; // FIXME (v2): might not be necessary here, but ensures we get a disconnect event.
         _set_event(be, be->event_thread->base, flags, tmp_time, proxy_backend_handler);
     }
 }
@@ -2473,7 +2472,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         // become common code for both proxy and ascii handlers.
         // For now this means we have to null-terminate the command string,
         // then call into text protocol handler.
-        // FIXME: use a ptr or something; don't like this code.
+        // FIXME (v2): use a ptr or something; don't like this code.
         if (cmdlen > 1 && command[cmdlen-2] == '\r') {
             command[cmdlen-2] = '\0';
         } else {
@@ -2494,7 +2493,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // The way this is detected/passed on is very fragile.
     if (!multiget && pr.cmd_type == CMD_TYPE_GET && pr.has_space) {
         // TODO: need some way to abort this.
-        // FIXME: before the while loop, ensure pr.keytoken isn't too bug for
+        // FIXME: before the while loop, ensure pr.keytoken isn't too big for
         // the local temp buffer here.
         uint32_t keyoff = pr.tokens[pr.keytoken];
         while (pr.klen != 0) {
@@ -2553,7 +2552,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     }
 
     // start a coroutine.
-    // TODO: This can pull from a cache.
+    // TODO (v2): This can pull a thread from a cache.
     lua_newthread(L);
     lua_State *Lc = lua_tothread(L, -1);
     // leave the thread first on the stack, so we can reference it if needed.
@@ -2565,7 +2564,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         rq->ascii_multiget = true;
     }
     // TODO: a better indicator of needing nread? pr->has_value?
-    // TODO: lift this to a post-processor?
+    // TODO (v2): lift this to a post-processor?
     if (rq->pr.vlen != 0) {
         // relying on temporary malloc's not succumbing as poorly to
         // fragmentation.
@@ -2582,7 +2581,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         conn_set_state(c, conn_nread);
 
         // thread coroutine is still on (L, -1)
-        // FIXME: could get speedup from stashing Lc ptr.
+        // FIXME (v2): could get speedup from stashing Lc ptr.
         return;
     }
 
@@ -2610,7 +2609,8 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
         proxy_lua_error(Lc, "out of memory allocating response");
         return;
     }
-    // FIXME: debugging?
+    // FIXME (v2): is this memset still necessary? I was using it for
+    // debugging.
     memset(r, 0, sizeof(mcp_resp_t));
     // TODO: check *r
     r->buf = NULL;
@@ -2630,7 +2630,7 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     lua_setmetatable(Lc, -2);
 
     io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
-    // FIXME: can this fail?
+    // FIXME: can this fail? Yes, I believe it can. need handling.
 
     // this is a re-cast structure, so assert that we never outsize it.
     assert(sizeof(io_pending_t) >= sizeof(io_pending_proxy_t));
@@ -2781,7 +2781,7 @@ static int mcplib_backend(lua_State *L) {
         return 0;
     }
 
-    // FIXME: remove some of the excess zero'ing below?
+    // FIXME (v2): remove some of the excess zero'ing below?
     memset(be, 0, sizeof(mcp_backend_t));
     strncpy(be->ip, ip, MAX_IPLEN);
     strncpy(be->port, port, MAX_PORTLEN);
@@ -2814,11 +2814,11 @@ static int mcplib_backend(lua_State *L) {
         proxy_lua_error(L, "out of memory allocating backend");
         return 0;
     }
-    // TODO: connect elsewhere. When there're multiple backend owners, or
+    // TODO (v2): connect elsewhere. When there're multiple backend owners, or
     // sockets per backend, etc. We'll want to kick off connects as use time.
     int status = mcmc_connect(be->client, be->ip, be->port, MCMC_OPTION_NONBLOCK);
     if (status == MCMC_CONNECTED) {
-        // FIXME: is this possible? do we ever want to allow blocking
+        // FIXME (v2): is this possible? do we ever want to allow blocking
         // connections?
         proxy_lua_ferror(L, "unexpectedly connected to backend early: %s:%s\n", be->ip, be->port);
         return 0;
@@ -2864,7 +2864,7 @@ static int mcplib_pool(lua_State *L) {
     p->pool_size = n;
     p->refcount = 0;
     pthread_mutex_init(&p->lock, NULL);
-    p->ctx = settings.proxy_ctx; // TODO: store ctx in upvalue.
+    p->ctx = settings.proxy_ctx; // TODO (v2): store ctx in upvalue.
 
     luaL_setmetatable(L, "mcp.pool");
 
@@ -3020,7 +3020,7 @@ static int mcplib_pool_proxy_call(lua_State *L) {
 // TODO: take fractional time and convert.
 static int mcplib_backend_connect_timeout(lua_State *L) {
     int seconds = luaL_checkinteger(L, -1);
-    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME: get global ctx reference in thread/upvalue.
+    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
 
     STAT_L(ctx);
     ctx->timeouts.connect.tv_sec = seconds;
@@ -3034,7 +3034,7 @@ static int mcplib_backend_connect_timeout(lua_State *L) {
 
 static int mcplib_backend_retry_timeout(lua_State *L) {
     int seconds = luaL_checkinteger(L, -1);
-    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME: get global ctx reference in thread/upvalue.
+    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
 
     STAT_L(ctx);
     ctx->timeouts.retry.tv_sec = seconds;
@@ -3048,7 +3048,7 @@ static int mcplib_backend_retry_timeout(lua_State *L) {
 
 static int mcplib_backend_read_timeout(lua_State *L) {
     int seconds = luaL_checkinteger(L, -1);
-    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME: get global ctx reference in thread/upvalue.
+    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
 
     STAT_L(ctx);
     ctx->timeouts.read.tv_sec = seconds;
@@ -3373,7 +3373,6 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
     pr->reqlen = cmdlen;
     int token_max = PARSER_MAX_TOKENS;
 
-    //pr->vlen = 0; // FIXME: remove this once set indicator is decided
     int cmd = -1;
     int type = CMD_TYPE_GENERIC;
     int ret = 0;
@@ -3527,7 +3526,7 @@ static mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char
     return rq;
 }
 
-// TODO:
+// TODO (v2):
 // if modified, this will re-serialize every time it's accessed.
 // a simple opt could copy back over the original space
 // a "better" one could A/B the request ptr and clear the modified state
@@ -3562,7 +3561,7 @@ static void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy
             }
 
             if (newtok == NULL) {
-                // TODO: if we add an extra "end" token that's just reqlen we can
+                // TODO (v2): if we add an extra "end" token that's just reqlen we can
                 // memcpy... however most args are short and that may not be worth
                 // it.
                 or = rq->request + pr->tokens[x];
@@ -3609,7 +3608,7 @@ static int mcplib_request(lua_State *L) {
     const char *cmd = luaL_checklstring(L, 1, &len);
     const char *val = luaL_optlstring(L, 2, NULL, &vlen);
 
-    // FIXME: if we inline the userdata we can avoid memcpy'ing the parser
+    // FIXME (v2): if we inline the userdata we can avoid memcpy'ing the parser
     // structure from the stack? but causes some code duplication.
     if (process_request(&pr, cmd, len) != 0) {
         proxy_lua_error(L, "failed to parse request");
@@ -3767,7 +3766,7 @@ static int mcplib_request_gc(lua_State *L) {
     return 0;
 }
 
-// TODO: check what lua does when it calls a function with a string argument
+// TODO (v2): check what lua does when it calls a function with a string argument
 // stored from a table/similar (ie; the prefix check code).
 // If it's not copying anything, we can add request-side functions to do most
 // forms of matching and avoid copying the key to lua space.
@@ -3775,7 +3774,7 @@ static int mcplib_request_gc(lua_State *L) {
 /*** END REQUET PARSER AND OBJECT ***/
 
 /*** START jump consistent hash library ***/
-// TODO: easy candidate for splitting to another .c, but I want this built in
+// TODO (v2): easy candidate for splitting to another .c, but I want this built in
 // instead of as a .so so make sure it's linked directly.
 
 typedef struct {
@@ -3888,7 +3887,7 @@ static int mcplib_add_stat(lua_State *L) {
         }
     }
 
-    proxy_ctx_t *ctx = settings.proxy_ctx; // TODO: store ctx in upvalue.
+    proxy_ctx_t *ctx = settings.proxy_ctx; // TODO (v2): store ctx in upvalue.
 
     // just to save some typing.
     STAT_L(ctx);
@@ -4033,7 +4032,7 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     lua_setmetatable(Lc, -2);
 
     io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
-    // FIXME: can this fail?
+    // FIXME: can this fail? (yes it can)
 
     // this is a re-cast structure, so assert that we never outsize it.
     assert(sizeof(io_pending_t) >= sizeof(io_pending_proxy_t));
@@ -4139,7 +4138,7 @@ static int mcplib_await_return(io_pending_proxy_t *p) {
     bool valid = false;
     bool completing = false;
 
-    // TODO: just push the await ptr into *p?
+    // TODO (v2): just push the await ptr into *p?
     lua_rawgeti(L, LUA_REGISTRYINDEX, p->await_ref);
     aw = lua_touserdata(L, -1);
     lua_pop(L, 1); // remove AW object from stack
@@ -4290,7 +4289,7 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
         {NULL, NULL}
     };
 
-    // TODO: function + loop.
+    // TODO (v2): function + loop.
     luaL_newmetatable(L, "mcp.backend");
     lua_pushvalue(L, -1); // duplicate metatable.
     lua_setfield(L, -2, "__index"); // mt.__index = mt
@@ -4323,7 +4322,7 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
 
     // create main library table.
     //luaL_newlib(L, mcplib_f);
-    // TODO: luaL_newlibtable() just pre-allocs the exact number of things
+    // TODO (v2): luaL_newlibtable() just pre-allocs the exact number of things
     // here.
     // can replace with createtable and add the num. of the constant
     // definitions.
@@ -4335,7 +4334,7 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
     // pointer pointers :)
     mcplib_open_jump_hash(L);
     lua_setfield(L, -2, "hash_jump");
-    // FIXME: remove this once multi-probe is in, use that as default instead.
+    // FIXME: remove this once proper default is added.
     lua_pushlightuserdata(L, &mcplib_hashfunc_murmur3);
     lua_setfield(L, -2, "hash_murmur3");
 
