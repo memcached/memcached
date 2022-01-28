@@ -1,6 +1,11 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
  * Functions for handling the proxy layer. wraps text protocols
+ *
+ * NOTE: many lua functions generate pointers via "lua_newuserdatauv" or
+ * similar. Normal memory checking isn't done as lua will throw a high level
+ * error if malloc fails. Must keep this in mind while allocating data so any
+ * manually malloc'ed information gets freed properly.
  */
 
 #include "memcached.h"
@@ -787,7 +792,10 @@ void proxy_init(bool use_uring) {
         t->ctx = ctx;
 #ifdef USE_EVENTFD
         t->event_fd = eventfd(0, EFD_NONBLOCK);
-        // FIXME: eventfd can fail?
+        if (t->event_fd == -1) {
+            perror("failed to create backend notify eventfd");
+            exit(1);
+        }
 #else
         int fds[2];
         if (pipe(fds)) {
@@ -826,7 +834,7 @@ int proxy_load_config(void *arg) {
     lua_State *L = ctx->proxy_state;
     int res = luaL_loadfile(L, settings.proxy_startfile);
     if (res != LUA_OK) {
-        fprintf(stderr, "Failed to load proxy_startfile: %s\n", lua_tostring(L, -1));
+        fprintf(stderr, "ERROR: Failed to load proxy_startfile: %s\n", lua_tostring(L, -1));
         return -1;
     }
     // LUA_OK, LUA_ERRSYNTAX, LUA_ERRMEM, LUA_ERRFILE
@@ -844,17 +852,20 @@ int proxy_load_config(void *arg) {
     // now we complete the data load by calling the function.
     res = lua_pcall(L, 0, LUA_MULTRET, 0);
     if (res != LUA_OK) {
-        fprintf(stderr, "Failed to load data into lua config state: %s\n", lua_tostring(L, -1));
+        fprintf(stderr, "ERROR: Failed to load data into lua config state: %s\n", lua_tostring(L, -1));
         exit(EXIT_FAILURE);
     }
 
     // call the mcp_config_pools function to get the central backends.
     lua_getglobal(L, "mcp_config_pools");
 
-    // TODO: handle explicitly if function is missing.
+    if (lua_isnil(L, -1)) {
+        fprintf(stderr, "ERROR: Configuration file missing 'mcp_config_pools' function\n");
+        exit(EXIT_FAILURE);
+    }
     lua_pushnil(L); // no "old" config yet.
     if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
-        fprintf(stderr, "Failed to execute mcp_config_pools: %s\n", lua_tostring(L, -1));
+        fprintf(stderr, "ERROR: Failed to execute mcp_config_pools: %s\n", lua_tostring(L, -1));
         exit(EXIT_FAILURE);
     }
 
@@ -868,7 +879,6 @@ static int _copy_pool(lua_State *from, lua_State *to) {
     size_t size = sizeof(mcp_pool_proxy_t);
     mcp_pool_proxy_t *pp = lua_newuserdatauv(to, size, 0);
     luaL_setmetatable(to, "mcp.pool_proxy");
-    // TODO: check pp.
 
     pp->main = p;
     pthread_mutex_lock(&p->lock);
@@ -896,7 +906,6 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
                 if (lua_rawget(from, -2) != LUA_TNIL) {
                     const char *name = lua_tostring(from, -1);
                     if (strcmp(name, "mcp.pool") == 0) {
-                        // FIXME: check result
                         _copy_pool(from, to);
                         found = true;
                     }
@@ -980,7 +989,7 @@ static int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
     // - pcall the func (which should load it)
     int res = lua_pcall(L, 0, LUA_MULTRET, 0);
     if (res != LUA_OK) {
-        // FIXME: no crazy failure here!
+        // FIXME: no failure here!
         fprintf(stderr, "Failed to load data into worker thread\n");
         return -1;
     }
@@ -2605,14 +2614,9 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     // Then we push a response object, which we'll re-use later.
     // reserve one uservalue for a lua-supplied response.
     mcp_resp_t *r = lua_newuserdatauv(Lc, sizeof(mcp_resp_t), 1);
-    if (r == NULL) {
-        proxy_lua_error(Lc, "out of memory allocating response");
-        return;
-    }
     // FIXME (v2): is this memset still necessary? I was using it for
     // debugging.
     memset(r, 0, sizeof(mcp_resp_t));
-    // TODO: check *r
     r->buf = NULL;
     r->blen = 0;
     r->start = rq->start; // need to inherit the original start time.
@@ -2858,7 +2862,6 @@ static int mcplib_pool(lua_State *L) {
     int n = luaL_len(L, 1); // get length of array table
 
     mcp_pool_t *p = lua_newuserdatauv(L, sizeof(mcp_pool_t) + sizeof(mcp_pool_be_t) * n, 0);
-    // TODO: check null.
     // FIXME: zero the memory? then __gc will fix up server references on
     // errors.
     p->pool_size = n;
