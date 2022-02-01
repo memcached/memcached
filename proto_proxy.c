@@ -420,6 +420,9 @@ static void _set_event(mcp_backend_t *be, struct event_base *base, int flags, st
 static int proxy_thread_loadconf(LIBEVENT_THREAD *thr);
 static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf, size_t *toread);
 
+static void proxy_lua_error(lua_State *L, const char *s);
+static void proxy_lua_ferror(lua_State *L, const char *fmt, ...);
+
 /******** EXTERNAL FUNCTIONS ******/
 // functions starting with _ are breakouts for the public functions.
 
@@ -890,11 +893,11 @@ static int _copy_pool(lua_State *from, lua_State *to) {
 static void _copy_config_table(lua_State *from, lua_State *to);
 // (from, -1) is the source value
 // should end with (to, -1) being the new value.
-// TODO: { foo = "bar", { thing = "foo" } } fails for lua_next() post final
-// table.
 static void _copy_config_table(lua_State *from, lua_State *to) {
     int type = lua_type(from, -1);
     bool found = false;
+    luaL_checkstack(from, 4, "configuration error: table recursion too deep");
+    luaL_checkstack(to, 4, "configuration error: table recursion too deep");
     switch (type) {
         case LUA_TNIL:
             lua_pushnil(to);
@@ -913,24 +916,22 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
                 lua_pop(from, 2);
             }
             if (!found) {
-                fprintf(stderr, "unhandled userdata type\n");
-                exit(1);
+                proxy_lua_ferror(from, "unhandled userdata type in configuration table\n");
             }
             break;
         case LUA_TNUMBER:
-            // FIXME: since 5.3 there's some sub-thing you need to do to push
-            // float vs int.
-            lua_pushnumber(to, lua_tonumber(from, -1));
+            if (lua_isinteger(from, -1)) {
+                lua_pushinteger(to, lua_tointeger(from, -1));
+            } else {
+                lua_pushnumber(to, lua_tonumber(from, -1));
+            }
             break;
         case LUA_TSTRING:
-            // FIXME (v2): temp var + tolstring worth doing?
             lua_pushlstring(to, lua_tostring(from, -1), lua_rawlen(from, -1));
             break;
         case LUA_TTABLE:
-            // TODO: huge table could cause stack exhaustion? have to do
-            // checkstack perhaps?
-            // TODO: copy the metatable first?
-            // TODO: size narr/nrec from old table and use createtable to
+            // TODO (v2): copy the metatable first?
+            // TODO (v2): size narr/nrec from old table and use createtable to
             // pre-allocate.
             lua_newtable(to); // throw new table on worker
             int t = lua_absindex(from, -1); // static index of table to copy.
@@ -938,11 +939,27 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
             lua_pushnil(from); // start iterator for main
             while (lua_next(from, t) != 0) {
                 // (key, -2), (val, -1)
-                // TODO: check what key is (it can be anything :|)
-                // to allow an optimization later lets restrict it to strings
-                // and numbers.
-                // don't coerce it to a string unless it already is one.
-                lua_pushlstring(to, lua_tostring(from, -2), lua_rawlen(from, -2));
+                int keytype = lua_type(from, -2);
+                // to intentionally limit complexity and allow for future
+                // optimizations we restrict what types may be used as keys
+                // for sub-tables.
+                switch (keytype) {
+                    case LUA_TSTRING:
+                        // to[l]string converts the actual key in the table
+                        // into a string, so we must not do that unless it
+                        // already is one.
+                        lua_pushlstring(to, lua_tostring(from, -2), lua_rawlen(from, -2));
+                        break;
+                    case LUA_TNUMBER:
+                        if (lua_isinteger(from, -1)) {
+                            lua_pushinteger(to, lua_tointeger(from, -1));
+                        } else {
+                            lua_pushnumber(to, lua_tonumber(from, -1));
+                        }
+                        break;
+                    default:
+                        proxy_lua_error(from, "configuration table keys must be strings or numbers");
+                }
                 // lua_settable(to, n) - n being the table
                 // takes -2 key -1 value, pops both.
                 // use lua_absindex(L, -1) and so to convert easier?
@@ -954,9 +971,7 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
             // top of to should be the new table.
             break;
         default:
-            // FIXME: throw proper error.
-            fprintf(stderr, "unhandled type\n");
-            exit(1);
+            proxy_lua_error(from, "unhandled data type in configuration table\n");
     }
 }
 
@@ -989,13 +1004,28 @@ static int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
     // - pcall the func (which should load it)
     int res = lua_pcall(L, 0, LUA_MULTRET, 0);
     if (res != LUA_OK) {
-        // FIXME: no failure here!
+        // FIXME: don't exit here!
         fprintf(stderr, "Failed to load data into worker thread\n");
         return -1;
     }
 
     lua_getglobal(L, "mcp_config_routes");
     // create deepcopy of argument to pass into mcp_config_routes.
+    // FIXME (v2): to avoid lua SIGABRT'ing on errors we need to protect the call
+    // normal pattern:
+    // lua_pushcfunction(L, &_copy_config_table);
+    // lua_pushlightuserdata(L, &L2);
+    // res = la_pcall(L, etc);
+    // ... but since this is cross-VM we could get errors from not the
+    // protected VM, breaking setjmp/etc.
+    // for this part of the code we should override lua_atpanic(),
+    // allowing us to specifically recover and bail.
+    // However, again, this will require the next version of the config reload
+    // code since we are re-using the VM's and a panic can leave us in a
+    // broken state.
+    // If the setjump/longjump combos are compatible a pcall for from and
+    // atpanic for to might work best, since the config VM is/should be long
+    // running and worker VM's should be rotated.
     _copy_config_table(ctx->proxy_state, L);
 
     // copied value is in front of route function, now call it.

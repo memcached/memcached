@@ -1,7 +1,6 @@
--- xTODO: sets of zones behind a prefix.
--- xTODO: zones with local vs other failover.
--- xTODO: failover on get
--- xTODO: all zone sync on set
+-- WARNING: if you cause errors during configuration reload by putting
+-- incompatible data into the table returned by mcp_config_pools, the daeomon
+-- will exit.
 -- TODO: fallback cache for broken/overloaded zones.
 
 -- local zone could/should be fetched from environment or local file.
