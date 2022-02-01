@@ -988,8 +988,8 @@ void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr) {
     pthread_mutex_unlock(&ctx->worker_lock);
 }
 
-// FIXME: need to test how to recover from an actual error here. stuff gets
-// left on the stack?
+// FIXME (v2): need to test how to recover from an actual error here. error message
+// needs to go somewhere useful, counters added, etc.
 static int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
     lua_State *L = thr->L;
     // load the precompiled config function.
@@ -1004,7 +1004,7 @@ static int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
     // - pcall the func (which should load it)
     int res = lua_pcall(L, 0, LUA_MULTRET, 0);
     if (res != LUA_OK) {
-        // FIXME: don't exit here!
+        // FIXME (v2): don't exit here!
         fprintf(stderr, "Failed to load data into worker thread\n");
         return -1;
     }
@@ -1259,12 +1259,6 @@ int try_read_command_proxy(conn *c) {
         return 0;
     }
     cont = el + 1;
-    // TODO: we don't want to cut the \r\n here. lets see how lua handles
-    // non-terminated strings?
-    /*if ((el - c->rcurr) > 1 && *(el - 1) == '\r') {
-        el--;
-    }
-    *el = '\0';*/
 
     assert(cont <= (c->rcurr + c->rbytes));
 
@@ -3600,7 +3594,7 @@ static void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy
                 or = rq->request + pr->tokens[x];
                 // will walk past the end without the \r test.
                 // if we add the end token trick this can be changed.
-                while (*or != ' ' && *or != '\r') {
+                while (*or != ' ' && *or != '\r' && *or != '\n') {
                     *nr = *or;
                     nr++;
                     or++;
@@ -3855,7 +3849,6 @@ static int mcplib_jump_hash_new(lua_State *L) {
     }
 
     mcplib_jump_hash_t *jh = lua_newuserdatauv(L, sizeof(mcplib_jump_hash_t), 0);
-    // TODO: check jh.
 
     // don't need to loop through the table at all, just need its length.
     // could optimize startup time by adding hints to the module for how to
