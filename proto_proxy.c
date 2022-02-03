@@ -1725,8 +1725,8 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
 #ifdef USE_EVENTFD
     uint64_t u;
     if (read(fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        // FIXME: figure out if this is impossible, and how to handle if not.
-        assert(1 == 0);
+        // Temporary error or wasn't actually ready to read somehow.
+        return;
     }
 #else
     char buf[1];
@@ -1750,8 +1750,7 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
 
     // Re-walk each backend and check set event as required.
     mcp_backend_t *be = NULL;
-    // FIXME: should this be timeouts.read?
-    struct timeval tmp_time = t->tunables.connect;
+    struct timeval tmp_time = t->tunables.read;
 
     // FIXME (v2): _set_event() is buggy, see notes on function.
     STAILQ_FOREACH(be, &t->be_head, be_next) {
@@ -1895,9 +1894,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
             } else if (r->status != MCMC_OK) {
                 proxy_out_errstring(resp, "backend failure");
             } else {
-                // TODO: double check how this can get here?
-                // MCMC_OK but no buffer and no internal value set? still an
-                // error?
+                proxy_out_errstring(resp, "unhandled response");
                 P_DEBUG("%s: unhandled response\n", __func__);
             }
         } else if (type == LUA_TSTRING) {
@@ -1912,10 +1909,10 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
         }
     } else if (cores == LUA_YIELD) {
         if (nresults == 1) {
-            // TODO: try harder to validate; but we have so few yield cases
+            // TODO (v2): try harder to validate; but we have so few yield cases
             // that I'm going to shortcut this here. A single yielded result
             // means it's probably an await(), so attempt to process this.
-            // FIXME: if p, do we need to free it up from the resp?
+            // FIXME (v2): if p, do we need to free it up from the resp?
             // resp should not have an IOP I think...
             assert(p == NULL);
             // coroutine object sitting on the _main_ VM right now, so we grab
@@ -1938,7 +1935,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
             } else {
                 // yielding from a top level call to the coroutine,
                 // so we need to grab a reference to the coroutine thread.
-                // TODO: make this more explicit?
+                // TODO (v2): make this more explicit?
                 // we only need to get the reference here, and error conditions
                 // should instead drop it, but now it's not obvious to users that
                 // we're reaching back into the main thread's stack.
@@ -1964,7 +1961,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
 // issue: want read back to read_end as necessary. special state?
 //   - it's fine: p->client_resp->type.
 // - mcp_backend_next: advance, consume, etc.
-// TODO: second argument with enum for a specific error.
+// TODO (v2): second argument with enum for a specific error.
 // - probably just for logging. for app if any of these errors shouldn't
 // result in killing the request stack!
 static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf, size_t *toread) {
@@ -2046,7 +2043,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
                 case MCMC_RESP_GENERIC:
                 case MCMC_RESP_NUMERIC:
                     break;
-                // TODO: No-op response?
+                // TODO (v2): No-op response?
                 default:
                     P_DEBUG("%s: Unhandled response from backend: %d\n", __func__, r->resp.type);
                     // unhandled :(
@@ -2070,7 +2067,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
                 r->blen = r->resp.reslen + r->resp.vlen;
                 r->buf = malloc(r->blen + extra_space);
                 if (r->buf == NULL) {
-                    flags = -1; // TODO: specific error.
+                    flags = -1; // TODO (v2): specific error.
                     stop = true;
                     break;
                 }
@@ -2093,7 +2090,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
                     memcpy(r->buf, be->rbuf, r->resp.reslen+r->resp.vlen_read);
                 }
             } else {
-                // TODO: no response read?
+                // TODO (v2): no response read?
                 // nothing currently sets res to 0. should remove if that
                 // never comes up and handle the error entirely above.
                 P_DEBUG("%s: no response read from backend\n", __func__);
@@ -2128,12 +2125,12 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
                     *rbuf = mcmc_read_prep(be->client, be->rbuf, READ_BUFFER_SIZE, toread);
                     return EV_READ;
                 } else {
-                    flags = -1; // TODO: specific error.
+                    flags = -1; // TODO (v2): specific error.
                     stop = true;
                 }
                 break;
             } else if (tmp_resp.type != MCMC_RESP_END) {
-                // TODO: specific error about protocol desync
+                // TODO (v2): specific error about protocol desync
                 flags = -1;
                 stop = true;
                 break;
@@ -2193,7 +2190,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
             return_io_pending((io_pending_t *)p);
 
             if (STAILQ_EMPTY(&be->io_head)) {
-                // TODO: suspicious of this code. audit harder?
+                // TODO (v2): suspicious of this code. audit harder?
                 stop = true;
             } else {
                 p = STAILQ_FIRST(&be->io_head);
@@ -2204,7 +2201,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
             // if no more data in buffer, need to re-set stack head and re-set
             // event.
             remain = 0;
-            // TODO: do we need to yield every N reads?
+            // TODO (v2): do we need to yield every N reads?
             newbuf = mcmc_buffer_consume(be->client, &remain);
             P_DEBUG("%s: [next] remain: %d\n", __func__, remain);
             be->state = mcp_backend_read;
@@ -2305,9 +2302,6 @@ static int _reset_bad_backend(mcp_backend_t *be) {
         be->can_write = true;
     }
 
-    // TODO: configure the event as necessary internally. (I kinda forget what
-    // this meant...)
-
     return 0;
 }
 
@@ -2369,7 +2363,7 @@ static int _flush_pending_write(mcp_backend_t *be) {
                 }
             }
             io->flushed = flushed;
-            // FIXME: logic around flushed and EV_READ marking feels odd.
+
             if (flushed) {
                 flags |= EV_READ;
             }
@@ -2480,7 +2474,6 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
     }
 
     // Still pending requests to read or write.
-    // TODO: need to handle errors from above so we don't go to sleep here.
     if (!STAILQ_EMPTY(&be->io_head)) {
         flags |= EV_READ; // FIXME (v2): might not be necessary here, but ensures we get a disconnect event.
         _set_event(be, be->event_thread->base, flags, tmp_time, proxy_backend_handler);
@@ -2616,7 +2609,6 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     if (multiget) {
         rq->ascii_multiget = true;
     }
-    // TODO: a better indicator of needing nread? pr->has_value?
     // TODO (v2): lift this to a post-processor?
     if (rq->pr.vlen != 0) {
         // relying on temporary malloc's not succumbing as poorly to
