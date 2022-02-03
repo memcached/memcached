@@ -869,7 +869,11 @@ static void conn_cleanup(conn *c) {
     assert(c != NULL);
 
     conn_release_items(c);
-
+#ifdef PROXY
+    if (c->proxy_coro_ref) {
+        proxy_cleanup_conn(c);
+    }
+#endif
     if (c->sasl_conn) {
         assert(settings.sasl);
         sasl_dispose(&c->sasl_conn);

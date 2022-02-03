@@ -1274,6 +1274,16 @@ int try_read_command_proxy(conn *c) {
 
 }
 
+// Called when a connection is closed while in nread state reading a set
+// Must only be called with an active coroutine.
+void proxy_cleanup_conn(conn *c) {
+    assert(c->proxy_coro_ref != 0);
+    LIBEVENT_THREAD *thr = c->thread;
+    lua_State *L = thr->L;
+    luaL_unref(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
+    c->proxy_coro_ref = 0;
+}
+
 // we buffered a SET of some kind.
 void complete_nread_proxy(conn *c) {
     assert(c != NULL);
@@ -1281,28 +1291,35 @@ void complete_nread_proxy(conn *c) {
     LIBEVENT_THREAD *thr = c->thread;
     lua_State *L = thr->L;
 
-    // TODO: (v2) less than ideal method of telling if we need to fall back to
-    // the ascii nread handler: meaning proxy is enabled but this mutation
-    // command wasn't overridden.
-    if (lua_isnil(L, -1)) {
+    if (c->proxy_coro_ref == 0) {
         complete_nread_ascii(c);
         return;
     }
 
     conn_set_state(c, conn_new_cmd);
+
+    // Grab our coroutine.
+    lua_rawgeti(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
+    luaL_unref(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
     lua_State *Lc = lua_tothread(L, -1);
-    // TODO (v2): could cache a ptr to remove some lua here.
     mcp_request_t *rq = luaL_checkudata(Lc, -1, "mcp.request");
 
     // validate the data chunk.
     if (strncmp((char *)c->item + rq->pr.vlen - 2, "\r\n", 2) != 0) {
-        // FIXME: throw a proper error.
         lua_settop(L, 0); // clear anything remaining on the main thread.
+        // FIXME (v2): need to set noreply false if mset_res, but that's kind
+        // of a weird hack to begin with. Evaluate how to best do that here.
+        out_string(c, "CLIENT_ERROR bad data chunk");
         return;
     }
+
+    // We move ownership of the c->item buffer from the connection to the
+    // request object here. Else we can double free if the conn closes while
+    // inside nread.
     rq->pr.vbuf = c->item;
     c->item = NULL;
     c->item_malloced = false;
+    c->proxy_coro_ref = 0;
 
     proxy_run_coroutine(Lc, c->resp, NULL, c);
 
@@ -2511,6 +2528,8 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         } else {
             command[cmdlen-1] = '\0';
         }
+        // lets nread_proxy know we're in ascii mode.
+        c->proxy_coro_ref = 0;
         process_command_ascii(c, command);
         return;
     }
@@ -2610,11 +2629,9 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         c->item_malloced = true;
         c->ritem = c->item;
         c->rlbytes = rq->pr.vlen;
+        c->proxy_coro_ref = luaL_ref(L, LUA_REGISTRYINDEX); // pops coroutine.
 
         conn_set_state(c, conn_nread);
-
-        // thread coroutine is still on (L, -1)
-        // FIXME (v2): could get speedup from stashing Lc ptr.
         return;
     }
 
@@ -3249,7 +3266,7 @@ static int _process_request_metaflags(mcp_parser_t *pr, int token) {
     const char *cur = pr->request + pr->tokens[token];
     const char *end = pr->request + pr->reqlen - 2;
 
-    // We blindly convert flags into // bits, since the range of possible
+    // We blindly convert flags into bits, since the range of possible
     // flags is deliberately < 64.
     int state = 0;
     while (cur != end) {

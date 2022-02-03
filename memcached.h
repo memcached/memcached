@@ -819,6 +819,9 @@ struct conn {
 
     int io_queues_submitted; /* see notes on io_queue_t */
     io_queue_t io_queues[IO_QUEUE_COUNT]; /* set of deferred IO queues. */
+#ifdef PROXY
+    unsigned int proxy_coro_ref; /* lua reference for active coroutine */
+#endif
 #ifdef EXTSTORE
     unsigned int recache_counter;
 #endif

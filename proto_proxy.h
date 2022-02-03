@@ -7,6 +7,7 @@ void process_proxy_stats(ADD_STAT add_stats, conn *c);
 /* proxy mode handlers */
 int try_read_command_proxy(conn *c);
 void complete_nread_proxy(conn *c);
+void proxy_cleanup_conn(conn *c);
 void proxy_thread_init(LIBEVENT_THREAD *thr);
 void proxy_init(bool proxy_uring);
 // TODO: need better names or a better interface for these. can be confusing
