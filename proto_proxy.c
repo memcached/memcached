@@ -169,6 +169,8 @@ struct proxy_global_stats {
     uint64_t backend_requests; // reqs sent to backends
     uint64_t backend_responses; // responses received from backends
     uint64_t backend_errors; // errors from backends
+    uint64_t backend_marked_bad; // backend set to autofail
+    uint64_t backend_failed; // an error caused a backend reset
 };
 
 struct proxy_tunables {
@@ -439,6 +441,8 @@ void proxy_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("proxy_config_reloads", "%llu", (unsigned long long)ctx->global_stats.config_reloads);
     APPEND_STAT("proxy_config_reload_fails", "%llu", (unsigned long long)ctx->global_stats.config_reload_fails);
     APPEND_STAT("proxy_backend_total", "%llu", (unsigned long long)ctx->global_stats.backend_total);
+    APPEND_STAT("proxy_backend_marked_bad", "%llu", (unsigned long long)ctx->global_stats.backend_marked_bad);
+    APPEND_STAT("proxy_backend_failed", "%llu", (unsigned long long)ctx->global_stats.backend_failed);
     STAT_UL(ctx);
 }
 
@@ -1488,7 +1492,6 @@ static void proxy_backend_wrhandler_ur(void *udata, struct io_uring_cqe *cqe) {
     int res = _flush_pending_write(be);
     if (res == -1) {
         _reset_bad_backend(be);
-        // FIXME: backend_failed counter?
         return;
     }
 
@@ -2255,7 +2258,9 @@ static void _backend_failed(mcp_backend_t *be) {
         P_DEBUG("%s: marking backend as bad\n", __func__);
         be->bad = true;
        _set_event(be, be->event_thread->base, EV_TIMEOUT, tmp_time, proxy_backend_retry_handler);
+        STAT_INCR(be->event_thread->ctx, backend_marked_bad, 1);
     } else {
+        STAT_INCR(be->event_thread->ctx, backend_failed, 1);
         _set_event(be, be->event_thread->base, EV_WRITE|EV_TIMEOUT, tmp_time, proxy_backend_handler);
     }
 }
