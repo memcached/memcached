@@ -337,7 +337,8 @@ struct slab_stats {
 #ifdef PROXY
 #define PROXY_THREAD_STATS_FIELDS \
     X(proxy_conn_requests) \
-    X(proxy_conn_errors)
+    X(proxy_conn_errors) \
+    X(proxy_conn_oom)
 #endif
 
 /**

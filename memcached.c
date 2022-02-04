@@ -1815,6 +1815,7 @@ void server_stats(ADD_STAT add_stats, conn *c) {
     if (settings.proxy_enabled) {
         APPEND_STAT("proxy_conn_requests", "%llu", (unsigned long long)thread_stats.proxy_conn_requests);
         APPEND_STAT("proxy_conn_errors", "%llu", (unsigned long long)thread_stats.proxy_conn_errors);
+        APPEND_STAT("proxy_conn_oom", "%llu", (unsigned long long)thread_stats.proxy_conn_oom);
     }
 #endif
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
