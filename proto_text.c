@@ -981,6 +981,8 @@ static int _meta_flag_preparse(token_t *tokens, const size_t start,
                 of->locked = 1; // need locked to delay LRU bump
                 break;
             case 'O':
+            case 'P':
+            case 'L':
                 break;
             case 'k': // known but no special handling
             case 's':

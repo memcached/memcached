@@ -123,6 +123,13 @@ can return new data or reflect information, in the same order they were
 supplied in the request. Sending an 't' flag with a get for an item with 20
 seconds of TTL remaining, would return 't20' in the response.
 
+All commands accept a tokens 'P' and 'L' which are completely ignored. The
+arguments to 'P' and 'L' can be used as hints or path specifications to a
+proxy or router inbetween a client and a memcached daemon. For example, a
+client may prepend a "path" in the key itself: "mg /path/foo v" or in a proxy
+token: "mg foo Lpath/ v" - the proxy may then optionally remove or forward the
+token to a memcached daemon, which will ignore them.
+
 Syntax errors are handled the same as noted under 'Error strings' section
 below.
 
