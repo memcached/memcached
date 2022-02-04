@@ -1894,8 +1894,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
             } else if (r->status != MCMC_OK) {
                 proxy_out_errstring(resp, "backend failure");
             } else {
-                proxy_out_errstring(resp, "unhandled response");
-                P_DEBUG("%s: unhandled response\n", __func__);
+                // Empty response: used for ascii multiget emulation.
             }
         } else if (type == LUA_TSTRING) {
             // response is a raw string from lua.
@@ -2538,27 +2537,35 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // function call, then we don't re-process the above bits in the same way?
     // The way this is detected/passed on is very fragile.
     if (!multiget && pr.cmd_type == CMD_TYPE_GET && pr.has_space) {
-        // TODO: need some way to abort this.
-        // FIXME: before the while loop, ensure pr.keytoken isn't too big for
-        // the local temp buffer here.
         uint32_t keyoff = pr.tokens[pr.keytoken];
         while (pr.klen != 0) {
             char temp[KEY_MAX_LENGTH + 30];
             char *cur = temp;
-            // copy original request up until the original key token.
-            memcpy(cur, pr.request, pr.tokens[pr.keytoken]);
-            cur += pr.tokens[pr.keytoken];
+            // Core daemon can abort the entire command if one key is bad, but
+            // we cannot from the proxy. Instead we have to inject errors into
+            // the stream. This should, thankfully, be rare at least.
+            if (pr.klen > KEY_MAX_LENGTH) {
+                if (!resp_start(c)) {
+                    conn_set_state(c, conn_closing);
+                    return;
+                }
+                proxy_out_errstring(c->resp, "key too long");
+            } else {
+                // copy original request up until the original key token.
+                memcpy(cur, pr.request, pr.tokens[pr.keytoken]);
+                cur += pr.tokens[pr.keytoken];
 
-            // now copy in our "current" key.
-            memcpy(cur, &pr.request[keyoff], pr.klen);
-            cur += pr.klen;
+                // now copy in our "current" key.
+                memcpy(cur, &pr.request[keyoff], pr.klen);
+                cur += pr.klen;
 
-            memcpy(cur, "\r\n", 2);
-            cur += 2;
+                memcpy(cur, "\r\n", 2);
+                cur += 2;
 
-            *cur = '\0';
-            P_DEBUG("%s: new multiget sub request: %s [%u/%u]\n", __func__, temp, keyoff, pr.klen);
-            proxy_process_command(c, temp, cur - temp, PROCESS_MULTIGET);
+                *cur = '\0';
+                P_DEBUG("%s: new multiget sub request: %s [%u/%u]\n", __func__, temp, keyoff, pr.klen);
+                proxy_process_command(c, temp, cur - temp, PROCESS_MULTIGET);
+            }
 
             // now advance to the next key.
             keyoff = _process_request_next_key(&pr);
