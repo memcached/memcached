@@ -341,7 +341,7 @@ int try_read_command_asciiauth(conn *c) {
 
         // If no newline after 1k, getting junk data, close out.
         if (!el) {
-            if (c->rbytes > 1024) {
+            if (c->rbytes > 2048) {
                 conn_set_state(c, conn_closing);
                 return 1;
             }
@@ -443,9 +443,9 @@ int try_read_command_ascii(conn *c) {
 
     el = memchr(c->rcurr, '\n', c->rbytes);
     if (!el) {
-        if (c->rbytes > 1024) {
+        if (c->rbytes > 2048) {
             /*
-             * We didn't have a '\n' in the first k. This _has_ to be a
+             * We didn't have a '\n' in the first few k. This _has_ to be a
              * large multiget, if not we should just nuke the connection.
              */
             char *ptr = c->rcurr;
