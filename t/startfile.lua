@@ -92,7 +92,7 @@ function mcp_config_pools(oldss)
     for _, subs in pairs(main_zones) do
         for k, v in pairs(subs) do
             -- use next line instead for a third party ketama hash
-            -- subs[k] = mcp.pool(v, { dist = ketama })
+            -- subs[k] = mcp.pool(v, { dist = ketama, hash = ketama.hash })
             -- this line overrides the default bucket size for ketama
             -- subs[k] = mcp.pool(v, { dist = ketama, obucket = 80 })
             -- this line uses the default murmur3 straight hash.
@@ -104,7 +104,9 @@ function mcp_config_pools(oldss)
             -- for each zone.
             -- NOTE: 'k' may not be the right seed here:
             -- instead stitch main_zone's key + the sub key?
-            -- subs[k] = mcp.pool(v, { dist = mcp.hash_jump, seed = k })
+            -- subs[k] = mcp.pool(v, { dist = mcp.dist_jump_hash, seed = k })
+            -- subs[k] = mcp.pool(v, { dist = mcp.dist_jump_hash, seed = k, filter = "stop", filter_conf = "|#|" })
+            -- subs[k] = mcp.pool(v, { dist = mcp.dist_jump_hash, seed = k, filter = "tags", filter_conf = "{}" })
         end
     end
 
