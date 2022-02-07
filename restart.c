@@ -126,7 +126,7 @@ static int restart_check(const char *file) {
     free(metafile);
 
     if (failed) {
-        fprintf(stderr, "[restart] failed to valiate metadata, starting with a clean cache\n");
+        fprintf(stderr, "[restart] failed to validate metadata, starting with a clean cache\n");
         return -1;
     } else {
         return 0;
