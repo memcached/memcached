@@ -50,7 +50,7 @@ static bool expanding = false;
  * During expansion we migrate values with bucket granularity; this is how
  * far we've gotten so far. Ranges from 0 .. hashsize(hashpower - 1) - 1.
  */
-static unsigned int expand_bucket = 0;
+static uint64_t expand_bucket = 0;
 
 void assoc_init(const int hashtable_init) {
     if (hashtable_init) {
@@ -69,7 +69,7 @@ void assoc_init(const int hashtable_init) {
 
 item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
     item *it;
-    unsigned int oldbucket;
+    uint64_t oldbucket;
 
     if (expanding &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
@@ -98,7 +98,7 @@ item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
 
 static item** _hashitem_before (const char *key, const size_t nkey, const uint32_t hv) {
     item **pos;
-    unsigned int oldbucket;
+    uint64_t oldbucket;
 
     if (expanding &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
@@ -147,7 +147,7 @@ void assoc_start_expand(uint64_t curr_items) {
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
 int assoc_insert(item *it, const uint32_t hv) {
-    unsigned int oldbucket;
+    uint64_t oldbucket;
 
 //    assert(assoc_find(ITEM_key(it), it->nkey) == 0);  /* shouldn't have duplicately named things defined */
 
@@ -199,7 +199,7 @@ static void *assoc_maintenance_thread(void *arg) {
         /* There is only one expansion thread, so no need to global lock. */
         for (ii = 0; ii < hash_bulk_move && expanding; ++ii) {
             item *it, *next;
-            unsigned int bucket;
+            uint64_t bucket;
             void *item_lock = NULL;
 
             /* bucket = hv & hashmask(hashpower) =>the bucket of hash table
@@ -290,10 +290,10 @@ void stop_assoc_maintenance_thread() {
 }
 
 struct assoc_iterator {
-    unsigned int bucket;
-    bool bucket_locked;
+    uint64_t bucket;
     item *it;
     item *next;
+    bool bucket_locked;
 };
 
 void *assoc_get_iterator(void) {
