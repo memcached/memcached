@@ -3328,14 +3328,20 @@ static void proxy_register_defines(lua_State *L) {
 
 /*** REQUEST PARSER AND OBJECT ***/
 
+#define PARSER_MAXLEN USHRT_MAX-1
+
 // Find the starting offsets of each token; ignoring length.
 // This creates a fast small (<= cacheline) index into the request,
 // where we later scan or directly feed data into API's.
 static int _process_tokenize(mcp_parser_t *pr, const size_t max) {
     const char *s = pr->request;
     int len = pr->reqlen - 2;
-    // FIXME: die if reqlen too long.
-    // reqlen could be huge if multiget so... need some special casing?
+
+    // since multigets can be huge, we can't purely judge reqlen against this
+    // limit, but we also can't index past it since the tokens are shorts.
+    if (len > PARSER_MAXLEN) {
+        len = PARSER_MAXLEN;
+    }
     const char *end = s + len;
     int curtoken = 0;
 
@@ -3561,20 +3567,24 @@ static int _process_request_simple(mcp_parser_t *pr, const size_t max) {
 // TODO: return code ENUM with error types.
 // FIXME: the mcp_parser_t bits have ended up being more fragile than I hoped.
 // careful zero'ing is required. revisit?
+// I think this mostly refers to recursive work (maybe just multiget?)
+// Is a parser object run throgh process_request() twice, ever?
 static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
     // we want to "parse in place" as much as possible, which allows us to
     // forward an unmodified request without having to rebuild it.
 
     const char *cm = command;
     size_t cl = 0;
+    // min command length is 2, plus the "\r\n"
+    if (cmdlen < 4) {
+        return -1;
+    }
 
     const char *s = memchr(command, ' ', cmdlen-2);
-    // TODO: has_space -> has_tokens
-    // has_space resered for ascii multiget?
     if (s != NULL) {
         cl = s - command;
     } else {
-        cl = cmdlen - 2; // FIXME: ensure cmdlen can never be < 2?
+        cl = cmdlen - 2;
     }
     pr->keytoken = 0;
     pr->has_space = false;
@@ -3716,10 +3726,12 @@ static int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen)
     return 0;
 }
 
-// FIXME: any reason to pass in command/cmdlen separately?
+// FIXME (v2): any reason to pass in command/cmdlen separately?
 static mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen) {
     // reserving an upvalue for key.
     mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN * 2 + KEY_MAX_LENGTH, 1);
+    // TODO (v2): memset only the non-data part? as the rest gets memcpy'd
+    // over.
     memset(rq, 0, sizeof(mcp_request_t));
     memcpy(&rq->pr, pr, sizeof(*pr));
 
@@ -3829,15 +3841,19 @@ static int mcplib_request(lua_State *L) {
     if (val != NULL) {
         rq->pr.vlen = vlen;
         rq->pr.vbuf = malloc(vlen);
-        // TODO: check malloc failure.
+        if (rq->pr.vbuf == NULL) {
+            // Note: without *c we can't tick the appropriate counter.
+            // However, in practice raw malloc's are nearly never going to
+            // fail.
+            // TODO(v2): we can stack values into the request objects or use
+            // the slabber memory, so this isn't necessary anyway.
+            proxy_lua_error(L, "failed to allocate value memory for request object");
+        }
         memcpy(rq->pr.vbuf, val, vlen);
     }
     gettimeofday(&rq->start, NULL);
 
     // rq is now created, parsed, and on the stack.
-    if (rq == NULL) {
-        // TODO: lua error.
-    }
     return 1;
 }
 
@@ -3963,9 +3979,9 @@ static int mcplib_request_command(lua_State *L) {
 
 static int mcplib_request_gc(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
-    // FIXME: during nread c->item is the malloc'ed buffer. not yet put into
-    // rq->buf - is this properly freed if the connection dies before
-    // complete_nread?
+    // During nread c->item is the malloc'ed buffer. not yet put into
+    // rq->buf - this gets freed because we've also set c->item_malloced if
+    // the connection closes before finishing nread.
     if (rq->pr.vbuf != NULL) {
         free(rq->pr.vbuf);
     }
@@ -4075,12 +4091,11 @@ static int mcplib_add_stat(lua_State *L) {
 
     proxy_ctx_t *ctx = settings.proxy_ctx; // TODO (v2): store ctx in upvalue.
 
-    // just to save some typing.
     STAT_L(ctx);
     struct proxy_user_stats *us = &ctx->user_stats;
 
     // if num_stats is 0 we need to init sizes.
-    // TODO: malloc fail checking.
+    // TODO (v2): malloc fail checking. (should be rare/impossible)
     if (us->num_stats < idx) {
         // don't allocate counters memory for the global ctx.
         char **nnames = calloc(idx, sizeof(char *));
@@ -4100,7 +4115,7 @@ static int mcplib_add_stat(lua_State *L) {
         free(us->names[idx]);
     }
     // strdup name into string slot
-    // TODO: malloc failure.
+    // TODO (v2): malloc failure.
     us->names[idx] = strdup(name);
     STAT_UL(ctx);
 
@@ -4220,7 +4235,11 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     lua_setmetatable(Lc, -2);
 
     io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
-    // FIXME: can this fail? (yes it can)
+    if (p == NULL) {
+        WSTAT_INCR(c, proxy_conn_oom, 1);
+        proxy_lua_error(Lc, "out of memory allocating from IO cache");
+        return;
+    }
 
     // this is a re-cast structure, so assert that we never outsize it.
     assert(sizeof(io_pending_t) >= sizeof(io_pending_proxy_t));
