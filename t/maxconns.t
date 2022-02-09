@@ -44,12 +44,21 @@ sub test_maxconns {
       }
     }
 
+    my $failed = 1;
+    for (1 .. 5) {
+        $stats = mem_stats($stat_sock);
+        if ($stats->{rejected_connections} != 0) {
+            $failed = 0;
+            last;
+        }
+        sleep 1;
+    }
+    is($failed, 0, "rejected connections were observed.");
+
     for my $s (@sockets) {
         $s->close();
     }
 
-    $stats = mem_stats($stat_sock);
-    cmp_ok($stats->{rejected_connections}, '>', '1', 'rejected connections recorded');
     $server->stop;
     $stat_sock->close();
 }
