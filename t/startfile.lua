@@ -13,7 +13,7 @@ local STAT_ANOTHER <const> = 2
 function mcp_config_pools(oldss)
     mcp.add_stat(STAT_EXAMPLE, "example")
     mcp.add_stat(STAT_ANOTHER, "another")
-    mcp.backend_connect_timeout(5) -- 5 second timeout.
+    mcp.backend_connect_timeout(5.5) -- 5 and a half second timeout.
     -- alias mcp.backend for convenience.
     -- important to alias global variables in routes where speed is concerned.
     local srv = mcp.backend

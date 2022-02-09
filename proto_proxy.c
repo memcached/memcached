@@ -3211,15 +3211,22 @@ static int mcplib_backend_failure_limit(lua_State *L) {
     return 0;
 }
 
-// TODO: take fractional time and convert.
+// sad, I had to look this up...
+#define NANOSECONDS(x) ((x) * 1E9 + 0.5)
+#define MICROSECONDS(x) ((x) * 1E6 + 0.5)
+
 static int mcplib_backend_connect_timeout(lua_State *L) {
-    int seconds = luaL_checkinteger(L, -1);
+    lua_Number secondsf = luaL_checknumber(L, -1);
+    lua_Integer secondsi = (lua_Integer) secondsf;
+    lua_Number subseconds = secondsf - secondsi;
     proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
 
     STAT_L(ctx);
-    ctx->tunables.connect.tv_sec = seconds;
+    ctx->tunables.connect.tv_sec = secondsi;
+    ctx->tunables.connect.tv_usec = MICROSECONDS(subseconds);
 #ifdef HAVE_LIBURING
-    ctx->tunables.connect_ur.tv_sec = seconds;
+    ctx->tunables.connect_ur.tv_sec = secondsi;
+    ctx->tunables.connect_ur.tv_nsec = NANOSECONDS(subseconds);
 #endif
     STAT_UL(ctx);
 
@@ -3227,13 +3234,17 @@ static int mcplib_backend_connect_timeout(lua_State *L) {
 }
 
 static int mcplib_backend_retry_timeout(lua_State *L) {
-    int seconds = luaL_checkinteger(L, -1);
+    lua_Number secondsf = luaL_checknumber(L, -1);
+    lua_Integer secondsi = (lua_Integer) secondsf;
+    lua_Number subseconds = secondsf - secondsi;
     proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
 
     STAT_L(ctx);
-    ctx->tunables.retry.tv_sec = seconds;
+    ctx->tunables.retry.tv_sec = secondsi;
+    ctx->tunables.retry.tv_usec = MICROSECONDS(subseconds);
 #ifdef HAVE_LIBURING
-    ctx->tunables.retry_ur.tv_sec = seconds;
+    ctx->tunables.retry_ur.tv_sec = secondsi;
+    ctx->tunables.retry_ur.tv_nsec = NANOSECONDS(subseconds);
 #endif
     STAT_UL(ctx);
 
@@ -3241,13 +3252,17 @@ static int mcplib_backend_retry_timeout(lua_State *L) {
 }
 
 static int mcplib_backend_read_timeout(lua_State *L) {
-    int seconds = luaL_checkinteger(L, -1);
+    lua_Number secondsf = luaL_checknumber(L, -1);
+    lua_Integer secondsi = (lua_Integer) secondsf;
+    lua_Number subseconds = secondsf - secondsi;
     proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
 
     STAT_L(ctx);
-    ctx->tunables.read.tv_sec = seconds;
+    ctx->tunables.read.tv_sec = secondsi;
+    ctx->tunables.read.tv_usec = MICROSECONDS(subseconds);
 #ifdef HAVE_LIBURING
-    ctx->tunables.read_ur.tv_sec = seconds;
+    ctx->tunables.read_ur.tv_sec = secondsi;
+    ctx->tunables.read_ur.tv_nsec = NANOSECONDS(subseconds);
 #endif
     STAT_UL(ctx);
 
