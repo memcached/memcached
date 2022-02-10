@@ -79,6 +79,7 @@ if ($res eq "STORED\r\n") {
     my $conn_server = new_memcached('-m 60 -o watcher_logbuf_size=8');
     my $conn_watcher = $conn_server->new_sock;
 
+    sleep 1;
     print $conn_watcher "watch connevents\n";
     $res = <$conn_watcher>;
     is($res, "OK\r\n", 'connevents watcher enabled');
