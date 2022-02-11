@@ -715,7 +715,8 @@ typedef struct {
 #ifdef PROXY
     void *L;
     void *proxy_hooks;
-    void *proxy_stats;
+    void *proxy_user_stats;
+    void *proxy_int_stats;
     // TODO: add ctx object so we can attach to queue.
 #endif
 } LIBEVENT_THREAD;

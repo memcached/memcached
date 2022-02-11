@@ -124,6 +124,7 @@ enum proxy_defines {
     CMD_SIZE, // used to define array size for command hooks.
     CMD_ANY, // override _all_ commands
     CMD_ANY_STORAGE, // override commands specific to key storage.
+    CMD_FINAL, // end cap for convenience.
 };
 #undef X
 
@@ -153,6 +154,12 @@ static void _proxy_evthr_evset_clock(proxy_event_thread_t *t);
 static void *proxy_event_thread_ur(void *arg);
 static void proxy_event_updater_ur(void *udata, struct io_uring_cqe *cqe);
 #endif
+
+// Note: This ends up wasting a few counters, but simplifies the rest of the
+// process for handling internal worker stats.
+struct proxy_int_stats {
+    uint64_t counters[CMD_FINAL];
+};
 
 struct proxy_user_stats {
     size_t num_stats; // number of stats, for sizing various arrays
@@ -453,6 +460,7 @@ void proxy_stats(ADD_STAT add_stats, conn *c) {
 
 void process_proxy_stats(ADD_STAT add_stats, conn *c) {
     char key_str[STAT_KEY_LEN];
+    struct proxy_int_stats istats = {0};
 
     if (!settings.proxy_enabled) {
         return;
@@ -468,20 +476,46 @@ void process_proxy_stats(ADD_STAT add_stats, conn *c) {
     // aggregate worker thread counters.
     for (int x = 0; x < settings.num_threads; x++) {
         LIBEVENT_THREAD *t = get_worker_thread(x);
-        struct proxy_user_stats *tus = t->proxy_stats;
+        struct proxy_user_stats *tus = t->proxy_user_stats;
+        struct proxy_int_stats *is = t->proxy_int_stats;
         WSTAT_L(t);
+        for (int i = 0; i < CMD_FINAL; i++) {
+            istats.counters[i] += is->counters[i];
+        }
         for (int i = 0; i < tus->num_stats; i++) {
             counters[i] += tus->counters[i];
         }
         WSTAT_UL(t);
     }
 
-    // return all of the stats
+    // return all of the user generated stats
     for (int x = 0; x < us->num_stats; x++) {
         snprintf(key_str, STAT_KEY_LEN-1, "user_%s", us->names[x]);
         APPEND_STAT(key_str, "%llu", (unsigned long long)counters[x]);
     }
     STAT_UL(ctx);
+
+    // return proxy counters
+    APPEND_STAT("cmd_mg", "%llu", (unsigned long long)istats.counters[CMD_MG]);
+    APPEND_STAT("cmd_ms", "%llu", (unsigned long long)istats.counters[CMD_MS]);
+    APPEND_STAT("cmd_md", "%llu", (unsigned long long)istats.counters[CMD_MD]);
+    APPEND_STAT("cmd_mn", "%llu", (unsigned long long)istats.counters[CMD_MN]);
+    APPEND_STAT("cmd_ma", "%llu", (unsigned long long)istats.counters[CMD_MA]);
+    APPEND_STAT("cmd_me", "%llu", (unsigned long long)istats.counters[CMD_ME]);
+    APPEND_STAT("cmd_get", "%llu", (unsigned long long)istats.counters[CMD_GET]);
+    APPEND_STAT("cmd_gat", "%llu", (unsigned long long)istats.counters[CMD_GAT]);
+    APPEND_STAT("cmd_set", "%llu", (unsigned long long)istats.counters[CMD_SET]);
+    APPEND_STAT("cmd_add", "%llu", (unsigned long long)istats.counters[CMD_ADD]);
+    APPEND_STAT("cmd_cas", "%llu", (unsigned long long)istats.counters[CMD_CAS]);
+    APPEND_STAT("cmd_gets", "%llu", (unsigned long long)istats.counters[CMD_GETS]);
+    APPEND_STAT("cmd_gats", "%llu", (unsigned long long)istats.counters[CMD_GATS]);
+    APPEND_STAT("cmd_incr", "%llu", (unsigned long long)istats.counters[CMD_INCR]);
+    APPEND_STAT("cmd_decr", "%llu", (unsigned long long)istats.counters[CMD_DECR]);
+    APPEND_STAT("cmd_touch", "%llu", (unsigned long long)istats.counters[CMD_TOUCH]);
+    APPEND_STAT("cmd_append", "%llu", (unsigned long long)istats.counters[CMD_APPEND]);
+    APPEND_STAT("cmd_prepend", "%llu", (unsigned long long)istats.counters[CMD_PREPEND]);
+    APPEND_STAT("cmd_delete", "%llu", (unsigned long long)istats.counters[CMD_DELETE]);
+    APPEND_STAT("cmd_replace", "%llu", (unsigned long long)istats.counters[CMD_REPLACE]);
 }
 
 struct _dumpbuf {
@@ -1047,11 +1081,11 @@ static int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
     struct proxy_user_stats *tus = NULL;
     if (us->num_stats != 0) {
         pthread_mutex_lock(&thr->stats.mutex);
-        if (thr->proxy_stats == NULL) {
+        if (thr->proxy_user_stats == NULL) {
             tus = calloc(1, sizeof(struct proxy_user_stats));
-            thr->proxy_stats = tus;
+            thr->proxy_user_stats = tus;
         } else {
-            tus = thr->proxy_stats;
+            tus = thr->proxy_user_stats;
         }
 
         // originally this was a realloc routine but it felt fragile.
@@ -1081,6 +1115,11 @@ void proxy_thread_init(LIBEVENT_THREAD *thr) {
     thr->proxy_hooks = calloc(CMD_SIZE, sizeof(struct proxy_hook));
     if (thr->proxy_hooks == NULL) {
         fprintf(stderr, "Failed to allocate proxy hooks\n");
+        exit(EXIT_FAILURE);
+    }
+    thr->proxy_int_stats = calloc(1, sizeof(struct proxy_int_stats));
+    if (thr->proxy_int_stats == NULL) {
+        fprintf(stderr, "Failed to allocate proxy thread stats\n");
         exit(EXIT_FAILURE);
     }
 
@@ -2529,7 +2568,11 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     }
 
     // Count requests handled by proxy vs local.
-    WSTAT_INCR(c, proxy_conn_requests, 1);
+    struct proxy_int_stats *istats = c->thread->proxy_int_stats;
+    WSTAT_L(c->thread);
+    istats->counters[pr.command]++;
+    c->thread->stats.proxy_conn_requests++;
+    WSTAT_UL(c->thread);
 
     // If ascii multiget, we turn this into a self-calling loop :(
     // create new request with next key, call this func again, then advance
@@ -4129,7 +4172,7 @@ static int mcplib_stat(lua_State *L) {
         return 0;
     }
 
-    struct proxy_user_stats *tus = t->proxy_stats;
+    struct proxy_user_stats *tus = t->proxy_user_stats;
     if (tus == NULL) {
         proxy_lua_error(L, "no stats counters initialized");
         return 0;
