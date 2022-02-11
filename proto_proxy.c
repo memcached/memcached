@@ -618,7 +618,7 @@ static void *_proxy_config_thread(void *arg) {
     pthread_mutex_lock(&ctx->config_lock);
     while (1) {
         pthread_cond_wait(&ctx->config_cond, &ctx->config_lock);
-        LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "start");
+        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "start");
         STAT_INCR(ctx, config_reloads, 1);
         lua_State *L = ctx->proxy_state;
         lua_settop(L, 0); // clear off any crud that could have been left on the stack.
@@ -634,7 +634,7 @@ static void *_proxy_config_thread(void *arg) {
         if (proxy_load_config(ctx) != 0) {
             // Failed to load. log and wait for a retry.
             STAT_INCR(ctx, config_reload_fails, 1);
-            LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
+            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
             continue;
         }
 
@@ -660,11 +660,11 @@ static void *_proxy_config_thread(void *arg) {
             // Code load bailed.
             if (ctx->worker_failed) {
                 STAT_INCR(ctx, config_reload_fails, 1);
-                LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
+                LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
                 continue;
             }
         }
-        LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_CONFIG, NULL, "done");
+        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "done");
     }
 
     return NULL;
@@ -1916,7 +1916,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
         int type = lua_type(Lc, -1);
         if (type == LUA_TUSERDATA) {
             mcp_resp_t *r = luaL_checkudata(Lc, -1, "mcp.response");
-            LOGGER_LOG(NULL, LOG_RAWCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->cmd, r->resp.type, r->resp.code);
+            LOGGER_LOG(NULL, LOG_PROXYCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->cmd, r->resp.type, r->resp.code);
             if (r->buf) {
                 // response set from C.
                 // FIXME (v2): write_and_free() ? it's a bit wrong for here.
@@ -1987,7 +1987,7 @@ static int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t 
         }
     } else {
         P_DEBUG("%s: Failed to run coroutine: %s\n", __func__, lua_tostring(Lc, -1));
-        LOGGER_LOG(NULL, LOG_SYSEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(Lc, -1));
+        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(Lc, -1));
         proxy_out_errstring(resp, "lua failure");
     }
 
@@ -4096,6 +4096,15 @@ static int mcplib_open_dist_jump_hash(lua_State *L) {
 
 /*** END jump consistent hash library ***/
 
+/*** START lua interface to logger ***/
+
+static int mcplib_log(lua_State *L) {
+    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
+    const char *msg = luaL_checkstring(L, -1);
+    LOGGER_LOG(t->l, LOG_PROXYUSER, LOGGER_PROXY_USER, NULL, msg);
+    return 0;
+}
+
 /*** START lua interface to user stats ***/
 
 // mcp.add_stat(index, name)
@@ -4540,6 +4549,7 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
         {"add_stat", mcplib_add_stat},
         {"stat", mcplib_stat},
         {"await", mcplib_await},
+        {"log", mcplib_log},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
         {"backend_read_timeout", mcplib_backend_read_timeout},

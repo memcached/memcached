@@ -54,7 +54,7 @@ static int logger_thread_poll_watchers(int force_poll, int watcher);
 static void _logger_log_text(logentry *e, const entry_details *d, const void *entry, va_list ap) {
     int reqlen = d->reqlen;
     int total = vsnprintf((char *) e->data, reqlen, d->format, ap);
-    if (total >= reqlen || total <= 0) {
+    if (total <= 0) {
         fprintf(stderr, "LOGGER: Failed to vsnprintf a text entry: (total) %d\n", total);
     }
     e->size = total + 1; // null byte
@@ -367,13 +367,17 @@ static const entry_details default_entries[] = {
     },
 #endif
 #ifdef PROXY
-    [LOGGER_PROXY_CONFIG] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
+    [LOGGER_PROXY_CONFIG] = {512, LOG_PROXYEVENTS, _logger_log_text, _logger_parse_text,
         "type=proxy_conf status=%s"
     },
-    [LOGGER_PROXY_RAW] = {512, LOG_RAWCMDS, _logger_log_proxy_raw, _logger_parse_prx_raw, NULL},
-    [LOGGER_PROXY_ERROR] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
+    [LOGGER_PROXY_RAW] = {512, LOG_PROXYCMDS, _logger_log_proxy_raw, _logger_parse_prx_raw, NULL},
+    [LOGGER_PROXY_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_text, _logger_parse_text,
         "type=proxy_error msg=%s"
     },
+    [LOGGER_PROXY_USER] = {512, LOG_PROXYUSER, _logger_log_text, _logger_parse_text,
+        "type=proxy_user msg=%s"
+    },
+
 #endif
 };
 

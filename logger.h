@@ -35,6 +35,7 @@ enum log_entry_type {
     LOGGER_PROXY_CONFIG,
     LOGGER_PROXY_RAW,
     LOGGER_PROXY_ERROR,
+    LOGGER_PROXY_USER,
 #endif
 };
 
@@ -144,6 +145,9 @@ struct _logentry {
 #define LOG_EVICTIONS  (1<<6) /* details of evicted items */
 #define LOG_STRICT     (1<<7) /* block worker instead of drop */
 #define LOG_RAWCMDS    (1<<9) /* raw ascii commands */
+#define LOG_PROXYCMDS  (1<<10) /* command logs from proxy */
+#define LOG_PROXYEVENTS (1<<11) /* error log stream from proxy */
+#define LOG_PROXYUSER (1<<12) /* user generated logs from proxy */
 
 typedef struct _logger {
     struct _logger *prev;

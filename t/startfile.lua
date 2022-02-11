@@ -131,6 +131,8 @@ function failover_factory(zones, local_zone)
     return function(r)
         local res = near_zone(r)
         if res:hit() == false then
+            -- example for mcp.log... Don't do this though :)
+            mcp.log("failed to find " .. r:key() .. " in zone: " .. local_zone)
             for _, zone in pairs(far_zones) do
                 res = zone(r)
                 if res:hit() then

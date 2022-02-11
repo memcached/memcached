@@ -2291,6 +2291,12 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
                 f |= LOG_SYSEVENTS;
             } else if ((strcmp(tokens[x].value, "connevents") == 0)) {
                 f |= LOG_CONNEVENTS;
+            } else if ((strcmp(tokens[x].value, "proxycmds") == 0)) {
+                f |= LOG_PROXYCMDS;
+            } else if ((strcmp(tokens[x].value, "proxyevents") == 0)) {
+                f |= LOG_PROXYEVENTS;
+            } else if ((strcmp(tokens[x].value, "proxyuser") == 0)) {
+                f |= LOG_PROXYUSER;
             } else {
                 out_string(c, "ERROR");
                 return;
