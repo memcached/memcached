@@ -2853,6 +2853,10 @@ static int mcplib_backend_gc(lua_State *L) {
     mcmc_disconnect(be->client);
     free(be->client);
 
+    // FIXME (v2): upvalue for global ctx.
+    proxy_ctx_t *ctx = settings.proxy_ctx;
+    STAT_DECR(ctx, backend_total, 1);
+
     return 0;
 }
 
@@ -2882,10 +2886,6 @@ static int mcplib_backend(lua_State *L) {
 
     // This might shift to internal objects?
     mcp_backend_t *be = lua_newuserdatauv(L, sizeof(mcp_backend_t), 0);
-    if (be == NULL) {
-        proxy_lua_error(L, "out of memory allocating backend");
-        return 0;
-    }
 
     // FIXME (v2): remove some of the excess zero'ing below?
     memset(be, 0, sizeof(mcp_backend_t));
@@ -2944,6 +2944,10 @@ static int mcplib_backend(lua_State *L) {
     // set our new backend object into the reference table.
     lua_settable(L, lua_upvalueindex(MCP_BACKEND_UPVALUE));
     // stack is back to having backend on the top.
+
+    // FIXME (v2): upvalue for global ctx.
+    proxy_ctx_t *ctx = settings.proxy_ctx;
+    STAT_INCR(ctx, backend_total, 1);
 
     return 1;
 }
