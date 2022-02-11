@@ -36,6 +36,7 @@ enum log_entry_type {
     LOGGER_PROXY_RAW,
     LOGGER_PROXY_ERROR,
     LOGGER_PROXY_USER,
+    LOGGER_PROXY_BE_ERROR,
 #endif
 };
 
