@@ -1103,7 +1103,7 @@ static int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
     STAT_L(ctx);
     struct proxy_user_stats *us = &ctx->user_stats;
     struct proxy_user_stats *tus = NULL;
-    if (us->num_stats != 0) {
+    if (us->num_stats == 0) {
         pthread_mutex_lock(&thr->stats.mutex);
         if (thr->proxy_user_stats == NULL) {
             tus = calloc(1, sizeof(struct proxy_user_stats));
