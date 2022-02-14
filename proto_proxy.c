@@ -506,8 +506,10 @@ void process_proxy_stats(ADD_STAT add_stats, conn *c) {
         for (int i = 0; i < CMD_FINAL; i++) {
             istats.counters[i] += is->counters[i];
         }
-        for (int i = 0; i < tus->num_stats; i++) {
-            counters[i] += tus->counters[i];
+        if (tus && tus->num_stats >= us->num_stats) {
+            for (int i = 0; i < us->num_stats; i++) {
+                counters[i] += tus->counters[i];
+            }
         }
         WSTAT_UL(t);
     }
