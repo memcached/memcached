@@ -9,6 +9,7 @@ local my_zone = 'z1'
 
 local STAT_EXAMPLE <const> = 1
 local STAT_ANOTHER <const> = 2
+--mcp.tcp_keepalive(true)
 
 function mcp_config_pools(oldss)
     mcp.add_stat(STAT_EXAMPLE, "example")

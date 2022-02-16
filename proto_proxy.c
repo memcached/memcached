@@ -213,6 +213,7 @@ struct proxy_tunables {
     struct __kernel_timespec read_ur;
 #endif // HAVE_LIBURING
     int backend_failure_limit;
+    bool tcp_keepalive;
 };
 
 typedef STAILQ_HEAD(pool_head_s, mcp_pool_s) pool_head_t;
@@ -337,6 +338,7 @@ struct mcp_backend_s {
     proxy_event_t ur_te_ev; // for timeout handling
 #endif
     enum mcp_backend_states state; // readback state machine
+    int connect_flags; // flags to pass to mcmc_connect
     bool connecting; // in the process of an asynch connection.
     bool can_write; // recently got a WANT_WRITE or are connecting.
     bool stacked; // if backend already queued for syscalls.
@@ -833,6 +835,7 @@ void proxy_init(bool use_uring) {
     pthread_mutex_init(&ctx->stats_lock, NULL);
 
     // FIXME (v2): default defines.
+    ctx->tunables.tcp_keepalive = false;
     ctx->tunables.backend_failure_limit = 3;
     ctx->tunables.connect.tv_sec = 5;
     ctx->tunables.retry.tv_sec = 3;
@@ -2328,7 +2331,7 @@ static int _reset_bad_backend(mcp_backend_t *be, enum proxy_be_failures err) {
     STAILQ_INIT(&be->io_head);
 
     mcmc_disconnect(be->client);
-    int status = mcmc_connect(be->client, be->ip, be->port, MCMC_OPTION_NONBLOCK);
+    int status = mcmc_connect(be->client, be->ip, be->port, be->connect_flags);
     if (status == MCMC_CONNECTED) {
         // TODO (v2): unexpected but lets let it be here.
         be->connecting = false;
@@ -2867,6 +2870,8 @@ static int mcplib_backend(lua_State *L) {
     const char *ip = luaL_checkstring(L, -3);
     const char *port = luaL_checkstring(L, -2);
     double weight = luaL_checknumber(L, -1);
+    // FIXME (v2): upvalue for global ctx.
+    proxy_ctx_t *ctx = settings.proxy_ctx;
 
     // first check our reference table to compare.
     lua_pushvalue(L, -4);
@@ -2924,7 +2929,20 @@ static int mcplib_backend(lua_State *L) {
     }
     // TODO (v2): connect elsewhere. When there're multiple backend owners, or
     // sockets per backend, etc. We'll want to kick off connects as use time.
-    int status = mcmc_connect(be->client, be->ip, be->port, MCMC_OPTION_NONBLOCK);
+    // TODO (v2): no way to change the TCP_KEEPALIVE state post-construction.
+    // This is a trivial fix if we ensure a backend's owning event thread is
+    // set before it can be used in the proxy, as it would have access to the
+    // tunables structure. _reset_bad_backend() may not have its event thread
+    // set 100% of the time and I don't want to introduce a crash right now,
+    // so I'm writing this overly long comment. :)
+    int flags = MCMC_OPTION_NONBLOCK;
+    STAT_L(ctx);
+    if (ctx->tunables.tcp_keepalive) {
+        flags |= MCMC_OPTION_TCP_KEEPALIVE;
+    }
+    STAT_UL(ctx);
+    be->connect_flags = flags;
+    int status = mcmc_connect(be->client, be->ip, be->port, flags);
     if (status == MCMC_CONNECTED) {
         // FIXME (v2): is this possible? do we ever want to allow blocking
         // connections?
@@ -2947,8 +2965,6 @@ static int mcplib_backend(lua_State *L) {
     lua_settable(L, lua_upvalueindex(MCP_BACKEND_UPVALUE));
     // stack is back to having backend on the top.
 
-    // FIXME (v2): upvalue for global ctx.
-    proxy_ctx_t *ctx = settings.proxy_ctx;
     STAT_INCR(ctx, backend_total, 1);
 
     return 1;
@@ -3253,6 +3269,18 @@ static int mcplib_pool_proxy_call(lua_State *L) {
 
     // now yield request, pool up.
     return lua_yield(L, 2);
+}
+
+static int mcplib_tcp_keepalive(lua_State *L) {
+    luaL_checktype(L, -1, LUA_TBOOLEAN);
+    int state = lua_toboolean(L, -1);
+    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
+
+    STAT_L(ctx);
+    ctx->tunables.tcp_keepalive = state;
+    STAT_UL(ctx);
+
+    return 0;
 }
 
 static int mcplib_backend_failure_limit(lua_State *L) {
@@ -4571,6 +4599,7 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
         {"backend_read_timeout", mcplib_backend_read_timeout},
         {"backend_failure_limit", mcplib_backend_failure_limit},
+        {"tcp_keepalive", mcplib_tcp_keepalive},
         {NULL, NULL}
     };
 
