@@ -454,7 +454,15 @@ int mcmc_connect(void *c, char *host, char *port, int options) {
         if (sock == -1)
             continue;
 
-        // TODO: NONBLOCK
+        if (options & MCMC_OPTION_TCP_KEEPALIVE) {
+            int optval = 1;
+            if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)) < 0) {
+                res = MCMC_ERR;
+                close(sock);
+                goto end;
+            }
+        }
+
         if (options & MCMC_OPTION_NONBLOCK) {
             int flags = fcntl(sock, F_GETFL);
             if (flags < 0) {
