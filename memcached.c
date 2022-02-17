@@ -1977,6 +1977,10 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ssl_session_cache", "%s", settings.ssl_session_cache ? "yes" : "no");
     APPEND_STAT("ssl_min_version", "%s", ssl_proto_text(settings.ssl_min_version));
 #endif
+#ifdef PROXY
+    APPEND_STAT("proxy_enabled", "%s", settings.proxy_enabled ? "yes" : "no");
+    APPEND_STAT("proxy_uring_enabled", "%s", settings.proxy_uring ? "yes" : "no");
+#endif
     APPEND_STAT("num_napi_ids", "%s", settings.num_napi_ids);
     APPEND_STAT("memory_file", "%s", settings.memory_file);
 }
