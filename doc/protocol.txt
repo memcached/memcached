@@ -1177,6 +1177,15 @@ The arguments are:
   address IP and port. Connection close events additionally supply a reason for
   closing the connection.
 
+- "proxycmds": Emits detailed timing logs about requests/responses being
+  returned to a client while in proxy mode. The conditions which logs are
+  written here may be influenced by configuration.
+
+- "proxyevents": Emits internal proxy errors and system events, such as
+  configuration reloads.
+
+- "proxyuser": Emits log entries created from lua configuration files.
+
 Statistics
 ----------
 
@@ -1252,6 +1261,11 @@ integers separated by a colon (treat this as a floating point number).
 | read_buf_bytes_free   | 64u     | Total read/resp buffer bytes cached       |
 | read_buf_oom          | 64u     | Connections closed by lack of memory      |
 | reserved_fds          | 32u     | Number of misc fds used internally        |
+| proxy_conn_requests   | 64u     | Number of requests received by the proxy  |
+| proxy_conn_errors     | 64u     | Number of internal errors from proxy      |
+| proxy_conn_oom        | 64u     | Number of out of memory errors while      |
+|                       |         | serving proxy requests                    |
+| proxy_req_active      | 64u     | Number of in-flight proxy requests        |
 | cmd_get               | 64u     | Cumulative number of retrieval reqs       |
 | cmd_set               | 64u     | Cumulative number of storage reqs         |
 | cmd_flush             | 64u     | Cumulative number of flush reqs           |
@@ -1438,6 +1452,10 @@ other stats command.
 |                   | bool     | Does nothing as of 1.5.15                    |
 | drop_privileges   | bool     | If yes, and available, drop unused syscalls  |
 |                   |          | (see seccomp on Linux, pledge on OpenBSD)    |
+| proxy_enabled     | bool     | If proxy has been configured at start        |
+| proxy_uring_enabled                                                         |
+                    | bool     | If proxy is configured to use IO_URING.      |
+                    |          | NOTE: uring may be used if kernel too old    |
 | memory_file       | char     | Warm restart memory file path, if enabled    |
 |-------------------+----------+----------------------------------------------|
 
