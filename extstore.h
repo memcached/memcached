@@ -9,6 +9,7 @@ struct extstore_page_data {
     uint64_t bytes_used;
     unsigned int bucket;
     unsigned int free_bucket;
+    bool active; // page is actively being written to; ignore it except for tallying.
 };
 
 /* Pages can have objects deleted from them at any time. This creates holes
@@ -105,6 +106,7 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf, enu
 int extstore_write_request(void *ptr, unsigned int bucket, unsigned int free_bucket, obj_io *io);
 void extstore_write(void *ptr, obj_io *io);
 int extstore_submit(void *ptr, obj_io *io);
+int extstore_submit_bg(void *ptr, obj_io *io);
 /* count are the number of objects being removed, bytes are the original
  * length of those objects. Bytes is optional but you can't track
  * fragmentation without it.
@@ -116,7 +118,7 @@ void extstore_get_stats(void *ptr, struct extstore_stats *st);
  * caller must allocate its stats.page_data memory first.
  */
 void extstore_get_page_data(void *ptr, struct extstore_stats *st);
-void extstore_run_maint(void *ptr);
 void extstore_close_page(void *ptr, unsigned int page_id, uint64_t page_version);
+void extstore_evict_page(void *ptr, unsigned int page_id, uint64_t page_version);
 
 #endif

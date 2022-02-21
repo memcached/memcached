@@ -184,7 +184,7 @@ $set->('x', 10, 19, "somevalue");
 
 # check evictions and misses
 {
-    my $keycount = 1000;
+    my $keycount = 1250;
     for (1 .. $keycount) {
         $set->("mfoo$_", 0, 19, $value);
     }

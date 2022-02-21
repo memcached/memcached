@@ -414,6 +414,8 @@ struct stats {
     uint64_t      extstore_compact_lost; /* items lost because they were locked */
     uint64_t      extstore_compact_rescues; /* items re-written during compaction */
     uint64_t      extstore_compact_skipped; /* unhit items skipped during compaction */
+    uint64_t      extstore_compact_resc_cold; /* items re-written during compaction */
+    uint64_t      extstore_compact_resc_old; /* items re-written during compaction */
 #endif
 #ifdef TLS
     uint64_t      ssl_handshake_errors; /* TLS failures at accept/handshake time */

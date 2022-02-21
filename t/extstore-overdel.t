@@ -65,8 +65,13 @@ note "fill page with same key over and over";
     print $sock "mg overwrite\r\n";
     is(scalar <$sock>, "HD\r\n");
 
+    print $sock "extstore compact_under 6\r\n";
+    my $res = <$sock>;
+    print $sock "extstore drop_under 3\r\n";
+    $res = <$sock>;
+
     # fill with junk to allow compaction to run.
-    my $keycount = 1250;
+    my $keycount = 1800;
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 20000 noreply\r\n$value\r\n";
         # wait to avoid evictions
@@ -81,20 +86,10 @@ note "fill page with same key over and over";
     is($stats->{evictions}, 0, 'no evictions');
     is($stats->{miss_from_extstore}, 0, 'no misses');
 
-    print $sock "extstore drop_unread 1\r\n";
-    my $res = <$sock>;
-    print $sock "extstore max_frag 0\r\n";
-    $res = <$sock>;
-    print $sock "extstore compact_under 4\r\n";
-    $res = <$sock>;
-    print $sock "extstore drop_under 3\r\n";
-    $res = <$sock>;
     for (1 .. $keycount) {
         next unless $_ % 2 == 0;
         #    print $sock "delete mfoo$_ noreply\r\n";
     }
-
-    sleep 4;
 
     # With the bug we rescue the first seen item from the page, and since we
     # were randomizing values we could end up returning an old value (or more
@@ -106,7 +101,6 @@ note "fill page with same key over and over";
     is($stats->{miss_from_extstore}, 0, 'no misses');
     cmp_ok($stats->{extstore_pages_free}, '>', 0, 'some pages now free');
     cmp_ok($stats->{extstore_compact_rescues}, '>', 0, 'some compaction rescues happened');
-    cmp_ok($stats->{extstore_compact_skipped}, '>', 0, 'some compaction skips happened');
     print $sock "extstore drop_unread 0\r\n";
     $res = <$sock>;
 }

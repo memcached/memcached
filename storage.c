@@ -15,6 +15,10 @@
 #define PAGE_BUCKET_COMPACT 1
 #define PAGE_BUCKET_CHUNKED 2
 #define PAGE_BUCKET_LOWTTL  3
+#define PAGE_BUCKET_COLDCOMPACT 4
+#define PAGE_BUCKET_OLD     5
+// Not another bucket; this is the total number of buckets.
+#define PAGE_BUCKET_COUNT   6
 
 /*
  * API functions
@@ -41,6 +45,10 @@ typedef struct _io_pending_storage_t {
     bool badcrc;              /* signal a crc failure */
     bool active;              /* tells if IO was dispatched or not */
 } io_pending_storage_t;
+
+static pthread_t storage_compact_tid;
+static pthread_mutex_t storage_compact_plock;
+static pthread_cond_t storage_compact_cond;
 
 // Only call this if item has ITEM_HDR
 bool storage_validate_item(void *e, item *it) {
@@ -93,6 +101,8 @@ void process_extstore_stats(ADD_STAT add_stats, conn *c) {
         APPEND_NUM_STAT(i, "free_bucket", "%u",
                 st.page_data[i].free_bucket);
     }
+
+    free(st.page_data);
 }
 
 // Additional storage stats for the main stats output.
@@ -102,6 +112,8 @@ void storage_stats(ADD_STAT add_stats, conn *c) {
         STATS_LOCK();
         APPEND_STAT("extstore_compact_lost", "%llu", (unsigned long long)stats.extstore_compact_lost);
         APPEND_STAT("extstore_compact_rescues", "%llu", (unsigned long long)stats.extstore_compact_rescues);
+        APPEND_STAT("extstore_compact_resc_cold", "%llu", (unsigned long long)stats.extstore_compact_resc_cold);
+        APPEND_STAT("extstore_compact_resc_old", "%llu", (unsigned long long)stats.extstore_compact_resc_old);
         APPEND_STAT("extstore_compact_skipped", "%llu", (unsigned long long)stats.extstore_compact_skipped);
         STATS_UNLOCK();
         extstore_get_stats(c->thread->storage, &st);
@@ -592,6 +604,12 @@ static void *storage_write_thread(void *arg) {
     }
 
     pthread_mutex_lock(&storage_write_plock);
+    // The compaction checker is CPU intensive, so we do a loose fudging to
+    // only activate it once every "slab page size" worth of bytes written.
+    // I was calling the compact checker once per run through this main loop,
+    // but we can end up doing lots of short loops without sleeping and end up
+    // calling the compact checker pretty frequently.
+    int check_compact = settings.slab_page_size;
 
     while (1) {
         // cache per-loop to avoid calls to the slabs_clsid() search loop
@@ -620,7 +638,14 @@ static void *storage_write_thread(void *arg) {
             unsigned int chunks_perpage = 0;
             chunks_free = slabs_available_chunks(x, &mem_limit_reached,
                     &chunks_perpage);
+
+            if (chunks_perpage == 0) {
+                // no slab class here, skip.
+                continue;
+            }
             unsigned int target = chunks_perpage * target_pages;
+            // Loose estimate for cutting the calls to compacter
+            unsigned int chunk_size = settings.slab_page_size / chunks_perpage;
 
             // storage_write() will fail and cut loop after filling write buffer.
             while (1) {
@@ -632,6 +657,12 @@ static void *storage_write_thread(void *arg) {
                 }
                 if (storage_write(storage, x, item_age)) {
                     chunks_free++; // Allow stopping if we've done enough this loop
+                    check_compact -= chunk_size;
+                    // occasionally kick the compact checker.
+                    if (check_compact < 0) {
+                        pthread_cond_signal(&storage_compact_cond);
+                        check_compact = settings.slab_page_size;
+                    }
                     did_move = true;
                     do_sleep = false;
                     if (to_sleep > WRITE_SLEEP_MIN)
@@ -656,6 +687,15 @@ static void *storage_write_thread(void *arg) {
             for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
                 backoff[x] = 1;
             }
+
+            // call the compact checker occasionally even if we're just
+            // sleeping.
+            check_compact -= to_sleep * 10;
+            if (check_compact < 0) {
+                pthread_cond_signal(&storage_compact_cond);
+                check_compact = settings.slab_page_size;
+            }
+
             usleep(to_sleep);
             to_sleep++;
         }
@@ -704,81 +744,154 @@ int start_storage_write_thread(void *arg) {
 }
 
 /*** COMPACTOR ***/
+typedef struct __storage_buk {
+    unsigned int bucket;
+    unsigned int low_page;
+    unsigned int lowest_page;
+    uint64_t low_version;
+    uint64_t lowest_version;
+    unsigned int pages_free;
+    unsigned int pages_used;
+    unsigned int pages_total;
+    unsigned int bytes_fragmented; // fragmented bytes for low page
+    bool do_compact; // indicate this bucket should do a compaction.
+    bool do_compact_drop;
+} _storage_buk;
+
+struct _compact_flags {
+    unsigned int drop_unread : 1;
+    unsigned int has_coldcompact : 1;
+    unsigned int has_old : 1;
+    unsigned int use_old : 1;
+};
 
 /* Fetch stats from the external storage system and decide to compact.
- * If we're more than half full, start skewing how aggressively to run
- * compaction, up to a desired target when all pages are full.
  */
 static int storage_compact_check(void *storage, logger *l,
         uint32_t *page_id, uint64_t *page_version,
-        uint64_t *page_size, bool *drop_unread) {
+        uint64_t *page_size, struct _compact_flags *flags) {
     struct extstore_stats st;
-    int x;
-    double rate;
+    _storage_buk buckets[PAGE_BUCKET_COUNT];
+    _storage_buk *buk = NULL;
     uint64_t frag_limit;
-    uint64_t low_version = ULLONG_MAX;
-    uint64_t lowest_version = ULLONG_MAX;
-    unsigned int low_page = 0;
-    unsigned int lowest_page = 0;
     extstore_get_stats(storage, &st);
     if (st.pages_used == 0)
         return 0;
 
-    // lets pick a target "wasted" value and slew.
-    if (st.pages_free > settings.ext_compact_under)
-        return 0;
-    *drop_unread = false;
+    for (int x = 0; x < PAGE_BUCKET_COUNT; x++) {
+        memset(&buckets[x], 0, sizeof(_storage_buk));
+        buckets[x].low_version = ULLONG_MAX;
+        buckets[x].lowest_version = ULLONG_MAX;
+    }
+    flags->drop_unread = 0;
 
-    // the number of free pages reduces the configured frag limit
-    // this allows us to defrag early if pages are very empty.
-    rate = 1.0 - ((double)st.pages_free / st.page_count);
-    rate *= settings.ext_max_frag;
-    frag_limit = st.page_size * rate;
+    frag_limit = st.page_size * settings.ext_max_frag;
     LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_FRAGINFO,
-            NULL, rate, frag_limit);
+            NULL, settings.ext_max_frag, frag_limit);
     st.page_data = calloc(st.page_count, sizeof(struct extstore_page_data));
     extstore_get_page_data(storage, &st);
 
-    // find oldest page by version that violates the constraint
-    for (x = 0; x < st.page_count; x++) {
-        if (st.page_data[x].version == 0 ||
-            st.page_data[x].bucket == PAGE_BUCKET_LOWTTL)
+    // find either the most fragmented page or the lowest version.
+    for (int x = 0; x < st.page_count; x++) {
+        buk = &buckets[st.page_data[x].free_bucket];
+        buk->pages_total++;
+        if (st.page_data[x].version == 0) {
+            buk->pages_free++;
+            // free pages don't contribute after this point.
             continue;
-        if (st.page_data[x].version < lowest_version) {
-            lowest_page = x;
-            lowest_version = st.page_data[x].version;
+        } else {
+            buk->pages_used++;
         }
-        if (st.page_data[x].bytes_used < frag_limit) {
-            if (st.page_data[x].version < low_version) {
-                low_page = x;
-                low_version = st.page_data[x].version;
-            }
+
+        // skip pages actively being used.
+        if (st.page_data[x].active) {
+            continue;
+        }
+
+        if (st.page_data[x].version < buk->lowest_version) {
+            buk->lowest_page = x;
+            buk->lowest_version = st.page_data[x].version;
+        }
+        // track the most fragmented page.
+        unsigned int frag = st.page_size - st.page_data[x].bytes_used;
+        if (st.page_data[x].bytes_used < frag_limit && frag > buk->bytes_fragmented) {
+            buk->low_page = x;
+            buk->low_version = st.page_data[x].version;
+            buk->bytes_fragmented = frag;
         }
     }
     *page_size = st.page_size;
     free(st.page_data);
 
-    // we have a page + version to attempt to reclaim.
-    if (low_version != ULLONG_MAX) {
-        *page_id = low_page;
-        *page_version = low_version;
-        return 1;
-    } else if (lowest_version != ULLONG_MAX && settings.ext_drop_unread
-            && st.pages_free <= settings.ext_drop_under) {
-        // nothing matched the frag rate barrier, so pick the absolute oldest
-        // version if we're configured to drop items.
-        *page_id = lowest_page;
-        *page_version = lowest_version;
-        *drop_unread = true;
-        return 1;
+    buk = &buckets[PAGE_BUCKET_COLDCOMPACT];
+    if (buk->pages_total != 0) {
+        flags->has_coldcompact = 1;
+        if (buk->pages_free == 0 && buk->lowest_version != ULLONG_MAX) {
+            extstore_evict_page(storage, buk->lowest_page, buk->lowest_version);
+            return 0;
+        }
+    }
+
+    buk = &buckets[PAGE_BUCKET_OLD];
+    if (buk->pages_total != 0) {
+        flags->has_old = 1;
+        if (buk->pages_free == 0 && buk->lowest_version != ULLONG_MAX) {
+            extstore_evict_page(storage, buk->lowest_page, buk->lowest_version);
+            return 0;
+        }
+    }
+
+    for (int x = 0; x < PAGE_BUCKET_COUNT; x++) {
+        buk = &buckets[x];
+        assert(buk->pages_total == (buk->pages_used + buk->pages_free));
+        unsigned int pages_total = buk->pages_total;
+        // only process buckets which have dedicated pages assigned.
+        // LOWTTL skips compaction.
+        if (pages_total == 0 || x == PAGE_BUCKET_LOWTTL)
+            continue;
+
+        if (buk->pages_free < settings.ext_compact_under) {
+            if (buk->low_version != ULLONG_MAX) {
+                // found a normally defraggable page.
+                *page_id = buk->low_page;
+                *page_version = buk->low_version;
+                return 1;
+            } else if (buk->pages_free < settings.ext_drop_under
+                    && buk->lowest_version != ULLONG_MAX) {
+
+                if (x == PAGE_BUCKET_COLDCOMPACT || x == PAGE_BUCKET_OLD) {
+                    // this freeing technique doesn't apply to these buckets.
+                    // instead these buckets are eviction or normal
+                    // defragmentation only.
+                    continue;
+                }
+                // Nothing defraggable. Check for other usable conditions.
+                if (settings.ext_drop_unread) {
+                    flags->drop_unread = 1;
+                }
+
+                // If OLD and/or COLDCOMPACT pages exist we should always have
+                // one free page in those buckets, so we can always attempt to
+                // defrag into them.
+                // If only COLDCOMPACT exists this will attempt to segment off
+                // parts of a page that haven't been used.
+                // If OLD exists everything else in this "oldest page" goes
+                // into the OLD stream.
+                if (flags->drop_unread || flags->has_coldcompact || flags->has_old) {
+                    // only actually use the old flag if we can't compact.
+                    flags->use_old = flags->has_old;
+                    *page_id = buk->lowest_page;
+                    *page_version = buk->lowest_version;
+                    return 1;
+                }
+            }
+        }
     }
 
     return 0;
 }
 
-static pthread_t storage_compact_tid;
-static pthread_mutex_t storage_compact_plock;
-#define MIN_STORAGE_COMPACT_SLEEP 10000
+#define MIN_STORAGE_COMPACT_SLEEP 1000
 
 struct storage_compact_wrap {
     obj_io io;
@@ -789,12 +902,14 @@ struct storage_compact_wrap {
 };
 
 static void storage_compact_readback(void *storage, logger *l,
-        bool drop_unread, char *readback_buf,
+        struct _compact_flags flags, char *readback_buf,
         uint32_t page_id, uint64_t page_version, uint32_t page_offset, uint64_t read_size) {
     uint64_t offset = 0;
     unsigned int rescues = 0;
     unsigned int lost = 0;
     unsigned int skipped = 0;
+    unsigned int rescue_cold = 0;
+    unsigned int rescue_old = 0;
 
     while (offset < read_size) {
         item *hdr_it = NULL;
@@ -813,6 +928,7 @@ static void storage_compact_readback(void *storage, logger *l,
         hdr_it = assoc_find(ITEM_key(it), it->nkey, hv);
         if (hdr_it != NULL) {
             bool do_write = false;
+            int bucket = flags.use_old ? PAGE_BUCKET_OLD : PAGE_BUCKET_COMPACT;
             refcount_incr(hdr_it);
 
             // Check validity but don't bother removing it.
@@ -823,12 +939,16 @@ static void storage_compact_readback(void *storage, logger *l,
                         && hdr->offset == (int)offset + page_offset) {
                     // Item header is still completely valid.
                     extstore_delete(storage, page_id, page_version, 1, ntotal);
-                    // drop inactive items.
-                    if (drop_unread && GET_LRU(hdr_it->slabs_clsid) == COLD_LRU) {
-                        do_write = false;
-                        skipped++;
-                    } else {
-                        do_write = true;
+                    // special case inactive items.
+                    do_write = true;
+                    if (GET_LRU(hdr_it->slabs_clsid) == COLD_LRU) {
+                        if (flags.has_coldcompact) {
+                            // Write the cold items to a different stream.
+                            bucket = PAGE_BUCKET_COLDCOMPACT;
+                        } else if (flags.drop_unread) {
+                            do_write = false;
+                            skipped++;
+                        }
                     }
                 }
             }
@@ -840,7 +960,7 @@ static void storage_compact_readback(void *storage, logger *l,
                 io.len = ntotal;
                 io.mode = OBJ_IO_WRITE;
                 for (tries = 10; tries > 0; tries--) {
-                    if (extstore_write_request(storage, PAGE_BUCKET_COMPACT, PAGE_BUCKET_COMPACT, &io) == 0) {
+                    if (extstore_write_request(storage, bucket, bucket, &io) == 0) {
                         memcpy(io.buf, it, io.len);
                         extstore_write(storage, &io);
                         do_update = true;
@@ -851,11 +971,12 @@ static void storage_compact_readback(void *storage, logger *l,
                 }
 
                 if (do_update) {
+                    bool rescued = false;
                     if (it->refcount == 2) {
                         hdr->page_version = io.page_version;
                         hdr->page_id = io.page_id;
                         hdr->offset = io.offset;
-                        rescues++;
+                        rescued = true;
                     } else {
                         // re-alloc and replace header.
                         client_flags_t flags;
@@ -879,9 +1000,18 @@ static void storage_compact_readback(void *storage, logger *l,
                             item_replace(hdr_it, new_it, hv);
                             ITEM_set_cas(new_it, (settings.use_cas) ? ITEM_get_cas(hdr_it) : 0);
                             do_item_remove(new_it); // release our reference.
-                            rescues++;
+                            rescued = true;
                         } else {
                             lost++;
+                        }
+                    }
+
+                    if (rescued) {
+                        rescues++;
+                        if (bucket == PAGE_BUCKET_COLDCOMPACT) {
+                            rescue_cold++;
+                        } else if (bucket == PAGE_BUCKET_OLD) {
+                            rescue_old++;
                         }
                     }
                 } else {
@@ -902,16 +1032,18 @@ static void storage_compact_readback(void *storage, logger *l,
     stats.extstore_compact_lost += lost;
     stats.extstore_compact_rescues += rescues;
     stats.extstore_compact_skipped += skipped;
+    stats.extstore_compact_resc_cold += rescue_cold;
+    stats.extstore_compact_resc_old += rescue_old;
     STATS_UNLOCK();
     LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_READ_END,
             NULL, page_id, offset, rescues, lost, skipped);
 }
 
+// wrap lock is held while waiting for this callback, preventing caller thread
+// from fast-looping.
 static void _storage_compact_cb(void *e, obj_io *io, int ret) {
     struct storage_compact_wrap *wrap = (struct storage_compact_wrap *)io->data;
     assert(wrap->submitted == true);
-
-    pthread_mutex_lock(&wrap->lock);
 
     if (ret < 1) {
         wrap->miss = true;
@@ -926,15 +1058,15 @@ static void _storage_compact_cb(void *e, obj_io *io, int ret) {
 // I guess it's only COLD. that's probably fine.
 static void *storage_compact_thread(void *arg) {
     void *storage = arg;
-    useconds_t to_sleep = settings.ext_max_sleep;
     bool compacting = false;
     uint64_t page_version = 0;
     uint64_t page_size = 0;
     uint32_t page_offset = 0;
     uint32_t page_id = 0;
-    bool drop_unread = false;
+    struct _compact_flags flags;
     char *readback_buf = NULL;
     struct storage_compact_wrap wrap;
+    memset(&flags, 0, sizeof(flags));
 
     logger *l = logger_create();
     if (l == NULL) {
@@ -961,22 +1093,17 @@ static void *storage_compact_thread(void *arg) {
     pthread_mutex_lock(&storage_compact_plock);
 
     while (1) {
-        pthread_mutex_unlock(&storage_compact_plock);
-        if (to_sleep) {
-            extstore_run_maint(storage);
-            usleep(to_sleep);
-        }
-        pthread_mutex_lock(&storage_compact_plock);
-
         if (!compacting && storage_compact_check(storage, l,
-                    &page_id, &page_version, &page_size, &drop_unread)) {
+                    &page_id, &page_version, &page_size, &flags)) {
             page_offset = 0;
             compacting = true;
             LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_START,
                     NULL, page_id, page_version);
+        } else {
+            pthread_cond_wait(&storage_compact_cond, &storage_compact_plock);
         }
 
-        if (compacting) {
+        while (compacting) {
             pthread_mutex_lock(&wrap.lock);
             if (page_offset < page_size && !wrap.done && !wrap.submitted) {
                 wrap.io.page_version = page_version;
@@ -987,7 +1114,7 @@ static void *storage_compact_thread(void *arg) {
                 wrap.submitted = true;
                 wrap.miss = false;
 
-                extstore_submit(storage, &wrap.io);
+                extstore_submit_bg(storage, &wrap.io);
             } else if (wrap.miss) {
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_ABORT,
                         NULL, page_id);
@@ -997,7 +1124,7 @@ static void *storage_compact_thread(void *arg) {
             } else if (wrap.submitted && wrap.done) {
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_READ_START,
                         NULL, page_id, page_offset);
-                storage_compact_readback(storage, l, drop_unread,
+                storage_compact_readback(storage, l, flags,
                         readback_buf, page_id, page_version, page_offset,
                         settings.ext_wbuf_size);
                 page_offset += settings.ext_wbuf_size;
@@ -1010,14 +1137,10 @@ static void *storage_compact_thread(void *arg) {
                 extstore_close_page(storage, page_id, page_version);
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_END,
                         NULL, page_id);
+                // short cooling period between defragmentation runs.
+                usleep(MIN_STORAGE_COMPACT_SLEEP);
             }
             pthread_mutex_unlock(&wrap.lock);
-
-            // finish actual compaction quickly.
-            to_sleep = MIN_STORAGE_COMPACT_SLEEP;
-        } else {
-            if (to_sleep < settings.ext_max_sleep)
-                to_sleep += settings.ext_max_sleep;
         }
     }
     free(readback_buf);
@@ -1052,6 +1175,7 @@ int start_storage_compact_thread(void *arg) {
     int ret;
 
     pthread_mutex_init(&storage_compact_plock, NULL);
+    pthread_cond_init(&storage_compact_cond, NULL);
     if ((ret = pthread_create(&storage_compact_tid, NULL,
         storage_compact_thread, arg)) != 0) {
         fprintf(stderr, "Can't create storage_compact thread: %s\n",
@@ -1129,6 +1253,10 @@ struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size)
             cf->free_bucket = PAGE_BUCKET_CHUNKED;
         } else if (strcmp(p, "default") == 0) {
             cf->free_bucket = PAGE_BUCKET_DEFAULT;
+        } else if (strcmp(p, "coldcompact") == 0) {
+            cf->free_bucket = PAGE_BUCKET_COLDCOMPACT;
+        } else if (strcmp(p, "old") == 0) {
+            cf->free_bucket = PAGE_BUCKET_OLD;
         } else {
             fprintf(stderr, "Unknown extstore bucket: %s\n", p);
             goto error;
@@ -1136,12 +1264,6 @@ struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size)
     } else {
         // TODO: is this necessary?
         cf->free_bucket = PAGE_BUCKET_DEFAULT;
-    }
-
-    // TODO: disabling until compact algorithm is improved.
-    if (cf->free_bucket != PAGE_BUCKET_DEFAULT) {
-        fprintf(stderr, "ext_path only presently supports the default bucket\n");
-        goto error;
     }
 
     return cf;
@@ -1179,7 +1301,7 @@ void *storage_init_config(struct settings *s) {
     cf->ext_cf.wbuf_size = settings.ext_wbuf_size;
     cf->ext_cf.io_threadcount = settings.ext_io_threadcount;
     cf->ext_cf.io_depth = 1;
-    cf->ext_cf.page_buckets = 4;
+    cf->ext_cf.page_buckets = PAGE_BUCKET_COUNT;
     cf->ext_cf.wbuf_count = cf->ext_cf.page_buckets;
 
     return cf;
@@ -1422,10 +1544,15 @@ void *storage_init(void *conf) {
     enum extstore_res eres;
     void *storage = NULL;
     if (settings.ext_compact_under == 0) {
-        // If changing the default fraction (4), change the help text as well.
-        settings.ext_compact_under = cf->storage_file->page_count / 4;
-        /* Only rescues non-COLD items if below this threshold */
-        settings.ext_drop_under = cf->storage_file->page_count / 4;
+        // If changing the default fraction, change the help text as well.
+        settings.ext_compact_under = cf->storage_file->page_count * 0.01;
+        settings.ext_drop_under = cf->storage_file->page_count * 0.01;
+        if (settings.ext_compact_under < 1) {
+            settings.ext_compact_under = 1;
+        }
+        if (settings.ext_drop_under < 1) {
+            settings.ext_drop_under = 1;
+        }
     }
     crc32c_init();
 

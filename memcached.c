@@ -4193,10 +4193,10 @@ static void usage(void) {
            "   - ext_drop_unread:     don't re-write unread values during compaction (default: %s)\n"
            "   - ext_recache_rate:    recache an item every N accesses (default: %u)\n"
            "   - ext_compact_under:   compact when fewer than this many free pages\n"
-           "                          (default: 1/4th of the assigned storage)\n"
+           "                          (default: 1 percent of the assigned storage)\n"
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
            "                          (default: 1/4th of the assigned storage)\n"
-           "   - ext_max_frag:        max page fragmentation to tolerate (default: %.2f)\n"
+           "   - ext_max_frag:        only defrag pages if they are less full than this pct-wise (default: %.2f)\n"
            "   - ext_max_sleep:       max sleep time of background threads in us (default: %u)\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info, default: %.3f)\n",
