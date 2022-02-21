@@ -495,6 +495,7 @@ struct settings {
     unsigned int ext_wbuf_size; /* read only note for the engine */
     unsigned int ext_compact_under; /* when fewer than this many pages, compact */
     unsigned int ext_drop_under; /* when fewer than this many pages, drop COLD items */
+    unsigned int ext_max_sleep; /* maximum sleep time for extstore bg threads, in us */
     double ext_max_frag; /* ideal maximum page fragmentation */
     double slab_automove_freeratio; /* % of memory to hold free as buffer */
     bool ext_drop_unread; /* skip unread items during compaction */

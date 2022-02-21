@@ -571,7 +571,6 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
 
 static pthread_t storage_write_tid;
 static pthread_mutex_t storage_write_plock;
-#define WRITE_SLEEP_MAX 1000000
 #define WRITE_SLEEP_MIN 500
 
 static void *storage_write_thread(void *arg) {
@@ -594,8 +593,8 @@ static void *storage_write_thread(void *arg) {
         int min_class = slabs_clsid(settings.ext_item_size);
         bool do_sleep = true;
         counter++;
-        if (to_sleep > WRITE_SLEEP_MAX)
-            to_sleep = WRITE_SLEEP_MAX;
+        if (to_sleep > settings.ext_max_sleep)
+            to_sleep = settings.ext_max_sleep;
 
         for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
             bool did_move = false;
@@ -765,7 +764,6 @@ static int storage_compact_check(void *storage, logger *l,
 static pthread_t storage_compact_tid;
 static pthread_mutex_t storage_compact_plock;
 #define MIN_STORAGE_COMPACT_SLEEP 10000
-#define MAX_STORAGE_COMPACT_SLEEP 2000000
 
 struct storage_compact_wrap {
     obj_io io;
@@ -888,7 +886,7 @@ static void _storage_compact_cb(void *e, obj_io *io, int ret) {
 // I guess it's only COLD. that's probably fine.
 static void *storage_compact_thread(void *arg) {
     void *storage = arg;
-    useconds_t to_sleep = MAX_STORAGE_COMPACT_SLEEP;
+    useconds_t to_sleep = settings.ext_max_sleep;
     bool compacting = false;
     uint64_t page_version = 0;
     uint64_t page_size = 0;
@@ -974,11 +972,11 @@ static void *storage_compact_thread(void *arg) {
             }
             pthread_mutex_unlock(&wrap.lock);
 
-            if (to_sleep > MIN_STORAGE_COMPACT_SLEEP)
-                to_sleep /= 2;
+            // finish actual compaction quickly.
+            to_sleep = MIN_STORAGE_COMPACT_SLEEP;
         } else {
-            if (to_sleep < MAX_STORAGE_COMPACT_SLEEP)
-                to_sleep += MIN_STORAGE_COMPACT_SLEEP;
+            if (to_sleep < settings.ext_max_sleep)
+                to_sleep += settings.ext_max_sleep;
         }
     }
     free(readback_buf);
@@ -1124,6 +1122,7 @@ void *storage_init_config(struct settings *s) {
     s->ext_wbuf_size = 1024 * 1024 * 4;
     s->ext_compact_under = 0;
     s->ext_drop_under = 0;
+    s->ext_max_sleep = 1000000;
     s->slab_automove_freeratio = 0.01;
     s->ext_page_size = 1024 * 1024 * 64;
     s->ext_io_threadcount = 1;
@@ -1155,6 +1154,7 @@ int storage_read_config(void *conf, char **subopt) {
         EXT_RECACHE_RATE,
         EXT_COMPACT_UNDER,
         EXT_DROP_UNDER,
+        EXT_MAX_SLEEP,
         EXT_MAX_FRAG,
         EXT_DROP_UNREAD,
         SLAB_AUTOMOVE_FREERATIO, // FIXME: move this back?
@@ -1172,6 +1172,7 @@ int storage_read_config(void *conf, char **subopt) {
         [EXT_RECACHE_RATE] = "ext_recache_rate",
         [EXT_COMPACT_UNDER] = "ext_compact_under",
         [EXT_DROP_UNDER] = "ext_drop_under",
+        [EXT_MAX_SLEEP] = "ext_max_sleep",
         [EXT_MAX_FRAG] = "ext_max_frag",
         [EXT_DROP_UNREAD] = "ext_drop_unread",
         [SLAB_AUTOMOVE_FREERATIO] = "slab_automove_freeratio",
@@ -1283,6 +1284,16 @@ int storage_read_config(void *conf, char **subopt) {
             }
             if (!safe_strtoul(subopts_value, &settings.ext_drop_under)) {
                 fprintf(stderr, "could not parse argument to ext_drop_under\n");
+                return 1;
+            }
+            break;
+        case EXT_MAX_SLEEP:
+            if (subopts_value == NULL) {
+                fprintf(stderr, "Missing ext_max_sleep argument\n");
+                return 1;
+            }
+            if (!safe_strtoul(subopts_value, &settings.ext_max_sleep)) {
+                fprintf(stderr, "could not parse argument to ext_max_sleep\n");
                 return 1;
             }
             break;

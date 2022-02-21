@@ -2441,6 +2441,9 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
     } else if (strcmp(tokens[1].value, "drop_under") == 0) {
         if (!safe_strtoul(tokens[2].value, &settings.ext_drop_under))
             ok = false;
+    } else if (strcmp(tokens[1].value, "max_sleep") == 0) {
+        if (!safe_strtoul(tokens[2].value, &settings.ext_max_sleep))
+            ok = false;
     } else if (strcmp(tokens[1].value, "max_frag") == 0) {
         if (!safe_strtod(tokens[2].value, &settings.ext_max_frag))
             ok = false;

@@ -1961,6 +1961,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ext_wbuf_size", "%u", settings.ext_wbuf_size);
     APPEND_STAT("ext_compact_under", "%u", settings.ext_compact_under);
     APPEND_STAT("ext_drop_under", "%u", settings.ext_drop_under);
+    APPEND_STAT("ext_max_sleep", "%u", settings.ext_max_sleep);
     APPEND_STAT("ext_max_frag", "%.2f", settings.ext_max_frag);
     APPEND_STAT("slab_automove_freeratio", "%.3f", settings.slab_automove_freeratio);
     APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
@@ -4040,12 +4041,13 @@ static void usage(void) {
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
            "                          (default: 1/4th of the assigned storage)\n"
            "   - ext_max_frag:        max page fragmentation to tolerate (default: %.2f)\n"
+           "   - ext_max_sleep:       max sleep time of background threads in us (default: %u)\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info, default: %.3f)\n",
            settings.ext_page_size / (1 << 20), settings.ext_wbuf_size / (1 << 20), settings.ext_io_threadcount,
            settings.ext_item_size, settings.ext_low_ttl,
            flag_enabled_disabled(settings.ext_drop_unread), settings.ext_recache_rate,
-           settings.ext_max_frag, settings.slab_automove_freeratio);
+           settings.ext_max_frag, settings.ext_max_sleep, settings.slab_automove_freeratio);
     verify_default("ext_item_age", settings.ext_item_age == UINT_MAX);
 #endif
 #ifdef PROXY
