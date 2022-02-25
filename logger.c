@@ -379,7 +379,7 @@ static const entry_details default_entries[] = {
         "type=proxy_user msg=%s"
     },
     [LOGGER_PROXY_BE_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_text, _logger_parse_text,
-        "type=proxy_backend error=%s ip=%s port=%s"
+        "type=proxy_backend error=%s name=%s port=%s"
     },
 
 #endif

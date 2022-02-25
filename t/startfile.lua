@@ -23,56 +23,56 @@ function mcp_config_pools(oldss)
     -- IPs are "127" . "zone" . "pool" . "srv"
     local pfx = 'fooz1'
     local fooz1 = {
-        srv(pfx .. 'srv1', '127.1.1.1', 11212, 1),
-        srv(pfx .. 'srv2', '127.1.1.2', 11212, 1),
-        srv(pfx .. 'srv3', '127.1.1.3', 11212, 1),
+        srv(pfx .. 'srv1', '127.1.1.1', 11212),
+        srv(pfx .. 'srv2', '127.1.1.2', 11212),
+        srv(pfx .. 'srv3', '127.1.1.3', 11212),
     }
     pfx = 'fooz2'
     local fooz2 = {
-        srv(pfx .. 'srv1', '127.2.1.1', 11213, 1),
-        srv(pfx .. 'srv2', '127.2.1.2', 11213, 1),
-        srv(pfx .. 'srv3', '127.2.1.3', 11213, 1),
+        srv(pfx .. 'srv1', '127.2.1.1', 11213),
+        srv(pfx .. 'srv2', '127.2.1.2', 11213),
+        srv(pfx .. 'srv3', '127.2.1.3', 11213),
     }
     pfx = 'fooz3'
     local fooz3 = {
-        srv(pfx .. 'srv1', '127.3.1.1', 11214, 1),
-        srv(pfx .. 'srv2', '127.3.1.2', 11214, 1),
-        srv(pfx .. 'srv3', '127.3.1.3', 11214, 1),
+        srv(pfx .. 'srv1', '127.3.1.1', 11214),
+        srv(pfx .. 'srv2', '127.3.1.2', 11214),
+        srv(pfx .. 'srv3', '127.3.1.3', 11214),
     }
 
     pfx = 'barz1'
     -- zone "/bar/"-s primary zone should fail; all down.
     local barz1 = {
-        srv(pfx .. 'srv1', '127.1.2.1', 11210, 1),
-        srv(pfx .. 'srv2', '127.1.2.1', 11210, 1),
-        srv(pfx .. 'srv3', '127.1.2.1', 11210, 1),
+        srv(pfx .. 'srv1', '127.1.2.1', 11210),
+        srv(pfx .. 'srv2', '127.1.2.2', 11210),
+        srv(pfx .. 'srv3', '127.1.2.3', 11210),
     }
     pfx = 'barz2'
     local barz2 = {
-        srv(pfx .. 'srv1', '127.2.2.2', 11215, 1),
-        srv(pfx .. 'srv2', '127.2.2.2', 11215, 1),
-        srv(pfx .. 'srv3', '127.2.2.2', 11215, 1),
+        srv(pfx .. 'srv1', '127.2.2.1', 11215),
+        srv(pfx .. 'srv2', '127.2.2.2', 11215),
+        srv(pfx .. 'srv3', '127.2.2.3', 11215),
     }
     pfx = 'barz3'
     local barz3 = {
-        srv(pfx .. 'srv1', '127.3.2.3', 11216, 1),
-        srv(pfx .. 'srv2', '127.3.2.3', 11216, 1),
-        srv(pfx .. 'srv3', '127.3.2.3', 11216, 1),
+        srv(pfx .. 'srv1', '127.3.2.1', 11216),
+        srv(pfx .. 'srv2', '127.3.2.2', 11216),
+        srv(pfx .. 'srv3', '127.3.2.3', 11216),
     }
 
     -- fallback cache for any zone
     -- NOT USED YET
     pfx = 'fallz1'
     local fallz1 = {
-        srv(pfx .. 'srv1', '127.0.2.1', 11212, 1),
+        srv(pfx .. 'srv1', '127.0.2.1', 11212),
     }
     pfx = 'fallz2'
     local fallz2 = {
-        srv(pfx .. 'srv1', '127.0.2.2', 11212, 1),
+        srv(pfx .. 'srv1', '127.0.2.2', 11212),
     }
     pfx = 'fallz3'
     local fallz3 = {
-        srv(pfx .. 'srv1', '127.0.2.3', 11212, 1),
+        srv(pfx .. 'srv1', '127.0.2.3', 11212),
     }
 
     local main_zones = {
@@ -84,19 +84,16 @@ function mcp_config_pools(oldss)
     -- FIXME: should we copy the table to keep the pool tables around?
     -- does the hash selector hold a reference to the pool (but only available in main config?)
 
-    -- uncomment to use the ketama loadable module.
-    -- FIXME: passing an argument to the ketama module doesn't work yet.
-    -- local ketama = require("ketama")
-
     -- convert the pools into hash selectors.
     -- TODO: is this a good place to add prefixing/hash editing?
     for _, subs in pairs(main_zones) do
         for k, v in pairs(subs) do
-            -- use next line instead for a third party ketama hash
-            -- subs[k] = mcp.pool(v, { dist = ketama, hash = ketama.hash })
-            -- this line overrides the default bucket size for ketama
-            -- subs[k] = mcp.pool(v, { dist = ketama, obucket = 80 })
-            -- this line uses the default murmur3 straight hash.
+            -- next line uses a ring hash in "evcache compat" mode. note the
+            -- hash= override to use MD5 key hashing from ketama.
+            -- subs[k] = mcp.pool(v, { dist = mcp.dist_ring_hash, omode = "evcache", hash = mcp.dist_ring_hash.hash })
+            -- override the number of buckets per server.
+            -- subs[k] = mcp.pool(v, { dist = mcp.dist_ring_hash, omode = "evcache", hash = mcp.dist_ring_hash.hash, obuckets = 240 })
+            -- this line uses the default (currently xxhash + jump hash)
             subs[k] = mcp.pool(v)
 
             -- use this next line instead for jump hash.

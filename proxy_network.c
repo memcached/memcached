@@ -822,7 +822,7 @@ static int _reset_bad_backend(mcp_backend_t *be, enum proxy_be_failures err) {
     STAILQ_INIT(&be->io_head);
 
     mcmc_disconnect(be->client);
-    int status = mcmc_connect(be->client, be->ip, be->port, be->connect_flags);
+    int status = mcmc_connect(be->client, be->name, be->port, be->connect_flags);
     if (status == MCMC_CONNECTED) {
         // TODO (v2): unexpected but lets let it be here.
         be->connecting = false;
@@ -842,7 +842,7 @@ static int _reset_bad_backend(mcp_backend_t *be, enum proxy_be_failures err) {
         be->can_write = true;
     }
 
-    LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->ip, be->port);
+    LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->name, be->port);
 
     return 0;
 }

@@ -292,7 +292,7 @@ struct mcp_request_s {
 };
 
 typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
-#define MAX_IPLEN 45
+#define MAX_NAMELEN 255
 #define MAX_PORTLEN 6
 // TODO (v2): IOV_MAX tends to be 1000+ which would allow for more batching but we
 // don't have a good temporary space and don't want to malloc/free on every
@@ -303,9 +303,6 @@ typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
 #define BE_IOV_MAX IOV_MAX
 #endif
 struct mcp_backend_s {
-    char ip[MAX_IPLEN+1];
-    char port[MAX_PORTLEN+1];
-    double weight;
     int depth;
     int failed_count; // number of fails (timeouts) in a row
     pthread_mutex_t mutex; // covers stack.
@@ -327,6 +324,8 @@ struct mcp_backend_s {
     bool stacked; // if backend already queued for syscalls.
     bool bad; // timed out, marked as bad.
     struct iovec write_iovs[BE_IOV_MAX]; // iovs to stage batched writes
+    char name[MAX_NAMELEN+1];
+    char port[MAX_PORTLEN+1];
 };
 typedef STAILQ_HEAD(be_head_s, mcp_backend_s) be_head_t;
 
@@ -455,6 +454,7 @@ int mcplib_request_ntokens(lua_State *L);
 int mcplib_request_gc(lua_State *L);
 
 int mcplib_open_dist_jump_hash(lua_State *L);
+int mcplib_open_dist_ring_hash(lua_State *L);
 
 int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, conn *c);
 mcp_backend_t *mcplib_pool_proxy_call_helper(lua_State *L, mcp_pool_t *p, const char *key, size_t len);

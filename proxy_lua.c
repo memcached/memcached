@@ -67,21 +67,25 @@ static int mcplib_backend_gc(lua_State *L) {
 }
 
 static int mcplib_backend(lua_State *L) {
-    luaL_checkstring(L, -4); // label for indexing backends.
-    const char *ip = luaL_checkstring(L, -3);
-    const char *port = luaL_checkstring(L, -2);
-    double weight = luaL_checknumber(L, -1);
+    luaL_checkstring(L, -3); // label for indexing backends.
+    size_t nlen = 0;
+    const char *name = luaL_checklstring(L, -2, &nlen);
+    const char *port = luaL_checkstring(L, -1);
     // FIXME (v2): upvalue for global ctx.
     proxy_ctx_t *ctx = settings.proxy_ctx;
+
+    if (nlen > MAX_NAMELEN-1) {
+        proxy_lua_error(L, "backend name too long");
+        return 0;
+    }
 
     // first check our reference table to compare.
     lua_pushvalue(L, -4);
     int ret = lua_gettable(L, lua_upvalueindex(MCP_BACKEND_UPVALUE));
     if (ret != LUA_TNIL) {
         mcp_backend_t *be_orig = luaL_checkudata(L, -1, "mcp.backend");
-        if (strncmp(be_orig->ip, ip, MAX_IPLEN) == 0
-                && strncmp(be_orig->port, port, MAX_PORTLEN) == 0
-                && be_orig->weight == weight) {
+        if (strncmp(be_orig->name, name, MAX_NAMELEN) == 0
+                && strncmp(be_orig->port, port, MAX_PORTLEN) == 0) {
             // backend is the same, return it.
             return 1;
         } else {
@@ -97,9 +101,8 @@ static int mcplib_backend(lua_State *L) {
 
     // FIXME (v2): remove some of the excess zero'ing below?
     memset(be, 0, sizeof(mcp_backend_t));
-    strncpy(be->ip, ip, MAX_IPLEN);
+    strncpy(be->name, name, MAX_NAMELEN);
     strncpy(be->port, port, MAX_PORTLEN);
-    be->weight = weight;
     be->depth = 0;
     be->rbuf = NULL;
     be->failed_count = 0;
@@ -143,17 +146,17 @@ static int mcplib_backend(lua_State *L) {
     }
     STAT_UL(ctx);
     be->connect_flags = flags;
-    int status = mcmc_connect(be->client, be->ip, be->port, flags);
+    int status = mcmc_connect(be->client, be->name, be->port, flags);
     if (status == MCMC_CONNECTED) {
         // FIXME (v2): is this possible? do we ever want to allow blocking
         // connections?
-        proxy_lua_ferror(L, "unexpectedly connected to backend early: %s:%s\n", be->ip, be->port);
+        proxy_lua_ferror(L, "unexpectedly connected to backend early: %s:%s\n", be->name, be->port);
         return 0;
     } else if (status == MCMC_CONNECTING) {
         be->connecting = true;
         be->can_write = false;
     } else {
-        proxy_lua_ferror(L, "failed to connect to backend: %s:%s\n", be->ip, be->port);
+        proxy_lua_ferror(L, "failed to connect to backend: %s:%s\n", be->name, be->port);
         return 0;
     }
 
@@ -256,14 +259,10 @@ static void _mcplib_pool_dist(lua_State *L, mcp_pool_t *p) {
         lua_setfield(L, -2, "id");
         // we don't use the hostname for ketama hashing
         // so passing ip for hostname is fine
-        lua_pushstring(L, be->ip);
-        // FIXME: hostname should probably work...
-        lua_setfield(L, -2, "hostname");
-        lua_pushstring(L, be->ip);
+        lua_pushstring(L, be->name);
         lua_setfield(L, -2, "addr");
         lua_pushstring(L, be->port);
         lua_setfield(L, -2, "port");
-        // TODO (v2): weight/etc?
 
         // set the backend table into the new pool table.
         lua_rawseti(L, -2, x);
@@ -734,6 +733,8 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
     // pointer pointers :)
     mcplib_open_dist_jump_hash(L);
     lua_setfield(L, -2, "dist_jump_hash");
+    mcplib_open_dist_ring_hash(L);
+    lua_setfield(L, -2, "dist_ring_hash");
 
     lua_pushlightuserdata(L, (void *)t); // upvalue for original thread
     lua_newtable(L); // upvalue for mcp.attach() table.
