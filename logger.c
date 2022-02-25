@@ -317,6 +317,7 @@ static void _logger_log_proxy_raw(logentry *e, const entry_details *d, const voi
     le->code = code;
     le->elapsed = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
     memcpy(le->cmd, cmd, 9);
+    e->size = sizeof(struct logentry_proxy_raw);
 }
 
 static int _logger_parse_prx_raw(logentry *e, char *scratch) {
