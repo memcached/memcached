@@ -292,6 +292,9 @@ static void settings_init(void) {
 #endif
     settings.num_napi_ids = 0;
     settings.memory_file = NULL;
+#ifdef SOCK_COOKIE_ID
+    settings.sock_cookie_id = 0;
+#endif
 }
 
 extern pthread_mutex_t conn_lock;
@@ -3539,6 +3542,13 @@ static int server_socket(const char *interface,
             }
         }
 #endif
+#ifdef SOCK_COOKIE_ID
+        if (settings.sock_cookie_id != 0) {
+            error = setsockopt(sfd, SOL_SOCKET, SOCK_COOKIE_ID, (void *)&settings.sock_cookie_id, sizeof(uint32_t));
+            if (error != 0)
+                perror("setsockopt");
+        }
+#endif
 
         setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
         if (IS_UDP(transport)) {
@@ -4107,6 +4117,9 @@ static void usage(void) {
     printf("   - relaxed_privileges:  running tests requires extra privileges. (default: %s)\n",
            flag_enabled_disabled(settings.relaxed_privileges));
 #endif
+#endif
+#ifdef SOCK_COOKIE_ID
+    printf("   - sock_cookie_id:      attributes an ID to a socket for ip filtering/firewalls \n");
 #endif
 #ifdef EXTSTORE
     printf("\n   - External storage (ext_*) related options (see: https://memcached.org/extstore)\n");
@@ -4837,6 +4850,9 @@ int main (int argc, char **argv) {
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
 #endif
+#ifdef SOCK_COOKIE_ID
+        COOKIE_ID,
+#endif
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -4896,6 +4912,9 @@ int main (int argc, char **argv) {
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
+#endif
+#ifdef SOCK_COOKIE_ID
+        [COOKIE_ID] = "sock_cookie_id",
 #endif
         NULL
     };
@@ -5662,6 +5681,11 @@ int main (int argc, char **argv) {
 #ifdef MEMCACHED_DEBUG
             case RELAXED_PRIVILEGES:
                 settings.relaxed_privileges = true;
+                break;
+#endif
+#ifdef SOCK_COOKIE_ID
+            case COOKIE_ID:
+                (void)safe_strtoul(subopts_value, &settings.sock_cookie_id);
                 break;
 #endif
             default:

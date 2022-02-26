@@ -37,6 +37,14 @@
 #endif
 #endif
 
+#if defined(__linux__)
+# define SOCK_COOKIE_ID SO_MARK
+#elif defined(__FreeBSD__)
+# define SOCK_COOKIE_ID SO_USER_COOKIE
+#elif defined(__OpenBSD__)
+# define SOCK_COOKIE_ID SO_RTABLE
+#endif
+
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
 #include "cache.h"
@@ -524,6 +532,9 @@ struct settings {
     bool proxy_uring; /* if the proxy should use io_uring */
     char *proxy_startfile; /* lua file to run when workers start */
     void *proxy_ctx; /* proxy's state context */
+#endif
+#ifdef SOCK_COOKIE_ID
+    uint32_t sock_cookie_id;
 #endif
 };
 
