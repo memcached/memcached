@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 # Test for adding connection id to the output when watching fetchers
 # and mutations.
 # Note that this test relies on the order of connection establishments. This

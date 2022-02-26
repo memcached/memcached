@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 # These command strings are always expected to be malicious and as such we
 # should just hang up on them.
