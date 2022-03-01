@@ -131,7 +131,6 @@ enum proxy_defines {
 enum proxy_cmd_types {
     CMD_TYPE_GENERIC = 0,
     CMD_TYPE_GET, // get/gets/gat/gats
-    CMD_TYPE_UPDATE, // add/set/cas/prepend/append/replace
     CMD_TYPE_META, // m*'s.
 };
 
@@ -273,6 +272,7 @@ struct mcp_parser_s {
     uint32_t klen; // length of key.
     uint16_t tokens[PARSER_MAX_TOKENS]; // offsets for start of each token
     bool has_space; // a space was found after the last byte parsed.
+    bool noreply; // if quiet/noreply mode is set.
     union {
         struct mcp_parser_meta_s meta;
     } t;
@@ -355,15 +355,22 @@ struct proxy_event_thread_s {
     struct proxy_tunables tunables; // periodically copied from main ctx
 };
 
+enum mcp_resp_mode {
+    RESP_MODE_NORMAL = 0,
+    RESP_MODE_NOREPLY,
+    RESP_MODE_METAQUIET
+};
+
 #define RESP_CMD_MAX 8
 typedef struct {
     mcmc_resp_t resp;
     struct timeval start; // start time inherited from paired request
-    char cmd[RESP_CMD_MAX+1]; // until we can reverse CMD_*'s to strings directly.
-    int status; // status code from mcmc_read()
     char *buf; // response line + potentially value.
     size_t blen; // total size of the value to read.
+    int status; // status code from mcmc_read()
     int bread; // amount of bytes read into value so far.
+    char cmd[RESP_CMD_MAX+1]; // until we can reverse CMD_*'s to strings directly.
+    enum mcp_resp_mode mode; // reply mode (for noreply fixing)
 } mcp_resp_t;
 
 // re-cast an io_pending_t into this more descriptive structure.

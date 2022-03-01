@@ -43,6 +43,9 @@ static int _process_tokenize(mcp_parser_t *pr, const size_t max) {
     }
 endloop:
 
+    // endcap token so we can quickly find the length of any token by looking
+    // at the next one.
+    pr->tokens[curtoken] = len;
     pr->ntokens = curtoken;
     P_DEBUG("%s: cur_tokens: %d\n", __func__, curtoken);
 
@@ -124,7 +127,7 @@ static int _process_request_metaflags(mcp_parser_t *pr, int token) {
                         return -1;
                     }
                     P_DEBUG("%s: setting meta flag: %d\n", __func__, *cur - 65);
-                    pr->t.meta.flags |= 1 << (*cur - 65);
+                    pr->t.meta.flags |= (uint64_t)1 << (*cur - 65);
                     state = 1;
                 }
                 break;
@@ -136,6 +139,13 @@ static int _process_request_metaflags(mcp_parser_t *pr, int token) {
                 }
                 break;
         }
+    }
+
+    // not too great hack for noreply detection: this can be flattened out
+    // once a few other contexts are fixed and we detect the noreply from the
+    // coroutine start instead.
+    if (pr->t.meta.flags & ((uint64_t)1 << 48)) {
+        pr->noreply = true;
     }
 
     return 0;
@@ -198,6 +208,18 @@ static int _process_request_gat(mcp_parser_t *pr) {
     return 0;
 }
 
+#define NOREPLYSTR "noreply"
+#define NOREPLYLEN sizeof(NOREPLYSTR)-1
+// given a tokenized parser for a normal ASCII command, checks for noreply
+// mode.
+static int _process_request_noreply(mcp_parser_t *pr) {
+    if (pr->tokens[pr->ntokens] - pr->tokens[pr->ntokens-1] >= NOREPLYLEN
+            && strncmp(NOREPLYSTR, pr->request + pr->tokens[pr->ntokens-1], NOREPLYLEN) == 0) {
+        pr->noreply = true;
+    }
+    return 0;
+}
+
 // we need t find the bytes supplied immediately so we can read the request
 // from the client properly.
 // set <key> <flags> <exptime> <bytes> [noreply]\r\n
@@ -226,7 +248,7 @@ static int _process_request_storage(mcp_parser_t *pr, size_t max) {
 
     pr->vlen = vlen;
 
-    return 0;
+    return _process_request_noreply(pr);
 }
 
 // common request with key: <cmd> <key> <args>
@@ -235,7 +257,7 @@ static int _process_request_simple(mcp_parser_t *pr, const size_t max) {
     pr->keytoken = 1; // second token is usually the key... stupid GAT.
 
     _process_request_key(pr);
-    return 0;
+    return _process_request_noreply(pr);
 }
 
 // TODO: return code ENUM with error types.
@@ -278,6 +300,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
             break;
         case 2:
             if (cm[0] == 'm') {
+                type = CMD_TYPE_META;
                 switch (cm[1]) {
                     case 'g':
                         cmd = CMD_MG;

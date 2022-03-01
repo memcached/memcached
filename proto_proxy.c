@@ -470,6 +470,36 @@ static void proxy_out_errstring(mc_resp *resp, const char *str) {
     return;
 }
 
+// NOTE: See notes in mcp_queue_io; the secondary problem with setting the
+// noreply mode from the response object is that the proxy can return strings
+// manually, so we have no way to obey what the original request wanted in
+// that case.
+static void _set_noreply_mode(mc_resp *resp, mcp_resp_t *r) {
+    switch (r->mode) {
+        case RESP_MODE_NORMAL:
+            break;
+        case RESP_MODE_NOREPLY:
+            // ascii noreply only threw egregious errors to client
+            if (r->status == MCMC_OK) {
+                resp->skip = true;
+            }
+            break;
+        case RESP_MODE_METAQUIET:
+            if (r->resp.code == MCMC_CODE_MISS) {
+                resp->skip = true;
+            } else if (r->cmd[1] != 'g' && r->resp.code == MCMC_CODE_OK) {
+                // FIXME (v2): mcmc's parser needs to help us out a bit more
+                // here.
+                // This is a broken case in the protocol though; quiet mode
+                // ignores HD for mutations but not get.
+                resp->skip = true;
+            }
+            break;
+        default:
+            assert(1 == 0);
+    }
+}
+
 // this resumes every yielded coroutine (and re-resumes if necessary).
 // called from the worker thread after responses have been pulled from the
 // network.
@@ -492,6 +522,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
         if (type == LUA_TUSERDATA) {
             mcp_resp_t *r = luaL_checkudata(Lc, -1, "mcp.response");
             LOGGER_LOG(NULL, LOG_PROXYCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->cmd, r->resp.type, r->resp.code);
+            _set_noreply_mode(resp, r);
             if (r->buf) {
                 // response set from C.
                 // FIXME (v2): write_and_free() ? it's a bit wrong for here.
@@ -760,6 +791,28 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     r->buf = NULL;
     r->blen = 0;
     r->start = rq->start; // need to inherit the original start time.
+    // Set noreply mode.
+    // TODO (v2): the response "inherits" the request's noreply mode, which isn't
+    // strictly correct; we should inherit based on the request that spawned
+    // the coroutine but the structure doesn't allow that yet.
+    // Should also be able to settle this exact mode from the parser so we
+    // don't have to re-branch here.
+    if (rq->pr.noreply) {
+        if (rq->pr.cmd_type == CMD_TYPE_META) {
+            r->mode = RESP_MODE_METAQUIET;
+            for (int x = 2; x < rq->pr.ntokens; x++) {
+                if (rq->request[rq->pr.tokens[x]] == 'q') {
+                    rq->request[rq->pr.tokens[x]] = ' ';
+                }
+            }
+        } else {
+            r->mode = RESP_MODE_NOREPLY;
+            rq->request[rq->pr.reqlen - 3] = 'Y';
+        }
+    } else {
+        r->mode = RESP_MODE_NORMAL;
+    }
+
     int x;
     int end = rq->pr.reqlen-2 > RESP_CMD_MAX ? RESP_CMD_MAX : rq->pr.reqlen-2;
     for (x = 0; x < end; x++) {

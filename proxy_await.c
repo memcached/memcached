@@ -91,6 +91,27 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     mcp_resp_t *r = lua_newuserdatauv(Lc, sizeof(mcp_resp_t), 1);
     memset(r, 0, sizeof(mcp_resp_t));
     r->start = rq->start;
+    // Set noreply mode.
+    // TODO (v2): the response "inherits" the request's noreply mode, which isn't
+    // strictly correct; we should inherit based on the request that spawned
+    // the coroutine but the structure doesn't allow that yet.
+    // Should also be able to settle this exact mode from the parser so we
+    // don't have to re-branch here.
+    if (rq->pr.noreply) {
+        if (rq->pr.cmd_type == CMD_TYPE_META) {
+            r->mode = RESP_MODE_METAQUIET;
+            for (int x = 2; x < rq->pr.ntokens; x++) {
+                if (rq->request[rq->pr.tokens[x]] == 'q') {
+                    rq->request[rq->pr.tokens[x]] = ' ';
+                }
+            }
+        } else {
+            r->mode = RESP_MODE_NOREPLY;
+            rq->request[rq->pr.reqlen - 3] = 'Y';
+        }
+    } else {
+        r->mode = RESP_MODE_NORMAL;
+    }
 
     int x;
     int end = rq->pr.reqlen-2 > RESP_CMD_MAX ? RESP_CMD_MAX : rq->pr.reqlen-2;
