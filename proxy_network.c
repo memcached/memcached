@@ -540,10 +540,8 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
             if (r->status != MCMC_OK) {
                 P_DEBUG("%s: mcmc_read failed [%d]\n", __func__, r->status);
                 if (r->status == MCMC_WANT_READ) {
-                    flags |= EV_READ;
-                    be->state = mcp_backend_read;
-                    stop = true;
-                    break;
+                    *rbuf = mcmc_read_prep(be->client, be->rbuf, READ_BUFFER_SIZE, toread);
+                    return EV_READ;
                 } else {
                     flags = -1;
                     stop = true;
@@ -649,6 +647,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be, int bread, char **rbuf
             // if not, the stack is desynced and we lose it.
 
             r->status = mcmc_parse_buf(be->client, be->rbuf, bread, &tmp_resp);
+            bread = 0;
             P_DEBUG("%s [read_end]: r->status: %d, bread: %d resp.type:%d\n", __func__, r->status, bread, tmp_resp.type);
             if (r->status != MCMC_OK) {
                 if (r->status == MCMC_WANT_READ) {
