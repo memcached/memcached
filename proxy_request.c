@@ -525,7 +525,19 @@ int mcplib_request(lua_State *L) {
     size_t vlen = 0;
     mcp_parser_t pr = {0};
     const char *cmd = luaL_checklstring(L, 1, &len);
-    const char *val = luaL_optlstring(L, 2, NULL, &vlen);
+    const char *val = NULL;
+    int type = lua_type(L, 2);
+    if (type == LUA_TSTRING) {
+        val = luaL_optlstring(L, 2, NULL, &vlen);
+    } else if (type == LUA_TUSERDATA) {
+        mcp_resp_t *r = luaL_checkudata(L, 2, "mcp.response");
+        if (r->buf) {
+            val = r->buf;
+            vlen = r->blen;
+        } else {
+            // TODO (v2): other response modes unhandled.
+        }
+    }
 
     // FIXME (v2): if we inline the userdata we can avoid memcpy'ing the parser
     // structure from the stack? but causes some code duplication.
