@@ -228,10 +228,15 @@ void proxy_submit_cb(io_queue_t *q) {
     while (p) {
         // insert into tail so head is oldest request.
         STAILQ_INSERT_TAIL(&head, p, io_next);
-        if (!p->is_await) {
+        if (p->is_await) {
+            // need to not count await objects multiple times.
+            if (p->await_first) {
+                q->count++;
+            }
             // funny workaround: awaiting IOP's don't count toward
             // resuming a connection, only the completion of the await
             // condition.
+        } else {
             q->count++;
         }
 
@@ -557,13 +562,20 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
             // TODO (v2): try harder to validate; but we have so few yield cases
             // that I'm going to shortcut this here. A single yielded result
             // means it's probably an await(), so attempt to process this.
-            // FIXME (v2): if p, do we need to free it up from the resp?
-            // resp should not have an IOP I think...
-            assert(p == NULL);
-            // coroutine object sitting on the _main_ VM right now, so we grab
-            // the reference from there, which also pops it.
-            int coro_ref = luaL_ref(c->thread->L, LUA_REGISTRYINDEX);
-            mcplib_await_run(c, Lc, coro_ref);
+            if (p != NULL) {
+                int coro_ref = p->coro_ref;
+                mc_resp *resp = p->resp;
+                assert((void *)p == (void *)resp->io_pending);
+                resp->io_pending = NULL;
+                c = p->c;
+                do_cache_free(c->thread->io_cache, p);
+                mcplib_await_run(c, resp, Lc, coro_ref);
+            } else {
+                // coroutine object sitting on the _main_ VM right now, so we grab
+                // the reference from there, which also pops it.
+                int coro_ref = luaL_ref(c->thread->L, LUA_REGISTRYINDEX);
+                mcplib_await_run(c, c->resp, Lc, coro_ref);
+            }
         } else {
             // need to remove and free the io_pending, since c->resp owns it.
             // so we call mcp_queue_io() again and let it override the

@@ -26,9 +26,16 @@ typedef struct mcp_await_s {
 int mcplib_await(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     luaL_checktype(L, 2, LUA_TTABLE);
-    int n = luaL_len(L, 2); // length of hash selector table
+    int n = 0; // length of table of pools
     int wait_for = 0; // 0 means wait for all responses
     enum mcp_await_e type = AWAIT_GOOD;
+
+    lua_pushnil(L); // init table key
+    while (lua_next(L, 2) != 0) {
+        luaL_checkudata(L, -1, "mcp.pool_proxy");
+        lua_pop(L, 1); // remove value, keep key.
+        n++;
+    }
 
     if (n <= 0) {
         proxy_lua_error(L, "mcp.await arguments must have at least one pool");
@@ -76,7 +83,7 @@ int mcplib_await(lua_State *L) {
     aw->rq = rq;
     aw->req_ref = req_ref;
     aw->type = type;
-    P_DEBUG("%s: about to yield [HS len: %d]\n", __func__, n);
+    P_DEBUG("%s: about to yield [len: %d]\n", __func__, n);
 
     return lua_yield(L, 1);
 }
@@ -175,7 +182,7 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
 // It looks like a bulk of this code can move into mcplib_await(),
 // and then here post-yield we can add the conn and coro_ref to the right
 // places. Else these errors currently crash the daemon.
-int mcplib_await_run(conn *c, lua_State *L, int coro_ref) {
+int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref) {
     P_DEBUG("%s: start\n", __func__);
     mcp_await_t *aw = lua_touserdata(L, -1);
     int await_ref = luaL_ref(L, LUA_REGISTRYINDEX); // await is popped.
@@ -217,14 +224,9 @@ int mcplib_await_run(conn *c, lua_State *L, int coro_ref) {
     }
 
     lua_pop(L, 1); // remove table key.
-    aw->resp = c->resp; // cuddle the current mc_resp to fill later
+    aw->resp = resp; // cuddle the current mc_resp to fill later
 
-    // we count the await as the "response pending" since it covers a single
-    // response object. the sub-IO's don't count toward the redispatch of *c
-    io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_PROXY);
-    q->count++;
-
-    P_DEBUG("%s\n", __func__);
+    P_DEBUG("%s: end\n", __func__);
 
     return 0;
 }

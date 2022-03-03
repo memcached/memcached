@@ -131,12 +131,16 @@ function failover_factory(zones, local_zone)
         if res:hit() == false then
             -- example for mcp.log... Don't do this though :)
             mcp.log("failed to find " .. r:key() .. " in zone: " .. local_zone)
-            for _, zone in pairs(far_zones) do
-                res = zone(r)
+            --for _, zone in pairs(far_zones) do
+            --    res = zone(r)
+            local restable = mcp.await(r, far_zones, 1)
+            for _, res in pairs(restable) do
                 if res:hit() then
-                    break
+                    --break
+                    return res
                 end
             end
+            return restable[1]
         end
         return res -- send result back to client
     end
