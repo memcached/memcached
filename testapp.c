@@ -217,6 +217,8 @@ static enum test_return cache_limit_revised_downward_test(void)
     assert(cache->total == allocated_num-1);
     cache_destroy(cache);
 
+    free(alloc_objs);
+
     return TEST_PASS;
 }
 
