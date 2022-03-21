@@ -660,10 +660,17 @@ void fill_item_stats_automove(item_stats_automove *am) {
         i = n | COLD_LRU;
         pthread_mutex_lock(&lru_locks[i]);
         cur->evicted = itemstats[i].evicted;
-        if (tails[i]) {
-            cur->age = current_time - tails[i]->time;
-        } else {
+        if (!tails[i]) {
             cur->age = 0;
+        } else if (tails[i]->nbytes == 0 && tails[i]->nkey == 0 && tails[i]->it_flags == 1) {
+            /* it's a crawler, check previous entry */
+            if (tails[i]->prev) {
+               cur->age = current_time - tails[i]->prev->time;
+            } else {
+               cur->age = 0;
+            }
+        } else {
+            cur->age = current_time - tails[i]->time;
         }
         pthread_mutex_unlock(&lru_locks[i]);
      }
