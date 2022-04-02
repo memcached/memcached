@@ -5730,6 +5730,11 @@ int main (int argc, char **argv) {
         settings.port = settings.udpport;
     }
 
+    if (settings.port > 65535) {
+        fprintf(stderr, "ERROR: Invalid port number %d.\n", settings.port);
+        exit(EX_USAGE);
+    }
+
 
 #ifdef TLS
     /*
