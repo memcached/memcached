@@ -167,6 +167,10 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
 
     // The direct backend object. await object is holding reference
     p->backend = be;
+    // See #887 for notes.
+    // TODO (v2): hopefully this can be optimized out.
+    strncpy(r->be_name, be->name, MAX_NAMELEN+1);
+    strncpy(r->be_port, be->port, MAX_PORTLEN+1);
 
     mcp_request_attach(Lc, rq, p);
 

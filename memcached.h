@@ -719,6 +719,7 @@ typedef struct {
     void *proxy_hooks;
     void *proxy_user_stats;
     void *proxy_int_stats;
+    uint32_t proxy_rng[4]; // fast per-thread rng for lua.
     // TODO: add ctx object so we can attach to queue.
 #endif
 } LIBEVENT_THREAD;

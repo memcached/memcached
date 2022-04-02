@@ -36,6 +36,7 @@ enum log_entry_type {
     LOGGER_PROXY_RAW,
     LOGGER_PROXY_ERROR,
     LOGGER_PROXY_USER,
+    LOGGER_PROXY_REQ,
     LOGGER_PROXY_BE_ERROR,
 #endif
 };
@@ -119,6 +120,18 @@ struct logentry_proxy_raw {
     unsigned short code;
     long elapsed; // elapsed time in usec
     char cmd[8];
+};
+
+struct logentry_proxy_req {
+    unsigned short type;
+    unsigned short code;
+    int status;
+    uint32_t reqlen;
+    size_t dlen;
+    size_t be_namelen;
+    size_t be_portlen;
+    long elapsed;
+    char data[];
 };
 #endif
 /* end intermediary structures */

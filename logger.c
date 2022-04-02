@@ -330,6 +330,70 @@ static int _logger_parse_prx_raw(logentry *e, char *scratch) {
             le->elapsed, le->cmd, le->type, le->code);
     return total;
 }
+
+// TODO (v2): the length caps here are all magic numbers. Haven't thought of
+// something yet that I like better.
+// Should at least make a define to the max log len (1024) and do some math
+// here.
+static void _logger_log_proxy_req(logentry *e, const entry_details *d, const void *entry, va_list ap) {
+    char *req = va_arg(ap, char *);
+    int reqlen = va_arg(ap, uint32_t);
+    long elapsed = va_arg(ap, long);
+    unsigned short type = va_arg(ap, int);
+    unsigned short code = va_arg(ap, int);
+    int status = va_arg(ap, int);
+    char *detail = va_arg(ap, char *);
+    size_t dlen = va_arg(ap, size_t);
+    char *be_name = va_arg(ap, char *);
+    char *be_port = va_arg(ap, char *);
+
+    struct logentry_proxy_req *le = (void *)e->data;
+    le->type = type;
+    le->code = code;
+    le->status = status;
+    le->dlen = dlen;
+    le->elapsed = elapsed;
+    le->be_namelen = strlen(be_name);
+    le->be_portlen = strlen(be_port);
+    char *data = le->data;
+    if (req[reqlen-2] == '\r') {
+        reqlen -= 2;
+    } else {
+        reqlen--;
+    }
+    if (reqlen > 300) {
+        reqlen = 300;
+    }
+    if (dlen > 150) {
+        dlen = 150;
+    }
+    // be_namelen and be_portlen can't be longer than 255+6
+    le->reqlen = reqlen;
+    memcpy(data, req, reqlen);
+    data += reqlen;
+    memcpy(data, detail, dlen);
+    data += dlen;
+    memcpy(data, be_name, le->be_namelen);
+    data += le->be_namelen;
+    memcpy(data, be_port, le->be_portlen);
+    e->size = sizeof(struct logentry_proxy_req) + reqlen + dlen + le->be_namelen + le->be_portlen;
+}
+
+static int _logger_parse_prx_req(logentry *e, char *scratch) {
+    int total;
+    struct logentry_proxy_req *le = (void *)e->data;
+
+    // TODO: encode detail / req
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%d.%d gid=%llu type=proxy_req elapsed=%lu type=%d code=%d status=%d be=%.*s:%.*s detail=%.*s req=%.*s\n",
+            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            le->elapsed, le->type, le->code, le->status,
+            (int)le->be_namelen, le->data+le->reqlen+le->dlen,
+            (int)le->be_portlen, le->data+le->reqlen+le->dlen+le->be_namelen, // fml.
+            (int)le->dlen, le->data+le->reqlen, (int)le->reqlen, le->data
+            );
+    return total;
+}
 #endif
 
 /* Should this go somewhere else? */
@@ -372,6 +436,7 @@ static const entry_details default_entries[] = {
         "type=proxy_conf status=%s"
     },
     [LOGGER_PROXY_RAW] = {512, LOG_PROXYCMDS, _logger_log_proxy_raw, _logger_parse_prx_raw, NULL},
+    [LOGGER_PROXY_REQ] = {1024, LOG_PROXYUSER, _logger_log_proxy_req, _logger_parse_prx_req, NULL},
     [LOGGER_PROXY_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_text, _logger_parse_text,
         "type=proxy_error msg=%s"
     },

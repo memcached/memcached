@@ -371,6 +371,8 @@ typedef struct {
     int bread; // amount of bytes read into value so far.
     char cmd[RESP_CMD_MAX+1]; // until we can reverse CMD_*'s to strings directly.
     enum mcp_resp_mode mode; // reply mode (for noreply fixing)
+    char be_name[MAX_NAMELEN+1];
+    char be_port[MAX_PORTLEN+1];
 } mcp_resp_t;
 
 // re-cast an io_pending_t into this more descriptive structure.

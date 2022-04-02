@@ -200,6 +200,10 @@ void proxy_thread_init(LIBEVENT_THREAD *thr) {
     thr->L = L;
     luaL_openlibs(L);
     proxy_register_libs(thr, L);
+    // TODO: srand on time? do we need to bother?
+    for (int x = 0; x < 3; x++) {
+        thr->proxy_rng[x] = rand();
+    }
 
     // kick off the configuration.
     if (proxy_thread_loadconf(thr) != 0) {
@@ -523,9 +527,9 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
 
     if (cores == LUA_OK) {
         WSTAT_DECR(c, proxy_req_active, 1);
-        int type = lua_type(Lc, -1);
+        int type = lua_type(Lc, 1);
         if (type == LUA_TUSERDATA) {
-            mcp_resp_t *r = luaL_checkudata(Lc, -1, "mcp.response");
+            mcp_resp_t *r = luaL_checkudata(Lc, 1, "mcp.response");
             LOGGER_LOG(NULL, LOG_PROXYCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->cmd, r->resp.type, r->resp.code);
             _set_noreply_mode(resp, r);
             if (r->buf) {
@@ -534,7 +538,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
                 resp->write_and_free = r->buf;
                 resp_add_iov(resp, r->buf, r->blen);
                 r->buf = NULL;
-            } else if (lua_getiuservalue(Lc, -1, 1) != LUA_TNIL) {
+            } else if (lua_getiuservalue(Lc, 1, 1) != LUA_TNIL) {
                 // uservalue slot 1 is pre-created, so we get TNIL instead of
                 // TNONE when nothing was set into it.
                 const char *s = lua_tolstring(Lc, -1, &rlen);
@@ -549,7 +553,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
             }
         } else if (type == LUA_TSTRING) {
             // response is a raw string from lua.
-            const char *s = lua_tolstring(Lc, -1, &rlen);
+            const char *s = lua_tolstring(Lc, 1, &rlen);
             size_t l = rlen > WRITE_BUFFER_SIZE ? WRITE_BUFFER_SIZE : rlen;
             memcpy(resp->wbuf, s, l);
             resp_add_iov(resp, resp->wbuf, l);
@@ -868,6 +872,10 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
 
     // The direct backend object. Lc is holding the reference in the stack
     p->backend = be;
+    // See #887 for notes.
+    // TODO (v2): hopefully this can be optimized out.
+    strncpy(r->be_name, be->name, MAX_NAMELEN+1);
+    strncpy(r->be_port, be->port, MAX_PORTLEN+1);
 
     mcp_request_attach(Lc, rq, p);
 

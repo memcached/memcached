@@ -115,6 +115,15 @@ end
 
 -- need to redefine main_zones using fetched selectors?
 
+function reqlog_factory(route)
+    local nr = route
+    return function(r)
+        local res, detail = nr(r)
+        mcp.log_req(r, res, detail)
+        return res
+    end
+end
+
 -- TODO: Fallback zone here?
 function failover_factory(zones, local_zone)
     local near_zone = zones[local_zone]
@@ -130,19 +139,19 @@ function failover_factory(zones, local_zone)
         local res = near_zone(r)
         if res:hit() == false then
             -- example for mcp.log... Don't do this though :)
-            mcp.log("failed to find " .. r:key() .. " in zone: " .. local_zone)
+            -- mcp.log("failed to find " .. r:key() .. " in zone: " .. local_zone)
             --for _, zone in pairs(far_zones) do
             --    res = zone(r)
             local restable = mcp.await(r, far_zones, 1)
             for _, res in pairs(restable) do
                 if res:hit() then
                     --break
-                    return res
+                    return res, "failover_backup_hit"
                 end
             end
-            return restable[1]
+            return restable[1], "failover_backup_miss"
         end
-        return res -- send result back to client
+        return res, "failover_hit" -- send result back to client
     end
 end
 
@@ -260,7 +269,7 @@ function mcp_config_routes(main_zones)
     -- generate the prefix routes from zones.
     local prefixes = {}
     for pfx, z in pairs(main_zones) do
-        local failover = failover_factory(z, my_zone)
+        local failover = reqlog_factory(failover_factory(z, my_zone))
         local all = walkall_factory(main_zones[pfx])
         local setdel = setinvalidate_factory(z, my_zone)
         local map = {}

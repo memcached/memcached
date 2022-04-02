@@ -611,6 +611,125 @@ static int mcplib_log(lua_State *L) {
     return 0;
 }
 
+// (request, resp, "detail")
+static int mcplib_log_req(lua_State *L) {
+    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
+    logger *l = t->l;
+    // Not using the LOGGER_LOG macro so we can avoid as much overhead as
+    // possible when logging is disabled.
+    if (! (l->eflags & LOG_PROXYUSER)) {
+        return 0;
+    }
+    int rtype = 0;
+    int rcode = 0;
+    int rstatus = 0;
+    char *rname = NULL;
+    char *rport = NULL;
+
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    int type = lua_type(L, 2);
+    if (type == LUA_TUSERDATA) {
+        mcp_resp_t *rs = luaL_checkudata(L, 2, "mcp.response");
+        rtype = rs->resp.type;
+        rcode = rs->resp.code;
+        rstatus = rs->status;
+        rname = rs->be_name;
+        rport = rs->be_port;
+    }
+    size_t dlen = 0;
+    const char *detail = luaL_optlstring(L, 3, NULL, &dlen);
+
+    struct timeval end;
+    gettimeofday(&end, NULL);
+    long elapsed = (end.tv_sec - rq->start.tv_sec) * 1000000 + (end.tv_usec - rq->start.tv_usec);
+
+    logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, elapsed, rtype, rcode, rstatus, detail, dlen, rname, rport);
+
+    return 0;
+}
+
+static inline uint32_t _rotl(const uint32_t x, int k) {
+    return (x << k) | (x >> (32 - k));
+}
+
+// xoroshiro128++ 32bit version.
+static uint32_t _nextrand(uint32_t *s) {
+    const uint32_t result = _rotl(s[0] + s[3], 7) + s[0];
+
+    const uint32_t t = s[1] << 9;
+
+    s[2] ^= s[0];
+    s[3] ^= s[1];
+    s[1] ^= s[2];
+    s[0] ^= s[3];
+
+    s[2] ^= t;
+
+    s[3] = _rotl(s[3], 11);
+
+    return result;
+}
+
+
+// (milliseconds, sample_rate, allerrors, request, resp, "detail")
+static int mcplib_log_reqsample(lua_State *L) {
+    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
+    logger *l = t->l;
+    // Not using the LOGGER_LOG macro so we can avoid as much overhead as
+    // possible when logging is disabled.
+    if (! (l->eflags & LOG_PROXYUSER)) {
+        return 0;
+    }
+    int rtype = 0;
+    int rcode = 0;
+    int rstatus = 0;
+    char *rname = NULL;
+    char *rport = NULL;
+
+    int ms = luaL_checkinteger(L, 1);
+    int rate = luaL_checkinteger(L, 2);
+    int allerr = lua_toboolean(L, 3);
+    mcp_request_t *rq = luaL_checkudata(L, 4, "mcp.request");
+    int type = lua_type(L, 5);
+    if (type == LUA_TUSERDATA) {
+        mcp_resp_t *rs = luaL_checkudata(L, 5, "mcp.response");
+        rtype = rs->resp.type;
+        rcode = rs->resp.code;
+        rstatus = rs->status;
+        rname = rs->be_name;
+        rport = rs->be_port;
+    }
+    size_t dlen = 0;
+    const char *detail = luaL_optlstring(L, 6, NULL, &dlen);
+
+    struct timeval end;
+    gettimeofday(&end, NULL);
+    long elapsed = (end.tv_sec - rq->start.tv_sec) * 1000000 + (end.tv_usec - rq->start.tv_usec);
+
+    bool do_log = false;
+    if (allerr && rstatus != MCMC_OK) {
+        do_log = true;
+    } else if (ms > 0 && elapsed > ms * 1000) {
+        do_log = true;
+    } else if (rate > 0) {
+        // slightly biased random-to-rate without adding a loop, which is
+        // completely fine for this use case.
+        uint32_t rnd = (uint64_t)_nextrand(t->proxy_rng) * (uint64_t)rate >> 32;
+        if (rnd == 0) {
+            do_log = true;
+        }
+    }
+
+    if (do_log) {
+        logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, elapsed, rtype, rcode, rstatus, detail, dlen, rname, rport);
+    }
+
+    return 0;
+}
+
+// TODO: slowsample
+// _err versions?
+
 /*** END lua interface to logger ***/
 
 static void proxy_register_defines(lua_State *L) {
@@ -678,6 +797,8 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
         {"stat", mcplib_stat},
         {"await", mcplib_await},
         {"log", mcplib_log},
+        {"log_req", mcplib_log_req},
+        {"log_reqsample", mcplib_log_reqsample},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
         {"backend_read_timeout", mcplib_backend_read_timeout},
