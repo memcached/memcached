@@ -137,11 +137,13 @@ ssize_t tcp_read(conn *c, void *buf, size_t count) {
 
 ssize_t tcp_sendmsg(conn *c, struct msghdr *msg, int flags) {
     assert (c != NULL);
+    assert (msg != NULL);
     return sendmsg(c->sfd, msg, flags);
 }
 
 ssize_t tcp_write(conn *c, void *buf, size_t count) {
     assert (c != NULL);
+    assert (buf != NULL);
     return write(c->sfd, buf, count);
 }
 
@@ -155,10 +157,11 @@ static enum transmit_result transmit(conn *c);
 static volatile bool allow_new_conns = true;
 static int stop_main_loop = NOT_STOP;
 static struct event maxconnsevent;
+#define DUMMY_SOCKET_FD -42
 static void maxconns_handler(const evutil_socket_t fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
 
-    if (fd == -42 || allow_new_conns == false) {
+    if (fd == DUMMY_SOCKET_FD || allow_new_conns == false) {
         /* reschedule in 10ms if we need to keep polling */
         evtimer_set(&maxconnsevent, maxconns_handler, 0);
         event_base_set(main_base, &maxconnsevent);
@@ -2535,7 +2538,7 @@ void do_accept_new_conns(const bool do_accept) {
         stats.listen_disabled_num++;
         STATS_UNLOCK();
         allow_new_conns = false;
-        maxconns_handler(-42, 0, 0);
+        maxconns_handler(DUMMY_SOCKET_FD, 0, 0);
     }
 }
 
