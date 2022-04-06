@@ -97,7 +97,6 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     // reserve one uservalue for a lua-supplied response.
     mcp_resp_t *r = lua_newuserdatauv(Lc, sizeof(mcp_resp_t), 1);
     memset(r, 0, sizeof(mcp_resp_t));
-    r->start = rq->start;
     // Set noreply mode.
     // TODO (v2): the response "inherits" the request's noreply mode, which isn't
     // strictly correct; we should inherit based on the request that spawned
@@ -120,15 +119,7 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
         r->mode = RESP_MODE_NORMAL;
     }
 
-    int x;
-    int end = rq->pr.reqlen-2 > RESP_CMD_MAX ? RESP_CMD_MAX : rq->pr.reqlen-2;
-    for (x = 0; x < end; x++) {
-        if (rq->pr.request[x] == ' ') {
-            break;
-        }
-        r->cmd[x] = rq->pr.request[x];
-    }
-    r->cmd[x] = '\0';
+    r->cmd = rq->pr.command;
 
     luaL_getmetatable(Lc, "mcp.response");
     lua_setmetatable(Lc, -2);

@@ -1177,7 +1177,7 @@ The arguments are:
   address IP and port. Connection close events additionally supply a reason for
   closing the connection.
 
-- "proxycmds": Emits detailed timing logs about requests/responses being
+- "proxyreqs": Emits detailed timing logs about requests/responses being
   returned to a client while in proxy mode. The conditions which logs are
   written here may be influenced by configuration.
 

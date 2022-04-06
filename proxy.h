@@ -364,12 +364,11 @@ enum mcp_resp_mode {
 #define RESP_CMD_MAX 8
 typedef struct {
     mcmc_resp_t resp;
-    struct timeval start; // start time inherited from paired request
     char *buf; // response line + potentially value.
     size_t blen; // total size of the value to read.
     int status; // status code from mcmc_read()
     int bread; // amount of bytes read into value so far.
-    char cmd[RESP_CMD_MAX+1]; // until we can reverse CMD_*'s to strings directly.
+    uint8_t cmd; // from parser (pr.command)
     enum mcp_resp_mode mode; // reply mode (for noreply fixing)
     char be_name[MAX_NAMELEN+1];
     char be_port[MAX_PORTLEN+1];

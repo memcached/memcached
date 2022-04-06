@@ -496,7 +496,7 @@ static void _set_noreply_mode(mc_resp *resp, mcp_resp_t *r) {
         case RESP_MODE_METAQUIET:
             if (r->resp.code == MCMC_CODE_MISS) {
                 resp->skip = true;
-            } else if (r->cmd[1] != 'g' && r->resp.code == MCMC_CODE_OK) {
+            } else if (r->cmd != CMD_MG && r->resp.code == MCMC_CODE_OK) {
                 // FIXME (v2): mcmc's parser needs to help us out a bit more
                 // here.
                 // This is a broken case in the protocol though; quiet mode
@@ -530,7 +530,6 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
         int type = lua_type(Lc, 1);
         if (type == LUA_TUSERDATA) {
             mcp_resp_t *r = luaL_checkudata(Lc, 1, "mcp.response");
-            LOGGER_LOG(NULL, LOG_PROXYCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->cmd, r->resp.type, r->resp.code);
             _set_noreply_mode(resp, r);
             if (r->buf) {
                 // response set from C.
@@ -806,7 +805,6 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     memset(r, 0, sizeof(mcp_resp_t));
     r->buf = NULL;
     r->blen = 0;
-    r->start = rq->start; // need to inherit the original start time.
     // Set noreply mode.
     // TODO (v2): the response "inherits" the request's noreply mode, which isn't
     // strictly correct; we should inherit based on the request that spawned
@@ -829,15 +827,7 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
         r->mode = RESP_MODE_NORMAL;
     }
 
-    int x;
-    int end = rq->pr.reqlen-2 > RESP_CMD_MAX ? RESP_CMD_MAX : rq->pr.reqlen-2;
-    for (x = 0; x < end; x++) {
-        if (rq->pr.request[x] == ' ') {
-            break;
-        }
-        r->cmd[x] = rq->pr.request[x];
-    }
-    r->cmd[x] = '\0';
+    r->cmd = rq->pr.command;
 
     luaL_getmetatable(Lc, "mcp.response");
     lua_setmetatable(Lc, -2);
