@@ -212,6 +212,16 @@ int ssl_init(void) {
         SSL_CTX_set_session_cache_mode(settings.ssl_ctx, SSL_SESS_CACHE_OFF);
     }
 
+    // Optional kernel TLS offload; default disabled.
+    if (settings.ssl_kernel_tls) {
+#if defined(SSL_OP_ENABLE_KTLS)
+        SSL_CTX_set_options(settings.ssl_ctx, SSL_OP_ENABLE_KTLS);
+#else
+        fprintf(stderr, "Kernel TLS offload is not available\n");
+        exit(EX_USAGE);
+#endif
+    }
+
     return 0;
 }
 

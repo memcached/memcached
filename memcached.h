@@ -514,6 +514,7 @@ struct settings {
     rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
     unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
     bool ssl_session_cache; /* enable SSL server session caching */
+    bool ssl_kernel_tls; /* enable server kTLS */
     int ssl_min_version; /* minimum SSL protocol version to accept */
 #endif
     int num_napi_ids;   /* maximum number of NAPI IDs */
