@@ -18,6 +18,12 @@ will use new certificates without a need of re-starting the server process.
 # Multiple ports with and without TLS : by default all TCP ports are secured. Optionally we can setup
 the server to secure a specific TCP port.
 
+# Kernel TLS offload (kTLS): when compiled with OpenSSL 3.0.0+ with the `enable-ktls` build-time
+option set, and running on Linux with kernel version 4.17+ with `CONFIG_TLS` enabled, memcached can
+transparently offload cryptography operations to the kernel. Depending on a variety of factors
+(including the workload, NIC support for HW-accelerated cryptography, ciphers in use, etc.),
+kTLS may offer improved throughput and/or reduced memcached resource consumption.
+
 Note that initial implementation does not support session renegotiation.
 
 Design
