@@ -617,7 +617,7 @@ static int mcplib_log_req(lua_State *L) {
     logger *l = t->l;
     // Not using the LOGGER_LOG macro so we can avoid as much overhead as
     // possible when logging is disabled.
-    if (! (l->eflags & LOG_PROXYUSER)) {
+    if (! (l->eflags & LOG_PROXYREQS)) {
         return 0;
     }
     int rtype = 0;
@@ -677,7 +677,7 @@ static int mcplib_log_reqsample(lua_State *L) {
     logger *l = t->l;
     // Not using the LOGGER_LOG macro so we can avoid as much overhead as
     // possible when logging is disabled.
-    if (! (l->eflags & LOG_PROXYUSER)) {
+    if (! (l->eflags & LOG_PROXYREQS)) {
         return 0;
     }
     int rtype = 0;
