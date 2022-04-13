@@ -37,8 +37,12 @@
 #endif
 #endif
 
-#if defined(__FreeBSD__)
-# define SOCK_COOKIE_ID
+#if defined(__linux__)
+# define SOCK_COOKIE_ID SO_MARK
+#elif defined(__FreeBSD__)
+# define SOCK_COOKIE_ID SO_USER_COOKIE
+#elif defined(__OpenBSD__)
+# define SOCK_COOKIE_ID SO_RTABLE
 #endif
 
 #include "itoa_ljust.h"

@@ -3532,7 +3532,7 @@ static int server_socket(const char *interface,
 #endif
 #ifdef SOCK_COOKIE_ID
         if (settings.sock_cookie_id != 0) {
-            error = setsockopt(sfd, SOL_SOCKET, SO_USER_COOKIE, (void *)&settings.sock_cookie_id, sizeof(uint32_t));
+            error = setsockopt(sfd, SOL_SOCKET, SOCK_COOKIE_ID, (void *)&settings.sock_cookie_id, sizeof(uint32_t));
             if (error != 0)
                 perror("setsockopt");
         }
