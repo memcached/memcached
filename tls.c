@@ -222,17 +222,23 @@ int ssl_init(void) {
 #endif
     }
 
+#ifdef SSL_OP_NO_RENEGOTIATION
+    // Disable TLS re-negotiation if SSL_OP_NO_RENEGOTIATION is defined for
+    // openssl 1.1.0h or above
+    SSL_CTX_set_options(settings.ssl_ctx, SSL_OP_NO_RENEGOTIATION);
+#endif
+
     return 0;
 }
 
 /*
  * This method is registered with each SSL connection and abort the SSL session
- * if a client initiates a renegotiation.
- * TODO : Proper way to do this is to set SSL_OP_NO_RENEGOTIATION
- *       using the SSL_CTX_set_options but that option only available in
- *       openssl 1.1.0h or above.
+ * if a client initiates a renegotiation for openssl versions before 1.1.0h.
+ * For openssl 1.1.0h and above, TLS re-negotiation is disabled by setting the
+ * SSL_OP_NO_RENEGOTIATION option in SSL_CTX_set_options.
  */
 void ssl_callback(const SSL *s, int where, int ret) {
+#ifndef SSL_OP_NO_RENEGOTIATION
     SSL* ssl = (SSL*)s;
     if (SSL_in_before(ssl)) {
         fprintf(stderr, "%d: SSL renegotiation is not supported, "
@@ -240,6 +246,7 @@ void ssl_callback(const SSL *s, int where, int ret) {
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
         return;
     }
+#endif
 }
 
 /*
