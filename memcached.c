@@ -4069,15 +4069,14 @@ static void usage(void) {
            "                          (default: %u)\n", settings.ssl_wbuf_size / (1 << 10));
     printf("   - ssl_session_cache:   enable server-side SSL session cache, to support session\n"
            "                          resumption\n"
-           "   - ssl_min_version:     minimum protocol version to accept (default: %s)\n"
+           "   - ssl_min_version:     minimum protocol version to accept (default: %s)\n",
+           ssl_proto_text(settings.ssl_min_version));
 #if defined(TLS1_3_VERSION)
-           "                          valid values are 0(%s), 1(%s), 2(%s), or 3(%s).\n",
-           ssl_proto_text(settings.ssl_min_version),
+    printf("                          valid values are 0(%s), 1(%s), 2(%s), or 3(%s).\n",
            ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
            ssl_proto_text(TLS1_2_VERSION), ssl_proto_text(TLS1_3_VERSION));
 #else
-           "                          valid values are 0(%s), 1(%s), or 2(%s).\n",
-           ssl_proto_text(settings.ssl_min_version),
+    printf("                          valid values are 0(%s), 1(%s), or 2(%s).\n",
            ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
            ssl_proto_text(TLS1_2_VERSION));
 #endif
