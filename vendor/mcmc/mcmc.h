@@ -76,16 +76,13 @@ typedef struct {
 int mcmc_fd(void *c);
 size_t mcmc_size(int options);
 size_t mcmc_min_buffer_size(int options);
-char *mcmc_read_prep(void *c, char *buf, size_t bufsize, size_t *bufremain);
 int mcmc_parse_buf(void *c, char *buf, size_t read, mcmc_resp_t *r);
 int mcmc_connect(void *c, char *host, char *port, int options);
 int mcmc_check_nonblock_connect(void *c, int *err);
 int mcmc_send_request(void *c, const char *request, int len, int count);
 int mcmc_request_writev(void *c, const struct iovec *iov, int iovcnt, ssize_t *sent, int count);
-int mcmc_read(void *c, char *buf, size_t bufsize, mcmc_resp_t *r);
-int mcmc_read_value(void *c, char *val, const size_t vsize, int *read);
-int mcmc_read_value_buf(void *c, char *val, const size_t vsize, int *read);
-char *mcmc_buffer_consume(void *c, int *remain);
+//int mcmc_read(void *c, char *buf, size_t bufsize, mcmc_resp_t *r);
+//int mcmc_read_value(void *c, char *val, mcmc_resp_t *r, int *read);
 int mcmc_disconnect(void *c);
 void mcmc_get_error(void *c, char *code, size_t clen, char *msg, size_t mlen);
 

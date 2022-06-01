@@ -6,9 +6,55 @@
 #include <poll.h>
 #include <signal.h>
 #include <sys/uio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #include "mcmc.h"
 
+// in this form the socket syscalls are handled externally to the client, so
+// we need to parse the protocol out of a buffer directly.
+static void show_response_buffer(void *c, char *rbuf, size_t bufsize) {
+    int status;
+    mcmc_resp_t resp;
+    char *val = NULL;
+
+    do {
+        int bread = recv(mcmc_fd(c), rbuf, bufsize, 0);
+
+        // need to know how far to advance the buffer.
+        // resp->reslen + resp->vlen_read works, but feels awkward.
+        status = mcmc_parse_buf(c, rbuf, bread, &resp);
+    } while (status == MCMC_WANT_READ);
+
+    if (status != MCMC_OK) {
+        printf("bad response\n");
+    }
+
+    // now we need to read the value back.
+    // resp.reslen + resp.vlen is the total length.
+    // resp.reslen + resp.vlen_read is how much of the buffer was used.
+    // resp.vlen_read vs resp.vlen is how much was read vs how much still
+    // needs to be read from the socket.
+    if (resp.vlen != resp.vlen_read) {
+        // malloc and recv the rest.
+        // can/should add convenience functions for this?
+        val = malloc(resp.vlen);
+        memcpy(val, resp.value, resp.vlen_read);
+        size_t toread = resp.vlen - resp.vlen_read;
+        char *buf = val + resp.vlen_read;
+        do {
+            // TODO: bug: check for read == 0
+            int read = recv(mcmc_fd(c), buf, toread, 0);
+            toread -= read;
+        } while (toread > 0);
+    } else {
+        val = resp.value;
+    }
+
+    // TODO: add the rest of the parser loop.
+    printf("read a response: %s\n", rbuf);
+}
+/*
 static void show_response(void *c, char *rbuf, size_t bufsize) {
     int status;
     // buffer shouldn't change until the read is completed.
@@ -16,6 +62,7 @@ static void show_response(void *c, char *rbuf, size_t bufsize) {
     int go = 1;
     while (go) {
         go = 0;
+        // TODO: return flags? VALUE_PARTIAL flag?
         status = mcmc_read(c, rbuf, bufsize, &resp);
         if (status == MCMC_OK) {
             // OK means a response of some kind was read.
@@ -29,7 +76,7 @@ static void show_response(void *c, char *rbuf, size_t bufsize) {
                     val = malloc(resp.vlen);
                     int read = 0;
                     do {
-                        status = mcmc_read_value(c, val, resp.vlen, &read);
+                        status = mcmc_read_value(c, val, &resp, &read);
                     } while (status == MCMC_WANT_READ);
                 }
                 if (resp.vlen > 0) {
@@ -94,6 +141,33 @@ static void show_response(void *c, char *rbuf, size_t bufsize) {
         }
     }
 }
+*/
+void buffer_mode(void) {
+    void *c = malloc(mcmc_size(MCMC_OPTION_BLANK));
+    size_t bufsize = mcmc_min_buffer_size(MCMC_OPTION_BLANK) * 2;
+    char *rbuf = malloc(bufsize);
+
+    int status = mcmc_connect(c, "127.0.0.1", "11211", MCMC_OPTION_BLANK);
+
+    char *requests[5] = {"get foo\r\n",
+        "get foob\r\n",
+        "mg foo s t v\r\n",
+        "mg doof s t v Omoo k\r\n",
+        ""};
+
+    for (int x = 0; strlen(requests[x]) != 0; x++) {
+        status = mcmc_send_request(c, requests[x], strlen(requests[x]), 1);
+
+        if (status != MCMC_OK) {
+            fprintf(stderr, "Failed to send request to memcached\n");
+            return;
+        }
+
+        // Regardless of what command we sent, this should print out the response.
+        show_response_buffer(c, rbuf, bufsize);
+    }
+
+}
 
 int main (int argc, char *agv[]) {
     // TODO: detect if C is pre-C11?
@@ -103,7 +177,7 @@ int main (int argc, char *agv[]) {
         perror("signal");
         exit(1);
     }
-
+/*
     void *c = malloc(mcmc_size(MCMC_OPTION_BLANK));
     // we only "need" the minimum buf size.
     // buffers large enough to fit return values result in fewer syscalls.
@@ -144,6 +218,7 @@ int main (int argc, char *agv[]) {
         }
 
         // Regardless of what command we sent, this should print out the response.
+        // TODO: mcmc_read() and friends need to be remade
         show_response(c, rbuf, bufsize);
 
     }
@@ -151,9 +226,10 @@ int main (int argc, char *agv[]) {
     status = mcmc_disconnect(c);
     // The only free'ing needed.
     free(c);
-
+*/
     // TODO: stats example.
 
+    /*
     // nonblocking example.
     c = malloc(mcmc_size(MCMC_OPTION_BLANK));
     // reuse bufsize/rbuf.
@@ -209,6 +285,8 @@ int main (int argc, char *agv[]) {
 
         show_response(c, rbuf, bufsize);
     }
+    */
 
+    buffer_mode();
     return 0;
 }
