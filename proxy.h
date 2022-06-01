@@ -310,7 +310,8 @@ struct mcp_backend_s {
     void *client; // mcmc client
     STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
     io_head_t io_head; // stack of requests.
-    char *rbuf; // static allocated read buffer.
+    char *rbuf; // statically allocated read buffer.
+    size_t rbufused; // currently active bytes in the buffer
     struct event event; // libevent
 #ifdef HAVE_LIBURING
     proxy_event_t ur_rd_ev; // liburing.
