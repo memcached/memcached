@@ -38,7 +38,6 @@ typedef struct mcmc_ctx {
     int gai_status; // getaddrinfo() last status.
     int last_sys_error; // last syscall error (connect/etc?)
     int sent_bytes_partial; // note for partially sent buffers.
-    int request_queue; // supposed outstanding replies.
     int fail_code; // recent failure reason.
     int error; // latest error code.
     uint32_t status_flags; // internal only flags.
@@ -48,15 +47,11 @@ typedef struct mcmc_ctx {
     size_t buffer_used; // amount of bytes read into the buffer so far.
     size_t buffer_request_len; // cached endpoint for current request
     char *buffer_head; // buffer pointer currently in use.
-    char *buffer_tail; // consumed tail of the buffer.
-
-    // request response detail.
-    mcmc_resp_t *resp;
 } mcmc_ctx_t;
 
 // INTERNAL FUNCTIONS
 
-static int _mcmc_parse_value_line(mcmc_ctx_t *ctx) {
+static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     char *buf = ctx->buffer_head;
     // we know that "VALUE " has matched, so skip that.
     char *p = buf+6;
@@ -104,14 +99,10 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx) {
 
     // If we made it this far, we've parsed everything, stuff the details into
     // the context for fetching later.
-    mcmc_resp_t *r = ctx->resp;
-    // FIXME: set to NULL if we don't have the value?
-    r->value = ctx->buffer_tail;
     r->vlen = bytes + 2; // add in the \r\n
-    int buffer_remain = ctx->buffer_used - (ctx->buffer_tail - ctx->buffer_head);
+    int buffer_remain = ctx->buffer_used - (r->value - ctx->buffer_head);
     if (buffer_remain >= r->vlen) {
         r->vlen_read = r->vlen;
-        ctx->buffer_tail += r->vlen;
     } else {
         r->vlen_read = buffer_remain;
     }
@@ -131,13 +122,12 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx) {
 // FIXME: This is broken for ASCII multiget.
 // if we get VALUE back, we need to stay in ASCII GET read mode until an END
 // is seen.
-static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
+static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     char *buf = ctx->buffer_head;
     char *cur = buf;
     size_t l = ctx->buffer_request_len;
     int rlen; // response code length.
     int more = 0;
-    mcmc_resp_t *r = ctx->resp;
     r->reslen = ctx->buffer_request_len;
     r->type = MCMC_RESP_GENERIC;
 
@@ -230,13 +220,11 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
                         if ((errno == ERANGE) || (cur == n)) {
                             rv = MCMC_ERR;
                         } else {
-                            r->value = ctx->buffer_tail;
                             r->vlen = vsize + 2; // tag in the \r\n.
                             // FIXME: macro.
-                            int buffer_remain = ctx->buffer_used - (ctx->buffer_tail - ctx->buffer_head);
+                            int buffer_remain = ctx->buffer_used - (r->value - ctx->buffer_head);
                             if (buffer_remain >= r->vlen) {
                                 r->vlen_read = r->vlen;
-                                ctx->buffer_tail += r->vlen;
                             } else {
                                 r->vlen_read = buffer_remain;
                             }
@@ -282,7 +270,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
             if (memcmp(buf, "VALUE", 5) == 0) {
                 if (more) {
                     // <key> <flags> <bytes> [<cas unique>]
-                    rv = _mcmc_parse_value_line(ctx);
+                    rv = _mcmc_parse_value_line(ctx, r);
                 } else {
                     rv = MCMC_ERR; // FIXME: parse error.
                 }
@@ -350,13 +338,6 @@ size_t mcmc_min_buffer_size(int options) {
     return MIN_BUFFER_SIZE;
 }
 
-char *mcmc_read_prep(void *c, char *buf, size_t bufsize, size_t *bufremain) {
-    mcmc_ctx_t *ctx = c;
-    char *b = buf + ctx->buffer_used;
-    *bufremain = bufsize - ctx->buffer_used;
-    return b;
-}
-
 // Directly parse a buffer with read data of size len.
 // r->reslen + r->vlen_read is the bytes consumed from the buffer read.
 // Caller manages how to retry if MCMC_WANT_READ or an error happens.
@@ -366,31 +347,25 @@ char *mcmc_read_prep(void *c, char *buf, size_t bufsize, size_t *bufremain) {
 int mcmc_parse_buf(void *c, char *buf, size_t read, mcmc_resp_t *r) {
     mcmc_ctx_t *ctx = c;
     char *el;
-    ctx->buffer_used += read;
 
-    el = memchr(buf, '\n', ctx->buffer_used);
+    el = memchr(buf, '\n', read);
     if (el == NULL) {
         return MCMC_WANT_READ;
     }
 
     memset(r, 0, sizeof(*r));
 
-    // Consume through the newline.
-    // buffer_tail now points to where value could start.
-    // FIXME: ctx->value ?
-    ctx->buffer_tail = el+1;
+    // Consume through the newline, note where the value would start if exists
+    r->value = el+1;
 
+    ctx->buffer_used = read;
     // FIXME: the server must be stricter in what it sends back. should always
     // have a \r. check for it and fail?
-    ctx->buffer_request_len = ctx->buffer_tail - buf;
+    ctx->buffer_request_len = r->value - buf;
     // leave the \r\n in the line end cache.
     ctx->buffer_head = buf;
-    // TODO: handling for nonblock case.
 
-    // We have a result line. Now pass it through the parser.
-    // Then we indicate to the user that a response is ready.
-    ctx->resp = r;
-    return _mcmc_parse_response(ctx);
+    return _mcmc_parse_response(ctx, r);
 }
 
 /*** Functions wrapping syscalls **/
@@ -531,7 +506,6 @@ int mcmc_send_request(void *c, const char *request, int len, int count) {
         ctx->sent_bytes_partial += sent;
         return MCMC_WANT_WRITE;
     } else {
-        ctx->request_queue += count;
         ctx->sent_bytes_partial = 0;
     }
 
@@ -562,16 +536,19 @@ int mcmc_request_writev(void *c, const struct iovec *iov, int iovcnt, ssize_t *s
     if (*sent < tosend) {
         // can happen anytime, but mostly in nonblocking mode.
         return MCMC_WANT_WRITE;
-    } else {
-        // FIXME: user has to keep submitting the same count value...
-        // should decide on whether or not to give up on this.
-        ctx->request_queue += count;
     }
 
     return MCMC_OK;
 }
 
-// TODO: avoid recv if we have bytes in the buffer.
+// TODO: return consumed bytes and end ptr?
+// FIXME: mcmc no longer tracks the buffer inbetween commands, which was
+// causing issues with the API and bugs.
+// This function wraps the recv call, so it needs to understand the buffer a
+// little bit. Since memcached doesn't currently use this function I'm
+// commenting it out with this note so it can be rewritten in terms of an
+// external buffer later.
+/*
 int mcmc_read(void *c, char *buf, size_t bufsize, mcmc_resp_t *r) {
     mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
     char *el;
@@ -614,45 +591,24 @@ int mcmc_read(void *c, char *buf, size_t bufsize, mcmc_resp_t *r) {
     }
 parse:
     // Consume through the newline.
-    // buffer_tail now points to where a value could start.
-    ctx->buffer_tail = el+1;
+    r->value = el+1;
 
     // FIXME: the server must be stricter in what it sends back. should always
     // have a \r. check for it and fail?
-    ctx->buffer_request_len = ctx->buffer_tail - buf;
+    ctx->buffer_request_len = r->value - buf;
     // leave the \r\n in the line end cache.
     ctx->buffer_head = buf;
     // TODO: handling for nonblock case.
 
     // We have a result line. Now pass it through the parser.
     // Then we indicate to the user that a response is ready.
-    ctx->resp = r;
-    return _mcmc_parse_response(ctx);
+    return _mcmc_parse_response(ctx, r);
 }
+*/
 
 void mcmc_get_error(void *c, char *code, size_t clen, char *msg, size_t mlen) {
     code[0] = '\0';
     msg[0] = '\0';
-}
-
-int mcmc_read_value_buf(void *c, char *val, const size_t vsize, int *read) {
-    mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
-
-    // If the distance between tail/head is smaller than what we read into the
-    // main buffer, we have some value to copy out.
-    int leftover = ctx->buffer_used - (ctx->buffer_tail - ctx->buffer_head);
-    if (leftover > 0) {
-        int tocopy = leftover > vsize ? vsize : leftover;
-        memcpy(val + *read, ctx->buffer_tail, tocopy);
-        ctx->buffer_tail += tocopy;
-        *read += tocopy;
-        if (leftover > tocopy) {
-            // FIXME: think we need a specific code for "value didn't fit"
-            return MCMC_WANT_READ;
-        }
-    }
-
-    return MCMC_OK;
 }
 
 // read into the buffer, up to a max size of vsize.
@@ -661,38 +617,36 @@ int mcmc_read_value_buf(void *c, char *val, const size_t vsize, int *read) {
 // value and reuse the same buffer, by adjusting vsize and *read between
 // calls.
 // vsize must not be larger than the remaining value size pending read.
-int mcmc_read_value(void *c, char *val, const size_t vsize, int *read) {
+/* TODO: see notes on mcmc_read()
+int mcmc_read_value(void *c, char *val, mcmc_resp_t *r, int *read) {
     mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
     size_t l;
 
     // If the distance between tail/head is smaller than what we read into the
     // main buffer, we have some value to copy out.
-    int leftover = ctx->buffer_used - (ctx->buffer_tail - ctx->buffer_head);
-    if (leftover > 0) {
-        int tocopy = leftover > vsize ? vsize : leftover;
-        memcpy(val + *read, ctx->buffer_tail, tocopy);
-        ctx->buffer_tail += tocopy;
-        *read += tocopy;
-        if (leftover > tocopy) {
-            // FIXME: think we need a specific code for "value didn't fit"
-            return MCMC_WANT_READ;
+    size_t vsize = r->vlen;
+    if (*read < r->vlen_read) {
+        memcpy(val + *read, r->value, r->vlen_read);
+        *read += r->vlen_read;
+        if (r->vlen_read >= r->vlen) {
+            return MCMC_OK;
         }
     }
 
     char *v = val + *read;
     l = vsize - *read;
 
-    int r = recv(ctx->fd, v, l, 0);
-    if (r == 0) {
+    int rd = recv(ctx->fd, v, l, 0);
+    if (rd == 0) {
         // TODO: some internal disconnect work?
         return MCMC_NOT_CONNECTED;
     }
     // FIXME: EAGAIN || EWOULDBLOCK!
-    if (r == -1) {
+    if (rd == -1) {
         return MCMC_ERR;
     }
 
-    *read += r;
+    *read += rd;
 
     if (*read < vsize) {
         return MCMC_WANT_READ;
@@ -700,28 +654,7 @@ int mcmc_read_value(void *c, char *val, const size_t vsize, int *read) {
         return MCMC_OK;
     }
 }
-
-char *mcmc_buffer_consume(void *c, int *remain) {
-    mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
-    ctx->buffer_used -= ctx->buffer_tail - ctx->buffer_head;
-    int used = ctx->buffer_used;
-    char *newbuf = ctx->buffer_tail;
-
-    // FIXME: request_queue-- is in the wrong place.
-    // TODO: which of these _must_ be reset between requests? I think very
-    // little?
-    ctx->request_queue--;
-    ctx->status_flags = 0;
-    ctx->buffer_head = NULL;
-    ctx->buffer_tail = NULL;
-
-    if (used) {
-        *remain = used;
-        return newbuf;
-    } else {
-        return NULL;
-    }
-}
+*/
 
 int mcmc_disconnect(void *c) {
     mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
