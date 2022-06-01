@@ -104,7 +104,7 @@ static int mcplib_backend(lua_State *L) {
     strncpy(be->name, name, MAX_NAMELEN);
     strncpy(be->port, port, MAX_PORTLEN);
     be->depth = 0;
-    be->rbuf = NULL;
+    be->rbufused = 0;
     be->failed_count = 0;
     STAILQ_INIT(&be->io_head);
     be->state = mcp_backend_read;
