@@ -56,6 +56,10 @@ static int _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
 static void _proxy_evthr_evset_be_read(mcp_backend_t *be, char *buf, size_t len, struct __kernel_timespec *ts);
 static void _proxy_evthr_evset_be_wrpoll(mcp_backend_t *be, struct __kernel_timespec *ts);
 static void _proxy_evthr_evset_be_retry(mcp_backend_t *be);
+static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t);
+static void _proxy_evthr_evset_clock(proxy_event_thread_t *t);
+static void proxy_event_updater_ur(void *udata, struct io_uring_cqe *cqe);
+struct __kernel_timespec updater_ts = {.tv_sec = 3, .tv_nsec = 0};
 
 static void proxy_event_updater_ur(void *udata, struct io_uring_cqe *cqe) {
     proxy_event_thread_t *t = udata;
@@ -113,8 +117,6 @@ static void _backend_failed_ur(mcp_backend_t *be) {
 static void proxy_backend_handler_ur(void *udata, struct io_uring_cqe *cqe) {
     mcp_backend_t *be = udata;
     int bread = cqe->res;
-    char *rbuf = NULL;
-    size_t toread = 0;
     // Error or disconnection.
     if (bread <= 0) {
         _reset_bad_backend(be, P_BE_FAIL_DISCONNECTED);
@@ -125,13 +127,12 @@ static void proxy_backend_handler_ur(void *udata, struct io_uring_cqe *cqe) {
         return;
     }
 
-    // FIXME: update this io_uring code...
-    //int res = proxy_backend_drive_machine(be, bread, &rbuf, &toread);
-    int res = -1;
-    P_DEBUG("%s: bread: %d res: %d toread: %lu\n", __func__, bread, res, toread);
+    be->rbufused += bread;
+    int res = proxy_backend_drive_machine(be);
 
     if (res > 0) {
-        _proxy_evthr_evset_be_read(be, rbuf, toread, &be->event_thread->tunables.read_ur);
+        _proxy_evthr_evset_be_read(be, be->rbuf+be->rbufused, READ_BUFFER_SIZE-be->rbufused, &be->event_thread->tunables.read_ur);
+        return;
     } else if (res == -1) {
         _reset_bad_backend(be, P_BE_FAIL_DISCONNECTED);
         return;
@@ -139,7 +140,7 @@ static void proxy_backend_handler_ur(void *udata, struct io_uring_cqe *cqe) {
 
     // TODO (v2): when exactly do we need to reset the backend handler?
     if (!STAILQ_EMPTY(&be->io_head)) {
-        _proxy_evthr_evset_be_read(be, be->rbuf, READ_BUFFER_SIZE, &be->event_thread->tunables.read_ur);
+        _proxy_evthr_evset_be_read(be, be->rbuf+be->rbufused, READ_BUFFER_SIZE-be->rbufused, &be->event_thread->tunables.read_ur);
     }
 }
 
@@ -341,7 +342,7 @@ static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t) {
 // - after CQE's are processed, backends are processed (ouch?)
 //   - if SQE's starve here, bail but keep the BE queue.
 // - then submit SQE's
-static void *proxy_event_thread_ur(void *arg) {
+void *proxy_event_thread_ur(void *arg) {
     proxy_event_thread_t *t = arg;
     struct io_uring_cqe *cqe;
 
