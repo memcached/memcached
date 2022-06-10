@@ -154,11 +154,7 @@ typedef struct {
     bool set; // NOTE: not sure if necessary if code structured properly
 } proxy_event_t;
 
-static struct __kernel_timespec updater_ts = {.tv_sec = 3, .tv_nsec = 0};
-static void _proxy_evthr_evset_notifier(proxy_event_thread_t *t);
-static void _proxy_evthr_evset_clock(proxy_event_thread_t *t);
-static void *proxy_event_thread_ur(void *arg);
-static void proxy_event_updater_ur(void *udata, struct io_uring_cqe *cqe);
+void *proxy_event_thread_ur(void *arg);
 #endif
 
 // Note: This ends up wasting a few counters, but simplifies the rest of the
