@@ -332,6 +332,9 @@ static int ketama_new(lua_State *L) {
                 _add_server_twemproxy(kt, hashstring_size, parts, bucket_size, id, &cont);
                 break;
             case MODE_EVCACHE:
+                // EVCache uses the ipaddress couple of times, we need to factor that in
+                // when calculating the hashstring_size
+                hashstring_size += partlens[0];
                 _add_server_evcache(kt, hashstring_size, parts, bucket_size, id, &cont);
                 break;
         }
