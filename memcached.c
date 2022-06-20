@@ -730,6 +730,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             fprintf(stderr, "<%d new ascii client connection.\n", sfd);
         } else if (c->protocol == binary_prot) {
             fprintf(stderr, "<%d new binary client connection.\n", sfd);
+#ifdef PROXY
+        } else if (c->protocol == proxy_prot) {
+            fprintf(stderr, "<%d new proxy client connection.\n", sfd);
+#endif
         } else {
             fprintf(stderr, "<%d new unknown (%d) client connection\n",
                 sfd, c->protocol);
