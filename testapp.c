@@ -2011,7 +2011,7 @@ static void *binary_hickup_recv_verification_thread(void *arg) {
 
 static enum test_return test_binary_pipeline_hickup_chunk(void *buffer, size_t buffersize) {
     off_t offset = 0;
-    char *key[256];
+    char *key[256] = { NULL };
     uint64_t value = 0xfeedfacedeadbeef;
 
     while (hickup_thread_running &&
