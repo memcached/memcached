@@ -157,7 +157,7 @@ if ($mode eq 'keys') {
         # return format looks like this
         # key=foo exp=2147483647 la=1521046038 cas=717111 fetch=no cls=13 size=1232
         if (/^key=(\S+) exp=(-?\d+) .*/) {
-	    print $_
+            print $_
         }
         $keycount++;
     }
