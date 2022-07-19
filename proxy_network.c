@@ -885,6 +885,7 @@ static int _flush_pending_write(mcp_backend_t *be) {
                 // short circuit for common case.
                 sent -= io->iovbytes;
             } else {
+                io->iovbytes -= sent;
                 for (int x = 0; x < io->iovcnt; x++) {
                     struct iovec *iov = &io->iov[x];
                     if (sent >= iov->iov_len) {
