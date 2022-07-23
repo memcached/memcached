@@ -33,6 +33,9 @@ static int _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
 
         // _no_ mutex on backends. they are owned by the event thread.
         STAILQ_REMOVE_HEAD(&head, io_next);
+        // paranoia about moving items between lists.
+        io->io_next.stqe_next = NULL;
+
         if (be->bad) {
             P_DEBUG("%s: fast failing request to bad backend\n", __func__);
             io->client_resp->status = MCMC_ERR;
@@ -44,6 +47,8 @@ static int _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
         io_count++;
         if (!be->stacked) {
             be->stacked = true;
+            // more paranoia about be_next not being overwritten
+            be->be_next.stqe_next = NULL;
             STAILQ_INSERT_TAIL(&t->be_head, be, be_next);
             be_count++;
         }
@@ -728,7 +733,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
             // if leftover, keep processing IO's.
             // if no more data in buffer, need to re-set stack head and re-set
             // event.
-            P_DEBUG("%s: [next] remain: %d\n", __func__, be->rbufused);
+            P_DEBUG("%s: [next] remain: %lu\n", __func__, be->rbufused);
             if (be->rbufused != 0) {
                 // data trailing in the buffer, for a different request.
                 be->state = mcp_backend_parse;
@@ -804,10 +809,15 @@ const char *proxy_be_failure_text[] = {
 // _must_ be called from within the event thread.
 static int _reset_bad_backend(mcp_backend_t *be, enum proxy_be_failures err) {
     io_pending_proxy_t *io = NULL;
-    STAILQ_FOREACH(io, &be->io_head, io_next) {
+    // Can't use STAILQ_FOREACH() since return_io_pending() free's the current
+    // io. STAILQ_FOREACH_SAFE maybe?
+    while (!STAILQ_EMPTY(&be->io_head)) {
+        io = STAILQ_FIRST(&be->io_head);
+        STAILQ_REMOVE_HEAD(&be->io_head, io_next);
         // TODO (v2): Unsure if this is the best way of surfacing errors to lua,
         // but will do for V1.
         io->client_resp->status = MCMC_ERR;
+        be->depth--;
         return_io_pending((io_pending_t *)io);
     }
 
