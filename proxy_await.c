@@ -40,16 +40,10 @@ int mcplib_await(lua_State *L) {
     if (n <= 0) {
         proxy_lua_error(L, "mcp.await arguments must have at least one pool");
     }
-    if (lua_isnumber(L, 3)) {
-        wait_for = lua_tointeger(L, 3);
-        lua_pop(L, 1);
-        if (wait_for > n) {
-            wait_for = n;
-        }
-    }
 
     if (lua_isnumber(L, 4)) {
         type = lua_tointeger(L, 4);
+        lua_pop(L, 1);
         switch (type) {
             case AWAIT_GOOD:
             case AWAIT_ANY:
@@ -58,6 +52,14 @@ int mcplib_await(lua_State *L) {
                 break;
             default:
                 proxy_lua_error(L, "invalid type argument tp mcp.await");
+        }
+    }
+
+    if (lua_isnumber(L, 3)) {
+        wait_for = lua_tointeger(L, 3);
+        lua_pop(L, 1);
+        if (wait_for > n) {
+            wait_for = n;
         }
     }
 
@@ -184,7 +186,6 @@ int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref) {
     assert(aw != NULL);
     lua_rawgeti(L, LUA_REGISTRYINDEX, aw->argtable_ref); // -> 1
     //dump_stack(L);
-    P_DEBUG("%s: argtable len: %d\n", __func__, (int)lua_rawlen(L, -1));
     mcp_request_t *rq = aw->rq;
     aw->coro_ref = coro_ref;
 
@@ -195,6 +196,7 @@ int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref) {
     // prepare the request key
     const char *key = MCP_PARSER_KEY(rq->pr);
     size_t len = rq->pr.klen;
+    int n = 0;
     bool await_first = true;
     // loop arg table and run each hash selector
     lua_pushnil(L); // -> 3
@@ -216,7 +218,9 @@ int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref) {
 
         // pop value, keep key.
         lua_pop(L, 1);
+        n++;
     }
+    P_DEBUG("%s: argtable len: %d\n", __func__, n);
 
     lua_pop(L, 1); // remove table key.
     aw->resp = resp; // cuddle the current mc_resp to fill later
@@ -247,6 +251,7 @@ int mcplib_await_return(io_pending_proxy_t *p) {
     //dump_stack(L);
 
     aw->pending--;
+    assert(aw->pending >= 0);
     // Await not yet satisfied.
     // If wait_for != 0 check for response success
     // if success and wait_for is *now* 0, we complete.
@@ -323,6 +328,7 @@ int mcplib_await_return(io_pending_proxy_t *p) {
 
     if (completing) {
         P_DEBUG("%s: completing\n", __func__);
+        assert(p->c->thread == p->thread);
         aw->completed = true;
         // if we haven't completed yet, the connection reference is still
         // valid. So now we pull it, reduce count, and readd if necessary.
