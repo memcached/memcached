@@ -653,15 +653,12 @@ int mcplib_request_token(lua_State *L) {
             lua_pop(L, 1); // got a nil, drop it.
 
             // token not uploaded yet. find the len.
-            char *s = (char *) &rq->pr.request[rq->pr.tokens[token-1]];
-            char *e = s;
-            while (*e != ' ') {
-                e++;
-            }
-            vlen = e - s;
+            char *start = (char *) &rq->pr.request[rq->pr.tokens[token-1]];
+            char *end = (char *) &rq->pr.request[rq->pr.tokens[token]];
+            vlen = end - start;
 
             P_DEBUG("%s: pushing token of len: %lu\n", __func__, vlen);
-            lua_pushlstring(L, s, vlen);
+            lua_pushlstring(L, start, vlen);
             lua_pushvalue(L, -1); // copy
 
             lua_rawseti(L, -3, token); // pops copy.
