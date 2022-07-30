@@ -529,13 +529,23 @@ int mcplib_request(lua_State *L) {
     int type = lua_type(L, 2);
     if (type == LUA_TSTRING) {
         val = luaL_optlstring(L, 2, NULL, &vlen);
+        if (vlen < 2 || memcmp(val+vlen-2, "\r\n", 2) != 0) {
+            proxy_lua_error(L, "value passed to mcp.request must end with \\r\\n");
+        }
     } else if (type == LUA_TUSERDATA) {
-        mcp_resp_t *r = luaL_checkudata(L, 2, "mcp.response");
-        if (r->buf) {
-            val = r->buf;
-            vlen = r->blen;
+        // vlen for requests and responses include the "\r\n" already.
+        mcp_resp_t *r = luaL_testudata(L, 2, "mcp.response");
+        if (r != NULL) {
+            if (r->resp.value) {
+                val = r->resp.value;
+                vlen = r->resp.vlen_read; // paranoia, so we can't overread into memory.
+            }
         } else {
-            // TODO (v2): other response modes unhandled.
+            mcp_request_t *rq = luaL_testudata(L, 2, "mcp.request");
+            if (rq->pr.vbuf) {
+                val = rq->pr.vbuf;
+                vlen = rq->pr.vlen;
+            }
         }
     }
 

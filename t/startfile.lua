@@ -151,6 +151,10 @@ function failover_factory(zones, local_zone)
             end
             return restable[1], "failover_backup_miss"
         end
+        -- example of making a new set request on the side.
+        -- local nr = mcp.request("set /foo/asdf 0 0 " .. res:vlen() .. "\r\n", res)
+        -- local nr = mcp.request("set /foo/asdf 0 0 2\r\n", "mo\r\n")
+        -- near_zone(nr)
         return res, "failover_hit" -- send result back to client
     end
 end
@@ -172,6 +176,9 @@ function setinvalidate_factory(zones, local_zone)
         if res:ok() == true then
             -- create a new delete request
             local dr = new_req("delete /testing/" .. r:key() .. "\r\n")
+            -- example of new request from existing request
+            -- note this isn't trimming the key so it'll make a weird one.
+            -- local dr = new_req("set /bar/" .. r:key() .. " 0 0 " .. r:token(5) .. "\r\n", r)
             for _, zone in pairs(far_zones) do
                 -- NOTE: can check/do things on the specific response here.
                 zone(dr)

@@ -32,6 +32,23 @@ static int mcplib_response_hit(lua_State *L) {
     return 1;
 }
 
+// Caller needs to discern if a vlen is 0 because of a failed response or an
+// OK response that was actually zero. So we always return an integer value
+// here.
+static int mcplib_response_vlen(lua_State *L) {
+    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
+
+    // We do remove the "\r\n" from the value length, so if you're actually
+    // processing the value nothing breaks.
+    if (r->resp.vlen >= 2) {
+        lua_pushinteger(L, r->resp.vlen-2);
+    } else {
+        lua_pushinteger(L, 0);
+    }
+
+    return 1;
+}
+
 static int mcplib_response_gc(lua_State *L) {
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
 
@@ -773,6 +790,7 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
     const struct luaL_Reg mcplib_response_m[] = {
         {"ok", mcplib_response_ok},
         {"hit", mcplib_response_hit},
+        {"vlen", mcplib_response_vlen},
         {"__gc", mcplib_response_gc},
         {NULL, NULL}
     };
