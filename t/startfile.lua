@@ -172,6 +172,20 @@ function meta_get_factory(zones, local_zone)
     end
 end
 
+function meta_set_factory(zones, local_zone)
+    local near_zone = zones[local_zone]
+    -- in this test function we only talk to the local zone.
+    return function(r)
+        local res = near_zone(r)
+        if res:code() == mcp.MCMC_CODE_NOT_FOUND then
+            print("got meta NF response")
+        end
+        print("meta response line: " .. res:line())
+
+        return res
+    end
+end
+
 -- SET's to main zone, issues deletes to far zones.
 function setinvalidate_factory(zones, local_zone)
     local near_zone = zones[local_zone]
@@ -302,6 +316,7 @@ function mcp_config_routes(main_zones)
         -- prefix or something)
         map[mcp.CMD_ADD] = failover_factory(z, my_zone)
         map[mcp.CMD_MG] = meta_get_factory(z, my_zone)
+        map[mcp.CMD_MS] = meta_set_factory(z, my_zone)
         prefixes[pfx] = command_factory(map, failover)
     end
 

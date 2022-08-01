@@ -49,6 +49,28 @@ static int mcplib_response_vlen(lua_State *L) {
     return 1;
 }
 
+// Refer to MCMC_CODE_* defines.
+static int mcplib_response_code(lua_State *L) {
+    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
+
+    lua_pushinteger(L, r->resp.code);
+
+    return 1;
+}
+
+// Get the unparsed response line for handling in lua.
+static int mcplib_response_line(lua_State *L) {
+    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
+
+    if (r->resp.rline != NULL) {
+        lua_pushlstring(L, r->resp.rline, r->resp.rlen);
+    } else {
+        lua_pushnil(L);
+    }
+
+    return 1;
+}
+
 static int mcplib_response_gc(lua_State *L) {
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
 
@@ -754,6 +776,16 @@ static void proxy_register_defines(lua_State *L) {
     lua_pushinteger(L, x); \
     lua_setfield(L, -2, #x);
 
+    X(MCMC_CODE_STORED);
+    X(MCMC_CODE_EXISTS);
+    X(MCMC_CODE_DELETED);
+    X(MCMC_CODE_TOUCHED);
+    X(MCMC_CODE_VERSION);
+    X(MCMC_CODE_NOT_FOUND);
+    X(MCMC_CODE_NOT_STORED);
+    X(MCMC_CODE_OK);
+    X(MCMC_CODE_NOP);
+    X(MCMC_CODE_MISS);
     X(P_OK);
     X(CMD_ANY);
     X(CMD_ANY_STORAGE);
@@ -792,6 +824,8 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
         {"ok", mcplib_response_ok},
         {"hit", mcplib_response_hit},
         {"vlen", mcplib_response_vlen},
+        {"code", mcplib_response_code},
+        {"line", mcplib_response_line},
         {"__gc", mcplib_response_gc},
         {NULL, NULL}
     };
