@@ -159,6 +159,19 @@ function failover_factory(zones, local_zone)
     end
 end
 
+function meta_get_factory(zones, local_zone)
+    local near_zone = zones[local_zone]
+    -- in this test function we only fetch from the local zone.
+    return function(r)
+        if r:has_flag("l") == true then
+            print("client asking for last access time")
+        end
+        local res = near_zone(r)
+
+        return res
+    end
+end
+
 -- SET's to main zone, issues deletes to far zones.
 function setinvalidate_factory(zones, local_zone)
     local near_zone = zones[local_zone]
@@ -288,6 +301,7 @@ function mcp_config_routes(main_zones)
         -- need better routes designed for the test suite (edit the key
         -- prefix or something)
         map[mcp.CMD_ADD] = failover_factory(z, my_zone)
+        map[mcp.CMD_MG] = meta_get_factory(z, my_zone)
         prefixes[pfx] = command_factory(map, failover)
     end
 

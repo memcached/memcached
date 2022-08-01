@@ -457,6 +457,7 @@ int mcplib_request_ltrimkey(lua_State *L);
 int mcplib_request_rtrimkey(lua_State *L);
 int mcplib_request_token(lua_State *L);
 int mcplib_request_ntokens(lua_State *L);
+int mcplib_request_has_flag(lua_State *L);
 int mcplib_request_gc(lua_State *L);
 
 int mcplib_open_dist_jump_hash(lua_State *L);

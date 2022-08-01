@@ -53,11 +53,13 @@ endloop:
 }
 
 static int _process_token_len(mcp_parser_t *pr, size_t token) {
-    const char *cur = pr->request + pr->tokens[token];
-    int remain = pr->reqlen - pr->tokens[token] - 2; // CRLF
-
-    const char *s = memchr(cur, ' ', remain);
-    return (s != NULL) ? s - cur : remain;
+    const char *s = pr->request + pr->tokens[token];
+    const char *e = pr->request + pr->tokens[token+1];
+    // start of next token is after any space delimiters, so back those out.
+    while (*(e-1) == ' ') {
+        e--;
+    }
+    return e - s;
 }
 
 static int _process_request_key(mcp_parser_t *pr) {
@@ -663,9 +665,8 @@ int mcplib_request_token(lua_State *L) {
             lua_pop(L, 1); // got a nil, drop it.
 
             // token not uploaded yet. find the len.
-            char *start = (char *) &rq->pr.request[rq->pr.tokens[token-1]];
-            char *end = (char *) &rq->pr.request[rq->pr.tokens[token]];
-            vlen = end - start;
+            const char *start = rq->pr.request + rq->pr.tokens[token-1];
+            vlen = _process_token_len(&rq->pr, token-1);
 
             P_DEBUG("%s: pushing token of len: %lu\n", __func__, vlen);
             lua_pushlstring(L, start, vlen);
@@ -690,6 +691,28 @@ int mcplib_request_ntokens(lua_State *L) {
 int mcplib_request_command(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
     lua_pushinteger(L, rq->pr.command);
+    return 1;
+}
+
+int mcplib_request_has_flag(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    size_t len = 0;
+    const char *flagstr = luaL_checklstring(L, 2, &len);
+    if (len != 1) {
+        proxy_lua_error(L, "has_flag(): meta flag must be a single character");
+        return 0;
+    }
+    if (flagstr[0] < 65 || flagstr[0] > 122) {
+        proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
+        return 0;
+    }
+    uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
+    if (rq->pr.t.meta.flags & flagbit) {
+        lua_pushboolean(L, 1);
+    } else {
+        lua_pushboolean(L, 0);
+    }
+
     return 1;
 }
 
