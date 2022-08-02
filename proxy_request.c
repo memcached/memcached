@@ -716,6 +716,43 @@ int mcplib_request_has_flag(lua_State *L) {
     return 1;
 }
 
+int mcplib_request_flag_token(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    size_t len = 0;
+    const char *flagstr = luaL_checklstring(L, 2, &len);
+    if (len != 1) {
+        proxy_lua_error(L, "has_flag(): meta flag must be a single character");
+        return 0;
+    }
+    if (flagstr[0] < 65 || flagstr[0] > 122) {
+        proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
+        return 0;
+    }
+    uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
+
+    if (rq->pr.t.meta.flags & flagbit) {
+        // The flag definitely exists, but sadly we need to scan for the
+        // actual flag to see if it has a token.
+        lua_pushboolean(L, 1);
+        for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
+            const char *s = rq->pr.request + rq->pr.tokens[x];
+            if (s[0] == flagstr[0]) {
+                size_t vlen = _process_token_len(&rq->pr, x);
+                if (vlen > 1) {
+                    // strip the flag off the token and return.
+                    lua_pushlstring(L, s+1, vlen-1);
+                    return 2;
+                }
+                break;
+            }
+        }
+    } else {
+        lua_pushboolean(L, 0);
+    }
+
+    return 1;
+}
+
 int mcplib_request_gc(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
     // During nread c->item is the malloc'ed buffer. not yet put into

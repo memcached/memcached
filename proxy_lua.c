@@ -815,6 +815,7 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
         {"token", mcplib_request_token},
         {"ntokens", mcplib_request_ntokens},
         {"has_flag", mcplib_request_has_flag},
+        {"flag_token", mcplib_request_flag_token},
         {"__tostring", NULL},
         {"__gc", mcplib_request_gc},
         {NULL, NULL}
