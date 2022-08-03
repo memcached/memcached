@@ -23,21 +23,33 @@ static int _process_tokenize(mcp_parser_t *pr, const size_t max) {
     while (s != end) {
         switch (state) {
             case 0:
+                // scanning for first non-space to find a token.
                 if (*s != ' ') {
                     pr->tokens[curtoken] = s - pr->request;
                     if (++curtoken == max) {
-                        goto endloop;
+                        s++;
+                        state = 2;
+                        break;
                     }
                     state = 1;
                 }
                 s++;
                 break;
             case 1:
+                // advance over a token
                 if (*s != ' ') {
                     s++;
                 } else {
                     state = 0;
                 }
+                break;
+            case 2:
+                // hit max tokens before end of the line.
+                // keep advancing so we can place endcap token.
+                if (*s == ' ') {
+                    goto endloop;
+                }
+                s++;
                 break;
         }
     }
@@ -45,7 +57,7 @@ endloop:
 
     // endcap token so we can quickly find the length of any token by looking
     // at the next one.
-    pr->tokens[curtoken] = len;
+    pr->tokens[curtoken] = s - pr->request;
     pr->ntokens = curtoken;
     P_DEBUG("%s: cur_tokens: %d\n", __func__, curtoken);
 
