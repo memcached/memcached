@@ -647,7 +647,7 @@ void conn_io_queue_return(io_pending_t *io) {
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
-                struct event_base *base, void *ssl) {
+                struct event_base *base, void *ssl, uint64_t conntag) {
     conn *c;
 
     assert(sfd >= 0 && sfd < max_fds);
@@ -694,6 +694,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     c->transport = transport;
     c->protocol = settings.binding_protocol;
+    c->tag = conntag;
 
     /* unix socket mode doesn't need this, so zeroed out.  but why
      * is this done for every command?  presumably for UDP
@@ -3072,7 +3073,7 @@ static void drive_machine(conn *c) {
 #endif
 
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     READ_BUFFER_CACHED, c->transport, ssl_v);
+                                     READ_BUFFER_CACHED, c->transport, ssl_v, c->tag);
             }
 
             stop = true;
@@ -3472,7 +3473,8 @@ static void maximize_sndbuf(const int sfd) {
 static int server_socket(const char *interface,
                          int port,
                          enum network_transport transport,
-                         FILE *portnumber_file, bool ssl_enabled) {
+                         FILE *portnumber_file, bool ssl_enabled,
+                         uint64_t conntag) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
@@ -3614,12 +3616,12 @@ static int server_socket(const char *interface,
                 }
                 dispatch_conn_new(per_thread_fd, conn_read,
                                   EV_READ | EV_PERSIST,
-                                  UDP_READ_BUFFER_SIZE, transport, NULL);
+                                  UDP_READ_BUFFER_SIZE, transport, NULL, conntag);
             }
         } else {
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
                                              EV_READ | EV_PERSIST, 1,
-                                             transport, main_base, NULL))) {
+                                             transport, main_base, NULL, conntag))) {
                 fprintf(stderr, "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
             }
@@ -3642,6 +3644,7 @@ static int server_socket(const char *interface,
 static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
     bool ssl_enabled = false;
+    uint64_t conntag = 0;
 
 #ifdef TLS
     const char *notls = "notls";
@@ -3649,7 +3652,7 @@ static int server_sockets(int port, enum network_transport transport,
 #endif
 
     if (settings.inter == NULL) {
-        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled);
+        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled, conntag);
     } else {
         // tokenize them and bind to each one of them..
         char *b;
@@ -3680,6 +3683,35 @@ static int server_sockets(int port, enum network_transport transport,
             }
 #endif
 
+            const char *tagstr = "tag";
+            if (strncmp(p, "tag", strlen(tagstr)) == 0) {
+                p += strlen(tagstr);
+                if (*p == '[') {
+                    char *e = strchr(p, ']');
+                    if (e == NULL) {
+                        fprintf(stderr, "Invalid tag in socket config: \"%s\"\n", p);
+                        free(list);
+                        return 1;
+                    }
+                    char *st = ++p; // skip '['
+                    *e = '\0';
+                    size_t len = e - st;
+                    p = ++e; // skip ']'
+                    p++; // skip an assumed ':'
+
+                    // validate the tag and copy it in.
+                    if (len > 8 || len < 1) {
+                        fprintf(stderr, "Listener tags must be between 1 and 8 characters: \"%s\"\n", st);
+                        free(list);
+                        return 1;
+                    }
+
+                    // C programmers love turning string comparisons into
+                    // integer comparisons.
+                    memcpy(&conntag, st, len);
+                }
+            }
+
             char *h = NULL;
             if (*p == '[') {
                 // expecting it to be an IPv6 address enclosed in []
@@ -3705,7 +3737,7 @@ static int server_sockets(int port, enum network_transport transport,
                     *s = '\0';
                     ++s;
                     if (!safe_strtol(s, &the_port)) {
-                        fprintf(stderr, "Invalid port number: \"%s\"", s);
+                        fprintf(stderr, "Invalid port number: \"%s\"\n", s);
                         free(list);
                         return 1;
                     }
@@ -3718,7 +3750,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strcmp(p, "*") == 0) {
                 p = NULL;
             }
-            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled);
+            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled, conntag);
             if (ret != 0 && errno_save == 0) errno_save = errno;
         }
         free(list);
@@ -3798,7 +3830,7 @@ static int server_socket_unix(const char *path, int access_mask) {
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
                                  EV_READ | EV_PERSIST, 1,
-                                 local_transport, main_base, NULL))) {
+                                 local_transport, main_base, NULL, 0))) {
         fprintf(stderr, "failed to create listening connection\n");
         exit(EXIT_FAILURE);
     }
