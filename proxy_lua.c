@@ -604,7 +604,7 @@ static int mcplib_attach(lua_State *L) {
     // Pull the original worker thread out of the shared mcplib upvalue.
     LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
 
-    int hook = luaL_checkinteger(L, -2);
+    int hook = luaL_checkinteger(L, 1);
     // pushvalue to dupe func and etc.
     // can leave original func on stack afterward because it'll get cleared.
     int loop_end = 0;
@@ -620,20 +620,86 @@ static int mcplib_attach(lua_State *L) {
         loop_end = hook + 1;
     }
 
-    if (lua_isfunction(L, -1)) {
+    if (lua_isfunction(L, 2)) {
         struct proxy_hook *hooks = t->proxy_hooks;
+        uint64_t tag = 0; // listener socket tag
+
+        if (lua_isstring(L, 3)) {
+            size_t len;
+            const char *stag = lua_tolstring(L, 3, &len);
+            if (len < 1 || len > 8) {
+                proxy_lua_error(L, "mcp.attach: tag must be 1 to 8 characters");
+                return 0;
+            }
+            memcpy(&tag, stag, len);
+        }
 
         for (int x = loop_start; x < loop_end; x++) {
             struct proxy_hook *h = &hooks[x];
-            lua_pushvalue(L, -1); // duplicate the function for the ref.
-            if (h->lua_ref) {
-                // remove existing reference.
-                luaL_unref(L, LUA_REGISTRYINDEX, h->lua_ref);
-            }
+            lua_pushvalue(L, 2); // duplicate the function for the ref.
 
-            // pops the function from the stack and leaves us a ref. for later.
-            h->lua_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-            h->is_lua = true;
+            if (tag) {
+                // listener was tagged. use the extended hook structure.
+                struct proxy_hook_tagged *pht = h->tagged;
+
+                if (h->tagcount == 0) {
+                    pht = calloc(1, sizeof(struct proxy_hook_tagged));
+                    if (pht == NULL) {
+                        proxy_lua_error(L, "mcp.attach: failure allocating tagged hooks");
+                        return 0;
+                    }
+                    h->tagcount = 1;
+                    h->tagged = pht;
+                }
+
+                bool found = false;
+                for (int x = 0; x < h->tagcount; x++) {
+                    if (pht->tag == tag) {
+                        if (pht->lua_ref) {
+                            // Found existing tagged hook.
+                            luaL_unref(L, LUA_REGISTRYINDEX, pht->lua_ref);
+                        }
+
+                        pht->lua_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+                        assert(pht->lua_ref != 0);
+                        found = true;
+                        break;
+                    } else if (pht->tag == 0) {
+                        // no tag in this slot, so we use it.
+                        pht->lua_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+                        pht->tag = tag;
+                        assert(pht->lua_ref != 0);
+                        found = true;
+                        break;
+                    }
+                    pht++;
+                }
+
+                // need to resize the array to fit the new tag.
+                if (!found) {
+                    pht = realloc(h->tagged, sizeof(struct proxy_hook_tagged) * (h->tagcount+1));
+                    if (!pht) {
+                        proxy_lua_error(L, "mcp.attach: failure to resize tagged hooks");
+                        return 0;
+                    }
+
+                    pht[h->tagcount].lua_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+                    pht[h->tagcount].tag = tag;
+
+                    h->tagcount++;
+                    h->tagged = pht;
+                }
+
+            } else {
+                if (h->lua_ref) {
+                    // remove existing reference.
+                    luaL_unref(L, LUA_REGISTRYINDEX, h->lua_ref);
+                }
+
+                // pops the function from the stack and leaves us a ref. for later.
+                h->lua_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+                assert(h->lua_ref != 0);
+            }
         }
     } else {
         proxy_lua_error(L, "Must pass a function to mcp.attach");

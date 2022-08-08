@@ -218,9 +218,15 @@ typedef struct {
     pthread_mutex_t stats_lock; // used for rare global counters
 } proxy_ctx_t;
 
+struct proxy_hook_tagged {
+    uint64_t tag;
+    int lua_ref;
+};
+
 struct proxy_hook {
     int lua_ref;
-    bool is_lua; // pull the lua reference and call it as a lua function.
+    int tagcount;
+    struct proxy_hook_tagged *tagged; // array of possible tagged hooks.
 };
 
 // TODO (v2): some hash functions (crc?) might require initializers. If we run into

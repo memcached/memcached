@@ -333,4 +333,7 @@ function mcp_config_routes(main_zones)
     -- are attached to the internal parser.
     --mcp.attach(mcp.CMD_ANY, function (r) return routetop(r) end)
     mcp.attach(mcp.CMD_ANY_STORAGE, routetop)
+    -- tagged top level attachments. ex: memcached -l tag[tagtest]:127.0.0.1:11212
+    -- mcp.attach(mcp.CMD_ANY_STORAGE, function (r) return "SERVER_ERROR no route\r\n" end, "tagtest")
+    -- mcp.attach(mcp.CMD_ANY_STORAGE, function (r) return "SERVER_ERROR my route\r\n" end, "newtag")
 end

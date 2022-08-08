@@ -644,8 +644,22 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     }
 
     struct proxy_hook *hook = &hooks[pr.command];
+    int hook_ref = hook->lua_ref;
+    // if client came from a tagged listener, scan for a more specific hook.
+    // TODO: (v2) avoiding a hash table lookup here, but maybe some other
+    // datastructure would suffice. for 4-8 tags this is perfectly fast.
+    if (c->tag && hook->tagged) {
+        struct proxy_hook_tagged *pht = hook->tagged;
+        while (pht->lua_ref) {
+            if (c->tag == pht->tag) {
+                hook_ref = pht->lua_ref;
+                break;
+            }
+            pht++;
+        }
+    }
 
-    if (!hook->is_lua) {
+    if (!hook_ref) {
         // need to pass our command string into the internal handler.
         // to minimize the code change, this means allowing it to tokenize the
         // full command. The proxy's indirect parser should be built out to
@@ -754,12 +768,15 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     lua_State *Lc = lua_tothread(L, -1);
     // leave the thread first on the stack, so we can reference it if needed.
     // pull the lua hook function onto the stack.
-    lua_rawgeti(Lc, LUA_REGISTRYINDEX, hook->lua_ref);
+    lua_rawgeti(Lc, LUA_REGISTRYINDEX, hook_ref);
 
     mcp_request_t *rq = mcp_new_request(Lc, &pr, command, cmdlen);
     if (multiget) {
         rq->ascii_multiget = true;
     }
+    // NOTE: option 1) copy c->tag into rq->tag here.
+    // add req:listen_tag() to retrieve in top level route.
+
     // TODO (v2): lift this to a post-processor?
     if (rq->pr.vlen != 0) {
         // relying on temporary malloc's not succumbing as poorly to
