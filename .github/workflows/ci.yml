@@ -10,7 +10,7 @@ jobs:
     - name: Install deps
       run: |
         sudo apt-get update -y
-        sudo apt-get install -y libevent-dev libseccomp-dev git libsasl2-dev
+        sudo apt-get install -y libevent-dev libseccomp-dev git libsasl2-dev libio-socket-ssl-perl
     - name: Build
       run: |
         gcc --version
