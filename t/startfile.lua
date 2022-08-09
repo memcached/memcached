@@ -167,6 +167,8 @@ function meta_get_factory(zones, local_zone)
             print("client asking for last access time")
         end
         local texists, token = r:flag_token("O")
+        -- next example returns the previous token and replaces it.
+        -- local texists, token = r:flag_token("O", "Odoot")
         if token ~= nil then
             print("meta opaque flag token: " .. token)
         end

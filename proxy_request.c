@@ -728,10 +728,13 @@ int mcplib_request_has_flag(lua_State *L) {
     return 1;
 }
 
+// req:flag_token("F") -> (bool, nil|token)
+// req:flag_token("O", "Onewopauqe") -> (bool, oldtoken)
 int mcplib_request_flag_token(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     size_t len = 0;
     const char *flagstr = luaL_checklstring(L, 2, &len);
+    bool replace = false;
     if (len != 1) {
         proxy_lua_error(L, "has_flag(): meta flag must be a single character");
         return 0;
@@ -740,8 +743,19 @@ int mcplib_request_flag_token(lua_State *L) {
         proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
         return 0;
     }
+    if (lua_isstring(L, 3)) {
+        // overwriting a flag/token with the third argument.
+        // NOTE: semi duplicated from mcplib_request_token()
+        if (rq->tokent_ref == 0) {
+            // create a presized table that can hold our tokens.
+            lua_createtable(L, rq->pr.ntokens, 0);
+            rq->tokent_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        }
+        replace = true;
+    }
     uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
 
+    int ret = 1;
     if (rq->pr.t.meta.flags & flagbit) {
         // The flag definitely exists, but sadly we need to scan for the
         // actual flag to see if it has a token.
@@ -753,7 +767,19 @@ int mcplib_request_flag_token(lua_State *L) {
                 if (vlen > 1) {
                     // strip the flag off the token and return.
                     lua_pushlstring(L, s+1, vlen-1);
-                    return 2;
+                    ret = 2;
+                }
+
+                // Have something to replace the flag/token with.
+                if (replace) {
+                    // table is top of stack.
+                    lua_rawgeti(L, LUA_REGISTRYINDEX, rq->tokent_ref);
+                    // need to copy the string to top of stack.
+                    lua_pushvalue(L, 3);
+
+                    lua_rawseti(L, -2, x+1); // pops copy
+                    lua_pop(L, 1); // pop table
+                    rq->was_modified = true;
                 }
                 break;
             }
@@ -762,7 +788,7 @@ int mcplib_request_flag_token(lua_State *L) {
         lua_pushboolean(L, 0);
     }
 
-    return 1;
+    return ret;
 }
 
 int mcplib_request_gc(lua_State *L) {
