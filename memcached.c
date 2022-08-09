@@ -647,7 +647,8 @@ void conn_io_queue_return(io_pending_t *io) {
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
-                struct event_base *base, void *ssl, uint64_t conntag) {
+                struct event_base *base, void *ssl, uint64_t conntag,
+                enum protocol bproto) {
     conn *c;
 
     assert(sfd >= 0 && sfd < max_fds);
@@ -693,7 +694,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     }
 
     c->transport = transport;
-    c->protocol = settings.binding_protocol;
+    c->protocol = bproto;
     c->tag = conntag;
 
     /* unix socket mode doesn't need this, so zeroed out.  but why
@@ -3073,7 +3074,7 @@ static void drive_machine(conn *c) {
 #endif
 
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     READ_BUFFER_CACHED, c->transport, ssl_v, c->tag);
+                                     READ_BUFFER_CACHED, c->transport, ssl_v, c->tag, c->protocol);
             }
 
             stop = true;
@@ -3474,7 +3475,8 @@ static int server_socket(const char *interface,
                          int port,
                          enum network_transport transport,
                          FILE *portnumber_file, bool ssl_enabled,
-                         uint64_t conntag) {
+                         uint64_t conntag,
+                         enum protocol bproto) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
@@ -3616,12 +3618,12 @@ static int server_socket(const char *interface,
                 }
                 dispatch_conn_new(per_thread_fd, conn_read,
                                   EV_READ | EV_PERSIST,
-                                  UDP_READ_BUFFER_SIZE, transport, NULL, conntag);
+                                  UDP_READ_BUFFER_SIZE, transport, NULL, conntag, bproto);
             }
         } else {
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
                                              EV_READ | EV_PERSIST, 1,
-                                             transport, main_base, NULL, conntag))) {
+                                             transport, main_base, NULL, conntag, bproto))) {
                 fprintf(stderr, "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
             }
@@ -3652,7 +3654,7 @@ static int server_sockets(int port, enum network_transport transport,
 #endif
 
     if (settings.inter == NULL) {
-        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled, conntag);
+        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled, conntag, settings.binding_protocol);
     } else {
         // tokenize them and bind to each one of them..
         char *b;
@@ -3683,8 +3685,50 @@ static int server_sockets(int port, enum network_transport transport,
             }
 #endif
 
+            // Allow forcing the protocol of this listener.
+            const char *protostr = "proto";
+            enum protocol bproto = settings.binding_protocol;
+            if (strncmp(p, protostr, strlen(protostr)) == 0) {
+                p += strlen(protostr);
+                if (*p == '[') {
+                    char *e = strchr(p, ']');
+                    if (e == NULL) {
+                        fprintf(stderr, "Invalid protocol spec: \"%s\"\n", p);
+                        free(list);
+                        return 1;
+                    }
+                    char *st = ++p; // skip '[';
+                    *e = '\0';
+                    size_t len = e - st;
+                    p = ++e; // skip ']'
+                    p++; // skip an assumed ':'
+
+                    if (strncmp(st, "ascii", len) == 0) {
+                        bproto = ascii_prot;
+                    } else if (strncmp(st, "binary", len) == 0) {
+                        bproto = binary_prot;
+                    } else if (strncmp(st, "negotiating", len) == 0) {
+                        bproto = negotiating_prot;
+                    } else if (strncmp(st, "proxy", len) == 0) {
+#ifdef PROXY
+                        if (settings.proxy_enabled) {
+                            bproto = proxy_prot;
+                        } else {
+                            fprintf(stderr, "Proxy must be enabled to use: \"%s\"\n", list);
+                            free(list);
+                            return 1;
+                        }
+#else
+                        fprintf(stderr, "Server not built with proxy: \"%s\"\n", list);
+                        free(list);
+                        return 1;
+#endif
+                    }
+                }
+            }
+
             const char *tagstr = "tag";
-            if (strncmp(p, "tag", strlen(tagstr)) == 0) {
+            if (strncmp(p, tagstr, strlen(tagstr)) == 0) {
                 p += strlen(tagstr);
                 if (*p == '[') {
                     char *e = strchr(p, ']');
@@ -3750,7 +3794,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strcmp(p, "*") == 0) {
                 p = NULL;
             }
-            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled, conntag);
+            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled, conntag, bproto);
             if (ret != 0 && errno_save == 0) errno_save = errno;
         }
         free(list);
@@ -3830,7 +3874,7 @@ static int server_socket_unix(const char *path, int access_mask) {
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
                                  EV_READ | EV_PERSIST, 1,
-                                 local_transport, main_base, NULL, 0))) {
+                                 local_transport, main_base, NULL, 0, settings.binding_protocol))) {
         fprintf(stderr, "failed to create listening connection\n");
         exit(EXIT_FAILURE);
     }

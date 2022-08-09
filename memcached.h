@@ -915,7 +915,7 @@ io_queue_t *conn_io_queue_get(conn *c, int type);
 io_queue_cb_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type);
 void conn_io_queue_return(io_pending_t *io);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size,
-    enum network_transport transport, struct event_base *base, void *ssl, uint64_t conntag);
+    enum network_transport transport, struct event_base *base, void *ssl, uint64_t conntag, enum protocol bproto);
 
 void conn_worker_readd(conn *c);
 extern int daemonize(int nochdir, int noclose);
@@ -946,7 +946,7 @@ void proxy_reload_notify(LIBEVENT_THREAD *t);
 #endif
 void return_io_pending(io_pending_t *io);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size,
-    enum network_transport transport, void *ssl, uint64_t conntag);
+    enum network_transport transport, void *ssl, uint64_t conntag, enum protocol bproto);
 void sidethread_conn_close(conn *c);
 
 /* Lock wrappers for cache functions that are called from main loop. */

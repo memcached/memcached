@@ -54,6 +54,7 @@ struct conn_queue_item {
     conn *c;
     void    *ssl;
     uint64_t conntag;
+    enum protocol bproto;
     io_pending_t *io; // IO when used for deferred IO handling.
     STAILQ_ENTRY(conn_queue_item) i_next;
 };
@@ -568,7 +569,7 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
             case queue_new_conn:
                 c = conn_new(item->sfd, item->init_state, item->event_flags,
                                    item->read_buffer_size, item->transport,
-                                   me->base, item->ssl, item->conntag);
+                                   me->base, item->ssl, item->conntag, item->bproto);
                 if (c == NULL) {
                     if (IS_UDP(item->transport)) {
                         fprintf(stderr, "Can't listen for events on UDP socket\n");
@@ -715,7 +716,7 @@ select:
  */
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport, void *ssl,
-                       uint64_t conntag) {
+                       uint64_t conntag, enum protocol bproto) {
     CQ_ITEM *item = NULL;
     LIBEVENT_THREAD *thread;
 
@@ -740,6 +741,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     item->mode = queue_new_conn;
     item->ssl = ssl;
     item->conntag = conntag;
+    item->bproto = bproto;
 
     MEMCACHED_CONN_DISPATCH(sfd, (int64_t)thread->thread_id);
     notify_worker(thread, item);
