@@ -96,7 +96,7 @@ static void _logger_log_ext_write(logentry *e, const entry_details *d, const voi
 static void _logger_log_item_get(logentry *e, const entry_details *d, const void *entry, va_list ap) {
     int was_found = va_arg(ap, int);
     char *key = va_arg(ap, char *);
-    size_t nkey = va_arg(ap, size_t);
+    int nkey = va_arg(ap, int);
     int nbytes = va_arg(ap, int);
     uint8_t clsid = va_arg(ap, int);
     int sfd = va_arg(ap, int);
@@ -115,7 +115,7 @@ static void _logger_log_item_store(logentry *e, const entry_details *d, const vo
     enum store_item_type status = va_arg(ap, enum store_item_type);
     int comm = va_arg(ap, int);
     char *key = va_arg(ap, char *);
-    size_t nkey = va_arg(ap, size_t);
+    int nkey = va_arg(ap, int);
     int nbytes = va_arg(ap, int);
     rel_time_t ttl = va_arg(ap, rel_time_t);
     uint8_t clsid = va_arg(ap, int);
@@ -316,7 +316,7 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     unsigned short code = va_arg(ap, int);
     int status = va_arg(ap, int);
     char *detail = va_arg(ap, char *);
-    size_t dlen = va_arg(ap, size_t);
+    int dlen = va_arg(ap, int);
     char *be_name = va_arg(ap, char *);
     char *be_port = va_arg(ap, char *);
 
