@@ -2054,7 +2054,7 @@ static inline void get_conn_text(const conn *c, const int af,
                     &((struct sockaddr_in6 *)sock_addr)->sin6_addr,
                     addr_text + 1,
                     sizeof(addr_text) - 2)) {
-                strcat(addr_text, "]");
+                strncat(addr_text, "]", 1);
             }
             port = ntohs(((struct sockaddr_in6 *)sock_addr)->sin6_port);
             protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
@@ -2096,21 +2096,21 @@ static inline void get_conn_text(const conn *c, const int af,
          * has no peer socket address, but there's no portable way
          * to tell for sure.
          */
-        sprintf(addr_text, "<AF %d>", af);
+        snprintf(addr_text, MAXPATHLEN, "<AF %d>", af);
     }
 
     if (port) {
-        sprintf(addr, "%s:%s:%u", protoname, addr_text, port);
+        snprintf(addr, MAXPATHLEN + 11, "%s:%s:%u", protoname, addr_text, port);
     } else {
-        sprintf(addr, "%s:%s", protoname, addr_text);
+        snprintf(addr, MAXPATHLEN + 11, "%s:%s", protoname, addr_text);
     }
 }
 
 static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
     if (!c) {
-        strcpy(addr, "<null>");
+        memcpy(addr, "<null>", 6);
     } else if (c->state == conn_closed) {
-        strcpy(addr, "<closed>");
+        memcpy(addr, "<closed>", 8);
     } else {
         struct sockaddr_in6 local_addr;
         struct sockaddr *sock_addr = (void *)&c->request_addr;
@@ -2143,9 +2143,11 @@ void process_stats_conns(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
     char val_str[STAT_VAL_LEN];
-    size_t extras_len = sizeof("unix:") + sizeof("65535");
+    size_t extras_len = sizeof(":unix:") + sizeof("65535");
     char addr[MAXPATHLEN + extras_len];
     char svr_addr[MAXPATHLEN + extras_len];
+    memset(addr, 0, sizeof(addr));
+    memset(svr_addr, 0, sizeof(svr_addr));
     int klen = 0, vlen = 0;
 
     assert(add_stats);

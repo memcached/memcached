@@ -49,7 +49,7 @@ static const struct sigaction act = {
 
 void setup_privilege_violations_handler(void) {
     kill_msg = malloc(strlen(KILL_MSG_STR)+1);
-    strcpy(kill_msg, KILL_MSG_STR);
+    strncpy(kill_msg, KILL_MSG_STR, strlen(KILL_MSG_STR)+1);
 
     sigaction(SIGSYS, &act, NULL);
 }
