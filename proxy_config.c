@@ -279,6 +279,9 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
         case LUA_TSTRING:
             lua_pushlstring(to, lua_tostring(from, -1), lua_rawlen(from, -1));
             break;
+        case LUA_TBOOLEAN:
+            lua_pushboolean(to, lua_toboolean(from, -1));
+            break;
         case LUA_TTABLE:
             // TODO (v2): copy the metatable first?
             // TODO (v2): size narr/nrec from old table and use createtable to
