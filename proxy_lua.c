@@ -119,7 +119,7 @@ static int mcplib_backend(lua_State *L) {
     }
 
     // first check our reference table to compare.
-    lua_pushvalue(L, -4);
+    lua_pushvalue(L, 1);
     int ret = lua_gettable(L, lua_upvalueindex(MCP_BACKEND_UPVALUE));
     if (ret != LUA_TNIL) {
         mcp_backend_t *be_orig = luaL_checkudata(L, -1, "mcp.backend");
