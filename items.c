@@ -1669,13 +1669,7 @@ static void *lru_maintainer_thread(void *arg) {
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_SLAB_MOVE, NULL,
                         src, dst);
             }
-            // dst == 0 means reclaim to global pool, be more aggressive
-            if (dst != 0) {
-                last_automove_check = current_time;
-            } else if (dst == 0) {
-                // also ensure we minimize the thread sleep
-                to_sleep = 1000;
-            }
+            last_automove_check = current_time;
         }
     }
     pthread_mutex_unlock(&lru_maintainer_lock);

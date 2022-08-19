@@ -2410,7 +2410,7 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
     if (ntokens < 4) {
         ok = false;
     } else if (strcmp(tokens[1].value, "free_memchunks") == 0 && ntokens > 4) {
-        /* per-slab-class free chunk setting. */
+        // setting is deprecated and ignored, but accepted for backcompat
         unsigned int clsid = 0;
         unsigned int limit = 0;
         if (!safe_strtoul(tokens[2].value, &clsid) ||
@@ -2418,7 +2418,7 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
             ok = false;
         } else {
             if (clsid < MAX_NUMBER_OF_SLAB_CLASSES) {
-                settings.ext_free_memchunks[clsid] = limit;
+                ok = true;
             } else {
                 ok = false;
             }

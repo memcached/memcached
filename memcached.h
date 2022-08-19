@@ -507,8 +507,8 @@ struct settings {
     double ext_max_frag; /* ideal maximum page fragmentation */
     double slab_automove_freeratio; /* % of memory to hold free as buffer */
     bool ext_drop_unread; /* skip unread items during compaction */
-    /* per-slab-class free chunk limit */
-    unsigned int ext_free_memchunks[MAX_NUMBER_OF_SLAB_CLASSES];
+    /* start flushing to extstore after memory below this */
+    unsigned int ext_global_pool_min;
 #endif
 #ifdef TLS
     bool ssl_enabled; /* indicates whether SSL is enabled */
