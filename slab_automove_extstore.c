@@ -153,10 +153,7 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
         bool small_slab = a->sam_before[n].chunk_size < a->item_size
             ? true : false;
         struct window_data *wd = get_window_data(a, n);
-        // summarize the window-up-to-now.
-        memset(&w_sum, 0, sizeof(struct window_data));
         int w_offset = n * a->window_size;
-        window_sum(&a->window_data[w_offset], &w_sum, a->window_size);
         memset(wd, 0, sizeof(struct window_data));
         unsigned int free_target = a->sam_after[n].chunks_per_page * MIN_PAGES_FREE;
 
@@ -178,6 +175,10 @@ void slab_automove_extstore_run(void *arg, int *src, int *dst) {
 
         // set age into window
         wd->age = a->iam_after[n].age;
+
+        // summarize the window-up-to-now.
+        memset(&w_sum, 0, sizeof(struct window_data));
+        window_sum(&a->window_data[w_offset], &w_sum, a->window_size);
 
         // grab age as average of window total
         uint64_t age = w_sum.age / a->window_size;
