@@ -366,7 +366,9 @@ static int mcplib_pool(lua_State *L) {
         s->ref = luaL_ref(L, LUA_REGISTRYINDEX); // references and pops object.
     }
 
-    if (argc == 1) {
+    // Allow passing an ignored nil as a second argument. Makes the lua easier
+    int type = lua_type(L, 2);
+    if (argc == 1 || type == LUA_TNIL) {
         lua_getglobal(L, "mcp");
         // TODO (v2): decide on a mcp.default_dist and use that instead
         if (lua_getfield(L, -1, "dist_jump_hash") != LUA_TNIL) {
