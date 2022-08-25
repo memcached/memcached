@@ -58,7 +58,7 @@ memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h \
 					 proxy_jump_hash.c proxy_request.c \
 					 proxy_network.c proxy_lua.c \
 					 proxy_config.c proxy_ring_hash.c \
-					 md5.c
+					 md5.c md5.h
 endif
 
 if ENABLE_EXTSTORE
