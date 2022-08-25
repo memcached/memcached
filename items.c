@@ -226,8 +226,23 @@ item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain) {
     unsigned int id = slabs_clsid(size);
 
     item_chunk *nch = (item_chunk *) do_item_alloc_pull(size, id);
-    if (nch == NULL)
-        return NULL;
+    if (nch == NULL) {
+        // The final chunk in a large item will attempt to be a more
+        // appropriately sized chunk to minimize memory overhead. However, if
+        // there's no memory available in the lower slab classes we fail the
+        // SET. In these cases as a fallback we ensure we attempt to evict a
+        // max-size item and reuse a large chunk.
+        if (size == settings.slab_chunk_size_max) {
+            return NULL;
+        } else {
+            size = settings.slab_chunk_size_max;
+            id = slabs_clsid(size);
+            nch = (item_chunk *) do_item_alloc_pull(size, id);
+
+            if (nch == NULL)
+                return NULL;
+        }
+    }
 
     // link in.
     // ITEM_CHUNK[ED] bits need to be protected by the slabs lock.
