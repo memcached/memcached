@@ -1,0 +1,280 @@
+
+
+
+
+Network Working Group                                   Aaron Stone, Ed.
+Internet-Draft                                           Six Apart, Ltd.
+Intended status: Informational                         December 14, 2007
+Expires: June 16, 2008
+
+
+              Memcache Binary Protocol: Extensions for UDP
+                      draft-stone-memcache-udp-01
+
+Abstract
+
+   This memo explains extensions to the memcache binary protocol for use
+   in a UDP environment.
+
+   Memcache is a high performance key-value cache.  It is intentionally
+   a dumb cache, optimized for speed only.  Applications using memcache
+   do not rely on it for data -- a persistent database with guaranteed
+   reliability is strongly recommended -- but applications can run much
+   faster when cached data is available in memcache.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at http://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on June 16, 2008.
+
+Copyright Notice
+
+   Copyright (c) 2007 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (http://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 1]
+
+Internet-Draft              Memcache Over UDP              December 2007
+
+
+   include Simplified BSD License text as described in Section 4.e of
+   the Trust Legal Provisions and are provided without warranty as
+   described in the Simplified BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   2
+     1.1.  Conventions Used In This Document . . . . . . . . . . . .   2
+   2.  Defined Values  . . . . . . . . . . . . . . . . . . . . . . .   3
+     2.1.  Magic Byte  . . . . . . . . . . . . . . . . . . . . . . .   3
+     2.2.  Response Status . . . . . . . . . . . . . . . . . . . . .   3
+     2.3.  Command Opcodes . . . . . . . . . . . . . . . . . . . . .   3
+     2.4.  Data Types  . . . . . . . . . . . . . . . . . . . . . . .   3
+   3.  Commands  . . . . . . . . . . . . . . . . . . . . . . . . . .   3
+     3.1.  Get Response  . . . . . . . . . . . . . . . . . . . . . .   3
+     3.2.  Get Range Request . . . . . . . . . . . . . . . . . . . .   4
+     3.3.  Get Range Response  . . . . . . . . . . . . . . . . . . .   4
+   4.  Security Considerations . . . . . . . . . . . . . . . . . . .   5
+   5.  Normative References  . . . . . . . . . . . . . . . . . . . .   5
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .   5
+
+1.  Introduction
+
+   Memcache is a high performance key-value cache.  It is intentionally
+   a dumb cache, optimized for speed only.  Applications using memcache
+   do not rely on it for data -- a persistent database with guaranteed
+   reliability is strongly recommended -- but applications can run much
+   faster when cached data is available in memcache.
+
+   Sites may find that, due to their network architecture or application
+   usage patterns, the stateless [UDP] protocol better suits their
+   needs.  This document provides extensions and descriptions of use of
+   the memcache protocol [MEMCACHE] in a UDP environment.
+
+   It is a goal of this document to provide sufficient information in
+   each UDP packet as to avoid any requirement for statefulness on the
+   part of the server nor significant caching of outstanding packets on
+   the part of the client.
+
+1.1.  Conventions Used In This Document
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+   document are to be interpreted as described in [KEYWORDS].
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 2]
+
+Internet-Draft              Memcache Over UDP              December 2007
+
+
+2.  Defined Values
+
+2.1.  Magic Byte
+
+   The magic bytes remains the same as in [MEMCACHE].
+
+2.2.  Response Status
+
+   Additional status values:
+
+   0x0004  Value is larger than a single response packet
+
+2.3.  Command Opcodes
+
+   Additional opcode values:
+
+   0x0C    Get Range
+   0x0D    Set Range
+
+2.4.  Data Types
+
+   There are no new data types in this extension.
+
+3.  Commands
+
+3.1.  Get Response
+
+   This section extends the behavior of the Get and GetQ commands as
+   described in [MEMCACHE].
+
+   When a Get or GetQ request is made via UDP, and the value of the key
+   for which the request was made is larger than can be placed into a
+   single UDP packet (noting that the protocol header must also be
+   counted), a Get Range response packet MUST be sent instead of the Get
+   response packet.  In this instance:
+
+   1.  The Status field of the response header MUST be 0x0004.
+   2.  The Offset field of the GetR response extras MUST be 0.
+   3.  The Length field of the GetR response extras, and the data
+       contained in the Value field of the packet, SHOULD be the maximum
+       allowed length of a UDP packet, less the space required by the
+       header and extras; however it MAY be any amount below this
+       maximum.
+   4.  The Total value length field of the response extras MUST be the
+       actual length of the complete value.
+
+   The client, upon receipt of a Get Range response bearing Status 0x004
+   and a Message ID corresponding to its Get request, shall then know
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 3]
+
+Internet-Draft              Memcache Over UDP              December 2007
+
+
+   that it has received only the first portion of the value.  The client
+   MAY choose to request the remaining portion of the value by sending
+   one or more Get Range requests.
+
+3.2.  Get Range Request
+
+   The Get Range request is primarily intended for use over a UDP
+   transport to request byte ranges of the value for a key.  In the
+   event that the Data version check fails to match that of the key, an
+   error MUST be returned.
+
+   Extra data for get range request:
+
+   Byte/     0       |       1       |       2       |       3       |
+      /              |               |               |               |
+     |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+     +---------------+---------------+---------------+---------------+
+    0| Flags                                                         |
+     +---------------+---------------+---------------+---------------+
+    4| Data version check                                            |
+     |                                                               |
+     +---------------+---------------+---------------+---------------+
+   12| Offset                                                        |
+     +---------------+---------------+---------------+---------------+
+   16| Length                                                        |
+     +---------------+---------------+---------------+---------------+
+   Total 20 bytes
+
+3.3.  Get Range Response
+
+   The Get Range request is primarily intended for use over a UDP
+   transport to indicate the location of the bytes of the value for a
+   key contained in a given packet.  A client receives enough
+   information in each Get Range extras to construct an appropriately
+   sized buffer in its own memory and blindly insert the contents of the
+   packet at the given byte offset.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 4]
+
+Internet-Draft              Memcache Over UDP              December 2007
+
+
+   Extra data for get range response:
+
+   Byte/     0       |       1       |       2       |       3       |
+      /              |               |               |               |
+     |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+     +---------------+---------------+---------------+---------------+
+    0| Flags                                                         |
+     +---------------+---------------+---------------+---------------+
+    4| Data version check                                            |
+     |                                                               |
+     +---------------+---------------+---------------+---------------+
+   12| Offset                                                        |
+     +---------------+---------------+---------------+---------------+
+   16| Length                                                        |
+     +---------------+---------------+---------------+---------------+
+   20| Total value length                                            |
+     +---------------+---------------+---------------+---------------+
+   Total 24 bytes
+
+4.  Security Considerations
+
+   This document does not introduce any new security considerations
+   beyond those discussed in [MEMCACHE].
+
+5.  Normative References
+
+   [KEYWORDS]
+              Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997.
+
+   [MEMCACHE]
+              Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997.
+
+   [UDP]      Postel, J., "User Datagram Protocol", STD 6, RFC 768,
+              August 1980.
+
+Author's Address
+
+   Aaron Stone (editor)
+   Six Apart, Ltd.
+   548 4th Street
+   San Francisco, CA  94107
+   USA
+
+   Email: aaron@serendipity.palo-alto.ca.us
+
+
+
+
+
+Aaron Stone               Expires June 16, 2008                 [Page 5]
