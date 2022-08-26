@@ -2056,7 +2056,7 @@ static inline void get_conn_text(const conn *c, const int af,
                     &((struct sockaddr_in6 *)sock_addr)->sin6_addr,
                     addr_text + 1,
                     sizeof(addr_text) - 2)) {
-                strncat(addr_text, "]", 1);
+                strncat(addr_text, "]", 2);
             }
             port = ntohs(((struct sockaddr_in6 *)sock_addr)->sin6_port);
             protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
