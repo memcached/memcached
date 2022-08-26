@@ -228,6 +228,9 @@ int ssl_init(void) {
     SSL_CTX_set_options(settings.ssl_ctx, SSL_OP_NO_RENEGOTIATION);
 #endif
 
+    // Release TLS read/write buffers of idle connections
+    SSL_CTX_set_mode(settings.ssl_ctx, SSL_MODE_RELEASE_BUFFERS);
+
     return 0;
 }
 
