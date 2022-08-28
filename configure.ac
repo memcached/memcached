@@ -130,6 +130,9 @@ AC_ARG_ENABLE(proxy,
 AC_ARG_ENABLE(proxy-uring,
   [AS_HELP_STRING([--enable-proxy-uring], [Enable proxy io_uring code EXPERIMENTAL])])
 
+AC_ARG_ENABLE(werror,
+  [AS_HELP_STRING([--enable-werror], [Enable -Werror])])
+
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
 dnl
@@ -829,6 +832,10 @@ AM_CONDITIONAL([BUILD_SPECIFICATIONS],
                [test "x$enable_docs" != "xno" -a "x$XML2RFC" != "xno" -a "x$XSLTPROC" != "xno"])
 
 
+if test "x$enable_werror" = "xyes"; then
+   CFLAGS="$CFLAGS -Werror"
+fi
+
 dnl Let the compiler be a bit more picky. Please note that you cannot
 dnl specify these flags to the compiler before AC_CHECK_FUNCS, because
 dnl the test program will generate a compilation warning and hence fail
@@ -836,12 +843,12 @@ dnl to detect the function ;-)
 if test "$ICC" = "yes"
 then
    dnl ICC trying to be gcc.
-   CFLAGS="$CFLAGS -diag-disable 187 -Wall -Werror"
+   CFLAGS="$CFLAGS -diag-disable 187 -Wall"
    AC_DEFINE([_GNU_SOURCE],[1],[make sure IOV_MAX is defined])
 elif test "$GCC" = "yes"
 then
   GCC_VERSION=`$CC -dumpversion`
-  CFLAGS="$CFLAGS -Wall -Werror -pedantic -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
+  CFLAGS="$CFLAGS -Wall -pedantic -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls"
   if test "x$enable_asan" = "xyes"; then
     CFLAGS="$CFLAGS -fsanitize=address"
   fi
