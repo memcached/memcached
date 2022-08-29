@@ -540,7 +540,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
     size_t nkey;
     item *it;
     token_t *key_token = &tokens[KEY_TOKEN];
-    int32_t exptime_int = 0;
+    int64_t exptime_int = 0;
     rel_time_t exptime = 0;
     bool fail_length = false;
     assert(c != NULL);
@@ -548,7 +548,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     if (should_touch) {
         // For get and touch commands, use first token as exptime
-        if (!safe_strtol(tokens[1].value, &exptime_int)) {
+        if (!safe_strtoll(tokens[1].value, &exptime_int)) {
             out_string(c, "CLIENT_ERROR invalid exptime argument");
             return;
         }
@@ -1918,7 +1918,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     char *key;
     size_t nkey;
     unsigned int flags;
-    int32_t exptime_int = 0;
+    int64_t exptime_int = 0;
     rel_time_t exptime = 0;
     int vlen;
     uint64_t req_cas_id=0;
@@ -1937,7 +1937,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     nkey = tokens[KEY_TOKEN].length;
 
     if (! (safe_strtoul(tokens[2].value, (uint32_t *)&flags)
-           && safe_strtol(tokens[3].value, &exptime_int)
+           && safe_strtoll(tokens[3].value, &exptime_int)
            && safe_strtol(tokens[4].value, (int32_t *)&vlen))) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
@@ -2019,7 +2019,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens) {
     char *key;
     size_t nkey;
-    int32_t exptime_int = 0;
+    int64_t exptime_int = 0;
     rel_time_t exptime = 0;
     item *it;
 
@@ -2035,7 +2035,7 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    if (!safe_strtol(tokens[2].value, &exptime_int)) {
+    if (!safe_strtoll(tokens[2].value, &exptime_int)) {
         out_string(c, "CLIENT_ERROR invalid exptime argument");
         return;
     }
@@ -2464,7 +2464,7 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
 }
 #endif
 static void process_flush_all_command(conn *c, token_t *tokens, const size_t ntokens) {
-    int32_t exptime = 0;
+    int64_t exptime = 0;
     rel_time_t new_oldest = 0;
 
     set_noreply_maybe(c, tokens, ntokens);
@@ -2480,7 +2480,7 @@ static void process_flush_all_command(conn *c, token_t *tokens, const size_t nto
     }
 
     if (ntokens != (c->noreply ? 3 : 2)) {
-        if (!safe_strtol(tokens[1].value, &exptime)) {
+        if (!safe_strtoll(tokens[1].value, &exptime)) {
             out_string(c, "CLIENT_ERROR invalid exptime argument");
             return;
         }
