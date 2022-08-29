@@ -193,8 +193,8 @@ static int _logger_util_addr_endpoint(struct sockaddr_in6 *addr, char *rip,
 #define LOGGER_PARSE_SCRATCH 4096
 
 static int _logger_parse_text(logentry *e, char *scratch) {
-    return snprintf(scratch, LOGGER_PARSE_SCRATCH, "ts=%d.%d gid=%llu %s\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec,
+    return snprintf(scratch, LOGGER_PARSE_SCRATCH, "ts=%lld.%d gid=%llu %s\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec,
             (unsigned long long) e->gid, (char *) e->data);
 }
 
@@ -213,8 +213,8 @@ static int _logger_parse_ise(logentry *e, char *scratch) {
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u clsid=%u cfd=%d size=%d\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u clsid=%u cfd=%d size=%d\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, status_map[le->status], cmd, le->ttl, le->clsid, le->sfd,
             le->nbytes > 0 ? le->nbytes - 2 : 0); // CLRF
     return total;
@@ -229,8 +229,8 @@ static int _logger_parse_ige(logentry *e, char *scratch) {
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_get key=%s status=%s clsid=%u cfd=%d size=%d\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=item_get key=%s status=%s clsid=%u cfd=%d size=%d\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, was_found_map[le->was_found], le->clsid, le->sfd,
             le->nbytes > 0 ? le->nbytes - 2 : 0); // CLRF
     return total;
@@ -242,8 +242,8 @@ static int _logger_parse_ee(logentry *e, char *scratch) {
     struct logentry_eviction *le = (struct logentry_eviction *) e->data;
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d clsid=%u size=%d\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d clsid=%u size=%d\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
             (long long int)le->exptime, le->latime, le->clsid,
             le->nbytes > 0 ? le->nbytes - 2 : 0); // CLRF
@@ -258,8 +258,8 @@ static int _logger_parse_extw(logentry *e, char *scratch) {
     struct logentry_ext_write *le = (struct logentry_ext_write *) e->data;
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=extwrite key=%s fetch=%s ttl=%lld la=%d clsid=%u bucket=%u\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=extwrite key=%s fetch=%s ttl=%lld la=%d clsid=%u bucket=%u\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
             (long long int)le->exptime, le->latime, le->clsid, le->bucket);
 
@@ -277,8 +277,8 @@ static int _logger_parse_cne(logentry *e, char *scratch) {
     _logger_util_addr_endpoint(&le->addr, rip, sizeof(rip), &rport);
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=conn_new rip=%s rport=%hu transport=%s cfd=%d\n",
-            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=conn_new rip=%s rport=%hu transport=%s cfd=%d\n",
+            (long long int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
             rip, rport, transport_map[le->transport], le->sfd);
 
     return total;
@@ -295,8 +295,8 @@ static int _logger_parse_cce(logentry *e, char *scratch) {
     _logger_util_addr_endpoint(&le->addr, rip, sizeof(rip), &rport);
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=conn_close rip=%s rport=%hu transport=%s reason=%s cfd=%d\n",
-            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=conn_close rip=%s rport=%hu transport=%s reason=%s cfd=%d\n",
+            (long long int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
             rip, rport, transport_map[le->transport],
             reason_map[le->reason], le->sfd);
 
@@ -357,8 +357,8 @@ static int _logger_parse_prx_req(logentry *e, char *scratch) {
     struct logentry_proxy_req *le = (void *)e->data;
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=proxy_req elapsed=%lu type=%d code=%d status=%d be=%.*s:%.*s detail=%.*s req=%.*s\n",
-            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=proxy_req elapsed=%lu type=%d code=%d status=%d be=%.*s:%.*s detail=%.*s req=%.*s\n",
+            (long long int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
             le->elapsed, le->type, le->code, le->status,
             (int)le->be_namelen, le->data+le->reqlen+le->dlen,
             (int)le->be_portlen, le->data+le->reqlen+le->dlen+le->be_namelen, // fml.
