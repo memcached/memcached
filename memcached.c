@@ -84,7 +84,7 @@ static int try_read_command_udp(conn *c);
 static enum try_read_result try_read_network(conn *c);
 static enum try_read_result try_read_udp(conn *c);
 
-static int start_conn_timeout_thread();
+static int start_conn_timeout_thread(void);
 
 /* stats */
 static void stats_init(void);
@@ -374,7 +374,7 @@ static void *conn_timeout_thread(void *arg) {
     return NULL;
 }
 
-static int start_conn_timeout_thread() {
+static int start_conn_timeout_thread(void) {
     int ret;
 
     if (settings.idle_timeout == 0)

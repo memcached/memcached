@@ -261,7 +261,7 @@ static void *assoc_maintenance_thread(void *arg) {
 
 static pthread_t maintenance_tid;
 
-int start_assoc_maintenance_thread() {
+int start_assoc_maintenance_thread(void) {
     int ret;
     char *env = getenv("MEMCACHED_HASH_BULK_MOVE");
     if (env != NULL) {
@@ -279,7 +279,7 @@ int start_assoc_maintenance_thread() {
     return 0;
 }
 
-void stop_assoc_maintenance_thread() {
+void stop_assoc_maintenance_thread(void) {
     mutex_lock(&maintenance_lock);
     do_run_maintenance_thread = 0;
     pthread_cond_signal(&maintenance_cond);
