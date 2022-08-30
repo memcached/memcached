@@ -80,7 +80,7 @@ static struct conn *con = NULL;
 static bool allow_closed_read = false;
 static bool enable_ssl = false;
 
-static void close_conn() {
+static void close_conn(void) {
     if (con == NULL) return;
 #ifdef TLS
     if (con->ssl) {

@@ -852,11 +852,11 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
 
 /******************************* GLOBAL STATS ******************************/
 
-void STATS_LOCK() {
+void STATS_LOCK(void) {
     pthread_mutex_lock(&stats_lock);
 }
 
-void STATS_UNLOCK() {
+void STATS_UNLOCK(void) {
     pthread_mutex_unlock(&stats_lock);
 }
 

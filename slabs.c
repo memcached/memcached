@@ -638,7 +638,7 @@ static void *memory_allocate(size_t size) {
 }
 
 /* Must only be used if all pages are item_size_max */
-static void memory_release() {
+static void memory_release(void) {
     void *p = NULL;
     if (mem_base != NULL)
         return;
