@@ -494,7 +494,7 @@ static void _set_noreply_mode(mc_resp *resp, mcp_resp_t *r) {
             }
             break;
         case RESP_MODE_METAQUIET:
-            if (r->resp.code == MCMC_CODE_MISS) {
+            if (r->resp.code == MCMC_CODE_END) {
                 resp->skip = true;
             } else if (r->cmd != CMD_MG && r->resp.code == MCMC_CODE_OK) {
                 // FIXME (v2): mcmc's parser needs to help us out a bit more

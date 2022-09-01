@@ -1,6 +1,9 @@
 #ifndef MCMC_HEADER
 #define MCMC_HEADER
 
+#include <sys/uio.h>
+#include <stdint.h>
+
 #define MCMC_OK 0
 #define MCMC_ERR -1
 #define MCMC_NOT_CONNECTED 1
@@ -8,7 +11,6 @@
 #define MCMC_CONNECTING 3 // nonblock mode.
 #define MCMC_WANT_WRITE 4
 #define MCMC_WANT_READ 5
-#define MCMC_HAS_RESULT 7
 // TODO: either internally set a flag for "ok" or "not ok" and use a func,
 // or use a bitflag here (1<<6) for "OK", (1<<5) for "FAIL", etc.
 // or, we directly return "OK" or "FAIL" and you can ask for specific error.
@@ -21,10 +23,10 @@
 #define MCMC_CODE_NOT_STORED 14
 #define MCMC_CODE_OK 15
 #define MCMC_CODE_NOP 16
-#define MCMC_PARSE_ERROR_SHORT 17
-#define MCMC_PARSE_ERROR 18
-#define MCMC_CODE_MISS 19 // FIXME
-
+#define MCMC_CODE_END 17
+#define MCMC_ERR_SHORT 18
+#define MCMC_ERR_PARSE 19
+#define MCMC_ERR_VALUE 20
 
 // response types
 #define MCMC_RESP_GET 100
@@ -45,8 +47,8 @@
 #define MCMC_ERROR_MSG_MAX 512
 
 typedef struct {
-    unsigned short type;
-    unsigned short code;
+    short type;
+    short code;
     char *value; // pointer to start of value in buffer.
     size_t reslen; // full length of the response line
     size_t vlen_read; // amount of value that was in supplied buffer.

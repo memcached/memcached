@@ -1,15 +1,15 @@
 #include <stdlib.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/uio.h>
+#include <sys/types.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
-#include <stdint.h>
 #include <errno.h>
 #include <stdio.h>
 
+// TODO: move these structs into mcmc.h, but only expose them if
+// MCMC_EXPOSE_INTERNALS is defined... for tests and this thing.
 #include "mcmc.h"
 
 // TODO: if there's a parse error or unknown status code, we likely have a
@@ -24,8 +24,6 @@
 // at least doubled for wiggle room.
 #define MIN_BUFFER_SIZE 2048
 
-#define FLAG_BUF_IS_ERROR 0x1
-#define FLAG_BUF_IS_NUMERIC 0x2
 #define FLAG_BUF_WANTED_READ 0x4
 
 #define STATE_DEFAULT 0 // looking for any kind of response
@@ -62,9 +60,7 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     int keylen;
     p = memchr(p, ' ', l - 6);
     if (p == NULL) {
-        // FIXME: these should return MCMC_ERR and set the internal parse
-        // error code.
-        return MCMC_PARSE_ERROR;
+        return -MCMC_ERR_VALUE;
     }
 
     keylen = p - key;
@@ -76,14 +72,14 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     errno = 0;
     uint32_t flags = strtoul(p, &n, 10);
     if ((errno == ERANGE) || (p == n) || (*n != ' ')) {
-        return MCMC_PARSE_ERROR;
+        return -MCMC_ERR_VALUE;
     }
     p = n;
 
     errno = 0;
     uint32_t bytes = strtoul(p, &n, 10);
     if ((errno == ERANGE) || (p == n)) {
-        return MCMC_PARSE_ERROR;
+        return -MCMC_ERR_VALUE;
     }
     p = n;
 
@@ -93,7 +89,7 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
         errno = 0;
         cas = strtoull(p, &n, 10);
         if ((errno == ERANGE) || (p == n)) {
-            return MCMC_PARSE_ERROR;
+            return -MCMC_ERR_VALUE;
         }
     }
 
@@ -116,7 +112,7 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     // NOTE: if value_offset < buffer_used, has part of the value in the
     // buffer already.
 
-    return MCMC_OK;
+    return MCMC_CODE_OK;
 }
 
 // FIXME: This is broken for ASCII multiget.
@@ -147,18 +143,17 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     if (buf[0] >= '0' && buf[0] <= '9') {
         // TODO: parse it as a number on request.
         // TODO: validate whole thing as digits here?
-        ctx->status_flags |= FLAG_BUF_IS_NUMERIC;
         r->type = MCMC_RESP_NUMERIC;
+        r->code = MCMC_CODE_OK;
         return MCMC_OK;
     }
 
     if (rlen < 2) {
-        ctx->error = MCMC_PARSE_ERROR_SHORT;
+        r->code = MCMC_ERR_SHORT;
         return MCMC_ERR;
     }
 
-    int rv = MCMC_OK;
-    int code = MCMC_CODE_OK;
+    int code = MCMC_ERR;
     switch (rlen) {
         case 2:
             // meta, "OK"
@@ -173,8 +168,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
             switch (buf[0]) {
             case 'E':
                 if (buf[1] == 'N') {
-                    code = MCMC_CODE_MISS;
-                    // TODO: RESP type
+                    code = MCMC_CODE_END;
                 } else if (buf[1] == 'X') {
                     code = MCMC_CODE_EXISTS;
                 }
@@ -194,7 +188,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
                     // TODO: this just gets returned as an rline?
                     // specific code? specific type?
                     // ME <key> <key=value debug line>
-                    rv = MCMC_OK;
+                    code = MCMC_CODE_OK;
                 }
                 break;
             case 'N':
@@ -208,6 +202,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
                 if (buf[1] == 'K') {
                     // Used by many random management commands
                     r->type = MCMC_RESP_GENERIC;
+                    code = MCMC_CODE_OK;
                 }
                 break;
             case 'V':
@@ -218,7 +213,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
                         char *n = NULL;
                         uint32_t vsize = strtoul(cur, &n, 10);
                         if ((errno == ERANGE) || (cur == n)) {
-                            rv = MCMC_ERR;
+                            code = -MCMC_ERR_PARSE;
                         } else {
                             r->vlen = vsize + 2; // tag in the \r\n.
                             // FIXME: macro.
@@ -232,9 +227,10 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
                             if (*cur != ' ') {
                                 more = 0;
                             }
+                            code = MCMC_CODE_OK;
                         }
                     } else {
-                        rv = MCMC_ERR;
+                        code = -MCMC_ERR_PARSE;
                     }
                 }
                 break;
@@ -253,10 +249,8 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
             if (memcmp(buf, "END", 3) == 0) {
                 // Either end of STAT results, or end of ascii GET key list.
                 ctx->state = STATE_DEFAULT;
-                // FIXME: caller needs to understand if this is a real miss.
-                code = MCMC_CODE_MISS;
+                code = MCMC_CODE_END;
                 r->type = MCMC_RESP_END;
-                rv = MCMC_OK;
             }
             break;
         case 4:
@@ -270,9 +264,9 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
             if (memcmp(buf, "VALUE", 5) == 0) {
                 if (more) {
                     // <key> <flags> <bytes> [<cas unique>]
-                    rv = _mcmc_parse_value_line(ctx, r);
+                    code = _mcmc_parse_value_line(ctx, r);
                 } else {
-                    rv = MCMC_ERR; // FIXME: parse error.
+                    code = -MCMC_ERR_PARSE;
                 }
             }
             break;
@@ -310,14 +304,13 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
             break;
     }
 
-    r->code = code;
-    if (rv == -1) {
-        // TODO: Finish this.
-        ctx->status_flags |= FLAG_BUF_IS_ERROR;
-        rv = MCMC_ERR;
+    if (code < MCMC_OK) {
+        r->code = -code;
+        return MCMC_ERR;
+    } else {
+        r->code = code;
+        return MCMC_OK;
     }
-
-    return rv;
 }
 
 // EXTERNAL API
@@ -348,12 +341,12 @@ int mcmc_parse_buf(void *c, char *buf, size_t read, mcmc_resp_t *r) {
     mcmc_ctx_t *ctx = c;
     char *el;
 
+    memset(r, 0, sizeof(*r));
     el = memchr(buf, '\n', read);
     if (el == NULL) {
-        return MCMC_WANT_READ;
+        r->code = MCMC_WANT_READ;
+        return MCMC_ERR;
     }
-
-    memset(r, 0, sizeof(*r));
 
     // Consume through the newline, note where the value would start if exists
     r->value = el+1;

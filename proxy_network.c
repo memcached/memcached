@@ -533,15 +533,15 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
         case mcp_backend_parse:
             r = p->client_resp;
             r->status = mcmc_parse_buf(be->client, be->rbuf, be->rbufused, &r->resp);
-            if (r->status != MCMC_OK) {
+
+            if (r->status == MCMC_ERR) {
                 P_DEBUG("%s: mcmc_read failed [%d]\n", __func__, r->status);
-                if (r->status == MCMC_WANT_READ) {
+                if (r->resp.code == MCMC_WANT_READ) {
                     return EV_READ;
-                } else {
-                    flags = -1;
-                    stop = true;
-                    break;
                 }
+                flags = -1;
+                stop = true;
+                break;
             }
 
             // we actually don't care about anything but the value length

@@ -23,7 +23,7 @@ static int mcplib_response_ok(lua_State *L) {
 static int mcplib_response_hit(lua_State *L) {
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
 
-    if (r->status == MCMC_OK && r->resp.code != MCMC_CODE_MISS) {
+    if (r->status == MCMC_OK && r->resp.code != MCMC_CODE_END) {
         lua_pushboolean(L, 1);
     } else {
         lua_pushboolean(L, 0);
@@ -853,7 +853,7 @@ static void proxy_register_defines(lua_State *L) {
     X(MCMC_CODE_NOT_STORED);
     X(MCMC_CODE_OK);
     X(MCMC_CODE_NOP);
-    X(MCMC_CODE_MISS);
+    X(MCMC_CODE_END);
     X(P_OK);
     X(CMD_ANY);
     X(CMD_ANY_STORAGE);

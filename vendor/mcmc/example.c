@@ -24,9 +24,9 @@ static void show_response_buffer(void *c, char *rbuf, size_t bufsize) {
         // need to know how far to advance the buffer.
         // resp->reslen + resp->vlen_read works, but feels awkward.
         status = mcmc_parse_buf(c, rbuf, bread, &resp);
-    } while (status == MCMC_WANT_READ);
+    } while (resp.code == MCMC_WANT_READ);
 
-    if (status != MCMC_OK) {
+    if (status == MCMC_ERR) {
         printf("bad response\n");
     }
 

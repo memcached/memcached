@@ -266,7 +266,7 @@ int mcplib_await_return(io_pending_proxy_t *p) {
             bool is_good = false;
             switch (aw->type) {
                 case AWAIT_GOOD:
-                    if (p->client_resp->status == MCMC_OK && p->client_resp->resp.code != MCMC_CODE_MISS) {
+                    if (p->client_resp->status == MCMC_OK && p->client_resp->resp.code != MCMC_CODE_END) {
                         is_good = true;
                     }
                     break;
