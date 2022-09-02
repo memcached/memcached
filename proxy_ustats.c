@@ -36,7 +36,7 @@ int mcplib_add_stat(lua_State *L) {
         }
     }
 
-    proxy_ctx_t *ctx = settings.proxy_ctx; // TODO (v2): store ctx in upvalue.
+    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
 
     STAT_L(ctx);
     struct proxy_user_stats *us = &ctx->user_stats;

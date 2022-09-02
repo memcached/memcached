@@ -78,6 +78,7 @@
 #define MCP_THREAD_UPVALUE 1
 #define MCP_ATTACH_UPVALUE 2
 #define MCP_BACKEND_UPVALUE 3
+#define MCP_CONTEXT_UPVALUE 4
 
 // all possible commands.
 #define CMD_FIELDS \
@@ -476,7 +477,7 @@ void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p);
 void proxy_lua_error(lua_State *L, const char *s);
 void proxy_lua_ferror(lua_State *L, const char *fmt, ...);
 int _start_proxy_config_threads(proxy_ctx_t *ctx);
-int proxy_thread_loadconf(LIBEVENT_THREAD *thr);
+int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr);
 
 // TODO (v2): more .h files, perhaps?
 int mcplib_open_hash_xxhash(lua_State *L);

@@ -795,7 +795,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 #endif
 #ifdef PROXY
     } else if (strcmp(subcommand, "proxy") == 0) {
-        process_proxy_stats(&append_stats, c);
+        process_proxy_stats(settings.proxy_ctx, &append_stats, c);
 #endif
     } else {
         /* getting here means that the subcommand is either engine specific or

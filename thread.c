@@ -490,7 +490,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     // TODO: maybe register hooks to be called here from sub-packages? ie;
     // extstore, TLS, proxy.
     if (settings.proxy_enabled) {
-        proxy_thread_init(me);
+        proxy_thread_init(settings.proxy_ctx, me);
     }
 #endif
     thread_io_queue_add(me, IO_QUEUE_NONE, NULL, NULL, NULL, NULL, NULL);

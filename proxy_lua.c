@@ -98,8 +98,7 @@ static int mcplib_backend_gc(lua_State *L) {
     mcmc_disconnect(be->client);
     free(be->client);
 
-    // FIXME (v2): upvalue for global ctx.
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
     STAT_DECR(ctx, backend_total, 1);
 
     return 0;
@@ -110,8 +109,7 @@ static int mcplib_backend(lua_State *L) {
     size_t nlen = 0;
     const char *name = luaL_checklstring(L, -2, &nlen);
     const char *port = luaL_checkstring(L, -1);
-    // FIXME (v2): upvalue for global ctx.
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
 
     if (nlen > MAX_NAMELEN-1) {
         proxy_lua_error(L, "backend name too long");
@@ -349,7 +347,7 @@ static int mcplib_pool(lua_State *L) {
     // TODO (v2): Nicer if this is fetched from mcp.default_key_hash
     p->key_hasher = XXH3_64bits_withSeed;
     pthread_mutex_init(&p->lock, NULL);
-    p->ctx = settings.proxy_ctx; // TODO (v2): store ctx in upvalue.
+    p->ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
 
     luaL_setmetatable(L, "mcp.pool");
 
@@ -515,7 +513,7 @@ static int mcplib_pool_proxy_call(lua_State *L) {
 static int mcplib_tcp_keepalive(lua_State *L) {
     luaL_checktype(L, -1, LUA_TBOOLEAN);
     int state = lua_toboolean(L, -1);
-    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
+    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
 
     STAT_L(ctx);
     ctx->tunables.tcp_keepalive = state;
@@ -526,7 +524,7 @@ static int mcplib_tcp_keepalive(lua_State *L) {
 
 static int mcplib_backend_failure_limit(lua_State *L) {
     int limit = luaL_checkinteger(L, -1);
-    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
+    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
 
     if (limit < 0) {
         proxy_lua_error(L, "backend_failure_limit must be >= 0");
@@ -548,7 +546,7 @@ static int mcplib_backend_connect_timeout(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);
     lua_Integer secondsi = (lua_Integer) secondsf;
     lua_Number subseconds = secondsf - secondsi;
-    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
+    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
 
     STAT_L(ctx);
     ctx->tunables.connect.tv_sec = secondsi;
@@ -566,7 +564,7 @@ static int mcplib_backend_retry_timeout(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);
     lua_Integer secondsi = (lua_Integer) secondsf;
     lua_Number subseconds = secondsf - secondsi;
-    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
+    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
 
     STAT_L(ctx);
     ctx->tunables.retry.tv_sec = secondsi;
@@ -584,7 +582,7 @@ static int mcplib_backend_read_timeout(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);
     lua_Integer secondsi = (lua_Integer) secondsf;
     lua_Number subseconds = secondsf - secondsi;
-    proxy_ctx_t *ctx = settings.proxy_ctx; // FIXME (v2): get global ctx reference in thread/upvalue.
+    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
 
     STAT_L(ctx);
     ctx->tunables.read.tv_sec = secondsi;
@@ -866,8 +864,8 @@ static void proxy_register_defines(lua_State *L) {
 }
 
 // Creates and returns the top level "mcp" module
-int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
-    lua_State *L = ctx;
+int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
+    lua_State *L = state;
 
     const struct luaL_Reg mcplib_backend_m[] = {
         {"set", NULL},
@@ -989,7 +987,9 @@ int proxy_register_libs(LIBEVENT_THREAD *t, void *ctx) {
     lua_setfield(L, -2, "__mode"); // {}, {__mode = "v"}
     lua_setmetatable(L, -2); // {__mt = {__mode = "v"} }
 
-    luaL_setfuncs(L, mcplib_f, 3); // store upvalues.
+    lua_pushlightuserdata(L, ctx); // upvalue for proxy context.
+
+    luaL_setfuncs(L, mcplib_f, 4); // store upvalues.
 
     lua_setglobal(L, "mcp"); // set the lib table to mcp global.
     return 1;

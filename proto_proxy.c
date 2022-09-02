@@ -20,12 +20,11 @@ static void proxy_out_errstring(mc_resp *resp, const char *str);
 // functions starting with _ are breakouts for the public functions.
 
 // see also: process_extstore_stats()
-// FIXME (v2): get context off of conn? global variables
-void proxy_stats(ADD_STAT add_stats, conn *c) {
-    if (!settings.proxy_enabled) {
+void proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
+    if (arg == NULL) {
        return;
     }
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = arg;
     STAT_L(ctx);
 
     APPEND_STAT("proxy_config_reloads", "%llu", (unsigned long long)ctx->global_stats.config_reloads);
@@ -36,14 +35,14 @@ void proxy_stats(ADD_STAT add_stats, conn *c) {
     STAT_UL(ctx);
 }
 
-void process_proxy_stats(ADD_STAT add_stats, conn *c) {
+void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
     char key_str[STAT_KEY_LEN];
     struct proxy_int_stats istats = {0};
 
-    if (!settings.proxy_enabled) {
+    if (!arg) {
         return;
     }
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = arg;
     STAT_L(ctx);
 
     // prepare aggregated counters.
@@ -51,6 +50,7 @@ void process_proxy_stats(ADD_STAT add_stats, conn *c) {
     uint64_t counters[us->num_stats];
     memset(counters, 0, sizeof(counters));
 
+    // TODO (v3): more globals to remove and/or change API method.
     // aggregate worker thread counters.
     for (int x = 0; x < settings.num_threads; x++) {
         LIBEVENT_THREAD *t = get_worker_thread(x);
@@ -99,10 +99,8 @@ void process_proxy_stats(ADD_STAT add_stats, conn *c) {
 }
 
 // start the centralized lua state and config thread.
-// TODO (v2): return ctx ptr. avoid global vars.
-void proxy_init(bool use_uring) {
+void *proxy_init(bool use_uring) {
     proxy_ctx_t *ctx = calloc(1, sizeof(proxy_ctx_t));
-    settings.proxy_ctx = ctx;
     ctx->use_uring = use_uring;
 
     pthread_mutex_init(&ctx->config_lock, NULL);
@@ -130,7 +128,7 @@ void proxy_init(bool use_uring) {
     ctx->proxy_state = L;
     luaL_openlibs(L);
     // NOTE: might need to differentiate the libs yes?
-    proxy_register_libs(NULL, L);
+    proxy_register_libs(ctx, NULL, L);
 
     // Create/start the backend threads, which we need before servers
     // start getting created.
@@ -179,10 +177,14 @@ void proxy_init(bool use_uring) {
     }
 
     _start_proxy_config_threads(ctx);
+    return ctx;
 }
 
 // Initialize the VM for an individual worker thread.
-void proxy_thread_init(LIBEVENT_THREAD *thr) {
+void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
+    assert(ctx != NULL);
+    assert(thr != NULL);
+
     // Create the hook table.
     thr->proxy_hooks = calloc(CMD_SIZE, sizeof(struct proxy_hook));
     if (thr->proxy_hooks == NULL) {
@@ -199,14 +201,14 @@ void proxy_thread_init(LIBEVENT_THREAD *thr) {
     lua_State *L = luaL_newstate();
     thr->L = L;
     luaL_openlibs(L);
-    proxy_register_libs(thr, L);
+    proxy_register_libs(ctx, thr, L);
     // TODO: srand on time? do we need to bother?
     for (int x = 0; x < 3; x++) {
         thr->proxy_rng[x] = rand();
     }
 
     // kick off the configuration.
-    if (proxy_thread_loadconf(thr) != 0) {
+    if (proxy_thread_loadconf(ctx, thr) != 0) {
         exit(EXIT_FAILURE);
     }
 }
