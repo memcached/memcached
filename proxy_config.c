@@ -333,7 +333,7 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
 void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr) {
     proxy_ctx_t *ctx = arg;
     pthread_mutex_lock(&ctx->worker_lock);
-    if (proxy_thread_loadconf(thr) != 0) {
+    if (proxy_thread_loadconf(ctx, thr) != 0) {
         ctx->worker_failed = true;
     }
     ctx->worker_done = true;
@@ -343,10 +343,9 @@ void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr) {
 
 // FIXME (v2): need to test how to recover from an actual error here. error message
 // needs to go somewhere useful, counters added, etc.
-int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
+int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
     lua_State *L = thr->L;
     // load the precompiled config function.
-    proxy_ctx_t *ctx = settings.proxy_ctx;
     struct _dumpbuf *db = ctx->proxy_code;
     struct _dumpbuf db2; // copy because the helper modifies it.
     memcpy(&db2, db, sizeof(struct _dumpbuf));

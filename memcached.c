@@ -1887,7 +1887,7 @@ void server_stats(ADD_STAT add_stats, conn *c) {
     storage_stats(add_stats, c);
 #endif
 #ifdef PROXY
-    proxy_stats(add_stats, c);
+    proxy_stats(settings.proxy_ctx, add_stats, c);
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
@@ -6093,7 +6093,7 @@ int main (int argc, char **argv) {
     /* start up worker threads if MT mode */
 #ifdef PROXY
     if (settings.proxy_enabled) {
-        proxy_init(settings.proxy_uring);
+        settings.proxy_ctx = proxy_init(settings.proxy_uring);
         if (proxy_load_config(settings.proxy_ctx) != 0) {
             exit(EXIT_FAILURE);
         }
