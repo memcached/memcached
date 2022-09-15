@@ -17,7 +17,7 @@ if (!supports_extstore()) {
 
 $ext_path = "/tmp/extstore.$$";
 
-my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=0,ext_compact_under=1,ext_max_sleep=100000");
+my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=0,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=0,ext_compact_under=1,ext_max_sleep=100000");
 my $sock = $server->sock;
 
 eval {
@@ -39,17 +39,20 @@ sub wait_for_ext {
                 $sum += $s->{$key};
             }
         }
-        sleep 1 if $sum > $target;
+        select undef, undef, undef, 0.05 if $sum > $target;
     }
 }
 
-my $value;
-{
+sub rand_value {
+    my $v = '';
+    my $s = shift;
     my @chars = ("C".."Z");
-    for (1 .. 20000) {
-        $value .= $chars[rand @chars];
+    for (1 .. $s) {
+        $v .= $chars[rand @chars];
     }
+    return $v;
 }
+my $value = rand_value(20000);
 
 # fill a small object
 print $sock "set foo 0 0 2\r\nhi\r\n";
@@ -106,14 +109,26 @@ mem_get_is($sock, "foo", "hi");
 
 # fill to eviction
 {
-    my $keycount = 4000;
+    my $rval;
+
+    for (1 .. 100) {
+        $rval = rand_value(20000);
+        print $sock "set overwrite 0 0 20000 noreply\r\n$rval\r\n";
+        wait_for_ext(0);
+    }
+    wait_for_ext(0);
+    print $sock "touch overwrite 0 noreply\r\n";
+    print $sock "touch overwrite 0 noreply\r\n";
+
+    my $keycount = 1250;
     for (1 .. $keycount) {
         print $sock "set mfoo$_ 0 0 20000 noreply\r\n$value\r\n";
         # wait to avoid evictions
-        wait_for_ext(500) if ($_ % 2000 == 0);
+        wait_for_ext(500);
     }
     # because item_age is set to 2s
     wait_for_ext();
+
     my $stats = mem_stats($sock);
     is($stats->{evictions}, 0, 'no evictions');
     is($stats->{miss_from_extstore}, 0, 'no misses');
@@ -150,7 +165,10 @@ mem_get_is($sock, "foo", "hi");
     }
 
     sleep 4;
+    mem_get_is($sock, "overwrite", $rval);
     $stats = mem_stats($sock);
+    is($stats->{badcrc_from_extstore}, 0, 'CRC checks successful');
+    is($stats->{miss_from_extstore}, 0, 'no misses');
     cmp_ok($stats->{extstore_pages_free}, '>', 0, 'some pages now free');
     cmp_ok($stats->{extstore_compact_rescues}, '>', 0, 'some compaction rescues happened');
     cmp_ok($stats->{extstore_compact_skipped}, '>', 0, 'some compaction skips happened');

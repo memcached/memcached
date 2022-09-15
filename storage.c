@@ -808,7 +808,7 @@ static void storage_compact_readback(void *storage, logger *l,
                 hdr = (item_hdr *)ITEM_data(hdr_it);
                 if (hdr->page_id == page_id && hdr->page_version == page_version) {
                     // Item header is still completely valid.
-                    extstore_delete(storage, page_id, page_version, 1, ntotal);
+                    int eret = extstore_delete(storage, page_id, page_version, 1, ntotal);
                     // drop inactive items.
                     if (drop_unread && GET_LRU(hdr_it->slabs_clsid) == COLD_LRU) {
                         do_write = false;
@@ -816,6 +816,7 @@ static void storage_compact_readback(void *storage, logger *l,
                     } else {
                         do_write = true;
                     }
+                    fprintf(stderr, "deleting (do_write: %d, eret: %d) item: %*.*s\n", eret, do_write, it->nkey, it->nkey, ITEM_key(it));
                 }
             }
 

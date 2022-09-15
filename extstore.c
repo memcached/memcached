@@ -664,6 +664,7 @@ int extstore_delete(void *ptr, unsigned int page_id, uint64_t page_version,
         if (p->obj_count >= count) {
             p->obj_count -= count;
         } else {
+            fprintf(stderr, "EXTSTORE: OVER DECREMENTING\n");
             p->obj_count = 0; // caller has bad accounting?
         }
         STAT_L(e);
