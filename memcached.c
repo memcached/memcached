@@ -295,6 +295,7 @@ static void settings_init(void) {
 #ifdef SOCK_COOKIE_ID
     settings.sock_cookie_id = 0;
 #endif
+    settings.opaque_ipv6_ns = false;
 }
 
 extern pthread_mutex_t conn_lock;
@@ -990,6 +991,36 @@ static const char *state_text(enum conn_states state) {
                                        "conn_watch",
                                        "conn_io_queue" };
     return statenames[state];
+}
+
+uint64_t get_opaque_ipv6_namespace(const conn *c) {
+    struct sockaddr *sa = (void *)&c->request_addr;
+    sa_family_t family = sa->sa_family;
+    uint64_t opaque = 0;
+
+    if (!settings.opaque_ipv6_ns)
+        return opaque;
+
+    switch (family) {
+        case AF_INET:
+            break;
+        case AF_INET6:
+            /* Client ID is encoded in the last 64-bits of IPv6 address.
+             * If the request comes from 2a02:4780:1::ffff and the key is `key1`,
+             * then the new key will be rewritten to `4294967295_key1`.
+             * This way, if another request comes from ::fffe with the same key,
+             * it will be `4278190079_key1`.
+             * Virtual isolation by using opaque data.
+             */
+            opaque =
+                ((struct sockaddr_in6 *)sa)->sin6_addr.__in6_u.__u6_addr32[2] +
+                ((struct sockaddr_in6 *)sa)->sin6_addr.__in6_u.__u6_addr32[3];
+            break;
+        case AF_UNIX:
+            break;
+    }
+
+    return opaque;
 }
 
 /*
@@ -1933,6 +1964,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("auth_enabled_ascii", "%s", settings.auth_file ? settings.auth_file : "no");
     APPEND_STAT("item_size_max", "%d", settings.item_size_max);
     APPEND_STAT("maxconns_fast", "%s", settings.maxconns_fast ? "yes" : "no");
+    APPEND_STAT("opaque_ipv6_ns", "%s", settings.opaque_ipv6_ns ? "yes" : "no");
     APPEND_STAT("hashpower_init", "%d", settings.hashpower_init);
     APPEND_STAT("slab_reassign", "%s", settings.slab_reassign ? "yes" : "no");
     APPEND_STAT("slab_automove", "%d", settings.slab_automove);
@@ -4060,6 +4092,10 @@ static void usage(void) {
 #endif
     printf("-o, --extended            comma separated list of extended options\n"
            "                          most options have a 'no_' prefix to disable\n"
+           "   - opaque_ipv6_ns:      enable pseudo-namespacing by using opaque data (default: %s)\n"
+           "                          should be enabled only for IPv6 connections.\n"
+           "                          pseudo-namespacing implemented using the last IPv6 8-bytes\n"
+           "                          as an opaque data (namespace). Works only for ASCII mode.\n"
            "   - maxconns_fast:       immediately close new connections after limit (default: %s)\n"
            "   - hashpower:           an integer multiplier for how large the hash\n"
            "                          table should be. normally grows at runtime. (default starts at: %d)\n"
@@ -4074,6 +4110,7 @@ static void usage(void) {
            "                          default is %d.\n"
            "   - lru_crawler_tocrawl: max items to crawl per slab per run\n"
            "                          default is %u (unlimited)\n",
+           flag_enabled_disabled(settings.opaque_ipv6_ns),
            flag_enabled_disabled(settings.maxconns_fast), settings.hashpower_init,
            settings.lru_crawler_sleep, settings.lru_crawler_tocrawl);
     printf("   - read_buf_mem_limit:  limit in megabytes for connection read/response buffers.\n"
@@ -4853,6 +4890,7 @@ int main (int argc, char **argv) {
 #ifdef SOCK_COOKIE_ID
         COOKIE_ID,
 #endif
+        OPAQUE_IPV6_NS,
     };
     char *const subopts_tokens[] = {
         [MAXCONNS_FAST] = "maxconns_fast",
@@ -4916,6 +4954,7 @@ int main (int argc, char **argv) {
 #ifdef SOCK_COOKIE_ID
         [COOKIE_ID] = "sock_cookie_id",
 #endif
+        [OPAQUE_IPV6_NS] = "opaque_ipv6_ns",
         NULL
     };
 
@@ -5265,6 +5304,9 @@ int main (int argc, char **argv) {
             char *subopts_temp = subopts_temp_o = strdup(subopts);
 
             switch (getsubopt(&subopts, subopts_tokens, &subopts_value)) {
+            case OPAQUE_IPV6_NS:
+                settings.opaque_ipv6_ns = true;
+                break;
             case MAXCONNS_FAST:
                 settings.maxconns_fast = true;
                 break;
