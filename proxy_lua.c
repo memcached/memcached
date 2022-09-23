@@ -859,6 +859,7 @@ static void proxy_register_defines(lua_State *L) {
     X(AWAIT_ANY);
     X(AWAIT_OK);
     X(AWAIT_FIRST);
+    X(AWAIT_FASTGOOD);
     CMD_FIELDS
 #undef X
 }

@@ -444,6 +444,7 @@ enum mcp_await_e {
     AWAIT_ANY, // any response, including errors,
     AWAIT_OK, // any non-error response
     AWAIT_FIRST, // return the result from the first pool
+    AWAIT_FASTGOOD, // returns on first hit or majority non-error
 };
 int mcplib_await(lua_State *L);
 int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref);

@@ -49,6 +49,7 @@ int mcplib_await(lua_State *L) {
             case AWAIT_ANY:
             case AWAIT_OK:
             case AWAIT_FIRST:
+            case AWAIT_FASTGOOD:
                 break;
             default:
                 proxy_lua_error(L, "invalid type argument tp mcp.await");
@@ -284,6 +285,16 @@ int mcplib_await_return(io_pending_proxy_t *p) {
                     } else {
                         // user only wants the first pool's result.
                         valid = false;
+                    }
+                    break;
+                case AWAIT_FASTGOOD:
+                    if (p->client_resp->status == MCMC_OK) {
+                        // End early on a hit.
+                        if (p->client_resp->resp.code != MCMC_CODE_END) {
+                            aw->wait_for = 0;
+                        } else {
+                            is_good = true;
+                        }
                     }
                     break;
             }
