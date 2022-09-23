@@ -146,6 +146,11 @@ void *proxy_init(bool use_uring) {
             perror("failed to create backend notify eventfd");
             exit(1);
         }
+        t->be_event_fd = eventfd(0, EFD_NONBLOCK);
+        if (t->be_event_fd == -1) {
+            perror("failed to create backend notify eventfd");
+            exit(1);
+        }
 #else
         int fds[2];
         if (pipe(fds)) {
@@ -155,11 +160,19 @@ void *proxy_init(bool use_uring) {
 
         t->notify_receive_fd = fds[0];
         t->notify_send_fd = fds[1];
+
+        if (pipe(fds)) {
+            perror("can't create proxy backend connection notify pipe");
+            exit(1);
+        }
+        t->be_notify_receive_fd = fds[0];
+        t->be_notify_send_fd = fds[1];
 #endif
         proxy_init_evthread_events(t);
 
         // incoming request queue.
         STAILQ_INIT(&t->io_head_in);
+        STAILQ_INIT(&t->beconn_head_in);
         pthread_mutex_init(&t->mutex, NULL);
         pthread_cond_init(&t->cond, NULL);
 

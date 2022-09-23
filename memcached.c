@@ -5675,7 +5675,9 @@ int main (int argc, char **argv) {
                 protocol_specified = true;
                 break;
             case PROXY_URING:
-                settings.proxy_uring = true;
+                fprintf(stderr, "Proxy io-uring mode is not presently supported\n");
+                return 1;
+                //settings.proxy_uring = true;
                 break;
 #endif
 #ifdef MEMCACHED_DEBUG

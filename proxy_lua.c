@@ -168,8 +168,6 @@ static int mcplib_backend(lua_State *L) {
         proxy_lua_error(L, "out of memory allocating backend");
         return 0;
     }
-    // TODO (v2): connect elsewhere. When there're multiple backend owners, or
-    // sockets per backend, etc. We'll want to kick off connects as use time.
     // TODO (v2): no way to change the TCP_KEEPALIVE state post-construction.
     // This is a trivial fix if we ensure a backend's owning event thread is
     // set before it can be used in the proxy, as it would have access to the
@@ -183,19 +181,25 @@ static int mcplib_backend(lua_State *L) {
     }
     STAT_UL(ctx);
     be->connect_flags = flags;
-    int status = mcmc_connect(be->client, be->name, be->port, flags);
-    if (status == MCMC_CONNECTED) {
-        // FIXME (v2): is this possible? do we ever want to allow blocking
-        // connections?
-        proxy_lua_ferror(L, "unexpectedly connected to backend early: %s:%s\n", be->name, be->port);
-        return 0;
-    } else if (status == MCMC_CONNECTING) {
-        be->connecting = true;
-        be->can_write = false;
-    } else {
-        proxy_lua_ferror(L, "failed to connect to backend: %s:%s\n", be->name, be->port);
-        return 0;
+
+    proxy_event_thread_t *e = ctx->proxy_threads;
+    pthread_mutex_lock(&e->mutex);
+    STAILQ_INSERT_TAIL(&e->beconn_head_in, be, beconn_next);
+    pthread_mutex_unlock(&e->mutex);
+
+    // Signal to check queue.
+#ifdef USE_EVENTFD
+    uint64_t u = 1;
+    // TODO (v2): check result? is it ever possible to get a short write/failure
+    // for an eventfd?
+    if (write(e->be_event_fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
+        assert(1 == 0);
     }
+#else
+    if (write(e->be_notify_send_fd, "w", 1) <= 0) {
+        assert(1 == 0);
+    }
+#endif
 
     luaL_getmetatable(L, "mcp.backend");
     lua_setmetatable(L, -2); // set metatable to userdata.

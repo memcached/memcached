@@ -136,15 +136,6 @@ enum proxy_cmd_types {
     CMD_TYPE_META, // m*'s.
 };
 
-enum proxy_be_failures {
-    P_BE_FAIL_TIMEOUT = 0,
-    P_BE_FAIL_DISCONNECTED,
-    P_BE_FAIL_CONNECTING,
-    P_BE_FAIL_WRITING,
-    P_BE_FAIL_READING,
-    P_BE_FAIL_PARSING,
-};
-
 typedef struct _io_pending_proxy_t io_pending_proxy_t;
 typedef struct proxy_event_thread_s proxy_event_thread_t;
 
@@ -313,6 +304,7 @@ struct mcp_backend_s {
     proxy_event_thread_t *event_thread; // event thread owning this backend.
     void *client; // mcmc client
     STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
+    STAILQ_ENTRY(mcp_backend_s) beconn_next; // stack for connecting conns
     io_head_t io_head; // stack of requests.
     char *rbuf; // statically allocated read buffer.
     size_t rbufused; // currently active bytes in the buffer
@@ -325,6 +317,7 @@ struct mcp_backend_s {
     enum mcp_backend_states state; // readback state machine
     int connect_flags; // flags to pass to mcmc_connect
     bool connecting; // in the process of an asynch connection.
+    bool validating; // in process of validating a new backend connection.
     bool can_write; // recently got a WANT_WRITE or are connecting.
     bool stacked; // if backend already queued for syscalls.
     bool bad; // timed out, marked as bad.
@@ -333,12 +326,14 @@ struct mcp_backend_s {
     char port[MAX_PORTLEN+1];
 };
 typedef STAILQ_HEAD(be_head_s, mcp_backend_s) be_head_t;
+typedef STAILQ_HEAD(beconn_head_s, mcp_backend_s) beconn_head_t;
 
 struct proxy_event_thread_s {
     pthread_t thread_id;
     struct event_base *base;
     struct event notify_event; // listen event for the notify pipe/eventfd.
     struct event clock_event; // timer for updating event thread data.
+    struct event beconn_event; // listener for backends in connect state
 #ifdef HAVE_LIBURING
     struct io_uring ring;
     proxy_event_t ur_notify_event; // listen on eventfd.
@@ -350,11 +345,15 @@ struct proxy_event_thread_s {
     pthread_cond_t cond; // condition to wait on while stack drains.
     io_head_t io_head_in; // inbound requests to process.
     be_head_t be_head; // stack of backends for processing.
+    beconn_head_t beconn_head_in; // stack of backends for connection processing.
 #ifdef USE_EVENTFD
-    int event_fd;
+    int event_fd; // for request ingestion
+    int be_event_fd; // for backend ingestion
 #else
     int notify_receive_fd;
     int notify_send_fd;
+    int be_notify_receive_fd;
+    int be_notify_send_fd;
 #endif
     proxy_ctx_t *ctx; // main context.
     struct proxy_tunables tunables; // periodically copied from main ctx
