@@ -1560,8 +1560,8 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     char *errstr = "CLIENT_ERROR bad command line format";
     assert(c != NULL);
     mc_resp *resp = c->resp;
-    // reserve 3 bytes for status code
-    char *p = resp->wbuf + 3;
+    // reserve bytes for status code
+    char *p = resp->wbuf + 2;
 
     WANT_TOKENS_MIN(ntokens, 3);
 
@@ -1617,7 +1617,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             c->thread->stats.delete_misses++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
-            memcpy(resp->wbuf, "EX ", 3);
+            memcpy(resp->wbuf, "EX", 2);
             goto cleanup;
         }
 
@@ -1638,9 +1638,9 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             if (c->noreply)
                 resp->skip = true;
             if (settings.meta_response_old) {
-                memcpy(resp->wbuf, "OK ", 3);
+                memcpy(resp->wbuf, "OK", 2);
             } else {
-                memcpy(resp->wbuf, "HD ", 3);
+                memcpy(resp->wbuf, "HD", 2);
             }
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -1652,9 +1652,9 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             if (c->noreply)
                 resp->skip = true;
             if (settings.meta_response_old) {
-                memcpy(resp->wbuf, "OK ", 3);
+                memcpy(resp->wbuf, "OK", 2);
             } else {
-                memcpy(resp->wbuf, "HD ", 3);
+                memcpy(resp->wbuf, "HD", 2);
             }
         }
         goto cleanup;
@@ -1663,7 +1663,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         c->thread->stats.delete_misses++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-        memcpy(resp->wbuf, "NF ", 3);
+        memcpy(resp->wbuf, "NF", 2);
         goto cleanup;
     }
 cleanup:

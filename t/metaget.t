@@ -129,6 +129,14 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^ME foo /, "raw mget result");
 }
 
+# mdelete had excess space before newline.
+{
+    print $sock "md deltest\r\n";
+    is(scalar <$sock>, "NF\r\n", "delete status is correct");
+    print $sock "md foo\r\n";
+    is(scalar <$sock>, "HD\r\n", "delete status is correct");
+}
+
 # mget with arguments
 # - set some specific TTL and get it back (within reason)
 # - get cas
@@ -499,7 +507,7 @@ my $sock = $server->sock;
     # Lets mark the sucker as invalid, and drop its TTL to 30s
     diag "running mdelete";
     print $sock "md toinv I T30\r\n";
-    like(scalar <$sock>, qr/^HD /, "mdelete'd key");
+    like(scalar <$sock>, qr/^HD/, "mdelete'd key");
 
     # TODO: decide on if we need an explicit flag for "if I fetched a stale
     # value, does winning matter?
