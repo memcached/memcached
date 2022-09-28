@@ -210,16 +210,16 @@ my $sock = $server->sock;
 {
     diag "marithmetic tests";
     print $sock "ma mo\r\n";
-    like(scalar <$sock>, qr/^NF/, "incr miss");
+    like(scalar <$sock>, qr/^NF\r/, "incr miss");
 
     print $sock "ma mo D1\r\n";
-    like(scalar <$sock>, qr/^NF/, "incr miss with argument");
+    like(scalar <$sock>, qr/^NF\r/, "incr miss with argument");
 
     print $sock "set mo 0 0 1\r\n1\r\n";
     like(scalar <$sock>, qr/^STORED/, "stored with set");
 
     print $sock "ma mo\r\n";
-    like(scalar <$sock>, qr/^HD/, "incr'd a set value");
+    like(scalar <$sock>, qr/^HD\r/, "incr'd a set value");
 
     print $sock "set mo 0 0 1\r\nq\r\n";
     like(scalar <$sock>, qr/^STORED/, "stored with set");
@@ -228,7 +228,7 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^CLIENT_ERROR /, "cannot incr non-numeric value");
 
     print $sock "ma mu N90\r\n";
-    like(scalar <$sock>, qr/^HD/, "incr with seed");
+    like(scalar <$sock>, qr/^HD\r/, "incr with seed");
     my $res = mget($sock, 'mu', 's t v Ofoo k');
     ok(keys %$res, "not a miss");
     ok(find_flags($res, 'st'), "got main flags back");
@@ -258,7 +258,7 @@ my $sock = $server->sock;
     is($res->{val}, '0', 'land at 0 for over-decrement');
 
     print $sock "ma mi q D1\r\nmn\r\n";
-    like(scalar <$sock>, qr/^MN/, "quiet increment");
+    like(scalar <$sock>, qr/^MN\r/, "quiet increment");
 
     # CAS routines.
     $res = marith($sock, 'mc', 'N0 c v');
