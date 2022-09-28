@@ -1075,11 +1075,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // NOTE: final token has length == 0.
     // KEY_TOKEN == 1. 0 is command.
 
-    if (ntokens == 3) {
-        // TODO: any way to fix this?
-        out_errstring(c, "CLIENT_ERROR bad command line format");
-        return;
-    } else if (ntokens > MFLAG_MAX_OPT_LENGTH) {
+    if (ntokens > MFLAG_MAX_OPT_LENGTH) {
         // TODO: ensure the command tokenizer gives us at least this many
         out_errstring(c, "CLIENT_ERROR options flags are too long");
         return;
@@ -1338,7 +1334,32 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         // This gets elided in noreply mode.
-        out_string(c, "EN");
+        if (c->noreply)
+            resp->skip = true;
+        memcpy(p, "EN", 2);
+        p += 2;
+        for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
+            switch (tokens[i].value[0]) {
+                // TODO: macro perhaps?
+                case 'O':
+                    if (tokens[i].length > MFLAG_MAX_OPAQUE_LENGTH) {
+                        errstr = "CLIENT_ERROR opaque token too long";
+                        goto error;
+                    }
+                    META_SPACE(p);
+                    memcpy(p, tokens[i].value, tokens[i].length);
+                    p += tokens[i].length;
+                    break;
+                case 'k':
+                    META_KEY(p, key, nkey, of.key_binary);
+                    break;
+            }
+        }
+        resp->wbytes = p - resp->wbuf;
+        memcpy(resp->wbuf + resp->wbytes, "\r\n", 2);
+        resp->wbytes += 2;
+        resp_add_iov(resp, resp->wbuf, resp->wbytes);
+        conn_set_state(c, conn_new_cmd);
     }
     return;
 error:
