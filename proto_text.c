@@ -1758,11 +1758,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     case OK:
         if (c->noreply)
             resp->skip = true;
-        if (settings.meta_response_old) {
-            memcpy(resp->wbuf, "OK ", 3);
-        } else {
-            memcpy(resp->wbuf, "HD ", 3);
-        }
+        // *it was filled, set the status below.
         break;
     case NON_NUMERIC:
         errstr = "CLIENT_ERROR cannot increment or decrement non-numeric value";
@@ -1785,7 +1781,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
                     item_created = true;
                 } else {
                     // Not sure how we can get here if we're holding the lock.
-                    memcpy(resp->wbuf, "NS ", 3);
+                    memcpy(resp->wbuf, "NS", 2);
                 }
             } else {
                 errstr = "SERVER_ERROR Out of memory allocating new item";
@@ -1800,14 +1796,14 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
             }
             pthread_mutex_unlock(&c->thread->stats.mutex);
             // won't have a valid it here.
-            memcpy(p, "NF ", 3);
-            p += 3;
+            memcpy(p, "NF", 2);
+            p += 2;
         }
         break;
     case DELTA_ITEM_CAS_MISMATCH:
         // also returns without a valid it.
-        memcpy(p, "EX ", 3);
-        p += 3;
+        memcpy(p, "EX", 2);
+        p += 2;
         break;
     }
 
