@@ -768,7 +768,7 @@ sub mget_res {
         $r{size} = $1;
         $r{flags} = $2;
         $r{val} = $3;
-    } elsif ($resp =~ m/^HD ([^\r]+)\r\n/gm) {
+    } elsif ($resp =~ m/^HD\s*([^\r]+)\r\n/gm) {
         $r{flags} = $1;
         $r{hd} = 1;
     }
