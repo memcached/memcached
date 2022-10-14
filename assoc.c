@@ -80,14 +80,18 @@ item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
     }
 
     item *ret = NULL;
+#ifdef ENABLE_DTRACE
     int depth = 0;
+#endif
     while (it) {
         if ((nkey == it->nkey) && (memcmp(key, ITEM_key(it), nkey) == 0)) {
             ret = it;
             break;
         }
         it = it->h_next;
+#ifdef ENABLE_DTRACE
         ++depth;
+#endif
     }
     MEMCACHED_ASSOC_FIND(key, nkey, depth);
     return ret;

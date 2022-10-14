@@ -10,7 +10,7 @@
  * the sandbox api is marked deprecated, however still used
  * by couple of major softwares/libraries like openssh
  */
-void drop_privileges() {
+void drop_privileges(void) {
     extern char *__progname;
     char *error = NULL;
 
