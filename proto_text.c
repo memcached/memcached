@@ -1684,6 +1684,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
+            LOGGER_LOG(NULL, LOG_DELETIONS, LOGGER_DELETIONS, it, LOG_TYPE_META_DELETE);
             do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
             if (c->noreply)
@@ -2176,7 +2177,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
         pthread_mutex_unlock(&c->thread->stats.mutex);
-
+        LOGGER_LOG(NULL, LOG_DELETIONS, LOGGER_DELETIONS, it, LOG_TYPE_DELETE);
         do_item_unlink(it, hv);
         STORAGE_delete(c->thread->storage, it);
         do_item_remove(it);      /* release our reference */
@@ -2322,6 +2323,8 @@ static void process_watch_command(conn *c, token_t *tokens, const size_t ntokens
                 f |= LOG_PROXYEVENTS;
             } else if ((strcmp(tokens[x].value, "proxyuser") == 0)) {
                 f |= LOG_PROXYUSER;
+            } else if ((strcmp(tokens[x].value, "deletions") == 0)) {
+                f |= LOG_DELETIONS;
             } else {
                 out_string(c, "ERROR");
                 return;

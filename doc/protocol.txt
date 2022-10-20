@@ -1174,7 +1174,7 @@ Watchers are a way to connect to memcached and inspect what's going on
 internally. This is an evolving feature so new endpoints should show up over
 time.
 
-watch <fetchers|mutations|evictions|connevents>
+watch <fetchers|mutations|evictions|connevents|deletions>
 
 - Turn connection into a watcher. Options can be stacked and are
   space-separated. Logs will be sent to the watcher until it disconnects.
@@ -1222,6 +1222,9 @@ The arguments are:
   configuration reloads.
 
 - "proxyuser": Emits log entries created from lua configuration files.
+
+- "deletions": Emits logs when an item is successfully deleted from the
+  cache using `delete` or `md` commands. delete misses wouldn't be logged
 
 Statistics
 ----------
