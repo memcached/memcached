@@ -22,6 +22,7 @@ enum log_entry_type {
     LOGGER_SLAB_MOVE,
     LOGGER_CONNECTION_NEW,
     LOGGER_CONNECTION_CLOSE,
+    LOGGER_DELETIONS,
 #ifdef EXTSTORE
     LOGGER_EXTSTORE_WRITE,
     LOGGER_COMPACT_START,
@@ -108,6 +109,14 @@ struct logentry_item_store {
     char key[];
 };
 
+struct logentry_deletion {
+    int nbytes;
+    int cmd;
+    uint8_t nkey;
+    uint8_t clsid;
+    char key[];
+};
+
 struct logentry_conn_event {
     int transport;
     int reason;
@@ -164,6 +173,7 @@ struct _logentry {
 #define LOG_PROXYREQS  (1<<10) /* command logs from proxy */
 #define LOG_PROXYEVENTS (1<<11) /* error log stream from proxy */
 #define LOG_PROXYUSER (1<<12) /* user generated logs from proxy */
+#define LOG_DELETIONS (1<<13) /* see whats deleted */
 
 typedef struct _logger {
     struct _logger *prev;

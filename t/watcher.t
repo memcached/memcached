@@ -10,7 +10,7 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-plan tests => 30;
+plan tests => 43;
 
 my $server = new_memcached('-m 60 -o watcher_logbuf_size=8');
 my $client = $server->sock;
@@ -234,4 +234,51 @@ SKIP: {
     my $watchresult = <$watchsock>;
 
     is($watchresult, "CLIENT_ERROR watch commands not allowed\r\n", "attempted watch gave client error with no_watch option set");
+}
+
+
+# test delete/meta-delete with value sizes
+{
+    my $watcher = $server->new_sock;
+    print $watcher "watch deletions\n";
+    is(<$watcher>, "OK\r\n", "deletions watcher enabled");
+
+    print $client "set vfoo 0 0 4\r\nvbar\r\n";
+    is(<$client>, "STORED\r\n", "stored the key");
+
+    # wouldn't be logged to watcher
+    print $client "md non-existing-key\r\n";
+    is(<$client>, "NF\r\n", "non-existing key can't be deleted");
+
+    print $client "delete vfoo\r\n";
+    is(<$client>, "DELETED\r\n", "key was deleted");
+
+    like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=deleted key=vfoo cmd=delete .+ size=4/,
+        "delete command logged with correct size");
+
+    print $client "set vfoo 0 0 4\r\nvbar\r\n";
+    is(<$client>, "STORED\r\n", "stored the key");
+
+    print $client "md vfoo\r\n";
+    is(<$client>, "HD\r\n", "key was deleted");
+
+    like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=deleted key=vfoo cmd=md .+ size=4/,
+        "meta-delete command logged with correct size");
+
+    print $client "set vfoo 0 0 4\r\nvbar\r\n";
+    is(<$client>, "STORED\r\n", "stored the key");
+
+    # shouldn't result in log line
+    print $client "md vfoo I\r\n";
+    is(<$client>, "HD\r\n", "key was marked stale");
+
+    print $client "mg vfoo\r\n";
+    is(<$client>, "HD X W\r\n", "mg shows key is stale and won recache");
+
+    # now do a delete and it will show up in the log, explicitly use delete instead of md to check the cmd= pair in log
+    print $client "delete vfoo\r\n";
+    is(<$client>, "DELETED\r\n", "key was deleted");
+
+    like(<$watcher>, qr/ts=\d+\.\d+\ gid=\d+ type=deleted key=vfoo cmd=delete .+ size=4/,
+        "delete command logged with correct size");
 }

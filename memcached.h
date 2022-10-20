@@ -272,6 +272,9 @@ enum close_reasons {
 #define CAS_ALLOW_STALE true
 #define CAS_NO_STALE false
 
+#define LOG_TYPE_DELETE 1
+#define LOG_TYPE_META_DELETE 2
+
 enum store_item_type {
     NOT_STORED=0, STORED, EXISTS, NOT_FOUND, TOO_LARGE, NO_MEMORY
 };
