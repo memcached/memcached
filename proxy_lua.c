@@ -96,10 +96,12 @@ static int mcplib_backend_gc(lua_State *L) {
     assert(STAILQ_EMPTY(&be->io_head));
 
     mcmc_disconnect(be->client);
-    free(be->client);
 
-    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
+    // FIXME (v2): can we ensure a backend always has be->event_thread set, so
+    // we can use be->event_thread->ctx?
+    proxy_ctx_t *ctx = settings.proxy_ctx;
     STAT_DECR(ctx, backend_total, 1);
+    free(be->client);
 
     return 0;
 }
