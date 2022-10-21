@@ -883,10 +883,12 @@ The flags used by the 'ma' command are:
 - D(token): delta to apply (decimal unsigned 64-bit number, default 1)
 - T(token): update TTL on success
 - M(token): mode switch to change between incr and decr modes.
+- O(token): opaque value, consumes a token and copies back with response
 - q: use noreply semantics for return codes (see details under mset)
 - t: return current TTL
 - c: return current CAS value if successful.
 - v: return new value
+- k: return key as a token
 
 The flags are now repeated with detailed information where useful:
 
