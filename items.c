@@ -1730,6 +1730,7 @@ int start_lru_maintainer_thread(void *arg) {
         pthread_mutex_unlock(&lru_maintainer_lock);
         return -1;
     }
+    thread_setname(lru_maintainer_tid, "mc-lrumaint");
     pthread_mutex_unlock(&lru_maintainer_lock);
 
     return 0;

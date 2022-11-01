@@ -1326,6 +1326,7 @@ int start_slab_maintenance_thread(void) {
         fprintf(stderr, "Can't create rebal thread: %s\n", strerror(ret));
         return -1;
     }
+    thread_setname(rebalance_tid, "mc-slabmaint");
     return 0;
 }
 

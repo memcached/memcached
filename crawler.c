@@ -569,6 +569,7 @@ int start_item_crawler_thread(void) {
         pthread_mutex_unlock(&lru_crawler_lock);
         return -1;
     }
+    thread_setname(item_crawler_tid, "mc-itemcrawler");
     /* Avoid returning until the crawler has actually started */
     pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
     pthread_mutex_unlock(&lru_crawler_lock);

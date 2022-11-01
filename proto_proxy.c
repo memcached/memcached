@@ -187,6 +187,7 @@ void *proxy_init(bool use_uring) {
 #else
         pthread_create(&t->thread_id, NULL, proxy_event_thread, t);
 #endif // HAVE_LIBURING
+        thread_setname(t->thread_id, "mc-prx-io");
     }
 
     _start_proxy_config_threads(ctx);

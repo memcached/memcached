@@ -387,6 +387,7 @@ static int start_conn_timeout_thread(void) {
             strerror(ret));
         return -1;
     }
+    thread_setname(conn_timeout_tid, "mc-idletimeout");
 
     return 0;
 }

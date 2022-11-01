@@ -686,6 +686,7 @@ int start_storage_write_thread(void *arg) {
             strerror(ret));
         return -1;
     }
+    thread_setname(storage_write_tid, "mc-ext-write");
 
     return 0;
 }
@@ -1019,6 +1020,7 @@ int start_storage_compact_thread(void *arg) {
             strerror(ret));
         return -1;
     }
+    thread_setname(storage_compact_tid, "mc-ext-compact");
 
     return 0;
 }

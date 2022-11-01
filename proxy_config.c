@@ -167,16 +167,18 @@ int _start_proxy_config_threads(proxy_ctx_t *ctx) {
         pthread_mutex_unlock(&ctx->config_lock);
         return -1;
     }
+    thread_setname(ctx->config_tid, "mc-prx-config");
     pthread_mutex_unlock(&ctx->config_lock);
 
     pthread_mutex_lock(&ctx->manager_lock);
     if ((ret = pthread_create(&ctx->manager_tid, NULL,
                     _proxy_manager_thread, ctx)) != 0) {
-        fprintf(stderr, "Failed to start proxy configuration thread: %s\n",
+        fprintf(stderr, "Failed to start proxy manager thread: %s\n",
                 strerror(ret));
         pthread_mutex_unlock(&ctx->manager_lock);
         return -1;
     }
+    thread_setname(ctx->manager_tid, "mc-prx-manager");
     pthread_mutex_unlock(&ctx->manager_lock);
 
     return 0;
