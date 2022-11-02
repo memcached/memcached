@@ -2124,6 +2124,7 @@ static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
         if (c->state == conn_listening ||
                 (IS_UDP(c->transport) &&
                  c->state == conn_read)) {
+            memset(&local_addr, 0, sizeof(local_addr));
             socklen_t local_addr_len = sizeof(local_addr);
 
             if (getsockname(c->sfd,
@@ -2137,6 +2138,7 @@ static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
         if (c->state != conn_listening && !(IS_UDP(c->transport) &&
                  c->state == conn_read)) {
             struct sockaddr_storage svr_sock_addr;
+            memset(&svr_sock_addr, 0, sizeof(svr_sock_addr));
             socklen_t svr_addr_len = sizeof(svr_sock_addr);
             getsockname(c->sfd, (struct sockaddr *)&svr_sock_addr, &svr_addr_len);
             get_conn_text(c, svr_sock_addr.ss_family, svr_addr, (struct sockaddr *)&svr_sock_addr);
