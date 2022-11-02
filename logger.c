@@ -160,6 +160,7 @@ static void _logger_log_conn_event(logentry *e, const entry_details *d, const vo
 static int _logger_util_addr_endpoint(struct sockaddr_in6 *addr, char *rip,
         size_t riplen, unsigned short *rport) {
     memset(rip, 0, riplen);
+    *rport = 0;
 
     switch (addr->sin6_family) {
         case AF_INET:
@@ -177,7 +178,6 @@ static int _logger_util_addr_endpoint(struct sockaddr_in6 *addr, char *rip,
         case AF_UNSPEC:
         case AF_UNIX:
             strncpy(rip, "unix", strlen("unix") + 1);
-            *rport = 0;
             break;
 #endif // #ifndef DISABLE_UNIX_SOCKET
     }
