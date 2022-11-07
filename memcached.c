@@ -84,7 +84,7 @@ static int start_conn_timeout_thread();
 static void stats_init(void);
 static void server_stats(ADD_STAT add_stats, conn *c);
 static void process_stat_settings(ADD_STAT add_stats, void *c);
-static void conn_to_str(const conn *c, char *buf);
+static void conn_to_str(const conn *c, char *buf, size_t buf_len);
 
 
 /* defaults */
@@ -2967,8 +2967,8 @@ static void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("track_sizes", "%s", item_stats_sizes_status() ? "yes" : "no");
 }
 
-static void conn_to_str(const conn *c, char *buf) {
-    char addr_text[MAXPATHLEN];
+static void conn_to_str(const conn *c, char *buf, size_t buf_len) {
+    char addr_text[buf_len];
 
     if (!c) {
         strcpy(buf, "<null>");
@@ -3062,7 +3062,7 @@ static void process_stats_conns(ADD_STAT add_stats, void *c) {
              * required to prevent it.
              */
             if (conns[i]->state != conn_closed) {
-                conn_to_str(conns[i], conn_name);
+                conn_to_str(conns[i], conn_name, sizeof(conn_name));
 
                 APPEND_NUM_STAT(i, "addr", "%s", conn_name);
                 APPEND_NUM_STAT(i, "state", "%s",
