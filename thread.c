@@ -631,17 +631,6 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
     }
 }
 
-// Interface is slightly different on various platforms.
-// On linux, at least, the len limit is 16 bytes.
-#define THR_NAME_MAXLEN 16
-void thread_setname(pthread_t thread, const char *name) {
-assert(strlen(name) < THR_NAME_MAXLEN);
-#if defined(__linux__)
-pthread_setname_np(thread, name);
-#endif
-}
-#undef THR_NAME_MAXLEN
-
 // NOTE: need better encapsulation.
 // used by the proxy module to iterate the worker threads.
 LIBEVENT_THREAD *get_worker_thread(int id) {
