@@ -3659,7 +3659,6 @@ static int server_socket(const char *interface,
 static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
     bool ssl_enabled = false;
-    uint64_t conntag = 0;
 
 #ifdef TLS
     const char *notls = "notls";
@@ -3667,7 +3666,7 @@ static int server_sockets(int port, enum network_transport transport,
 #endif
 
     if (settings.inter == NULL) {
-        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled, conntag, settings.binding_protocol);
+        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled, 0, settings.binding_protocol);
     } else {
         // tokenize them and bind to each one of them..
         char *b;
@@ -3683,6 +3682,7 @@ static int server_sockets(int port, enum network_transport transport,
         for (char *p = strtok_r(list, ";,", &b);
             p != NULL;
             p = strtok_r(NULL, ";,", &b)) {
+            uint64_t conntag = 0;
             int the_port = port;
 #ifdef TLS
             ssl_enabled = settings.ssl_enabled;
