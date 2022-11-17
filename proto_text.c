@@ -2179,6 +2179,23 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
     return;
 }
 
+static void process_idle_timeout_command(conn *c, token_t *tokens, const size_t ntokens) {
+    unsigned int time_in_secs;
+
+    assert(c != NULL);
+
+    set_noreply_maybe(c, tokens, ntokens);
+
+    if (!safe_strtoul(tokens[1].value, (uint32_t*)&time_in_secs)) {
+        out_string(c, "CLIENT_ERROR bad command line format");
+        return;
+    }
+
+    settings.idle_timeout = time_in_secs > INT_MAX ? 0 : time_in_secs;
+    out_string(c, "OK");
+    return;
+}
+
 #ifdef MEMCACHED_DEBUG
 static void process_misbehave_command(conn *c) {
     int allowed = 0;
@@ -2831,6 +2848,8 @@ void process_command_ascii(conn *c, char *command) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
             process_arithmetic_command(c, tokens, ntokens, 1);
+        } else if (strcmp(tokens[COMMAND_TOKEN].value, "idle_timeout") == 0) {
+            process_idle_timeout_command(c, tokens, ntokens);
         } else {
             out_string(c, "ERROR");
         }
