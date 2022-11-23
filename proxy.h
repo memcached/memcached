@@ -401,6 +401,7 @@ struct _io_pending_proxy_t {
     bool ascii_multiget; // passed on from mcp_r_t
     bool is_await; // are we an await object?
     bool await_first; // are we the main route for an await object?
+    bool await_background; // dummy IO for backgrounded awaits
 };
 
 // Note: does *be have to be a sub-struct? how stable are userdata pointers?
@@ -444,6 +445,7 @@ enum mcp_await_e {
     AWAIT_OK, // any non-error response
     AWAIT_FIRST, // return the result from the first pool
     AWAIT_FASTGOOD, // returns on first hit or majority non-error
+    AWAIT_BACKGROUND, // returns as soon as background jobs are dispatched
 };
 int mcplib_await(lua_State *L);
 int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref);

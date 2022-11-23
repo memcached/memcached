@@ -212,10 +212,11 @@ function setinvalidate_factory(zones, local_zone)
             -- example of new request from existing request
             -- note this isn't trimming the key so it'll make a weird one.
             -- local dr = new_req("set /bar/" .. r:key() .. " 0 0 " .. r:token(5) .. "\r\n", r)
-            for _, zone in pairs(far_zones) do
-                -- NOTE: can check/do things on the specific response here.
-                zone(dr)
-            end
+            -- AWAIT_BACKGROUND allows us to immediately resume processing, executing the
+            -- delete requests in the background.
+            mcp.await(dr, far_zones, 0, mcp.AWAIT_BACKGROUND)
+            --mcp.await(dr, far_zones, 0)
+            mcp.log_req(r, res, "setinvalidate") -- time against the original request, since we have no result.
         end
         -- use original response for client, not DELETE's response.
         -- else client won't understand.

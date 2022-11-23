@@ -63,15 +63,23 @@ static int _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
     while (!STAILQ_EMPTY(&head)) {
         io_pending_proxy_t *io = STAILQ_FIRST(&head);
         io->flushed = false;
-        mcp_backend_t *be = io->backend;
-        // So the backend can retrieve its event base.
-        be->event_thread = t;
 
         // _no_ mutex on backends. they are owned by the event thread.
         STAILQ_REMOVE_HEAD(&head, io_next);
         // paranoia about moving items between lists.
         io->io_next.stqe_next = NULL;
 
+        // Need to check on await's before looking at backends, in case it
+        // doesn't have one.
+        // Here we're letting an await resume without waiting on the network.
+        if (io->await_background) {
+            return_io_pending((io_pending_t *)io);
+            continue;
+        }
+
+        mcp_backend_t *be = io->backend;
+        // So the backend can retrieve its event base.
+        be->event_thread = t;
         if (be->bad) {
             P_DEBUG("%s: fast failing request to bad backend\n", __func__);
             io->client_resp->status = MCMC_ERR;
