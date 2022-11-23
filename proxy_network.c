@@ -449,6 +449,28 @@ static void proxy_event_updater(evutil_socket_t fd, short which, void *arg) {
     STAT_UL(ctx);
 }
 
+static void _cleanup_backend(mcp_backend_t *be) {
+    // remove any pending events.
+    int pending = 0;
+    if (event_initialized(&be->event)) {
+        pending = event_pending(&be->event, EV_READ|EV_WRITE|EV_TIMEOUT, NULL);
+    }
+    if ((pending & (EV_READ|EV_WRITE|EV_TIMEOUT)) != 0) {
+        event_del(&be->event); // an error to call event_del() without event.
+    }
+
+    // - assert on empty queue
+    assert(STAILQ_EMPTY(&be->io_head));
+
+    mcmc_disconnect(be->client);
+    // - free be->client
+    free(be->client);
+    // - free be->rbuf
+    free(be->rbuf);
+    // - free *be
+    free(be);
+}
+
 // event handler for injecting backends for processing
 // currently just for initiating connections the first time.
 static void proxy_event_beconn(evutil_socket_t fd, short which, void *arg) {
@@ -484,19 +506,29 @@ static void proxy_event_beconn(evutil_socket_t fd, short which, void *arg) {
     // Either that or remove the STAILQ code and just using an array of
     // ptr's.
     mcp_backend_t *be = NULL;
-    STAILQ_FOREACH(be, &head, beconn_next) {
-        be->event_thread = t;
-        int status = mcmc_connect(be->client, be->name, be->port, be->connect_flags);
-        if (status == MCMC_CONNECTING || status == MCMC_CONNECTED) {
-            // if we're already connected for some reason, still push it
-            // through the connection handler to keep the code unified. It
-            // will auto-wake because the socket is writeable.
-            be->connecting = true;
-            be->can_write = false;
-            _set_event(be, t->base, EV_WRITE|EV_TIMEOUT, tmp_time, proxy_beconn_handler);
+    // be can be freed by the loop, so can't use STAILQ_FOREACH.
+    while (!STAILQ_EMPTY(&head)) {
+        be = STAILQ_FIRST(&head);
+        STAILQ_REMOVE_HEAD(&head, beconn_next);
+        if (be->transferred) {
+            // If this object was already transferred here, we're being
+            // signalled to clean it up and free.
+            _cleanup_backend(be);
         } else {
-            _reset_bad_backend(be, P_BE_FAIL_CONNECTING);
-            _backend_failed(be);
+            be->transferred = true;
+            be->event_thread = t;
+            int status = mcmc_connect(be->client, be->name, be->port, be->connect_flags);
+            if (status == MCMC_CONNECTING || status == MCMC_CONNECTED) {
+                // if we're already connected for some reason, still push it
+                // through the connection handler to keep the code unified. It
+                // will auto-wake because the socket is writeable.
+                be->connecting = true;
+                be->can_write = false;
+                _set_event(be, t->base, EV_WRITE|EV_TIMEOUT, tmp_time, proxy_beconn_handler);
+            } else {
+                _reset_bad_backend(be, P_BE_FAIL_CONNECTING);
+                _backend_failed(be);
+            }
         }
     }
 }

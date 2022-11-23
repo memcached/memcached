@@ -242,6 +242,8 @@ enum mcp_backend_states {
     mcp_backend_next, // advance to the next IO
 };
 
+typedef struct mcp_backend_wrap_s mcp_backend_wrap_t;
+typedef struct mcp_backend_label_s mcp_backend_label_t;
 typedef struct mcp_backend_s mcp_backend_t;
 typedef struct mcp_request_s mcp_request_t;
 typedef struct mcp_parser_s mcp_parser_t;
@@ -287,6 +289,7 @@ struct mcp_request_s {
 };
 
 typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
+#define MAX_LABELLEN 512
 #define MAX_NAMELEN 255
 #define MAX_PORTLEN 6
 // TODO (v2): IOV_MAX tends to be 1000+ which would allow for more batching but we
@@ -297,10 +300,28 @@ typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
 #else
 #define BE_IOV_MAX IOV_MAX
 #endif
+// lua descriptor object: passed to pools, which create wrappers.
+struct mcp_backend_label_s {
+    char name[MAX_NAMELEN+1];
+    char port[MAX_PORTLEN+1];
+    char label[MAX_LABELLEN+1];
+    size_t llen; // cache label length for small speedup in pool creation.
+};
+
+// lua object wrapper meant to own a malloc'ed conn structure
+// when this object is created, it ships its connection to the real owner
+// (worker, IO thread, etc)
+// when this object is garbage collected, it ships a notice to the owner
+// thread to stop using and free the backend conn memory.
+struct mcp_backend_wrap_s {
+    mcp_backend_t *be;
+};
+
+// FIXME: inline the mcmc client data.
+// TODO: event_thread -> something? union of owner type?
 struct mcp_backend_s {
     int depth;
     int failed_count; // number of fails (timeouts) in a row
-    pthread_mutex_t mutex; // covers stack.
     proxy_event_thread_t *event_thread; // event thread owning this backend.
     void *client; // mcmc client
     STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
@@ -317,6 +338,7 @@ struct mcp_backend_s {
 #endif
     enum mcp_backend_states state; // readback state machine
     int connect_flags; // flags to pass to mcmc_connect
+    bool transferred; // if beconn has been shipped to owner thread.
     bool connecting; // in the process of an asynch connection.
     bool validating; // in process of validating a new backend connection.
     bool can_write; // recently got a WANT_WRITE or are connecting.
@@ -409,7 +431,7 @@ struct _io_pending_proxy_t {
 // https://stackoverflow.com/questions/38718475/lifetime-of-lua-userdata-pointers
 // - says no.
 typedef struct {
-    int ref; // luaL_ref reference.
+    int ref; // luaL_ref reference of backend_wrap_t obj.
     mcp_backend_t *be;
 } mcp_pool_be_t;
 
