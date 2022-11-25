@@ -326,8 +326,13 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     le->status = status;
     le->dlen = dlen;
     le->elapsed = elapsed;
-    le->be_namelen = strlen(be_name);
-    le->be_portlen = strlen(be_port);
+    if (be_name && be_port) {
+        le->be_namelen = strlen(be_name);
+        le->be_portlen = strlen(be_port);
+    } else {
+        le->be_namelen = 0;
+        le->be_portlen = 0;
+    }
     char *data = le->data;
     if (req[reqlen-2] == '\r') {
         reqlen -= 2;
