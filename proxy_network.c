@@ -528,7 +528,7 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
         if (flags == -1) {
             _reset_bad_backend(be, P_BE_FAIL_WRITING);
             _backend_failed(be);
-        } else {
+        } else if (!be->validating) {
             flags = be->can_write ? EV_READ|EV_TIMEOUT : EV_READ|EV_WRITE|EV_TIMEOUT;
             _set_event(be, t->base, flags, tmp_time, proxy_backend_handler);
         }
@@ -1124,6 +1124,7 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
                 return;
             }
             _set_event(be, be->event_thread->base, EV_READ, tmp_time, proxy_beconn_handler);
+            return;
         }
 
         // Passed validation, don't need to re-read, flush any pending writes.
