@@ -519,18 +519,18 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
         be->stacked = false;
         int flags = 0;
 
-        if (be->connecting) {
+        if (be->connecting || be->validating) {
             P_DEBUG("%s: deferring IO pending connecting (%s:%s)\n", __func__, be->name, be->port);
         } else {
             flags = _flush_pending_write(be);
-        }
 
-        if (flags == -1) {
-            _reset_bad_backend(be, P_BE_FAIL_WRITING);
-            _backend_failed(be);
-        } else if (!be->validating) {
-            flags = be->can_write ? EV_READ|EV_TIMEOUT : EV_READ|EV_WRITE|EV_TIMEOUT;
-            _set_event(be, t->base, flags, tmp_time, proxy_backend_handler);
+            if (flags == -1) {
+                _reset_bad_backend(be, P_BE_FAIL_WRITING);
+                _backend_failed(be);
+            } else {
+                flags = be->can_write ? EV_READ|EV_TIMEOUT : EV_READ|EV_WRITE|EV_TIMEOUT;
+                _set_event(be, t->base, flags, tmp_time, proxy_backend_handler);
+            }
         }
     }
 
