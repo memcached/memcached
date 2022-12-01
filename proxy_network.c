@@ -970,6 +970,7 @@ static int _flush_pending_write(mcp_backend_t *be) {
                         iov->iov_len = 0;
                     } else {
                         iov->iov_len -= sent;
+                        iov->iov_base = (char *)iov->iov_base + sent;
                         sent = 0;
                         flushed = false;
                         break;
