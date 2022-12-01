@@ -625,7 +625,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
             if (r->status == MCMC_ERR) {
                 P_DEBUG("%s: mcmc_read failed [%d]\n", __func__, r->status);
                 if (r->resp.code == MCMC_WANT_READ) {
-                    return EV_READ;
+                    return 0;
                 }
                 flags = P_BE_FAIL_PARSING;
                 stop = true;
