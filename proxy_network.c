@@ -12,6 +12,11 @@ enum proxy_be_failures {
     P_BE_FAIL_WRITING,
     P_BE_FAIL_READING,
     P_BE_FAIL_PARSING,
+    P_BE_FAIL_CLOSED,
+    P_BE_FAIL_UNHANDLEDRES,
+    P_BE_FAIL_OOM,
+    P_BE_FAIL_ENDSYNC,
+    P_BE_FAIL_TRAILINGDATA,
 };
 
 const char *proxy_be_failure_text[] = {
@@ -23,6 +28,11 @@ const char *proxy_be_failure_text[] = {
     [P_BE_FAIL_WRITING] = "writing",
     [P_BE_FAIL_READING] = "reading",
     [P_BE_FAIL_PARSING] = "parsing",
+    [P_BE_FAIL_CLOSED] = "closedsock",
+    [P_BE_FAIL_UNHANDLEDRES] = "unhandledres",
+    [P_BE_FAIL_OOM] = "outofmemory",
+    [P_BE_FAIL_ENDSYNC] = "missingend",
+    [P_BE_FAIL_TRAILINGDATA] = "trailingdata",
     NULL
 };
 
@@ -594,14 +604,13 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
         // socket, getsockopt, or something else simply for logging or
         // statistical purposes.
         // In this case we know it's going to be a close so error.
-        flags = -1;
+        flags = P_BE_FAIL_CLOSED;
         P_DEBUG("%s: read event but nothing in IO queue\n", __func__);
         return flags;
     }
 
     while (!stop) {
         mcp_resp_t *r;
-        int res = 1;
 
     switch(be->state) {
         case mcp_backend_read:
@@ -618,7 +627,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
                 if (r->resp.code == MCMC_WANT_READ) {
                     return EV_READ;
                 }
-                flags = -1;
+                flags = P_BE_FAIL_PARSING;
                 stop = true;
                 break;
             }
@@ -649,58 +658,48 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
                 default:
                     P_DEBUG("%s: Unhandled response from backend: %d\n", __func__, r->resp.type);
                     // unhandled :(
-                    flags = -1;
+                    flags = P_BE_FAIL_UNHANDLEDRES;
                     stop = true;
                     break;
             }
 
-            if (res) {
-                if (p->ascii_multiget && r->resp.type == MCMC_RESP_END) {
-                    // Ascii multiget hack mode; consume END's
-                    be->state = mcp_backend_next;
-                    break;
-                }
+            if (p->ascii_multiget && r->resp.type == MCMC_RESP_END) {
+                // Ascii multiget hack mode; consume END's
+                be->state = mcp_backend_next;
+                break;
+            }
 
-                // r->resp.reslen + r->resp.vlen is the total length of the response.
-                // TODO (v2): need to associate a buffer with this response...
-                // for now lets abuse write_and_free on mc_resp and simply malloc the
-                // space we need, stuffing it into the resp object.
+            // r->resp.reslen + r->resp.vlen is the total length of the response.
+            // TODO (v2): need to associate a buffer with this response...
+            // for now lets abuse write_and_free on mc_resp and simply malloc the
+            // space we need, stuffing it into the resp object.
 
-                r->blen = r->resp.reslen + r->resp.vlen;
-                r->buf = malloc(r->blen + extra_space);
-                if (r->buf == NULL) {
-                    flags = -1; // TODO (v2): specific error.
-                    stop = true;
-                    break;
-                }
-
-                P_DEBUG("%s: r->status: %d, r->bread: %d, r->vlen: %lu\n", __func__, r->status, r->bread, r->resp.vlen);
-                if (r->resp.vlen != r->resp.vlen_read) {
-                    // shouldn't be possible to have excess in buffer
-                    // if we're dealing with a partial value.
-                    assert(be->rbufused == r->resp.reslen+r->resp.vlen_read);
-                    P_DEBUG("%s: got a short read, moving to want_read\n", __func__);
-                    // copy the partial and advance mcmc's buffer digestion.
-                    memcpy(r->buf, be->rbuf, r->resp.reslen + r->resp.vlen_read);
-                    r->bread = r->resp.reslen + r->resp.vlen_read;
-                    be->rbufused = 0;
-                    be->state = mcp_backend_want_read;
-                    flags |= EV_READ;
-                    stop = true;
-                    break;
-                } else {
-                    // mcmc's already counted the value as read if it fit in
-                    // the original buffer...
-                    memcpy(r->buf, be->rbuf, r->resp.reslen+r->resp.vlen_read);
-                }
-            } else {
-                // TODO (v2): no response read?
-                // nothing currently sets res to 0. should remove if that
-                // never comes up and handle the error entirely above.
-                P_DEBUG("%s: no response read from backend\n", __func__);
-                flags = -1;
+            r->blen = r->resp.reslen + r->resp.vlen;
+            r->buf = malloc(r->blen + extra_space);
+            if (r->buf == NULL) {
+                flags = P_BE_FAIL_OOM;
                 stop = true;
                 break;
+            }
+
+            P_DEBUG("%s: r->status: %d, r->bread: %d, r->vlen: %lu\n", __func__, r->status, r->bread, r->resp.vlen);
+            if (r->resp.vlen != r->resp.vlen_read) {
+                // shouldn't be possible to have excess in buffer
+                // if we're dealing with a partial value.
+                assert(be->rbufused == r->resp.reslen+r->resp.vlen_read);
+                P_DEBUG("%s: got a short read, moving to want_read\n", __func__);
+                // copy the partial and advance mcmc's buffer digestion.
+                memcpy(r->buf, be->rbuf, r->resp.reslen + r->resp.vlen_read);
+                r->bread = r->resp.reslen + r->resp.vlen_read;
+                be->rbufused = 0;
+                be->state = mcp_backend_want_read;
+                flags = 0;
+                stop = true;
+                break;
+            } else {
+                // mcmc's already counted the value as read if it fit in
+                // the original buffer...
+                memcpy(r->buf, be->rbuf, r->resp.reslen+r->resp.vlen_read);
             }
 
             // had a response, advance the buffer.
@@ -723,8 +722,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
 
             if (be->rbufused >= ENDLEN) {
                 if (memcmp(be->rbuf, ENDSTR, ENDLEN) != 0) {
-                    // TODO (v2): specific error.
-                    flags = -1;
+                    flags = P_BE_FAIL_ENDSYNC;
                     stop = true;
                     break;
                 } else {
@@ -744,7 +742,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
                     }
                 }
             } else {
-                flags |= EV_READ;
+                flags = 0;
                 stop = true;
                 break;
             }
@@ -781,7 +779,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
                 assert(tocopy == be->rbufused);
                 // signal to caller to issue a read.
                 be->rbufused = 0;
-                flags |= EV_READ;
+                flags = 0;
                 stop = true;
             }
 
@@ -802,7 +800,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
                 // should also be empty.
                 // Get a specific return code for errors to surface this.
                 if (be->rbufused > 0) {
-                    flags = -1;
+                    flags = P_BE_FAIL_TRAILINGDATA;
                 }
                 break;
             } else {
@@ -1178,8 +1176,8 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
         if (read > 0) {
             be->rbufused += read;
             int res = proxy_backend_drive_machine(be);
-            if (res == -1) {
-                _reset_bad_backend(be, P_BE_FAIL_PARSING);
+            if (res != 0) {
+                _reset_bad_backend(be, res);
                 _backend_failed(be);
                 return;
             }
