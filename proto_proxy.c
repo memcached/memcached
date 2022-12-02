@@ -419,8 +419,9 @@ void complete_nread_proxy(conn *c) {
     conn_set_state(c, conn_new_cmd);
 
     // Grab our coroutine.
+    // Leave the reference alone in case we error out, so the conn cleanup
+    // routine can handle it properly.
     lua_rawgeti(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
-    luaL_unref(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
     lua_State *Lc = lua_tothread(L, -1);
     mcp_request_t *rq = luaL_checkudata(Lc, -1, "mcp.request");
 
@@ -439,6 +440,7 @@ void complete_nread_proxy(conn *c) {
     rq->pr.vbuf = c->item;
     c->item = NULL;
     c->item_malloced = false;
+    luaL_unref(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
     c->proxy_coro_ref = 0;
 
     proxy_run_coroutine(Lc, c->resp, NULL, c);
