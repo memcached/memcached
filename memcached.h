@@ -347,7 +347,8 @@ struct slab_stats {
     X(proxy_conn_requests) \
     X(proxy_conn_errors) \
     X(proxy_conn_oom) \
-    X(proxy_req_active)
+    X(proxy_req_active) \
+    X(proxy_await_active)
 #endif
 
 /**

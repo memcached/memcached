@@ -1809,6 +1809,7 @@ void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("proxy_conn_errors", "%llu", (unsigned long long)thread_stats.proxy_conn_errors);
         APPEND_STAT("proxy_conn_oom", "%llu", (unsigned long long)thread_stats.proxy_conn_oom);
         APPEND_STAT("proxy_req_active", "%llu", (unsigned long long)thread_stats.proxy_req_active);
+        APPEND_STAT("proxy_await_active", "%llu", (unsigned long long)thread_stats.proxy_await_active);
     }
 #endif
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);

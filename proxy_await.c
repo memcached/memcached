@@ -182,6 +182,7 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
 // places. Else these errors currently crash the daemon.
 int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref) {
     P_DEBUG("%s: start\n", __func__);
+    WSTAT_INCR(c, proxy_await_active, 1);
     mcp_await_t *aw = lua_touserdata(L, -1);
     int await_ref = luaL_ref(L, LUA_REGISTRYINDEX); // await is popped.
     assert(aw != NULL);
@@ -365,6 +366,7 @@ int mcplib_await_return(io_pending_proxy_t *p) {
         luaL_unref(L, LUA_REGISTRYINDEX, aw->argtable_ref);
         luaL_unref(L, LUA_REGISTRYINDEX, aw->req_ref);
         luaL_unref(L, LUA_REGISTRYINDEX, p->await_ref);
+        WSTAT_DECR(p->c, proxy_await_active, 1);
     }
 
     // Just remove anything we could have left on the primary VM stack
