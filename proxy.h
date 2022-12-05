@@ -292,8 +292,8 @@ typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
 // TODO (v2): IOV_MAX tends to be 1000+ which would allow for more batching but we
 // don't have a good temporary space and don't want to malloc/free on every
 // write. transmit() uses the stack but we can't do that for uring's use case.
-#if (IOV_MAX > 128)
-#define BE_IOV_MAX 128
+#if (IOV_MAX > 1024)
+#define BE_IOV_MAX 1024
 #else
 #define BE_IOV_MAX IOV_MAX
 #endif
@@ -306,6 +306,7 @@ struct mcp_backend_s {
     STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
     STAILQ_ENTRY(mcp_backend_s) beconn_next; // stack for connecting conns
     io_head_t io_head; // stack of requests.
+    io_pending_proxy_t *io_next; // next request to write.
     char *rbuf; // statically allocated read buffer.
     size_t rbufused; // currently active bytes in the buffer
     struct event event; // libevent
