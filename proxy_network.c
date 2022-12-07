@@ -88,9 +88,7 @@ static int _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
         }
         STAILQ_INSERT_TAIL(&be->io_head, io, io_next);
         if (be->io_next == NULL) {
-            // separate pointer into the request queue for how far we've
-            // flushed writes.
-            be->io_next = io;
+            be->io_next = io; // set write flush starting point.
         }
         be->depth++;
         io_count++;
@@ -936,8 +934,12 @@ static int _prep_pending_write(mcp_backend_t *be, unsigned int *tosend) {
     struct iovec *iovs = be->write_iovs;
     io_pending_proxy_t *io = NULL;
     int iovused = 0;
-    assert(be->io_next != NULL);
+    if (be->io_next == NULL) {
+        // separate pointer for how far into the list we've flushed.
+        be->io_next = STAILQ_FIRST(&be->io_head);
+    }
     io = be->io_next;
+    assert(io != NULL);
     for (; io; io = STAILQ_NEXT(io, io_next)) {
         // TODO (v2): paranoia for now, but this check should never fire
         if (io->flushed)
@@ -971,6 +973,7 @@ static int _flush_pending_write(mcp_backend_t *be) {
     ssize_t sent = writev(mcmc_fd(be->client), be->write_iovs, iovcnt);
     if (sent > 0) {
         io_pending_proxy_t *io = be->io_next;
+        assert(io != NULL);
         if (sent < tosend) {
             flags |= EV_WRITE;
         }
