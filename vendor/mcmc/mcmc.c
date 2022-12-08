@@ -402,6 +402,7 @@ int mcmc_connect(void *c, char *host, char *port, int options) {
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
+    ctx->fd = 0;
 
     s = getaddrinfo(host, port, &hints, &ai);
 
@@ -655,6 +656,7 @@ int mcmc_disconnect(void *c) {
     // FIXME: I forget if 0 can be valid.
     if (ctx->fd != 0) {
         close(ctx->fd);
+        ctx->fd = 0;
         return MCMC_OK;
     } else {
         return MCMC_NOT_CONNECTED;
