@@ -140,6 +140,7 @@ typedef struct _io_pending_proxy_t io_pending_proxy_t;
 typedef struct proxy_event_thread_s proxy_event_thread_t;
 
 #ifdef HAVE_LIBURING
+// TODO: pass in cqe->res instead of cqe?
 typedef void (*proxy_event_cb)(void *udata, struct io_uring_cqe *cqe);
 typedef struct {
     void *udata;
@@ -360,8 +361,10 @@ struct proxy_event_thread_s {
 #ifdef HAVE_LIBURING
     struct io_uring ring;
     proxy_event_t ur_notify_event; // listen on eventfd.
+    proxy_event_t ur_benotify_event; // listen on eventfd for backend connections.
     proxy_event_t ur_clock_event; // timer for updating event thread data.
     eventfd_t event_counter;
+    eventfd_t beevent_counter;
     bool use_uring;
 #endif
     pthread_mutex_t mutex; // covers stack.
