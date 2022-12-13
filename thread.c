@@ -852,20 +852,6 @@ item *item_touch(const char *key, size_t nkey, uint32_t exptime, conn *c) {
 }
 
 /*
- * Links an item into the LRU and hashtable.
- */
-int item_link(item *item) {
-    int ret;
-    uint32_t hv;
-
-    hv = hash(ITEM_key(item), item->nkey);
-    item_lock(hv);
-    ret = do_item_link(item, hv);
-    item_unlock(hv);
-    return ret;
-}
-
-/*
  * Decrements the reference count on an item and adds it to the freelist if
  * needed.
  */
