@@ -13,4 +13,3 @@ bool assoc_iterate(void *iterp, item **it);
 void assoc_iterate_final(void *iterp);
 
 extern unsigned int hashpower;
-extern unsigned int item_lock_hashpower;
