@@ -1,6 +1,6 @@
 /* crc32c.c -- compute CRC-32C using the Intel crc32 instruction
- * Copyright (C) 2013, 2015 Mark Adler
- * Version 1.3  31 Dec 2015  Mark Adler
+ * Copyright (C) 2013, 2015, 2021 Mark Adler
+ * Version 1.4  31 May 2021  Mark Adler
  */
 
 /*
@@ -38,6 +38,7 @@
    1.3  31 Dec 2015  Check for Intel architecture using compiler macro
                      Support big-endian processors in software calculation
                      Add header for external use
+   1.4  31 May 2021  Correct register constraints on assembly instructions
  */
 
 #include <pthread.h>
@@ -170,8 +171,8 @@ static uint32_t crc32c_hw(uint32_t crc, void const *buf, size_t len) {
     unsigned char const *next = buf;
     while (len && ((uintptr_t)next & 7) != 0) {
         __asm__("crc32b\t" "(%1), %0"
-                : "=r"(crc0)
-                : "r"(next), "0"(crc0));
+                : "+r"(crc0)
+                : "r"(next), "m"(*next));
         next++;
         len--;
     }
@@ -188,8 +189,8 @@ static uint32_t crc32c_hw(uint32_t crc, void const *buf, size_t len) {
             __asm__("crc32q\t" "(%3), %0\n\t"
                     "crc32q\t" LONGx1 "(%3), %1\n\t"
                     "crc32q\t" LONGx2 "(%3), %2"
-                    : "=r"(crc0), "=r"(crc1), "=r"(crc2)
-                    : "r"(next), "0"(crc0), "1"(crc1), "2"(crc2));
+                    : "+r"(crc0), "+r"(crc1), "+r"(crc2)
+                    : "r"(next), "m"(*next));
             next += 8;
         } while (next < end);
         crc0 = crc32c_shift(crc32c_long, crc0) ^ crc1;
@@ -208,8 +209,8 @@ static uint32_t crc32c_hw(uint32_t crc, void const *buf, size_t len) {
             __asm__("crc32q\t" "(%3), %0\n\t"
                     "crc32q\t" SHORTx1 "(%3), %1\n\t"
                     "crc32q\t" SHORTx2 "(%3), %2"
-                    : "=r"(crc0), "=r"(crc1), "=r"(crc2)
-                    : "r"(next), "0"(crc0), "1"(crc1), "2"(crc2));
+                    : "+r"(crc0), "+r"(crc1), "+r"(crc2)
+                    : "r"(next), "m"(*next));
             next += 8;
         } while (next < end);
         crc0 = crc32c_shift(crc32c_short, crc0) ^ crc1;
@@ -224,8 +225,8 @@ static uint32_t crc32c_hw(uint32_t crc, void const *buf, size_t len) {
         unsigned char const * const end = next + (len - (len & 7));
         while (next < end) {
             __asm__("crc32q\t" "(%1), %0"
-                    : "=r"(crc0)
-                    : "r"(next), "0"(crc0));
+                    : "+r"(crc0)
+                    : "r"(next), "m"(*next));
             next += 8;
         }
         len &= 7;
@@ -234,8 +235,8 @@ static uint32_t crc32c_hw(uint32_t crc, void const *buf, size_t len) {
     /* compute the crc for up to seven trailing bytes */
     while (len) {
         __asm__("crc32b\t" "(%1), %0"
-                : "=r"(crc0)
-                : "r"(next), "0"(crc0));
+                : "+r"(crc0)
+                : "r"(next), "m"(*next));
         next++;
         len--;
     }
