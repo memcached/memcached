@@ -157,13 +157,12 @@ unsigned int do_get_lru_size(uint32_t id) {
  * nkey    - The length of the key
  * flags   - key flags
  * nbytes  - Number of bytes to hold value and addition CRLF terminator
- * suffix  - Buffer for the "VALUE" line suffix (flags, size).
  * nsuffix - The length of the suffix is stored here.
  *
  * Returns the total size of the header.
  */
-static size_t item_make_header(const uint8_t nkey, const unsigned int flags, const int nbytes,
-                     char *suffix, uint8_t *nsuffix) {
+static size_t item_make_header(const uint8_t nkey, const unsigned int flags,
+                               const int nbytes, uint8_t *nsuffix) {
     if (flags == 0) {
         *nsuffix = 0;
     } else {
@@ -263,12 +262,11 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
                     const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
     item *it = NULL;
-    char suffix[40];
     // Avoid potential underflows.
     if (nbytes < 2)
         return 0;
 
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
+    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, &nsuffix);
     if (settings.use_cas) {
         ntotal += sizeof(uint64_t);
     }
@@ -379,13 +377,11 @@ void item_free(item *it) {
  * the maximum for a cache entry.)
  */
 bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
-    char prefix[40];
     uint8_t nsuffix;
     if (nbytes < 2)
         return false;
 
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes,
-                                     prefix, &nsuffix);
+    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, &nsuffix);
     if (settings.use_cas) {
         ntotal += sizeof(uint64_t);
     }
