@@ -168,7 +168,10 @@ static size_t item_make_header(const uint8_t nkey, const unsigned int flags,
     } else {
         *nsuffix = sizeof(flags);
     }
-    return sizeof(item) + nkey + *nsuffix + nbytes;
+
+    size_t cas_bytes = settings.use_cas ? sizeof(uint64_t) : 0;
+
+    return sizeof(item) + nkey + *nsuffix + cas_bytes + nbytes;
 }
 
 item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
@@ -267,9 +270,6 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
         return 0;
 
     size_t ntotal = item_make_header(nkey + 1, flags, nbytes, &nsuffix);
-    if (settings.use_cas) {
-        ntotal += sizeof(uint64_t);
-    }
 
     unsigned int id = slabs_clsid(ntotal);
     unsigned int hdr_id = 0;
@@ -382,10 +382,6 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
         return false;
 
     size_t ntotal = item_make_header(nkey + 1, flags, nbytes, &nsuffix);
-    if (settings.use_cas) {
-        ntotal += sizeof(uint64_t);
-    }
-
     return slabs_clsid(ntotal) != 0;
 }
 
