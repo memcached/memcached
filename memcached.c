@@ -4910,9 +4910,6 @@ int main (int argc, char **argv) {
     }
 #endif
 
-    /* Run regardless of initializing it later */
-    init_lru_maintainer();
-
     /* set stderr non-buffering (for running under, say, daemontools) */
     setbuf(stderr, NULL);
 

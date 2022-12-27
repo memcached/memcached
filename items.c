@@ -63,7 +63,6 @@ static int stats_sizes_buckets = 0;
 static uint64_t cas_id = 0;
 
 static volatile int do_run_lru_maintainer_thread = 0;
-static int lru_maintainer_initialized = 0;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t stats_sizes_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -1743,11 +1742,6 @@ void lru_maintainer_pause(void) {
 
 void lru_maintainer_resume(void) {
     pthread_mutex_unlock(&lru_maintainer_lock);
-}
-
-int init_lru_maintainer(void) {
-    lru_maintainer_initialized = 1;
-    return 0;
 }
 
 /* Tail linkers and crawler for the LRU crawler. */
