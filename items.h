@@ -79,7 +79,6 @@ extern pthread_mutex_t lru_locks[POWER_LARGEST];
 
 int start_lru_maintainer_thread(void *arg);
 int stop_lru_maintainer_thread(void);
-int init_lru_maintainer(void);
 void lru_maintainer_pause(void);
 void lru_maintainer_resume(void);
 
