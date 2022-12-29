@@ -213,10 +213,10 @@ void stop_threads(void) {
     // assoc can call pause_threads(), so we have to stop it first.
     stop_assoc_maintenance_thread();
     if (settings.verbose > 0)
-        fprintf(stderr, "stopped assoc\n");
+        time_fprintf(stderr, "stopped assoc\n");
 
     if (settings.verbose > 0)
-        fprintf(stderr, "asking workers to stop\n");
+        time_fprintf(stderr, "asking workers to stop\n");
 
     pthread_mutex_lock(&worker_hang_lock);
     pthread_mutex_lock(&init_lock);
@@ -230,43 +230,43 @@ void stop_threads(void) {
     // All of the workers are hung but haven't done cleanup yet.
 
     if (settings.verbose > 0)
-        fprintf(stderr, "asking background threads to stop\n");
+        time_fprintf(stderr, "asking background threads to stop\n");
 
     // stop each side thread.
     // TODO: Verify these all work if the threads are already stopped
     stop_item_crawler_thread(CRAWLER_WAIT);
     if (settings.verbose > 0)
-        fprintf(stderr, "stopped lru crawler\n");
+        time_fprintf(stderr, "stopped lru crawler\n");
     if (settings.lru_maintainer_thread) {
         stop_lru_maintainer_thread();
         if (settings.verbose > 0)
-            fprintf(stderr, "stopped maintainer\n");
+            time_fprintf(stderr, "stopped maintainer\n");
     }
     if (settings.slab_reassign) {
         stop_slab_maintenance_thread();
         if (settings.verbose > 0)
-            fprintf(stderr, "stopped slab mover\n");
+            time_fprintf(stderr, "stopped slab mover\n");
     }
     logger_stop();
     if (settings.verbose > 0)
-        fprintf(stderr, "stopped logger thread\n");
+        time_fprintf(stderr, "stopped logger thread\n");
     stop_conn_timeout_thread();
     if (settings.verbose > 0)
-        fprintf(stderr, "stopped idle timeout thread\n");
+        time_fprintf(stderr, "stopped idle timeout thread\n");
 
     // Close all connections then let the workers finally exit.
     if (settings.verbose > 0)
-        fprintf(stderr, "closing connections\n");
+        time_fprintf(stderr, "closing connections\n");
     conn_close_all();
     pthread_mutex_unlock(&worker_hang_lock);
     if (settings.verbose > 0)
-        fprintf(stderr, "reaping worker threads\n");
+        time_fprintf(stderr, "reaping worker threads\n");
     for (i = 0; i < settings.num_threads; i++) {
         pthread_join(threads[i].thread_id, NULL);
     }
 
     if (settings.verbose > 0)
-        fprintf(stderr, "all background threads stopped\n");
+        time_fprintf(stderr, "all background threads stopped\n");
 
     // At this point, every background thread must be stopped.
 }

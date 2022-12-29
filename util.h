@@ -41,3 +41,5 @@ extern uint64_t ntohll(uint64_t);
  */
 void vperror(const char *fmt, ...)
     __gcc_attribute__ ((format (printf, 1, 2)));
+
+int time_fprintf(FILE *fd, const char *format, ...);

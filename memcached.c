@@ -725,23 +725,23 @@ conn *conn_new(const int sfd, enum conn_states init_state,
 
     if (settings.verbose > 1) {
         if (init_state == conn_listening) {
-            fprintf(stderr, "<%d server listening (%s)\n", sfd,
+            time_fprintf(stderr, "<%d server listening (%s)\n", sfd,
                 prot_text(c->protocol));
         } else if (IS_UDP(transport)) {
-            fprintf(stderr, "<%d server listening (udp)\n", sfd);
+            time_fprintf(stderr, "<%d server listening (udp)\n", sfd);
         } else if (c->protocol == negotiating_prot) {
-            fprintf(stderr, "<%d new auto-negotiating client connection\n",
+            time_fprintf(stderr, "<%d new auto-negotiating client connection\n",
                     sfd);
         } else if (c->protocol == ascii_prot) {
-            fprintf(stderr, "<%d new ascii client connection.\n", sfd);
+            time_fprintf(stderr, "<%d new ascii client connection.\n", sfd);
         } else if (c->protocol == binary_prot) {
-            fprintf(stderr, "<%d new binary client connection.\n", sfd);
+            time_fprintf(stderr, "<%d new binary client connection.\n", sfd);
 #ifdef PROXY
         } else if (c->protocol == proxy_prot) {
-            fprintf(stderr, "<%d new proxy client connection.\n", sfd);
+            time_fprintf(stderr, "<%d new proxy client connection.\n", sfd);
 #endif
         } else {
-            fprintf(stderr, "<%d new unknown (%d) client connection\n",
+            time_fprintf(stderr, "<%d new unknown (%d) client connection\n",
                 sfd, c->protocol);
             assert(false);
         }
@@ -930,7 +930,7 @@ static void conn_close(conn *c) {
     event_del(&c->event);
 
     if (settings.verbose > 1)
-        fprintf(stderr, "<%d connection closed.\n", c->sfd);
+        time_fprintf(stderr, "<%d connection closed.\n", c->sfd);
 
     conn_cleanup(c);
 

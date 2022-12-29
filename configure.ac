@@ -684,6 +684,7 @@ AC_CHECK_FUNCS(pread)
 AC_CHECK_FUNCS(eventfd)
 AC_CHECK_FUNCS([accept4], [AC_DEFINE(HAVE_ACCEPT4, 1, [Define to 1 if support accept4])])
 AC_CHECK_FUNCS([getopt_long], [AC_DEFINE(HAVE_GETOPT_LONG, 1, [Define to 1 if support getopt_long])])
+AC_CHECK_FUNCS(localtime_r)
 
 dnl Need to disable opt for alignment check. GCC is too clever and turns this
 dnl into wide stores and no cmp under O2.

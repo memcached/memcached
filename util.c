@@ -236,6 +236,32 @@ void vperror(const char *fmt, ...) {
     perror(buf);
 }
 
+static int get_time_str(char* buf, const size_t len) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
+#ifdef HAVE_LOCALTIME_R
+    struct tm localtm;
+    localtime_r(&tv.tv_sec, &localtm);
+    int wlen = strftime(buf, len, "%F_%T", &localtm);
+    return wlen + snprintf(buf + wlen, len - wlen, ",%06d ", (int)tv.tv_usec);
+#else
+    return snprintf(buf, len, "%lld,%06d ", (long long int)tv.tv_sec, (int)tv.tv_usec);
+#endif
+}
+
+int time_fprintf(FILE *fd, const char *format, ...) {
+    char buf[1024];
+    int wlen = get_time_str(buf, sizeof(buf));
+
+    va_list vlist;
+    va_start(vlist, format);
+    vsnprintf(buf + wlen, sizeof(buf) - wlen, format, vlist);
+    va_end(vlist);
+
+    return fprintf(fd, "%s", buf);
+}
+
 #ifndef HAVE_HTONLL
 static uint64_t mc_swap64(uint64_t in) {
 #ifdef ENDIAN_LITTLE
