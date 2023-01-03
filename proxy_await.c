@@ -380,7 +380,7 @@ int mcplib_await_return(io_pending_proxy_t *p) {
         // couldn't find a table.insert() equivalent; so this is
         // inserting into the length + 1 position manually.
         //dump_stack(L);
-        lua_rawseti(L, 1, lua_rawlen(L, 1) + 1); // pops mcpres
+        lua_rawseti(L, -2, lua_rawlen(L, 1) + 1); // pops mcpres
         lua_pop(L, 1); // pops restable
     }
 
