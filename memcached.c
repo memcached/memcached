@@ -4277,7 +4277,6 @@ static void remove_pidfile(const char *pid_file) {
 
 static void sig_handler(const int sig) {
     stop_main_loop = EXIT_NORMALLY;
-    printf("Signal handled: %s.\n", strsignal(sig));
 }
 
 static void sighup_handler(const int sig) {
@@ -4285,7 +4284,6 @@ static void sighup_handler(const int sig) {
 }
 
 static void sig_usrhandler(const int sig) {
-    printf("Graceful shutdown signal handled: %s.\n", strsignal(sig));
     stop_main_loop = GRACE_STOP;
 }
 
@@ -6233,7 +6231,13 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Gracefully stopping\n");
         break;
         case EXIT_NORMALLY:
-            // Don't need to print anything to STDERR for a normal shutdown.
+            // Don't need to print anything to STDERR for a normal shutdown except
+            // if we want to.
+
+            if (settings.verbose) {
+                fprintf(stderr, "Signal handled\n");
+            }
+
         break;
         default:
             fprintf(stderr, "Exiting on error\n");
