@@ -101,6 +101,7 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     // reserve one uservalue for a lua-supplied response.
     mcp_resp_t *r = lua_newuserdatauv(Lc, sizeof(mcp_resp_t), 1);
     memset(r, 0, sizeof(mcp_resp_t));
+    gettimeofday(&r->start, NULL);
     // Set noreply mode.
     // TODO (v2): the response "inherits" the request's noreply mode, which isn't
     // strictly correct; we should inherit based on the request that spawned
@@ -385,7 +386,13 @@ int mcplib_await_return(io_pending_proxy_t *p) {
     }
 
     // lose our internal mcpres reference regardless.
+    // also tag the elapsed time into the response.
     if (p->mcpres_ref) {
+        struct timeval end;
+        gettimeofday(&end, NULL);
+        p->client_resp->elapsed = (end.tv_sec - p->client_resp->start.tv_sec) * 1000000 +
+            (end.tv_usec - p->client_resp->start.tv_usec);
+
         luaL_unref(L, LUA_REGISTRYINDEX, p->mcpres_ref);
     }
     // our await_ref is shared, so we don't need to release it.

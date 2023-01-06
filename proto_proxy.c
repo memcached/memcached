@@ -300,7 +300,13 @@ void proxy_return_cb(io_pending_t *pending) {
     if (p->is_await) {
         mcplib_await_return(p);
     } else {
+        struct timeval end;
         lua_State *Lc = p->coro;
+
+        // stamp the elapsed time into the response object.
+        gettimeofday(&end, NULL);
+        p->client_resp->elapsed = (end.tv_sec - p->client_resp->start.tv_sec) * 1000000 +
+            (end.tv_usec - p->client_resp->start.tv_usec);
 
         // in order to resume we need to remove the objects that were
         // originally returned
@@ -840,6 +846,7 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     memset(r, 0, sizeof(mcp_resp_t));
     r->buf = NULL;
     r->blen = 0;
+    gettimeofday(&r->start, NULL);
     // Set noreply mode.
     // TODO (v2): the response "inherits" the request's noreply mode, which isn't
     // strictly correct; we should inherit based on the request that spawned

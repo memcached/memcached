@@ -449,7 +449,6 @@ mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *comma
     memcpy(rq->request, command, cmdlen);
     rq->pr.request = rq->request;
     rq->pr.reqlen = cmdlen;
-    gettimeofday(&rq->start, NULL);
 
     luaL_getmetatable(L, "mcp.request");
     lua_setmetatable(L, -2);
@@ -584,7 +583,6 @@ int mcplib_request(lua_State *L) {
         }
         memcpy(rq->pr.vbuf, val, vlen);
     }
-    gettimeofday(&rq->start, NULL);
 
     // rq is now created, parsed, and on the stack.
     return 1;

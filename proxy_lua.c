@@ -7,6 +7,12 @@
 // normal library open:
 // int luaopen_mcp(lua_State *L) { }
 
+static int mcplib_response_elapsed(lua_State *L) {
+    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
+    lua_pushinteger(L, r->elapsed);
+    return 1;
+}
+
 // resp:ok()
 static int mcplib_response_ok(lua_State *L) {
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
@@ -811,6 +817,7 @@ static int mcplib_log_req(lua_State *L) {
     int rtype = 0;
     int rcode = 0;
     int rstatus = 0;
+    long elapsed = 0;
     char *rname = NULL;
     char *rport = NULL;
 
@@ -823,13 +830,10 @@ static int mcplib_log_req(lua_State *L) {
         rstatus = rs->status;
         rname = rs->be_name;
         rport = rs->be_port;
+        elapsed = rs->elapsed;
     }
     size_t dlen = 0;
     const char *detail = luaL_optlstring(L, 3, NULL, &dlen);
-
-    struct timeval end;
-    gettimeofday(&end, NULL);
-    long elapsed = (end.tv_sec - rq->start.tv_sec) * 1000000 + (end.tv_usec - rq->start.tv_usec);
 
     logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, elapsed, rtype, rcode, rstatus, detail, dlen, rname, rport);
 
@@ -871,6 +875,7 @@ static int mcplib_log_reqsample(lua_State *L) {
     int rtype = 0;
     int rcode = 0;
     int rstatus = 0;
+    long elapsed = 0;
     char *rname = NULL;
     char *rport = NULL;
 
@@ -886,13 +891,10 @@ static int mcplib_log_reqsample(lua_State *L) {
         rstatus = rs->status;
         rname = rs->be_name;
         rport = rs->be_port;
+        elapsed = rs->elapsed;
     }
     size_t dlen = 0;
     const char *detail = luaL_optlstring(L, 6, NULL, &dlen);
-
-    struct timeval end;
-    gettimeofday(&end, NULL);
-    long elapsed = (end.tv_sec - rq->start.tv_sec) * 1000000 + (end.tv_usec - rq->start.tv_usec);
 
     bool do_log = false;
     if (allerr && rstatus != MCMC_OK) {

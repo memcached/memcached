@@ -281,7 +281,6 @@ struct mcp_parser_s {
 #define MAX_REQ_TOKENS 2
 struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
-    struct timeval start; // time this object was created.
     mcp_backend_t *be; // backend handling this request.
     bool ascii_multiget; // ascii multiget mode. (hide errors/END)
     bool was_modified; // need to rewrite the request
@@ -396,6 +395,8 @@ typedef struct {
     mcmc_resp_t resp;
     char *buf; // response line + potentially value.
     size_t blen; // total size of the value to read.
+    struct timeval start; // time this object was created.
+    long elapsed; // time elapsed once handled.
     int status; // status code from mcmc_read()
     int bread; // amount of bytes read into value so far.
     uint8_t cmd; // from parser (pr.command)
