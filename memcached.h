@@ -102,12 +102,6 @@
 #define ITEM_SIZE_MAX_LOWER_LIMIT 1024
 #define ITEM_SIZE_MAX_UPPER_LIMIT 1024 * 1024 * 1024
 
-
-/* unistd.h is here */
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#endif
-
 /* Slab sizing definitions. */
 #define POWER_SMALLEST 1
 #define POWER_LARGEST  256 /* actual cap is 255 */
