@@ -984,6 +984,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"vlen", mcplib_response_vlen},
         {"code", mcplib_response_code},
         {"line", mcplib_response_line},
+        {"elapsed", mcplib_response_elapsed},
         {"__gc", mcplib_response_gc},
         {NULL, NULL}
     };
