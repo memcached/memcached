@@ -283,8 +283,6 @@ struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
     mcp_backend_t *be; // backend handling this request.
     bool ascii_multiget; // ascii multiget mode. (hide errors/END)
-    bool was_modified; // need to rewrite the request
-    int tokent_ref; // reference to token table if modified.
     char request[];
 };
 
@@ -503,6 +501,7 @@ int mcplib_open_dist_ring_hash(lua_State *L);
 int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, conn *c);
 mcp_backend_t *mcplib_pool_proxy_call_helper(lua_State *L, mcp_pool_t *p, const char *key, size_t len);
 void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p);
+int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len);
 void proxy_lua_error(lua_State *L, const char *s);
 void proxy_lua_ferror(lua_State *L, const char *fmt, ...);
 int _start_proxy_config_threads(proxy_ctx_t *ctx);
