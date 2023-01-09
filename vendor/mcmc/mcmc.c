@@ -361,6 +361,11 @@ int mcmc_parse_buf(void *c, char *buf, size_t read, mcmc_resp_t *r) {
     return _mcmc_parse_response(ctx, r);
 }
 
+int mcmc_bare_parse_buf(char *buf, size_t read, mcmc_resp_t *r) {
+    mcmc_ctx_t ctx;
+    return mcmc_parse_buf(&ctx, buf, read, r);
+}
+
 /*** Functions wrapping syscalls **/
 
 // TODO: should be able to flip between block and nonblock.
