@@ -5,10 +5,12 @@ use strict;
 use warnings;
 use Socket qw/SO_RCVBUF/;
 
-use Test::More tests => 30;
+use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
+
+plan tests => 30;
 
 my $server = new_memcached('-m 60 -o watcher_logbuf_size=8');
 my $client = $server->sock;

@@ -259,7 +259,7 @@ item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain) {
     return nch;
 }
 
-item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
+item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags,
                     const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
     item *it = NULL;
@@ -975,7 +975,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */
-item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
+item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVENT_THREAD *t, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(it);
@@ -1006,7 +1006,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
         int ii;
         if (it == NULL) {
             fprintf(stderr, "> NOT FOUND ");
-        } else {
+        } else if (was_found) {
             fprintf(stderr, "> FOUND KEY ");
         }
         for (ii = 0; ii < nkey; ++ii) {
@@ -1018,31 +1018,31 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
         was_found = 1;
         if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
-            STORAGE_delete(c->thread->storage, it);
+            STORAGE_delete(t->storage, it);
             do_item_remove(it);
             it = NULL;
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.get_flushed++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
+            pthread_mutex_lock(&t->stats.mutex);
+            t->stats.get_flushed++;
+            pthread_mutex_unlock(&t->stats.mutex);
             if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by flush");
             }
             was_found = 2;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
             do_item_unlink(it, hv);
-            STORAGE_delete(c->thread->storage, it);
+            STORAGE_delete(t->storage, it);
             do_item_remove(it);
             it = NULL;
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.get_expired++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
+            pthread_mutex_lock(&t->stats.mutex);
+            t->stats.get_expired++;
+            pthread_mutex_unlock(&t->stats.mutex);
             if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by expire");
             }
             was_found = 3;
         } else {
             if (do_update) {
-                do_item_bump(c, it, hv);
+                do_item_bump(t, it, hv);
             }
             DEBUG_REFCNT(it, '+');
         }
@@ -1051,8 +1051,8 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
     if (settings.verbose > 2)
         fprintf(stderr, "\n");
     /* For now this is in addition to the above verbose logging. */
-    LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key,
-               nkey, (it) ? it->nbytes : 0, (it) ? ITEM_clsid(it) : 0, c->sfd);
+    LOGGER_LOG(t->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key,
+               nkey, (it) ? it->nbytes : 0, (it) ? ITEM_clsid(it) : 0, t->cur_sfd);
 
     return it;
 }
@@ -1060,7 +1060,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
 // Requires lock held for item.
 // Split out of do_item_get() to allow mget functions to look through header
 // data before losing state modified via the bump function.
-void do_item_bump(conn *c, item *it, const uint32_t hv) {
+void do_item_bump(LIBEVENT_THREAD *t, item *it, const uint32_t hv) {
     /* We update the hit markers only during fetches.
      * An item needs to be hit twice overall to be considered
      * ACTIVE, but only needs a single hit to maintain activity
@@ -1075,7 +1075,7 @@ void do_item_bump(conn *c, item *it, const uint32_t hv) {
                 it->it_flags |= ITEM_ACTIVE;
                 if (ITEM_lruid(it) != COLD_LRU) {
                     it->time = current_time; // only need to bump time.
-                } else if (!lru_bump_async(c->thread->lru_bump_buf, it, hv)) {
+                } else if (!lru_bump_async(t->lru_bump_buf, it, hv)) {
                     // add flag before async bump to avoid race.
                     it->it_flags &= ~ITEM_ACTIVE;
                 }
@@ -1088,8 +1088,8 @@ void do_item_bump(conn *c, item *it, const uint32_t hv) {
 }
 
 item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
-                    const uint32_t hv, conn *c) {
-    item *it = do_item_get(key, nkey, hv, c, DO_UPDATE);
+                    const uint32_t hv, LIBEVENT_THREAD *t) {
+    item *it = do_item_get(key, nkey, hv, t, DO_UPDATE);
     if (it != NULL) {
         it->exptime = exptime;
     }

@@ -1565,9 +1565,9 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  *
  * Returns the state of storage.
  */
-enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
+enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const uint32_t hv, uint64_t *cas, bool cas_stale) {
     char *key = ITEM_key(it);
-    item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
+    item *old_it = do_item_get(key, it->nkey, hv, t, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
 
     enum cas_result { CAS_NONE, CAS_MATCH, CAS_BADVAL, CAS_STALE, CAS_MISS };
@@ -1587,7 +1587,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             cas_res = CAS_NONE;
         } else if (it_cas == old_cas) {
             cas_res = CAS_MATCH;
-        } else if (c->set_stale && it_cas < old_cas) {
+        } else if (cas_stale && it_cas < old_cas) {
             cas_res = CAS_STALE;
         } else {
             cas_res = CAS_BADVAL;
@@ -1603,9 +1603,9 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                     // cas validates
                     // it and old_it may belong to different classes.
                     // I'm updating the stats for the one that's getting pushed out
-                    pthread_mutex_lock(&c->thread->stats.mutex);
-                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
-                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    pthread_mutex_lock(&t->stats.mutex);
+                    t->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+                    pthread_mutex_unlock(&t->stats.mutex);
                     do_store = true;
                 } else if (cas_res == CAS_STALE) {
                     // if we're allowed to set a stale value, CAS must be lower than
@@ -1618,15 +1618,15 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                         it->it_flags |= ITEM_TOKEN_SENT;
                     }
 
-                    pthread_mutex_lock(&c->thread->stats.mutex);
-                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
-                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    pthread_mutex_lock(&t->stats.mutex);
+                    t->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+                    pthread_mutex_unlock(&t->stats.mutex);
                     do_store = true;
                 } else {
                     // NONE or BADVAL are the same for CAS cmd
-                    pthread_mutex_lock(&c->thread->stats.mutex);
-                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
-                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    pthread_mutex_lock(&t->stats.mutex);
+                    t->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
+                    pthread_mutex_unlock(&t->stats.mutex);
 
                     if (settings.verbose > 1) {
                         fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
@@ -1674,7 +1674,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         }
 
         if (do_store) {
-            STORAGE_delete(c->thread->storage, old_it);
+            STORAGE_delete(t->storage, old_it);
             item_replace(old_it, it, hv);
             stored = STORED;
         }
@@ -1699,9 +1699,9 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             case NREAD_CAS:
                 // LRU expired
                 stored = NOT_FOUND;
-                pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.cas_misses++;
-                pthread_mutex_unlock(&c->thread->stats.mutex);
+                pthread_mutex_lock(&t->stats.mutex);
+                t->stats.cas_misses++;
+                pthread_mutex_unlock(&t->stats.mutex);
                 break;
             case NREAD_REPLACE:
             case NREAD_APPEND:
@@ -1716,12 +1716,12 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         }
     }
 
-    if (stored == STORED) {
-        c->cas = ITEM_get_cas(it);
+    if (stored == STORED && cas != NULL) {
+        *cas = ITEM_get_cas(it);
     }
-    LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
+    LOGGER_LOG(t->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->nbytes, it->exptime,
-            ITEM_clsid(it), c->sfd);
+            ITEM_clsid(it), t->cur_sfd);
 
     return stored;
 }
@@ -2187,12 +2187,12 @@ void process_stats_conns(ADD_STAT add_stats, void *c) {
 }
 
 #define IT_REFCOUNT_LIMIT 60000
-item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch, bool do_update, bool *overflow) {
+item* limited_get(const char *key, size_t nkey, LIBEVENT_THREAD *t, uint32_t exptime, bool should_touch, bool do_update, bool *overflow) {
     item *it;
     if (should_touch) {
-        it = item_touch(key, nkey, exptime, c);
+        it = item_touch(key, nkey, exptime, t);
     } else {
-        it = item_get(key, nkey, c, do_update);
+        it = item_get(key, nkey, t, do_update);
     }
     if (it && it->refcount > IT_REFCOUNT_LIMIT) {
         item_remove(it);
@@ -2208,9 +2208,9 @@ item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should
 // locked, caller can directly change what it needs.
 // though it might eventually be a better interface to sink it all into
 // items.c.
-item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32_t *hv, bool *overflow) {
+item* limited_get_locked(const char *key, size_t nkey, LIBEVENT_THREAD *t, bool do_update, uint32_t *hv, bool *overflow) {
     item *it;
-    it = item_get_locked(key, nkey, c, do_update, hv);
+    it = item_get_locked(key, nkey, t, do_update, hv);
     if (it && it->refcount > IT_REFCOUNT_LIMIT) {
         do_item_remove(it);
         it = NULL;
@@ -2233,7 +2233,7 @@ item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32
  *
  * returns a response string to send back to the client.
  */
-enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
+enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const size_t nkey,
                                     const bool incr, const int64_t delta,
                                     char *buf, uint64_t *cas,
                                     const uint32_t hv,
@@ -2243,7 +2243,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     int res;
     item *it;
 
-    it = do_item_get(key, nkey, hv, c, DONT_UPDATE);
+    it = do_item_get(key, nkey, hv, t, DONT_UPDATE);
     if (!it) {
         return DELTA_ITEM_NOT_FOUND;
     }
@@ -2283,13 +2283,13 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
         MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
     }
 
-    pthread_mutex_lock(&c->thread->stats.mutex);
+    pthread_mutex_lock(&t->stats.mutex);
     if (incr) {
-        c->thread->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
+        t->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
     } else {
-        c->thread->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
+        t->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
     }
-    pthread_mutex_unlock(&c->thread->stats.mutex);
+    pthread_mutex_unlock(&t->stats.mutex);
 
     itoa_u64(value, buf);
     res = strlen(buf);

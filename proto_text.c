@@ -168,7 +168,9 @@ void complete_nread_ascii(conn *c) {
         }
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
-      ret = store_item(it, comm, c);
+      uint64_t cas = 0;
+      c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
+      ret = store_item(it, comm, c->thread, &cas, c->set_stale);
 
 #ifdef ENABLE_DTRACE
       uint64_t cas = ITEM_get_cas(it);
@@ -201,6 +203,7 @@ void complete_nread_ascii(conn *c) {
 #endif
 
       if (c->mset_res) {
+          c->cas = cas;
           _finalize_mset(c, ret);
       } else {
           switch (ret) {
@@ -565,7 +568,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 goto stop;
             }
 
-            it = limited_get(key, nkey, c, exptime, should_touch, DO_UPDATE, &overflow);
+            it = limited_get(key, nkey, c->thread, exptime, should_touch, DO_UPDATE, &overflow);
             if (settings.detail_enabled) {
                 stats_prefix_record_get(key, nkey, NULL != it);
             }
@@ -844,7 +847,7 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
     }
 
     bool overflow; // not used here.
-    item *it = limited_get(key, nkey, c, 0, false, DONT_UPDATE, &overflow);
+    item *it = limited_get(key, nkey, c->thread, 0, false, DONT_UPDATE, &overflow);
     if (it) {
         mc_resp *resp = c->resp;
         size_t total = 0;
@@ -1093,10 +1096,10 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     // I think we do, since an overflow shouldn't trigger an alloc/replace.
     bool overflow = false;
     if (!of.locked) {
-        it = limited_get(key, nkey, c, 0, false, !of.no_update, &overflow);
+        it = limited_get(key, nkey, c->thread, 0, false, !of.no_update, &overflow);
     } else {
         // If we had to lock the item, we're doing our own bump later.
-        it = limited_get_locked(key, nkey, c, DONT_UPDATE, &hv, &overflow);
+        it = limited_get_locked(key, nkey, c->thread, DONT_UPDATE, &hv, &overflow);
     }
 
     // Since we're a new protocol, we can actually inform users that refcount
@@ -1294,7 +1297,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
     if (of.locked) {
         // Delayed bump so we could get fetched/last access time pre-update.
         if (!of.no_update && it != NULL) {
-            do_item_bump(c, it, hv);
+            do_item_bump(c->thread, it, hv);
         }
         item_unlock(hv);
     }
@@ -1513,7 +1516,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
         /* Avoid stale data persisting in cache because we failed alloc. */
         // NOTE: only if SET mode?
-        it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+        it = item_get_locked(key, nkey, c->thread, DONT_UPDATE, &hv);
         if (it) {
             do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
@@ -1620,7 +1623,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         }
     }
 
-    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+    it = item_get_locked(key, nkey, c->thread, DONT_UPDATE, &hv);
     if (it) {
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
@@ -1759,7 +1762,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     // return a referenced item if it exists, so we can modify it here, rather
     // than adding even more parameters to do_add_delta.
     bool item_created = false;
-    switch(do_add_delta(c, key, nkey, incr, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
+    switch(do_add_delta(c->thread, key, nkey, incr, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
     case OK:
         if (c->noreply)
             resp->skip = true;
@@ -1782,7 +1785,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
             if (it != NULL) {
                 memcpy(ITEM_data(it), tmpbuf, vlen);
                 memcpy(ITEM_data(it) + vlen, "\r\n", 2);
-                if (do_store_item(it, NREAD_ADD, c, hv)) {
+                if (do_store_item(it, NREAD_ADD, c->thread, hv, NULL, CAS_NO_STALE)) {
                     item_created = true;
                 } else {
                     // Not sure how we can get here if we're holding the lock.
@@ -1987,7 +1990,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (comm == NREAD_SET) {
-            it = item_get(key, nkey, c, DONT_UPDATE);
+            it = item_get(key, nkey, c->thread, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
                 STORAGE_delete(c->thread->storage, it);
@@ -2039,7 +2042,7 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
     }
 
     exptime = realtime(EXPTIME_TO_POSITIVE_TIME(exptime_int));
-    it = item_touch(key, nkey, exptime, c);
+    it = item_touch(key, nkey, exptime, c->thread);
     if (it) {
         pthread_mutex_lock(&c->thread->stats.mutex);
         c->thread->stats.touch_cmds++;
@@ -2081,7 +2084,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
-    switch(add_delta(c, key, nkey, incr, delta, temp, NULL)) {
+    switch(add_delta(c->thread, key, nkey, incr, delta, temp, NULL)) {
     case OK:
         out_string(c, temp);
         break;
@@ -2141,7 +2144,7 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+    it = item_get_locked(key, nkey, c->thread, DONT_UPDATE, &hv);
     if (it) {
         MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
@@ -2734,6 +2737,7 @@ void process_command_ascii(conn *c, char *command) {
         return;
     }
 
+    c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
     // All commands need a minimum of two tokens: cmd and NULL finalizer
     // There are also no valid commands shorter than two bytes.
