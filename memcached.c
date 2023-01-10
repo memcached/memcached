@@ -6233,7 +6233,7 @@ int main (int argc, char **argv) {
             // if we want to.
 
             if (settings.verbose) {
-                fprintf(stderr, "Signal handled\n");
+                fprintf(stderr, "Exiting normally\n");
             }
 
         break;
@@ -6242,9 +6242,11 @@ int main (int argc, char **argv) {
         break;
     }
 
-    stop_threads();
-    if (settings.memory_file != NULL && stop_main_loop == GRACE_STOP) {
-        restart_mmap_close();
+    if (stop_main_loop == GRACE_STOP) {
+        stop_threads();
+        if (settings.memory_file != NULL) {
+            restart_mmap_close();
+        }
     }
 
     /* remove the PID file if we're a daemon */
