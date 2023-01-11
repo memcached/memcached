@@ -482,12 +482,11 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     // me->storage is set just before this function is called.
     if (me->storage) {
         thread_io_queue_add(me, IO_QUEUE_EXTSTORE, me->storage,
-            storage_submit_cb, storage_complete_cb, NULL, storage_finalize_cb);
+            storage_submit_cb);
     }
 #endif
 #ifdef PROXY
-    thread_io_queue_add(me, IO_QUEUE_PROXY, settings.proxy_ctx, proxy_submit_cb,
-            proxy_complete_cb, proxy_return_cb, proxy_finalize_cb);
+    thread_io_queue_add(me, IO_QUEUE_PROXY, settings.proxy_ctx, proxy_submit_cb);
 
     // TODO: maybe register hooks to be called here from sub-packages? ie;
     // extstore, TLS, proxy.
@@ -495,7 +494,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         proxy_thread_init(settings.proxy_ctx, me);
     }
 #endif
-    thread_io_queue_add(me, IO_QUEUE_NONE, NULL, NULL, NULL, NULL, NULL);
+    thread_io_queue_add(me, IO_QUEUE_NONE, NULL, NULL);
 }
 
 /*

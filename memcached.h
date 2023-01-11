@@ -672,21 +672,12 @@ typedef struct _io_pending_t io_pending_t;
 typedef struct io_queue_s io_queue_t;
 typedef void (*io_queue_stack_cb)(io_queue_t *q);
 typedef void (*io_queue_cb)(io_pending_t *pending);
-// this structure's ownership gets passed between threads:
-// - owned normally by the worker thread.
-// - multiple queues can be submitted at the same time.
-// - each queue can be sent to different background threads.
-// - each submitted queue needs to know when to return to the worker.
-// - the worker needs to know when all queues have returned so it can process.
-//
-// io_queue_t's count field is owned by worker until submitted. Then owned by
-// side thread until returned.
-// conn->io_queues_submitted is always owned by the worker thread. it is
-// incremented as the worker submits queues, and decremented as it gets pinged
-// for returned threads.
-//
-// All of this is to avoid having to hit a mutex owned by the connection
-// thread that gets pinged for each thread (or an equivalent atomic).
+// This structure used to be passed between threads, but is now owned entirely
+// by the worker threads.
+// IO pending objects are created and stacked into this structure. They are
+// then sent off to remote threads.
+// The objects are returned one at a time to the worker threads, and this
+// structure is then consulted to see when to resume the worker.
 struct io_queue_s {
     void *ctx; // duplicated from io_queue_cb_t
     void *stack_ctx; // module-specific context to be batch-submitted
@@ -697,9 +688,6 @@ struct io_queue_s {
 typedef struct io_queue_cb_s {
     void *ctx; // untouched ptr for specific context
     io_queue_stack_cb submit_cb; // callback given a full stack of pending IO's at once.
-    io_queue_stack_cb complete_cb;
-    io_queue_cb return_cb; // called on worker thread.
-    io_queue_cb finalize_cb; // called back on the worker thread.
     int type;
 } io_queue_cb_t;
 
@@ -789,6 +777,8 @@ struct _io_pending_t {
     LIBEVENT_THREAD *thread;
     conn *c;
     mc_resp *resp; // associated response object
+    io_queue_cb return_cb; // called on worker thread.
+    io_queue_cb finalize_cb; // called back on the worker thread.
     char data[120];
 };
 
@@ -924,7 +914,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
 enum store_item_type do_store_item(item *item, int comm, LIBEVENT_THREAD *t, const uint32_t hv, uint64_t *cas, bool cas_stale);
-void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb ret_cb, io_queue_cb fin_cb);
+void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb);
 void conn_io_queue_setup(conn *c);
 io_queue_t *conn_io_queue_get(conn *c, int type);
 io_queue_cb_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type);

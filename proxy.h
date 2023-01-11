@@ -409,7 +409,10 @@ struct _io_pending_proxy_t {
     int io_queue_type;
     LIBEVENT_THREAD *thread;
     conn *c;
-    mc_resp *resp;  // original struct ends here
+    mc_resp *resp;
+    io_queue_cb return_cb; // called on worker thread.
+    io_queue_cb finalize_cb; // called back on the worker thread.
+    // original struct ends here
 
     struct _io_pending_proxy_t *next; // stack for IO submission
     STAILQ_ENTRY(_io_pending_proxy_t) io_next; // stack for backends
