@@ -289,10 +289,6 @@ void proxy_submit_cb(io_queue_t *q) {
     return;
 }
 
-void proxy_complete_cb(io_queue_t *q) {
-    // empty/unused.
-}
-
 // called from worker thread after an individual IO has been returned back to
 // the worker thread. Do post-IO run and cleanup work.
 void proxy_return_cb(io_pending_t *pending) {
@@ -892,6 +888,8 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     p->client_resp = r;
     p->flushed = false;
     p->ascii_multiget = rq->ascii_multiget;
+    p->return_cb = proxy_return_cb;
+    p->finalize_cb = proxy_finalize_cb;
     resp->io_pending = (io_pending_t *)p;
 
     // top of the main thread should be our coroutine.

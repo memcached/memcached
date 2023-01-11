@@ -147,6 +147,8 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     p->client_resp = r;
     p->flushed = false;
     p->ascii_multiget = rq->ascii_multiget;
+    p->return_cb = proxy_return_cb;
+    p->finalize_cb = proxy_finalize_cb;
 
     // io_p needs to hold onto its own response reference, because we may or
     // may not include it in the final await() result.
@@ -201,6 +203,8 @@ static void mcp_queue_await_dummy_io(conn *c, lua_State *Lc, int await_ref) {
     p->is_await = true;
     p->await_ref = await_ref;
     p->await_background = true;
+    p->return_cb = proxy_return_cb;
+    p->finalize_cb = proxy_finalize_cb;
 
     // Dummy IO has no backend, and no request attached.
 

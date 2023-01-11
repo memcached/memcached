@@ -17,10 +17,8 @@ void process_extstore_stats(ADD_STAT add_stats, conn *c);
 bool storage_validate_item(void *e, item *it);
 int storage_get_item(conn *c, item *it, mc_resp *resp);
 
-// callbacks for the IO queue subsystem.
+// callback for the IO queue subsystem.
 void storage_submit_cb(io_queue_t *q);
-void storage_complete_cb(io_queue_t *q);
-void storage_finalize_cb(io_pending_t *pending);
 
 // Thread functions.
 int start_storage_write_thread(void *arg);
