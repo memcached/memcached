@@ -424,9 +424,9 @@ static bool rbuf_alloc(conn *c) {
     if (c->rbuf == NULL) {
         c->rbuf = do_cache_alloc(c->thread->rbuf_cache);
         if (!c->rbuf) {
-            THR_STATS_LOCK(c);
+            THR_STATS_LOCK(c->thread);
             c->thread->stats.read_buf_oom++;
-            THR_STATS_UNLOCK(c);
+            THR_STATS_UNLOCK(c->thread);
             return false;
         }
         c->rsize = READ_BUFFER_SIZE;
@@ -1057,7 +1057,9 @@ static mc_resp* resp_allocate(conn *c) {
 
         if (resp != NULL) {
             b->refcount++;
-            resp->free = false;
+            memset(resp, 0, sizeof(*resp));
+            resp->free = false; // redundant, for clarity.
+            resp->bundle = b;
             if (b->refcount == MAX_RESP_PER_BUNDLE) {
                 assert(b->prev == NULL);
                 // We only allocate off the head. Assign new head.
@@ -1075,20 +1077,21 @@ static mc_resp* resp_allocate(conn *c) {
         assert(th->open_bundle == NULL);
         b = do_cache_alloc(th->rbuf_cache);
         if (b) {
-            THR_STATS_LOCK(c);
-            c->thread->stats.response_obj_bytes += READ_BUFFER_SIZE;
-            THR_STATS_UNLOCK(c);
+            THR_STATS_LOCK(th);
+            th->stats.response_obj_bytes += READ_BUFFER_SIZE;
+            THR_STATS_UNLOCK(th);
             b->next_check = 1;
             b->refcount = 1;
             for (int i = 0; i < MAX_RESP_PER_BUNDLE; i++) {
-                b->r[i].bundle = b;
                 b->r[i].free = true;
             }
             b->next = 0;
             b->prev = 0;
             th->open_bundle = b;
             resp = &b->r[0];
-            resp->free = false;
+            memset(resp, 0, sizeof(*resp));
+            resp->free = false; // redundant. for clarity.
+            resp->bundle = b;
         } else {
             return NULL;
         }
@@ -1097,8 +1100,7 @@ static mc_resp* resp_allocate(conn *c) {
     return resp;
 }
 
-static void resp_free(conn *c, mc_resp *resp) {
-    LIBEVENT_THREAD *th = c->thread;
+void resp_free(LIBEVENT_THREAD *th, mc_resp *resp) {
     mc_resp_bundle *b = resp->bundle;
 
     resp->free = true;
@@ -1123,9 +1125,9 @@ static void resp_free(conn *c, mc_resp *resp) {
 
             // Now completely done with this buffer.
             do_cache_free(th->rbuf_cache, b);
-            THR_STATS_LOCK(c);
-            c->thread->stats.response_obj_bytes -= READ_BUFFER_SIZE;
-            THR_STATS_UNLOCK(c);
+            THR_STATS_LOCK(th);
+            th->stats.response_obj_bytes -= READ_BUFFER_SIZE;
+            THR_STATS_UNLOCK(th);
         }
     } else {
         mc_resp_bundle **head = &th->open_bundle;
@@ -1141,30 +1143,25 @@ static void resp_free(conn *c, mc_resp *resp) {
         }
 
     }
+    THR_STATS_LOCK(th);
+    th->stats.response_obj_count--;
+    THR_STATS_UNLOCK(th);
 }
 
 bool resp_start(conn *c) {
     mc_resp *resp = resp_allocate(c);
     if (!resp) {
-        THR_STATS_LOCK(c);
+        THR_STATS_LOCK(c->thread);
         c->thread->stats.response_obj_oom++;
-        THR_STATS_UNLOCK(c);
+        THR_STATS_UNLOCK(c->thread);
         return false;
     }
+
     // handling the stats counters here to simplify testing
-    THR_STATS_LOCK(c);
+    THR_STATS_LOCK(c->thread);
     c->thread->stats.response_obj_count++;
-    THR_STATS_UNLOCK(c);
-    // Skip zeroing the bundle pointer at the start.
-    // TODO: this line is here temporarily to make the code easy to disable.
-    // when it's more mature, move the memset into resp_allocate() and have it
-    // set the bundle pointer on allocate so this line isn't as complex.
-    memset((char *)resp + sizeof(mc_resp_bundle*), 0, sizeof(*resp) - sizeof(mc_resp_bundle*));
-    // TODO: this next line works. memset _does_ show up significantly under
-    // perf reports due to zeroing out the entire resp->wbuf. before swapping
-    // the lines more validation work should be done to ensure wbuf's aren't
-    // accidentally reused without being written to.
-    //memset((char *)resp + sizeof(mc_resp_bundle*), 0, offsetof(mc_resp, wbuf));
+    THR_STATS_UNLOCK(c->thread);
+
     if (!c->resp_head) {
         c->resp_head = resp;
     }
@@ -1181,6 +1178,30 @@ bool resp_start(conn *c) {
         c->resp->request_addr_size = c->request_addr_size;
     }
     return true;
+}
+
+mc_resp *resp_start_unlinked(conn *c) {
+    mc_resp *resp = resp_allocate(c);
+    if (!resp) {
+        THR_STATS_LOCK(c->thread);
+        c->thread->stats.response_obj_oom++;
+        THR_STATS_UNLOCK(c->thread);
+        return false;
+    }
+
+    // handling the stats counters here to simplify testing
+    THR_STATS_LOCK(c->thread);
+    c->thread->stats.response_obj_count++;
+    THR_STATS_UNLOCK(c->thread);
+
+    if (IS_UDP(c->transport)) {
+        // need to hold on to some data for async responses.
+        c->resp->request_id = c->request_id;
+        c->resp->request_addr = c->request_addr;
+        c->resp->request_addr_size = c->request_addr_size;
+    }
+
+    return resp;
 }
 
 // returns next response in chain.
@@ -1208,10 +1229,7 @@ mc_resp* resp_finish(conn *c, mc_resp *resp) {
     if (c->resp == resp) {
         c->resp = NULL;
     }
-    resp_free(c, resp);
-    THR_STATS_LOCK(c);
-    c->thread->stats.response_obj_count--;
-    THR_STATS_UNLOCK(c);
+    resp_free(c->thread, resp);
     return next;
 }
 

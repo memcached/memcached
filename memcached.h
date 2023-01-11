@@ -984,8 +984,8 @@ int stop_conn_timeout_thread(void);
 #define refcount_decr(it) --(it->refcount)
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
-#define THR_STATS_LOCK(c) pthread_mutex_lock(&c->thread->stats.mutex)
-#define THR_STATS_UNLOCK(c) pthread_mutex_unlock(&c->thread->stats.mutex)
+#define THR_STATS_LOCK(t) pthread_mutex_lock(&t->stats.mutex)
+#define THR_STATS_UNLOCK(t) pthread_mutex_unlock(&t->stats.mutex)
 void threadlocal_stats_reset(void);
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
@@ -1014,7 +1014,9 @@ void resp_reset(mc_resp *resp);
 void resp_add_iov(mc_resp *resp, const void *buf, int len);
 void resp_add_chunked_iov(mc_resp *resp, const void *buf, int len);
 bool resp_start(conn *c);
+mc_resp *resp_start_unlinked(conn *c);
 mc_resp* resp_finish(conn *c, mc_resp *resp);
+void resp_free(LIBEVENT_THREAD *th, mc_resp *resp);
 bool resp_has_stack(conn *c);
 bool rbuf_switch_to_malloc(conn *c);
 void conn_release_items(conn *c);
