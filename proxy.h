@@ -2,6 +2,7 @@
 #define PROXY_H
 
 #include "memcached.h"
+#include "extstore.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -400,6 +401,8 @@ enum mcp_resp_mode {
 typedef struct {
     mcmc_resp_t resp;
     char *buf; // response line + potentially value.
+    mc_resp *cresp; // client mc_resp object during extstore fetches.
+    LIBEVENT_THREAD *thread; // cresp's owner thread needed for extstore cleanup.
     size_t blen; // total size of the value to read.
     struct timeval start; // time this object was created.
     long elapsed; // time elapsed once handled.
@@ -413,6 +416,8 @@ typedef struct {
 
 // re-cast an io_pending_t into this more descriptive structure.
 // the first few items _must_ match the original struct.
+#define IO_PENDING_TYPE_PROXY 0
+#define IO_PENDING_TYPE_EXTSTORE 1
 struct _io_pending_proxy_t {
     int io_queue_type;
     LIBEVENT_THREAD *thread;
@@ -422,22 +427,39 @@ struct _io_pending_proxy_t {
     io_queue_cb finalize_cb; // called back on the worker thread.
     // original struct ends here
 
-    struct _io_pending_proxy_t *next; // stack for IO submission
-    STAILQ_ENTRY(_io_pending_proxy_t) io_next; // stack for backends
+    int io_type; // extstore IO or backend IO
     int coro_ref; // lua registry reference to the coroutine
-    int mcpres_ref; // mcp.res reference used for await()
     lua_State *coro; // pointer directly to the coroutine
-    mcp_backend_t *backend; // backend server to request from
-    struct iovec iov[2]; // request string + tail buffer
-    int iovcnt; // 1 or 2...
-    unsigned int iovbytes; // total bytes in the iovec
-    int await_ref; // lua reference if we were an await object
-    mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
-    bool flushed; // whether we've fully written this request to a backend.
-    bool ascii_multiget; // passed on from mcp_r_t
-    bool is_await; // are we an await object?
-    bool await_first; // are we the main route for an await object?
-    bool await_background; // dummy IO for backgrounded awaits
+    union {
+        // extstore IO.
+        struct {
+            obj_io eio;
+            item *hdr_it;
+            mc_resp *tresp; // temporary mc_resp for storage to fill.
+            int gettype;
+            int iovec_data;
+            bool miss;
+            bool badcrc;
+            bool active;
+        };
+        // backend request IO
+        struct {
+            struct _io_pending_proxy_t *next; // stack for IO submission
+            STAILQ_ENTRY(_io_pending_proxy_t) io_next; // stack for backends
+            int mcpres_ref; // mcp.res reference used for await()
+            mcp_backend_t *backend; // backend server to request from
+            struct iovec iov[2]; // request string + tail buffer
+            int iovcnt; // 1 or 2...
+            unsigned int iovbytes; // total bytes in the iovec
+            int await_ref; // lua reference if we were an await object
+            mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
+            bool flushed; // whether we've fully written this request to a backend.
+            bool ascii_multiget; // passed on from mcp_r_t
+            bool is_await; // are we an await object?
+            bool await_first; // are we the main route for an await object?
+            bool await_background; // dummy IO for backgrounded awaits
+        };
+    };
 };
 
 // Note: does *be have to be a sub-struct? how stable are userdata pointers?
@@ -491,6 +513,10 @@ int mcplib_await(lua_State *L);
 int mcplib_await_logerrors(lua_State *L);
 int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref);
 int mcplib_await_return(io_pending_proxy_t *p);
+
+// internal request interface
+int mcplib_internal(lua_State *L);
+int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref);
 
 // user stats interface
 int mcplib_add_stat(lua_State *L);

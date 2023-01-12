@@ -90,6 +90,13 @@ static int mcplib_response_gc(lua_State *L) {
         free(r->buf);
     }
 
+    // release our temporary mc_resp sub-object.
+    if (r->cresp != NULL) {
+        mc_resp *cresp = r->cresp;
+        assert(r->thread != NULL);
+        resp_free(r->thread, cresp);
+    }
+
     return 0;
 }
 
@@ -1188,6 +1195,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     };
 
     const struct luaL_Reg mcplib_f [] = {
+        {"internal", mcplib_internal},
         {"pool", mcplib_pool},
         {"backend", mcplib_backend},
         {"request", mcplib_request},
