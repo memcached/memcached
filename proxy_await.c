@@ -89,7 +89,8 @@ int mcplib_await(lua_State *L) {
     aw->type = type;
     P_DEBUG("%s: about to yield [len: %d]\n", __func__, n);
 
-    return lua_yield(L, 1);
+    lua_pushinteger(L, MCP_YIELD_AWAIT);
+    return lua_yield(L, 2);
 }
 
 static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int await_ref, bool await_first) {

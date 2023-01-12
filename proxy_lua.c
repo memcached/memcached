@@ -596,7 +596,8 @@ static int mcplib_pool_proxy_call(lua_State *L) {
     rq->be = mcplib_pool_proxy_call_helper(L, p, key, len);
 
     // now yield request, pool up.
-    return lua_yield(L, 2);
+    lua_pushinteger(L, MCP_YIELD_POOL);
+    return lua_yield(L, 3);
 }
 
 static int mcplib_tcp_keepalive(lua_State *L) {

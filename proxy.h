@@ -80,6 +80,10 @@
 #define MCP_BACKEND_UPVALUE 3
 #define MCP_CONTEXT_UPVALUE 4
 
+#define MCP_YIELD_POOL 1
+#define MCP_YIELD_AWAIT 2
+#define MCP_YIELD_LOCAL 3
+
 // all possible commands.
 #define CMD_FIELDS \
     X(CMD_MG) \
@@ -507,6 +511,7 @@ void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p);
 int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len);
 void proxy_lua_error(lua_State *L, const char *s);
 void proxy_lua_ferror(lua_State *L, const char *fmt, ...);
+void proxy_out_errstring(mc_resp *resp, const char *str);
 int _start_proxy_config_threads(proxy_ctx_t *ctx);
 int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr);
 
