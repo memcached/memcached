@@ -6053,9 +6053,6 @@ int main (int argc, char **argv) {
 #ifdef PROXY
     if (settings.proxy_enabled) {
         settings.proxy_ctx = proxy_init(settings.proxy_uring);
-        if (proxy_load_config(settings.proxy_ctx) != 0) {
-            exit(EXIT_FAILURE);
-        }
     }
 #endif
 #ifdef EXTSTORE
@@ -6065,6 +6062,14 @@ int main (int argc, char **argv) {
 #else
     memcached_thread_init(settings.num_threads, NULL);
     init_lru_crawler(NULL);
+#endif
+
+#ifdef PROXY
+    if (settings.proxy_enabled) {
+        if (proxy_first_confload(settings.proxy_ctx) != 0) {
+            exit(EXIT_FAILURE);
+        }
+    }
 #endif
 
     if (start_assoc_maint && start_assoc_maintenance_thread() == -1) {

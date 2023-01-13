@@ -99,6 +99,9 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
 }
 
 my @mbe = ();
+# A map of where keys route to for worker IO tests later
+my %keymap = ();
+my $keycount = 100;
 {
     # set up server backend sockets.
     for my $msrv ($mocksrvs[0], $mocksrvs[1], $mocksrvs[2]) {
@@ -125,6 +128,22 @@ my @mbe = ();
     is(scalar <$be>, $cmd, "metaget passthrough");
     print $be "EN\r\n";
     is(scalar <$ps>, "EN\r\n", "miss received");
+
+    # Route a bunch of keys and map them to backends.
+    for my $key (0 .. $keycount) {
+        print $ps "mg /test/$key\r\n";
+        my @readable = $s->can_read(0.25);
+        is(scalar @readable, 1, "only one backend became readable");
+        my $be = shift @readable;
+        for (0 .. 2) {
+            if ($be == $mbe[$_]) {
+                $keymap{$key} = $_;
+            }
+        }
+        is(scalar <$be>, "mg /test/$key\r\n", "got mg passthrough");
+        print $be "EN\r\n";
+        is(scalar <$ps>, "EN\r\n", "miss received");
+    }
 }
 
 # Test backend table arguments and per-backend time overrides
@@ -163,6 +182,88 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     wait_reload($watcher);
     @readable = $s->can_read(0.5);
     is(scalar @readable, 0, "no new sockets");
+}
+
+# Disconnect the existing sockets
+@mbe = ();
+@holdbe = ();
+@mocksrvs = ();
+$watcher = $p_srv->new_sock;
+# Reset the watcher and let logs die off.
+sleep 1;
+print $watcher "watch proxyevents\n";
+is(<$watcher>, "OK\r\n", "watcher enabled");
+
+{
+    # re-create the mock servers so we get clean connects, the previous
+    # backends could be reconnecting still.
+    for my $port (11514, 11515, 11516) {
+        my $srv = mock_server($port);
+        ok(defined $srv, "mock server created");
+        push(@mocksrvs, $srv);
+    }
+
+    write_modefile('return "noiothread"');
+    $p_srv->reload();
+    wait_reload($watcher);
+
+    my $s = IO::Select->new();
+    for my $msrv (@mocksrvs) {
+        $s->add($msrv);
+    }
+    my @readable = $s->can_read(0.25);
+    # All three backends should become readable with new sockets.
+    is(scalar @readable, 3, "all listeners became readable");
+
+    my @bepile = ();
+    my $bes = IO::Select->new(); # selector just for the backend sockets.
+    # Each backend should create one socket per worker thread.
+    for my $msrv (@readable) {
+        my @temp = ();
+        for (0 .. 3) {
+            my $be = $msrv->accept();
+            ok(defined $be, "mock backend accepted");
+            like(<$be>, qr/version/, "received version command");
+            print $be "VERSION 1.0.0-mock\r\n";
+            $bes->add($be);
+            push(@temp, $be);
+        }
+        for (0 .. 2) {
+            if ($mocksrvs[$_] == $msrv) {
+                $bepile[$_] = \@temp;
+            }
+        }
+    }
+
+    # clients round robin onto different worker threads, so we can test the
+    # key dist on different offsets.
+    my @cli = ();
+    for (0 .. 2) {
+        my $p = $p_srv->new_sock;
+
+        for my $key (0 .. $keycount) {
+            print $p "mg /test/$key\r\n";
+            @readable = $bes->can_read(0.25);
+            is(scalar @readable, 1, "only one backend became readable");
+            my $be = shift @readable;
+            # find which listener this be belongs to
+            for my $x (0 .. 2) {
+                for (@{$bepile[$x]}) {
+                    if ($_ == $be) {
+                        cmp_ok($x, '==', $keymap{$key}, "key routed to correct listener: " . $keymap{$key});
+                    }
+                }
+            }
+
+            is(scalar <$be>, "mg /test/$key\r\n", "got mg passthrough");
+            print $be "EN\r\n";
+            is(scalar <$p>, "EN\r\n", "miss received");
+        }
+
+        # hold onto the sockets just in case.
+        push(@cli, $p);
+    }
+
 }
 
 # TODO:

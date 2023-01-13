@@ -259,7 +259,11 @@ int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref) {
     const char *key = MCP_PARSER_KEY(rq->pr);
     size_t len = rq->pr.klen;
     int n = 0;
-    bool await_first = true;
+    // TODO (v3) await_first is used as a marker for upping the "wait for
+    // IO's" queue count, which means we need to force it off if we're in
+    // background mode, else we would accidentally wait for a response anyway.
+    // This note is for finding a less convoluted method for this.
+    bool await_first = (aw->type == AWAIT_BACKGROUND) ? false : true;
     // loop arg table and run each hash selector
     lua_pushnil(L); // -> 3
     while (lua_next(L, 1) != 0) {
@@ -269,11 +273,10 @@ int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref) {
         if (pp == NULL) {
             proxy_lua_error(L, "mcp.await must be supplied with a pool");
         }
-        mcp_pool_t *p = pp->main;
 
         // NOTE: rq->be is only held to help pass the backend into the IOP in
         // mcp_queue call. Could be a local variable and an argument too.
-        rq->be = mcplib_pool_proxy_call_helper(L, p, key, len);
+        rq->be = mcplib_pool_proxy_call_helper(L, pp, key, len);
 
         mcp_queue_await_io(c, L, rq, await_ref, await_first);
         await_first = false;

@@ -13,6 +13,7 @@ void *proxy_init(bool proxy_uring);
 // TODO: need better names or a better interface for these. can be confusing
 // to reason about the order.
 void proxy_start_reload(void *arg);
+int proxy_first_confload(void *arg);
 int proxy_load_config(void *arg);
 void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr);
 

@@ -3,6 +3,7 @@
 local mode = dofile("/tmp/proxyconfigmode.lua")
 
 mcp.backend_read_timeout(4)
+mcp.backend_connect_timeout(5)
 
 function mcp_config_pools(old)
     if mode == "none" then
@@ -29,6 +30,15 @@ function mcp_config_pools(old)
             test = mcp.pool({b1, b2, b3})
         }
         return pools
+    elseif mode == "noiothread" then
+        local b1 = mcp.backend('b1', '127.0.0.1', 11514)
+        local b2 = mcp.backend('b2', '127.0.0.1', 11515)
+        local b3 = mcp.backend('b3', '127.0.0.1', 11516)
+
+        local pools = {
+            test = mcp.pool({b1, b2, b3}, { iothread = false })
+        }
+        return pools
     end
 end
 
@@ -40,6 +50,9 @@ function mcp_config_routes(zones)
         mcp.attach(mcp.CMD_MG, function(r) return "SERVER_ERROR no mg route\r\n" end)
         mcp.attach(mcp.CMD_MS, function(r) return "SERVER_ERROR no ms route\r\n" end)
     elseif mode == "start" or mode == "betable" then
+        mcp.attach(mcp.CMD_MG, function(r) return zones["test"](r) end)
+        mcp.attach(mcp.CMD_MS, function(r) return zones["test"](r) end)
+    elseif mode == "noiothread" then
         mcp.attach(mcp.CMD_MG, function(r) return zones["test"](r) end)
         mcp.attach(mcp.CMD_MS, function(r) return zones["test"](r) end)
     end
