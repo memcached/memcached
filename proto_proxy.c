@@ -402,7 +402,7 @@ void proxy_cleanup_conn(conn *c) {
     lua_State *L = thr->L;
     luaL_unref(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
     c->proxy_coro_ref = 0;
-    WSTAT_DECR(c, proxy_req_active, 1);
+    WSTAT_DECR(thr, proxy_req_active, 1);
 }
 
 // we buffered a SET of some kind.
@@ -545,7 +545,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
     size_t rlen = 0;
 
     if (cores == LUA_OK) {
-        WSTAT_DECR(c, proxy_req_active, 1);
+        WSTAT_DECR(c->thread, proxy_req_active, 1);
         int type = lua_type(Lc, 1);
         if (type == LUA_TUSERDATA) {
             mcp_resp_t *r = luaL_checkudata(Lc, 1, "mcp.response");
@@ -619,7 +619,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
         }
 
     } else {
-        WSTAT_DECR(c, proxy_req_active, 1);
+        WSTAT_DECR(c->thread, proxy_req_active, 1);
         P_DEBUG("%s: Failed to run coroutine: %s\n", __func__, lua_tostring(Lc, -1));
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(Lc, -1));
         proxy_out_errstring(resp, "lua failure");
@@ -642,7 +642,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // permanent solution.
     int ret = process_request(&pr, command, cmdlen);
     if (ret != 0) {
-        WSTAT_INCR(c, proxy_conn_errors, 1);
+        WSTAT_INCR(c->thread, proxy_conn_errors, 1);
         if (!resp_start(c)) {
             conn_set_state(c, conn_closing);
             return;
@@ -749,7 +749,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // We test the command length all the way down here because multigets can
     // be very long, and they're chopped up by now.
     if (cmdlen >= MCP_REQUEST_MAXLEN) {
-        WSTAT_INCR(c, proxy_conn_errors, 1);
+        WSTAT_INCR(c->thread, proxy_conn_errors, 1);
         if (!resp_start(c)) {
             conn_set_state(c, conn_closing);
             return;
@@ -797,7 +797,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         if (c->item == NULL) {
             lua_settop(L, 0);
             proxy_out_errstring(c->resp, "out of memory");
-            WSTAT_DECR(c, proxy_req_active, 1);
+            WSTAT_DECR(c->thread, proxy_req_active, 1);
             return;
         }
         c->item_malloced = true;
@@ -864,7 +864,7 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
 
     io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
     if (p == NULL) {
-        WSTAT_INCR(c, proxy_conn_oom, 1);
+        WSTAT_INCR(c->thread, proxy_conn_oom, 1);
         proxy_lua_error(Lc, "out of memory allocating from IO cache");
         return;
     }

@@ -42,15 +42,15 @@
 
 #define WSTAT_L(t) pthread_mutex_lock(&t->stats.mutex);
 #define WSTAT_UL(t) pthread_mutex_unlock(&t->stats.mutex);
-#define WSTAT_INCR(c, stat, amount) { \
-    pthread_mutex_lock(&c->thread->stats.mutex); \
-    c->thread->stats.stat += amount; \
-    pthread_mutex_unlock(&c->thread->stats.mutex); \
+#define WSTAT_INCR(t, stat, amount) { \
+    pthread_mutex_lock(&t->stats.mutex); \
+    t->stats.stat += amount; \
+    pthread_mutex_unlock(&t->stats.mutex); \
 }
-#define WSTAT_DECR(c, stat, amount) { \
-    pthread_mutex_lock(&c->thread->stats.mutex); \
-    c->thread->stats.stat -= amount; \
-    pthread_mutex_unlock(&c->thread->stats.mutex); \
+#define WSTAT_DECR(t, stat, amount) { \
+    pthread_mutex_lock(&t->stats.mutex); \
+    t->stats.stat -= amount; \
+    pthread_mutex_unlock(&t->stats.mutex); \
 }
 #define STAT_L(ctx) pthread_mutex_lock(&ctx->stats_lock);
 #define STAT_UL(ctx) pthread_mutex_unlock(&ctx->stats_lock);
