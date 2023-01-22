@@ -147,9 +147,6 @@ static int _proxy_event_handler_dequeue(proxy_event_thread_t *t) {
             continue;
         }
         STAILQ_INSERT_TAIL(&be->io_head, io, io_next);
-        if (be->io_next == NULL) {
-            be->io_next = io; // set write flush starting point.
-        }
         be->depth++;
         io_count++;
         if (!be->stacked) {
@@ -1297,9 +1294,10 @@ static int _prep_pending_write(mcp_backend_t *be) {
     int iovused = 0;
     if (be->io_next == NULL) {
         // separate pointer for how far into the list we've flushed.
-        be->io_next = STAILQ_FIRST(&be->io_head);
+        io = STAILQ_FIRST(&be->io_head);
+    } else {
+        io = be->io_next;
     }
-    io = be->io_next;
     assert(io != NULL);
     for (; io; io = STAILQ_NEXT(io, io_next)) {
         // TODO (v2): paranoia for now, but this check should never fire
@@ -1320,13 +1318,20 @@ static int _prep_pending_write(mcp_backend_t *be) {
 // returns true if any pending writes were fully flushed.
 static bool _post_pending_write(mcp_backend_t *be, ssize_t sent) {
     io_pending_proxy_t *io = be->io_next;
-    assert(io != NULL);
+    if (io == NULL) {
+        io = STAILQ_FIRST(&be->io_head);
+    }
 
     bool did_flush = false;
     for (; io; io = STAILQ_NEXT(io, io_next)) {
         bool flushed = true;
         if (io->flushed)
             continue;
+        if (sent <= 0) {
+            // really shouldn't be negative, though.
+            assert(sent >= 0);
+            break;
+        }
 
         if (sent >= io->iovbytes) {
             // short circuit for common case.
@@ -1351,14 +1356,15 @@ static bool _post_pending_write(mcp_backend_t *be, ssize_t sent) {
 
         if (flushed) {
             did_flush = flushed;
-            be->io_next = STAILQ_NEXT(io, io_next);
-        }
-        if (sent <= 0) {
-            // really shouldn't be negative, though.
-            assert(sent >= 0);
-            break;
         }
     } // for
+
+    // resume the flush from this point.
+    if (io != NULL) {
+        be->io_next = io;
+    } else {
+        be->io_next = NULL;
+    }
 
     return did_flush;
 }
