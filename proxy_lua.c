@@ -1009,6 +1009,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"add_stat", mcplib_add_stat},
         {"stat", mcplib_stat},
         {"await", mcplib_await},
+        {"await_logerrors", mcplib_await_logerrors},
         {"log", mcplib_log},
         {"log_req", mcplib_log_req},
         {"log_reqsample", mcplib_log_reqsample},

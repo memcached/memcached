@@ -512,5 +512,39 @@ check_version($ps);
     # test hitting mcp.await() then a pool normally
 }
 
+{
+    my $watcher = $p_srv->new_sock;
+    print $watcher "watch proxyreqs\n";
+    is(<$watcher>, "OK\r\n", "watcher enabled");
+
+    # test logging errors from special await.
+    my $key = "/awaitlogerr/a";
+    my $cmd = "set $key 0 0 5\r\n";
+    print $ps $cmd . "hello\r\n";
+    # respond from the first backend normally, then other two with errors.
+    my $be = $mbe[0];
+    is(scalar <$be>, $cmd, "await_logerrors backend req");
+    is(scalar <$be>, "hello\r\n", "await_logerrors set payload");
+    print $be "STORED\r\n";
+
+    is(scalar <$ps>, "STORED\r\n", "block until await responded");
+    # now ship some errors.
+    for my $be ($mbe[1], $mbe[2]) {
+        is(scalar <$be>, $cmd, "await_logerrors backend req");
+        is(scalar <$be>, "hello\r\n", "await_logerrors set payload");
+        print $be "SERVER_ERROR out of memory\r\n";
+    }
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=\d+ code=\d+ status=-1 be=(\S+) detail=write_failed req=set \/awaitlogerr\/a/, "await_logerrors log entry 1");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=\d+ code=\d+ status=-1 be=(\S+) detail=write_failed req=set \/awaitlogerr\/a/, "await_logerrors log entry 2");
+
+    # Repeat the logreqtest to ensure we only got the log lines we expected.
+    $cmd = "get /logreqtest/a\r\n";
+    print $ps $cmd;
+    is(scalar <$be>, $cmd, "got passthru for log");
+    print $be "END\r\n";
+    is(scalar <$ps>, "END\r\n", "got END from log test");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 be=127.0.0.1:11411 detail=logreqtest req=get \/logreqtest\/a/, "found request log entry");
+}
+
 check_version($ps);
 done_testing();

@@ -480,6 +480,7 @@ enum mcp_await_e {
     AWAIT_BACKGROUND, // returns as soon as background jobs are dispatched
 };
 int mcplib_await(lua_State *L);
+int mcplib_await_logerrors(lua_State *L);
 int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref);
 int mcplib_await_return(io_pending_proxy_t *p);
 

@@ -213,6 +213,11 @@ function mcp_config_routes(zones)
         return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. count .. "\r\nEND\r\n"
     end
 
+    pfx_set["awaitlogerr"] = function(r)
+        local rtable = mcp.await_logerrors(r, { zones.z1, zones.z2, zones.z3 }, 1, mcp.AWAIT_FASTGOOD, "write_failed")
+        return rtable[1]
+    end
+
     mcp.attach(mcp.CMD_GET, toproute_factory(pfx_get, "get"))
     mcp.attach(mcp.CMD_SET, toproute_factory(pfx_set, "set"))
     mcp.attach(mcp.CMD_TOUCH, toproute_factory(pfx_touch, "touch"))
