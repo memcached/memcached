@@ -2,7 +2,7 @@ FROM fedora:latest
 
 ARG CONFIGURE_OPTS="--enable-seccomp"
 
-RUN dnf install -y perl automake autoconf libseccomp-devel libevent-devel gcc make git
+RUN dnf install -y perl automake autoconf libseccomp-devel libevent-devel gcc make git pkgconf
 
 RUN useradd -ms /bin/bash memcached
 ADD . /src
