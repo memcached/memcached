@@ -826,6 +826,11 @@ static int mcplib_attach(lua_State *L) {
 
         for (int x = loop_start; x < loop_end; x++) {
             struct proxy_hook *h = &hooks[x];
+            if (x == CMD_MN) {
+                // disallow overriding MN so client pipeline flushes work.
+                // need to add flush support before allowing override
+                continue;
+            }
             lua_pushvalue(L, 2); // duplicate the function for the ref.
 
             if (tag) {
