@@ -119,12 +119,48 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
     # Try sending something.
     my $cmd = "mg foo v\r\n";
     print $ps $cmd;
-    my @readable = $s->can_read(1);
+    my @readable = $s->can_read(0.25);
     is(scalar @readable, 1, "only one backend became readable");
     my $be = shift @readable;
     is(scalar <$be>, $cmd, "metaget passthrough");
     print $be "EN\r\n";
     is(scalar <$ps>, "EN\r\n", "miss received");
+}
+
+# Test backend table arguments and per-backend time overrides
+{
+    # This should create three new backend sockets
+    write_modefile('return "betable"');
+    $p_srv->reload();
+    wait_reload($watcher);
+
+    # sleep a short time; b1 should have a very short timeout and the
+    # others are long.
+    select(undef, undef, undef, 0.5);
+
+    my $s = IO::Select->new();
+    for my $msrv (@mocksrvs) {
+        $s->add($msrv);
+    }
+    my @readable = $s->can_read(0.25);
+    # All three backends should have changed despite having the same label,
+    # host, and port arguments.
+    is(scalar @readable, 3, "all listeners became readable");
+
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=timeout name=\S+ port=11511/, "one backend timed out connecting");
+
+    for my $msrv (@readable) {
+        my $be = $msrv->accept();
+        ok(defined $be, "mock backend accepted");
+        like(<$be>, qr/version/, "received version command");
+        print $be "VERSION 1.0.0-mock\r\n";
+    }
+
+    # reload again and ensure only the bad socket became available.
+    $p_srv->reload();
+    wait_reload($watcher);
+    @readable = $s->can_read(0.5);
+    is(scalar @readable, 1, "only one listener became readable");
 }
 
 # TODO:

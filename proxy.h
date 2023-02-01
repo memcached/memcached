@@ -308,6 +308,7 @@ struct mcp_backend_label_s {
     char port[MAX_PORTLEN+1];
     char label[MAX_LABELLEN+1];
     size_t llen; // cache label length for small speedup in pool creation.
+    struct proxy_tunables tunables;
 };
 
 // lua object wrapper meant to own a malloc'ed conn structure
@@ -333,6 +334,7 @@ struct mcp_backend_s {
     char *rbuf; // statically allocated read buffer.
     size_t rbufused; // currently active bytes in the buffer
     struct event event; // libevent
+    struct proxy_tunables tunables;
 #ifdef HAVE_LIBURING
     proxy_event_t ur_rd_ev; // liburing.
     proxy_event_t ur_wr_ev; // need a separate event/cb for writing/polling
@@ -357,13 +359,11 @@ struct proxy_event_thread_s {
     pthread_t thread_id;
     struct event_base *base;
     struct event notify_event; // listen event for the notify pipe/eventfd.
-    struct event clock_event; // timer for updating event thread data.
     struct event beconn_event; // listener for backends in connect state
 #ifdef HAVE_LIBURING
     struct io_uring ring;
     proxy_event_t ur_notify_event; // listen on eventfd.
     proxy_event_t ur_benotify_event; // listen on eventfd for backend connections.
-    proxy_event_t ur_clock_event; // timer for updating event thread data.
     eventfd_t event_counter;
     eventfd_t beevent_counter;
     bool use_uring;
@@ -383,7 +383,6 @@ struct proxy_event_thread_s {
     int be_notify_send_fd;
 #endif
     proxy_ctx_t *ctx; // main context.
-    struct proxy_tunables tunables; // periodically copied from main ctx
 };
 
 enum mcp_resp_mode {

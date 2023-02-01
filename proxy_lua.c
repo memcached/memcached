@@ -2,6 +2,10 @@
 
 #include "proxy.h"
 
+// sad, I had to look this up...
+#define NANOSECONDS(x) ((x) * 1E9 + 0.5)
+#define MICROSECONDS(x) ((x) * 1E6 + 0.5)
+
 // func prototype example:
 // static int fname (lua_State *L)
 // normal library open:
@@ -140,13 +144,112 @@ static int mcplib_backend_gc(lua_State *L) {
 
 // backend label object; given to pools which then find or create backend
 // objects as necessary.
+// allow optionally passing a table of arguments for extended options:
+// { label = "etc", "host" = "127.0.0.1", port = "11211",
+//   readtimeout = 0.5, connecttimeout = 1, retrytime = 3,
+//   failurelimit = 3, tcpkeepalive = false }
 static int mcplib_backend(lua_State *L) {
     size_t llen = 0;
     size_t nlen = 0;
     size_t plen = 0;
-    const char *label = luaL_checklstring(L, 1, &llen);
-    const char *name = luaL_checklstring(L, 2, &nlen);
-    const char *port = luaL_checklstring(L, 3, &plen);
+    proxy_ctx_t *ctx = settings.proxy_ctx;
+    mcp_backend_label_t *be = lua_newuserdatauv(L, sizeof(mcp_backend_label_t), 0);
+    memset(be, 0, sizeof(*be));
+    const char *label;
+    const char *name;
+    const char *port;
+    // copy global defaults for tunables.
+    memcpy(&be->tunables, &ctx->tunables, sizeof(be->tunables));
+
+    if (lua_istable(L, 1)) {
+
+        // We don't pop the label/host/port strings so lua won't change them
+        // until after the function call.
+        if (lua_getfield(L, 1, "label") != LUA_TNIL) {
+            label = luaL_checklstring(L, -1, &llen);
+        } else {
+            proxy_lua_error(L, "backend must have a label argument");
+            return 0;
+        }
+
+        if (lua_getfield(L, 1, "host") != LUA_TNIL) {
+            name = luaL_checklstring(L, -1, &nlen);
+        } else {
+            proxy_lua_error(L, "backend must have a host argument");
+            return 0;
+        }
+
+        // TODO: allow a default port.
+        if (lua_getfield(L, 1, "port") != LUA_TNIL) {
+            port = luaL_checklstring(L, -1, &plen);
+        } else {
+            proxy_lua_error(L, "backend must have a port argument");
+            return 0;
+        }
+
+        if (lua_getfield(L, 1, "tcpkeepalive") != LUA_TNIL) {
+            be->tunables.tcp_keepalive = lua_toboolean(L, -1);
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "failurelimit") != LUA_TNIL) {
+            int limit = luaL_checkinteger(L, -1);
+            if (limit < 0) {
+                proxy_lua_error(L, "failure_limit must be >= 0");
+                return 0;
+            }
+
+            be->tunables.backend_failure_limit = limit;
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "connecttimeout") != LUA_TNIL) {
+            lua_Number secondsf = luaL_checknumber(L, -1);
+            lua_Integer secondsi = (lua_Integer) secondsf;
+            lua_Number subseconds = secondsf - secondsi;
+
+            be->tunables.connect.tv_sec = secondsi;
+            be->tunables.connect.tv_usec = MICROSECONDS(subseconds);
+#ifdef HAVE_LIBURING
+            be->tunables.connect_ur.tv_sec = secondsi;
+            be->tunables.connect_ur.tv_nsec = NANOSECONDS(subseconds);
+#endif
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "retrytimeout") != LUA_TNIL) {
+            lua_Number secondsf = luaL_checknumber(L, -1);
+            lua_Integer secondsi = (lua_Integer) secondsf;
+            lua_Number subseconds = secondsf - secondsi;
+
+            be->tunables.retry.tv_sec = secondsi;
+            be->tunables.retry.tv_usec = MICROSECONDS(subseconds);
+#ifdef HAVE_LIBURING
+            be->tunables.retry_ur.tv_sec = secondsi;
+            be->tunables.retry_ur.tv_nsec = NANOSECONDS(subseconds);
+#endif
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "readtimeout") != LUA_TNIL) {
+            lua_Number secondsf = luaL_checknumber(L, -1);
+            lua_Integer secondsi = (lua_Integer) secondsf;
+            lua_Number subseconds = secondsf - secondsi;
+
+            be->tunables.read.tv_sec = secondsi;
+            be->tunables.read.tv_usec = MICROSECONDS(subseconds);
+#ifdef HAVE_LIBURING
+            be->tunables.read_ur.tv_sec = secondsi;
+            be->tunables.read_ur.tv_nsec = NANOSECONDS(subseconds);
+#endif
+        }
+        lua_pop(L, 1);
+
+    } else {
+        label = luaL_checklstring(L, 1, &llen);
+        name = luaL_checklstring(L, 2, &nlen);
+        port = luaL_checklstring(L, 3, &plen);
+    }
 
     if (llen > MAX_LABELLEN-1) {
         proxy_lua_error(L, "backend label too long");
@@ -163,8 +266,6 @@ static int mcplib_backend(lua_State *L) {
         return 0;
     }
 
-    mcp_backend_label_t *be = lua_newuserdatauv(L, sizeof(mcp_backend_label_t), 0);
-    memset(be, 0, sizeof(*be));
     memcpy(be->label, label, llen);
     be->label[llen] = '\0';
     memcpy(be->name, name, nlen);
@@ -172,6 +273,9 @@ static int mcplib_backend(lua_State *L) {
     memcpy(be->port, port, plen);
     be->port[plen] = '\0';
     be->llen = llen;
+    if (lua_istable(L, 1)) {
+        lua_pop(L, 3); // drop label, name, port.
+    }
     luaL_getmetatable(L, "mcp.backend");
     lua_setmetatable(L, -2); // set metatable to userdata.
 
@@ -187,7 +291,8 @@ static mcp_backend_wrap_t *_mcplib_backend_checkcache(lua_State *L, mcp_backend_
     if (ret != LUA_TNIL) {
         mcp_backend_wrap_t *be_orig = luaL_checkudata(L, -1, "mcp.backendwrap");
         if (strncmp(be_orig->be->name, bel->name, MAX_NAMELEN) == 0
-                && strncmp(be_orig->be->port, bel->port, MAX_PORTLEN) == 0) {
+                && strncmp(be_orig->be->port, bel->port, MAX_PORTLEN) == 0
+                && memcmp(&be_orig->be->tunables, &bel->tunables, sizeof(bel->tunables)) == 0) {
             // backend is the same, return it.
             return be_orig;
         } else {
@@ -218,6 +323,7 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
 
     strncpy(be->name, bel->name, MAX_NAMELEN+1);
     strncpy(be->port, bel->port, MAX_PORTLEN+1);
+    memcpy(&be->tunables, &bel->tunables, sizeof(bel->tunables));
     STAILQ_INIT(&be->io_head);
     be->state = mcp_backend_read;
 
@@ -627,10 +733,6 @@ static int mcplib_backend_failure_limit(lua_State *L) {
 
     return 0;
 }
-
-// sad, I had to look this up...
-#define NANOSECONDS(x) ((x) * 1E9 + 0.5)
-#define MICROSECONDS(x) ((x) * 1E6 + 0.5)
 
 static int mcplib_backend_connect_timeout(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);

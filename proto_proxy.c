@@ -175,8 +175,6 @@ void *proxy_init(bool use_uring) {
         pthread_mutex_init(&t->mutex, NULL);
         pthread_cond_init(&t->cond, NULL);
 
-        memcpy(&t->tunables, &ctx->tunables, sizeof(t->tunables));
-
 #ifdef HAVE_LIBURING
         if (t->use_uring) {
             pthread_create(&t->thread_id, NULL, proxy_event_thread_ur, t);
