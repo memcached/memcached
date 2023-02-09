@@ -856,7 +856,7 @@ static void proxy_event_handler(evutil_socket_t fd, short which, void *arg) {
                 _reset_bad_backend(be, P_BE_FAIL_WRITING);
                 _backend_failed(be);
             } else {
-                flags = be->can_write ? EV_READ|EV_TIMEOUT : EV_READ|EV_WRITE|EV_TIMEOUT;
+                flags |= EV_TIMEOUT;
                 _set_event(be, t->base, flags, be->tunables.read, proxy_backend_handler);
             }
         }
@@ -1276,12 +1276,6 @@ static bool _post_pending_write(mcp_backend_t *be, ssize_t sent) {
         bool flushed = true;
         if (io->flushed)
             continue;
-        if (sent <= 0) {
-            // really shouldn't be negative, though.
-            assert(sent >= 0);
-            break;
-        }
-
         if (sent >= io->iovbytes) {
             // short circuit for common case.
             sent -= io->iovbytes;
@@ -1306,10 +1300,15 @@ static bool _post_pending_write(mcp_backend_t *be, ssize_t sent) {
         if (flushed) {
             did_flush = flushed;
         }
+        if (sent <= 0) {
+            // really shouldn't be negative, though.
+            assert(sent >= 0);
+            break;
+        }
     } // for
 
     // resume the flush from this point.
-    if (io != NULL) {
+    if (io != NULL && !io->flushed) {
         be->io_next = io;
     } else {
         be->io_next = NULL;
@@ -1334,6 +1333,7 @@ static int _flush_pending_write(mcp_backend_t *be) {
         }
         // still have unflushed pending IO's, check for write and re-loop.
         if (be->io_next) {
+            be->can_write = false;
             flags |= EV_WRITE;
         }
     } else if (sent == -1) {
@@ -1510,6 +1510,9 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
     // Still pending requests to read or write.
     if (!STAILQ_EMPTY(&be->io_head)) {
         flags |= EV_READ; // FIXME (v2): might not be necessary here, but ensures we get a disconnect event.
+        if (!be->can_write) {
+            flags |= EV_WRITE;
+        }
         _set_event(be, be->event_thread->base, flags, tmp_time, proxy_backend_handler);
     }
 }
