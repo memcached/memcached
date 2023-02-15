@@ -37,7 +37,7 @@ sub check_version {
 }
 
 my @mocksrvs = ();
-diag "making mock servers";
+#diag "making mock servers";
 for my $port (11411, 11412, 11413) {
     my $srv = mock_server($port);
     ok(defined $srv, "mock server created");
@@ -50,7 +50,7 @@ $ps->autoflush(1);
 
 # set up server backend sockets.
 my @mbe = ();
-diag "accepting mock backends";
+#diag "accepting mock backends";
 for my $msrv (@mocksrvs) {
     my $be = $msrv->accept();
     $be->autoflush(1);
@@ -58,13 +58,31 @@ for my $msrv (@mocksrvs) {
     push(@mbe, $be);
 }
 
-diag "validating backends";
+#diag "validating backends";
 for my $be (@mbe) {
     like(<$be>, qr/version/, "received version command");
     print $be "VERSION 1.0.0-mock\r\n";
 }
 
-diag "ready for main tests";
+{
+    # Test a fix for passing through partial read data if END ends up missing.
+    print $ps "get /b/a\r\n";
+    my $be = $mbe[0];
+
+    is(scalar <$be>, "get /b/a\r\n", "get passthrough");
+    print $be "VALUE /b/a 0 2\r\nhi\r\nEN";
+
+    is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend failure error");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+}
+
+#diag "ready for main tests";
 # Target a single backend, validating basic syntax.
 # Should test all command types.
 # uses /b/ path for "basic"
@@ -295,8 +313,6 @@ check_version($ps);
 }
 
 check_version($ps);
-# TODO: Test specifically responding to a get but missing the END\r\n. it
-# should time out and not leak to the client.
 
 # Test Lua request API
 {

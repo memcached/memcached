@@ -548,7 +548,9 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
         if (type == LUA_TUSERDATA) {
             mcp_resp_t *r = luaL_checkudata(Lc, 1, "mcp.response");
             _set_noreply_mode(resp, r);
-            if (r->buf) {
+            if (r->status != MCMC_OK) {
+                proxy_out_errstring(resp, "backend failure");
+            } else if (r->buf) {
                 // response set from C.
                 // FIXME (v2): write_and_free() ? it's a bit wrong for here.
                 resp->write_and_free = r->buf;
@@ -562,8 +564,6 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
                 memcpy(resp->wbuf, s, l);
                 resp_add_iov(resp, resp->wbuf, l);
                 lua_pop(Lc, 1);
-            } else if (r->status != MCMC_OK) {
-                proxy_out_errstring(resp, "backend failure");
             } else {
                 // Empty response: used for ascii multiget emulation.
             }

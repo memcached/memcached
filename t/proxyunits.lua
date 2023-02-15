@@ -1,4 +1,5 @@
 mcp.backend_read_timeout(0.5)
+mcp.backend_connect_timeout(5)
 
 function mcp_config_pools(oldss)
     local srv = mcp.backend
