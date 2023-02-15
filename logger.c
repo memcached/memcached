@@ -371,6 +371,64 @@ static int _logger_parse_prx_req(logentry *e, char *scratch) {
             );
     return total;
 }
+
+#define MAX_RBUF_READ 100
+static void _logger_log_proxy_errbe(logentry *e, const entry_details *d, const void *entry, va_list ap) {
+    char *errmsg = va_arg(ap, char *);
+    char *be_name = va_arg(ap, char *);
+    char *be_port = va_arg(ap, char *);
+    int be_depth = va_arg(ap, int);
+    char *be_rbuf = va_arg(ap, char *);
+    int be_rbuflen = va_arg(ap, int);
+
+    struct logentry_proxy_errbe *le = (void *)e->data;
+    le->be_depth = be_depth;
+    le->errlen = strlen(errmsg);
+    if (be_name && be_port) {
+        le->be_namelen = strlen(be_name);
+        le->be_portlen = strlen(be_port);
+    }
+
+    le->be_rbuflen = be_rbuflen;
+    if (be_rbuflen > MAX_RBUF_READ) {
+        le->be_rbuflen = MAX_RBUF_READ;
+    }
+
+    char *data = le->data;
+    memcpy(data, errmsg, le->errlen);
+    data += le->errlen;
+    memcpy(data, be_name, le->be_namelen);
+    data += le->be_namelen;
+    memcpy(data, be_port, le->be_portlen);
+    data += le->be_portlen;
+    memcpy(data, be_rbuf, le->be_rbuflen);
+    data += le->be_rbuflen;
+
+    e->size = sizeof(struct logentry_proxy_errbe) + (data - le->data);
+}
+
+static int _logger_parse_prx_errbe(logentry *e, char *scratch) {
+    int total;
+    char rbuf[MAX_RBUF_READ * 3]; // x 3 for worst case URI encoding.
+    struct logentry_proxy_errbe *le = (void *)e->data;
+    char *data = le->data;
+    char *errmsg = data;
+    data += le->errlen;
+    char *be_name = data;
+    data += le->be_namelen;
+    char *be_port = data;
+    data += le->be_portlen;
+    char *be_rbuf = data;
+
+    uriencode(be_rbuf, rbuf, le->be_rbuflen, MAX_RBUF_READ * 3);
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%lld.%d gid=%llu type=proxy_backend error=%.*s name=%.*s port=%.*s depth=%d rbuf=%s\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            (int)le->errlen, errmsg, (int)le->be_namelen, be_name,
+            (int)le->be_portlen, be_port, le->be_depth, rbuf);
+
+    return total;
+}
 #endif
 
 /* Should this go somewhere else? */
@@ -419,8 +477,8 @@ static const entry_details default_entries[] = {
     [LOGGER_PROXY_USER] = {512, LOG_PROXYUSER, _logger_log_text, _logger_parse_text,
         "type=proxy_user msg=%s"
     },
-    [LOGGER_PROXY_BE_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_text, _logger_parse_text,
-        "type=proxy_backend error=%s name=%s port=%s"
+    [LOGGER_PROXY_BE_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_proxy_errbe, _logger_parse_prx_errbe,
+        NULL
     },
 
 #endif

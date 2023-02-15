@@ -126,6 +126,15 @@ struct logentry_proxy_req {
     long elapsed;
     char data[];
 };
+
+struct logentry_proxy_errbe {
+    size_t errlen;
+    size_t be_namelen;
+    size_t be_portlen;
+    size_t be_rbuflen;
+    int be_depth;
+    char data[];
+};
 #endif
 /* end intermediary structures */
 

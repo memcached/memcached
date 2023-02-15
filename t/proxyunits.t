@@ -82,6 +82,32 @@ for my $be (@mbe) {
     $mbe[0] = $be;
 }
 
+{
+    # Test a log line with detailed data from backend failures.
+    my $be = $mbe[0];
+    my $w = $p_srv->new_sock;
+    print $w "watch proxyevents\n";
+    is(<$w>, "OK\r\n", "watcher enabled");
+
+    print $ps "get /b/c\r\n";
+    is(scalar <$be>, "get /b/c\r\n", "get passthrough");
+    # Set off a "trailing data" error
+    print $be "VALUE /b/c 0 2\r\nok\r\nEND\r\ngarbage";
+
+    is(scalar <$ps>, "VALUE /b/c 0 2\r\n", "got value back");
+    is(scalar <$ps>, "ok\r\n", "got data back");
+    is(scalar <$ps>, "END\r\n", "got end string");
+
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=trailingdata name=127.0.0.1 port=\d+ depth=0 rbuf=garbage/, "got backend error log line");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+}
+
 #diag "ready for main tests";
 # Target a single backend, validating basic syntax.
 # Should test all command types.

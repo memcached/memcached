@@ -1196,6 +1196,7 @@ static int _reset_bad_backend(mcp_backend_t *be, enum proxy_be_failures err) {
     io_pending_proxy_t *io = NULL;
     // Can't use STAILQ_FOREACH() since return_io_pending() free's the current
     // io. STAILQ_FOREACH_SAFE maybe?
+    int depth = be->depth;
     while (!STAILQ_EMPTY(&be->io_head)) {
         io = STAILQ_FIRST(&be->io_head);
         STAILQ_REMOVE_HEAD(&be->io_head, io_next);
@@ -1208,6 +1209,8 @@ static int _reset_bad_backend(mcp_backend_t *be, enum proxy_be_failures err) {
 
     STAILQ_INIT(&be->io_head);
     be->io_next = NULL; // also reset the write offset.
+
+    LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->name, be->port, depth, be->rbuf, be->rbufused);
 
     // reset buffer to blank state.
     be->rbufused = 0;
@@ -1231,8 +1234,6 @@ static int _reset_bad_backend(mcp_backend_t *be, enum proxy_be_failures err) {
         be->connecting = false;
         be->can_write = true;
     }
-
-    LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->name, be->port);
 
     return 0;
 }
