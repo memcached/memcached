@@ -89,6 +89,9 @@
 #define HASHPOWER_DEFAULT 16
 #define HASHPOWER_MAX 32
 
+/* maximum number of slab size grow factors the user can specify */
+#define FACTOR_MAX_COUNT 10
+
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned
  * in this many seconds. That saves us from churning on frequently-accessed
@@ -447,7 +450,7 @@ struct settings {
     char *socketpath;   /* path to unix socket if using local socket */
     char *auth_file;    /* path to user authentication file */
     int access;  /* access mask (a la chmod) for unix domain socket */
-    double factor;          /* chunk size growth factor */
+    double factor[FACTOR_MAX_COUNT+1];          /* chunk size growth factors */
     int chunk_size;
     int num_threads;        /* number of worker (without dispatcher) libevent threads to run */
     int num_threads_per_udp; /* number of worker threads serving each udp socket */
