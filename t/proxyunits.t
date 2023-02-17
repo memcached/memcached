@@ -108,6 +108,61 @@ for my $be (@mbe) {
     $mbe[0] = $be;
 }
 
+SKIP: {
+    skip "Remove this skip line to demonstrate pre-patch bug", 1;
+    # Test issue with finding response complete when read lands between value
+    # size and value + response line in size.
+    my $be = $mbe[0];
+    my $w = $p_srv->new_sock;
+    print $w "watch proxyevents\n";
+    is(<$w>, "OK\r\n", "watcher enabled");
+
+    print $ps "get /b/c\r\n";
+    is(scalar <$be>, "get /b/c\r\n", "get passthrough");
+
+    # Set off a "missingend" error.
+    # The server will wake up several times, thinking it has read the
+    # full size of response but it only read enough for the value portion.
+    print $be "VALUE /b/c 0 5\r\nhe";
+    sleep 0.1;
+    print $be "llo";
+    sleep 0.1;
+    print $be "\r\nEND\r\n";
+
+    is(scalar <$ps>, "SERVER_ERROR backend failure\r\n");
+
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=missingend name=127.0.0.1 port=\d+ depth=1 rbuf=/, "got missingend error log line");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+}
+
+{
+    # Test issue with finding response complete when read lands between value
+    # size and value + response line in size.
+    my $be = $mbe[0];
+
+    print $ps "get /b/c\r\n";
+    is(scalar <$be>, "get /b/c\r\n", "get passthrough");
+
+    # Set off a "missingend" error.
+    # The server will wake up several times, thinking it has read the
+    # full size of response but it only read enough for the value portion.
+    print $be "VALUE /b/c 0 5\r\nhe";
+    sleep 0.1;
+    print $be "llo";
+    sleep 0.1;
+    print $be "\r\nEND\r\n";
+
+    is(scalar <$ps>, "VALUE /b/c 0 5\r\n", "got value back");
+    is(scalar <$ps>, "hello\r\n", "got data back");
+    is(scalar <$ps>, "END\r\n", "got end string");
+}
+
 #diag "ready for main tests";
 # Target a single backend, validating basic syntax.
 # Should test all command types.

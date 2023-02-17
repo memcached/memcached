@@ -1080,7 +1080,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
             memcpy(r->buf+r->bread, be->rbuf, tocopy);
             r->bread += tocopy;
 
-            if (r->bread >= r->resp.vlen) {
+            if (r->bread >= r->blen) {
                 // all done copying data.
                 if (r->resp.type == MCMC_RESP_GET) {
                     be->state = mcp_backend_read_end;
