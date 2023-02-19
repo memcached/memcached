@@ -22,6 +22,8 @@
 #include <unistd.h>
 #include <poll.h>
 
+#include "base64.h"
+
 #define LARGEST_ID POWER_LARGEST
 
 typedef struct {
@@ -81,10 +83,23 @@ crawler_module_reg_t crawler_metadump_mod = {
     .needs_client = true
 };
 
-crawler_module_reg_t *crawler_mod_regs[3] = {
+static void crawler_mgdump_eval(crawler_module_t *cm, item *search, uint32_t hv, int i);
+static void crawler_mgdump_finalize(crawler_module_t *cm);
+
+crawler_module_reg_t crawler_mgdump_mod = {
+    .init = NULL,
+    .eval = crawler_mgdump_eval,
+    .doneclass = NULL,
+    .finalize = crawler_mgdump_finalize,
+    .needs_lock = false,
+    .needs_client = true
+};
+
+crawler_module_reg_t *crawler_mod_regs[4] = {
     &crawler_expired_mod,
     &crawler_expired_mod,
-    &crawler_metadump_mod
+    &crawler_metadump_mod,
+    &crawler_mgdump_mod,
 };
 
 static int lru_crawler_write(crawler_client_t *c);
@@ -279,6 +294,43 @@ static void crawler_metadump_finalize(crawler_module_t *cm) {
         lru_crawler_write(&cm->c); // empty the write buffer
         memcpy(cm->c.buf, "END\r\n", 5);
         cm->c.bufused += 5;
+    }
+}
+
+static void crawler_mgdump_eval(crawler_module_t *cm, item *it, uint32_t hv, int i) {
+    int is_flushed = item_is_flushed(it);
+    /* Ignore expired content. */
+    if ((it->exptime != 0 && it->exptime < current_time)
+        || is_flushed) {
+        refcount_decr(it);
+        return;
+    }
+
+    char *p = cm->c.buf + cm->c.bufused; // buffer offset.
+    char *start = p;
+    memcpy(p, "mg ", 3);
+    p += 3;
+    if (it->it_flags & ITEM_KEY_BINARY) {
+        p += base64_encode((unsigned char *) ITEM_key(it), it->nkey, (unsigned char*) p, LRU_CRAWLER_MINBUFSPACE/2);
+        memcpy(p, " b\r\n", 4);
+        p += 4;
+    } else {
+        memcpy(p, ITEM_key(it), it->nkey);
+        p += it->nkey;
+        memcpy(p, "\r\n", 2);
+        p += 2;
+    }
+    int total = p - start;
+
+    refcount_decr(it);
+    cm->c.bufused += total;
+}
+
+static void crawler_mgdump_finalize(crawler_module_t *cm) {
+    if (cm->c.c != NULL) {
+        lru_crawler_write(&cm->c); // empty the write buffer
+        memcpy(cm->c.buf, "EN\r\n", 4);
+        cm->c.bufused += 4;
     }
 }
 
@@ -687,7 +739,7 @@ int lru_crawler_start(uint8_t *ids, uint32_t remaining,
     }
 
     /* hash table walk only supported with metadump for now. */
-    if (type != CRAWLER_METADUMP && ids == NULL) {
+    if (ids == NULL && type != CRAWLER_METADUMP && type != CRAWLER_MGDUMP) {
         pthread_mutex_unlock(&lru_crawler_lock);
         return -2;
     }

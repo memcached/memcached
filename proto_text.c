@@ -2649,6 +2649,41 @@ static void process_lru_crawler_command(conn *c, token_t *tokens, const size_t n
                 break;
         }
         return;
+    } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "mgdump") == 0) {
+        if (settings.lru_crawler == false) {
+            out_string(c, "CLIENT_ERROR lru crawler disabled");
+            return;
+        }
+        if (!settings.dump_enabled) {
+            out_string(c, "ERROR key dump not allowed");
+            return;
+        }
+        if (resp_has_stack(c)) {
+            out_string(c, "ERROR cannot pipeline other commands before mgdump");
+            return;
+        }
+
+        int rv = lru_crawler_crawl(tokens[2].value, CRAWLER_MGDUMP,
+                c, c->sfd, LRU_CRAWLER_CAP_REMAINING);
+        switch(rv) {
+            case CRAWLER_OK:
+                conn_set_state(c, conn_watch);
+                event_del(&c->event);
+                break;
+            case CRAWLER_RUNNING:
+                out_string(c, "BUSY currently processing crawler request");
+                break;
+            case CRAWLER_BADCLASS:
+                out_string(c, "BADCLASS invalid class id");
+                break;
+            case CRAWLER_NOTSTARTED:
+                out_string(c, "NOTSTARTED no items to crawl");
+                break;
+            case CRAWLER_ERROR:
+                out_string(c, "ERROR an unknown error happened");
+                break;
+        }
+        return;
     } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "tocrawl") == 0) {
         uint32_t tocrawl;
          if (!safe_strtoul(tokens[2].value, &tocrawl)) {
