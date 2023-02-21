@@ -323,7 +323,8 @@ struct mcp_backend_wrap_s {
 // FIXME: inline the mcmc client data.
 // TODO: event_thread -> something? union of owner type?
 struct mcp_backend_s {
-    int depth;
+    int depth; // total number of requests in queue
+    int pending_read; // number of requests written to socket, pending read.
     int failed_count; // number of fails (timeouts) in a row
     proxy_event_thread_t *event_thread; // event thread owning this backend.
     void *client; // mcmc client
@@ -333,7 +334,9 @@ struct mcp_backend_s {
     io_pending_proxy_t *io_next; // next request to write.
     char *rbuf; // statically allocated read buffer.
     size_t rbufused; // currently active bytes in the buffer
-    struct event event; // libevent
+    struct event main_event; // libevent: changes role, mostly for main read events
+    struct event write_event; // libevent: only used when socket wbuf full
+    struct event timeout_event; // libevent: alarm for pending reads
     struct proxy_tunables tunables;
 #ifdef HAVE_LIBURING
     proxy_event_t ur_rd_ev; // liburing.

@@ -337,7 +337,9 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
     }
 
     // initialize libevent.
-    memset(&be->event, 0, sizeof(be->event));
+    memset(&be->main_event, 0, sizeof(be->main_event));
+    memset(&be->write_event, 0, sizeof(be->write_event));
+    memset(&be->timeout_event, 0, sizeof(be->timeout_event));
 
     // initialize the client
     be->client = malloc(mcmc_size(MCMC_OPTION_BLANK));

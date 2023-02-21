@@ -61,7 +61,7 @@ sub wait_reload {
 
 my @mocksrvs = ();
 diag "making mock servers";
-for my $port (11511, 11512, 11513, 11514, 11515, 11516) {
+for my $port (11511, 11512, 11513) {
     my $srv = mock_server($port);
     ok(defined $srv, "mock server created");
     push(@mocksrvs, $srv);
@@ -98,9 +98,9 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
     wait_reload($watcher);
 }
 
+my @mbe = ();
 {
     # set up server backend sockets.
-    my @mbe = ();
     for my $msrv ($mocksrvs[0], $mocksrvs[1], $mocksrvs[2]) {
         my $be = $msrv->accept();
         $be->autoflush(1);
@@ -128,6 +128,7 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
 }
 
 # Test backend table arguments and per-backend time overrides
+my @holdbe = (); # avoid having the backends immediately disconnect and pollute log lines.
 {
     # This should create three new backend sockets
     write_modefile('return "betable"');
@@ -154,13 +155,14 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
         ok(defined $be, "mock backend accepted");
         like(<$be>, qr/version/, "received version command");
         print $be "VERSION 1.0.0-mock\r\n";
+        push(@holdbe, $be);
     }
 
-    # reload again and ensure only the bad socket became available.
+    # reload again and ensure no sockets become readable
     $p_srv->reload();
     wait_reload($watcher);
     @readable = $s->can_read(0.5);
-    is(scalar @readable, 1, "only one listener became readable");
+    is(scalar @readable, 0, "no new sockets");
 }
 
 # TODO:
