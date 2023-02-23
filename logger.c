@@ -913,8 +913,8 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
     /* Request a maximum length of data to write to */
     e = (logentry *) bipbuf_request(buf, (sizeof(logentry) + reqlen));
     if (e == NULL) {
-        pthread_mutex_unlock(&l->mutex);
         l->dropped++;
+        pthread_mutex_unlock(&l->mutex);
         return LOGGER_RET_NOSPACE;
     }
     e->event = event;
