@@ -1130,6 +1130,31 @@ The response line could be one of:
 
 - "BADCLASS [message]" to indicate an invalid class was specified.
 
+lru_crawler mgdump <classid,classid,classid|all|hash>
+
+- Similar in function to the above "lru_crawler crawl" command, this function
+  outputs one line for every valid item found in the matching slab classes.
+
+  If "hash" is specified instead of a classid or "all", the crawler will dump
+  items by directly walking the hash table instead of the LRU's. This makes it
+  more likely all items will be visited once as LRU reordering and locking can
+  cause frequently accessed items to be missed.
+
+  Lines are in a basic metaget format, like: "mg key\r\n". If a key is in
+  binary format: "mg base64encodedkey b\r\n"
+  A user may then take each line, append any flags they want, and run those
+  commands against the server to fetch exactly what they want to know.
+
+The response line could be one of:
+
+- "OK" to indicate successful launch.
+
+- "BUSY [message]" to indicate the crawler is already processing a request.
+
+- "BADCLASS [message]" to indicate an invalid class was specified.
+
+
+
 Watchers
 --------
 
