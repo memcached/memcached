@@ -362,6 +362,21 @@ check_version($ps);
         is(scalar <$ps>, "$key\r\n", "multiget value $key");
     }
     is(scalar <$ps>, "END\r\n", "final END from multiget");
+
+    # Test multiget workaround with misses (known bug)
+    print $ps $cmd;
+    is(scalar <$be>, "get /b/c\r\n", "multiget breakdown c");
+    is(scalar <$be>, "get /b/b\r\n", "multiget breakdown b");
+    is(scalar <$be>, "get /b/a\r\n", "multiget breakdown a");
+
+    print $be "END\r\nEND\r\nEND\r\n";
+    is(scalar <$ps>, "END\r\n", "final END from multiget");
+
+    # If bugged, the backend will have closed.
+    print $ps "get /b/a\r\n";
+    is(scalar <$be>, "get /b/a\r\n", "get works after empty multiget");
+    print $be "END\r\n";
+    is(scalar <$ps>, "END\r\n", "end after empty multiget");
 }
 
 check_version($ps);

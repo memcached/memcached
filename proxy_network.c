@@ -1037,6 +1037,11 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
 
             if (p->ascii_multiget && r->resp.type == MCMC_RESP_END) {
                 // Ascii multiget hack mode; consume END's
+                be->rbufused -= r->resp.reslen;
+                if (be->rbufused > 0) {
+                    memmove(be->rbuf, be->rbuf+r->resp.reslen, be->rbufused);
+                }
+
                 be->state = mcp_backend_next;
                 break;
             }
