@@ -8,6 +8,7 @@ use lib "$Bin/lib";
 use Carp qw(croak);
 use MemcachedTest;
 use IO::Socket qw(AF_INET SOCK_STREAM);
+use IO::Select;
 
 if (!supports_proxy()) {
     plan skip_all => 'proxy not enabled';
@@ -606,7 +607,77 @@ check_version($ps);
     # more AWAIT_FIRST tests? to see how much it waits on/etc.
     # await(r, p, 2, mcp.AWAIT_FASTGOOD)
     # - should return 1 res on good, else wait for N non-error responses
-    # - test three pools, but third returns good. should have returned already
+    $key = "/awaitfastgood/a";
+    $cmd = "get $key\r\n";
+    print $ps $cmd;
+    my $fbe = $mbe[0];
+    is(scalar <$fbe>, $cmd, "awaitfastgood backend req");
+    print $fbe "VALUE $key 0 2\r\nok\r\nEND\r\n";
+    # Should have response after the first hit.
+    is(scalar <$ps>, "VALUE $key 0 2\r\n", "response from await");
+    is(scalar <$ps>, "ok\r\n", "await value");
+    is(scalar <$ps>, "END\r\n", "end from await");
+    for my $be ($mbe[1], $mbe[2]) {
+        is(scalar <$be>, $cmd, "awaitfastgood backend req");
+        print $be "VALUE $key 0 2\r\nok\r\nEND\r\n";
+    }
+
+    # test three pools, second response returns good. should have a hit.
+    print $ps $cmd;
+    for my $be (@mbe) {
+        is(scalar <$be>, $cmd, "awaitfastgood backend req");
+    }
+    $fbe = $mbe[0];
+    print $fbe "END\r\n";
+    $fbe = $mbe[1];
+    print $fbe "VALUE $key 0 2\r\nun\r\nEND\r\n";
+    is(scalar <$ps>, "VALUE $key 0 2\r\n", "response from await");
+    is(scalar <$ps>, "un\r\n", "await value");
+    is(scalar <$ps>, "END\r\n", "end from await");
+    $fbe = $mbe[2];
+    print $fbe "END\r\n";
+
+    # test three pools, but third returns good. should have returned already
+    print $ps $cmd;
+    for my $be ($mbe[0], $mbe[1]) {
+        is(scalar <$be>, $cmd, "awaitfastgood backend req");
+        print $be "END\r\n";
+    }
+    $fbe = $mbe[2];
+    is(scalar <$fbe>, $cmd, "awaitfastgood backend req");
+    print $fbe "VALUE $key 0 2\r\nnu\r\nEND\r\n";
+    is(scalar <$ps>, "END\r\n", "miss from awaitfastgood");
+
+    # Testing a set related to fastgood. waiting for two responses.
+    $cmd = "set $key 0 0 2\r\nmo\r\n";
+    print $ps $cmd;
+    for my $be ($mbe[0], $mbe[1]) {
+        is(scalar <$be>, "set $key 0 0 2\r\n", "set backend req");
+        is(scalar <$be>, "mo\r\n", "set backend data");
+        print $be "STORED\r\n";
+    }
+    is(scalar <$ps>, "STORED\r\n", "got stored from await");
+    $fbe = $mbe[2];
+    is(scalar <$fbe>, "set $key 0 0 2\r\n", "set backend req");
+    is(scalar <$fbe>, "mo\r\n", "set backend data");
+
+    # Testing another set; ensure it isn't returning early.
+    my $s = IO::Select->new();
+    $s->add($ps);
+    print $ps $cmd;
+    for my $be (@mbe) {
+        is(scalar <$be>, "set $key 0 0 2\r\n", "set backend req");
+        is(scalar <$be>, "mo\r\n", "set backend data");
+    }
+    $fbe = $mbe[0];
+    print $fbe "STORED\r\n";
+    my @readable = $s->can_read(0.25);
+    is(scalar @readable, 0, "set doesn't return early");
+    for my $be ($mbe[1], $mbe[2]) {
+        print $be "STORED\r\n";
+    }
+    is(scalar <$ps>, "STORED\r\n", "set completed normally");
+
     # await(r, p, 1, mcp.AWAIT_BACKGROUND) - ensure res without waiting
     $key = "/awaitbg/a";
     $cmd = "get $key\r\n";

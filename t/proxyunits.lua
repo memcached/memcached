@@ -219,6 +219,47 @@ function mcp_config_routes(zones)
         return rtable[1]
     end
 
+    -- testing different styles of building the table argument for mcp.await()
+    pfx_get["awaitfastgood"] = function(r)
+        local all_zones = {}
+        for k, v in pairs(zones) do
+            all_zones[k] = v
+        end
+
+        local restable = mcp.await(r, all_zones, 2, mcp.AWAIT_FASTGOOD)
+
+        local final_res = restable[1]
+        local count = 0
+        for _, res in pairs(restable) do
+            if res:hit() then
+                final_res = res
+            end
+            count = count + 1
+        end
+
+        return final_res
+    end
+
+    pfx_set["awaitfastgood"] = function(r)
+        local all_zones = {}
+        for _, v in pairs(zones) do
+            table.insert(all_zones, v)
+        end
+
+        local restable = mcp.await(r, all_zones, 2)
+        local count = 0
+        local good_res = restable[1]
+        for _, res in pairs(restable) do
+            if res:ok() then
+                good_res = res
+            end
+            count = count + 1
+        end
+
+        print("Set Response count: " .. count)
+        return good_res
+    end
+
     mcp.attach(mcp.CMD_GET, toproute_factory(pfx_get, "get"))
     mcp.attach(mcp.CMD_SET, toproute_factory(pfx_set, "set"))
     mcp.attach(mcp.CMD_TOUCH, toproute_factory(pfx_touch, "touch"))
