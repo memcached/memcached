@@ -1245,26 +1245,20 @@ static void proxy_backend_retry_handler(const int fd, const short which, void *a
     _set_main_event(be, be->event_thread->base, EV_WRITE, &tmp_time, proxy_beconn_handler);
 }
 
-// currently just for timeouts, but certain errors should consider a backend
-// to be "bad" as well.
 // must be called after _reset_bad_backend(), so the backend is currently
 // clear.
-// TODO (v2): currently only notes for "bad backends" in cases of timeouts or
-// connect failures. We need a specific connect() handler that executes a
-// "version" call to at least check that the backend isn't speaking garbage.
-// In theory backends can fail such that responses are constantly garbage,
-// but it's more likely an app is doing something bad and culling the backend
-// may prevent any other clients from talking to that backend. In
-// that case we need to track if clients are causing errors consistently and
-// block them instead. That's more challenging so leaving a note instead
-// of doing this now :)
+// TODO (v2): extra counter for "backend connect tries" so it's still possible
+// to see dead backends exist
 static void _backend_failed(mcp_backend_t *be) {
     struct timeval tmp_time = be->tunables.retry;
     if (++be->failed_count > be->tunables.backend_failure_limit) {
-        P_DEBUG("%s: marking backend as bad\n", __func__);
+        if (!be->bad) {
+            P_DEBUG("%s: marking backend as bad\n", __func__);
+            STAT_INCR(be->event_thread->ctx, backend_marked_bad, 1);
+            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, "markedbad", be->name, be->port, 0, NULL, 0);
+        }
         be->bad = true;
        _set_main_event(be, be->event_thread->base, EV_TIMEOUT, &tmp_time, proxy_backend_retry_handler);
-        STAT_INCR(be->event_thread->ctx, backend_marked_bad, 1);
     } else {
         STAT_INCR(be->event_thread->ctx, backend_failed, 1);
         _backend_reconnect(be);
@@ -1298,7 +1292,10 @@ static int _reset_bad_backend(mcp_backend_t *be, enum proxy_be_failures err) {
     STAILQ_INIT(&be->io_head);
     be->io_next = NULL; // also reset the write offset.
 
-    LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->name, be->port, depth, be->rbuf, be->rbufused);
+    // Only log if we don't already know it's messed up.
+    if (!be->bad) {
+        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->name, be->port, depth, be->rbuf, be->rbufused);
+    }
 
     // reset buffer to blank state.
     be->rbufused = 0;
