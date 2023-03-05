@@ -109,8 +109,7 @@ static int mcplib_response_gc(lua_State *L) {
 // to be collected.
 static int mcplib_backend_wrap_gc(lua_State *L) {
     mcp_backend_wrap_t *bew = luaL_checkudata(L, -1, "mcp.backendwrap");
-    // FIXME: remove global.
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     if (bew->be != NULL) {
         mcp_backend_t *be = bew->be;
@@ -159,7 +158,7 @@ static int mcplib_backend(lua_State *L) {
     size_t llen = 0;
     size_t nlen = 0;
     size_t plen = 0;
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
     mcp_backend_label_t *be = lua_newuserdatauv(L, sizeof(mcp_backend_label_t), 0);
     memset(be, 0, sizeof(*be));
     const char *label;
@@ -315,8 +314,7 @@ static mcp_backend_wrap_t *_mcplib_backend_checkcache(lua_State *L, mcp_backend_
 
 static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_label_t *bel,
         proxy_event_thread_t *e) {
-    // FIXME: remove global.
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     mcp_backend_wrap_t *bew = lua_newuserdatauv(L, sizeof(mcp_backend_wrap_t), 0);
     luaL_getmetatable(L, "mcp.backendwrap");
@@ -574,7 +572,7 @@ static void _mcplib_pool_make_be_loop(lua_State *L, mcp_pool_t *p, int offset, p
 // call with table of backends in 1
 static void _mcplib_pool_make_be(lua_State *L, mcp_pool_t *p) {
     if (p->use_iothread) {
-        proxy_ctx_t *ctx = settings.proxy_ctx;
+        proxy_ctx_t *ctx = PROXY_GET_CTX(L);
         _mcplib_pool_make_be_loop(L, p, 0, ctx->proxy_io_thread);
     } else {
         // TODO (v3) globals.
@@ -601,7 +599,7 @@ static int mcplib_pool(lua_State *L) {
     // TODO (v2): Nicer if this is fetched from mcp.default_key_hash
     p->key_hasher = XXH3_64bits_withSeed;
     pthread_mutex_init(&p->lock, NULL);
-    p->ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
+    p->ctx = PROXY_GET_CTX(L);
 
     luaL_setmetatable(L, "mcp.pool");
 
@@ -795,7 +793,7 @@ static int mcplib_pool_proxy_call(lua_State *L) {
 static int mcplib_tcp_keepalive(lua_State *L) {
     luaL_checktype(L, -1, LUA_TBOOLEAN);
     int state = lua_toboolean(L, -1);
-    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     STAT_L(ctx);
     ctx->tunables.tcp_keepalive = state;
@@ -806,7 +804,7 @@ static int mcplib_tcp_keepalive(lua_State *L) {
 
 static int mcplib_backend_failure_limit(lua_State *L) {
     int limit = luaL_checkinteger(L, -1);
-    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     if (limit < 0) {
         proxy_lua_error(L, "backend_failure_limit must be >= 0");
@@ -824,7 +822,7 @@ static int mcplib_backend_connect_timeout(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);
     lua_Integer secondsi = (lua_Integer) secondsf;
     lua_Number subseconds = secondsf - secondsi;
-    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     STAT_L(ctx);
     ctx->tunables.connect.tv_sec = secondsi;
@@ -842,7 +840,7 @@ static int mcplib_backend_retry_timeout(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);
     lua_Integer secondsi = (lua_Integer) secondsf;
     lua_Number subseconds = secondsf - secondsi;
-    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     STAT_L(ctx);
     ctx->tunables.retry.tv_sec = secondsi;
@@ -860,7 +858,7 @@ static int mcplib_backend_read_timeout(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);
     lua_Integer secondsi = (lua_Integer) secondsf;
     lua_Number subseconds = secondsf - secondsi;
-    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     STAT_L(ctx);
     ctx->tunables.read.tv_sec = secondsi;
@@ -878,7 +876,7 @@ static int mcplib_backend_read_timeout(lua_State *L) {
 // fill hook structure: if lua function, use luaL_ref() to store the func
 static int mcplib_attach(lua_State *L) {
     // Pull the original worker thread out of the shared mcplib upvalue.
-    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
 
     int hook = luaL_checkinteger(L, 1);
     // pushvalue to dupe func and etc.
@@ -993,7 +991,7 @@ static int mcplib_attach(lua_State *L) {
 /*** START lua interface to logger ***/
 
 static int mcplib_log(lua_State *L) {
-    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     const char *msg = luaL_checkstring(L, -1);
     LOGGER_LOG(t->l, LOG_PROXYUSER, LOGGER_PROXY_USER, NULL, msg);
     return 0;
@@ -1001,7 +999,7 @@ static int mcplib_log(lua_State *L) {
 
 // (request, resp, "detail")
 static int mcplib_log_req(lua_State *L) {
-    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     logger *l = t->l;
     // Not using the LOGGER_LOG macro so we can avoid as much overhead as
     // possible when logging is disabled.
@@ -1059,7 +1057,7 @@ static uint32_t _nextrand(uint32_t *s) {
 
 // (milliseconds, sample_rate, allerrors, request, resp, "detail")
 static int mcplib_log_reqsample(lua_State *L) {
-    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     logger *l = t->l;
     // Not using the LOGGER_LOG macro so we can avoid as much overhead as
     // possible when logging is disabled.
@@ -1194,19 +1192,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {NULL, NULL}
     };
 
-    const struct luaL_Reg mcplib_f [] = {
-        {"internal", mcplib_internal},
+    const struct luaL_Reg mcplib_f_config [] = {
         {"pool", mcplib_pool},
         {"backend", mcplib_backend},
         {"request", mcplib_request},
-        {"attach", mcplib_attach},
         {"add_stat", mcplib_add_stat},
         {"stat", mcplib_stat},
-        {"await", mcplib_await},
-        {"await_logerrors", mcplib_await_logerrors},
-        {"log", mcplib_log},
-        {"log_req", mcplib_log_req},
-        {"log_reqsample", mcplib_log_reqsample},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
         {"backend_read_timeout", mcplib_backend_read_timeout},
@@ -1215,42 +1206,68 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {NULL, NULL}
     };
 
-    // TODO (v2): function + loop.
-    luaL_newmetatable(L, "mcp.backend");
-    lua_pushvalue(L, -1); // duplicate metatable.
-    lua_setfield(L, -2, "__index"); // mt.__index = mt
-    luaL_setfuncs(L, mcplib_backend_m, 0); // register methods
-    lua_pop(L, 1);
+    const struct luaL_Reg mcplib_f_routes [] = {
+        {"internal", mcplib_internal},
+        {"attach", mcplib_attach},
+        {"await", mcplib_await},
+        {"await_logerrors", mcplib_await_logerrors},
+        {"log", mcplib_log},
+        {"log_req", mcplib_log_req},
+        {"log_reqsample", mcplib_log_reqsample},
+        {NULL, NULL}
+    };
+    // VM's have void* extra space in the VM by default for fast-access to a
+    // context pointer like this. In some cases upvalues are inaccessible (ie;
+    // GC's) but we still need access to the proxy global context.
+    void **extra = lua_getextraspace(L);
 
-    luaL_newmetatable(L, "mcp.backendwrap");
-    lua_pushvalue(L, -1); // duplicate metatable.
-    lua_setfield(L, -2, "__index"); // mt.__index = mt
-    luaL_setfuncs(L, mcplib_backend_wrap_m, 0); // register methods
-    lua_pop(L, 1);
+    if (t != NULL) {
+        // If thread VM, extra is the libevent thread
+        *extra = t;
+        luaL_newmetatable(L, "mcp.request");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_request_m, 0); // register methods
+        lua_pop(L, 1);
 
-    luaL_newmetatable(L, "mcp.request");
-    lua_pushvalue(L, -1); // duplicate metatable.
-    lua_setfield(L, -2, "__index"); // mt.__index = mt
-    luaL_setfuncs(L, mcplib_request_m, 0); // register methods
-    lua_pop(L, 1);
+        luaL_newmetatable(L, "mcp.response");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_response_m, 0); // register methods
+        lua_pop(L, 1);
 
-    luaL_newmetatable(L, "mcp.response");
-    lua_pushvalue(L, -1); // duplicate metatable.
-    lua_setfield(L, -2, "__index"); // mt.__index = mt
-    luaL_setfuncs(L, mcplib_response_m, 0); // register methods
-    lua_pop(L, 1);
+        luaL_newmetatable(L, "mcp.pool_proxy");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_pool_proxy_m, 0); // register methods
+        lua_pop(L, 1); // drop the hash selector metatable
 
-    luaL_newmetatable(L, "mcp.pool");
-    lua_pushvalue(L, -1); // duplicate metatable.
-    lua_setfield(L, -2, "__index"); // mt.__index = mt
-    luaL_setfuncs(L, mcplib_pool_m, 0); // register methods
-    lua_pop(L, 1); // drop the hash selector metatable
+        luaL_newlibtable(L, mcplib_f_routes);
+    } else {
+        // Change the extra space override for the configuration VM to just point
+        // straight to ctx.
+        *extra = ctx;
 
-    luaL_newmetatable(L, "mcp.pool_proxy");
-    lua_pushvalue(L, -1); // duplicate metatable.
-    lua_setfield(L, -2, "__index"); // mt.__index = mt
-    luaL_setfuncs(L, mcplib_pool_proxy_m, 0); // register methods
-    lua_pop(L, 1); // drop the hash selector metatable
+        luaL_newmetatable(L, "mcp.backend");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_backend_m, 0); // register methods
+        lua_pop(L, 1);
+
+        luaL_newmetatable(L, "mcp.backendwrap");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_backend_wrap_m, 0); // register methods
+        lua_pop(L, 1);
+
+        luaL_newmetatable(L, "mcp.pool");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_pool_m, 0); // register methods
+        lua_pop(L, 1); // drop the hash selector metatable
+
+        luaL_newlibtable(L, mcplib_f_config);
+    }
 
     // create main library table.
     //luaL_newlib(L, mcplib_f);
@@ -1258,7 +1275,6 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     // here.
     // can replace with createtable and add the num. of the constant
     // definitions.
-    luaL_newlibtable(L, mcplib_f);
     proxy_register_defines(L);
 
     mcplib_open_hash_xxhash(L);
@@ -1271,9 +1287,6 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     mcplib_open_dist_ring_hash(L);
     lua_setfield(L, -2, "dist_ring_hash");
 
-    lua_pushlightuserdata(L, (void *)t); // upvalue for original thread
-    lua_newtable(L); // upvalue for mcp.attach() table.
-
     // create weak table for storing backends by label.
     lua_newtable(L); // {}
     lua_newtable(L); // {}, {} for metatable
@@ -1281,9 +1294,11 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     lua_setfield(L, -2, "__mode"); // {}, {__mode = "v"}
     lua_setmetatable(L, -2); // {__mt = {__mode = "v"} }
 
-    lua_pushlightuserdata(L, ctx); // upvalue for proxy context.
-
-    luaL_setfuncs(L, mcplib_f, 4); // store upvalues.
+    if (t != NULL) {
+        luaL_setfuncs(L, mcplib_f_routes, 1); // store upvalues.
+    } else {
+        luaL_setfuncs(L, mcplib_f_config, 1); // store upvalues.
+    }
 
     lua_setglobal(L, "mcp"); // set the lib table to mcp global.
     return 1;

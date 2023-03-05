@@ -5,11 +5,6 @@
 // mcp.add_stat(index, name)
 // creates a custom lua stats counter
 int mcplib_add_stat(lua_State *L) {
-    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
-    if (t != NULL) {
-        proxy_lua_error(L, "add_stat must be called from config_pools");
-        return 0;
-    }
     int idx = luaL_checkinteger(L, -2);
     const char *name = luaL_checkstring(L, -1);
 
@@ -36,7 +31,7 @@ int mcplib_add_stat(lua_State *L) {
         }
     }
 
-    proxy_ctx_t *ctx = lua_touserdata(L, lua_upvalueindex(MCP_CONTEXT_UPVALUE));
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     STAT_L(ctx);
     struct proxy_user_stats *us = &ctx->user_stats;
@@ -70,7 +65,7 @@ int mcplib_add_stat(lua_State *L) {
 }
 
 int mcplib_stat(lua_State *L) {
-    LIBEVENT_THREAD *t = lua_touserdata(L, lua_upvalueindex(MCP_THREAD_UPVALUE));
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     if (t == NULL) {
         proxy_lua_error(L, "stat must be called from router handlers");
         return 0;

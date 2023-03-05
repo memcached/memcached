@@ -719,7 +719,8 @@ typedef struct {
 #endif
     int napi_id;                /* napi id associated with this thread */
 #ifdef PROXY
-    void *L;
+    void *proxy_ctx; // proxy global context
+    void *L; // lua VM
     void *proxy_hooks;
     void *proxy_user_stats;
     void *proxy_int_stats;

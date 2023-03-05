@@ -9,11 +9,11 @@ local my_zone = 'z1'
 
 local STAT_EXAMPLE <const> = 1
 local STAT_ANOTHER <const> = 2
---mcp.tcp_keepalive(true)
 
 function mcp_config_pools(oldss)
     mcp.add_stat(STAT_EXAMPLE, "example")
     mcp.add_stat(STAT_ANOTHER, "another")
+    --mcp.tcp_keepalive(true)
     mcp.backend_connect_timeout(5.5) -- 5 and a half second timeout.
     -- alias mcp.backend for convenience.
     -- important to alias global variables in routes where speed is concerned.

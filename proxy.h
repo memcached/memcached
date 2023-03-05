@@ -76,10 +76,7 @@
 #define ENDSTR "END\r\n"
 #define ENDLEN sizeof(ENDSTR)-1
 
-#define MCP_THREAD_UPVALUE 1
-#define MCP_ATTACH_UPVALUE 2
-#define MCP_BACKEND_UPVALUE 3
-#define MCP_CONTEXT_UPVALUE 4
+#define MCP_BACKEND_UPVALUE 1
 
 #define MCP_YIELD_POOL 1
 #define MCP_YIELD_AWAIT 2
@@ -216,6 +213,11 @@ typedef struct {
     struct proxy_tunables tunables; // NOTE: updates covered by stats_lock
     pthread_mutex_t stats_lock; // used for rare global counters
 } proxy_ctx_t;
+
+#define PROXY_GET_THR_CTX(L) ((*(LIBEVENT_THREAD **)lua_getextraspace(L))->proxy_ctx)
+#define PROXY_GET_THR(L) (*(LIBEVENT_THREAD **)lua_getextraspace(L))
+// Operations from the config VM don't have a libevent thread.
+#define PROXY_GET_CTX(L) (*(proxy_ctx_t **)lua_getextraspace(L))
 
 struct proxy_hook_tagged {
     uint64_t tag;

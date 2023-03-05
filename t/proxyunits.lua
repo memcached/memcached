@@ -1,8 +1,7 @@
-mcp.backend_read_timeout(0.5)
-mcp.backend_connect_timeout(5)
-
 function mcp_config_pools(oldss)
     local srv = mcp.backend
+    mcp.backend_read_timeout(0.5)
+    mcp.backend_connect_timeout(5)
 
     -- Single backend for zones to ease testing.
     -- For purposes of this config the proxy is always "zone 1" (z1)

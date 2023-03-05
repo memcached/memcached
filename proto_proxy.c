@@ -166,6 +166,7 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
         fprintf(stderr, "Failed to allocate proxy thread stats\n");
         exit(EXIT_FAILURE);
     }
+    thr->proxy_ctx = ctx;
 
     // Initialize the lua state.
     lua_State *L = luaL_newstate();
