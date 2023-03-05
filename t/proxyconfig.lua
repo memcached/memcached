@@ -2,10 +2,10 @@
 -- so we can modify ourselves.
 local mode = dofile("/tmp/proxyconfigmode.lua")
 
-mcp.backend_read_timeout(4)
-mcp.backend_connect_timeout(5)
-
 function mcp_config_pools(old)
+    mcp.backend_read_timeout(4)
+    mcp.backend_connect_timeout(5)
+
     if mode == "none" then
         return {}
     elseif mode == "start" then
