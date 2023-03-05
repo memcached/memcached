@@ -1051,12 +1051,25 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
 
             // r->resp.reslen + r->resp.vlen is the total length of the response.
             // TODO (v2): need to associate a buffer with this response...
-            // for now lets abuse write_and_free on mc_resp and simply malloc the
-            // space we need, stuffing it into the resp object.
+            // for now we simply malloc, but reusable buffers should be used
 
             r->blen = r->resp.reslen + r->resp.vlen;
+            {
+                bool oom = proxy_bufmem_checkadd(r->thread, r->blen + extra_space);
+
+                if (oom) {
+                    flags = P_BE_FAIL_OOM;
+                    stop = true;
+                    break;
+                }
+            }
             r->buf = malloc(r->blen + extra_space);
             if (r->buf == NULL) {
+                // Enforce accounting.
+                pthread_mutex_lock(&r->thread->proxy_limit_lock);
+                r->thread->proxy_buffer_memory_used -= r->blen + extra_space;
+                pthread_mutex_unlock(&r->thread->proxy_limit_lock);
+
                 flags = P_BE_FAIL_OOM;
                 stop = true;
                 break;

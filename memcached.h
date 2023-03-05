@@ -725,6 +725,10 @@ typedef struct {
     void *proxy_user_stats;
     void *proxy_int_stats;
     void *proxy_event_thread; // worker threads can also be proxy IO threads
+    pthread_mutex_t proxy_limit_lock;
+    uint64_t proxy_active_req_limit;
+    uint64_t proxy_buffer_memory_limit; // protected by limit_lock
+    uint64_t proxy_buffer_memory_used; // protected by limit_lock
     uint32_t proxy_rng[4]; // fast per-thread rng for lua.
     // TODO: add ctx object so we can attach to queue.
 #endif

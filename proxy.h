@@ -195,6 +195,8 @@ typedef struct {
     lua_State *proxy_state;
     void *proxy_code;
     proxy_event_thread_t *proxy_io_thread;
+    uint64_t active_req_limit; // max total in-flight requests
+    uint64_t buffer_memory_limit; // max bytes for send/receive buffers.
     pthread_mutex_t config_lock;
     pthread_cond_t config_cond;
     pthread_t config_tid;
@@ -496,6 +498,9 @@ typedef struct {
     mcp_pool_t *main; // ptr to original
     mcp_pool_be_t *pool; // ptr to main->pool starting offset for owner thread.
 } mcp_pool_proxy_t;
+
+// utils
+bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len);
 
 // networking interface
 void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct event_base *base);

@@ -538,6 +538,7 @@ void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p) 
 // second argument is optional, for building set requests.
 // TODO: append the \r\n for the VAL?
 int mcplib_request(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     size_t len = 0;
     size_t vlen = 0;
     mcp_parser_t pr = {0};
@@ -586,6 +587,13 @@ int mcplib_request(lua_State *L) {
             proxy_lua_error(L, "failed to allocate value memory for request object");
         }
         memcpy(rq->pr.vbuf, val, vlen);
+        // Note: Not enforcing the memory limit here as a bit of a choice:
+        // - if we're over the memory limit, it'll get caught very soon after
+        // this, but we won't be causing some lua to bail mid-flight, which is
+        // more graceful to the end user.
+        pthread_mutex_lock(&t->proxy_limit_lock);
+        t->proxy_buffer_memory_used += rq->pr.vlen;
+        pthread_mutex_unlock(&t->proxy_limit_lock);
     }
 
     // rq is now created, parsed, and on the stack.
@@ -766,11 +774,15 @@ int mcplib_request_flag_token(lua_State *L) {
 }
 
 int mcplib_request_gc(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
     // During nread c->item is the malloc'ed buffer. not yet put into
     // rq->buf - this gets freed because we've also set c->item_malloced if
     // the connection closes before finishing nread.
     if (rq->pr.vbuf != NULL) {
+        pthread_mutex_lock(&t->proxy_limit_lock);
+        t->proxy_buffer_memory_used -= rq->pr.vlen;
+        pthread_mutex_unlock(&t->proxy_limit_lock);
         free(rq->pr.vbuf);
     }
 

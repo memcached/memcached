@@ -458,7 +458,14 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
         tus->num_stats = us->num_stats;
         pthread_mutex_unlock(&thr->stats.mutex);
     }
+    // also grab the concurrent request limit
+    thr->proxy_active_req_limit = ctx->active_req_limit;
     STAT_UL(ctx);
+
+    // update limit counter(s)
+    pthread_mutex_lock(&thr->proxy_limit_lock);
+    thr->proxy_buffer_memory_limit = ctx->buffer_memory_limit;
+    pthread_mutex_unlock(&thr->proxy_limit_lock);
 
     return 0;
 }

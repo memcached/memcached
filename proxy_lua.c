@@ -82,11 +82,15 @@ static int mcplib_response_line(lua_State *L) {
 }
 
 static int mcplib_response_gc(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
 
     // On error/similar we might be holding the read buffer.
     // If the buf is handed off to mc_resp for return, this pointer is NULL
     if (r->buf != NULL) {
+        pthread_mutex_lock(&t->proxy_limit_lock);
+        t->proxy_buffer_memory_used -= r->blen;
+        pthread_mutex_unlock(&t->proxy_limit_lock);
         free(r->buf);
     }
 
@@ -872,6 +876,49 @@ static int mcplib_backend_read_timeout(lua_State *L) {
     return 0;
 }
 
+static int mcplib_active_req_limit(lua_State *L) {
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    uint64_t limit = luaL_checkinteger(L, -1);
+
+    if (limit == 0) {
+        limit = UINT64_MAX;
+    } else {
+        // FIXME: global
+        int tcount = settings.num_threads;
+        // The actual limit is per-worker-thread, so divide it up.
+        if (limit > tcount * 2) {
+            limit /= tcount;
+        }
+    }
+
+    STAT_L(ctx);
+    ctx->active_req_limit = limit;
+    STAT_UL(ctx);
+
+    return 0;
+}
+
+// limit specified in kilobytes
+static int mcplib_buffer_memory_limit(lua_State *L) {
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    uint64_t limit = luaL_checkinteger(L, -1);
+
+    if (limit == 0) {
+        limit = UINT64_MAX;
+    } else {
+        limit *= 1024;
+
+        int tcount = settings.num_threads;
+        if (limit > tcount * 2) {
+            limit /= tcount;
+        }
+
+        ctx->buffer_memory_limit = limit;
+    }
+
+    return 0;
+}
+
 // mcp.attach(mcp.HOOK_NAME, function)
 // fill hook structure: if lua function, use luaL_ref() to store the func
 static int mcplib_attach(lua_State *L) {
@@ -1203,6 +1250,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"backend_read_timeout", mcplib_backend_read_timeout},
         {"backend_failure_limit", mcplib_backend_failure_limit},
         {"tcp_keepalive", mcplib_tcp_keepalive},
+        {"active_req_limit", mcplib_active_req_limit},
+        {"buffer_memory_limit", mcplib_buffer_memory_limit},
         {NULL, NULL}
     };
 
