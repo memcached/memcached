@@ -347,13 +347,13 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
     if (it == 0) {
         //enum store_item_type status;
         if (! item_size_ok(nkey, flags, pr->vlen)) {
-            //out_string(c, "SERVER_ERROR object too large for cache");
+            pout_string(resp, "SERVER_ERROR object too large for cache");
             //status = TOO_LARGE;
             pthread_mutex_lock(&t->stats.mutex);
             t->stats.store_too_large++;
             pthread_mutex_unlock(&t->stats.mutex);
         } else {
-            //out_of_memory(c, "SERVER_ERROR out of memory storing object");
+            pout_string(resp, "SERVER_ERROR out of memory storing object");
             //status = NO_MEMORY;
             pthread_mutex_lock(&t->stats.mutex);
             t->stats.store_no_memory++;
@@ -407,6 +407,8 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
       pout_string(resp, "SERVER_ERROR Unhandled storage type.");
     }
 
+    // We don't need to hold a reference since the item was fully read.
+    item_remove(it);
 }
 
 static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr) {
@@ -1213,6 +1215,8 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
     // we're offset into wbuf, but good convention to track wbytes.
     resp->wbytes = p - resp->wbuf;
     resp_add_iov(resp, resp->wbuf, resp->wbytes);
+
+    item_remove(it);
 
     return;
 error:

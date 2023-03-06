@@ -966,6 +966,7 @@ static void _stop_timeout_event(mcp_backend_t *be) {
 static int proxy_backend_drive_machine(mcp_backend_t *be) {
     bool stop = false;
     io_pending_proxy_t *p = NULL;
+    struct timeval end;
     int flags = 0;
 
     p = STAILQ_FIRST(&be->io_head);
@@ -1166,6 +1167,12 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
             STAILQ_REMOVE_HEAD(&be->io_head, io_next);
             be->depth--;
             be->pending_read--;
+
+            // stamp the elapsed time into the response object.
+            gettimeofday(&end, NULL);
+            p->client_resp->elapsed = (end.tv_sec - p->client_resp->start.tv_sec) * 1000000 +
+                (end.tv_usec - p->client_resp->start.tv_usec);
+
             // have to do the q->count-- and == 0 and redispatch_conn()
             // stuff here. The moment we call return_io here we
             // don't own *p anymore.
