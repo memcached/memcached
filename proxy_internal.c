@@ -476,7 +476,7 @@ static void process_delete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
 
     it = item_get_locked(key, nkey, t, DONT_UPDATE, &hv);
     if (it) {
-        MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
+        //MEMCACHED_COMMAND_DELETE(c->sfd, ITEM_key(it), it->nkey);
 
         pthread_mutex_lock(&t->stats.mutex);
         t->stats.slab_stats[ITEM_clsid(it)].delete_hits++;

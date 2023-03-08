@@ -2273,14 +2273,14 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
 
     if (incr) {
         value += delta;
-        MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
+        //MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
     } else {
         if(delta > value) {
             value = 0;
         } else {
             value -= delta;
         }
-        MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
+        //MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
     }
 
     pthread_mutex_lock(&t->stats.mutex);
