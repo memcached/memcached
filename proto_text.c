@@ -173,7 +173,6 @@ void complete_nread_ascii(conn *c) {
       ret = store_item(it, comm, c->thread, &cas, c->set_stale);
 
 #ifdef ENABLE_DTRACE
-      uint64_t cas = ITEM_get_cas(it);
       switch (c->cmd) {
       case NREAD_ADD:
           MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,

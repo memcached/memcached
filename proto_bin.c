@@ -390,7 +390,6 @@ static void complete_update_bin(conn *c) {
     c->cas = cas;
 
 #ifdef ENABLE_DTRACE
-    uint64_t cas = ITEM_get_cas(it);
     switch (c->cmd) {
     case NREAD_ADD:
         MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,

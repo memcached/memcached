@@ -15,14 +15,14 @@ use MemcachedTest;
 use IO::Select;
 use IO::Socket qw(AF_INET SOCK_STREAM);
 
+# TODO: possibly... set env var to a generated temp filename before starting
+# the server so we can pass that in?
+my $modefile = "/tmp/proxyconfigmode.lua";
+
 if (!supports_proxy()) {
     plan skip_all => 'proxy not enabled';
     exit 0;
 }
-
-# TODO: possibly... set env var to a generated temp filename before starting
-# the server so we can pass that in?
-my $modefile = "/tmp/proxyconfigmode.lua";
 
 # Set up some server sockets.
 sub mock_server {
