@@ -556,6 +556,7 @@ AH_BOTTOM([#ifdef HAVE_INTTYPES_H
 #include <inttypes.h>
 #endif
 ])
+AC_CHECK_HEADERS([sys/auxv.h])
 
 dnl **********************************************************************
 dnl Figure out if this system has the stupid sasl_callback_ft
