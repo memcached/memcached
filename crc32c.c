@@ -274,7 +274,7 @@ void crc32c_init(void) {
 }
 
 #elif defined(__aarch64__) && (defined(__linux__) || defined(__APPLE__))
-#if defined(__linux__)
+#if defined(__linux__) && defined(HAVE_SYS_AUX_H)
 #include <sys/auxv.h>
 #elif defined(__APPLE__)
 #include <sys/sysctl.h>
