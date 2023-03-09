@@ -328,7 +328,7 @@ static void complete_incr_bin(conn *c, char *extbuf) {
                 memcpy(ITEM_data(it) + res, "\r\n", 2);
                 c->thread->cur_sfd = c->sfd; // for store_item logging.
 
-                if (store_item(it, NREAD_ADD, c->thread, &cas, CAS_NO_STALE)) {
+                if (store_item(it, NREAD_ADD, c->thread, NULL, &cas, CAS_NO_STALE)) {
                     c->cas = cas;
                     write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
                 } else {
@@ -386,7 +386,7 @@ static void complete_update_bin(conn *c) {
 
     uint64_t cas = 0;
     c->thread->cur_sfd = c->sfd; // for store_item logging.
-    ret = store_item(it, c->cmd, c->thread, &cas, CAS_NO_STALE);
+    ret = store_item(it, c->cmd, c->thread, NULL, &cas, CAS_NO_STALE);
     c->cas = cas;
 
 #ifdef ENABLE_DTRACE

@@ -206,9 +206,9 @@ static int _logger_parse_ise(logentry *e, char *scratch) {
     const char * const status_map[] = {
         "not_stored", "stored", "exists", "not_found", "too_large", "no_memory" };
     const char * const cmd_map[] = {
-        "null", "add", "set", "replace", "append", "prepend", "cas" };
+        "null", "add", "set", "replace", "append", "prepend", "cas", "append", "prepend" };
 
-    if (le->cmd <= 6)
+    if (le->cmd <= 8)
         cmd = cmd_map[le->cmd];
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);

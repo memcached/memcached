@@ -51,7 +51,7 @@ typedef struct token_s {
     size_t length;
 } token_t;
 
-static void _finalize_mset(conn *c, enum store_item_type ret) {
+static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret) {
     mc_resp *resp = c->resp;
     item *it = c->item;
     conn_set_state(c, conn_new_cmd);
@@ -105,6 +105,16 @@ static void _finalize_mset(conn *c, enum store_item_type ret) {
                 META_CHAR(p, 'c');
                 p = itoa_u64(c->cas, p);
                 break;
+            case 's':
+                // Get final item size, ie from append/prepend
+                META_CHAR(p, 's');
+                // If the size changed during append/prepend
+                if (nbytes != 0) {
+                    p = itoa_u32(nbytes-2, p);
+                } else {
+                    p = itoa_u32(it->nbytes-2, p);
+                }
+                break;
             default:
                 break;
         }
@@ -128,6 +138,7 @@ void complete_nread_ascii(conn *c) {
     int comm = c->cmd;
     enum store_item_type ret;
     bool is_valid = false;
+    int nbytes = 0;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
@@ -170,7 +181,7 @@ void complete_nread_ascii(conn *c) {
     } else {
       uint64_t cas = 0;
       c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
-      ret = store_item(it, comm, c->thread, &cas, c->set_stale);
+      ret = store_item(it, comm, c->thread, &nbytes, &cas, c->set_stale);
 
 #ifdef ENABLE_DTRACE
       switch (c->cmd) {
@@ -203,7 +214,7 @@ void complete_nread_ascii(conn *c) {
 
       if (c->mset_res) {
           c->cas = cas;
-          _finalize_mset(c, ret);
+          _finalize_mset(c, nbytes, ret);
       } else {
           switch (ret) {
           case STORED:
@@ -1379,6 +1390,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     assert(c != NULL);
     mc_resp *resp = c->resp;
     char *p = resp->wbuf;
+    rel_time_t exptime = 0;
 
     WANT_TOKENS_MIN(ntokens, 3);
 
@@ -1427,6 +1439,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     c->noreply = of.no_reply;
     // Clear cas return value
     c->cas = 0;
+    exptime = of.exptime;
 
     bool has_error = false;
     for (i = KEY_TOKEN+1; i < ntokens-1; i++) {
@@ -1448,6 +1461,9 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
             case 'c':
                 // need to set the cas value post-assignment.
                 META_CHAR(p, 'c');
+            case 's':
+                // get the final size post-fill
+                META_CHAR(p, 's');
                 break;
         }
     }
@@ -1460,10 +1476,20 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
             comm = NREAD_ADD;
             break;
         case 'A': // Append.
-            comm = NREAD_APPEND;
+            if (of.vivify) {
+                comm = NREAD_APPENDVIV;
+                exptime = of.autoviv_exptime;
+            } else {
+                comm = NREAD_APPEND;
+            }
             break;
         case 'P': // Prepend.
-            comm = NREAD_PREPEND;
+            if (of.vivify) {
+                comm = NREAD_PREPENDVIV;
+                exptime = of.autoviv_exptime;
+            } else {
+                comm = NREAD_PREPEND;
+            }
             break;
         case 'R': // Replace.
             comm = NREAD_REPLACE;
@@ -1490,7 +1516,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
     if (has_error)
         goto error;
 
-    it = item_alloc(key, nkey, of.client_flags, of.exptime, vlen);
+    it = item_alloc(key, nkey, of.client_flags, exptime, vlen);
 
     if (it == 0) {
         enum store_item_type status;
@@ -1784,7 +1810,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
             if (it != NULL) {
                 memcpy(ITEM_data(it), tmpbuf, vlen);
                 memcpy(ITEM_data(it) + vlen, "\r\n", 2);
-                if (do_store_item(it, NREAD_ADD, c->thread, hv, NULL, CAS_NO_STALE)) {
+                if (do_store_item(it, NREAD_ADD, c->thread, hv, NULL, NULL, CAS_NO_STALE)) {
                     item_created = true;
                 } else {
                     // Not sure how we can get here if we're holding the lock.

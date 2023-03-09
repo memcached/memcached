@@ -726,8 +726,10 @@ The flags used by the 'ms' command are:
 - k: return key as a token
 - O(token): opaque value, consumes a token and copies back with response
 - q: use noreply semantics for return codes
+- s: return the size of the stored item on success (ie; new size on append)
 - T(token): Time-To-Live for item, see "Expiration" above.
 - M(token): mode switch to change behavior to add, replace, append, prepend
+- N(token): if in append mode, autovivify on miss with supplied TTL
 
 The flags are now repeated with detailed information where useful:
 
@@ -774,6 +776,14 @@ S: "set" command. The default mode, added for completeness.
 
 The "cas" command is supplanted by specifying the cas value with the 'C' flag.
 Append and Prepend modes will also respect a supplied cas value.
+
+- N(token): if in append mode, autovivify on miss with supplied TTL
+
+Append and Prepend modes normally ignore the T argument, as they cannot create
+a new item on a miss. If N is supplied, and append reaches a miss, it will
+create a new item seeded with the data from the append command. It uses the
+TTL from N instead of T to be consistent with the usage of N in other
+commands.
 
 Meta Delete
 -----------

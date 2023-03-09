@@ -329,6 +329,32 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^CLIENT_ERROR /, "invalid mode");
 }
 
+# Append tests
+{
+    print $sock "ms appendcas 2 MA C5000 T30\r\nhi\r\n";
+    is(scalar <$sock>, "NS\r\n", "ms append with bad cas");
+    print $sock "ms appendcas 2 MA T30\r\nhi\r\n";
+    is(scalar <$sock>, "NS\r\n", "ms append straight miss");
+    print $sock "ms appendcas 2 T30 c\r\nho\r\n";
+    my $res = <$sock>;
+    my $r = parse_res($res);
+    my $cas = get_flag($r, 'c');
+    print $sock "ms appendcas 2 MA C$cas T30\r\nhi\r\n";
+    is(scalar <$sock>, "HD\r\n", "ms append with good cas");
+
+    # Autovivify append.
+    print $sock "ms appendviv 2 MA N30\r\nmo\r\n";
+    is(scalar <$sock>, "HD\r\n", "ms append with autovivify");
+    mget_is({ sock => $sock,
+              flags => 's v',
+              eflags => 's2' },
+             'appendviv', 'mo', "retrieved autoviv append");
+
+    # Test full size on append.
+    print $sock "ms appendviv 2 MA N30 s\r\nko\r\n";
+    is(scalar <$sock>, "HD s4\r\n", "got appended length");
+}
+
 # lease-test, use two sockets? one socket should be fine, actually.
 # - get a win on autovivify
 # - get a loss on the same command
@@ -771,6 +797,17 @@ sub mget_res {
     } elsif ($resp =~ m/^HD\s*([^\r]+)\r\n/gm) {
         $r{flags} = $1;
         $r{hd} = 1;
+    }
+
+    return \%r;
+}
+
+sub parse_res {
+    my $resp = shift;
+    my %r = ();
+    if ($resp =~ m/^(\w\w)\s*([^\r]+)\r\n/gm) {
+        $r{status} = $1;
+        $r{flags} = $2;
     }
 
     return \%r;

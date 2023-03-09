@@ -917,13 +917,13 @@ enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
 /*
  * Stores an item in the cache (high level, obeys set/add/replace semantics)
  */
-enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, uint64_t *cas, bool cas_stale) {
+enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, int *nbytes, uint64_t *cas, bool cas_stale) {
     enum store_item_type ret;
     uint32_t hv;
 
     hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
-    ret = do_store_item(item, comm, t, hv, cas, cas_stale);
+    ret = do_store_item(item, comm, t, hv, nbytes, cas, cas_stale);
     item_unlock(hv);
     return ret;
 }

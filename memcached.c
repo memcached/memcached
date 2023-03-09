@@ -1532,7 +1532,7 @@ static int _store_item_copy_chunks(item *d_it, item *s_it, const int len) {
 }
 
 static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add_it) {
-    if (comm == NREAD_APPEND) {
+    if (comm == NREAD_APPEND || comm == NREAD_APPENDVIV) {
         if (new_it->it_flags & ITEM_CHUNKED) {
             if (_store_item_copy_chunks(new_it, old_it, old_it->nbytes - 2) == -1 ||
                 _store_item_copy_chunks(new_it, add_it, add_it->nbytes) == -1) {
@@ -1563,7 +1563,7 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  *
  * Returns the state of storage.
  */
-enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const uint32_t hv, uint64_t *cas, bool cas_stale) {
+enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, bool cas_stale) {
     char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey, hv, t, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
@@ -1636,6 +1636,8 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
                 break;
             case NREAD_APPEND:
             case NREAD_PREPEND:
+            case NREAD_APPENDVIV:
+            case NREAD_PREPENDVIV:
                 if (cas_res != CAS_NONE && cas_res != CAS_MATCH) {
                     stored = EXISTS;
                     break;
@@ -1663,6 +1665,10 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
                     // it's original ref is managed outside of this function
                     it = new_it;
                     do_store = true;
+                    // Upstream final object size for meta
+                    if (nbytes != NULL) {
+                        *nbytes = it->nbytes;
+                    }
                 }
                 break;
             case NREAD_REPLACE:
@@ -1692,6 +1698,8 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
         switch (comm) {
             case NREAD_ADD:
             case NREAD_SET:
+            case NREAD_APPENDVIV:
+            case NREAD_PREPENDVIV:
                 do_store = true;
                 break;
             case NREAD_CAS:

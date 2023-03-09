@@ -266,6 +266,8 @@ enum close_reasons {
 #define NREAD_APPEND 4
 #define NREAD_PREPEND 5
 #define NREAD_CAS 6
+#define NREAD_APPENDVIV 7 // specific to meta
+#define NREAD_PREPENDVIV 8 // specific to meta
 
 #define CAS_ALLOW_STALE true
 #define CAS_NO_STALE false
@@ -909,7 +911,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
-enum store_item_type do_store_item(item *item, int comm, LIBEVENT_THREAD *t, const uint32_t hv, uint64_t *cas, bool cas_stale);
+enum store_item_type do_store_item(item *item, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, bool cas_stale);
 void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb);
 void conn_io_queue_setup(conn *c);
 io_queue_t *conn_io_queue_get(conn *c, int type);
@@ -992,7 +994,7 @@ LIBEVENT_THREAD *get_worker_thread(int id);
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
 
-enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, uint64_t *cas, bool cas_stale);
+enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, int *nbytes, uint64_t *cas, bool cas_stale);
 
 /* Protocol related code */
 void out_string(conn *c, const char *str);

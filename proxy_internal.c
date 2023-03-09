@@ -389,7 +389,7 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
         return;
     }
 
-    int ret = store_item(it, comm, t, NULL, CAS_NO_STALE);
+    int ret = store_item(it, comm, t, NULL, NULL, CAS_NO_STALE);
     switch (ret) {
     case STORED:
       pout_string(resp, "STORED");
@@ -1046,6 +1046,7 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
     assert(t != NULL);
     char *p = resp->wbuf;
     int tlen = 0;
+    rel_time_t exptime = 0;
 
     //WANT_TOKENS_MIN(ntokens, 3);
 
@@ -1080,10 +1081,20 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
             comm = NREAD_ADD;
             break;
         case 'A': // Append.
-            comm = NREAD_APPEND;
+            if (of.vivify) {
+                comm = NREAD_APPENDVIV;
+                exptime = of.autoviv_exptime;
+            } else {
+                comm = NREAD_APPEND;
+            }
             break;
         case 'P': // Prepend.
-            comm = NREAD_PREPEND;
+            if (of.vivify) {
+                comm = NREAD_PREPENDVIV;
+                exptime = of.autoviv_exptime;
+            } else {
+                comm = NREAD_PREPEND;
+            }
             break;
         case 'R': // Replace.
             comm = NREAD_REPLACE;
@@ -1105,7 +1116,7 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
         comm = NREAD_CAS;
     }
 
-    it = item_alloc(key, nkey, of.client_flags, of.exptime, vlen);
+    it = item_alloc(key, nkey, of.client_flags, exptime, vlen);
 
     if (it == 0) {
         if (! item_size_ok(nkey, of.client_flags, vlen)) {
@@ -1160,7 +1171,8 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
     }
 
     uint64_t cas = 0;
-    int ret = store_item(it, comm, t, &cas, set_stale);
+    int nbytes = 0;
+    int ret = store_item(it, comm, t, &nbytes, &cas, set_stale);
     switch (ret) {
         case STORED:
           memcpy(p, "HD", 2);
@@ -1203,6 +1215,16 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
             case 'c':
                 META_CHAR(p, 'c');
                 p = itoa_u64(cas, p);
+                break;
+            case 's':
+                // Get final item size, ie from append/prepend
+                META_CHAR(p, 's');
+                // If the size changed during append/prepend
+                if (nbytes != 0) {
+                    p = itoa_u32(nbytes-2, p);
+                } else {
+                    p = itoa_u32(it->nbytes-2, p);
+                }
                 break;
         }
     }
@@ -1436,7 +1458,7 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
             if (it != NULL) {
                 memcpy(ITEM_data(it), tmpbuf, vlen);
                 memcpy(ITEM_data(it) + vlen, "\r\n", 2);
-                if (do_store_item(it, NREAD_ADD, t, hv, &cas, CAS_NO_STALE)) {
+                if (do_store_item(it, NREAD_ADD, t, hv, NULL, &cas, CAS_NO_STALE)) {
                     item_created = true;
                 } else {
                     // Not sure how we can get here if we're holding the lock.
