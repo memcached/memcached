@@ -1176,6 +1176,10 @@ static void proxy_register_defines(lua_State *L) {
     X(MCMC_CODE_OK);
     X(MCMC_CODE_NOP);
     X(MCMC_CODE_END);
+    X(MCMC_CODE_ERROR);
+    X(MCMC_CODE_CLIENT_ERROR);
+    X(MCMC_CODE_SERVER_ERROR);
+    X(MCMC_ERR);
     X(P_OK);
     X(CMD_ANY);
     X(CMD_ANY_STORAGE);

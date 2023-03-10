@@ -89,6 +89,22 @@ function mcp_config_routes(zones)
     pfx_md["b"] = basic
     pfx_ma["b"] = basic
 
+    pfx_get["errcheck"] = function(r)
+        local res = zones.z1(r)
+        -- expect an error
+        if res:ok() then
+            return "FAIL\r\n"
+        end
+        if res:code() == mcp.MCMC_CODE_ERROR then
+            return "ERROR\r\n"
+        elseif res:code() == mcp.MCMC_CODE_CLIENT_ERROR then
+            return "CLIENT_ERROR\r\n"
+        elseif res:code() == mcp.MCMC_CODE_SERVER_ERROR then
+            return "SERVER_ERROR\r\n"
+        end
+        return "FAIL"
+    end
+
     -- show that we fetched the key by generating our own response string.
     pfx_get["getkey"] = function(r)
         return "VALUE |" .. r:key() .. " 0 2\r\nts\r\nEND\r\n"

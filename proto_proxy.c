@@ -595,7 +595,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
         if (type == LUA_TUSERDATA) {
             mcp_resp_t *r = luaL_checkudata(Lc, 1, "mcp.response");
             _set_noreply_mode(resp, r);
-            if (r->status != MCMC_OK) {
+            if (r->status != MCMC_OK && r->resp.type != MCMC_RESP_ERRMSG) {
                 proxy_out_errstring(resp, "backend failure");
             } else if (r->cresp) {
                 mc_resp *tresp = r->cresp;
