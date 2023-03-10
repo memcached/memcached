@@ -27,6 +27,9 @@
 #define MCMC_ERR_SHORT 18
 #define MCMC_ERR_PARSE 19
 #define MCMC_ERR_VALUE 20
+#define MCMC_CODE_ERROR 21
+#define MCMC_CODE_CLIENT_ERROR 22
+#define MCMC_CODE_SERVER_ERROR 23
 
 // response types
 #define MCMC_RESP_GET 100
@@ -36,6 +39,8 @@
 #define MCMC_RESP_END 105
 #define MCMC_RESP_VERSION 106
 #define MCMC_RESP_NUMERIC 107 // for weird incr/decr syntax.
+#define MCMC_RESP_ERRMSG 108 // ERROR, CLIENT_ERROR, SERVER_ERRROR
+#define MCMC_RESP_FAIL 109 // Complete failure to parse, garbage, etc
 
 #define MCMC_OPTION_BLANK 0
 #define MCMC_OPTION_NONBLOCK 1
@@ -69,8 +74,10 @@ typedef struct {
         };
         // STAT response
         struct {
+            char *sname;
+            size_t snamelen;
             char *stat;
-            size_t slen;
+            size_t statlen;
         };
     };
 } mcmc_resp_t;
