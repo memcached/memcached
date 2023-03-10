@@ -168,6 +168,7 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     is(scalar @readable, 3, "all listeners became readable");
 
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=timeout name=\S+ port=11511/, "one backend timed out connecting");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=markedbad name=\S+ port=11511/, "backend was marked bad");
 
     for my $msrv (@readable) {
         my $be = $msrv->accept();
