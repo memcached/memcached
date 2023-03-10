@@ -488,14 +488,6 @@ check_version($ps);
 # - fetch all three zones
 # - hit the same zone multiple times
 
-# Test out of spec commands from client
-# - wrong # of tokens
-# - bad key size
-# - etc
-
-# Test errors/garbage from server
-# - certain errors pass through to the client, most close the backend.
-
 # Test delayed read (timeout)
 
 # Test Lua logging (see t/watcher.t)
@@ -723,6 +715,137 @@ check_version($ps);
     print $be "END\r\n";
     is(scalar <$ps>, "END\r\n", "got END from log test");
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 be=127.0.0.1:11411 detail=logreqtest req=get \/logreqtest\/a/, "found request log entry");
+}
+
+check_version($ps);
+# Test out of spec commands from client
+# - wrong # of tokens
+# - bad key size
+# - etc
+
+# Test errors/garbage from server
+# - certain errors pass through to the client, most close the backend.
+# - should be able to retrieve the error message
+{
+    my $be = $mbe[0];
+    print $ps "set /b/foo 0 0 2\r\nhi\r\n";
+    is(scalar <$be>, "set /b/foo 0 0 2\r\n", "received set cmd");
+    is(scalar <$be>, "hi\r\n", "received set data");
+    # Send a classic back up the pipe.
+    my $msg = "SERVER_ERROR object too large for cache\r\n";
+    print $be $msg;
+    is(scalar <$ps>, $msg, "client received error message");
+
+    print $ps "get /b/foo\r\n";
+    is(scalar <$be>, "get /b/foo\r\n", "backend still works");
+    print $be "END\r\n";
+    is(scalar <$ps>, "END\r\n", "got end back");
+
+    # ERROR and CLIENT_ERROR should both break the backend.
+    print $ps "get /b/moo\r\n";
+    is(scalar <$be>, "get /b/moo\r\n", "received get command");
+    $msg = "CLIENT_ERROR bad command line format\r\n";
+    my $data;
+    print $be $msg;
+    is(scalar <$ps>, $msg, "client received error message");
+    my $read = $be->read($data, 1);
+    is($read, 0, "backend disconnected");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+
+    print $ps "get /b/too\r\n";
+    is(scalar <$be>, "get /b/too\r\n", "received get command");
+    $msg = "ERROR unhappy\r\n";
+    print $be $msg;
+    is(scalar <$ps>, $msg, "client received error message");
+    $read = $be->read($data, 1);
+    is($read, 0, "backend disconnected");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+
+    # Sometimes blank ERRORS can be sent.
+    print $ps "get /b/zoo\r\n";
+    is(scalar <$be>, "get /b/zoo\r\n", "received get command");
+    $msg = "ERROR\r\n";
+    print $be $msg;
+    is(scalar <$ps>, $msg, "client received error message");
+    $read = $be->read($data, 1);
+    is($read, 0, "backend disconnected");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+
+    # Ensure garbage doesn't surface to client.
+    print $ps "get /b/doo\r\n";
+    is(scalar <$be>, "get /b/doo\r\n", "received get command");
+    print $be "garbage\r\n"; # don't need the \r\n but it makes tests easier
+    is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "generic backend error");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+
+    # Check errors from pipelined commands past a CLIENT_ERROR
+    print $ps "get /b/quu\r\nget /b/muu\r\n";
+    is(scalar <$be>, "get /b/quu\r\n", "received get command");
+    is(scalar <$be>, "get /b/muu\r\n", "received next get command");
+    print $be "CLIENT_ERROR bad protocol\r\nEND\r\n";
+    is(scalar <$ps>, "CLIENT_ERROR bad protocol\r\n", "backend error");
+    is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend error");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+
+    # Check that lua handles errors properly.
+    print $ps "get /errcheck/a\r\n";
+    is(scalar <$be>, "get /errcheck/a\r\n", "received get command");
+    print $be "ERROR test1\r\n";
+    is(scalar <$ps>, "ERROR\r\n", "lua saw correct error code");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+
+    print $ps "get /errcheck/b\r\n";
+    is(scalar <$be>, "get /errcheck/b\r\n", "received get command");
+    print $be "CLIENT_ERROR test2\r\n";
+    is(scalar <$ps>, "CLIENT_ERROR\r\n", "lua saw correct error code");
+
+    # re-accept the backend.
+    $be = $mocksrvs[0]->accept();
+    $be->autoflush(1);
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+    $mbe[0] = $be;
+
+    print $ps "get /errcheck/c\r\n";
+    is(scalar <$be>, "get /errcheck/c\r\n", "received get command");
+    print $be "SERVER_ERROR test3\r\n";
+    is(scalar <$ps>, "SERVER_ERROR\r\n", "lua saw correct error code");
 }
 
 check_version($ps);

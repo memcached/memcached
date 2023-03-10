@@ -251,6 +251,7 @@ enum mcp_backend_states {
     mcp_backend_read_end, // looking for an "END" marker for GET
     mcp_backend_want_read, // read more data to complete command
     mcp_backend_next, // advance to the next IO
+    mcp_backend_next_close, // complete current request, then close socket
 };
 
 typedef struct mcp_backend_wrap_s mcp_backend_wrap_t;
