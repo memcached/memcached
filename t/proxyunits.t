@@ -343,19 +343,15 @@ check_version($ps);
     my $be = $mbe[0];
     my $cmd = "get /b/a /b/b /b/c\r\n";
     print $ps $cmd;
-    # NOTE: the proxy ends up reversing the keys to the backend, but returns keys in the
-    # proper order. This is undesireable but not problematic: because of how
-    # ascii multiget syntax works the server cannot start responding until all
-    # answers are resolved anyway.
-    is(scalar <$be>, "get /b/c\r\n", "multiget breakdown c");
-    is(scalar <$be>, "get /b/b\r\n", "multiget breakdown b");
     is(scalar <$be>, "get /b/a\r\n", "multiget breakdown a");
+    is(scalar <$be>, "get /b/b\r\n", "multiget breakdown b");
+    is(scalar <$be>, "get /b/c\r\n", "multiget breakdown c");
 
-    print $be "VALUE /b/c 0 1\r\nc\r\n",
+    print $be "VALUE /b/a 0 1\r\na\r\n",
               "END\r\n",
               "VALUE /b/b 0 1\r\nb\r\n",
               "END\r\n",
-              "VALUE /b/a 0 1\r\na\r\n",
+              "VALUE /b/c 0 1\r\nc\r\n",
               "END\r\n";
 
     for my $key ('a', 'b', 'c') {
@@ -366,9 +362,9 @@ check_version($ps);
 
     # Test multiget workaround with misses (known bug)
     print $ps $cmd;
-    is(scalar <$be>, "get /b/c\r\n", "multiget breakdown c");
-    is(scalar <$be>, "get /b/b\r\n", "multiget breakdown b");
     is(scalar <$be>, "get /b/a\r\n", "multiget breakdown a");
+    is(scalar <$be>, "get /b/b\r\n", "multiget breakdown b");
+    is(scalar <$be>, "get /b/c\r\n", "multiget breakdown c");
 
     print $be "END\r\nEND\r\nEND\r\n";
     is(scalar <$ps>, "END\r\n", "final END from multiget");
