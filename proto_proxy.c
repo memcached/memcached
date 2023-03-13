@@ -224,6 +224,8 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
 }
 
 // ctx_stack is a stack of io_pending_proxy_t's.
+// head of q->s_ctx is the "newest" request so we must push into the head
+// of the next queue, as requests are dequeued from the head
 void proxy_submit_cb(io_queue_t *q) {
     proxy_event_thread_t *e = ((proxy_ctx_t *)q->ctx)->proxy_io_thread;
     io_pending_proxy_t *p = q->stack_ctx;
@@ -270,11 +272,10 @@ void proxy_submit_cb(io_queue_t *q) {
         be = p->backend;
 
         if (be->use_io_thread) {
-            // insert into tail so head is oldest request.
-            STAILQ_INSERT_TAIL(&head, p, io_next);
+            STAILQ_INSERT_HEAD(&head, p, io_next);
         } else {
             // emulate some of handler_dequeue()
-            STAILQ_INSERT_TAIL(&be->io_head, p, io_next);
+            STAILQ_INSERT_HEAD(&be->io_head, p, io_next);
             if (be->io_next == NULL) {
                 be->io_next = p;
             }
