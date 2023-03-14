@@ -4158,9 +4158,6 @@ static void usage(void) {
 #endif
 #ifdef PROXY
     printf("   - proxy_config:        path to lua config file.\n");
-#ifdef HAVE_LIBURING
-    printf("   - proxy_uring:         enable IO_URING for proxy backends.\n");
-#endif
 #endif
 #ifdef TLS
     printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"

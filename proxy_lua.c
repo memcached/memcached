@@ -220,10 +220,6 @@ static int mcplib_backend(lua_State *L) {
 
             be->tunables.connect.tv_sec = secondsi;
             be->tunables.connect.tv_usec = MICROSECONDS(subseconds);
-#ifdef HAVE_LIBURING
-            be->tunables.connect_ur.tv_sec = secondsi;
-            be->tunables.connect_ur.tv_nsec = NANOSECONDS(subseconds);
-#endif
         }
         lua_pop(L, 1);
 
@@ -234,10 +230,6 @@ static int mcplib_backend(lua_State *L) {
 
             be->tunables.retry.tv_sec = secondsi;
             be->tunables.retry.tv_usec = MICROSECONDS(subseconds);
-#ifdef HAVE_LIBURING
-            be->tunables.retry_ur.tv_sec = secondsi;
-            be->tunables.retry_ur.tv_nsec = NANOSECONDS(subseconds);
-#endif
         }
         lua_pop(L, 1);
 
@@ -248,10 +240,6 @@ static int mcplib_backend(lua_State *L) {
 
             be->tunables.read.tv_sec = secondsi;
             be->tunables.read.tv_usec = MICROSECONDS(subseconds);
-#ifdef HAVE_LIBURING
-            be->tunables.read_ur.tv_sec = secondsi;
-            be->tunables.read_ur.tv_nsec = NANOSECONDS(subseconds);
-#endif
         }
         lua_pop(L, 1);
 
@@ -831,10 +819,6 @@ static int mcplib_backend_connect_timeout(lua_State *L) {
     STAT_L(ctx);
     ctx->tunables.connect.tv_sec = secondsi;
     ctx->tunables.connect.tv_usec = MICROSECONDS(subseconds);
-#ifdef HAVE_LIBURING
-    ctx->tunables.connect_ur.tv_sec = secondsi;
-    ctx->tunables.connect_ur.tv_nsec = NANOSECONDS(subseconds);
-#endif
     STAT_UL(ctx);
 
     return 0;
@@ -849,10 +833,6 @@ static int mcplib_backend_retry_timeout(lua_State *L) {
     STAT_L(ctx);
     ctx->tunables.retry.tv_sec = secondsi;
     ctx->tunables.retry.tv_usec = MICROSECONDS(subseconds);
-#ifdef HAVE_LIBURING
-    ctx->tunables.retry_ur.tv_sec = secondsi;
-    ctx->tunables.retry_ur.tv_nsec = NANOSECONDS(subseconds);
-#endif
     STAT_UL(ctx);
 
     return 0;
@@ -867,10 +847,6 @@ static int mcplib_backend_read_timeout(lua_State *L) {
     STAT_L(ctx);
     ctx->tunables.read.tv_sec = secondsi;
     ctx->tunables.read.tv_usec = MICROSECONDS(subseconds);
-#ifdef HAVE_LIBURING
-    ctx->tunables.read_ur.tv_sec = secondsi;
-    ctx->tunables.read_ur.tv_nsec = NANOSECONDS(subseconds);
-#endif
     STAT_UL(ctx);
 
     return 0;
