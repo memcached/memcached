@@ -154,11 +154,6 @@ void *proxy_init(bool use_uring) {
     ctx->tunables.connect.tv_sec = 5;
     ctx->tunables.retry.tv_sec = 3;
     ctx->tunables.read.tv_sec = 3;
-#ifdef HAVE_LIBURING
-    ctx->tunables.connect_ur.tv_sec = 5;
-    ctx->tunables.retry_ur.tv_sec = 3;
-    ctx->tunables.read_ur.tv_sec = 3;
-#endif // HAVE_LIBURING
 
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = luaL_newstate();
@@ -173,15 +168,7 @@ void *proxy_init(bool use_uring) {
     ctx->proxy_io_thread = t;
     proxy_init_event_thread(t, ctx, NULL);
 
-#ifdef HAVE_LIBURING
-    if (t->use_uring) {
-        pthread_create(&t->thread_id, NULL, proxy_event_thread_ur, t);
-    } else {
-        pthread_create(&t->thread_id, NULL, proxy_event_thread, t);
-    }
-#else
     pthread_create(&t->thread_id, NULL, proxy_event_thread, t);
-#endif // HAVE_LIBURING
     thread_setname(t->thread_id, "mc-prx-io");
 
     _start_proxy_config_threads(ctx);
