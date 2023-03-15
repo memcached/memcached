@@ -634,9 +634,8 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
 
             if (STAILQ_EMPTY(&be->io_head)) {
                 stop = true;
-                // TODO: if there're no pending requests, the read buffer
+                // if there're no pending requests, the read buffer
                 // should also be empty.
-                // Get a specific return code for errors to surface this.
                 if (be->rbufused > 0) {
                     flags = P_BE_FAIL_TRAILINGDATA;
                 }
@@ -687,13 +686,8 @@ static void _backend_reconnect(mcp_backend_t *be) {
         be->connecting = true;
         be->can_write = false;
     } else {
-        // TODO (v2): failed to immediately re-establish the connection.
+        // failed to immediately re-establish the connection.
         // need to put the BE into a bad/retry state.
-        // FIXME (v2): until we get an event to specifically handle connecting and
-        // bad server handling, attempt to force a reconnect here the next
-        // time a request comes through.
-        // The event thread will attempt to write to the backend, fail, then
-        // end up in this routine again.
         be->connecting = false;
         be->can_write = true;
     }
@@ -1055,13 +1049,6 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
     }
 }
 
-// TODO (v2): IORING_SETUP_ATTACH_WQ port from bench_event once we have multiple
-// event threads.
-// TODO: this either needs a restructure or split into two funcs:
-// 1) for the IO thread which creates its own ring/event base
-// 2) for the worker thread which reuses the event base.
-// io_uring will probably only work for the IO thread which makes further
-// exceptions.
 void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct event_base *base) {
     t->ctx = ctx;
 #ifdef USE_EVENTFD

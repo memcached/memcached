@@ -587,7 +587,7 @@ int mcplib_request(lua_State *L) {
             proxy_lua_error(L, "failed to allocate value memory for request object");
         }
         memcpy(rq->pr.vbuf, val, vlen);
-        // Note: Not enforcing the memory limit here as a bit of a choice:
+        // Note: Not enforcing the memory limit here is deliberate:
         // - if we're over the memory limit, it'll get caught very soon after
         // this, but we won't be causing some lua to bail mid-flight, which is
         // more graceful to the end user.
