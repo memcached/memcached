@@ -7,6 +7,7 @@ enum proxy_be_failures {
     P_BE_FAIL_TIMEOUT = 0,
     P_BE_FAIL_DISCONNECTED,
     P_BE_FAIL_CONNECTING,
+    P_BE_FAIL_CONNTIMEOUT,
     P_BE_FAIL_READVALIDATE,
     P_BE_FAIL_BADVALIDATE,
     P_BE_FAIL_WRITING,
@@ -23,6 +24,7 @@ const char *proxy_be_failure_text[] = {
     [P_BE_FAIL_TIMEOUT] = "timeout",
     [P_BE_FAIL_DISCONNECTED] = "disconnected",
     [P_BE_FAIL_CONNECTING] = "connecting",
+    [P_BE_FAIL_CONNTIMEOUT] = "conntimeout",
     [P_BE_FAIL_READVALIDATE] = "readvalidate",
     [P_BE_FAIL_BADVALIDATE] = "badvalidate",
     [P_BE_FAIL_WRITING] = "writing",
@@ -1432,7 +1434,7 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
 
     if (which & EV_TIMEOUT) {
         P_DEBUG("%s: backend timed out while connecting\n", __func__);
-        _reset_bad_backend(be, P_BE_FAIL_TIMEOUT);
+        _reset_bad_backend(be, P_BE_FAIL_CONNTIMEOUT);
         _backend_failed(be);
         return;
     }
