@@ -315,6 +315,7 @@ struct mcp_backend_label_s {
     char port[MAX_PORTLEN+1];
     char label[MAX_LABELLEN+1];
     size_t llen; // cache label length for small speedup in pool creation.
+    int conncount; // number of sockets to make.
     struct proxy_tunables tunables;
 };
 
@@ -327,16 +328,14 @@ struct mcp_backend_wrap_s {
     mcp_backend_t *be;
 };
 
-// FIXME: inline the mcmc client data.
-// TODO: event_thread -> something? union of owner type?
-struct mcp_backend_s {
+struct mcp_backendconn_s {
+    mcp_backend_t *be_parent; // find the wrapper.
+    int self; // our index into the parent array.
     int depth; // total number of requests in queue
     int pending_read; // number of requests written to socket, pending read.
     int failed_count; // number of fails (timeouts) in a row
     proxy_event_thread_t *event_thread; // event thread owning this backend.
     void *client; // mcmc client
-    STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
-    STAILQ_ENTRY(mcp_backend_s) beconn_next; // stack for connecting conns
     io_head_t io_head; // stack of requests.
     io_pending_proxy_t *io_next; // next request to write.
     char *rbuf; // statically allocated read buffer.
@@ -345,23 +344,30 @@ struct mcp_backend_s {
     struct event write_event; // libevent: only used when socket wbuf full
     struct event timeout_event; // libevent: alarm for pending reads
     struct proxy_tunables tunables;
-#ifdef HAVE_LIBURING
-    proxy_event_t ur_rd_ev; // liburing.
-    proxy_event_t ur_wr_ev; // need a separate event/cb for writing/polling
-    proxy_event_t ur_te_ev; // for timeout handling
-#endif
     enum mcp_backend_states state; // readback state machine
     int connect_flags; // flags to pass to mcmc_connect
-    bool transferred; // if beconn has been shipped to owner thread.
     bool connecting; // in the process of an asynch connection.
     bool validating; // in process of validating a new backend connection.
     bool can_write; // recently got a WANT_WRITE or are connecting.
-    bool stacked; // if backend already queued for syscalls.
     bool bad; // timed out, marked as bad.
-    bool use_io_thread; // note if this backend is worker-local or not.
     struct iovec write_iovs[BE_IOV_MAX]; // iovs to stage batched writes
+};
+
+// TODO: move depth and flags to a second top level array so we can make index
+// decisions from fewer memory stalls.
+struct mcp_backend_s {
+    int conncount; // total number of connections managed.
+    int depth; // temporary depth counter for io_head
+    bool transferred; // if beconn has been shipped to owner thread.
+    bool use_io_thread; // note if this backend is worker-local or not.
+    bool stacked; // if backend already queued for syscalls.
+    STAILQ_ENTRY(mcp_backend_s) beconn_next; // stack for connecting conns
+    STAILQ_ENTRY(mcp_backend_s) be_next; // stack for backends
+    io_head_t io_head; // stack of inbound requests.
     char name[MAX_NAMELEN+1];
     char port[MAX_PORTLEN+1];
+    struct proxy_tunables tunables; // this gets copied a few times for speed.
+    struct mcp_backendconn_s be[];
 };
 typedef STAILQ_HEAD(be_head_s, mcp_backend_s) be_head_t;
 typedef STAILQ_HEAD(beconn_head_s, mcp_backend_s) beconn_head_t;
@@ -508,6 +514,7 @@ bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len);
 void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct event_base *base);
 void *proxy_event_thread(void *arg);
 void proxy_run_backend_queue(be_head_t *head);
+struct mcp_backendconn_s *proxy_choose_beconn(mcp_backend_t *be);
 
 // await interface
 enum mcp_await_e {

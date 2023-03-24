@@ -268,7 +268,6 @@ void proxy_submit_cb(io_queue_t *q) {
             be->depth++;
             if (!be->stacked) {
                 be->stacked = true;
-                be->be_next.stqe_next = NULL; // paranoia
                 STAILQ_INSERT_TAIL(&w_head, be, be_next);
             }
         }

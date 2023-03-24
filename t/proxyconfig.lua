@@ -39,6 +39,13 @@ function mcp_config_pools(old)
             test = mcp.pool({b1, b2, b3}, { iothread = false })
         }
         return pools
+    elseif mode == "connections" then
+        local b1 = mcp.backend({ label = "b1c", host = "127.0.0.1", port = 11511,
+                               connections = 3})
+        local pools = {
+            test = mcp.pool({b1})
+        }
+        return pools
     end
 end
 

@@ -126,7 +126,9 @@ static int mcplib_backend_wrap_gc(lua_State *L) {
         // Since we're running in the config thread it could just busy poll
         // until the connection was picked up.
         assert(be->transferred);
-        proxy_event_thread_t *e = be->event_thread;
+        // There has to be at least one connection, and the event_thread will
+        // always be the same.
+        proxy_event_thread_t *e = be->be[0].event_thread;
         pthread_mutex_lock(&e->mutex);
         STAILQ_INSERT_TAIL(&e->beconn_head_in, be, beconn_next);
         pthread_mutex_unlock(&e->mutex);
@@ -173,6 +175,7 @@ static int mcplib_backend(lua_State *L) {
     const char *port;
     // copy global defaults for tunables.
     memcpy(&be->tunables, &ctx->tunables, sizeof(be->tunables));
+    be->conncount = 1; // one connection per backend as default.
 
     if (lua_istable(L, 1)) {
 
@@ -246,6 +249,19 @@ static int mcplib_backend(lua_State *L) {
         }
         lua_pop(L, 1);
 
+        if (lua_getfield(L, 1, "connections") != LUA_TNIL) {
+            int c = luaL_checkinteger(L, -1);
+            if (c <= 0) {
+                proxy_lua_error(L, "backend connections argument must be >= 0");
+                return 0;
+            } else if (c > 8) {
+                proxy_lua_error(L, "backend connections argument must be <= 8");
+                return 0;
+            }
+
+            be->conncount = c;
+        }
+        lua_pop(L, 1);
     } else {
         label = luaL_checklstring(L, 1, &llen);
         name = luaL_checklstring(L, 2, &nlen);
@@ -315,7 +331,7 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
     luaL_getmetatable(L, "mcp.backendwrap");
     lua_setmetatable(L, -2); // set metatable to userdata.
 
-    mcp_backend_t *be = calloc(1, sizeof(mcp_backend_t));
+    mcp_backend_t *be = calloc(1, sizeof(mcp_backend_t) + sizeof(struct mcp_backendconn_s) * bel->conncount);
     if (be == NULL) {
         proxy_lua_error(L, "out of memory allocating backend connection");
         return NULL;
@@ -325,44 +341,47 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
     strncpy(be->name, bel->name, MAX_NAMELEN+1);
     strncpy(be->port, bel->port, MAX_PORTLEN+1);
     memcpy(&be->tunables, &bel->tunables, sizeof(bel->tunables));
+    be->conncount = bel->conncount;
     STAILQ_INIT(&be->io_head);
-    be->state = mcp_backend_read;
 
-    // this leaves a permanent buffer on the backend, which is fine
-    // unless you have billions of backends.
-    // we can later optimize for pulling buffers from idle backends.
-    be->rbuf = malloc(READ_BUFFER_SIZE);
-    if (be->rbuf == NULL) {
-        proxy_lua_error(L, "out of memory allocating backend");
-        return NULL;
+    for (int x = 0; x < bel->conncount; x++) {
+        struct mcp_backendconn_s *bec = &be->be[x];
+        bec->be_parent = be;
+        memcpy(&bec->tunables, &bel->tunables, sizeof(bel->tunables));
+        STAILQ_INIT(&bec->io_head);
+        bec->state = mcp_backend_read;
+
+        // this leaves a permanent buffer on the backend, which is fine
+        // unless you have billions of backends.
+        // we can later optimize for pulling buffers from idle backends.
+        bec->rbuf = malloc(READ_BUFFER_SIZE);
+        if (bec->rbuf == NULL) {
+            proxy_lua_error(L, "out of memory allocating backend");
+            return NULL;
+        }
+
+        // initialize the client
+        bec->client = malloc(mcmc_size(MCMC_OPTION_BLANK));
+        if (bec->client == NULL) {
+            proxy_lua_error(L, "out of memory allocating backend");
+            return NULL;
+        }
+        // TODO (v2): no way to change the TCP_KEEPALIVE state post-construction.
+        // This is a trivial fix if we ensure a backend's owning event thread is
+        // set before it can be used in the proxy, as it would have access to the
+        // tunables structure. _reset_bad_backend() may not have its event thread
+        // set 100% of the time and I don't want to introduce a crash right now,
+        // so I'm writing this overly long comment. :)
+        int flags = MCMC_OPTION_NONBLOCK;
+        STAT_L(ctx);
+        if (ctx->tunables.tcp_keepalive) {
+            flags |= MCMC_OPTION_TCP_KEEPALIVE;
+        }
+        STAT_UL(ctx);
+        bec->connect_flags = flags;
+
+        bec->event_thread = e;
     }
-
-    // initialize libevent.
-    memset(&be->main_event, 0, sizeof(be->main_event));
-    memset(&be->write_event, 0, sizeof(be->write_event));
-    memset(&be->timeout_event, 0, sizeof(be->timeout_event));
-
-    // initialize the client
-    be->client = malloc(mcmc_size(MCMC_OPTION_BLANK));
-    if (be->client == NULL) {
-        proxy_lua_error(L, "out of memory allocating backend");
-        return NULL;
-    }
-    // TODO (v2): no way to change the TCP_KEEPALIVE state post-construction.
-    // This is a trivial fix if we ensure a backend's owning event thread is
-    // set before it can be used in the proxy, as it would have access to the
-    // tunables structure. _reset_bad_backend() may not have its event thread
-    // set 100% of the time and I don't want to introduce a crash right now,
-    // so I'm writing this overly long comment. :)
-    int flags = MCMC_OPTION_NONBLOCK;
-    STAT_L(ctx);
-    if (ctx->tunables.tcp_keepalive) {
-        flags |= MCMC_OPTION_TCP_KEEPALIVE;
-    }
-    STAT_UL(ctx);
-    be->connect_flags = flags;
-
-    be->event_thread = e;
     pthread_mutex_lock(&e->mutex);
     STAILQ_INSERT_TAIL(&e->beconn_head_in, be, beconn_next);
     pthread_mutex_unlock(&e->mutex);

@@ -159,6 +159,15 @@ sub proxy_test {
     is(scalar <$ps>, "END\r\n"); # god damn multiget syntax.
 }
 
+{
+    note("Test dead backend");
+    my $start = int(time());
+    print $ps "get /dead/foo\r\n";
+    is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "Backend failed");
+    my $end = int(time());
+    cmp_ok($end - $start, '<', 3, "backend failed immediately");
+}
+
 # Basic test with a backend; write a request to the client socket, read it
 # from a backend socket, and write a response to the backend socket.
 #
