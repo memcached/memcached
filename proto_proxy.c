@@ -862,6 +862,8 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
 
         conn_set_state(c, conn_nread);
         return;
+    } else {
+        conn_set_state(c, conn_new_cmd);
     }
 
     proxy_run_coroutine(Lc, c->resp, NULL, c);
