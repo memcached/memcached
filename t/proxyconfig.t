@@ -186,6 +186,79 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     is(scalar @readable, 0, "no new sockets");
 }
 
+#diag "testing multiple connections";
+{
+    write_modefile('return "connections"');
+    $p_srv->reload();
+    wait_reload($watcher);
+
+    # Should get 3 new connetions for the first server.
+    my $msrv = $mocksrvs[0];
+    my @bes = ();
+    for (1 .. 3) {
+        my $be = $msrv->accept();
+        $be->autoflush(1);
+        ok(defined $be, "mock backend created");
+        push(@bes, $be);
+    }
+
+    my $s = IO::Select->new();
+
+    for my $be (@bes) {
+        $s->add($be);
+        like(<$be>, qr/version/, "received version command");
+        print $be "VERSION 1.0.0-mock\r\n";
+    }
+
+    # Command should only go to the first socket we created in N tries
+    for (1 .. 5) {
+        my $cmd = "mg foo$_ v\r\n";
+        print $ps $cmd;
+        my @readable = $s->can_read(0.25);
+        my $be = $bes[0];
+        is(scalar <$be>, $cmd, "get passthrough");
+        print $be "EN\r\n";
+        is(scalar <$ps>, "EN\r\n", "miss received");
+    }
+    my @readable = $s->can_read(0.25);
+    is(scalar @readable, 0, "rest of connections are idle still");
+
+    # Pipelined commands should all go to the first socket
+    print $ps "mg f1 v\r\nmg f2 v\r\nmg f3 v\r\n";
+    @readable = $s->can_read(0.25);
+    is(scalar @readable, 1, "only one backend woke up");
+    {
+        my $be = $bes[0];
+        for (1 .. 3) {
+            is(scalar <$be>, "mg f$_ v\r\n", "mg to connection $_");
+            print $be "EN\r\n";
+        }
+        for (1 .. 3) {
+            is(scalar <$ps>, "EN\r\n", "miss $_ from backend");
+        }
+    }
+
+    # Rest of sockets should be used when backend depth is nonzero
+    # need two more client sockets.
+    # client will be in conn_iowait, so if we write more requests down the
+    # same socket it won't go anywhere.
+    my $ps2 = $p_srv->new_sock;
+    my $ps3 = $p_srv->new_sock;
+    my @psocks = ($ps, $ps2, $ps3);
+    for (1 .. 3) {
+        my $psc = $psocks[$_ - 1];
+        my $be = $bes[$_ - 1];
+        print $psc "mg f$_ v\r\n";
+        is(scalar <$be>, "mg f$_ v\r\n", "trying all connections");
+    }
+    for my $be (@bes) {
+        print $be "EN\r\n";
+    }
+    for my $psc (@psocks) {
+        is(scalar <$psc>, "EN\r\n", "miss from backend");
+    }
+}
+
 # Disconnect the existing sockets
 @mbe = ();
 @holdbe = ();
