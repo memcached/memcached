@@ -2,7 +2,7 @@ FROM ubuntu:latest
 
 ARG CONFIGURE_OPTS="--enable-seccomp"
 
-RUN apt-get update && apt-get install -y build-essential automake autoconf libevent-dev libseccomp-dev git pkg-config
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential automake autoconf libevent-dev libseccomp-dev git pkg-config && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -ms /bin/bash memcached
 ADD . /src
