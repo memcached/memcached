@@ -999,19 +999,8 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
             it = NULL;
         }*/
     }
-    int was_found = 0;
 
-    if (settings.verbose > 2) {
-        int ii;
-        if (it == NULL) {
-            fprintf(stderr, "> NOT FOUND ");
-        } else if (was_found) {
-            fprintf(stderr, "> FOUND KEY ");
-        }
-        for (ii = 0; ii < nkey; ++ii) {
-            fprintf(stderr, "%c", key[ii]);
-        }
-    }
+    int was_found = 0;
 
     if (it != NULL) {
         was_found = 1;
@@ -1047,8 +1036,19 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVEN
         }
     }
 
-    if (settings.verbose > 2)
+    if (settings.verbose > 2) {
+        int ii;
+        if (!was_found) {
+            fprintf(stderr, "> NOT FOUND ");
+        } else {
+            fprintf(stderr, "> FOUND KEY ");
+        }
+        for (ii = 0; ii < nkey; ++ii) {
+            fprintf(stderr, "%c", key[ii]);
+        }
         fprintf(stderr, "\n");
+    }
+
     /* For now this is in addition to the above verbose logging. */
     LOGGER_LOG(t->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key,
                nkey, (it) ? it->nbytes : 0, (it) ? ITEM_clsid(it) : 0, t->cur_sfd);
