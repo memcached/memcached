@@ -400,7 +400,7 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
     int res = lua_pcall(L, 0, LUA_MULTRET, 0);
     if (res != LUA_OK) {
         // FIXME (v2): don't exit here!
-        fprintf(stderr, "Failed to load data into worker thread\n");
+        fprintf(stderr, "Failed to load data into worker thread: %s\n", lua_tostring(L, -1));
         return -1;
     }
 
