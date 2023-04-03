@@ -499,10 +499,9 @@ void proxy_lua_ferror(lua_State *L, const char *fmt, ...) {
 }
 
 // Need a custom function so we can prefix lua strings easily.
-void proxy_out_errstring(mc_resp *resp, const char *str) {
+void proxy_out_errstring(mc_resp *resp, char *type, const char *str) {
     size_t len;
-    const static char error_prefix[] = "SERVER_ERROR ";
-    const static int error_prefix_len = sizeof(error_prefix) - 1;
+    size_t prefix_len = strlen(type);
 
     assert(resp != NULL);
 
@@ -511,21 +510,21 @@ void proxy_out_errstring(mc_resp *resp, const char *str) {
 
     // Fill response object with static string.
     len = strlen(str);
-    if ((len + error_prefix_len + 2) > WRITE_BUFFER_SIZE) {
+    if ((len + prefix_len + 2) > WRITE_BUFFER_SIZE) {
         /* ought to be always enough. just fail for simplicity */
         str = "SERVER_ERROR output line too long";
         len = strlen(str);
     }
 
     char *w = resp->wbuf;
-    memcpy(w, error_prefix, error_prefix_len);
-    w += error_prefix_len;
+    memcpy(w, type, prefix_len);
+    w += prefix_len;
 
     memcpy(w, str, len);
     w += len;
 
     memcpy(w, "\r\n", 2);
-    resp_add_iov(resp, resp->wbuf, len + error_prefix_len + 2);
+    resp_add_iov(resp, resp->wbuf, len + prefix_len + 2);
     return;
 }
 
@@ -583,7 +582,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
             mcp_resp_t *r = luaL_checkudata(Lc, 1, "mcp.response");
             _set_noreply_mode(resp, r);
             if (r->status != MCMC_OK && r->resp.type != MCMC_RESP_ERRMSG) {
-                proxy_out_errstring(resp, "backend failure");
+                proxy_out_errstring(resp, PROXY_SERVER_ERROR, "backend failure");
             } else if (r->cresp) {
                 mc_resp *tresp = r->cresp;
                 // The internal cache handler has created a resp we want to swap in
@@ -635,7 +634,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
             resp_add_iov(resp, resp->wbuf, l);
             lua_pop(Lc, 1);
         } else {
-            proxy_out_errstring(resp, "bad response");
+            proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad response");
         }
 
     } else if (cores == LUA_YIELD) {
@@ -697,7 +696,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
                     // internal run queued for extstore.
                 } else {
                     assert(res < 0);
-                    proxy_out_errstring(resp, "bad request");
+                    proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad request");
                 }
                 break;
             default:
@@ -708,7 +707,7 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
         WSTAT_DECR(c->thread, proxy_req_active, 1);
         P_DEBUG("%s: Failed to run coroutine: %s\n", __func__, lua_tostring(Lc, -1));
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(Lc, -1));
-        proxy_out_errstring(resp, "lua failure");
+        proxy_out_errstring(resp, PROXY_SERVER_ERROR, "lua failure");
     }
 
     return 0;
@@ -734,7 +733,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
             conn_set_state(c, conn_closing);
             return;
         }
-        proxy_out_errstring(c->resp, "parsing request");
+        proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "parsing request");
         if (ret == -2) {
             // Kill connection on more critical parse failure.
             conn_set_state(c, conn_closing);
@@ -796,7 +795,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
                     conn_set_state(c, conn_closing);
                     return;
                 }
-                proxy_out_errstring(c->resp, "key too long");
+                proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "key too long");
             } else {
                 // copy original request up until the original key token.
                 memcpy(cur, pr.request, pr.tokens[pr.keytoken]);
@@ -841,7 +840,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
             conn_set_state(c, conn_closing);
             return;
         }
-        proxy_out_errstring(c->resp, "request too long");
+        proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "request too long");
         conn_set_state(c, conn_closing);
         return;
     }
@@ -864,7 +863,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     WSTAT_UL(c->thread);
 
     if (active_reqs > ctx->active_req_limit) {
-        proxy_out_errstring(c->resp, "active request limit reached");
+        proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "active request limit reached");
         WSTAT_DECR(c->thread, proxy_req_active, 1);
         if (pr.vlen != 0) {
             c->sbytes = pr.vlen;
@@ -901,7 +900,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         }
         if (c->item == NULL) {
             lua_settop(L, 0);
-            proxy_out_errstring(c->resp, "out of memory");
+            proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "out of memory");
             WSTAT_DECR(c->thread, proxy_req_active, 1);
             c->sbytes = rq->pr.vlen;
             conn_set_state(c, conn_swallow);

@@ -66,6 +66,11 @@ for my $be (@mbe) {
 }
 
 {
+    print $ps "set with the wrong number of tokens\n";
+    is(scalar <$ps>, "CLIENT_ERROR parsing request\r\n", "got CLIENT_ERROR for bad syntax");
+}
+
+{
     # Test a fix for passing through partial read data if END ends up missing.
     print $ps "get /b/a\r\n";
     my $be = $mbe[0];

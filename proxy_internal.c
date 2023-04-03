@@ -250,7 +250,7 @@ static void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
               pthread_mutex_unlock(&t->stats.mutex);
 
               item_remove(it);
-              proxy_out_errstring(resp, "out of memory writing get response");
+              proxy_out_errstring(resp, PROXY_SERVER_ERROR, "out of memory writing get response");
               return;
           }
       } else if ((it->it_flags & ITEM_CHUNKED) == 0) {
