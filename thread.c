@@ -18,6 +18,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 #include "queue.h"
 
@@ -382,13 +385,12 @@ static void create_worker(void *(*func)(void *), void *arg) {
 
     pthread_attr_init(&attr);
 
-    if ((ret = pthread_create(&((LIBEVENT_THREAD*)arg)->thread_id, &attr, func, arg)) != 0) {
+    if ((ret = create_thread_with_name(&((LIBEVENT_THREAD*)arg)->thread_id, "mc-worker", &attr, func, arg)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n",
                 strerror(ret));
         exit(1);
     }
 
-    thread_setname(((LIBEVENT_THREAD*)arg)->thread_id, "mc-worker");
 }
 
 /*
@@ -630,14 +632,68 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
     }
 }
 
-// Interface is slightly different on various platforms.
-// On linux, at least, the len limit is 16 bytes.
 #define THR_NAME_MAXLEN 16
-void thread_setname(pthread_t thread, const char *name) {
-assert(strlen(name) < THR_NAME_MAXLEN);
+static void thread_setname(pthread_t thread, const char *name) {
+  assert(strlen(name) < THR_NAME_MAXLEN);
+
 #if defined(__linux__)
-pthread_setname_np(thread, name);
+#ifdef HAVE_PTHREAD_SETNAME_NP
+  pthread_setname_np(thread, name);
+#else
+  // If pthread_setname_np is not available, use prctl to set the thread name.
+  // Note that this can only be called by the thread itself.
+  if (pthread_self() == thread) {
+    prctl(PR_SET_NAME, (unsigned long)name, 0, 0, 0);
+  } else {
+    fprintf(stderr, "Threads other than the caller cannot be renamed [%s].", name);
+  }
 #endif
+#elif defined(__APPLE__) && defined(__MACH__)
+  pthread_setname_np(name);
+#elif defined(_WIN32) || defined(_WIN64)
+  // No simple equivalent in Windows. Use a debugger to view thread names.
+#else
+  // Unsupported platform. You may implement a platform-specific solution here.
+  (void)thread; // To avoid "unused parameter" warning.
+#endif
+}
+
+// Helper structure for passing information to a thread
+typedef struct {
+  void *(*start_routine)(void *);
+  void *arg;
+  char name[THR_NAME_MAXLEN];
+} thread_data_t;
+
+void *thread_wrapper(void *arg);
+
+// Helper function that sets the thread name and calls the thread's main function
+void *thread_wrapper(void *arg) {
+  thread_data_t *data = (thread_data_t *)arg;
+
+  // Setting the thread name
+  thread_setname(pthread_self(), data->name);
+  // Calling the main function from the thread
+  void *result = data->start_routine(data->arg);
+  // Freeing memory allocated for thread data
+  free(data);
+
+  return result;
+}
+
+// Create a thread with a name
+int create_thread_with_name(pthread_t *thread, const char *name, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg) {
+  thread_data_t *data = (thread_data_t *)malloc(sizeof(thread_data_t));
+  if (data == NULL) {
+    return -1;
+  }
+
+  strncpy(data->name, name, THR_NAME_MAXLEN - 1);
+  data->name[THR_NAME_MAXLEN - 1] = '\0';
+  data->start_routine = start_routine;
+  data->arg = arg;
+
+  return pthread_create(thread, attr, thread_wrapper, data);
 }
 #undef THR_NAME_MAXLEN
 

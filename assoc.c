@@ -275,12 +275,11 @@ int start_assoc_maintenance_thread(void) {
         }
     }
 
-    if ((ret = pthread_create(&maintenance_tid, NULL,
-                              assoc_maintenance_thread, NULL)) != 0) {
+    if ((ret = create_thread_with_name(&maintenance_tid, "mc-assocmaint", NULL, assoc_maintenance_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
         return -1;
     }
-    thread_setname(maintenance_tid, "mc-assocmaint");
+
     return 0;
 }
 

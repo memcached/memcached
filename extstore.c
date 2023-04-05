@@ -112,18 +112,7 @@ struct store_engine {
     struct extstore_stats stats;
 };
 
-// FIXME: code is duplicated from thread.c since extstore.c doesn't pull in
-// the memcached ecosystem. worth starting a cross-utility header with static
-// definitions/macros?
-// keeping a minimal func here for now.
-#define THR_NAME_MAXLEN 16
-static void thread_setname(pthread_t thread, const char *name) {
-assert(strlen(name) < THR_NAME_MAXLEN);
-#if defined(__linux__)
-pthread_setname_np(thread, name);
-#endif
-}
-#undef THR_NAME_MAXLEN
+int create_thread_with_name(pthread_t *thread, const char *name, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg);
 
 static _store_wbuf *wbuf_new(size_t size) {
     _store_wbuf *b = calloc(1, sizeof(_store_wbuf));
@@ -390,8 +379,7 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
         pthread_cond_init(&e->io_threads[i].cond, NULL);
         e->io_threads[i].e = e;
         // FIXME: error handling
-        pthread_create(&thread, NULL, extstore_io_thread, &e->io_threads[i]);
-        thread_setname(thread, "mc-ext-io");
+        create_thread_with_name(&thread, "mc-ext-io", NULL, extstore_io_thread, &e->io_threads[i]);
     }
     e->io_threadcount = cf->io_threadcount;
 
@@ -400,8 +388,7 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     // FIXME: error handling
     pthread_mutex_init(&e->maint_thread->mutex, NULL);
     pthread_cond_init(&e->maint_thread->cond, NULL);
-    pthread_create(&thread, NULL, extstore_maint_thread, e->maint_thread);
-    thread_setname(thread, "mc-ext-maint");
+    create_thread_with_name(&thread, "mc-ext-maint", NULL, extstore_maint_thread, e->maint_thread);
 
     extstore_run_maint(e);
 
