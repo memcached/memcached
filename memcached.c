@@ -972,6 +972,7 @@ static void conn_close_listeners(void) {
 // need to confirm the loops don't hang forever if the conns are idle. They
 // have some default timeout or one can be set, I think?
 static void graceful_shutdown_start(struct event_base *base) {
+    struct thread_stats thread_stats;
     conn_close_listeners();
     graceful_stop_workers();
 
@@ -993,6 +994,17 @@ static void graceful_shutdown_start(struct event_base *base) {
                 }
             }
         }
+#ifdef PROXY
+        if (settings.proxy_enabled) {
+            // need to wait for active proxy requests to resolve, in
+            // combination with all clients being closed.
+            threadlocal_stats_aggregate(&thread_stats);
+            if (thread_stats.proxy_req_active != 0 ||
+                thread_stats.proxy_await_active != 0) {
+                ready = false;
+            }
+        }
+#endif
 
         // TODO: counter/metric for "if the proxy is running and backgrounded
         // requests are still active."
@@ -1009,6 +1021,11 @@ void conn_worker_gracestop(LIBEVENT_THREAD *t) {
         conn *c = conns[i];
         // TODO: need to audit and ensure a conn will always have the correct
         // thread. Think we just need to NULL it in the conn_close section.
+        // Auditing: c->state is set to an "init_state" from within a worker
+        // thread close to where c->thread = me is set.
+        // Thus if we are running _this_ function within the worker thread,
+        // all non-closed states that have our thread set are owned by this
+        // thread.
         if (c && c->thread == t) {
             // TODO: if UDP close? will this catch that?
             if (c->state == conn_read && c->rbuf == NULL) {
