@@ -21,6 +21,9 @@
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif
+#if defined(__FreeBSD__)
+#include <pthread_np.h>
+#endif
 
 #include "queue.h"
 
@@ -648,6 +651,8 @@ static void thread_setname(pthread_t thread, const char *name) {
     fprintf(stderr, "Threads other than the caller cannot be renamed [%s].", name);
   }
 #endif
+#elif defined(__FreeBSD__)
+  pthread_set_name_np(thread, name);
 #elif defined(__APPLE__) && defined(__MACH__)
   pthread_setname_np(name);
 #elif defined(_WIN32) || defined(_WIN64)
