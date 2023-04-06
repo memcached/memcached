@@ -38,6 +38,7 @@ enum conn_queue_item_modes {
     queue_timeout,    /* socket sfd timed out */
     queue_redispatch, /* return conn from side thread */
     queue_stop,       /* exit thread */
+    queue_gracestop,  /* gracefully close idle conns */
     queue_return_io,  /* returning a pending IO object immediately */
 #ifdef PROXY
     queue_proxy_reload, /* signal proxy to reload worker VM */
@@ -201,6 +202,13 @@ void pause_threads(enum pause_thread_types type) {
     }
     wait_for_thread_registration(settings.num_threads);
     pthread_mutex_unlock(&init_lock);
+}
+
+void graceful_stop_workers(void) {
+    int i;
+    for (i = 0; i < settings.num_threads; i++) {
+        notify_worker_fd(&threads[i], 0, queue_gracestop);
+    }
 }
 
 // MUST not be called with any deeper locks held
@@ -614,6 +622,9 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
             case queue_stop:
                 /* asked to stop */
                 event_base_loopexit(me->base, NULL);
+                break;
+            case queue_gracestop:
+                conn_worker_gracestop(me);
                 break;
             case queue_return_io:
                 /* getting an individual IO object back */

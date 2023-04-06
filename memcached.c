@@ -953,6 +953,73 @@ void conn_close_all(void) {
     }
 }
 
+static void conn_close_listeners(void) {
+    int i;
+    for (i = 0; i < max_fds; i++) {
+        if (conns[i] && conns[i]->state == conn_listening) {
+            conn_close(conns[i]);
+        }
+    }
+}
+
+// TODO: move this function.
+// TODO: an alternative could be to continually signal workers to close off
+// idle connections instead of holding the flag.
+// a high usage connection would never die either way, so need further
+// thought.
+// maybe workers break out of their main loop and enter a graceful loop, where
+// they scan their connections after every event loop.
+// need to confirm the loops don't hang forever if the conns are idle. They
+// have some default timeout or one can be set, I think?
+static void graceful_shutdown_start(struct event_base *base) {
+    conn_close_listeners();
+    graceful_stop_workers();
+
+    // We need to continue running the clock event while we wait for
+    // connections to close off. So call the main loop again then check the
+    // connections for a completion state.
+    while (1) {
+        bool ready = true;
+        // FIXME: do we need to check for loop failure at this point? It
+        // should be impossible since it's just the clock event.
+        event_base_loop(main_base, EVLOOP_ONCE);
+
+        for (int i = 0; i < max_fds; i++) {
+            if (conns[i] && conns[i]->state != conn_closed) {
+                // All connections must be closed or "watch", which are easily
+                // closed.
+                if (conns[i]->state != conn_watch) {
+                    ready = false;
+                }
+            }
+        }
+
+        // TODO: counter/metric for "if the proxy is running and backgrounded
+        // requests are still active."
+        if (ready) {
+            break;
+        }
+    }
+}
+
+// TODO: here or thread.c?
+void conn_worker_gracestop(LIBEVENT_THREAD *t) {
+    int i;
+    for (i = 0; i < max_fds; i++) {
+        conn *c = conns[i];
+        // TODO: need to audit and ensure a conn will always have the correct
+        // thread. Think we just need to NULL it in the conn_close section.
+        if (c && c->thread == t) {
+            // TODO: if UDP close? will this catch that?
+            if (c->state == conn_read && c->rbuf == NULL) {
+                conn_close(c);
+            } else if (c->state != conn_closed) {
+                c->graceful_stop = true;
+            }
+        }
+    }
+}
+
 /**
  * Convert a state name to a human readable form.
  */
@@ -3097,6 +3164,11 @@ static void drive_machine(conn *c) {
 
         case conn_waiting:
             rbuf_release(c);
+            // TODO: any possible way to remove this branch from the hot path?
+            if (c->graceful_stop && c->rbuf == NULL) {
+                conn_set_state(c, conn_closing);
+                break;
+            }
             if (!update_event(c, EV_READ | EV_PERSIST)) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
@@ -3560,6 +3632,8 @@ static int server_socket(const char *interface,
 #endif
 
         setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
+        // TODO: make optional.
+        setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, (void *)&flags, sizeof(flags));
         if (IS_UDP(transport)) {
             maximize_sndbuf(sfd);
         } else {
@@ -6233,6 +6307,11 @@ int main (int argc, char **argv) {
     switch (stop_main_loop) {
         case GRACE_STOP:
             fprintf(stderr, "Gracefully stopping\n");
+            graceful_shutdown_start(main_base);
+            stop_threads();
+            if (settings.memory_file != NULL) {
+                restart_mmap_close();
+            }
         break;
         case EXIT_NORMALLY:
             // Don't need to print anything to STDERR for a normal shutdown except
@@ -6246,13 +6325,6 @@ int main (int argc, char **argv) {
         default:
             fprintf(stderr, "Exiting on error\n");
         break;
-    }
-
-    if (stop_main_loop == GRACE_STOP) {
-        stop_threads();
-        if (settings.memory_file != NULL) {
-            restart_mmap_close();
-        }
     }
 
     /* remove the PID file if we're a daemon */
