@@ -265,6 +265,12 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
         push(@cli, $p);
     }
 
+    @readable = $s->can_read(0.25);
+    is(scalar @readable, 0, "no listeners should be active pre-reload");
+    $p_srv->reload();
+    wait_reload($watcher);
+    @readable = $s->can_read(0.25);
+    is(scalar @readable, 0, "no listeners should be active post-reload");
 }
 
 ###

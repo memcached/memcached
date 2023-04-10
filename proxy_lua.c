@@ -378,7 +378,7 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
     }
 #endif
 
-    lua_pushvalue(L, 4); // push the label string back to the top.
+    lua_pushvalue(L, -2); // push the label string back to the top.
     // Add this new backend connection to the object cache.
     lua_pushvalue(L, -2); // copy the backend reference to the top.
     // set our new backend wrapper object into the reference table.
