@@ -613,7 +613,9 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
                 // associated io_pending's of its own later.
             } else if (r->buf) {
                 // response set from C.
+                resp->write_and_free = r->buf;
                 resp_add_iov(resp, r->buf, r->blen);
+                r->buf = NULL;
             } else if (lua_getiuservalue(Lc, 1, 1) != LUA_TNIL) {
                 // uservalue slot 1 is pre-created, so we get TNIL instead of
                 // TNONE when nothing was set into it.
