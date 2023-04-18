@@ -19,7 +19,7 @@ function mcp_config_pools(old)
         return pools
     elseif mode == "betable" then
         local b1 = mcp.backend({ label = "b1", host = "127.0.0.1", port = 11511,
-            connecttimeout = 2, retrytimeout = 5, readtimeout = 0.1,
+            connecttimeout = 2, retrytimeout = 5, readtimeout = 1,
             failurelimit = 0 })
         local b2 = mcp.backend({ label = "b2", host = "127.0.0.1", port = 11512,
             connecttimeout = 2, retrytimeout = 5, readtimeout = 5 })

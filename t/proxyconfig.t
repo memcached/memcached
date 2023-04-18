@@ -123,7 +123,7 @@ my $keycount = 100;
     my $cmd = "mg foo v\r\n";
     print $ps $cmd;
     my @readable = $s->can_read(0.25);
-    is(scalar @readable, 1, "only one backend became readable");
+    is(scalar @readable, 1, "only one backend became readable after mg");
     my $be = shift @readable;
     is(scalar <$be>, $cmd, "metaget passthrough");
     print $be "EN\r\n";
@@ -133,7 +133,7 @@ my $keycount = 100;
     for my $key (0 .. $keycount) {
         print $ps "mg /test/$key\r\n";
         my @readable = $s->can_read(0.25);
-        is(scalar @readable, 1, "only one backend became readable");
+        is(scalar @readable, 1, "only one backend became readable for this key");
         my $be = shift @readable;
         for (0 .. 2) {
             if ($be == $mbe[$_]) {
@@ -154,9 +154,8 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     $p_srv->reload();
     wait_reload($watcher);
 
-    # sleep a short time; b1 should have a very short timeout and the
-    # others are long.
-    select(undef, undef, undef, 0.5);
+    my $watch_s = IO::Select->new();
+    $watch_s->add($watcher);
 
     my $s = IO::Select->new();
     for my $msrv (@mocksrvs) {
@@ -167,6 +166,8 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     # host, and port arguments.
     is(scalar @readable, 3, "all listeners became readable");
 
+    my @watchable = $watch_s->can_read(5);
+    is(scalar @watchable, 1, "got new watcher log lines");
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=conntimeout name=\S+ port=11511/, "one backend timed out connecting");
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=markedbad name=\S+ port=11511/, "backend was marked bad");
 
