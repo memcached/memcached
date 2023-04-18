@@ -704,7 +704,7 @@ static void _backend_reconnect(mcp_backend_t *be) {
 static void proxy_backend_retry_handler(const int fd, const short which, void *arg) {
     mcp_backend_t *be = arg;
     assert(which & EV_TIMEOUT);
-    struct timeval tmp_time = be->tunables.retry;
+    struct timeval tmp_time = be->tunables.connect;
     _backend_reconnect(be);
     _set_main_event(be, be->event_thread->base, EV_WRITE, &tmp_time, proxy_beconn_handler);
 }
@@ -714,8 +714,8 @@ static void proxy_backend_retry_handler(const int fd, const short which, void *a
 // TODO (v2): extra counter for "backend connect tries" so it's still possible
 // to see dead backends exist
 static void _backend_failed(mcp_backend_t *be) {
-    struct timeval tmp_time = be->tunables.retry;
     if (++be->failed_count > be->tunables.backend_failure_limit) {
+        struct timeval tmp_time = be->tunables.retry;
         if (!be->bad) {
             P_DEBUG("%s: marking backend as bad\n", __func__);
             STAT_INCR(be->event_thread->ctx, backend_marked_bad, 1);
@@ -724,6 +724,7 @@ static void _backend_failed(mcp_backend_t *be) {
         be->bad = true;
        _set_main_event(be, be->event_thread->base, EV_TIMEOUT, &tmp_time, proxy_backend_retry_handler);
     } else {
+        struct timeval tmp_time = be->tunables.connect;
         STAT_INCR(be->event_thread->ctx, backend_failed, 1);
         _backend_reconnect(be);
         _set_main_event(be, be->event_thread->base, EV_WRITE, &tmp_time, proxy_beconn_handler);
