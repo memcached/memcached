@@ -517,6 +517,8 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
 
                 if (oom) {
                     flags = P_BE_FAIL_OOM;
+                    // need to zero out blen so we don't over-decrement later
+                    r->blen = 0;
                     stop = true;
                     break;
                 }
@@ -529,6 +531,7 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
                 pthread_mutex_unlock(&r->thread->proxy_limit_lock);
 
                 flags = P_BE_FAIL_OOM;
+                r->blen = 0;
                 stop = true;
                 break;
             }
