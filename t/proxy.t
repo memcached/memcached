@@ -157,7 +157,7 @@ my $p_sock = $p_srv->sock;
     print $s "version\n";
     like(<$s>, qr/VERSION/, "direct server version cmd with just newline");
     print $p_sock "version\n";
-    like(<$p_sock>, qr/SERVER_ERROR/, "proxy version cmd with just newline");
+    like(<$p_sock>, qr/CLIENT_ERROR/, "proxy version cmd with just newline");
     print $p_sock "version\r\n";
     like(<$p_sock>, qr/VERSION/, "proxy version cmd with full CRLF");
 }
