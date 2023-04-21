@@ -89,8 +89,10 @@ void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
 
     // return all of the user generated stats
     for (int x = 0; x < us->num_stats; x++) {
-        snprintf(key_str, STAT_KEY_LEN-1, "user_%s", us->names[x]);
-        APPEND_STAT(key_str, "%llu", (unsigned long long)counters[x]);
+        if (us->names[x]) {
+            snprintf(key_str, STAT_KEY_LEN-1, "user_%s", us->names[x]);
+            APPEND_STAT(key_str, "%llu", (unsigned long long)counters[x]);
+        }
     }
 
     STAT_UL(ctx);
