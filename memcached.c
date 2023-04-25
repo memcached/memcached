@@ -2601,7 +2601,6 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp
             continue;
         }
         int tosend = 0;
-        int count = 0;
         int data_len = 0;
         bool is_getrange = resp->getrange;
         int limit = resp->len;
@@ -2673,7 +2672,6 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp
                             }
                             offset = 0;
                             data_len += len;
-                            //fprintf(stderr, "\r\n 1111111111 count=[%d], start=[%d], len=[%d], data_len=[%d], limit=[%d]", count, start, len, data_len, limit);
                         } else {
                             if (data_len == 0) {
                                 start = offset;
@@ -2684,18 +2682,15 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp
                             }
                             offset = 0;
                             data_len += len;
-                            //fprintf(stderr, "\r\n 222222222 count=[%d], start=[%d], len=[%d], data_len=[%d], limit=[%d]", count, start, len, data_len, limit);
                         }
 
                         char *buff;
                         if (data_len < limit) { 
-                            buff = substr(iov_data, offset, len+offset, false);
+                            buff = substr(iov_data, start, len+offset, false);
                             len = strlen(buff);
-                            //fprintf(stderr, "\r\n 1111111 count=[%d], buffer=[%s], buffer_len=[%d], len=[%d]", count, buff, (int)strlen(buff), (int)len);
                         } else {
-                            buff = substr(iov_data, offset, len+offset, true);
-                            len = strlen(buff); 
-                            //fprintf(stderr, "\r\n 22222222 count=[%d], buffer=[%s], buffer_len=[%d], len=[%d]", count, buff, (int)strlen(buff), (int)len);
+                            buff = substr(iov_data, start, len+offset, true);
+                            len = strlen(buff);
                         }
 
                         iovs[iovused].iov_base = buff;
@@ -2720,12 +2715,18 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp
         } else {
             if (is_getrange && resp->iovcnt > 1) { 
                 char *iov_data = (char*)resp->iov[1].iov_base;
-                //int iov_len = resp->iov[1].iov_len;
-                resp->getrange_data = substr(iov_data, offset, limit+offset, true);
-            
-                resp->iov[1].iov_base = resp->getrange_data;
-                resp->iov[1].iov_len = strlen(resp->getrange_data);
+                int iov_len = resp->iov[1].iov_len;
 
+                if (iov_len > offset+limit) {
+                    //int iov_len = resp->iov[1].iov_len;
+                    resp->getrange_data = substr(iov_data, offset, limit+offset, true);
+                
+                    resp->iov[1].iov_base = resp->getrange_data;
+                    resp->iov[1].iov_len = strlen(resp->getrange_data);
+                }
+            }
+            
+            if (is_getrange) {
                 for (x = 0; x < resp->iovcnt; x++) {
                     tosend += (int)resp->iov[x].iov_len;
                 }

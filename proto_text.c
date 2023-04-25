@@ -558,7 +558,6 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
 
     bool is_getrange = false;
     if (strcmp(tokens[COMMAND_TOKEN].value, "getrange") == 0 && ntokens == 5) {
-        is_getrange_cmd = true;
         if (!safe_strtoll(tokens[2].value, &resp->offset)) {
             out_string(c, "CLIENT_ERROR invalid offset argument");
             return;
@@ -570,10 +569,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         if (resp->offset < 0 || resp->len <= 0) {
             resp->len = 0;
             resp->offset = 0;
-            resp->range = is_getrange;
+            resp->getrange = is_getrange;
         } else {
             is_getrange = true;
-            resp->range = is_getrange;
+            resp->getrange = is_getrange;
         }
     }
 
@@ -695,7 +694,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             }
 
             key_token++;
-            if (is_getrange_cmd) {
+            if (is_getrange) {
                 key_token++;
                 key_token++;
             }
