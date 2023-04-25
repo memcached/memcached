@@ -2686,10 +2686,10 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp
 
                         char *buff;
                         if (data_len < limit) { 
-                            buff = substr(iov_data, start, len+offset, false);
+                            buff = substr(iov_data, start, len+start, false);
                             len = strlen(buff);
                         } else {
-                            buff = substr(iov_data, start, len+offset, true);
+                            buff = substr(iov_data, start, len+start, true);
                             len = strlen(buff);
                         }
 
@@ -2725,8 +2725,8 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp
                     resp->iov[1].iov_len = strlen(resp->getrange_data);
                 }
             }
-            
             if (is_getrange) {
+                int x;
                 for (x = 0; x < resp->iovcnt; x++) {
                     tosend += (int)resp->iov[x].iov_len;
                 }
