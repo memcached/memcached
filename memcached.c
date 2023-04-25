@@ -1177,6 +1177,10 @@ bool resp_start(conn *c) {
         c->resp->request_addr = c->request_addr;
         c->resp->request_addr_size = c->request_addr_size;
     }
+    resp->getrange = false;
+    resp->offset = 0;
+    resp->len = 0;
+    resp->getrange_data = NULL;
     return true;
 }
 
@@ -1207,6 +1211,10 @@ mc_resp *resp_start_unlinked(conn *c) {
 // returns next response in chain.
 mc_resp* resp_finish(conn *c, mc_resp *resp) {
     mc_resp *next = resp->next;
+    if (resp->getrange_data) {
+        free(resp->getrange_data);
+        resp->getrange_data = NULL;
+    }
     if (resp->item) {
         // TODO: cache hash value in resp obj?
         item_remove(resp->item);
@@ -2554,6 +2562,33 @@ void do_accept_new_conns(const bool do_accept) {
     }
 }
 
+static char *substr(const char *str, int start, int end, bool is_tail) {
+    int tail_len = 0;
+    const char *tail = "\r\n";
+    if (is_tail) {
+    tail_len = strlen(tail);
+    end += tail_len;
+    }
+    if (0 > start) return NULL;
+    int len = strlen(str);
+    // -1 == length of string
+    if (-1 == end) end = len;
+    if (end <= start) return NULL;
+    int diff = end - start;
+    if (len == diff) return strdup(str);
+    if (len < start) return NULL;
+    if (len + 1 < end) return NULL;
+
+    char *res = malloc(sizeof(char) * diff + 1 + tail_len);
+    if (NULL == res) return NULL;
+    memset(res, '\0', diff + 1);
+    strncpy(res, str + start, diff-tail_len);
+    if (tail_len > 0) {
+      strncpy(res+diff-tail_len, tail, tail_len);
+    }
+    return res;
+}
+
 #define TRANSMIT_ONE_RESP true
 #define TRANSMIT_ALL_RESP false
 static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp) {
@@ -2565,6 +2600,13 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp
             resp = resp->next;
             continue;
         }
+        int tosend = 0;
+        int count = 0;
+        int data_len = 0;
+        bool is_getrange = resp->getrange;
+        int limit = resp->len;
+        int offset = resp->offset;
+
         if (resp->chunked_data_iov) {
             // Handle chunked items specially.
             // They spend much more time in send so we can be a bit wasteful
@@ -2592,26 +2634,110 @@ static int _transmit_pre(conn *c, struct iovec *iovs, int iovused, bool one_resp
                             skip = done;
                             done = 0;
                         }
-                        iovs[iovused].iov_base = ch->data + skip;
+                        if (!is_getrange) {
+                            iovs[iovused].iov_base = ch->data + skip;
+                            // Stupid binary protocol makes this go negative.
+                            iovs[iovused].iov_len = ch->used - skip > todo ? todo : ch->used - skip;
+                            iovused++;
+                            todo -= ch->used - skip;
+                            ch = ch->next;
+                            continue;
+                        }
+
+                        //getrange op
+                        char *iov_data = ch->data + skip;
+                        int iov_len = ch->used - skip > todo ? todo : ch->used - skip;
+
+                        if (offset >= iov_len) {
+                            offset = offset - iov_len;
+                            todo -= ch->used - skip;
+                            ch = ch->next;
+                            continue;
+                        }
+
+                        if (data_len == limit) {
+                            break;
+                        }
+
+                        int start = 0;
+                        int len = 0;
+                        if (limit - data_len > iov_len) {
+                            if (data_len == 0) {
+                                //first: (offset: 10 len: used - offset)
+                                start = offset;
+                                len = iov_len - offset;
+                            } else {
+                                //offset: 0 len: used
+                                start = 0;
+                                len = iov_len;
+                            }
+                            offset = 0;
+                            data_len += len;
+                            //fprintf(stderr, "\r\n 1111111111 count=[%d], start=[%d], len=[%d], data_len=[%d], limit=[%d]", count, start, len, data_len, limit);
+                        } else {
+                            if (data_len == 0) {
+                                start = offset;
+                                len = limit + offset >= iov_len ? iov_len - offset : limit;
+                            } else {
+                                start = offset;
+                                len = limit - data_len;
+                            }
+                            offset = 0;
+                            data_len += len;
+                            //fprintf(stderr, "\r\n 222222222 count=[%d], start=[%d], len=[%d], data_len=[%d], limit=[%d]", count, start, len, data_len, limit);
+                        }
+
+                        char *buff;
+                        if (data_len < limit) { 
+                            buff = substr(iov_data, offset, len+offset, false);
+                            len = strlen(buff);
+                            //fprintf(stderr, "\r\n 1111111 count=[%d], buffer=[%s], buffer_len=[%d], len=[%d]", count, buff, (int)strlen(buff), (int)len);
+                        } else {
+                            buff = substr(iov_data, offset, len+offset, true);
+                            len = strlen(buff); 
+                            //fprintf(stderr, "\r\n 22222222 count=[%d], buffer=[%s], buffer_len=[%d], len=[%d]", count, buff, (int)strlen(buff), (int)len);
+                        }
+
+                        iovs[iovused].iov_base = buff;
                         // Stupid binary protocol makes this go negative.
-                        iovs[iovused].iov_len = ch->used - skip > todo ? todo : ch->used - skip;
+                        iovs[iovused].iov_len = len;
                         iovused++;
                         todo -= ch->used - skip;
                         ch = ch->next;
+                        tosend += len;
                     }
                 } else {
                     iovs[iovused].iov_base = resp->iov[x].iov_base;
                     iovs[iovused].iov_len = resp->iov[x].iov_len;
                     iovused++;
+                    if (is_getrange) {
+                        tosend += resp->iov[x].iov_len;
+                    }
                 }
                 if (iovused >= IOV_MAX-1)
                     break;
             }
         } else {
+            if (is_getrange && resp->iovcnt > 1) { 
+                char *iov_data = (char*)resp->iov[1].iov_base;
+                //int iov_len = resp->iov[1].iov_len;
+                resp->getrange_data = substr(iov_data, offset, limit+offset, true);
+            
+                resp->iov[1].iov_base = resp->getrange_data;
+                resp->iov[1].iov_len = strlen(resp->getrange_data);
+
+                for (x = 0; x < resp->iovcnt; x++) {
+                    tosend += (int)resp->iov[x].iov_len;
+                }
+            }
+
             memcpy(&iovs[iovused], resp->iov, sizeof(struct iovec)*resp->iovcnt);
             iovused += resp->iovcnt;
         }
 
+        if (is_getrange) {
+            resp->tosend = tosend;
+        }
         // done looking at first response, walk down the chain.
         resp = resp->next;
         // used for UDP mode: UDP cannot send multiple responses per packet.

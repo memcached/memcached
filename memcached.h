@@ -731,6 +731,12 @@ typedef struct {
 typedef struct _mc_resp {
     mc_resp_bundle *bundle; // ptr back to bundle
     struct _mc_resp *next; // choo choo.
+    
+    bool getrange; // getrange status
+    int64_t offset; // getrange offset
+    int64_t len; //getrange length
+    char *getrange_data; //getrange temp memory
+
     int wbytes; // bytes to write out of wbuf: might be able to nuke this.
     int tosend; // total bytes to send for this response
     void *write_and_free; /** free this memory after finishing writing */

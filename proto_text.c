@@ -556,6 +556,27 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
         exptime = realtime(EXPTIME_TO_POSITIVE_TIME(exptime_int));
     }
 
+    bool is_getrange = false;
+    if (strcmp(tokens[COMMAND_TOKEN].value, "getrange") == 0 && ntokens == 5) {
+        is_getrange_cmd = true;
+        if (!safe_strtoll(tokens[2].value, &resp->offset)) {
+            out_string(c, "CLIENT_ERROR invalid offset argument");
+            return;
+        }
+        if (!safe_strtoll(tokens[3].value, &resp->len)) {
+            out_string(c, "CLIENT_ERROR invalid len argument");
+            return;
+        }
+        if (resp->offset < 0 || resp->len <= 0) {
+            resp->len = 0;
+            resp->offset = 0;
+            resp->range = is_getrange;
+        } else {
+            is_getrange = true;
+            resp->range = is_getrange;
+        }
+    }
+
     do {
         while(key_token->length != 0) {
             bool overflow; // not used here.
@@ -583,6 +604,18 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
+                  int nbytes_old = 0;
+                  if (is_getrange) {
+                      nbytes_old = it->nbytes;
+                      //max nbytes
+                      if ((resp->offset + resp->len + 2) > nbytes_old) {
+                          resp->len = nbytes_old - 2;
+                      }
+                      // update nbytes
+                      if ((resp->offset + resp->len + 2) <= nbytes_old) {
+                          it->nbytes = resp->len + 2;
+                      }
+                  }
                   int nbytes = it->nbytes;;
                   nbytes = it->nbytes;
                   char *p = resp->wbuf;
@@ -592,6 +625,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                   p += it->nkey;
                   p += make_ascii_get_suffix(p, it, return_cas, nbytes);
                   resp_add_iov(resp, resp->wbuf, p - resp->wbuf);
+
+                  if (is_getrange) {
+                      it->nbytes = nbytes_old;
+                  }
 
 #ifdef EXTSTORE
                   if (it->it_flags & ITEM_HDR) {
@@ -658,6 +695,10 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
             }
 
             key_token++;
+            if (is_getrange_cmd) {
+                key_token++;
+                key_token++;
+            }
             if (key_token->length != 0) {
                 if (!resp_start(c)) {
                     goto stop;
@@ -2813,6 +2854,9 @@ void process_command_ascii(conn *c, char *command) {
         WANT_TOKENS_MIN(ntokens, 3);
         if (strcmp(tokens[COMMAND_TOKEN].value, "get") == 0) {
 
+            process_get_command(c, tokens, ntokens, false, false);
+        } else if  (strcmp(tokens[COMMAND_TOKEN].value, "getrange") == 0) {
+        
             process_get_command(c, tokens, ntokens, false, false);
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "gets") == 0) {
 
