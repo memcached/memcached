@@ -1225,9 +1225,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     const struct luaL_Reg mcplib_f_config [] = {
         {"pool", mcplib_pool},
         {"backend", mcplib_backend},
-        {"request", mcplib_request},
         {"add_stat", mcplib_add_stat},
-        {"stat", mcplib_stat},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
         {"backend_read_timeout", mcplib_backend_read_timeout},
@@ -1246,6 +1244,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"log", mcplib_log},
         {"log_req", mcplib_log_req},
         {"log_reqsample", mcplib_log_reqsample},
+        {"stat", mcplib_stat},
+        {"request", mcplib_request},
         {NULL, NULL}
     };
     // VM's have void* extra space in the VM by default for fast-access to a
