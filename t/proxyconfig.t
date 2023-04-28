@@ -70,12 +70,12 @@ for my $port (11511, 11512, 11513) {
 diag "testing failure to start";
 write_modefile("invalid syntax");
 eval {
-    my $p_srv = new_memcached('-o proxy_config=./t/proxyconfig.lua -l 127.0.0.1', 11510);
+    my $p_srv = new_memcached('-o proxy_config=./t/proxyconfig.lua');
 };
 ok($@ && $@ =~ m/Failed to connect/, "server successfully not started");
 
 write_modefile('return "none"');
-my $p_srv = new_memcached('-o proxy_config=./t/proxyconfig.lua -l 127.0.0.1', 11510);
+my $p_srv = new_memcached('-o proxy_config=./t/proxyconfig.lua');
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
 
