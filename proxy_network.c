@@ -891,7 +891,11 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
 
     if (which & EV_TIMEOUT) {
         P_DEBUG("%s: backend timed out while connecting\n", __func__);
-        _reset_bad_backend(be, P_BE_FAIL_CONNTIMEOUT);
+        if (be->connecting) {
+            _reset_bad_backend(be, P_BE_FAIL_CONNTIMEOUT);
+        } else {
+            _reset_bad_backend(be, P_BE_FAIL_READVALIDATE);
+        }
         _backend_failed(be);
         return;
     }

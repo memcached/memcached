@@ -168,7 +168,7 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
 
     my @watchable = $watch_s->can_read(5);
     is(scalar @watchable, 1, "got new watcher log lines");
-    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=conntimeout name=\S+ port=11511/, "one backend timed out connecting");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=readvalidate name=\S+ port=11511/, "one backend timed out connecting");
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=markedbad name=\S+ port=11511/, "backend was marked bad");
 
     for my $msrv (@readable) {
