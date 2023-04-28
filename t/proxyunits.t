@@ -29,6 +29,7 @@ sub mock_server {
     return $srv;
 }
 
+# Accept and validate a new backend connection.
 sub accept_backend {
     my $srv = shift;
     my $be = $srv->accept();
@@ -68,11 +69,22 @@ for my $msrv (@mocksrvs) {
     push(@mbe, $be);
 }
 
+# Basic test with no backends. Write a command to the client, and check the
+# response.
 {
     print $ps "set with the wrong number of tokens\n";
     is(scalar <$ps>, "CLIENT_ERROR parsing request\r\n", "got CLIENT_ERROR for bad syntax");
 }
 
+# Basic test with a backend; write a request to the client socket, read it
+# from a backend socket, and write a response to the backend socket.
+#
+# The array @mbe holds references to our sockets for the backends listening on
+# the above mocked servers. In most tests we're only routing to the first
+# backend in the list ($mbe[0])
+#
+# In this case the client will receive an error and the backend gets closed,
+# so we have to re-establish it.
 {
     # Test a fix for passing through partial read data if END ends up missing.
     print $ps "get /b/a\r\n";
@@ -86,6 +98,8 @@ for my $msrv (@mocksrvs) {
     $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
+# This test is similar to the above one, except we also establish a watcher to
+# check for appropriate log entries.
 {
     # Test a log line with detailed data from backend failures.
     my $be = $mbe[0];
@@ -107,6 +121,10 @@ for my $msrv (@mocksrvs) {
     $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
+# This is an example of a test which will only pass before a bugfix is issued.
+# It's good practice where possible to write a failing test, then check it
+# against a code fix. We then leave the test in the file for reference.
+# Though noting when it was fixed is probably better than what I did here :)
 SKIP: {
     skip "Remove this skip line to demonstrate pre-patch bug", 1;
     # Test issue with finding response complete when read lands between value
@@ -328,6 +346,7 @@ SKIP: {
 }
 
 # run a cleanser check between each set of tests.
+# This ensures nothing was left in the client pipeline.
 check_version($ps);
 
 {
