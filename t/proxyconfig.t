@@ -38,6 +38,17 @@ sub mock_server {
     return $srv;
 }
 
+sub accept_backend {
+    my $srv = shift;
+    my $be = $srv->accept();
+    $be->autoflush(1);
+    ok(defined $be, "mock backend created");
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+
+    return $be;
+}
+
 # Put a version command down the pipe to ensure the socket is clear.
 # client version commands skip the proxy code
 sub check_version {
@@ -104,19 +115,11 @@ my %keymap = ();
 my $keycount = 100;
 {
     # set up server backend sockets.
-    for my $msrv ($mocksrvs[0], $mocksrvs[1], $mocksrvs[2]) {
-        my $be = $msrv->accept();
-        $be->autoflush(1);
-        ok(defined $be, "mock backend created");
-        push(@mbe, $be);
-    }
-
     my $s = IO::Select->new();
-
-    for my $be (@mbe) {
+    for my $msrv ($mocksrvs[0], $mocksrvs[1], $mocksrvs[2]) {
+        my $be = accept_backend($msrv);
         $s->add($be);
-        like(<$be>, qr/version/, "received version command");
-        print $be "VERSION 1.0.0-mock\r\n";
+        push(@mbe, $be);
     }
 
     # Try sending something.
@@ -172,10 +175,7 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=markedbad name=\S+ port=11511/, "backend was marked bad");
 
     for my $msrv (@readable) {
-        my $be = $msrv->accept();
-        ok(defined $be, "mock backend accepted");
-        like(<$be>, qr/version/, "received version command");
-        print $be "VERSION 1.0.0-mock\r\n";
+        my $be = accept_backend($msrv);
         push(@holdbe, $be);
     }
 
@@ -223,10 +223,7 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
     for my $msrv (@readable) {
         my @temp = ();
         for (0 .. 3) {
-            my $be = $msrv->accept();
-            ok(defined $be, "mock backend accepted");
-            like(<$be>, qr/version/, "received version command");
-            print $be "VERSION 1.0.0-mock\r\n";
+            my $be = accept_backend($msrv);
             $bes->add($be);
             push(@temp, $be);
         }
@@ -304,21 +301,14 @@ for my $port (11511, 11512, 11513) {
 # Start up a clean server.
 # Since limits are per worker thread, cut the worker threads down to 1 to ease
 # testing.
-$p_srv = new_memcached('-o proxy_config=./t/proxyconfig.lua -l 127.0.0.1 -t 1', 11510);
+$p_srv = new_memcached('-o proxy_config=./t/proxyconfig.lua -t 1');
 $ps = $p_srv->sock;
 $ps->autoflush(1);
 
 {
     for my $msrv ($mocksrvs[0], $mocksrvs[1], $mocksrvs[2]) {
-        my $be = $msrv->accept();
-        $be->autoflush(1);
-        ok(defined $be, "mock backend created");
+        my $be = accept_backend($msrv);
         push(@mbe, $be);
-    }
-
-    for my $be (@mbe) {
-        like(<$be>, qr/version/, "received version command");
-        print $be "VERSION 1.0.0-mock\r\n";
     }
 
     my $stats = mem_stats($ps, 'proxy');
@@ -415,11 +405,7 @@ $ps->autoflush(1);
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "first request succeeded");
 
     # Backend gets killed from a read OOM, so we need to re-establish.
-    $mbe[0] = $mocksrvs[0]->accept();
-    $be = $mbe[0];
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
+    $be = $mbe[0] = accept_backend($mocksrvs[0]);
     like(<$watcher>, qr/error=outofmemory/, "OOM log line");
 
     # Memory limits won't drop until the garbage collectors run, which

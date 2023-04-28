@@ -29,6 +29,17 @@ sub mock_server {
     return $srv;
 }
 
+sub accept_backend {
+    my $srv = shift;
+    my $be = $srv->accept();
+    $be->autoflush(1);
+    ok(defined $be, "mock backend created");
+    like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+
+    return $be;
+}
+
 # Put a version command down the pipe to ensure the socket is clear.
 # client version commands skip the proxy code
 sub check_version {
@@ -53,16 +64,8 @@ $ps->autoflush(1);
 my @mbe = ();
 #diag "accepting mock backends";
 for my $msrv (@mocksrvs) {
-    my $be = $msrv->accept();
-    $be->autoflush(1);
-    ok(defined $be, "mock backend created");
+    my $be = accept_backend($msrv);
     push(@mbe, $be);
-}
-
-#diag "validating backends";
-for my $be (@mbe) {
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
 }
 
 {
@@ -80,12 +83,7 @@ for my $be (@mbe) {
 
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend failure error");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
 {
@@ -106,12 +104,7 @@ for my $be (@mbe) {
 
     like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=trailingdata name=127.0.0.1 port=\d+ depth=0 rbuf=garbage/, "got backend error log line");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
 SKIP: {
@@ -139,12 +132,7 @@ SKIP: {
 
     like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=missingend name=127.0.0.1 port=\d+ depth=1 rbuf=/, "got missingend error log line");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
 {
@@ -756,12 +744,7 @@ check_version($ps);
     my $read = $be->read($data, 1);
     is($read, 0, "backend disconnected");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $be = $mbe[0] = accept_backend($mocksrvs[0]);
 
     print $ps "get /b/too\r\n";
     is(scalar <$be>, "get /b/too\r\n", "received get command");
@@ -771,12 +754,7 @@ check_version($ps);
     $read = $be->read($data, 1);
     is($read, 0, "backend disconnected");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $be = $mbe[0] = accept_backend($mocksrvs[0]);
 
     # Sometimes blank ERRORS can be sent.
     print $ps "get /b/zoo\r\n";
@@ -787,12 +765,7 @@ check_version($ps);
     $read = $be->read($data, 1);
     is($read, 0, "backend disconnected");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $be = $mbe[0] = accept_backend($mocksrvs[0]);
 
     # Ensure garbage doesn't surface to client.
     print $ps "get /b/doo\r\n";
@@ -800,12 +773,7 @@ check_version($ps);
     print $be "garbage\r\n"; # don't need the \r\n but it makes tests easier
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "generic backend error");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $be = $mbe[0] = accept_backend($mocksrvs[0]);
 
     # Check errors from pipelined commands past a CLIENT_ERROR
     print $ps "get /b/quu\r\nget /b/muu\r\n";
@@ -815,12 +783,7 @@ check_version($ps);
     is(scalar <$ps>, "CLIENT_ERROR bad protocol\r\n", "backend error");
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend error");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $be = $mbe[0] = accept_backend($mocksrvs[0]);
 
     # Check that lua handles errors properly.
     print $ps "get /errcheck/a\r\n";
@@ -828,24 +791,14 @@ check_version($ps);
     print $be "ERROR test1\r\n";
     is(scalar <$ps>, "ERROR\r\n", "lua saw correct error code");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $be = $mbe[0] = accept_backend($mocksrvs[0]);
 
     print $ps "get /errcheck/b\r\n";
     is(scalar <$be>, "get /errcheck/b\r\n", "received get command");
     print $be "CLIENT_ERROR test2\r\n";
     is(scalar <$ps>, "CLIENT_ERROR\r\n", "lua saw correct error code");
 
-    # re-accept the backend.
-    $be = $mocksrvs[0]->accept();
-    $be->autoflush(1);
-    like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
-    $mbe[0] = $be;
+    $be = $mbe[0] = accept_backend($mocksrvs[0]);
 
     print $ps "get /errcheck/c\r\n";
     is(scalar <$be>, "get /errcheck/c\r\n", "received get command");
