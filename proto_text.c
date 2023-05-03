@@ -583,8 +583,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens,
                 {
                   MEMCACHED_COMMAND_GET(c->sfd, ITEM_key(it), it->nkey,
                                         it->nbytes, ITEM_get_cas(it));
-                  int nbytes = it->nbytes;;
-                  nbytes = it->nbytes;
+                  int nbytes = it->nbytes;
                   char *p = resp->wbuf;
                   memcpy(p, "VALUE ", 6);
                   p += 6;
