@@ -503,12 +503,23 @@ check_version($ps);
     is(scalar <$ps>, "4\r\n", "request:ntokens() value");
 
     # token(n, "replacement")
-    print $ps "mg /ntokens/test c v\r\n";
-    is(scalar <$ps>, "VA 1 C123 v\r\n", "request:key()");
-    is(scalar <$ps>, "4\r\n", "request:ntokens() value");
+    print $ps "ms /token/replacement 2 C123\r\nhi\r\n";
+    is(scalar <$be>, "ms /token/replacement 2 C456\r\n", "token replacement");
+    is(scalar <$be>, "hi\r\n", "token replacement");
+    print $be "NF\r\n";
+    is(scalar <$ps>, "NF\r\n", "NF");
 
     # token(n, "") removal
-    # ntokens()
+    print $ps "ms /token/removal 2 C123\r\nhi\r\n";
+    is(scalar <$be>, "ms /token/removal 2 \r\n", "token removal, note the space");
+    is(scalar <$be>, "hi\r\n", "token removal");
+    print $be "NF\r\n";
+    is(scalar <$ps>, "NF\r\n", "NF");
+
+    # token() fetch
+    print $ps "ms /token/fetch 2\r\nhi\r\n";
+    is(scalar <$ps>, "HD\r\n", "HD is received");
+
     # command() integer
     #
     # meta:
