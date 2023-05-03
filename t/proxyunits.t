@@ -525,8 +525,7 @@ check_version($ps);
     # TODO: command() integer
     #
     
-    # meta:
-    # has_flag("F")
+    # check flag and return HD if found.
     print $ps "mg /hasflag/test c\r\n";
     is(scalar <$ps>, "HD C123\r\n", "HD is received");
 
