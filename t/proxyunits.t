@@ -37,8 +37,11 @@ sub accept_backend {
     ok(defined $be, "mock backend created");
     like(<$be>, qr/version/, "received version command");
     print $be "VERSION 1.0.0-mock\r\n";
-
     return $be;
+}
+
+sub announce {
+    print("\n====" . shift . ":" . shift . "====\n");
 }
 
 # Put a version command down the pipe to ensure the socket is clear.
@@ -49,6 +52,7 @@ sub check_version {
     like(<$ps>, qr/VERSION /, "version received");
 }
 
+announce("Initialization", __LINE__);
 my @mocksrvs = ();
 #diag "making mock servers";
 for my $port (11411, 11412, 11413) {
@@ -69,9 +73,9 @@ for my $msrv (@mocksrvs) {
     push(@mbe, $be);
 }
 
-# Basic test with no backends. Write a command to the client, and check the
-# response.
+
 {
+    # Write a request with bad syntax, and check the response.
     print $ps "set with the wrong number of tokens\n";
     is(scalar <$ps>, "CLIENT_ERROR parsing request\r\n", "got CLIENT_ERROR for bad syntax");
 }
@@ -85,22 +89,37 @@ for my $msrv (@mocksrvs) {
 #
 # In this case the client will receive an error and the backend gets closed,
 # so we have to re-establish it.
+
 {
     # Test a fix for passing through partial read data if END ends up missing.
-    print $ps "get /b/a\r\n";
+    announce("Test missing END", __LINE__);
     my $be = $mbe[0];
+    my $w = $p_srv->new_sock;
+    print $w "watch proxyevents\n";
+    is(<$w>, "OK\r\n", "watcher enabled");
 
+    # write a request to proxy.
+    print $ps "get /b/a\r\n";
+
+    # verify request is received by backend.
     is(scalar <$be>, "get /b/a\r\n", "get passthrough");
+
+    # write a response with partial data.
     print $be "VALUE /b/a 0 2\r\nhi\r\nEN";
 
+    # verify the error response from proxy
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend failure error");
 
+    # verify a particular proxy event is received
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=timeout name=127.0.0.1 port=\d+ depth=1 rbuf=EN/, "got proxy event log line");
+    
+    # backend is disconnected due to the error, so we have to re-establish it.
     $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
-# This test is similar to the above one, except we also establish a watcher to
-# check for appropriate log entries.
+
 {
+    announce("Test trailingdata", __LINE__);
     # Test a log line with detailed data from backend failures.
     my $be = $mbe[0];
     my $w = $p_srv->new_sock;
@@ -116,11 +135,12 @@ for my $msrv (@mocksrvs) {
     is(scalar <$ps>, "ok\r\n", "got data back");
     is(scalar <$ps>, "END\r\n", "got end string");
 
-    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=trailingdata name=127.0.0.1 port=\d+ depth=0 rbuf=garbage/, "got backend error log line");
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=trailingdata name=127.0.0.1 port=\d+ depth=0 rbuf=garbage/, "got proxy event log line");
 
     $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
+announce("Test bugfix for missingend", __LINE__);
 # This is an example of a test which will only pass before a bugfix is issued.
 # It's good practice where possible to write a failing test, then check it
 # against a code fix. We then leave the test in the file for reference.
@@ -180,6 +200,7 @@ SKIP: {
 # Should test all command types.
 # uses /b/ path for "basic"
 {
+    announce("Test all commands to a single backend", __LINE__);
     # Test invalid route.
     print $ps "set /invalid/a 0 0 2\r\nhi\r\n";
     is(scalar <$ps>, "SERVER_ERROR no set route\r\n");
@@ -316,15 +337,14 @@ SKIP: {
     print $ps $cmd;
     is(scalar <$be>, $cmd, "mg passthrough");
     print $be "HD\r\n";
-
     is(scalar <$ps>, "HD\r\n", "got mg response");
+    
     # ms
     $cmd = "ms /b/a 2";
     print $ps "$cmd\r\nhi\r\n";
     is(scalar <$be>, "$cmd\r\n", "ms passthrough");
     is(scalar <$be>, "hi\r\n", "ms value");
     print $be "HD\r\n";
-
     is(scalar <$ps>, "HD\r\n", "got HD from ms");
 
     # md
@@ -332,17 +352,16 @@ SKIP: {
     print $ps $cmd;
     is(scalar <$be>, $cmd, "md passthrough");
     print $be "HD\r\n";
-
     is(scalar <$ps>, "HD\r\n", "got HD from md");
+    
     # ma
     $cmd = "ma /b/a\r\n";
     print $ps $cmd;
     is(scalar <$be>, $cmd, "ma passthrough");
     print $be "HD\r\n";
-
     is(scalar <$ps>, "HD\r\n", "got HD from ma");
-    # mn?
-    # me?
+    
+    # mn and me are not currently supported by proxy.
 }
 
 # run a cleanser check between each set of tests.
@@ -350,6 +369,7 @@ SKIP: {
 check_version($ps);
 
 {
+    announce("Test multiget", __LINE__);
     # multiget syntax
     # - gets broken into individual gets on backend
     my $be = $mbe[0];
@@ -391,6 +411,7 @@ check_version($ps);
 check_version($ps);
 
 {
+    announce("Test noreply", __LINE__);
     # noreply tests.
     # - backend should receive with noreply/q stripped or mangled
     # - backend should reply as normal
@@ -404,23 +425,55 @@ check_version($ps);
 
     print $be "STORED\r\n";
 
-    # To ensure success, make another req and ensure res isn't STORED
-    $cmd = "touch /b/a 50\r\n";
+    # Make a version request to ensure STORED is not responded to client.
+    check_version($ps);
+}
+
+check_version($ps);
+
+{
+    announce("Test quiet flag", __LINE__);
+    my $be = $mbe[0];
+    my $cmd = "ms /b/a 2 q\r\nhi\r\n";
     print $ps $cmd;
-    is(scalar <$be>, $cmd, "canary touch received");
-    print $be "TOUCHED\r\n";
+    is(scalar <$be>, "ms /b/a 2  \r\n", "set received with q replaced by a space");
+    is(scalar <$be>, "hi\r\n", "set payload received");
+    
+    print $be "HD\r\n";
 
-    is(scalar <$ps>, "TOUCHED\r\n", "got TOUCHED instread of STORED");
+    # Make a version request to ensure HD is not responded to client.
+    check_version($ps);
 
-    # TODO: meta quiet cases
-    # - q should be turned into a space on the backend
-    # - errors should still pass through to client
+    my $cmd = "ms /b/a 2 q\r\nhi\r\n";
+    print $ps $cmd;
+    is(scalar <$be>, "ms /b/a 2  \r\n", "set received with q replaced by a space");
+    is(scalar <$be>, "hi\r\n", "set payload received");
+
+    print $be "EX\r\n";
+
+    # EX is still returned
+    is(scalar <$ps>, "EX\r\n", "EX return to client.");
+
+    check_version($ps);
+
+    my $cmd = "ms /b/a 2 q\r\nhi\r\n";
+    print $ps $cmd;
+    is(scalar <$be>, "ms /b/a 2  \r\n", "set received with q replaced by a space");
+    is(scalar <$be>, "hi\r\n", "set payload received");
+
+    print $be "garbage\r\n";
+
+    # error is still returned to client
+    is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend failure error");
+
+    $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
 check_version($ps);
 
 # Test Lua request API
 {
+    announce("Test Lua request APIs", __LINE__);
     my $be = $mbe[0];
 
     # fetching the key.
@@ -444,8 +497,16 @@ check_version($ps);
     print $be "END\r\n";
     is(scalar <$ps>, "END\r\n", "ltrimkey END");
 
-    # token(n) fetch
+    # request:ntokens()
+    print $ps "mg /ntokens/test c v\r\n";
+    is(scalar <$ps>, "VA 1 C123 v\r\n", "request:key()");
+    is(scalar <$ps>, "4\r\n", "request:ntokens() value");
+
     # token(n, "replacement")
+    print $ps "mg /ntokens/test c v\r\n";
+    is(scalar <$ps>, "VA 1 C123 v\r\n", "request:key()");
+    is(scalar <$ps>, "4\r\n", "request:ntokens() value");
+
     # token(n, "") removal
     # ntokens()
     # command() integer
@@ -477,6 +538,7 @@ check_version($ps);
 
 # Test requests land in proper backend in basic scenarios
 {
+    announce("Test routing by zone", __LINE__);
     # TODO: maybe should send values to ensure the right response?
     # I don't think this test is very useful though; probably better to try
     # harder when testing error conditions.
@@ -504,6 +566,7 @@ check_version($ps);
 
 # Test Lua logging (see t/watcher.t)
 {
+    announce("Test Lua logging", __LINE__);
     my $be = $mbe[0];
     my $watcher = $p_srv->new_sock;
     print $watcher "watch proxyuser proxyreqs\n";
@@ -537,6 +600,7 @@ check_version($ps);
 # regardless of the mode.
 # need some tests that show this.
 {
+    announce("Test await()", __LINE__);
     my $cmd;
     # await(r, p)
     # this should hit all three backends
@@ -696,6 +760,7 @@ check_version($ps);
 }
 
 {
+    announce("Test await_logerrors()", __LINE__);
     my $watcher = $p_srv->new_sock;
     print $watcher "watch proxyreqs\n";
     is(<$watcher>, "OK\r\n", "watcher enabled");
@@ -739,6 +804,7 @@ check_version($ps);
 # - certain errors pass through to the client, most close the backend.
 # - should be able to retrieve the error message
 {
+    announce("Test error/garbage from backend", __LINE__);
     my $be = $mbe[0];
     print $ps "set /b/foo 0 0 2\r\nhi\r\n";
     is(scalar <$be>, "set /b/foo 0 0 2\r\n", "received set cmd");

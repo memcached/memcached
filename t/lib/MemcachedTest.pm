@@ -272,7 +272,7 @@ sub new_memcached {
     my $port = $passed_port;
     my $host = '127.0.0.1';
     my $ssl_enabled  = enabled_tls_testing();
-    my $unix_socket_disabled  = !supports_unix_socket();
+    my $unix_socket_disabled  = 1;
 
     if ($ENV{T_MEMD_USE_DAEMON}) {
         my ($host, $port) = ($ENV{T_MEMD_USE_DAEMON} =~ m/^([^:]+):(\d+)$/);

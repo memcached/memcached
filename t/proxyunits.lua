@@ -120,6 +120,11 @@ function mcp_config_routes(zones)
         return zones.z1(r)
     end
 
+    pfx_mg["ntokens"] = function(r)
+        local ntokens = r:ntokens()
+        return "VA 1 C123 v\r\n" .. ntokens .. "\r\n"
+    end
+
     -- Basic test for routing requests to specific pools.
     -- Not sure how this could possibly break but testing for completeness.
     pfx_get["zonetest"] = function(r)
