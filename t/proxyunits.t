@@ -425,8 +425,13 @@ check_version($ps);
 
     print $be "STORED\r\n";
 
-    # Make a version request to ensure STORED is not responded to client.
-    check_version($ps);
+    # To ensure success, make another req and ensure res isn't STORED
+    $cmd = "touch /b/a 50\r\n";
+    print $ps $cmd;
+    is(scalar <$be>, $cmd, "canary touch received");
+    print $be "TOUCHED\r\n";
+
+    is(scalar <$ps>, "TOUCHED\r\n", "got TOUCHED instread of STORED");
 }
 
 check_version($ps);
