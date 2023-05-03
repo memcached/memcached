@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 # Issue #260 is a terrible bug.
 # In order to run this test:
 # * checkout 1.4.15

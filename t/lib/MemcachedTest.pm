@@ -352,8 +352,7 @@ sub new_memcached {
         # A slow/emulated/valgrinded/etc system may take longer than a second
         # for the unix socket to appear.
         my $filename = $1;
-        for (1..20) {
-            sleep 1;
+        for (1..60) {
             my $conn = IO::Socket::UNIX->new(Peer => $filename);
 
             if ($conn) {
@@ -364,7 +363,7 @@ sub new_memcached {
                                               port => $port);
             } else {
                 croak("Failed to connect to unix socket: memcached not running") unless is_running($childpid);
-                sleep 1;
+                select undef, undef, undef, 0.20;
             }
         }
         croak("Failed to connect to unix domain socket: $! '$filename'") if $@;
@@ -425,6 +424,11 @@ sub stop {
 sub graceful_stop {
     my $self = shift;
     kill 'SIGUSR1', $self->{pid};
+}
+
+sub reload {
+    my $self = shift;
+    kill 'SIGHUP', $self->{pid};
 }
 
 # -1 if the pid is actually dead.

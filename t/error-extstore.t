@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 # Test the "Error on get" path for extstore.
 # the entire error handling code for process_get_command() never worked, and
 # would infinite loop. get_extstore() can hit it sometimes.

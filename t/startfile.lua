@@ -9,11 +9,11 @@ local my_zone = 'z1'
 
 local STAT_EXAMPLE <const> = 1
 local STAT_ANOTHER <const> = 2
---mcp.tcp_keepalive(true)
 
 function mcp_config_pools(oldss)
     mcp.add_stat(STAT_EXAMPLE, "example")
     mcp.add_stat(STAT_ANOTHER, "another")
+    --mcp.tcp_keepalive(true)
     mcp.backend_connect_timeout(5.5) -- 5 and a half second timeout.
     -- alias mcp.backend for convenience.
     -- important to alias global variables in routes where speed is concerned.
@@ -115,6 +115,15 @@ end
 
 -- need to redefine main_zones using fetched selectors?
 
+function reqlog_factory(route)
+    local nr = route
+    return function(r)
+        local res, detail = nr(r)
+        mcp.log_req(r, res, detail)
+        return res
+    end
+end
+
 -- TODO: Fallback zone here?
 function failover_factory(zones, local_zone)
     local near_zone = zones[local_zone]
@@ -130,15 +139,56 @@ function failover_factory(zones, local_zone)
         local res = near_zone(r)
         if res:hit() == false then
             -- example for mcp.log... Don't do this though :)
-            mcp.log("failed to find " .. r:key() .. " in zone: " .. local_zone)
-            for _, zone in pairs(far_zones) do
-                res = zone(r)
+            -- mcp.log("failed to find " .. r:key() .. " in zone: " .. local_zone)
+            --for _, zone in pairs(far_zones) do
+            --    res = zone(r)
+            local restable = mcp.await(r, far_zones, 1)
+            for _, res in pairs(restable) do
                 if res:hit() then
-                    break
+                    --break
+                    return res, "failover_backup_hit"
                 end
             end
+            return restable[1], "failover_backup_miss"
         end
-        return res -- send result back to client
+        -- example of making a new set request on the side.
+        -- local nr = mcp.request("set /foo/asdf 0 0 " .. res:vlen() .. "\r\n", res)
+        -- local nr = mcp.request("set /foo/asdf 0 0 2\r\n", "mo\r\n")
+        -- near_zone(nr)
+        return res, "failover_hit" -- send result back to client
+    end
+end
+
+function meta_get_factory(zones, local_zone)
+    local near_zone = zones[local_zone]
+    -- in this test function we only fetch from the local zone.
+    return function(r)
+        if r:has_flag("l") == true then
+            print("client asking for last access time")
+        end
+        local texists, token = r:flag_token("O")
+        -- next example returns the previous token and replaces it.
+        -- local texists, token = r:flag_token("O", "Odoot")
+        if token ~= nil then
+            print("meta opaque flag token: " .. token)
+        end
+        local res = near_zone(r)
+
+        return res
+    end
+end
+
+function meta_set_factory(zones, local_zone)
+    local near_zone = zones[local_zone]
+    -- in this test function we only talk to the local zone.
+    return function(r)
+        local res = near_zone(r)
+        if res:code() == mcp.MCMC_CODE_NOT_FOUND then
+            print("got meta NF response")
+        end
+        print("meta response line: " .. res:line())
+
+        return res
     end
 end
 
@@ -159,10 +209,14 @@ function setinvalidate_factory(zones, local_zone)
         if res:ok() == true then
             -- create a new delete request
             local dr = new_req("delete /testing/" .. r:key() .. "\r\n")
-            for _, zone in pairs(far_zones) do
-                -- NOTE: can check/do things on the specific response here.
-                zone(dr)
-            end
+            -- example of new request from existing request
+            -- note this isn't trimming the key so it'll make a weird one.
+            -- local dr = new_req("set /bar/" .. r:key() .. " 0 0 " .. r:token(5) .. "\r\n", r)
+            -- AWAIT_BACKGROUND allows us to immediately resume processing, executing the
+            -- delete requests in the background.
+            mcp.await(dr, far_zones, 0, mcp.AWAIT_BACKGROUND)
+            --mcp.await(dr, far_zones, 0)
+            mcp.log_req(r, res, "setinvalidate") -- time against the original request, since we have no result.
         end
         -- use original response for client, not DELETE's response.
         -- else client won't understand.
@@ -256,7 +310,7 @@ function mcp_config_routes(main_zones)
     -- generate the prefix routes from zones.
     local prefixes = {}
     for pfx, z in pairs(main_zones) do
-        local failover = failover_factory(z, my_zone)
+        local failover = reqlog_factory(failover_factory(z, my_zone))
         local all = walkall_factory(main_zones[pfx])
         local setdel = setinvalidate_factory(z, my_zone)
         local map = {}
@@ -268,6 +322,8 @@ function mcp_config_routes(main_zones)
         -- need better routes designed for the test suite (edit the key
         -- prefix or something)
         map[mcp.CMD_ADD] = failover_factory(z, my_zone)
+        map[mcp.CMD_MG] = meta_get_factory(z, my_zone)
+        map[mcp.CMD_MS] = meta_set_factory(z, my_zone)
         prefixes[pfx] = command_factory(map, failover)
     end
 
@@ -278,4 +334,7 @@ function mcp_config_routes(main_zones)
     -- are attached to the internal parser.
     --mcp.attach(mcp.CMD_ANY, function (r) return routetop(r) end)
     mcp.attach(mcp.CMD_ANY_STORAGE, routetop)
+    -- tagged top level attachments. ex: memcached -l tag[tagtest]:127.0.0.1:11212
+    -- mcp.attach(mcp.CMD_ANY_STORAGE, function (r) return "SERVER_ERROR no route\r\n" end, "tagtest")
+    -- mcp.attach(mcp.CMD_ANY_STORAGE, function (r) return "SERVER_ERROR my route\r\n" end, "newtag")
 end

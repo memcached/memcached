@@ -1,6 +1,9 @@
 #ifndef MCMC_HEADER
 #define MCMC_HEADER
 
+#include <sys/uio.h>
+#include <stdint.h>
+
 #define MCMC_OK 0
 #define MCMC_ERR -1
 #define MCMC_NOT_CONNECTED 1
@@ -8,7 +11,6 @@
 #define MCMC_CONNECTING 3 // nonblock mode.
 #define MCMC_WANT_WRITE 4
 #define MCMC_WANT_READ 5
-#define MCMC_HAS_RESULT 7
 // TODO: either internally set a flag for "ok" or "not ok" and use a func,
 // or use a bitflag here (1<<6) for "OK", (1<<5) for "FAIL", etc.
 // or, we directly return "OK" or "FAIL" and you can ask for specific error.
@@ -21,10 +23,13 @@
 #define MCMC_CODE_NOT_STORED 14
 #define MCMC_CODE_OK 15
 #define MCMC_CODE_NOP 16
-#define MCMC_PARSE_ERROR_SHORT 17
-#define MCMC_PARSE_ERROR 18
-#define MCMC_CODE_MISS 19 // FIXME
-
+#define MCMC_CODE_END 17
+#define MCMC_ERR_SHORT 18
+#define MCMC_ERR_PARSE 19
+#define MCMC_ERR_VALUE 20
+#define MCMC_CODE_ERROR 21
+#define MCMC_CODE_CLIENT_ERROR 22
+#define MCMC_CODE_SERVER_ERROR 23
 
 // response types
 #define MCMC_RESP_GET 100
@@ -34,6 +39,8 @@
 #define MCMC_RESP_END 105
 #define MCMC_RESP_VERSION 106
 #define MCMC_RESP_NUMERIC 107 // for weird incr/decr syntax.
+#define MCMC_RESP_ERRMSG 108 // ERROR, CLIENT_ERROR, SERVER_ERRROR
+#define MCMC_RESP_FAIL 109 // Complete failure to parse, garbage, etc
 
 #define MCMC_OPTION_BLANK 0
 #define MCMC_OPTION_NONBLOCK 1
@@ -45,8 +52,8 @@
 #define MCMC_ERROR_MSG_MAX 512
 
 typedef struct {
-    unsigned short type;
-    unsigned short code;
+    short type;
+    short code;
     char *value; // pointer to start of value in buffer.
     size_t reslen; // full length of the response line
     size_t vlen_read; // amount of value that was in supplied buffer.
@@ -67,8 +74,10 @@ typedef struct {
         };
         // STAT response
         struct {
+            char *sname;
+            size_t snamelen;
             char *stat;
-            size_t slen;
+            size_t statlen;
         };
     };
 } mcmc_resp_t;
@@ -76,16 +85,14 @@ typedef struct {
 int mcmc_fd(void *c);
 size_t mcmc_size(int options);
 size_t mcmc_min_buffer_size(int options);
-char *mcmc_read_prep(void *c, char *buf, size_t bufsize, size_t *bufremain);
 int mcmc_parse_buf(void *c, char *buf, size_t read, mcmc_resp_t *r);
+int mcmc_bare_parse_buf(char *buf, size_t read, mcmc_resp_t *r);
 int mcmc_connect(void *c, char *host, char *port, int options);
 int mcmc_check_nonblock_connect(void *c, int *err);
 int mcmc_send_request(void *c, const char *request, int len, int count);
 int mcmc_request_writev(void *c, const struct iovec *iov, int iovcnt, ssize_t *sent, int count);
-int mcmc_read(void *c, char *buf, size_t bufsize, mcmc_resp_t *r);
-int mcmc_read_value(void *c, char *val, const size_t vsize, int *read);
-int mcmc_read_value_buf(void *c, char *val, const size_t vsize, int *read);
-char *mcmc_buffer_consume(void *c, int *remain);
+//int mcmc_read(void *c, char *buf, size_t bufsize, mcmc_resp_t *r);
+//int mcmc_read_value(void *c, char *val, mcmc_resp_t *r, int *read);
 int mcmc_disconnect(void *c);
 void mcmc_get_error(void *c, char *code, size_t clen, char *msg, size_t mlen);
 

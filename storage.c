@@ -19,6 +19,8 @@
 /*
  * API functions
  */
+static void storage_finalize_cb(io_pending_t *pending);
+static void storage_return_cb(io_pending_t *pending);
 
 // re-cast an io_pending_t into this more descriptive structure.
 // the first few items _must_ match the original struct.
@@ -26,7 +28,10 @@ typedef struct _io_pending_storage_t {
     int io_queue_type;
     LIBEVENT_THREAD *thread;
     conn *c;
-    mc_resp *resp;            /* original struct ends here */
+    mc_resp *resp;
+    io_queue_cb return_cb;    // called on worker thread.
+    io_queue_cb finalize_cb;  // called back on the worker thread.
+                              /* original struct ends here */
     item *hdr_it;             /* original header item. */
     obj_io io_ctx;            /* embedded extstore IO header */
     unsigned int iovec_data;  /* specific index of data iovec */
@@ -119,12 +124,10 @@ void storage_stats(ADD_STAT add_stats, conn *c) {
 
 }
 
-
-// FIXME: This runs in the IO thread. to get better IO performance this should
-// simply mark the io wrapper with the return value and decrement wrapleft, if
-// zero redispatching. Still a bit of work being done in the side thread but
-// minimized at least.
-// TODO: wrap -> p?
+// This callback runs in the IO thread.
+// TODO: Some or all of this should move to the
+// io_pending's callback back in the worker thread.
+// It might make sense to keep the crc32c check here though.
 static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
     // FIXME: assumes success
     io_pending_storage_t *p = (io_pending_storage_t *)io->data;
@@ -227,13 +230,7 @@ static void _storage_get_item_cb(void *e, obj_io *io, int ret) {
     p->active = false;
     //assert(c->io_wrapleft >= 0);
 
-    // All IO's have returned, lets re-attach this connection to our original
-    // thread.
-    io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
-    q->count--;
-    if (q->count == 0) {
-        redispatch_conn(c);
-    }
+    return_io_pending((io_pending_t *)p);
 }
 
 int storage_get_item(conn *c, item *it, mc_resp *resp) {
@@ -271,6 +268,9 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
     p->miss = false;
     p->badcrc = false;
     p->noreply = c->noreply;
+    p->thread = c->thread;
+    p->return_cb = storage_return_cb;
+    p->finalize_cb = storage_finalize_cb;
     // io_pending owns the reference for this object now.
     p->hdr_it = it;
     p->resp = resp;
@@ -371,8 +371,12 @@ int storage_get_item(conn *c, item *it, mc_resp *resp) {
 void storage_submit_cb(io_queue_t *q) {
     // Don't need to do anything special for extstore.
     extstore_submit(q->ctx, q->stack_ctx);
+
+    // need to reset the stack for next use.
+    q->stack_ctx = NULL;
 }
 
+// Runs locally in worker thread.
 static void recache_or_free(io_pending_t *pending) {
     // re-cast to our specific struct.
     io_pending_storage_t *p = (io_pending_storage_t *)pending;
@@ -446,18 +450,17 @@ static void recache_or_free(io_pending_t *pending) {
     item_remove(p->hdr_it);
 }
 
-// Called after the IO is processed but before the response is transmitted.
-// TODO: stubbed with a reminder: should be able to move most of the extstore
-// callback code into this code instead, executing on worker thread instead of
-// IO thread.
-void storage_complete_cb(io_queue_t *q) {
-    // need to reset the stack for next use.
-    q->stack_ctx = NULL;
-    return;
+// Called after an IO has been returned to the worker thread.
+static void storage_return_cb(io_pending_t *pending) {
+    io_queue_t *q = conn_io_queue_get(pending->c, pending->io_queue_type);
+    q->count--;
+    if (q->count == 0) {
+        conn_worker_readd(pending->c);
+    }
 }
 
 // Called after responses have been transmitted. Need to free up related data.
-void storage_finalize_cb(io_pending_t *pending) {
+static void storage_finalize_cb(io_pending_t *pending) {
     recache_or_free(pending);
     io_pending_storage_t *p = (io_pending_storage_t *)pending;
     obj_io *io = &p->io_ctx;
@@ -572,6 +575,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
 static pthread_t storage_write_tid;
 static pthread_mutex_t storage_write_plock;
 #define WRITE_SLEEP_MIN 500
+#define MIN_PAGES_FREE 3
 
 static void *storage_write_thread(void *arg) {
     void *storage = arg;
@@ -591,6 +595,7 @@ static void *storage_write_thread(void *arg) {
     while (1) {
         // cache per-loop to avoid calls to the slabs_clsid() search loop
         int min_class = slabs_clsid(settings.ext_item_size);
+        unsigned int global_pages = global_page_pool_size(NULL);
         bool do_sleep = true;
         counter++;
         if (to_sleep > settings.ext_max_sleep)
@@ -601,7 +606,6 @@ static void *storage_write_thread(void *arg) {
             bool mem_limit_reached = false;
             unsigned int chunks_free;
             int item_age;
-            int target = settings.ext_free_memchunks[x];
             if (min_class > x || (backoff[x] && (counter % backoff[x] != 0))) {
                 // Long sleeps means we should retry classes sooner.
                 if (to_sleep > WRITE_SLEEP_MIN * 10)
@@ -610,13 +614,15 @@ static void *storage_write_thread(void *arg) {
             }
 
             // Avoid extra slab lock calls during heavy writing.
+            unsigned int chunks_perpage = 0;
             chunks_free = slabs_available_chunks(x, &mem_limit_reached,
-                    NULL);
+                    &chunks_perpage);
+            unsigned int target = chunks_perpage * MIN_PAGES_FREE;
 
             // storage_write() will fail and cut loop after filling write buffer.
             while (1) {
                 // if we are low on chunks and no spare, push out early.
-                if (chunks_free < target && mem_limit_reached) {
+                if (chunks_free < target && global_pages <= settings.ext_global_pool_min) {
                     item_age = 0;
                 } else {
                     item_age = settings.ext_item_age;
@@ -624,7 +630,6 @@ static void *storage_write_thread(void *arg) {
                 if (storage_write(storage, x, item_age)) {
                     chunks_free++; // Allow stopping if we've done enough this loop
                     did_move = true;
-                    do_sleep = false;
                     if (to_sleep > WRITE_SLEEP_MIN)
                         to_sleep /= 2;
                 } else {
@@ -635,7 +640,7 @@ static void *storage_write_thread(void *arg) {
             if (!did_move) {
                 backoff[x]++;
             } else if (backoff[x]) {
-                backoff[x] /= 2;
+                backoff[x] = 1;
             }
         }
 
@@ -643,7 +648,7 @@ static void *storage_write_thread(void *arg) {
         pthread_mutex_unlock(&storage_write_plock);
         if (do_sleep) {
             usleep(to_sleep);
-            to_sleep *= 2;
+            to_sleep++;
         }
         pthread_mutex_lock(&storage_write_plock);
     }
@@ -684,6 +689,7 @@ int start_storage_write_thread(void *arg) {
             strerror(ret));
         return -1;
     }
+    thread_setname(storage_write_tid, "mc-ext-write");
 
     return 0;
 }
@@ -1017,6 +1023,7 @@ int start_storage_compact_thread(void *arg) {
             strerror(ret));
         return -1;
     }
+    thread_setname(storage_compact_tid, "mc-ext-compact");
 
     return 0;
 }
@@ -1379,10 +1386,8 @@ void *storage_init(void *conf) {
         settings.ext_drop_under = cf->storage_file->page_count / 4;
     }
     crc32c_init();
-    /* Init free chunks to zero. */
-    for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
-        settings.ext_free_memchunks[x] = 0;
-    }
+
+    settings.ext_global_pool_min = 0;
     storage = extstore_init(cf->storage_file, ext_cf, &eres);
     if (storage == NULL) {
         fprintf(stderr, "Failed to initialize external storage: %s\n",

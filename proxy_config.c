@@ -41,9 +41,38 @@ static const char * _load_helper(lua_State *L, void *data, size_t *size) {
 void proxy_start_reload(void *arg) {
     proxy_ctx_t *ctx = arg;
     if (pthread_mutex_trylock(&ctx->config_lock) == 0) {
+        ctx->loading = true;
         pthread_cond_signal(&ctx->config_cond);
         pthread_mutex_unlock(&ctx->config_lock);
     }
+}
+
+int proxy_first_confload(void *arg) {
+    proxy_ctx_t *ctx = arg;
+    pthread_mutex_lock(&ctx->config_lock);
+    ctx->loading = true;
+    pthread_cond_signal(&ctx->config_cond);
+    pthread_mutex_unlock(&ctx->config_lock);
+
+    while (1) {
+        bool stop = false;
+        pthread_mutex_lock(&ctx->config_lock);
+        if (!ctx->loading) {
+            stop = true;
+        }
+        pthread_mutex_unlock(&ctx->config_lock);
+        if (stop)
+            break;
+    }
+    int fails = 0;
+    STAT_L(ctx);
+    fails = ctx->global_stats.config_reload_fails;
+    STAT_UL(ctx);
+    if (fails) {
+        return -1;
+    }
+
+    return 0;
 }
 
 // Manages a queue of inbound objects destined to be deallocated.
@@ -78,6 +107,11 @@ static void *_proxy_manager_thread(void *arg) {
             luaL_unref(L, LUA_REGISTRYINDEX, p->self_ref);
         }
         pthread_mutex_unlock(&ctx->config_lock);
+        // force lua garbage collection so any resources close out quickly.
+        lua_gc(L, LUA_GCCOLLECT);
+        // twice because objects with garbage collector handlers are only
+        // marked on the first collection cycle.
+        lua_gc(L, LUA_GCCOLLECT);
 
         // done.
         pthread_mutex_lock(&ctx->manager_lock);
@@ -103,6 +137,7 @@ static void *_proxy_config_thread(void *arg) {
     logger_create();
     pthread_mutex_lock(&ctx->config_lock);
     while (1) {
+        ctx->loading = false;
         pthread_cond_wait(&ctx->config_cond, &ctx->config_lock);
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "start");
         STAT_INCR(ctx, config_reloads, 1);
@@ -167,16 +202,18 @@ int _start_proxy_config_threads(proxy_ctx_t *ctx) {
         pthread_mutex_unlock(&ctx->config_lock);
         return -1;
     }
+    thread_setname(ctx->config_tid, "mc-prx-config");
     pthread_mutex_unlock(&ctx->config_lock);
 
     pthread_mutex_lock(&ctx->manager_lock);
     if ((ret = pthread_create(&ctx->manager_tid, NULL,
                     _proxy_manager_thread, ctx)) != 0) {
-        fprintf(stderr, "Failed to start proxy configuration thread: %s\n",
+        fprintf(stderr, "Failed to start proxy manager thread: %s\n",
                 strerror(ret));
         pthread_mutex_unlock(&ctx->manager_lock);
         return -1;
     }
+    thread_setname(ctx->manager_tid, "mc-prx-manager");
     pthread_mutex_unlock(&ctx->manager_lock);
 
     return 0;
@@ -226,7 +263,7 @@ int proxy_load_config(void *arg) {
     return 0;
 }
 
-static int _copy_pool(lua_State *from, lua_State *to) {
+static int _copy_pool(lua_State *from, lua_State *to, LIBEVENT_THREAD *thr) {
     // from, -3 should have he userdata.
     mcp_pool_t *p = luaL_checkudata(from, -3, "mcp.pool");
     size_t size = sizeof(mcp_pool_proxy_t);
@@ -234,16 +271,22 @@ static int _copy_pool(lua_State *from, lua_State *to) {
     luaL_setmetatable(to, "mcp.pool_proxy");
 
     pp->main = p;
+    if (p->use_iothread) {
+        pp->pool = p->pool;
+    } else {
+        // allow 0 indexing for backends when unique to each worker thread
+        pp->pool = &p->pool[thr->thread_baseid * p->pool_size];
+    }
     pthread_mutex_lock(&p->lock);
     p->refcount++;
     pthread_mutex_unlock(&p->lock);
     return 0;
 }
 
-static void _copy_config_table(lua_State *from, lua_State *to);
+static void _copy_config_table(lua_State *from, lua_State *to, LIBEVENT_THREAD *thr);
 // (from, -1) is the source value
 // should end with (to, -1) being the new value.
-static void _copy_config_table(lua_State *from, lua_State *to) {
+static void _copy_config_table(lua_State *from, lua_State *to, LIBEVENT_THREAD *thr) {
     int type = lua_type(from, -1);
     bool found = false;
     luaL_checkstack(from, 4, "configuration error: table recursion too deep");
@@ -259,7 +302,7 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
                 if (lua_rawget(from, -2) != LUA_TNIL) {
                     const char *name = lua_tostring(from, -1);
                     if (strcmp(name, "mcp.pool") == 0) {
-                        _copy_pool(from, to);
+                        _copy_pool(from, to, thr);
                         found = true;
                     }
                 }
@@ -278,6 +321,9 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
             break;
         case LUA_TSTRING:
             lua_pushlstring(to, lua_tostring(from, -1), lua_rawlen(from, -1));
+            break;
+        case LUA_TBOOLEAN:
+            lua_pushboolean(to, lua_toboolean(from, -1));
             break;
         case LUA_TTABLE:
             // TODO (v2): copy the metatable first?
@@ -313,7 +359,7 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
                 // lua_settable(to, n) - n being the table
                 // takes -2 key -1 value, pops both.
                 // use lua_absindex(L, -1) and so to convert easier?
-                _copy_config_table(from, to); // push next value.
+                _copy_config_table(from, to, thr); // push next value.
                 lua_settable(to, nt);
                 lua_pop(from, 1); // drop value, keep key.
             }
@@ -330,7 +376,7 @@ static void _copy_config_table(lua_State *from, lua_State *to) {
 void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr) {
     proxy_ctx_t *ctx = arg;
     pthread_mutex_lock(&ctx->worker_lock);
-    if (proxy_thread_loadconf(thr) != 0) {
+    if (proxy_thread_loadconf(ctx, thr) != 0) {
         ctx->worker_failed = true;
     }
     ctx->worker_done = true;
@@ -340,10 +386,9 @@ void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr) {
 
 // FIXME (v2): need to test how to recover from an actual error here. error message
 // needs to go somewhere useful, counters added, etc.
-int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
+int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
     lua_State *L = thr->L;
     // load the precompiled config function.
-    proxy_ctx_t *ctx = settings.proxy_ctx;
     struct _dumpbuf *db = ctx->proxy_code;
     struct _dumpbuf db2; // copy because the helper modifies it.
     memcpy(&db2, db, sizeof(struct _dumpbuf));
@@ -355,7 +400,7 @@ int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
     int res = lua_pcall(L, 0, LUA_MULTRET, 0);
     if (res != LUA_OK) {
         // FIXME (v2): don't exit here!
-        fprintf(stderr, "Failed to load data into worker thread\n");
+        fprintf(stderr, "Failed to load data into worker thread: %s\n", lua_tostring(L, -1));
         return -1;
     }
 
@@ -376,7 +421,7 @@ int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
     // If the setjump/longjump combos are compatible a pcall for from and
     // atpanic for to might work best, since the config VM is/should be long
     // running and worker VM's should be rotated.
-    _copy_config_table(ctx->proxy_state, L);
+    _copy_config_table(ctx->proxy_state, L, thr);
 
     // copied value is in front of route function, now call it.
     if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
@@ -413,7 +458,14 @@ int proxy_thread_loadconf(LIBEVENT_THREAD *thr) {
         tus->num_stats = us->num_stats;
         pthread_mutex_unlock(&thr->stats.mutex);
     }
+    // also grab the concurrent request limit
+    thr->proxy_active_req_limit = ctx->active_req_limit;
     STAT_UL(ctx);
+
+    // update limit counter(s)
+    pthread_mutex_lock(&thr->proxy_limit_lock);
+    thr->proxy_buffer_memory_limit = ctx->buffer_memory_limit;
+    pthread_mutex_unlock(&thr->proxy_limit_lock);
 
     return 0;
 }

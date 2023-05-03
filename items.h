@@ -11,7 +11,7 @@ uint64_t get_cas_id(void);
 void set_cas_id(uint64_t new_cas);
 
 /*@null@*/
-item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags, const rel_time_t exptime, const int nbytes);
+item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags, const rel_time_t exptime, const int nbytes);
 item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain);
 item *do_item_alloc_pull(const size_t ntotal, const unsigned int id);
 void item_free(item *it);
@@ -71,15 +71,14 @@ typedef struct {
 } item_stats_automove;
 void fill_item_stats_automove(item_stats_automove *am);
 
-item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update);
-item *do_item_touch(const char *key, const size_t nkey, uint32_t exptime, const uint32_t hv, conn *c);
-void do_item_bump(conn *c, item *it, const uint32_t hv);
+item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVENT_THREAD *t, const bool do_update);
+item *do_item_touch(const char *key, const size_t nkey, uint32_t exptime, const uint32_t hv, LIBEVENT_THREAD *t);
+void do_item_bump(LIBEVENT_THREAD *t, item *it, const uint32_t hv);
 void item_stats_reset(void);
 extern pthread_mutex_t lru_locks[POWER_LARGEST];
 
 int start_lru_maintainer_thread(void *arg);
 int stop_lru_maintainer_thread(void);
-int init_lru_maintainer(void);
 void lru_maintainer_pause(void);
 void lru_maintainer_resume(void);
 

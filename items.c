@@ -63,7 +63,6 @@ static int stats_sizes_buckets = 0;
 static uint64_t cas_id = 0;
 
 static volatile int do_run_lru_maintainer_thread = 0;
-static int lru_maintainer_initialized = 0;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t stats_sizes_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -226,8 +225,23 @@ item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain) {
     unsigned int id = slabs_clsid(size);
 
     item_chunk *nch = (item_chunk *) do_item_alloc_pull(size, id);
-    if (nch == NULL)
-        return NULL;
+    if (nch == NULL) {
+        // The final chunk in a large item will attempt to be a more
+        // appropriately sized chunk to minimize memory overhead. However, if
+        // there's no memory available in the lower slab classes we fail the
+        // SET. In these cases as a fallback we ensure we attempt to evict a
+        // max-size item and reuse a large chunk.
+        if (size == settings.slab_chunk_size_max) {
+            return NULL;
+        } else {
+            size = settings.slab_chunk_size_max;
+            id = slabs_clsid(size);
+            nch = (item_chunk *) do_item_alloc_pull(size, id);
+
+            if (nch == NULL)
+                return NULL;
+        }
+    }
 
     // link in.
     // ITEM_CHUNK[ED] bits need to be protected by the slabs lock.
@@ -244,7 +258,7 @@ item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain) {
     return nch;
 }
 
-item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
+item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags,
                     const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
     item *it = NULL;
@@ -660,10 +674,17 @@ void fill_item_stats_automove(item_stats_automove *am) {
         i = n | COLD_LRU;
         pthread_mutex_lock(&lru_locks[i]);
         cur->evicted = itemstats[i].evicted;
-        if (tails[i]) {
-            cur->age = current_time - tails[i]->time;
-        } else {
+        if (!tails[i]) {
             cur->age = 0;
+        } else if (tails[i]->nbytes == 0 && tails[i]->nkey == 0 && tails[i]->it_flags == 1) {
+            /* it's a crawler, check previous entry */
+            if (tails[i]->prev) {
+               cur->age = current_time - tails[i]->prev->time;
+            } else {
+               cur->age = 0;
+            }
+        } else {
+            cur->age = current_time - tails[i]->time;
         }
         pthread_mutex_unlock(&lru_locks[i]);
      }
@@ -953,7 +974,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */
-item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
+item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, LIBEVENT_THREAD *t, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(it);
@@ -984,7 +1005,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
         int ii;
         if (it == NULL) {
             fprintf(stderr, "> NOT FOUND ");
-        } else {
+        } else if (was_found) {
             fprintf(stderr, "> FOUND KEY ");
         }
         for (ii = 0; ii < nkey; ++ii) {
@@ -996,31 +1017,31 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
         was_found = 1;
         if (item_is_flushed(it)) {
             do_item_unlink(it, hv);
-            STORAGE_delete(c->thread->storage, it);
+            STORAGE_delete(t->storage, it);
             do_item_remove(it);
             it = NULL;
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.get_flushed++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
+            pthread_mutex_lock(&t->stats.mutex);
+            t->stats.get_flushed++;
+            pthread_mutex_unlock(&t->stats.mutex);
             if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by flush");
             }
             was_found = 2;
         } else if (it->exptime != 0 && it->exptime <= current_time) {
             do_item_unlink(it, hv);
-            STORAGE_delete(c->thread->storage, it);
+            STORAGE_delete(t->storage, it);
             do_item_remove(it);
             it = NULL;
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.get_expired++;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
+            pthread_mutex_lock(&t->stats.mutex);
+            t->stats.get_expired++;
+            pthread_mutex_unlock(&t->stats.mutex);
             if (settings.verbose > 2) {
                 fprintf(stderr, " -nuked by expire");
             }
             was_found = 3;
         } else {
             if (do_update) {
-                do_item_bump(c, it, hv);
+                do_item_bump(t, it, hv);
             }
             DEBUG_REFCNT(it, '+');
         }
@@ -1029,8 +1050,8 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
     if (settings.verbose > 2)
         fprintf(stderr, "\n");
     /* For now this is in addition to the above verbose logging. */
-    LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key,
-               nkey, (it) ? it->nbytes : 0, (it) ? ITEM_clsid(it) : 0, c->sfd);
+    LOGGER_LOG(t->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key,
+               nkey, (it) ? it->nbytes : 0, (it) ? ITEM_clsid(it) : 0, t->cur_sfd);
 
     return it;
 }
@@ -1038,7 +1059,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
 // Requires lock held for item.
 // Split out of do_item_get() to allow mget functions to look through header
 // data before losing state modified via the bump function.
-void do_item_bump(conn *c, item *it, const uint32_t hv) {
+void do_item_bump(LIBEVENT_THREAD *t, item *it, const uint32_t hv) {
     /* We update the hit markers only during fetches.
      * An item needs to be hit twice overall to be considered
      * ACTIVE, but only needs a single hit to maintain activity
@@ -1053,7 +1074,7 @@ void do_item_bump(conn *c, item *it, const uint32_t hv) {
                 it->it_flags |= ITEM_ACTIVE;
                 if (ITEM_lruid(it) != COLD_LRU) {
                     it->time = current_time; // only need to bump time.
-                } else if (!lru_bump_async(c->thread->lru_bump_buf, it, hv)) {
+                } else if (!lru_bump_async(t->lru_bump_buf, it, hv)) {
                     // add flag before async bump to avoid race.
                     it->it_flags &= ~ITEM_ACTIVE;
                 }
@@ -1066,8 +1087,8 @@ void do_item_bump(conn *c, item *it, const uint32_t hv) {
 }
 
 item *do_item_touch(const char *key, size_t nkey, uint32_t exptime,
-                    const uint32_t hv, conn *c) {
-    item *it = do_item_get(key, nkey, hv, c, DO_UPDATE);
+                    const uint32_t hv, LIBEVENT_THREAD *t) {
+    item *it = do_item_get(key, nkey, hv, t, DO_UPDATE);
     if (it != NULL) {
         it->exptime = exptime;
     }
@@ -1708,6 +1729,7 @@ int start_lru_maintainer_thread(void *arg) {
         pthread_mutex_unlock(&lru_maintainer_lock);
         return -1;
     }
+    thread_setname(lru_maintainer_tid, "mc-lrumaint");
     pthread_mutex_unlock(&lru_maintainer_lock);
 
     return 0;
@@ -1720,11 +1742,6 @@ void lru_maintainer_pause(void) {
 
 void lru_maintainer_resume(void) {
     pthread_mutex_unlock(&lru_maintainer_lock);
-}
-
-int init_lru_maintainer(void) {
-    lru_maintainer_initialized = 1;
-    return 0;
 }
 
 /* Tail linkers and crawler for the LRU crawler. */

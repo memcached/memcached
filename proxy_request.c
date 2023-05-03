@@ -23,26 +23,41 @@ static int _process_tokenize(mcp_parser_t *pr, const size_t max) {
     while (s != end) {
         switch (state) {
             case 0:
+                // scanning for first non-space to find a token.
                 if (*s != ' ') {
                     pr->tokens[curtoken] = s - pr->request;
                     if (++curtoken == max) {
-                        goto endloop;
+                        s++;
+                        state = 2;
+                        break;
                     }
                     state = 1;
                 }
                 s++;
                 break;
             case 1:
+                // advance over a token
                 if (*s != ' ') {
                     s++;
                 } else {
                     state = 0;
                 }
                 break;
+            case 2:
+                // hit max tokens before end of the line.
+                // keep advancing so we can place endcap token.
+                if (*s == ' ') {
+                    goto endloop;
+                }
+                s++;
+                break;
         }
     }
 endloop:
 
+    // endcap token so we can quickly find the length of any token by looking
+    // at the next one.
+    pr->tokens[curtoken] = s - pr->request;
     pr->ntokens = curtoken;
     P_DEBUG("%s: cur_tokens: %d\n", __func__, curtoken);
 
@@ -50,11 +65,13 @@ endloop:
 }
 
 static int _process_token_len(mcp_parser_t *pr, size_t token) {
-    const char *cur = pr->request + pr->tokens[token];
-    int remain = pr->reqlen - pr->tokens[token] - 2; // CRLF
-
-    const char *s = memchr(cur, ' ', remain);
-    return (s != NULL) ? s - cur : remain;
+    const char *s = pr->request + pr->tokens[token];
+    const char *e = pr->request + pr->tokens[token+1];
+    // start of next token is after any space delimiters, so back those out.
+    while (*(e-1) == ' ') {
+        e--;
+    }
+    return e - s;
 }
 
 static int _process_request_key(mcp_parser_t *pr) {
@@ -124,7 +141,7 @@ static int _process_request_metaflags(mcp_parser_t *pr, int token) {
                         return -1;
                     }
                     P_DEBUG("%s: setting meta flag: %d\n", __func__, *cur - 65);
-                    pr->t.meta.flags |= 1 << (*cur - 65);
+                    pr->t.meta.flags |= (uint64_t)1 << (*cur - 65);
                     state = 1;
                 }
                 break;
@@ -136,6 +153,13 @@ static int _process_request_metaflags(mcp_parser_t *pr, int token) {
                 }
                 break;
         }
+    }
+
+    // not too great hack for noreply detection: this can be flattened out
+    // once a few other contexts are fixed and we detect the noreply from the
+    // coroutine start instead.
+    if (pr->t.meta.flags & ((uint64_t)1 << 48)) {
+        pr->noreply = true;
     }
 
     return 0;
@@ -198,6 +222,18 @@ static int _process_request_gat(mcp_parser_t *pr) {
     return 0;
 }
 
+#define NOREPLYSTR "noreply"
+#define NOREPLYLEN sizeof(NOREPLYSTR)-1
+// given a tokenized parser for a normal ASCII command, checks for noreply
+// mode.
+static int _process_request_noreply(mcp_parser_t *pr) {
+    if (pr->tokens[pr->ntokens] - pr->tokens[pr->ntokens-1] >= NOREPLYLEN
+            && strncmp(NOREPLYSTR, pr->request + pr->tokens[pr->ntokens-1], NOREPLYLEN) == 0) {
+        pr->noreply = true;
+    }
+    return 0;
+}
+
 // we need t find the bytes supplied immediately so we can read the request
 // from the client properly.
 // set <key> <flags> <exptime> <bytes> [noreply]\r\n
@@ -226,7 +262,7 @@ static int _process_request_storage(mcp_parser_t *pr, size_t max) {
 
     pr->vlen = vlen;
 
-    return 0;
+    return _process_request_noreply(pr);
 }
 
 // common request with key: <cmd> <key> <args>
@@ -235,7 +271,7 @@ static int _process_request_simple(mcp_parser_t *pr, const size_t max) {
     pr->keytoken = 1; // second token is usually the key... stupid GAT.
 
     _process_request_key(pr);
-    return 0;
+    return _process_request_noreply(pr);
 }
 
 // TODO: return code ENUM with error types.
@@ -278,6 +314,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
             break;
         case 2:
             if (cm[0] == 'm') {
+                type = CMD_TYPE_META;
                 switch (cm[1]) {
                     case 'g':
                         cmd = CMD_MG;
@@ -403,7 +440,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
 // FIXME (v2): any reason to pass in command/cmdlen separately?
 mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen) {
     // reserving an upvalue for key.
-    mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN * 2 + KEY_MAX_LENGTH, 1);
+    mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN + KEY_MAX_LENGTH, 1);
     // TODO (v2): memset only the non-data part? as the rest gets memcpy'd
     // over.
     memset(rq, 0, sizeof(mcp_request_t));
@@ -412,7 +449,6 @@ mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *comma
     memcpy(rq->request, command, cmdlen);
     rq->pr.request = rq->request;
     rq->pr.reqlen = cmdlen;
-    gettimeofday(&rq->start, NULL);
 
     luaL_getmetatable(L, "mcp.request");
     lua_setmetatable(L, -2);
@@ -422,63 +458,68 @@ mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *comma
     return rq;
 }
 
-// TODO (v2):
-// if modified, this will re-serialize every time it's accessed.
-// a simple opt could copy back over the original space
-// a "better" one could A/B the request ptr and clear the modified state
-// each time it gets serialized.
+// Replaces a token inside a request and re-parses.
+// Note that this has some optimization opportunities. Delaying until
+// required.
+// We should not guarantee order when updating meta flags, which would allow
+// blanking tokens and appending new ones.
+// TODO (v2): function doesn't allow appending.
+// TODO (v2): much of the length is the key, avoid copying it.
+int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len) {
+    char temp[MCP_REQUEST_MAXLEN];
+    char *p = temp;
+    mcp_parser_t *pr = &rq->pr;
+
+    if (pr->reqlen + len > MCP_REQUEST_MAXLEN) {
+        return -1;
+    }
+    // Cannot add/append tokens yet.
+    if (idx >= pr->ntokens) {
+        return -1;
+    }
+
+    memcpy(p, pr->request, pr->tokens[idx]);
+    p += pr->tokens[idx];
+
+    memcpy(p, tok, len);
+    p += len;
+
+    // Add a space and copy more tokens if there were more.
+    if (idx+1 < pr->ntokens) {
+        if (len != 0) {
+            // Only pre-space if not deleting the token.
+            *p = ' ';
+            p++;
+        }
+        memcpy(p, &pr->request[pr->tokens[idx+1]], pr->tokens[pr->ntokens] - pr->tokens[idx+1]);
+        p += pr->tokens[pr->ntokens] - pr->tokens[idx+1];
+    }
+
+    memcpy(p, "\r\n\0", 3);
+    p += 2;
+
+    memcpy(rq->request, temp, p - temp);
+
+    // Hold the vlen/vbuf and restore after re-parsing. Since we can only edit
+    // the command line, not the value here, we would otherwise allow sending
+    // arbitrary memory over the network if someone modifies a SET.
+    void *vbuf = pr->vbuf;
+    int vlen = pr->vlen;
+
+    memset(pr, 0, sizeof(mcp_parser_t)); // TODO: required?
+    int ret = process_request(pr, rq->request, p - temp);
+    if (ret != 0) {
+        return ret;
+    }
+    pr->vbuf = vbuf;
+    pr->vlen = vlen;
+    return 0;
+}
+
 void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p) {
     mcp_parser_t *pr = &rq->pr;
     char *r = (char *) pr->request;
     size_t len = pr->reqlen;
-
-    // one or more of the tokens were changed
-    if (rq->was_modified) {
-        assert(rq->tokent_ref);
-        // option table to top of stack.
-        lua_rawgeti(L, LUA_REGISTRYINDEX, rq->tokent_ref);
-
-        // space was reserved in case of modification.
-        char *nr = rq->request + MCP_REQUEST_MAXLEN;
-        r = nr;
-        char *or = NULL;
-
-        for (int x = 0; x < pr->ntokens; x++) {
-            const char *newtok = NULL;
-            size_t newlen = 0;
-            if (x != 0 && x != pr->keytoken) {
-                int type = lua_rawgeti(L, -1, x+1);
-                if (type != LUA_TNIL) {
-                    newtok = lua_tolstring(L, -1, &newlen);
-                    memcpy(nr, newtok, newlen);
-                    nr += newlen;
-                }
-                lua_pop(L, 1);
-            }
-
-            if (newtok == NULL) {
-                // TODO (v2): if we add an extra "end" token that's just reqlen we can
-                // memcpy... however most args are short and that may not be worth
-                // it.
-                or = rq->request + pr->tokens[x];
-                // will walk past the end without the \r test.
-                // if we add the end token trick this can be changed.
-                while (*or != ' ' && *or != '\r' && *or != '\n') {
-                    *nr = *or;
-                    nr++;
-                    or++;
-                }
-            }
-            *nr = ' ';
-            nr++;
-        }
-        // tag the end bits.
-        memcpy(nr-1, "\r\n\0", 3);
-        nr++;
-
-        len = nr - (rq->request + MCP_REQUEST_MAXLEN);
-        lua_pop(L, 1); // pop the table
-    }
 
     // The stringified request. This is also referencing into the coroutine
     // stack, which should be safe from gc.
@@ -492,17 +533,39 @@ void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p) 
         p->iovcnt = 2;
         p->iovbytes += pr->vlen;
     }
-
 }
 
 // second argument is optional, for building set requests.
 // TODO: append the \r\n for the VAL?
 int mcplib_request(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     size_t len = 0;
     size_t vlen = 0;
     mcp_parser_t pr = {0};
     const char *cmd = luaL_checklstring(L, 1, &len);
-    const char *val = luaL_optlstring(L, 2, NULL, &vlen);
+    const char *val = NULL;
+    int type = lua_type(L, 2);
+    if (type == LUA_TSTRING) {
+        val = luaL_optlstring(L, 2, NULL, &vlen);
+        if (vlen < 2 || memcmp(val+vlen-2, "\r\n", 2) != 0) {
+            proxy_lua_error(L, "value passed to mcp.request must end with \\r\\n");
+        }
+    } else if (type == LUA_TUSERDATA) {
+        // vlen for requests and responses include the "\r\n" already.
+        mcp_resp_t *r = luaL_testudata(L, 2, "mcp.response");
+        if (r != NULL) {
+            if (r->resp.value) {
+                val = r->resp.value;
+                vlen = r->resp.vlen_read; // paranoia, so we can't overread into memory.
+            }
+        } else {
+            mcp_request_t *rq = luaL_testudata(L, 2, "mcp.request");
+            if (rq->pr.vbuf) {
+                val = rq->pr.vbuf;
+                vlen = rq->pr.vlen;
+            }
+        }
+    }
 
     // FIXME (v2): if we inline the userdata we can avoid memcpy'ing the parser
     // structure from the stack? but causes some code duplication.
@@ -524,8 +587,14 @@ int mcplib_request(lua_State *L) {
             proxy_lua_error(L, "failed to allocate value memory for request object");
         }
         memcpy(rq->pr.vbuf, val, vlen);
+        // Note: Not enforcing the memory limit here is deliberate:
+        // - if we're over the memory limit, it'll get caught very soon after
+        // this, but we won't be causing some lua to bail mid-flight, which is
+        // more graceful to the end user.
+        pthread_mutex_lock(&t->proxy_limit_lock);
+        t->proxy_buffer_memory_used += rq->pr.vlen;
+        pthread_mutex_unlock(&t->proxy_limit_lock);
     }
-    gettimeofday(&rq->start, NULL);
 
     // rq is now created, parsed, and on the stack.
     return 1;
@@ -592,47 +661,23 @@ int mcplib_request_token(lua_State *L) {
         return 1;
     }
 
-    // we hold overwritten or parsed tokens in a lua table.
-    if (rq->tokent_ref == 0) {
-        // create a presized table that can hold our tokens.
-        lua_createtable(L, rq->pr.ntokens, 0);
-        // duplicate value to set back
-        lua_pushvalue(L, -1);
-        rq->tokent_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-    } else {
-        lua_rawgeti(L, LUA_REGISTRYINDEX, rq->tokent_ref);
-    }
-    // top of stack should be token table.
-
     size_t vlen = 0;
     if (argc > 2) {
         // overwriting a token.
-        luaL_checklstring(L, 3, &vlen);
-        lua_pushvalue(L, 3); // copy to top of stack
-        lua_rawseti(L, -2, token);
-        rq->was_modified = true;
+        size_t newlen = 0;
+        const char *newtok = lua_tolstring(L, 3, &newlen);
+        if (mcp_request_render(rq, token-1, newtok, newlen) != 0) {
+            proxy_lua_error(L, "token(): request malformed after edit");
+            return 0;
+        }
         return 0;
     } else {
         // fetching a token.
-        if (lua_rawgeti(L, -1, token) != LUA_TSTRING) {
-            lua_pop(L, 1); // got a nil, drop it.
+        const char *start = rq->pr.request + rq->pr.tokens[token-1];
+        vlen = _process_token_len(&rq->pr, token-1);
 
-            // token not uploaded yet. find the len.
-            char *s = (char *) &rq->pr.request[rq->pr.tokens[token-1]];
-            char *e = s;
-            while (*e != ' ') {
-                e++;
-            }
-            vlen = e - s;
-
-            P_DEBUG("%s: pushing token of len: %lu\n", __func__, vlen);
-            lua_pushlstring(L, s, vlen);
-            lua_pushvalue(L, -1); // copy
-
-            lua_rawseti(L, -3, token); // pops copy.
-        }
-
-        // return fetched token or copy of new token.
+        P_DEBUG("%s: pushing token of len: %lu\n", __func__, vlen);
+        lua_pushlstring(L, start, vlen);
         return 1;
     }
 
@@ -651,18 +696,96 @@ int mcplib_request_command(lua_State *L) {
     return 1;
 }
 
+int mcplib_request_has_flag(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    size_t len = 0;
+    const char *flagstr = luaL_checklstring(L, 2, &len);
+    if (len != 1) {
+        proxy_lua_error(L, "has_flag(): meta flag must be a single character");
+        return 0;
+    }
+    if (flagstr[0] < 65 || flagstr[0] > 122) {
+        proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
+        return 0;
+    }
+    uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
+    if (rq->pr.t.meta.flags & flagbit) {
+        lua_pushboolean(L, 1);
+    } else {
+        lua_pushboolean(L, 0);
+    }
+
+    return 1;
+}
+
+// req:flag_token("F") -> (bool, nil|token)
+// req:flag_token("O", "Onewopauqe") -> (bool, oldtoken)
+int mcplib_request_flag_token(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    size_t len = 0;
+    const char *flagstr = luaL_checklstring(L, 2, &len);
+    bool replace = false;
+    if (len != 1) {
+        proxy_lua_error(L, "has_flag(): meta flag must be a single character");
+        return 0;
+    }
+    if (flagstr[0] < 65 || flagstr[0] > 122) {
+        proxy_lua_error(L, "has_flag(): invalid flag, must be A-Z,a-z");
+        return 0;
+    }
+    if (lua_isstring(L, 3)) {
+        // overwriting a flag/token with the third argument.
+        replace = true;
+    }
+    uint64_t flagbit = (uint64_t)1 << (flagstr[0] - 65);
+
+    int ret = 1;
+    if (rq->pr.t.meta.flags & flagbit) {
+        // The flag definitely exists, but sadly we need to scan for the
+        // actual flag to see if it has a token.
+        lua_pushboolean(L, 1);
+        for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
+            const char *s = rq->pr.request + rq->pr.tokens[x];
+            if (s[0] == flagstr[0]) {
+                size_t vlen = _process_token_len(&rq->pr, x);
+                if (vlen > 1) {
+                    // strip the flag off the token and return.
+                    lua_pushlstring(L, s+1, vlen-1);
+                    ret = 2;
+                }
+
+                // Have something to replace the flag/token with.
+                if (replace) {
+                    size_t newlen = 0;
+                    const char *newtok = lua_tolstring(L, 3, &newlen);
+                    if (mcp_request_render(rq, x, newtok, newlen) != 0) {
+                        proxy_lua_error(L, "token(): request malformed after edit");
+                        return 0;
+                    }
+                }
+                break;
+            }
+        }
+    } else {
+        lua_pushboolean(L, 0);
+    }
+
+    return ret;
+}
+
 int mcplib_request_gc(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
     // During nread c->item is the malloc'ed buffer. not yet put into
     // rq->buf - this gets freed because we've also set c->item_malloced if
     // the connection closes before finishing nread.
     if (rq->pr.vbuf != NULL) {
+        pthread_mutex_lock(&t->proxy_limit_lock);
+        t->proxy_buffer_memory_used -= rq->pr.vlen;
+        pthread_mutex_unlock(&t->proxy_limit_lock);
         free(rq->pr.vbuf);
     }
 
-    if (rq->tokent_ref != 0) {
-        luaL_unref(L, LUA_REGISTRYINDEX, rq->tokent_ref);
-    }
     return 0;
 }
 

@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 use strict;
 use warnings;
@@ -21,6 +21,7 @@ my $key = getcwd ."/t/". MemcachedTest::SRV_KEY;
 
 is($settings->{'ssl_enabled'}, 'yes');
 is($settings->{'ssl_session_cache'}, 'no');
+is($settings->{'ssl_kernel_tls'}, 'no');
 is($settings->{'ssl_chain_cert'}, $cert);
 is($settings->{'ssl_key'}, $key);
 is($settings->{'ssl_verify_mode'}, 0);

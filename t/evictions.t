@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 # Test the 'stats items' evictions counters.
 
 use strict;

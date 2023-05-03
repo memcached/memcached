@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 use strict;
 use warnings;
@@ -31,7 +31,7 @@ for (2 .. 6) {
 }
 #my $sock = $srv->sock;
 
-my $p_srv = new_memcached('-o proxy_config=./t/startfile.lua -l 127.0.0.1', 11211);
+my $p_srv = new_memcached('-o proxy_config=./t/startfile.lua');
 my $p_sock = $p_srv->sock;
 
 # hack to help me use T_MEMD_USE_DAEMON for proxy.
@@ -157,7 +157,7 @@ my $p_sock = $p_srv->sock;
     print $s "version\n";
     like(<$s>, qr/VERSION/, "direct server version cmd with just newline");
     print $p_sock "version\n";
-    like(<$p_sock>, qr/SERVER_ERROR/, "proxy version cmd with just newline");
+    like(<$p_sock>, qr/CLIENT_ERROR/, "proxy version cmd with just newline");
     print $p_sock "version\r\n";
     like(<$p_sock>, qr/VERSION/, "proxy version cmd with full CRLF");
 }

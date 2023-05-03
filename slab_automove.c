@@ -98,9 +98,6 @@ void slab_automove_run(void *arg, int *src, int *dst) {
         int w_offset = n * a->window_size;
         struct window_data *wd = &a->window_data[w_offset + (a->window_cur % a->window_size)];
         memset(wd, 0, sizeof(struct window_data));
-        // summarize the window-up-to-now.
-        memset(&w_sum, 0, sizeof(struct window_data));
-        window_sum(&a->window_data[w_offset], &w_sum, a->window_size);
 
         // if page delta, or evicted delta, mark window dirty
         // (or outofmemory)
@@ -122,6 +119,10 @@ void slab_automove_run(void *arg, int *src, int *dst) {
         // set age into window
         wd->age = a->iam_after[n].age;
 
+        // summarize the window-up-to-now.
+        memset(&w_sum, 0, sizeof(struct window_data));
+        window_sum(&a->window_data[w_offset], &w_sum, a->window_size);
+
         // grab age as average of window total
         uint64_t age = w_sum.age / a->window_size;
 
@@ -130,6 +131,7 @@ void slab_automove_run(void *arg, int *src, int *dst) {
             if (w_sum.dirty == 0) {
                 *src = n;
                 *dst = 0;
+                youngest = oldest = -1;
                 break;
             }
         }

@@ -37,6 +37,14 @@
 #endif
 #endif
 
+#if defined(__linux__)
+# define SOCK_COOKIE_ID SO_MARK
+#elif defined(__FreeBSD__)
+# define SOCK_COOKIE_ID SO_USER_COOKIE
+#elif defined(__OpenBSD__)
+# define SOCK_COOKIE_ID SO_RTABLE
+#endif
+
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
 #include "cache.h"
@@ -93,12 +101,6 @@
  */
 #define ITEM_SIZE_MAX_LOWER_LIMIT 1024
 #define ITEM_SIZE_MAX_UPPER_LIMIT 1024 * 1024 * 1024
-
-
-/* unistd.h is here */
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#endif
 
 /* Slab sizing definitions. */
 #define POWER_SMALLEST 1
@@ -264,6 +266,14 @@ enum close_reasons {
 #define NREAD_APPEND 4
 #define NREAD_PREPEND 5
 #define NREAD_CAS 6
+#define NREAD_APPENDVIV 7 // specific to meta
+#define NREAD_PREPENDVIV 8 // specific to meta
+
+#define CAS_ALLOW_STALE true
+#define CAS_NO_STALE false
+
+#define LOG_TYPE_DELETE 1
+#define LOG_TYPE_META_DELETE 2
 
 enum store_item_type {
     NOT_STORED=0, STORED, EXISTS, NOT_FOUND, TOO_LARGE, NO_MEMORY
@@ -339,7 +349,8 @@ struct slab_stats {
     X(proxy_conn_requests) \
     X(proxy_conn_errors) \
     X(proxy_conn_oom) \
-    X(proxy_req_active)
+    X(proxy_req_active) \
+    X(proxy_await_active)
 #endif
 
 /**
@@ -484,7 +495,6 @@ struct settings {
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
     bool watch_enabled; /* allows watch commands to be dropped */
     bool relaxed_privileges;   /* Relax process restrictions when running testapp */
-    bool meta_response_old; /* use "OK" instead of "HD". for response code TEMPORARY! */
 #ifdef EXTSTORE
     unsigned int ext_io_threadcount; /* number of IO threads to run. */
     unsigned int ext_page_size; /* size in megabytes of storage pages. */
@@ -499,8 +509,8 @@ struct settings {
     double ext_max_frag; /* ideal maximum page fragmentation */
     double slab_automove_freeratio; /* % of memory to hold free as buffer */
     bool ext_drop_unread; /* skip unread items during compaction */
-    /* per-slab-class free chunk limit */
-    unsigned int ext_free_memchunks[MAX_NUMBER_OF_SLAB_CLASSES];
+    /* start flushing to extstore after memory below this */
+    unsigned int ext_global_pool_min;
 #endif
 #ifdef TLS
     bool ssl_enabled; /* indicates whether SSL is enabled */
@@ -514,6 +524,7 @@ struct settings {
     rel_time_t ssl_last_cert_refresh_time; /* time of the last server certificate refresh */
     unsigned int ssl_wbuf_size; /* size of the write buffer used by ssl_sendmsg method */
     bool ssl_session_cache; /* enable SSL server session caching */
+    bool ssl_kernel_tls; /* enable server kTLS */
     int ssl_min_version; /* minimum SSL protocol version to accept */
 #endif
     int num_napi_ids;   /* maximum number of NAPI IDs */
@@ -523,6 +534,9 @@ struct settings {
     bool proxy_uring; /* if the proxy should use io_uring */
     char *proxy_startfile; /* lua file to run when workers start */
     void *proxy_ctx; /* proxy's state context */
+#endif
+#ifdef SOCK_COOKIE_ID
+    uint32_t sock_cookie_id;
 #endif
 };
 
@@ -587,7 +601,7 @@ typedef struct _stritem {
 
 // TODO: If we eventually want user loaded modules, we can't use an enum :(
 enum crawler_run_type {
-    CRAWLER_AUTOEXPIRE=0, CRAWLER_EXPIRED, CRAWLER_METADUMP
+    CRAWLER_AUTOEXPIRE=0, CRAWLER_EXPIRED, CRAWLER_METADUMP, CRAWLER_MGDUMP
 };
 
 typedef struct {
@@ -657,21 +671,12 @@ typedef struct _io_pending_t io_pending_t;
 typedef struct io_queue_s io_queue_t;
 typedef void (*io_queue_stack_cb)(io_queue_t *q);
 typedef void (*io_queue_cb)(io_pending_t *pending);
-// this structure's ownership gets passed between threads:
-// - owned normally by the worker thread.
-// - multiple queues can be submitted at the same time.
-// - each queue can be sent to different background threads.
-// - each submitted queue needs to know when to return to the worker.
-// - the worker needs to know when all queues have returned so it can process.
-//
-// io_queue_t's count field is owned by worker until submitted. Then owned by
-// side thread until returned.
-// conn->io_queues_submitted is always owned by the worker thread. it is
-// incremented as the worker submits queues, and decremented as it gets pinged
-// for returned threads.
-//
-// All of this is to avoid having to hit a mutex owned by the connection
-// thread that gets pinged for each thread (or an equivalent atomic).
+// This structure used to be passed between threads, but is now owned entirely
+// by the worker threads.
+// IO pending objects are created and stacked into this structure. They are
+// then sent off to remote threads.
+// The objects are returned one at a time to the worker threads, and this
+// structure is then consulted to see when to resume the worker.
 struct io_queue_s {
     void *ctx; // duplicated from io_queue_cb_t
     void *stack_ctx; // module-specific context to be batch-submitted
@@ -682,9 +687,6 @@ struct io_queue_s {
 typedef struct io_queue_cb_s {
     void *ctx; // untouched ptr for specific context
     io_queue_stack_cb submit_cb; // callback given a full stack of pending IO's at once.
-    io_queue_stack_cb complete_cb;
-    io_queue_cb return_cb; // called on worker thread.
-    io_queue_cb finalize_cb; // called back on the worker thread.
     int type;
 } io_queue_cb_t;
 
@@ -699,6 +701,8 @@ typedef struct {
     int notify_receive_fd;      /* receiving end of notify pipe */
     int notify_send_fd;         /* sending end of notify pipe */
 #endif
+    int cur_sfd;                /* client fd for logging commands */
+    int thread_baseid;          /* which "number" thread this is for data offsets */
     struct thread_stats stats;  /* Stats generated by this thread */
     io_queue_cb_t io_queues[IO_QUEUE_COUNT];
     struct conn_queue *ev_queue; /* Worker/conn event queue */
@@ -715,10 +719,17 @@ typedef struct {
 #endif
     int napi_id;                /* napi id associated with this thread */
 #ifdef PROXY
-    void *L;
+    void *proxy_ctx; // proxy global context
+    void *L; // lua VM
     void *proxy_hooks;
     void *proxy_user_stats;
     void *proxy_int_stats;
+    void *proxy_event_thread; // worker threads can also be proxy IO threads
+    pthread_mutex_t proxy_limit_lock;
+    uint64_t proxy_active_req_limit;
+    uint64_t proxy_buffer_memory_limit; // protected by limit_lock
+    uint64_t proxy_buffer_memory_used; // protected by limit_lock
+    uint32_t proxy_rng[4]; // fast per-thread rng for lua.
     // TODO: add ctx object so we can attach to queue.
 #endif
 } LIBEVENT_THREAD;
@@ -772,6 +783,8 @@ struct _io_pending_t {
     LIBEVENT_THREAD *thread;
     conn *c;
     mc_resp *resp; // associated response object
+    io_queue_cb return_cb; // called on worker thread.
+    io_queue_cb finalize_cb; // called back on the worker thread.
     char data[120];
 };
 
@@ -850,6 +863,7 @@ struct conn {
     /* This is where the binary header goes */
     protocol_binary_request_header binary_header;
     uint64_t cas; /* the cas to return */
+    uint64_t tag; /* listener stocket tag */
     short cmd; /* current command being processed */
     int opaque;
     int keylen;
@@ -900,19 +914,19 @@ extern void *ext_storage;
  * Functions
  */
 void do_accept_new_conns(const bool do_accept);
-enum delta_result_type do_add_delta(conn *c, const char *key,
+enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
                                     const size_t nkey, const bool incr,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
-enum store_item_type do_store_item(item *item, int comm, conn* c, const uint32_t hv);
-void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb ret_cb, io_queue_cb fin_cb);
+enum store_item_type do_store_item(item *item, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, bool cas_stale);
+void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb);
 void conn_io_queue_setup(conn *c);
 io_queue_t *conn_io_queue_get(conn *c, int type);
 io_queue_cb_t *thread_io_queue_get(LIBEVENT_THREAD *t, int type);
 void conn_io_queue_return(io_pending_t *io);
 conn *conn_new(const int sfd, const enum conn_states init_state, const int event_flags, const int read_buffer_size,
-    enum network_transport transport, struct event_base *base, void *ssl);
+    enum network_transport transport, struct event_base *base, void *ssl, uint64_t conntag, enum protocol bproto);
 
 void conn_worker_readd(conn *c);
 extern int daemonize(int nochdir, int noclose);
@@ -943,23 +957,23 @@ void proxy_reload_notify(LIBEVENT_THREAD *t);
 #endif
 void return_io_pending(io_pending_t *io);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size,
-    enum network_transport transport, void *ssl);
+    enum network_transport transport, void *ssl, uint64_t conntag, enum protocol bproto);
 void sidethread_conn_close(conn *c);
 
 /* Lock wrappers for cache functions that are called from main loop. */
-enum delta_result_type add_delta(conn *c, const char *key,
+enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
                                  const size_t nkey, bool incr,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas);
 void accept_new_conns(const bool do_accept);
 void  conn_close_idle(conn *c);
 void  conn_close_all(void);
-item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
+item *item_alloc(const char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
 #define DO_UPDATE true
 #define DONT_UPDATE false
-item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update);
-item *item_get_locked(const char *key, const size_t nkey, conn *c, const bool do_update, uint32_t *hv);
-item *item_touch(const char *key, const size_t nkey, uint32_t exptime, conn *c);
+item *item_get(const char *key, const size_t nkey, LIBEVENT_THREAD *t, const bool do_update);
+item *item_get_locked(const char *key, const size_t nkey, LIBEVENT_THREAD *t, const bool do_update, uint32_t *hv);
+item *item_touch(const char *key, const size_t nkey, uint32_t exptime, LIBEVENT_THREAD *t);
 int   item_link(item *it);
 void  item_remove(item *it);
 int   item_replace(item *it, item *new_it, const uint32_t hv);
@@ -976,18 +990,19 @@ int stop_conn_timeout_thread(void);
 #define refcount_decr(it) --(it->refcount)
 void STATS_LOCK(void);
 void STATS_UNLOCK(void);
-#define THR_STATS_LOCK(c) pthread_mutex_lock(&c->thread->stats.mutex)
-#define THR_STATS_UNLOCK(c) pthread_mutex_unlock(&c->thread->stats.mutex)
+#define THR_STATS_LOCK(t) pthread_mutex_lock(&t->stats.mutex)
+#define THR_STATS_UNLOCK(t) pthread_mutex_unlock(&t->stats.mutex)
 void threadlocal_stats_reset(void);
 void threadlocal_stats_aggregate(struct thread_stats *stats);
 void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out);
+void thread_setname(pthread_t thread, const char *name);
 LIBEVENT_THREAD *get_worker_thread(int id);
 
 /* Stat processing functions */
 void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
 
-enum store_item_type store_item(item *item, int comm, conn *c);
+enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, int *nbytes, uint64_t *cas, bool cas_stale);
 
 /* Protocol related code */
 void out_string(conn *c, const char *str);
@@ -998,14 +1013,16 @@ void out_string(conn *c, const char *str);
 #define EXPTIME_TO_POSITIVE_TIME(exptime) (exptime < 0) ? \
         REALTIME_MAXDELTA + 1 : exptime
 rel_time_t realtime(const time_t exptime);
-item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch, bool do_update, bool *overflow);
-item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32_t *hv, bool *overflow);
+item* limited_get(const char *key, size_t nkey, LIBEVENT_THREAD *t, uint32_t exptime, bool should_touch, bool do_update, bool *overflow);
+item* limited_get_locked(const char *key, size_t nkey, LIBEVENT_THREAD *t, bool do_update, uint32_t *hv, bool *overflow);
 // Read/Response object handlers.
 void resp_reset(mc_resp *resp);
 void resp_add_iov(mc_resp *resp, const void *buf, int len);
 void resp_add_chunked_iov(mc_resp *resp, const void *buf, int len);
 bool resp_start(conn *c);
+mc_resp *resp_start_unlinked(conn *c);
 mc_resp* resp_finish(conn *c, mc_resp *resp);
+void resp_free(LIBEVENT_THREAD *th, mc_resp *resp);
 bool resp_has_stack(conn *c);
 bool rbuf_switch_to_malloc(conn *c);
 void conn_release_items(conn *c);

@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 use strict;
 use FindBin qw($Bin);
 chdir "$Bin/.." or die;
@@ -11,7 +11,7 @@ push(@exempted, glob("m4/*backport*m4"));
 my %exempted_hash = map { $_ => 1 } @exempted;
 
 my @stuff = split /\0/, `git ls-files -z -c -m -o --exclude-standard`;
-my @files = grep { ! $exempted_hash{$_} } @stuff;
+my @files = grep { ! $exempted_hash{$_} && $_ !~ m/^vendor\// } @stuff;
 
 unless (@files) {
     warn "ERROR: You don't seem to be running this from a git checkout\n";

@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
     display("Slab Stats", sizeof(struct slab_stats));
     display("Thread stats",
             sizeof(struct thread_stats)
-            - (200 * sizeof(struct slab_stats)));
+            - (MAX_NUMBER_OF_SLAB_CLASSES * sizeof(struct slab_stats)));
     display("Global stats", sizeof(struct stats));
     display("Settings", sizeof(struct settings));
     display("Item (no cas)", sizeof(item));

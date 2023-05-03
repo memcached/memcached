@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 
 use strict;
 use warnings;
@@ -129,6 +129,14 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^ME foo /, "raw mget result");
 }
 
+# mdelete had excess space before newline.
+{
+    print $sock "md deltest\r\n";
+    is(scalar <$sock>, "NF\r\n", "delete status is correct");
+    print $sock "md foo\r\n";
+    is(scalar <$sock>, "HD\r\n", "delete status is correct");
+}
+
 # mget with arguments
 # - set some specific TTL and get it back (within reason)
 # - get cas
@@ -202,16 +210,16 @@ my $sock = $server->sock;
 {
     diag "marithmetic tests";
     print $sock "ma mo\r\n";
-    like(scalar <$sock>, qr/^NF/, "incr miss");
+    like(scalar <$sock>, qr/^NF\r/, "incr miss");
 
     print $sock "ma mo D1\r\n";
-    like(scalar <$sock>, qr/^NF/, "incr miss with argument");
+    like(scalar <$sock>, qr/^NF\r/, "incr miss with argument");
 
     print $sock "set mo 0 0 1\r\n1\r\n";
     like(scalar <$sock>, qr/^STORED/, "stored with set");
 
     print $sock "ma mo\r\n";
-    like(scalar <$sock>, qr/^HD/, "incr'd a set value");
+    like(scalar <$sock>, qr/^HD\r/, "incr'd a set value");
 
     print $sock "set mo 0 0 1\r\nq\r\n";
     like(scalar <$sock>, qr/^STORED/, "stored with set");
@@ -220,7 +228,7 @@ my $sock = $server->sock;
     like(scalar <$sock>, qr/^CLIENT_ERROR /, "cannot incr non-numeric value");
 
     print $sock "ma mu N90\r\n";
-    like(scalar <$sock>, qr/^HD/, "incr with seed");
+    like(scalar <$sock>, qr/^HD\r/, "incr with seed");
     my $res = mget($sock, 'mu', 's t v Ofoo k');
     ok(keys %$res, "not a miss");
     ok(find_flags($res, 'st'), "got main flags back");
@@ -250,7 +258,7 @@ my $sock = $server->sock;
     is($res->{val}, '0', 'land at 0 for over-decrement');
 
     print $sock "ma mi q D1\r\nmn\r\n";
-    like(scalar <$sock>, qr/^MN/, "quiet increment");
+    like(scalar <$sock>, qr/^MN\r/, "quiet increment");
 
     # CAS routines.
     $res = marith($sock, 'mc', 'N0 c v');
@@ -319,6 +327,32 @@ my $sock = $server->sock;
     # invalid mode
     print $sock "ms modetest 2 T120 MZ\r\ntt\r\n";
     like(scalar <$sock>, qr/^CLIENT_ERROR /, "invalid mode");
+}
+
+# Append tests
+{
+    print $sock "ms appendcas 2 MA C5000 T30\r\nhi\r\n";
+    is(scalar <$sock>, "NS\r\n", "ms append with bad cas");
+    print $sock "ms appendcas 2 MA T30\r\nhi\r\n";
+    is(scalar <$sock>, "NS\r\n", "ms append straight miss");
+    print $sock "ms appendcas 2 T30 c\r\nho\r\n";
+    my $res = <$sock>;
+    my $r = parse_res($res);
+    my $cas = get_flag($r, 'c');
+    print $sock "ms appendcas 2 MA C$cas T30\r\nhi\r\n";
+    is(scalar <$sock>, "HD\r\n", "ms append with good cas");
+
+    # Autovivify append.
+    print $sock "ms appendviv 2 MA N30\r\nmo\r\n";
+    is(scalar <$sock>, "HD\r\n", "ms append with autovivify");
+    mget_is({ sock => $sock,
+              flags => 's v',
+              eflags => 's2' },
+             'appendviv', 'mo', "retrieved autoviv append");
+
+    # Test full size on append.
+    print $sock "ms appendviv 2 MA N30 s\r\nko\r\n";
+    is(scalar <$sock>, "HD s4\r\n", "got appended length");
 }
 
 # lease-test, use two sockets? one socket should be fine, actually.
@@ -499,7 +533,7 @@ my $sock = $server->sock;
     # Lets mark the sucker as invalid, and drop its TTL to 30s
     diag "running mdelete";
     print $sock "md toinv I T30\r\n";
-    like(scalar <$sock>, qr/^HD /, "mdelete'd key");
+    like(scalar <$sock>, qr/^HD/, "mdelete'd key");
 
     # TODO: decide on if we need an explicit flag for "if I fetched a stale
     # value, does winning matter?
@@ -760,9 +794,20 @@ sub mget_res {
         $r{size} = $1;
         $r{flags} = $2;
         $r{val} = $3;
-    } elsif ($resp =~ m/^HD ([^\r]+)\r\n/gm) {
+    } elsif ($resp =~ m/^HD\s*([^\r]+)\r\n/gm) {
         $r{flags} = $1;
         $r{hd} = 1;
+    }
+
+    return \%r;
+}
+
+sub parse_res {
+    my $resp = shift;
+    my %r = ();
+    if ($resp =~ m/^(\w\w)\s*([^\r]+)\r\n/gm) {
+        $r{status} = $1;
+        $r{flags} = $2;
     }
 
     return \%r;

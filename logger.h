@@ -22,6 +22,7 @@ enum log_entry_type {
     LOGGER_SLAB_MOVE,
     LOGGER_CONNECTION_NEW,
     LOGGER_CONNECTION_CLOSE,
+    LOGGER_DELETIONS,
 #ifdef EXTSTORE
     LOGGER_EXTSTORE_WRITE,
     LOGGER_COMPACT_START,
@@ -36,6 +37,7 @@ enum log_entry_type {
     LOGGER_PROXY_RAW,
     LOGGER_PROXY_ERROR,
     LOGGER_PROXY_USER,
+    LOGGER_PROXY_REQ,
     LOGGER_PROXY_BE_ERROR,
 #endif
 };
@@ -107,6 +109,14 @@ struct logentry_item_store {
     char key[];
 };
 
+struct logentry_deletion {
+    int nbytes;
+    int cmd;
+    uint8_t nkey;
+    uint8_t clsid;
+    char key[];
+};
+
 struct logentry_conn_event {
     int transport;
     int reason;
@@ -114,11 +124,25 @@ struct logentry_conn_event {
     struct sockaddr_in6 addr;
 };
 #ifdef PROXY
-struct logentry_proxy_raw {
+struct logentry_proxy_req {
     unsigned short type;
     unsigned short code;
-    long elapsed; // elapsed time in usec
-    char cmd[8];
+    int status;
+    uint32_t reqlen;
+    size_t dlen;
+    size_t be_namelen;
+    size_t be_portlen;
+    long elapsed;
+    char data[];
+};
+
+struct logentry_proxy_errbe {
+    size_t errlen;
+    size_t be_namelen;
+    size_t be_portlen;
+    size_t be_rbuflen;
+    int be_depth;
+    char data[];
 };
 #endif
 /* end intermediary structures */
@@ -146,9 +170,10 @@ struct _logentry {
 #define LOG_EVICTIONS  (1<<6) /* details of evicted items */
 #define LOG_STRICT     (1<<7) /* block worker instead of drop */
 #define LOG_RAWCMDS    (1<<9) /* raw ascii commands */
-#define LOG_PROXYCMDS  (1<<10) /* command logs from proxy */
+#define LOG_PROXYREQS  (1<<10) /* command logs from proxy */
 #define LOG_PROXYEVENTS (1<<11) /* error log stream from proxy */
 #define LOG_PROXYUSER (1<<12) /* user generated logs from proxy */
+#define LOG_DELETIONS (1<<13) /* see whats deleted */
 
 typedef struct _logger {
     struct _logger *prev;

@@ -14,18 +14,28 @@
 #define PROCESS_NORMAL false
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget);
 static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc);
-static void proxy_out_errstring(mc_resp *resp, const char *str);
 
 /******** EXTERNAL FUNCTIONS ******/
 // functions starting with _ are breakouts for the public functions.
 
+bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len) {
+    bool oom = false;
+    pthread_mutex_lock(&t->proxy_limit_lock);
+    if (t->proxy_buffer_memory_used > t->proxy_buffer_memory_limit) {
+        oom = true;
+    } else {
+        t->proxy_buffer_memory_used += len;
+    }
+    pthread_mutex_unlock(&t->proxy_limit_lock);
+    return oom;
+}
+
 // see also: process_extstore_stats()
-// FIXME (v2): get context off of conn? global variables
-void proxy_stats(ADD_STAT add_stats, conn *c) {
-    if (!settings.proxy_enabled) {
+void proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
+    if (arg == NULL) {
        return;
     }
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = arg;
     STAT_L(ctx);
 
     APPEND_STAT("proxy_config_reloads", "%llu", (unsigned long long)ctx->global_stats.config_reloads);
@@ -36,21 +46,27 @@ void proxy_stats(ADD_STAT add_stats, conn *c) {
     STAT_UL(ctx);
 }
 
-void process_proxy_stats(ADD_STAT add_stats, conn *c) {
+void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
     char key_str[STAT_KEY_LEN];
     struct proxy_int_stats istats = {0};
+    uint64_t req_limit = 0;
+    uint64_t buffer_memory_limit = 0;
+    uint64_t buffer_memory_used = 0;
 
-    if (!settings.proxy_enabled) {
+    if (!arg) {
         return;
     }
-    proxy_ctx_t *ctx = settings.proxy_ctx;
+    proxy_ctx_t *ctx = arg;
     STAT_L(ctx);
+    req_limit = ctx->active_req_limit;
+    buffer_memory_limit = ctx->buffer_memory_limit;
 
     // prepare aggregated counters.
     struct proxy_user_stats *us = &ctx->user_stats;
     uint64_t counters[us->num_stats];
     memset(counters, 0, sizeof(counters));
 
+    // TODO (v3): more globals to remove and/or change API method.
     // aggregate worker thread counters.
     for (int x = 0; x < settings.num_threads; x++) {
         LIBEVENT_THREAD *t = get_worker_thread(x);
@@ -66,16 +82,36 @@ void process_proxy_stats(ADD_STAT add_stats, conn *c) {
             }
         }
         WSTAT_UL(t);
+        pthread_mutex_lock(&t->proxy_limit_lock);
+        buffer_memory_used += t->proxy_buffer_memory_used;
+        pthread_mutex_unlock(&t->proxy_limit_lock);
     }
 
     // return all of the user generated stats
     for (int x = 0; x < us->num_stats; x++) {
-        snprintf(key_str, STAT_KEY_LEN-1, "user_%s", us->names[x]);
-        APPEND_STAT(key_str, "%llu", (unsigned long long)counters[x]);
+        if (us->names[x]) {
+            snprintf(key_str, STAT_KEY_LEN-1, "user_%s", us->names[x]);
+            APPEND_STAT(key_str, "%llu", (unsigned long long)counters[x]);
+        }
     }
+
     STAT_UL(ctx);
 
+    if (buffer_memory_limit == UINT64_MAX) {
+        buffer_memory_limit = 0;
+    } else {
+        buffer_memory_limit *= settings.num_threads;
+    }
+    if (req_limit == UINT64_MAX) {
+        req_limit = 0;
+    } else {
+        req_limit *= settings.num_threads;
+    }
+
     // return proxy counters
+    APPEND_STAT("active_req_limit", "%llu", (unsigned long long)req_limit);
+    APPEND_STAT("buffer_memory_limit", "%llu", (unsigned long long)buffer_memory_limit);
+    APPEND_STAT("buffer_memory_used", "%llu", (unsigned long long)buffer_memory_used);
     APPEND_STAT("cmd_mg", "%llu", (unsigned long long)istats.counters[CMD_MG]);
     APPEND_STAT("cmd_ms", "%llu", (unsigned long long)istats.counters[CMD_MS]);
     APPEND_STAT("cmd_md", "%llu", (unsigned long long)istats.counters[CMD_MD]);
@@ -99,10 +135,8 @@ void process_proxy_stats(ADD_STAT add_stats, conn *c) {
 }
 
 // start the centralized lua state and config thread.
-// TODO (v2): return ctx ptr. avoid global vars.
-void proxy_init(bool use_uring) {
+void *proxy_init(bool use_uring) {
     proxy_ctx_t *ctx = calloc(1, sizeof(proxy_ctx_t));
-    settings.proxy_ctx = ctx;
     ctx->use_uring = use_uring;
 
     pthread_mutex_init(&ctx->config_lock, NULL);
@@ -113,76 +147,41 @@ void proxy_init(bool use_uring) {
     pthread_cond_init(&ctx->manager_cond, NULL);
     pthread_mutex_init(&ctx->stats_lock, NULL);
 
+    ctx->active_req_limit = UINT64_MAX;
+    ctx->buffer_memory_limit = UINT64_MAX;
+
     // FIXME (v2): default defines.
     ctx->tunables.tcp_keepalive = false;
     ctx->tunables.backend_failure_limit = 3;
     ctx->tunables.connect.tv_sec = 5;
     ctx->tunables.retry.tv_sec = 3;
     ctx->tunables.read.tv_sec = 3;
-#ifdef HAVE_LIBURING
-    ctx->tunables.connect_ur.tv_sec = 5;
-    ctx->tunables.retry_ur.tv_sec = 3;
-    ctx->tunables.read_ur.tv_sec = 3;
-#endif // HAVE_LIBURING
 
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = luaL_newstate();
     ctx->proxy_state = L;
     luaL_openlibs(L);
     // NOTE: might need to differentiate the libs yes?
-    proxy_register_libs(NULL, L);
+    proxy_register_libs(ctx, NULL, L);
 
-    // Create/start the backend threads, which we need before servers
+    // Create/start the IO thread, which we need before servers
     // start getting created.
-    // Supporting N event threads should be possible, but it will be a
-    // low number of N to avoid too many wakeup syscalls.
-    // For now we hardcode to 1.
-    proxy_event_thread_t *threads = calloc(1, sizeof(proxy_event_thread_t));
-    ctx->proxy_threads = threads;
-    for (int i = 0; i < 1; i++) {
-        proxy_event_thread_t *t = &threads[i];
-        t->ctx = ctx;
-#ifdef USE_EVENTFD
-        t->event_fd = eventfd(0, EFD_NONBLOCK);
-        if (t->event_fd == -1) {
-            perror("failed to create backend notify eventfd");
-            exit(1);
-        }
-#else
-        int fds[2];
-        if (pipe(fds)) {
-            perror("can't create proxy backend notify pipe");
-            exit(1);
-        }
+    proxy_event_thread_t *t = calloc(1, sizeof(proxy_event_thread_t));
+    ctx->proxy_io_thread = t;
+    proxy_init_event_thread(t, ctx, NULL);
 
-        t->notify_receive_fd = fds[0];
-        t->notify_send_fd = fds[1];
-#endif
-        proxy_init_evthread_events(t);
-
-        // incoming request queue.
-        STAILQ_INIT(&t->io_head_in);
-        pthread_mutex_init(&t->mutex, NULL);
-        pthread_cond_init(&t->cond, NULL);
-
-        memcpy(&t->tunables, &ctx->tunables, sizeof(t->tunables));
-
-#ifdef HAVE_LIBURING
-        if (t->use_uring) {
-            pthread_create(&t->thread_id, NULL, proxy_event_thread_ur, t);
-        } else {
-            pthread_create(&t->thread_id, NULL, proxy_event_thread, t);
-        }
-#else
-        pthread_create(&t->thread_id, NULL, proxy_event_thread, t);
-#endif // HAVE_LIBURING
-    }
+    pthread_create(&t->thread_id, NULL, proxy_event_thread, t);
+    thread_setname(t->thread_id, "mc-prx-io");
 
     _start_proxy_config_threads(ctx);
+    return ctx;
 }
 
 // Initialize the VM for an individual worker thread.
-void proxy_thread_init(LIBEVENT_THREAD *thr) {
+void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
+    assert(ctx != NULL);
+    assert(thr != NULL);
+
     // Create the hook table.
     thr->proxy_hooks = calloc(CMD_SIZE, sizeof(struct proxy_hook));
     if (thr->proxy_hooks == NULL) {
@@ -194,25 +193,35 @@ void proxy_thread_init(LIBEVENT_THREAD *thr) {
         fprintf(stderr, "Failed to allocate proxy thread stats\n");
         exit(EXIT_FAILURE);
     }
+    pthread_mutex_init(&thr->proxy_limit_lock, NULL);
+    thr->proxy_ctx = ctx;
 
     // Initialize the lua state.
     lua_State *L = luaL_newstate();
     thr->L = L;
     luaL_openlibs(L);
-    proxy_register_libs(thr, L);
-
-    // kick off the configuration.
-    if (proxy_thread_loadconf(thr) != 0) {
-        exit(EXIT_FAILURE);
+    proxy_register_libs(ctx, thr, L);
+    // TODO: srand on time? do we need to bother?
+    for (int x = 0; x < 3; x++) {
+        thr->proxy_rng[x] = rand();
     }
+
+    // Create a proxy event thread structure to piggyback on the worker.
+    proxy_event_thread_t *t = calloc(1, sizeof(proxy_event_thread_t));
+    thr->proxy_event_thread = t;
+    proxy_init_event_thread(t, ctx, thr->base);
 }
 
 // ctx_stack is a stack of io_pending_proxy_t's.
+// head of q->s_ctx is the "newest" request so we must push into the head
+// of the next queue, as requests are dequeued from the head
 void proxy_submit_cb(io_queue_t *q) {
-    proxy_event_thread_t *e = ((proxy_ctx_t *)q->ctx)->proxy_threads;
+    proxy_event_thread_t *e = ((proxy_ctx_t *)q->ctx)->proxy_io_thread;
     io_pending_proxy_t *p = q->stack_ctx;
     io_head_t head;
+    be_head_t w_head; // worker local stack.
     STAILQ_INIT(&head);
+    STAILQ_INIT(&w_head);
 
     // NOTE: responses get returned in the correct order no matter what, since
     // mc_resp's are linked.
@@ -226,13 +235,45 @@ void proxy_submit_cb(io_queue_t *q) {
     // So for now we build the secondary list with an STAILQ, which
     // can be transplanted/etc.
     while (p) {
-        // insert into tail so head is oldest request.
-        STAILQ_INSERT_TAIL(&head, p, io_next);
-        if (!p->is_await) {
+        mcp_backend_t *be;
+        P_DEBUG("%s: queueing req for backend: %p\n", __func__, (void *)p);
+        if (p->is_await) {
+            // need to not count await objects multiple times.
+            if (p->await_background) {
+                P_DEBUG("%s: fast-returning await_background object: %p\n", __func__, (void *)p);
+                // intercept await backgrounds
+                // this call cannot recurse if we're on the worker thread,
+                // since the worker thread has to finish executing this
+                // function in order to pick up the returned IO.
+                q->count++;
+                return_io_pending((io_pending_t *)p);
+                p = p->next;
+                continue;
+            } else if (p->await_first) {
+                q->count++;
+            }
             // funny workaround: awaiting IOP's don't count toward
             // resuming a connection, only the completion of the await
             // condition.
+        } else {
             q->count++;
+        }
+        be = p->backend;
+
+        if (be->use_io_thread) {
+            STAILQ_INSERT_HEAD(&head, p, io_next);
+        } else {
+            // emulate some of handler_dequeue()
+            STAILQ_INSERT_HEAD(&be->io_head, p, io_next);
+            if (be->io_next == NULL) {
+                be->io_next = p;
+            }
+            be->depth++;
+            if (!be->stacked) {
+                be->stacked = true;
+                be->be_next.stqe_next = NULL; // paranoia
+                STAILQ_INSERT_TAIL(&w_head, be, be_next);
+            }
         }
 
         p = p->next;
@@ -241,31 +282,35 @@ void proxy_submit_cb(io_queue_t *q) {
     // clear out the submit queue so we can re-queue new IO's inline.
     q->stack_ctx = NULL;
 
-    // Transfer request stack to event thread.
-    pthread_mutex_lock(&e->mutex);
-    STAILQ_CONCAT(&e->io_head_in, &head);
-    // No point in holding the lock since we're not doing a cond signal.
-    pthread_mutex_unlock(&e->mutex);
+    if (!STAILQ_EMPTY(&head)) {
+        P_DEBUG("%s: submitting queue to IO thread\n", __func__);
+        // Transfer request stack to event thread.
+        pthread_mutex_lock(&e->mutex);
+        STAILQ_CONCAT(&e->io_head_in, &head);
+        // No point in holding the lock since we're not doing a cond signal.
+        pthread_mutex_unlock(&e->mutex);
 
-    // Signal to check queue.
+        // Signal to check queue.
 #ifdef USE_EVENTFD
-    uint64_t u = 1;
-    // TODO (v2): check result? is it ever possible to get a short write/failure
-    // for an eventfd?
-    if (write(e->event_fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
-        assert(1 == 0);
-    }
+        uint64_t u = 1;
+        // TODO (v2): check result? is it ever possible to get a short write/failure
+        // for an eventfd?
+        if (write(e->event_fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
+            assert(1 == 0);
+        }
 #else
-    if (write(e->notify_send_fd, "w", 1) <= 0) {
-        assert(1 == 0);
-    }
+        if (write(e->notify_send_fd, "w", 1) <= 0) {
+            assert(1 == 0);
+        }
 #endif
+    }
 
+    if (!STAILQ_EMPTY(&w_head)) {
+        P_DEBUG("%s: running inline worker queue\n", __func__);
+        // emulating proxy_event_handler
+        proxy_run_backend_queue(&w_head);
+    }
     return;
-}
-
-void proxy_complete_cb(io_queue_t *q) {
-    // empty/unused.
 }
 
 // called from worker thread after an individual IO has been returned back to
@@ -304,6 +349,16 @@ void proxy_return_cb(io_pending_t *pending) {
 void proxy_finalize_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
 
+    if (p->io_type == IO_PENDING_TYPE_EXTSTORE) {
+        if (p->hdr_it) {
+            // TODO: lock once, worst case this hashes/locks twice.
+            if (p->miss) {
+                item_unlink(p->hdr_it);
+            }
+            item_remove(p->hdr_it);
+        }
+    }
+
     // release our coroutine reference.
     // TODO (v2): coroutines are reusable in lua 5.4. we can stack this onto a freelist
     // after a lua_resetthread(Lc) call.
@@ -311,6 +366,7 @@ void proxy_finalize_cb(io_pending_t *pending) {
         // Note: lua registry is the same for main thread or a coroutine.
         luaL_unref(p->coro, LUA_REGISTRYINDEX, p->coro_ref);
     }
+
     return;
 }
 
@@ -376,7 +432,7 @@ void proxy_cleanup_conn(conn *c) {
     lua_State *L = thr->L;
     luaL_unref(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
     c->proxy_coro_ref = 0;
-    WSTAT_DECR(c, proxy_req_active, 1);
+    WSTAT_DECR(thr, proxy_req_active, 1);
 }
 
 // we buffered a SET of some kind.
@@ -394,8 +450,9 @@ void complete_nread_proxy(conn *c) {
     conn_set_state(c, conn_new_cmd);
 
     // Grab our coroutine.
+    // Leave the reference alone in case we error out, so the conn cleanup
+    // routine can handle it properly.
     lua_rawgeti(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
-    luaL_unref(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
     lua_State *Lc = lua_tothread(L, -1);
     mcp_request_t *rq = luaL_checkudata(Lc, -1, "mcp.request");
 
@@ -414,7 +471,11 @@ void complete_nread_proxy(conn *c) {
     rq->pr.vbuf = c->item;
     c->item = NULL;
     c->item_malloced = false;
+    luaL_unref(L, LUA_REGISTRYINDEX, c->proxy_coro_ref);
     c->proxy_coro_ref = 0;
+    pthread_mutex_lock(&thr->proxy_limit_lock);
+    thr->proxy_buffer_memory_used += rq->pr.vlen;
+    pthread_mutex_unlock(&thr->proxy_limit_lock);
 
     proxy_run_coroutine(Lc, c->resp, NULL, c);
 
@@ -440,10 +501,9 @@ void proxy_lua_ferror(lua_State *L, const char *fmt, ...) {
 }
 
 // Need a custom function so we can prefix lua strings easily.
-static void proxy_out_errstring(mc_resp *resp, const char *str) {
+void proxy_out_errstring(mc_resp *resp, char *type, const char *str) {
     size_t len;
-    const static char error_prefix[] = "SERVER_ERROR ";
-    const static int error_prefix_len = sizeof(error_prefix) - 1;
+    size_t prefix_len = strlen(type);
 
     assert(resp != NULL);
 
@@ -452,22 +512,52 @@ static void proxy_out_errstring(mc_resp *resp, const char *str) {
 
     // Fill response object with static string.
     len = strlen(str);
-    if ((len + error_prefix_len + 2) > WRITE_BUFFER_SIZE) {
+    if ((len + prefix_len + 2) > WRITE_BUFFER_SIZE) {
         /* ought to be always enough. just fail for simplicity */
         str = "SERVER_ERROR output line too long";
         len = strlen(str);
     }
 
     char *w = resp->wbuf;
-    memcpy(w, error_prefix, error_prefix_len);
-    w += error_prefix_len;
+    memcpy(w, type, prefix_len);
+    w += prefix_len;
 
     memcpy(w, str, len);
     w += len;
 
     memcpy(w, "\r\n", 2);
-    resp_add_iov(resp, resp->wbuf, len + error_prefix_len + 2);
+    resp_add_iov(resp, resp->wbuf, len + prefix_len + 2);
     return;
+}
+
+// NOTE: See notes in mcp_queue_io; the secondary problem with setting the
+// noreply mode from the response object is that the proxy can return strings
+// manually, so we have no way to obey what the original request wanted in
+// that case.
+static void _set_noreply_mode(mc_resp *resp, mcp_resp_t *r) {
+    switch (r->mode) {
+        case RESP_MODE_NORMAL:
+            break;
+        case RESP_MODE_NOREPLY:
+            // ascii noreply only threw egregious errors to client
+            if (r->status == MCMC_OK) {
+                resp->skip = true;
+            }
+            break;
+        case RESP_MODE_METAQUIET:
+            if (r->resp.code == MCMC_CODE_END) {
+                resp->skip = true;
+            } else if (r->cmd != CMD_MG && r->resp.code == MCMC_CODE_OK) {
+                // FIXME (v2): mcmc's parser needs to help us out a bit more
+                // here.
+                // This is a broken case in the protocol though; quiet mode
+                // ignores HD for mutations but not get.
+                resp->skip = true;
+            }
+            break;
+        default:
+            assert(1 == 0);
+    }
 }
 
 // this resumes every yielded coroutine (and re-resumes if necessary).
@@ -487,18 +577,48 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
     size_t rlen = 0;
 
     if (cores == LUA_OK) {
-        WSTAT_DECR(c, proxy_req_active, 1);
-        int type = lua_type(Lc, -1);
+        WSTAT_DECR(c->thread, proxy_req_active, 1);
+        int type = lua_type(Lc, 1);
+        P_DEBUG("%s: coroutine completed. return type: %d\n", __func__, type);
         if (type == LUA_TUSERDATA) {
-            mcp_resp_t *r = luaL_checkudata(Lc, -1, "mcp.response");
-            LOGGER_LOG(NULL, LOG_PROXYCMDS, LOGGER_PROXY_RAW, NULL, r->start, r->cmd, r->resp.type, r->resp.code);
-            if (r->buf) {
+            mcp_resp_t *r = luaL_checkudata(Lc, 1, "mcp.response");
+            _set_noreply_mode(resp, r);
+            if (r->status != MCMC_OK && r->resp.type != MCMC_RESP_ERRMSG) {
+                proxy_out_errstring(resp, PROXY_SERVER_ERROR, "backend failure");
+            } else if (r->cresp) {
+                mc_resp *tresp = r->cresp;
+                // The internal cache handler has created a resp we want to swap in
+                // here. It would be fastest to swap *resp's position in the
+                // link but if the set is deep this would instead be slow, so
+                // we copy over details from this temporary resp instead.
+                assert(c != NULL);
+
+                // So far all we fill is the wbuf and some iov's? so just copy
+                // that + the UDP info?
+                memcpy(resp->wbuf, tresp->wbuf, tresp->iov[0].iov_len);
+                for (int x = 0; x < tresp->iovcnt; x++) {
+                    resp->iov[x] = tresp->iov[x];
+                }
+                resp->iovcnt = tresp->iovcnt;
+                resp->chunked_total = tresp->chunked_total;
+                resp->chunked_data_iov = tresp->chunked_data_iov;
+                // copy UDP headers...
+                resp->request_id = tresp->request_id;
+                resp->udp_sequence = tresp->udp_sequence;
+                resp->udp_total = tresp->udp_total;
+                resp->request_addr = tresp->request_addr;
+                resp->request_addr_size = tresp->request_addr_size;
+                resp->item = tresp->item; // will be populated if not extstore fetch
+                resp->skip = tresp->skip;
+
+                // we let the mcp_resp gc handler free up tresp and any
+                // associated io_pending's of its own later.
+            } else if (r->buf) {
                 // response set from C.
-                // FIXME (v2): write_and_free() ? it's a bit wrong for here.
                 resp->write_and_free = r->buf;
                 resp_add_iov(resp, r->buf, r->blen);
                 r->buf = NULL;
-            } else if (lua_getiuservalue(Lc, -1, 1) != LUA_TNIL) {
+            } else if (lua_getiuservalue(Lc, 1, 1) != LUA_TNIL) {
                 // uservalue slot 1 is pre-created, so we get TNIL instead of
                 // TNONE when nothing was set into it.
                 const char *s = lua_tolstring(Lc, -1, &rlen);
@@ -506,65 +626,92 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
                 memcpy(resp->wbuf, s, l);
                 resp_add_iov(resp, resp->wbuf, l);
                 lua_pop(Lc, 1);
-            } else if (r->status != MCMC_OK) {
-                proxy_out_errstring(resp, "backend failure");
             } else {
                 // Empty response: used for ascii multiget emulation.
             }
+
         } else if (type == LUA_TSTRING) {
             // response is a raw string from lua.
-            const char *s = lua_tolstring(Lc, -1, &rlen);
+            const char *s = lua_tolstring(Lc, 1, &rlen);
             size_t l = rlen > WRITE_BUFFER_SIZE ? WRITE_BUFFER_SIZE : rlen;
             memcpy(resp->wbuf, s, l);
             resp_add_iov(resp, resp->wbuf, l);
             lua_pop(Lc, 1);
         } else {
-            proxy_out_errstring(resp, "bad response");
+            proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad response");
         }
+
     } else if (cores == LUA_YIELD) {
-        if (nresults == 1) {
-            // TODO (v2): try harder to validate; but we have so few yield cases
-            // that I'm going to shortcut this here. A single yielded result
-            // means it's probably an await(), so attempt to process this.
-            // FIXME (v2): if p, do we need to free it up from the resp?
-            // resp should not have an IOP I think...
-            assert(p == NULL);
+        int coro_ref = 0;
+        int yield_type = lua_tointeger(Lc, -1);
+        P_DEBUG("%s: coroutine yielded. return type: %d\n", __func__, yield_type);
+        assert(yield_type != 0);
+        lua_pop(Lc, 1);
+
+        // need to remove and free the io_pending, since c->resp owns it.
+        // so we call mcp_queue_io() again and let it override the
+        // mc_resp's io_pending object.
+        //
+        // p is not null only when being called from proxy_return_cb(),
+        // a pending IO is returning to resume.
+        if (p != NULL) {
+            coro_ref = p->coro_ref;
+            assert((void *)p == (void *)resp->io_pending);
+            resp->io_pending = NULL;
+            c = p->c;
+            // *p is now dead.
+            do_cache_free(c->thread->io_cache, p);
+        } else {
             // coroutine object sitting on the _main_ VM right now, so we grab
             // the reference from there, which also pops it.
-            int coro_ref = luaL_ref(c->thread->L, LUA_REGISTRYINDEX);
-            mcplib_await_run(c, Lc, coro_ref);
-        } else {
-            // need to remove and free the io_pending, since c->resp owns it.
-            // so we call mcp_queue_io() again and let it override the
-            // mc_resp's io_pending object.
-
-            int coro_ref = 0;
-            mc_resp *resp;
-            if (p != NULL) {
-                coro_ref = p->coro_ref;
-                resp = p->resp;
-                c = p->c;
-                do_cache_free(p->c->thread->io_cache, p);
-                // *p is now dead.
-            } else {
-                // yielding from a top level call to the coroutine,
-                // so we need to grab a reference to the coroutine thread.
-                // TODO (v2): make this more explicit?
-                // we only need to get the reference here, and error conditions
-                // should instead drop it, but now it's not obvious to users that
-                // we're reaching back into the main thread's stack.
-                assert(c != NULL);
-                coro_ref = luaL_ref(c->thread->L, LUA_REGISTRYINDEX);
-                resp = c->resp;
-            }
-            // TODO (v2): c only used for cache alloc? push the above into the func?
-            mcp_queue_io(c, resp, coro_ref, Lc);
+            assert(c != NULL);
+            coro_ref = luaL_ref(c->thread->L, LUA_REGISTRYINDEX);
         }
+
+        int res = 0;
+        switch (yield_type) {
+            case MCP_YIELD_AWAIT:
+                mcplib_await_run(c, resp, Lc, coro_ref);
+                break;
+            case MCP_YIELD_POOL:
+                // TODO (v2): c only used for cache alloc?
+                mcp_queue_io(c, resp, coro_ref, Lc);
+                break;
+            case MCP_YIELD_LOCAL:
+                // stack should be: rq, res
+                res = mcplib_internal_run(Lc, c, resp, coro_ref);
+                if (res == 0) {
+                    // stack should still be: rq, res
+                    // TODO: turn this function into a for loop that re-runs on
+                    // certain status codes, to avoid recursive depth here.
+                    //
+                    // FIXME: this dance with the coroutine reference is
+                    // annoying. In this case we immediately resume, so no *io
+                    // was generated, so we won't do the above coro_ref swap, so
+                    // we'll try to take the coro_ref again and fail.
+                    // The ref is only actually used in proxy_await
+                    // It should instead be stashed on the top mc_resp object
+                    // (ideally removing c->proxy_coro_ref at the same time)
+                    // and unref'ed when the resp is cleaned up.
+                    lua_rawgeti(c->thread->L, LUA_REGISTRYINDEX, coro_ref);
+                    luaL_unref(c->thread->L, LUA_REGISTRYINDEX, coro_ref);
+                    proxy_run_coroutine(Lc, resp, NULL, c);
+                } else if (res > 0) {
+                    // internal run queued for extstore.
+                } else {
+                    assert(res < 0);
+                    proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad request");
+                }
+                break;
+            default:
+                abort();
+        }
+
     } else {
-        WSTAT_DECR(c, proxy_req_active, 1);
+        WSTAT_DECR(c->thread, proxy_req_active, 1);
         P_DEBUG("%s: Failed to run coroutine: %s\n", __func__, lua_tostring(Lc, -1));
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(Lc, -1));
-        proxy_out_errstring(resp, "lua failure");
+        proxy_out_errstring(resp, PROXY_SERVER_ERROR, "lua failure");
     }
 
     return 0;
@@ -575,6 +722,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     LIBEVENT_THREAD *thr = c->thread;
     struct proxy_hook *hooks = thr->proxy_hooks;
     lua_State *L = thr->L;
+    proxy_ctx_t *ctx = thr->proxy_ctx;
     mcp_parser_t pr = {0};
 
     // Avoid doing resp_start() here, instead do it a bit later or as-needed.
@@ -584,12 +732,12 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // permanent solution.
     int ret = process_request(&pr, command, cmdlen);
     if (ret != 0) {
-        WSTAT_INCR(c, proxy_conn_errors, 1);
+        WSTAT_INCR(c->thread, proxy_conn_errors, 1);
         if (!resp_start(c)) {
             conn_set_state(c, conn_closing);
             return;
         }
-        proxy_out_errstring(c->resp, "parsing request");
+        proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "parsing request");
         if (ret == -2) {
             // Kill connection on more critical parse failure.
             conn_set_state(c, conn_closing);
@@ -598,8 +746,22 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     }
 
     struct proxy_hook *hook = &hooks[pr.command];
+    int hook_ref = hook->lua_ref;
+    // if client came from a tagged listener, scan for a more specific hook.
+    // TODO: (v2) avoiding a hash table lookup here, but maybe some other
+    // datastructure would suffice. for 4-8 tags this is perfectly fast.
+    if (c->tag && hook->tagged) {
+        struct proxy_hook_tagged *pht = hook->tagged;
+        while (pht->lua_ref) {
+            if (c->tag == pht->tag) {
+                hook_ref = pht->lua_ref;
+                break;
+            }
+            pht++;
+        }
+    }
 
-    if (!hook->is_lua) {
+    if (!hook_ref) {
         // need to pass our command string into the internal handler.
         // to minimize the code change, this means allowing it to tokenize the
         // full command. The proxy's indirect parser should be built out to
@@ -637,7 +799,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
                     conn_set_state(c, conn_closing);
                     return;
                 }
-                proxy_out_errstring(c->resp, "key too long");
+                proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "key too long");
             } else {
                 // copy original request up until the original key token.
                 memcpy(cur, pr.request, pr.tokens[pr.keytoken]);
@@ -677,12 +839,12 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // We test the command length all the way down here because multigets can
     // be very long, and they're chopped up by now.
     if (cmdlen >= MCP_REQUEST_MAXLEN) {
-        WSTAT_INCR(c, proxy_conn_errors, 1);
+        WSTAT_INCR(c->thread, proxy_conn_errors, 1);
         if (!resp_start(c)) {
             conn_set_state(c, conn_closing);
             return;
         }
-        proxy_out_errstring(c->resp, "request too long");
+        proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "request too long");
         conn_set_state(c, conn_closing);
         return;
     }
@@ -696,11 +858,23 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // Also batch the counts down this far so we can lock once for the active
     // counter instead of twice.
     struct proxy_int_stats *istats = c->thread->proxy_int_stats;
+    uint64_t active_reqs = 0;
     WSTAT_L(c->thread);
     istats->counters[pr.command]++;
     c->thread->stats.proxy_conn_requests++;
     c->thread->stats.proxy_req_active++;
+    active_reqs = c->thread->stats.proxy_req_active;
     WSTAT_UL(c->thread);
+
+    if (active_reqs > ctx->active_req_limit) {
+        proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "active request limit reached");
+        WSTAT_DECR(c->thread, proxy_req_active, 1);
+        if (pr.vlen != 0) {
+            c->sbytes = pr.vlen;
+            conn_set_state(c, conn_swallow);
+        }
+        return;
+    }
 
     // start a coroutine.
     // TODO (v2): This can pull a thread from a cache.
@@ -708,21 +882,32 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     lua_State *Lc = lua_tothread(L, -1);
     // leave the thread first on the stack, so we can reference it if needed.
     // pull the lua hook function onto the stack.
-    lua_rawgeti(Lc, LUA_REGISTRYINDEX, hook->lua_ref);
+    lua_rawgeti(Lc, LUA_REGISTRYINDEX, hook_ref);
 
     mcp_request_t *rq = mcp_new_request(Lc, &pr, command, cmdlen);
     if (multiget) {
         rq->ascii_multiget = true;
     }
+    // NOTE: option 1) copy c->tag into rq->tag here.
+    // add req:listen_tag() to retrieve in top level route.
+
     // TODO (v2): lift this to a post-processor?
     if (rq->pr.vlen != 0) {
-        // relying on temporary malloc's not succumbing as poorly to
-        // fragmentation.
-        c->item = malloc(rq->pr.vlen);
+        c->item = NULL;
+        // Need to add the used memory later due to needing an extra callback
+        // handler on error during nread.
+        bool oom = proxy_bufmem_checkadd(c->thread, 0);
+
+        // relying on temporary malloc's not having fragmentation
+        if (!oom) {
+            c->item = malloc(rq->pr.vlen);
+        }
         if (c->item == NULL) {
             lua_settop(L, 0);
-            proxy_out_errstring(c->resp, "out of memory");
-            WSTAT_DECR(c, proxy_req_active, 1);
+            proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "out of memory");
+            WSTAT_DECR(c->thread, proxy_req_active, 1);
+            c->sbytes = rq->pr.vlen;
+            conn_set_state(c, conn_swallow);
             return;
         }
         c->item_malloced = true;
@@ -732,6 +917,8 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
 
         conn_set_state(c, conn_nread);
         return;
+    } else {
+        conn_set_state(c, conn_new_cmd);
     }
 
     proxy_run_coroutine(Lc, c->resp, NULL, c);
@@ -759,23 +946,39 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     memset(r, 0, sizeof(mcp_resp_t));
     r->buf = NULL;
     r->blen = 0;
-    r->start = rq->start; // need to inherit the original start time.
-    int x;
-    int end = rq->pr.reqlen-2 > RESP_CMD_MAX ? RESP_CMD_MAX : rq->pr.reqlen-2;
-    for (x = 0; x < end; x++) {
-        if (rq->pr.request[x] == ' ') {
-            break;
+    r->thread = c->thread;
+    assert(r->thread != NULL);
+    gettimeofday(&r->start, NULL);
+    // Set noreply mode.
+    // TODO (v2): the response "inherits" the request's noreply mode, which isn't
+    // strictly correct; we should inherit based on the request that spawned
+    // the coroutine but the structure doesn't allow that yet.
+    // Should also be able to settle this exact mode from the parser so we
+    // don't have to re-branch here.
+    if (rq->pr.noreply) {
+        if (rq->pr.cmd_type == CMD_TYPE_META) {
+            r->mode = RESP_MODE_METAQUIET;
+            for (int x = 2; x < rq->pr.ntokens; x++) {
+                if (rq->request[rq->pr.tokens[x]] == 'q') {
+                    rq->request[rq->pr.tokens[x]] = ' ';
+                }
+            }
+        } else {
+            r->mode = RESP_MODE_NOREPLY;
+            rq->request[rq->pr.reqlen - 3] = 'Y';
         }
-        r->cmd[x] = rq->pr.request[x];
+    } else {
+        r->mode = RESP_MODE_NORMAL;
     }
-    r->cmd[x] = '\0';
+
+    r->cmd = rq->pr.command;
 
     luaL_getmetatable(Lc, "mcp.response");
     lua_setmetatable(Lc, -2);
 
     io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
     if (p == NULL) {
-        WSTAT_INCR(c, proxy_conn_oom, 1);
+        WSTAT_INCR(c->thread, proxy_conn_oom, 1);
         proxy_lua_error(Lc, "out of memory allocating from IO cache");
         return;
     }
@@ -791,6 +994,8 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     p->client_resp = r;
     p->flushed = false;
     p->ascii_multiget = rq->ascii_multiget;
+    p->return_cb = proxy_return_cb;
+    p->finalize_cb = proxy_finalize_cb;
     resp->io_pending = (io_pending_t *)p;
 
     // top of the main thread should be our coroutine.
@@ -803,6 +1008,10 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
 
     // The direct backend object. Lc is holding the reference in the stack
     p->backend = be;
+    // See #887 for notes.
+    // TODO (v2): hopefully this can be optimized out.
+    strncpy(r->be_name, be->name, MAX_NAMELEN+1);
+    strncpy(r->be_port, be->port, MAX_PORTLEN+1);
 
     mcp_request_attach(Lc, rq, p);
 

@@ -9,8 +9,10 @@ typedef struct mcp_await_s {
     int argtable_ref; // need to hold refs to any potential hash selectors
     int restable_ref; // table of result objects
     int coro_ref; // reference to parent coroutine
+    int detail_ref; // reference to detail string.
     enum mcp_await_e type;
     bool completed; // have we completed the parent coroutine or not
+    bool logerr; // create log_req entries for error responses
     mcp_request_t *rq;
     mc_resp *resp; // the top level mc_resp to fill in (as if we were an iop)
 } mcp_await_t;
@@ -23,34 +25,51 @@ typedef struct mcp_await_s {
 // local restable = mcp.await(request, pools, num_wait)
 // NOTE: need to hold onto the pool objects since those hold backend
 // references. Here we just keep a reference to the argument table.
-int mcplib_await(lua_State *L) {
+static int _mcplib_await(lua_State *L, bool logerr) {
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     luaL_checktype(L, 2, LUA_TTABLE);
-    int n = luaL_len(L, 2); // length of hash selector table
+    int n = 0; // length of table of pools
     int wait_for = 0; // 0 means wait for all responses
     enum mcp_await_e type = AWAIT_GOOD;
+    int detail_ref = 0;
+
+    lua_pushnil(L); // init table key
+    while (lua_next(L, 2) != 0) {
+        luaL_checkudata(L, -1, "mcp.pool_proxy");
+        lua_pop(L, 1); // remove value, keep key.
+        n++;
+    }
 
     if (n <= 0) {
         proxy_lua_error(L, "mcp.await arguments must have at least one pool");
     }
-    if (lua_isnumber(L, 3)) {
-        wait_for = lua_tointeger(L, 3);
-        lua_pop(L, 1);
-        if (wait_for > n) {
-            wait_for = n;
-        }
+
+    if (lua_isstring(L, 5)) {
+        // pops the detail string.
+        detail_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     }
 
     if (lua_isnumber(L, 4)) {
         type = lua_tointeger(L, 4);
+        lua_pop(L, 1);
         switch (type) {
             case AWAIT_GOOD:
             case AWAIT_ANY:
             case AWAIT_OK:
             case AWAIT_FIRST:
+            case AWAIT_FASTGOOD:
+            case AWAIT_BACKGROUND:
                 break;
             default:
                 proxy_lua_error(L, "invalid type argument tp mcp.await");
+        }
+    }
+
+    if (lua_isnumber(L, 3)) {
+        wait_for = lua_tointeger(L, 3);
+        lua_pop(L, 1);
+        if (wait_for > n) {
+            wait_for = n;
         }
     }
 
@@ -75,10 +94,22 @@ int mcplib_await(lua_State *L) {
     aw->argtable_ref = argtable_ref;
     aw->rq = rq;
     aw->req_ref = req_ref;
+    aw->detail_ref = detail_ref;
     aw->type = type;
-    P_DEBUG("%s: about to yield [HS len: %d]\n", __func__, n);
+    aw->logerr = logerr;
+    P_DEBUG("%s: about to yield [len: %d]\n", __func__, n);
 
-    return lua_yield(L, 1);
+    lua_pushinteger(L, MCP_YIELD_AWAIT);
+    return lua_yield(L, 2);
+}
+
+// default await, no logging.
+int mcplib_await(lua_State *L) {
+    return _mcplib_await(L, false);
+}
+
+int mcplib_await_logerrors(lua_State *L) {
+    return _mcplib_await(L, true);
 }
 
 static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int await_ref, bool await_first) {
@@ -90,24 +121,39 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     // reserve one uservalue for a lua-supplied response.
     mcp_resp_t *r = lua_newuserdatauv(Lc, sizeof(mcp_resp_t), 1);
     memset(r, 0, sizeof(mcp_resp_t));
-    r->start = rq->start;
-
-    int x;
-    int end = rq->pr.reqlen-2 > RESP_CMD_MAX ? RESP_CMD_MAX : rq->pr.reqlen-2;
-    for (x = 0; x < end; x++) {
-        if (rq->pr.request[x] == ' ') {
-            break;
+    r->thread = c->thread;
+    assert(r->thread != NULL);
+    gettimeofday(&r->start, NULL);
+    // Set noreply mode.
+    // TODO (v2): the response "inherits" the request's noreply mode, which isn't
+    // strictly correct; we should inherit based on the request that spawned
+    // the coroutine but the structure doesn't allow that yet.
+    // Should also be able to settle this exact mode from the parser so we
+    // don't have to re-branch here.
+    if (rq->pr.noreply) {
+        if (rq->pr.cmd_type == CMD_TYPE_META) {
+            r->mode = RESP_MODE_METAQUIET;
+            for (int x = 2; x < rq->pr.ntokens; x++) {
+                if (rq->request[rq->pr.tokens[x]] == 'q') {
+                    rq->request[rq->pr.tokens[x]] = ' ';
+                }
+            }
+        } else {
+            r->mode = RESP_MODE_NOREPLY;
+            rq->request[rq->pr.reqlen - 3] = 'Y';
         }
-        r->cmd[x] = rq->pr.request[x];
+    } else {
+        r->mode = RESP_MODE_NORMAL;
     }
-    r->cmd[x] = '\0';
+
+    r->cmd = rq->pr.command;
 
     luaL_getmetatable(Lc, "mcp.response");
     lua_setmetatable(Lc, -2);
 
     io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
     if (p == NULL) {
-        WSTAT_INCR(c, proxy_conn_oom, 1);
+        WSTAT_INCR(c->thread, proxy_conn_oom, 1);
         proxy_lua_error(Lc, "out of memory allocating from IO cache");
         return;
     }
@@ -123,6 +169,8 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     p->client_resp = r;
     p->flushed = false;
     p->ascii_multiget = rq->ascii_multiget;
+    p->return_cb = proxy_return_cb;
+    p->finalize_cb = proxy_finalize_cb;
 
     // io_p needs to hold onto its own response reference, because we may or
     // may not include it in the final await() result.
@@ -139,6 +187,10 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
 
     // The direct backend object. await object is holding reference
     p->backend = be;
+    // See #887 for notes.
+    // TODO (v2): hopefully this can be optimized out.
+    strncpy(r->be_name, be->name, MAX_NAMELEN+1);
+    strncpy(r->be_port, be->port, MAX_PORTLEN+1);
 
     mcp_request_attach(Lc, rq, p);
 
@@ -150,18 +202,54 @@ static void mcp_queue_await_io(conn *c, lua_State *Lc, mcp_request_t *rq, int aw
     return;
 }
 
+static void mcp_queue_await_dummy_io(conn *c, lua_State *Lc, int await_ref) {
+    io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_PROXY);
+
+    io_pending_proxy_t *p = do_cache_alloc(c->thread->io_cache);
+    if (p == NULL) {
+        WSTAT_INCR(c->thread, proxy_conn_oom, 1);
+        proxy_lua_error(Lc, "out of memory allocating from IO cache");
+        return;
+    }
+
+    // this is a re-cast structure, so assert that we never outsize it.
+    assert(sizeof(io_pending_t) >= sizeof(io_pending_proxy_t));
+    memset(p, 0, sizeof(io_pending_proxy_t));
+    // set up back references.
+    p->io_queue_type = IO_QUEUE_PROXY;
+    p->thread = c->thread;
+    p->c = c;
+    p->resp = NULL;
+
+    // await specific
+    p->is_await = true;
+    p->await_ref = await_ref;
+    p->await_background = true;
+    p->return_cb = proxy_return_cb;
+    p->finalize_cb = proxy_finalize_cb;
+
+    // Dummy IO has no backend, and no request attached.
+
+    // All we need to do is link into the batch chain.
+    p->next = q->stack_ctx;
+    q->stack_ctx = p;
+    P_DEBUG("%s: queued\n", __func__);
+
+    return;
+}
+
 // TODO (v2): need to get this code running under pcall().
 // It looks like a bulk of this code can move into mcplib_await(),
 // and then here post-yield we can add the conn and coro_ref to the right
 // places. Else these errors currently crash the daemon.
-int mcplib_await_run(conn *c, lua_State *L, int coro_ref) {
+int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref) {
     P_DEBUG("%s: start\n", __func__);
+    WSTAT_INCR(c->thread, proxy_await_active, 1);
     mcp_await_t *aw = lua_touserdata(L, -1);
     int await_ref = luaL_ref(L, LUA_REGISTRYINDEX); // await is popped.
     assert(aw != NULL);
     lua_rawgeti(L, LUA_REGISTRYINDEX, aw->argtable_ref); // -> 1
     //dump_stack(L);
-    P_DEBUG("%s: argtable len: %d\n", __func__, (int)lua_rawlen(L, -1));
     mcp_request_t *rq = aw->rq;
     aw->coro_ref = coro_ref;
 
@@ -172,7 +260,12 @@ int mcplib_await_run(conn *c, lua_State *L, int coro_ref) {
     // prepare the request key
     const char *key = MCP_PARSER_KEY(rq->pr);
     size_t len = rq->pr.klen;
-    bool await_first = true;
+    int n = 0;
+    // TODO (v3) await_first is used as a marker for upping the "wait for
+    // IO's" queue count, which means we need to force it off if we're in
+    // background mode, else we would accidentally wait for a response anyway.
+    // This note is for finding a less convoluted method for this.
+    bool await_first = (aw->type == AWAIT_BACKGROUND) ? false : true;
     // loop arg table and run each hash selector
     lua_pushnil(L); // -> 3
     while (lua_next(L, 1) != 0) {
@@ -182,28 +275,30 @@ int mcplib_await_run(conn *c, lua_State *L, int coro_ref) {
         if (pp == NULL) {
             proxy_lua_error(L, "mcp.await must be supplied with a pool");
         }
-        mcp_pool_t *p = pp->main;
 
         // NOTE: rq->be is only held to help pass the backend into the IOP in
         // mcp_queue call. Could be a local variable and an argument too.
-        rq->be = mcplib_pool_proxy_call_helper(L, p, key, len);
+        rq->be = mcplib_pool_proxy_call_helper(L, pp, key, len);
 
         mcp_queue_await_io(c, L, rq, await_ref, await_first);
         await_first = false;
 
         // pop value, keep key.
         lua_pop(L, 1);
+        n++;
+    }
+    P_DEBUG("%s: argtable len: %d\n", __func__, n);
+
+    if (aw->type == AWAIT_BACKGROUND) {
+        mcp_queue_await_dummy_io(c, L, await_ref);
+        aw->pending++;
+        aw->wait_for = 0;
     }
 
     lua_pop(L, 1); // remove table key.
-    aw->resp = c->resp; // cuddle the current mc_resp to fill later
+    aw->resp = resp; // cuddle the current mc_resp to fill later
 
-    // we count the await as the "response pending" since it covers a single
-    // response object. the sub-IO's don't count toward the redispatch of *c
-    io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_PROXY);
-    q->count++;
-
-    P_DEBUG("%s\n", __func__);
+    P_DEBUG("%s: end\n", __func__);
 
     return 0;
 }
@@ -229,6 +324,7 @@ int mcplib_await_return(io_pending_proxy_t *p) {
     //dump_stack(L);
 
     aw->pending--;
+    assert(aw->pending >= 0);
     // Await not yet satisfied.
     // If wait_for != 0 check for response success
     // if success and wait_for is *now* 0, we complete.
@@ -237,13 +333,19 @@ int mcplib_await_return(io_pending_proxy_t *p) {
     // TODO (v2): for GOOD or OK cases, it might be better to return the
     // last object as valid if there are otherwise zero valids?
     // Think we just have to count valids...
-    if (!aw->completed) {
+    if (aw->type == AWAIT_BACKGROUND) {
+        // in the background case, we never want to collect responses.
+        if (p->await_background) {
+            // found the dummy IO, complete and return conn to worker.
+            completing = true;
+        }
+    } else if (!aw->completed) {
         valid = true; // always collect results unless we are completed.
         if (aw->wait_for > 0) {
             bool is_good = false;
             switch (aw->type) {
                 case AWAIT_GOOD:
-                    if (p->client_resp->status == MCMC_OK && p->client_resp->resp.code != MCMC_CODE_MISS) {
+                    if (p->client_resp->status == MCMC_OK && p->client_resp->resp.code != MCMC_CODE_END) {
                         is_good = true;
                     }
                     break;
@@ -263,6 +365,19 @@ int mcplib_await_return(io_pending_proxy_t *p) {
                         valid = false;
                     }
                     break;
+                case AWAIT_FASTGOOD:
+                    if (p->client_resp->status == MCMC_OK) {
+                        // End early on a hit.
+                        if (p->client_resp->resp.code != MCMC_CODE_END) {
+                            aw->wait_for = 0;
+                        } else {
+                            is_good = true;
+                        }
+                    }
+                    break;
+                case AWAIT_BACKGROUND:
+                    // In background mode we don't wait for any response.
+                    break;
             }
 
             if (is_good) {
@@ -276,7 +391,7 @@ int mcplib_await_return(io_pending_proxy_t *p) {
     }
 
     // note that post-completion, we stop gathering responses into the
-    // resposne table... because it's already been returned.
+    // response table... because it's already been returned.
     // So "valid" can only be true if also !completed
     if (aw->pending == 0) {
         if (!aw->completed) {
@@ -295,16 +410,49 @@ int mcplib_await_return(io_pending_proxy_t *p) {
         // couldn't find a table.insert() equivalent; so this is
         // inserting into the length + 1 position manually.
         //dump_stack(L);
-        lua_rawseti(L, 1, lua_rawlen(L, 1) + 1); // pops mcpres
+        lua_rawseti(L, -2, lua_rawlen(L, 1) + 1); // pops mcpres
         lua_pop(L, 1); // pops restable
     }
 
     // lose our internal mcpres reference regardless.
-    luaL_unref(L, LUA_REGISTRYINDEX, p->mcpres_ref);
+    // also tag the elapsed time into the response.
+    if (p->mcpres_ref) {
+        struct timeval end;
+        gettimeofday(&end, NULL);
+        p->client_resp->elapsed = (end.tv_sec - p->client_resp->start.tv_sec) * 1000000 +
+            (end.tv_usec - p->client_resp->start.tv_usec);
+
+        // instructed to generate log_req entries for each failed request,
+        // this is useful to do here as these can be asynchronous.
+        // NOTE: this may be a temporary feature.
+        if (aw->logerr && p->client_resp->status != MCMC_OK && aw->completed) {
+            size_t dlen = 0;
+            const char *detail = NULL;
+            logger *l = p->thread->l;
+            // only process logs if someone is listening.
+            if (l->eflags & LOG_PROXYREQS) {
+                lua_rawgeti(L, LUA_REGISTRYINDEX, aw->req_ref);
+                mcp_request_t *rq = lua_touserdata(L, -1);
+                lua_pop(L, 1); // references still held, just clearing stack.
+                mcp_resp_t *rs = p->client_resp;
+
+                if (aw->detail_ref) {
+                    lua_rawgeti(L, LUA_REGISTRYINDEX, aw->detail_ref);
+                    detail = luaL_tolstring(L, -1, &dlen);
+                    lua_pop(L, 1);
+                }
+
+                logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, rs->elapsed, rs->resp.type, rs->resp.code, rs->status, detail, dlen, rs->be_name, rs->be_port);
+            }
+        }
+
+        luaL_unref(L, LUA_REGISTRYINDEX, p->mcpres_ref);
+    }
     // our await_ref is shared, so we don't need to release it.
 
     if (completing) {
         P_DEBUG("%s: completing\n", __func__);
+        assert(p->c->thread == p->thread);
         aw->completed = true;
         // if we haven't completed yet, the connection reference is still
         // valid. So now we pull it, reduce count, and readd if necessary.
@@ -330,6 +478,10 @@ int mcplib_await_return(io_pending_proxy_t *p) {
         luaL_unref(L, LUA_REGISTRYINDEX, aw->argtable_ref);
         luaL_unref(L, LUA_REGISTRYINDEX, aw->req_ref);
         luaL_unref(L, LUA_REGISTRYINDEX, p->await_ref);
+        if (aw->detail_ref) {
+            luaL_unref(L, LUA_REGISTRYINDEX, aw->detail_ref);
+        }
+        WSTAT_DECR(p->thread, proxy_await_active, 1);
     }
 
     // Just remove anything we could have left on the primary VM stack

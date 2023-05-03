@@ -1,0 +1,17 @@
+FROM debian:latest
+
+ARG CONFIGURE_OPTS="--enable-seccomp"
+
+RUN apt-get update && apt-get install -y build-essential automake autoconf libevent-dev libseccomp-dev git pkg-config
+
+RUN useradd -ms /bin/bash memcached
+ADD . /src
+WORKDIR /src
+
+RUN ./autogen.sh
+RUN ./configure ${CONFIGURE_OPTS}
+RUN make -j
+
+USER memcached
+
+CMD make test
