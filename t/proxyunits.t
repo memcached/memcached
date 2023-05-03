@@ -112,7 +112,7 @@ for my $msrv (@mocksrvs) {
 
     # verify a particular proxy event is received
     like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=timeout name=127.0.0.1 port=\d+ depth=1 rbuf=EN/, "got proxy event log line");
-    
+
     # backend is disconnected due to the error, so we have to re-establish it.
     $mbe[0] = accept_backend($mocksrvs[0]);
 }
@@ -338,7 +338,7 @@ SKIP: {
     is(scalar <$be>, $cmd, "mg passthrough");
     print $be "HD\r\n";
     is(scalar <$ps>, "HD\r\n", "got mg response");
-    
+
     # ms
     $cmd = "ms /b/a 2";
     print $ps "$cmd\r\nhi\r\n";
@@ -353,14 +353,14 @@ SKIP: {
     is(scalar <$be>, $cmd, "md passthrough");
     print $be "HD\r\n";
     is(scalar <$ps>, "HD\r\n", "got HD from md");
-    
+
     # ma
     $cmd = "ma /b/a\r\n";
     print $ps $cmd;
     is(scalar <$be>, $cmd, "ma passthrough");
     print $be "HD\r\n";
     is(scalar <$ps>, "HD\r\n", "got HD from ma");
-    
+
     # mn and me are not currently supported by proxy.
 }
 
@@ -445,7 +445,7 @@ check_version($ps);
     print $ps $cmd;
     is(scalar <$be>, "ms /b/a 2  \r\n", "set received with q replaced by a space");
     is(scalar <$be>, "hi\r\n", "set payload received");
-    
+
     print $be "HD\r\n";
 
     check_version($ps);
@@ -529,7 +529,7 @@ check_version($ps);
 
     # TODO: command() integer
     #
-    
+
     # check flag and return HD if found.
     print $ps "mg /hasflag/test c\r\n";
     is(scalar <$ps>, "HD C123\r\n", "HD is received");
