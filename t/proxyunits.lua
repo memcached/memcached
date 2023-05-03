@@ -125,6 +125,15 @@ function mcp_config_routes(zones)
         return "VA 1 C123 v\r\n" .. ntokens .. "\r\n"
     end
 
+    pfx_mg["hasflag"] = function(r)
+        local hasflag = r:has_flag("c")
+        if r:has_flag("c") then
+            return "HD C123\r\n"
+        else
+            return "EN\r\n"
+        end
+    end
+
     pfx_ms["token"] = function(r)
         local key = r:key()
         if key == "/token/replacement" then

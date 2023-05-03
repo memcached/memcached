@@ -520,10 +520,14 @@ check_version($ps);
     print $ps "ms /token/fetch 2\r\nhi\r\n";
     is(scalar <$ps>, "HD\r\n", "HD is received");
 
-    # command() integer
+    # TODO: command() integer
     #
+    
     # meta:
     # has_flag("F")
+    print $ps "mg /hasflag/test c\r\n";
+    is(scalar <$ps>, "HD C123\r\n", "HD is received");
+
     # test has_flag() against non-meta command
     # flag_token("F") with no token (bool, nil|token)
     # flag_token("F") with token
