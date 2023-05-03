@@ -80,14 +80,18 @@ item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
     }
 
     item *ret = NULL;
+#ifdef ENABLE_DTRACE
     int depth = 0;
+#endif
     while (it) {
         if ((nkey == it->nkey) && (memcmp(key, ITEM_key(it), nkey) == 0)) {
             ret = it;
             break;
         }
         it = it->h_next;
+#ifdef ENABLE_DTRACE
         ++depth;
+#endif
     }
     MEMCACHED_ASSOC_FIND(key, nkey, depth);
     return ret;
@@ -261,7 +265,7 @@ static void *assoc_maintenance_thread(void *arg) {
 
 static pthread_t maintenance_tid;
 
-int start_assoc_maintenance_thread() {
+int start_assoc_maintenance_thread(void) {
     int ret;
     char *env = getenv("MEMCACHED_HASH_BULK_MOVE");
     if (env != NULL) {
@@ -276,10 +280,11 @@ int start_assoc_maintenance_thread() {
         fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
         return -1;
     }
+    thread_setname(maintenance_tid, "mc-assocmaint");
     return 0;
 }
 
-void stop_assoc_maintenance_thread() {
+void stop_assoc_maintenance_thread(void) {
     mutex_lock(&maintenance_lock);
     do_run_maintenance_thread = 0;
     pthread_cond_signal(&maintenance_cond);

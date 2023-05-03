@@ -294,7 +294,7 @@ static void complete_incr_bin(conn *c, char *extbuf) {
     if (c->binary_header.request.cas != 0) {
         cas = c->binary_header.request.cas;
     }
-    switch(add_delta(c, key, nkey, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
+    switch(add_delta(c->thread, key, nkey, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
                      req->message.body.delta, tmpbuf,
                      &cas)) {
     case OK:
@@ -323,11 +323,13 @@ static void complete_incr_bin(conn *c, char *extbuf) {
                             res + 2);
 
             if (it != NULL) {
+                uint64_t cas = 0;
                 memcpy(ITEM_data(it), tmpbuf, res);
                 memcpy(ITEM_data(it) + res, "\r\n", 2);
+                c->thread->cur_sfd = c->sfd; // for store_item logging.
 
-                if (store_item(it, NREAD_ADD, c)) {
-                    c->cas = ITEM_get_cas(it);
+                if (store_item(it, NREAD_ADD, c->thread, &cas, CAS_NO_STALE)) {
+                    c->cas = cas;
                     write_bin_response(c, &rsp->message.body, 0, 0, sizeof(rsp->message.body.value));
                 } else {
                     write_bin_error(c, PROTOCOL_BINARY_RESPONSE_NOT_STORED,
@@ -382,10 +384,12 @@ static void complete_update_bin(conn *c) {
         ch->used += 2;
     }
 
-    ret = store_item(it, c->cmd, c);
+    uint64_t cas = 0;
+    c->thread->cur_sfd = c->sfd; // for store_item logging.
+    ret = store_item(it, c->cmd, c->thread, &cas, CAS_NO_STALE);
+    c->cas = cas;
 
 #ifdef ENABLE_DTRACE
-    uint64_t cas = ITEM_get_cas(it);
     switch (c->cmd) {
     case NREAD_ADD:
         MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
@@ -476,9 +480,9 @@ static void process_bin_get_or_touch(conn *c, char *extbuf) {
         protocol_binary_request_touch *t = (void *)extbuf;
         time_t exptime = ntohl(t->message.body.expiration);
 
-        it = item_touch(key, nkey, realtime(exptime), c);
+        it = item_touch(key, nkey, realtime(exptime), c->thread);
     } else {
-        it = item_get(key, nkey, c, DO_UPDATE);
+        it = item_get(key, nkey, c->thread, DO_UPDATE);
     }
 
     if (it) {
@@ -888,6 +892,7 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
     uint8_t extlen = c->binary_header.request.extlen;
     uint16_t keylen = c->binary_header.request.keylen;
     uint32_t bodylen = c->binary_header.request.bodylen;
+    c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
 
     if (keylen > bodylen || keylen + extlen > bodylen) {
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND, NULL, 0);
@@ -1136,7 +1141,7 @@ static void process_bin_update(conn *c, char *extbuf) {
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
         if (c->cmd == PROTOCOL_BINARY_CMD_SET) {
-            it = item_get(key, nkey, c, DONT_UPDATE);
+            it = item_get(key, nkey, c->thread, DONT_UPDATE);
             if (it) {
                 item_unlink(it);
                 STORAGE_delete(c->thread->storage, it);
@@ -1303,7 +1308,7 @@ static void process_bin_delete(conn *c) {
         stats_prefix_record_delete(key, nkey);
     }
 
-    it = item_get_locked(key, nkey, c, DONT_UPDATE, &hv);
+    it = item_get_locked(key, nkey, c->thread, DONT_UPDATE, &hv);
     if (it) {
         uint64_t cas = c->binary_header.request.cas;
         if (cas == 0 || cas == ITEM_get_cas(it)) {

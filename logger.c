@@ -54,7 +54,7 @@ static int logger_thread_poll_watchers(int force_poll, int watcher);
 static void _logger_log_text(logentry *e, const entry_details *d, const void *entry, va_list ap) {
     int reqlen = d->reqlen;
     int total = vsnprintf((char *) e->data, reqlen, d->format, ap);
-    if (total >= reqlen || total <= 0) {
+    if (total <= 0) {
         fprintf(stderr, "LOGGER: Failed to vsnprintf a text entry: (total) %d\n", total);
     }
     e->size = total + 1; // null byte
@@ -96,7 +96,7 @@ static void _logger_log_ext_write(logentry *e, const entry_details *d, const voi
 static void _logger_log_item_get(logentry *e, const entry_details *d, const void *entry, va_list ap) {
     int was_found = va_arg(ap, int);
     char *key = va_arg(ap, char *);
-    size_t nkey = va_arg(ap, size_t);
+    int nkey = va_arg(ap, int);
     int nbytes = va_arg(ap, int);
     uint8_t clsid = va_arg(ap, int);
     int sfd = va_arg(ap, int);
@@ -115,7 +115,7 @@ static void _logger_log_item_store(logentry *e, const entry_details *d, const vo
     enum store_item_type status = va_arg(ap, enum store_item_type);
     int comm = va_arg(ap, int);
     char *key = va_arg(ap, char *);
-    size_t nkey = va_arg(ap, size_t);
+    int nkey = va_arg(ap, int);
     int nbytes = va_arg(ap, int);
     rel_time_t ttl = va_arg(ap, rel_time_t);
     uint8_t clsid = va_arg(ap, int);
@@ -160,6 +160,7 @@ static void _logger_log_conn_event(logentry *e, const entry_details *d, const vo
 static int _logger_util_addr_endpoint(struct sockaddr_in6 *addr, char *rip,
         size_t riplen, unsigned short *rport) {
     memset(rip, 0, riplen);
+    *rport = 0;
 
     switch (addr->sin6_family) {
         case AF_INET:
@@ -177,7 +178,6 @@ static int _logger_util_addr_endpoint(struct sockaddr_in6 *addr, char *rip,
         case AF_UNSPEC:
         case AF_UNIX:
             strncpy(rip, "unix", strlen("unix") + 1);
-            *rport = 0;
             break;
 #endif // #ifndef DISABLE_UNIX_SOCKET
     }
@@ -193,8 +193,8 @@ static int _logger_util_addr_endpoint(struct sockaddr_in6 *addr, char *rip,
 #define LOGGER_PARSE_SCRATCH 4096
 
 static int _logger_parse_text(logentry *e, char *scratch) {
-    return snprintf(scratch, LOGGER_PARSE_SCRATCH, "ts=%d.%d gid=%llu %s\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec,
+    return snprintf(scratch, LOGGER_PARSE_SCRATCH, "ts=%lld.%d gid=%llu %s\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec,
             (unsigned long long) e->gid, (char *) e->data);
 }
 
@@ -213,8 +213,8 @@ static int _logger_parse_ise(logentry *e, char *scratch) {
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u clsid=%u cfd=%d size=%d\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=item_store key=%s status=%s cmd=%s ttl=%u clsid=%u cfd=%d size=%d\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, status_map[le->status], cmd, le->ttl, le->clsid, le->sfd,
             le->nbytes > 0 ? le->nbytes - 2 : 0); // CLRF
     return total;
@@ -229,8 +229,8 @@ static int _logger_parse_ige(logentry *e, char *scratch) {
 
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=item_get key=%s status=%s clsid=%u cfd=%d size=%d\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=item_get key=%s status=%s clsid=%u cfd=%d size=%d\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, was_found_map[le->was_found], le->clsid, le->sfd,
             le->nbytes > 0 ? le->nbytes - 2 : 0); // CLRF
     return total;
@@ -242,8 +242,8 @@ static int _logger_parse_ee(logentry *e, char *scratch) {
     struct logentry_eviction *le = (struct logentry_eviction *) e->data;
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d clsid=%u size=%d\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=eviction key=%s fetch=%s ttl=%lld la=%d clsid=%u size=%d\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
             (long long int)le->exptime, le->latime, le->clsid,
             le->nbytes > 0 ? le->nbytes - 2 : 0); // CLRF
@@ -258,8 +258,8 @@ static int _logger_parse_extw(logentry *e, char *scratch) {
     struct logentry_ext_write *le = (struct logentry_ext_write *) e->data;
     uriencode(le->key, keybuf, le->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=extwrite key=%s fetch=%s ttl=%lld la=%d clsid=%u bucket=%u\n",
-            (int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=extwrite key=%s fetch=%s ttl=%lld la=%d clsid=%u bucket=%u\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
             keybuf, (le->it_flags & ITEM_FETCHED) ? "yes" : "no",
             (long long int)le->exptime, le->latime, le->clsid, le->bucket);
 
@@ -277,8 +277,8 @@ static int _logger_parse_cne(logentry *e, char *scratch) {
     _logger_util_addr_endpoint(&le->addr, rip, sizeof(rip), &rport);
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=conn_new rip=%s rport=%hu transport=%s cfd=%d\n",
-            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=conn_new rip=%s rport=%hu transport=%s cfd=%d\n",
+            (long long int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
             rip, rport, transport_map[le->transport], le->sfd);
 
     return total;
@@ -295,8 +295,8 @@ static int _logger_parse_cce(logentry *e, char *scratch) {
     _logger_util_addr_endpoint(&le->addr, rip, sizeof(rip), &rport);
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=conn_close rip=%s rport=%hu transport=%s reason=%s cfd=%d\n",
-            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            "ts=%lld.%d gid=%llu type=conn_close rip=%s rport=%hu transport=%s reason=%s cfd=%d\n",
+            (long long int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
             rip, rport, transport_map[le->transport],
             reason_map[le->reason], le->sfd);
 
@@ -304,29 +304,129 @@ static int _logger_parse_cce(logentry *e, char *scratch) {
 }
 
 #ifdef PROXY
-static void _logger_log_proxy_raw(logentry *e, const entry_details *d, const void *entry, va_list ap) {
-    struct timeval start = va_arg(ap, struct timeval);
-    char *cmd = va_arg(ap, char *);
+// TODO (v2): the length caps here are all magic numbers. Haven't thought of
+// something yet that I like better.
+// Should at least make a define to the max log len (1024) and do some math
+// here.
+static void _logger_log_proxy_req(logentry *e, const entry_details *d, const void *entry, va_list ap) {
+    char *req = va_arg(ap, char *);
+    int reqlen = va_arg(ap, uint32_t);
+    long elapsed = va_arg(ap, long);
     unsigned short type = va_arg(ap, int);
     unsigned short code = va_arg(ap, int);
+    int status = va_arg(ap, int);
+    char *detail = va_arg(ap, char *);
+    int dlen = va_arg(ap, int);
+    char *be_name = va_arg(ap, char *);
+    char *be_port = va_arg(ap, char *);
 
-    struct logentry_proxy_raw *le = (void *)e->data;
-    struct timeval end;
-    gettimeofday(&end, NULL);
+    struct logentry_proxy_req *le = (void *)e->data;
     le->type = type;
     le->code = code;
-    le->elapsed = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_usec - start.tv_usec);
-    memcpy(le->cmd, cmd, 9);
+    le->status = status;
+    le->dlen = dlen;
+    le->elapsed = elapsed;
+    if (be_name && be_port) {
+        le->be_namelen = strlen(be_name);
+        le->be_portlen = strlen(be_port);
+    } else {
+        le->be_namelen = 0;
+        le->be_portlen = 0;
+    }
+    char *data = le->data;
+    if (req[reqlen-2] == '\r') {
+        reqlen -= 2;
+    } else {
+        reqlen--;
+    }
+    if (reqlen > 300) {
+        reqlen = 300;
+    }
+    if (dlen > 150) {
+        dlen = 150;
+    }
+    // be_namelen and be_portlen can't be longer than 255+6
+    le->reqlen = reqlen;
+    memcpy(data, req, reqlen);
+    data += reqlen;
+    memcpy(data, detail, dlen);
+    data += dlen;
+    memcpy(data, be_name, le->be_namelen);
+    data += le->be_namelen;
+    memcpy(data, be_port, le->be_portlen);
+    e->size = sizeof(struct logentry_proxy_req) + reqlen + dlen + le->be_namelen + le->be_portlen;
 }
 
-static int _logger_parse_prx_raw(logentry *e, char *scratch) {
+static int _logger_parse_prx_req(logentry *e, char *scratch) {
     int total;
-    struct logentry_proxy_raw *le = (void *)e->data;
+    struct logentry_proxy_req *le = (void *)e->data;
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%d.%d gid=%llu type=proxy_raw elapsed=%lu cmd=%s type=%d code=%d\n",
-            (int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
-            le->elapsed, le->cmd, le->type, le->code);
+            "ts=%lld.%d gid=%llu type=proxy_req elapsed=%lu type=%d code=%d status=%d be=%.*s:%.*s detail=%.*s req=%.*s\n",
+            (long long int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
+            le->elapsed, le->type, le->code, le->status,
+            (int)le->be_namelen, le->data+le->reqlen+le->dlen,
+            (int)le->be_portlen, le->data+le->reqlen+le->dlen+le->be_namelen, // fml.
+            (int)le->dlen, le->data+le->reqlen, (int)le->reqlen, le->data
+            );
+    return total;
+}
+
+#define MAX_RBUF_READ 100
+static void _logger_log_proxy_errbe(logentry *e, const entry_details *d, const void *entry, va_list ap) {
+    char *errmsg = va_arg(ap, char *);
+    char *be_name = va_arg(ap, char *);
+    char *be_port = va_arg(ap, char *);
+    int be_depth = va_arg(ap, int);
+    char *be_rbuf = va_arg(ap, char *);
+    int be_rbuflen = va_arg(ap, int);
+
+    struct logentry_proxy_errbe *le = (void *)e->data;
+    le->be_depth = be_depth;
+    le->errlen = strlen(errmsg);
+    if (be_name && be_port) {
+        le->be_namelen = strlen(be_name);
+        le->be_portlen = strlen(be_port);
+    }
+
+    le->be_rbuflen = be_rbuflen;
+    if (be_rbuflen > MAX_RBUF_READ) {
+        le->be_rbuflen = MAX_RBUF_READ;
+    }
+
+    char *data = le->data;
+    memcpy(data, errmsg, le->errlen);
+    data += le->errlen;
+    memcpy(data, be_name, le->be_namelen);
+    data += le->be_namelen;
+    memcpy(data, be_port, le->be_portlen);
+    data += le->be_portlen;
+    memcpy(data, be_rbuf, le->be_rbuflen);
+    data += le->be_rbuflen;
+
+    e->size = sizeof(struct logentry_proxy_errbe) + (data - le->data);
+}
+
+static int _logger_parse_prx_errbe(logentry *e, char *scratch) {
+    int total;
+    char rbuf[MAX_RBUF_READ * 3]; // x 3 for worst case URI encoding.
+    struct logentry_proxy_errbe *le = (void *)e->data;
+    char *data = le->data;
+    char *errmsg = data;
+    data += le->errlen;
+    char *be_name = data;
+    data += le->be_namelen;
+    char *be_port = data;
+    data += le->be_portlen;
+    char *be_rbuf = data;
+
+    uriencode(be_rbuf, rbuf, le->be_rbuflen, MAX_RBUF_READ * 3);
+    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+            "ts=%lld.%d gid=%llu type=proxy_backend error=%.*s name=%.*s port=%.*s depth=%d rbuf=%s\n",
+            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+            (int)le->errlen, errmsg, (int)le->be_namelen, be_name,
+            (int)le->be_portlen, be_port, le->be_depth, rbuf);
+
     return total;
 }
 #endif
@@ -367,13 +467,20 @@ static const entry_details default_entries[] = {
     },
 #endif
 #ifdef PROXY
-    [LOGGER_PROXY_CONFIG] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
+    [LOGGER_PROXY_CONFIG] = {512, LOG_PROXYEVENTS, _logger_log_text, _logger_parse_text,
         "type=proxy_conf status=%s"
     },
-    [LOGGER_PROXY_RAW] = {512, LOG_RAWCMDS, _logger_log_proxy_raw, _logger_parse_prx_raw, NULL},
-    [LOGGER_PROXY_ERROR] = {512, LOG_SYSEVENTS, _logger_log_text, _logger_parse_text,
+    [LOGGER_PROXY_REQ] = {1024, LOG_PROXYREQS, _logger_log_proxy_req, _logger_parse_prx_req, NULL},
+    [LOGGER_PROXY_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_text, _logger_parse_text,
         "type=proxy_error msg=%s"
     },
+    [LOGGER_PROXY_USER] = {512, LOG_PROXYUSER, _logger_log_text, _logger_parse_text,
+        "type=proxy_user msg=%s"
+    },
+    [LOGGER_PROXY_BE_ERROR] = {512, LOG_PROXYEVENTS, _logger_log_proxy_errbe, _logger_parse_prx_errbe,
+        NULL
+    },
+
 #endif
 };
 
@@ -778,12 +885,17 @@ static int start_logger_thread(void) {
         fprintf(stderr, "Can't start logger thread: %s\n", strerror(ret));
         return -1;
     }
+    thread_setname(logger_tid, "mc-log");
     return 0;
 }
 
 static int stop_logger_thread(void) {
+    // Guarantees that the logger thread is waiting on 'logger_stack_cond'
+    // before we signal it.
+    pthread_mutex_lock(&logger_stack_lock);
     do_run_logger_thread = 0;
     pthread_cond_signal(&logger_stack_cond);
+    pthread_mutex_unlock(&logger_stack_lock);
     pthread_join(logger_tid, NULL);
     return 0;
 }
@@ -859,8 +971,8 @@ enum logger_ret_type logger_log(logger *l, const enum log_entry_type event, cons
     /* Request a maximum length of data to write to */
     e = (logentry *) bipbuf_request(buf, (sizeof(logentry) + reqlen));
     if (e == NULL) {
-        pthread_mutex_unlock(&l->mutex);
         l->dropped++;
+        pthread_mutex_unlock(&l->mutex);
         return LOGGER_RET_NOSPACE;
     }
     e->event = event;

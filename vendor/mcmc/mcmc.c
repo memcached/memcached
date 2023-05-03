@@ -1,15 +1,15 @@
 #include <stdlib.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/uio.h>
+#include <sys/types.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
-#include <stdint.h>
 #include <errno.h>
 #include <stdio.h>
 
+// TODO: move these structs into mcmc.h, but only expose them if
+// MCMC_EXPOSE_INTERNALS is defined... for tests and this thing.
 #include "mcmc.h"
 
 // TODO: if there's a parse error or unknown status code, we likely have a
@@ -24,8 +24,6 @@
 // at least doubled for wiggle room.
 #define MIN_BUFFER_SIZE 2048
 
-#define FLAG_BUF_IS_ERROR 0x1
-#define FLAG_BUF_IS_NUMERIC 0x2
 #define FLAG_BUF_WANTED_READ 0x4
 
 #define STATE_DEFAULT 0 // looking for any kind of response
@@ -38,7 +36,6 @@ typedef struct mcmc_ctx {
     int gai_status; // getaddrinfo() last status.
     int last_sys_error; // last syscall error (connect/etc?)
     int sent_bytes_partial; // note for partially sent buffers.
-    int request_queue; // supposed outstanding replies.
     int fail_code; // recent failure reason.
     int error; // latest error code.
     uint32_t status_flags; // internal only flags.
@@ -48,15 +45,11 @@ typedef struct mcmc_ctx {
     size_t buffer_used; // amount of bytes read into the buffer so far.
     size_t buffer_request_len; // cached endpoint for current request
     char *buffer_head; // buffer pointer currently in use.
-    char *buffer_tail; // consumed tail of the buffer.
-
-    // request response detail.
-    mcmc_resp_t *resp;
 } mcmc_ctx_t;
 
 // INTERNAL FUNCTIONS
 
-static int _mcmc_parse_value_line(mcmc_ctx_t *ctx) {
+static int _mcmc_parse_value_line(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     char *buf = ctx->buffer_head;
     // we know that "VALUE " has matched, so skip that.
     char *p = buf+6;
@@ -67,9 +60,7 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx) {
     int keylen;
     p = memchr(p, ' ', l - 6);
     if (p == NULL) {
-        // FIXME: these should return MCMC_ERR and set the internal parse
-        // error code.
-        return MCMC_PARSE_ERROR;
+        return -MCMC_ERR_VALUE;
     }
 
     keylen = p - key;
@@ -81,14 +72,14 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx) {
     errno = 0;
     uint32_t flags = strtoul(p, &n, 10);
     if ((errno == ERANGE) || (p == n) || (*n != ' ')) {
-        return MCMC_PARSE_ERROR;
+        return -MCMC_ERR_VALUE;
     }
     p = n;
 
     errno = 0;
     uint32_t bytes = strtoul(p, &n, 10);
     if ((errno == ERANGE) || (p == n)) {
-        return MCMC_PARSE_ERROR;
+        return -MCMC_ERR_VALUE;
     }
     p = n;
 
@@ -98,20 +89,16 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx) {
         errno = 0;
         cas = strtoull(p, &n, 10);
         if ((errno == ERANGE) || (p == n)) {
-            return MCMC_PARSE_ERROR;
+            return -MCMC_ERR_VALUE;
         }
     }
 
     // If we made it this far, we've parsed everything, stuff the details into
     // the context for fetching later.
-    mcmc_resp_t *r = ctx->resp;
-    // FIXME: set to NULL if we don't have the value?
-    r->value = ctx->buffer_tail;
     r->vlen = bytes + 2; // add in the \r\n
-    int buffer_remain = ctx->buffer_used - (ctx->buffer_tail - ctx->buffer_head);
+    int buffer_remain = ctx->buffer_used - (r->value - ctx->buffer_head);
     if (buffer_remain >= r->vlen) {
         r->vlen_read = r->vlen;
-        ctx->buffer_tail += r->vlen;
     } else {
         r->vlen_read = buffer_remain;
     }
@@ -125,19 +112,18 @@ static int _mcmc_parse_value_line(mcmc_ctx_t *ctx) {
     // NOTE: if value_offset < buffer_used, has part of the value in the
     // buffer already.
 
-    return MCMC_OK;
+    return MCMC_CODE_OK;
 }
 
 // FIXME: This is broken for ASCII multiget.
 // if we get VALUE back, we need to stay in ASCII GET read mode until an END
 // is seen.
-static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
+static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
     char *buf = ctx->buffer_head;
     char *cur = buf;
     size_t l = ctx->buffer_request_len;
     int rlen; // response code length.
     int more = 0;
-    mcmc_resp_t *r = ctx->resp;
     r->reslen = ctx->buffer_request_len;
     r->type = MCMC_RESP_GENERIC;
 
@@ -157,18 +143,17 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
     if (buf[0] >= '0' && buf[0] <= '9') {
         // TODO: parse it as a number on request.
         // TODO: validate whole thing as digits here?
-        ctx->status_flags |= FLAG_BUF_IS_NUMERIC;
         r->type = MCMC_RESP_NUMERIC;
+        r->code = MCMC_CODE_OK;
         return MCMC_OK;
     }
 
     if (rlen < 2) {
-        ctx->error = MCMC_PARSE_ERROR_SHORT;
+        r->code = MCMC_ERR_SHORT;
         return MCMC_ERR;
     }
 
-    int rv = MCMC_OK;
-    int code = MCMC_CODE_OK;
+    int code = MCMC_ERR;
     switch (rlen) {
         case 2:
             // meta, "OK"
@@ -183,8 +168,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
             switch (buf[0]) {
             case 'E':
                 if (buf[1] == 'N') {
-                    code = MCMC_CODE_MISS;
-                    // TODO: RESP type
+                    code = MCMC_CODE_END;
                 } else if (buf[1] == 'X') {
                     code = MCMC_CODE_EXISTS;
                 }
@@ -204,7 +188,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
                     // TODO: this just gets returned as an rline?
                     // specific code? specific type?
                     // ME <key> <key=value debug line>
-                    rv = MCMC_OK;
+                    code = MCMC_CODE_OK;
                 }
                 break;
             case 'N':
@@ -218,6 +202,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
                 if (buf[1] == 'K') {
                     // Used by many random management commands
                     r->type = MCMC_RESP_GENERIC;
+                    code = MCMC_CODE_OK;
                 }
                 break;
             case 'V':
@@ -228,15 +213,13 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
                         char *n = NULL;
                         uint32_t vsize = strtoul(cur, &n, 10);
                         if ((errno == ERANGE) || (cur == n)) {
-                            rv = MCMC_ERR;
+                            code = -MCMC_ERR_PARSE;
                         } else {
-                            r->value = ctx->buffer_tail;
                             r->vlen = vsize + 2; // tag in the \r\n.
                             // FIXME: macro.
-                            int buffer_remain = ctx->buffer_used - (ctx->buffer_tail - ctx->buffer_head);
+                            int buffer_remain = ctx->buffer_used - (r->value - ctx->buffer_head);
                             if (buffer_remain >= r->vlen) {
                                 r->vlen_read = r->vlen;
-                                ctx->buffer_tail += r->vlen;
                             } else {
                                 r->vlen_read = buffer_remain;
                             }
@@ -244,9 +227,10 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
                             if (*cur != ' ') {
                                 more = 0;
                             }
+                            code = MCMC_CODE_OK;
                         }
                     } else {
-                        rv = MCMC_ERR;
+                        code = -MCMC_ERR_PARSE;
                     }
                 }
                 break;
@@ -265,10 +249,8 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
             if (memcmp(buf, "END", 3) == 0) {
                 // Either end of STAT results, or end of ascii GET key list.
                 ctx->state = STATE_DEFAULT;
-                // FIXME: caller needs to understand if this is a real miss.
-                code = MCMC_CODE_MISS;
+                code = MCMC_CODE_END;
                 r->type = MCMC_RESP_END;
-                rv = MCMC_OK;
             }
             break;
         case 4:
@@ -282,9 +264,9 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
             if (memcmp(buf, "VALUE", 5) == 0) {
                 if (more) {
                     // <key> <flags> <bytes> [<cas unique>]
-                    rv = _mcmc_parse_value_line(ctx);
+                    code = _mcmc_parse_value_line(ctx, r);
                 } else {
-                    rv = MCMC_ERR; // FIXME: parse error.
+                    code = -MCMC_ERR_PARSE;
                 }
             }
             break;
@@ -322,14 +304,13 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx) {
             break;
     }
 
-    r->code = code;
-    if (rv == -1) {
-        // TODO: Finish this.
-        ctx->status_flags |= FLAG_BUF_IS_ERROR;
-        rv = MCMC_ERR;
+    if (code < MCMC_OK) {
+        r->code = -code;
+        return MCMC_ERR;
+    } else {
+        r->code = code;
+        return MCMC_OK;
     }
-
-    return rv;
 }
 
 // EXTERNAL API
@@ -350,13 +331,6 @@ size_t mcmc_min_buffer_size(int options) {
     return MIN_BUFFER_SIZE;
 }
 
-char *mcmc_read_prep(void *c, char *buf, size_t bufsize, size_t *bufremain) {
-    mcmc_ctx_t *ctx = c;
-    char *b = buf + ctx->buffer_used;
-    *bufremain = bufsize - ctx->buffer_used;
-    return b;
-}
-
 // Directly parse a buffer with read data of size len.
 // r->reslen + r->vlen_read is the bytes consumed from the buffer read.
 // Caller manages how to retry if MCMC_WANT_READ or an error happens.
@@ -366,31 +340,30 @@ char *mcmc_read_prep(void *c, char *buf, size_t bufsize, size_t *bufremain) {
 int mcmc_parse_buf(void *c, char *buf, size_t read, mcmc_resp_t *r) {
     mcmc_ctx_t *ctx = c;
     char *el;
-    ctx->buffer_used += read;
-
-    el = memchr(buf, '\n', ctx->buffer_used);
-    if (el == NULL) {
-        return MCMC_WANT_READ;
-    }
 
     memset(r, 0, sizeof(*r));
+    el = memchr(buf, '\n', read);
+    if (el == NULL) {
+        r->code = MCMC_WANT_READ;
+        return MCMC_ERR;
+    }
 
-    // Consume through the newline.
-    // buffer_tail now points to where value could start.
-    // FIXME: ctx->value ?
-    ctx->buffer_tail = el+1;
+    // Consume through the newline, note where the value would start if exists
+    r->value = el+1;
 
+    ctx->buffer_used = read;
     // FIXME: the server must be stricter in what it sends back. should always
     // have a \r. check for it and fail?
-    ctx->buffer_request_len = ctx->buffer_tail - buf;
+    ctx->buffer_request_len = r->value - buf;
     // leave the \r\n in the line end cache.
     ctx->buffer_head = buf;
-    // TODO: handling for nonblock case.
 
-    // We have a result line. Now pass it through the parser.
-    // Then we indicate to the user that a response is ready.
-    ctx->resp = r;
-    return _mcmc_parse_response(ctx);
+    return _mcmc_parse_response(ctx, r);
+}
+
+int mcmc_bare_parse_buf(char *buf, size_t read, mcmc_resp_t *r) {
+    mcmc_ctx_t ctx;
+    return mcmc_parse_buf(&ctx, buf, read, r);
 }
 
 /*** Functions wrapping syscalls **/
@@ -434,6 +407,7 @@ int mcmc_connect(void *c, char *host, char *port, int options) {
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
+    ctx->fd = 0;
 
     s = getaddrinfo(host, port, &hints, &ai);
 
@@ -454,7 +428,15 @@ int mcmc_connect(void *c, char *host, char *port, int options) {
         if (sock == -1)
             continue;
 
-        // TODO: NONBLOCK
+        if (options & MCMC_OPTION_TCP_KEEPALIVE) {
+            int optval = 1;
+            if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)) < 0) {
+                res = MCMC_ERR;
+                close(sock);
+                goto end;
+            }
+        }
+
         if (options & MCMC_OPTION_NONBLOCK) {
             int flags = fcntl(sock, F_GETFL);
             if (flags < 0) {
@@ -523,7 +505,6 @@ int mcmc_send_request(void *c, const char *request, int len, int count) {
         ctx->sent_bytes_partial += sent;
         return MCMC_WANT_WRITE;
     } else {
-        ctx->request_queue += count;
         ctx->sent_bytes_partial = 0;
     }
 
@@ -554,16 +535,19 @@ int mcmc_request_writev(void *c, const struct iovec *iov, int iovcnt, ssize_t *s
     if (*sent < tosend) {
         // can happen anytime, but mostly in nonblocking mode.
         return MCMC_WANT_WRITE;
-    } else {
-        // FIXME: user has to keep submitting the same count value...
-        // should decide on whether or not to give up on this.
-        ctx->request_queue += count;
     }
 
     return MCMC_OK;
 }
 
-// TODO: avoid recv if we have bytes in the buffer.
+// TODO: return consumed bytes and end ptr?
+// FIXME: mcmc no longer tracks the buffer inbetween commands, which was
+// causing issues with the API and bugs.
+// This function wraps the recv call, so it needs to understand the buffer a
+// little bit. Since memcached doesn't currently use this function I'm
+// commenting it out with this note so it can be rewritten in terms of an
+// external buffer later.
+/*
 int mcmc_read(void *c, char *buf, size_t bufsize, mcmc_resp_t *r) {
     mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
     char *el;
@@ -606,45 +590,24 @@ int mcmc_read(void *c, char *buf, size_t bufsize, mcmc_resp_t *r) {
     }
 parse:
     // Consume through the newline.
-    // buffer_tail now points to where a value could start.
-    ctx->buffer_tail = el+1;
+    r->value = el+1;
 
     // FIXME: the server must be stricter in what it sends back. should always
     // have a \r. check for it and fail?
-    ctx->buffer_request_len = ctx->buffer_tail - buf;
+    ctx->buffer_request_len = r->value - buf;
     // leave the \r\n in the line end cache.
     ctx->buffer_head = buf;
     // TODO: handling for nonblock case.
 
     // We have a result line. Now pass it through the parser.
     // Then we indicate to the user that a response is ready.
-    ctx->resp = r;
-    return _mcmc_parse_response(ctx);
+    return _mcmc_parse_response(ctx, r);
 }
+*/
 
 void mcmc_get_error(void *c, char *code, size_t clen, char *msg, size_t mlen) {
     code[0] = '\0';
     msg[0] = '\0';
-}
-
-int mcmc_read_value_buf(void *c, char *val, const size_t vsize, int *read) {
-    mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
-
-    // If the distance between tail/head is smaller than what we read into the
-    // main buffer, we have some value to copy out.
-    int leftover = ctx->buffer_used - (ctx->buffer_tail - ctx->buffer_head);
-    if (leftover > 0) {
-        int tocopy = leftover > vsize ? vsize : leftover;
-        memcpy(val + *read, ctx->buffer_tail, tocopy);
-        ctx->buffer_tail += tocopy;
-        *read += tocopy;
-        if (leftover > tocopy) {
-            // FIXME: think we need a specific code for "value didn't fit"
-            return MCMC_WANT_READ;
-        }
-    }
-
-    return MCMC_OK;
 }
 
 // read into the buffer, up to a max size of vsize.
@@ -653,38 +616,36 @@ int mcmc_read_value_buf(void *c, char *val, const size_t vsize, int *read) {
 // value and reuse the same buffer, by adjusting vsize and *read between
 // calls.
 // vsize must not be larger than the remaining value size pending read.
-int mcmc_read_value(void *c, char *val, const size_t vsize, int *read) {
+/* TODO: see notes on mcmc_read()
+int mcmc_read_value(void *c, char *val, mcmc_resp_t *r, int *read) {
     mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
     size_t l;
 
     // If the distance between tail/head is smaller than what we read into the
     // main buffer, we have some value to copy out.
-    int leftover = ctx->buffer_used - (ctx->buffer_tail - ctx->buffer_head);
-    if (leftover > 0) {
-        int tocopy = leftover > vsize ? vsize : leftover;
-        memcpy(val + *read, ctx->buffer_tail, tocopy);
-        ctx->buffer_tail += tocopy;
-        *read += tocopy;
-        if (leftover > tocopy) {
-            // FIXME: think we need a specific code for "value didn't fit"
-            return MCMC_WANT_READ;
+    size_t vsize = r->vlen;
+    if (*read < r->vlen_read) {
+        memcpy(val + *read, r->value, r->vlen_read);
+        *read += r->vlen_read;
+        if (r->vlen_read >= r->vlen) {
+            return MCMC_OK;
         }
     }
 
     char *v = val + *read;
     l = vsize - *read;
 
-    int r = recv(ctx->fd, v, l, 0);
-    if (r == 0) {
+    int rd = recv(ctx->fd, v, l, 0);
+    if (rd == 0) {
         // TODO: some internal disconnect work?
         return MCMC_NOT_CONNECTED;
     }
     // FIXME: EAGAIN || EWOULDBLOCK!
-    if (r == -1) {
+    if (rd == -1) {
         return MCMC_ERR;
     }
 
-    *read += r;
+    *read += rd;
 
     if (*read < vsize) {
         return MCMC_WANT_READ;
@@ -692,28 +653,7 @@ int mcmc_read_value(void *c, char *val, const size_t vsize, int *read) {
         return MCMC_OK;
     }
 }
-
-char *mcmc_buffer_consume(void *c, int *remain) {
-    mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
-    ctx->buffer_used -= ctx->buffer_tail - ctx->buffer_head;
-    int used = ctx->buffer_used;
-    char *newbuf = ctx->buffer_tail;
-
-    // FIXME: request_queue-- is in the wrong place.
-    // TODO: which of these _must_ be reset between requests? I think very
-    // little?
-    ctx->request_queue--;
-    ctx->status_flags = 0;
-    ctx->buffer_head = NULL;
-    ctx->buffer_tail = NULL;
-
-    if (used) {
-        *remain = used;
-        return newbuf;
-    } else {
-        return NULL;
-    }
-}
+*/
 
 int mcmc_disconnect(void *c) {
     mcmc_ctx_t *ctx = (mcmc_ctx_t *)c;
@@ -721,6 +661,7 @@ int mcmc_disconnect(void *c) {
     // FIXME: I forget if 0 can be valid.
     if (ctx->fd != 0) {
         close(ctx->fd);
+        ctx->fd = 0;
         return MCMC_OK;
     } else {
         return MCMC_NOT_CONNECTED;

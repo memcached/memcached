@@ -84,7 +84,7 @@ static int try_read_command_udp(conn *c);
 static enum try_read_result try_read_network(conn *c);
 static enum try_read_result try_read_udp(conn *c);
 
-static int start_conn_timeout_thread();
+static int start_conn_timeout_thread(void);
 
 /* stats */
 static void stats_init(void);
@@ -233,6 +233,7 @@ static void settings_init(void) {
     settings.ssl_last_cert_refresh_time = current_time;
     settings.ssl_wbuf_size = 16 * 1024; // default is 16KB (SSL max frame size is 17KB)
     settings.ssl_session_cache = false;
+    settings.ssl_kernel_tls = false;
     settings.ssl_min_version = TLS1_2_VERSION;
 #endif
     /* By default this string should be NULL for getaddrinfo() */
@@ -291,6 +292,9 @@ static void settings_init(void) {
 #endif
     settings.num_napi_ids = 0;
     settings.memory_file = NULL;
+#ifdef SOCK_COOKIE_ID
+    settings.sock_cookie_id = 0;
+#endif
 }
 
 extern pthread_mutex_t conn_lock;
@@ -370,7 +374,7 @@ static void *conn_timeout_thread(void *arg) {
     return NULL;
 }
 
-static int start_conn_timeout_thread() {
+static int start_conn_timeout_thread(void) {
     int ret;
 
     if (settings.idle_timeout == 0)
@@ -383,6 +387,7 @@ static int start_conn_timeout_thread() {
             strerror(ret));
         return -1;
     }
+    thread_setname(conn_timeout_tid, "mc-idletimeout");
 
     return 0;
 }
@@ -419,9 +424,9 @@ static bool rbuf_alloc(conn *c) {
     if (c->rbuf == NULL) {
         c->rbuf = do_cache_alloc(c->thread->rbuf_cache);
         if (!c->rbuf) {
-            THR_STATS_LOCK(c);
+            THR_STATS_LOCK(c->thread);
             c->thread->stats.read_buf_oom++;
-            THR_STATS_UNLOCK(c);
+            THR_STATS_UNLOCK(c->thread);
             return false;
         }
         c->rsize = READ_BUFFER_SIZE;
@@ -564,7 +569,7 @@ void conn_worker_readd(conn *c) {
     }
 }
 
-void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb, io_queue_stack_cb com_cb, io_queue_cb ret_cb, io_queue_cb fin_cb) {
+void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb) {
     io_queue_cb_t *q = t->io_queues;
     while (q->type != IO_QUEUE_NONE) {
         q++;
@@ -572,9 +577,6 @@ void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack
     q->type = type;
     q->ctx = ctx;
     q->submit_cb = cb;
-    q->complete_cb = com_cb;
-    q->finalize_cb = fin_cb;
-    q->return_cb   = ret_cb;
     return;
 }
 
@@ -621,32 +623,16 @@ io_queue_t *conn_io_queue_get(conn *c, int type) {
     return NULL;
 }
 
-// called after returning to the main worker thread.
-// users of the queue need to distinguish if the IO was actually consumed or
-// not and handle appropriately.
-static void conn_io_queue_complete(conn *c) {
-    io_queue_t *q = c->io_queues;
-    io_queue_cb_t *qcb = c->thread->io_queues;
-    while (q->type != IO_QUEUE_NONE) {
-        if (q->stack_ctx) {
-            qcb->complete_cb(q);
-        }
-        qcb++;
-        q++;
-    }
-}
-
 // called to return a single IO object to the original worker thread.
 void conn_io_queue_return(io_pending_t *io) {
-    io_queue_cb_t *q = thread_io_queue_get(io->thread, io->io_queue_type);
-    q->return_cb(io);
-    return;
+    io->return_cb(io);
 }
 
 conn *conn_new(const int sfd, enum conn_states init_state,
                 const int event_flags,
                 const int read_buffer_size, enum network_transport transport,
-                struct event_base *base, void *ssl) {
+                struct event_base *base, void *ssl, uint64_t conntag,
+                enum protocol bproto) {
     conn *c;
 
     assert(sfd >= 0 && sfd < max_fds);
@@ -692,7 +678,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     }
 
     c->transport = transport;
-    c->protocol = settings.binding_protocol;
+    c->protocol = bproto;
+    c->tag = conntag;
 
     /* unix socket mode doesn't need this, so zeroed out.  but why
      * is this done for every command?  presumably for UDP
@@ -729,6 +716,10 @@ conn *conn_new(const int sfd, enum conn_states init_state,
             fprintf(stderr, "<%d new ascii client connection.\n", sfd);
         } else if (c->protocol == binary_prot) {
             fprintf(stderr, "<%d new binary client connection.\n", sfd);
+#ifdef PROXY
+        } else if (c->protocol == proxy_prot) {
+            fprintf(stderr, "<%d new proxy client connection.\n", sfd);
+#endif
         } else {
             fprintf(stderr, "<%d new unknown (%d) client connection\n",
                 sfd, c->protocol);
@@ -1066,7 +1057,9 @@ static mc_resp* resp_allocate(conn *c) {
 
         if (resp != NULL) {
             b->refcount++;
-            resp->free = false;
+            memset(resp, 0, sizeof(*resp));
+            resp->free = false; // redundant, for clarity.
+            resp->bundle = b;
             if (b->refcount == MAX_RESP_PER_BUNDLE) {
                 assert(b->prev == NULL);
                 // We only allocate off the head. Assign new head.
@@ -1084,20 +1077,21 @@ static mc_resp* resp_allocate(conn *c) {
         assert(th->open_bundle == NULL);
         b = do_cache_alloc(th->rbuf_cache);
         if (b) {
-            THR_STATS_LOCK(c);
-            c->thread->stats.response_obj_bytes += READ_BUFFER_SIZE;
-            THR_STATS_UNLOCK(c);
+            THR_STATS_LOCK(th);
+            th->stats.response_obj_bytes += READ_BUFFER_SIZE;
+            THR_STATS_UNLOCK(th);
             b->next_check = 1;
             b->refcount = 1;
             for (int i = 0; i < MAX_RESP_PER_BUNDLE; i++) {
-                b->r[i].bundle = b;
                 b->r[i].free = true;
             }
             b->next = 0;
             b->prev = 0;
             th->open_bundle = b;
             resp = &b->r[0];
-            resp->free = false;
+            memset(resp, 0, sizeof(*resp));
+            resp->free = false; // redundant. for clarity.
+            resp->bundle = b;
         } else {
             return NULL;
         }
@@ -1106,8 +1100,7 @@ static mc_resp* resp_allocate(conn *c) {
     return resp;
 }
 
-static void resp_free(conn *c, mc_resp *resp) {
-    LIBEVENT_THREAD *th = c->thread;
+void resp_free(LIBEVENT_THREAD *th, mc_resp *resp) {
     mc_resp_bundle *b = resp->bundle;
 
     resp->free = true;
@@ -1132,9 +1125,9 @@ static void resp_free(conn *c, mc_resp *resp) {
 
             // Now completely done with this buffer.
             do_cache_free(th->rbuf_cache, b);
-            THR_STATS_LOCK(c);
-            c->thread->stats.response_obj_bytes -= READ_BUFFER_SIZE;
-            THR_STATS_UNLOCK(c);
+            THR_STATS_LOCK(th);
+            th->stats.response_obj_bytes -= READ_BUFFER_SIZE;
+            THR_STATS_UNLOCK(th);
         }
     } else {
         mc_resp_bundle **head = &th->open_bundle;
@@ -1150,30 +1143,25 @@ static void resp_free(conn *c, mc_resp *resp) {
         }
 
     }
+    THR_STATS_LOCK(th);
+    th->stats.response_obj_count--;
+    THR_STATS_UNLOCK(th);
 }
 
 bool resp_start(conn *c) {
     mc_resp *resp = resp_allocate(c);
     if (!resp) {
-        THR_STATS_LOCK(c);
+        THR_STATS_LOCK(c->thread);
         c->thread->stats.response_obj_oom++;
-        THR_STATS_UNLOCK(c);
+        THR_STATS_UNLOCK(c->thread);
         return false;
     }
+
     // handling the stats counters here to simplify testing
-    THR_STATS_LOCK(c);
+    THR_STATS_LOCK(c->thread);
     c->thread->stats.response_obj_count++;
-    THR_STATS_UNLOCK(c);
-    // Skip zeroing the bundle pointer at the start.
-    // TODO: this line is here temporarily to make the code easy to disable.
-    // when it's more mature, move the memset into resp_allocate() and have it
-    // set the bundle pointer on allocate so this line isn't as complex.
-    memset((char *)resp + sizeof(mc_resp_bundle*), 0, sizeof(*resp) - sizeof(mc_resp_bundle*));
-    // TODO: this next line works. memset _does_ show up significantly under
-    // perf reports due to zeroing out the entire resp->wbuf. before swapping
-    // the lines more validation work should be done to ensure wbuf's aren't
-    // accidentally reused without being written to.
-    //memset((char *)resp + sizeof(mc_resp_bundle*), 0, offsetof(mc_resp, wbuf));
+    THR_STATS_UNLOCK(c->thread);
+
     if (!c->resp_head) {
         c->resp_head = resp;
     }
@@ -1192,6 +1180,30 @@ bool resp_start(conn *c) {
     return true;
 }
 
+mc_resp *resp_start_unlinked(conn *c) {
+    mc_resp *resp = resp_allocate(c);
+    if (!resp) {
+        THR_STATS_LOCK(c->thread);
+        c->thread->stats.response_obj_oom++;
+        THR_STATS_UNLOCK(c->thread);
+        return false;
+    }
+
+    // handling the stats counters here to simplify testing
+    THR_STATS_LOCK(c->thread);
+    c->thread->stats.response_obj_count++;
+    THR_STATS_UNLOCK(c->thread);
+
+    if (IS_UDP(c->transport)) {
+        // need to hold on to some data for async responses.
+        c->resp->request_id = c->request_id;
+        c->resp->request_addr = c->request_addr;
+        c->resp->request_addr_size = c->request_addr_size;
+    }
+
+    return resp;
+}
+
 // returns next response in chain.
 mc_resp* resp_finish(conn *c, mc_resp *resp) {
     mc_resp *next = resp->next;
@@ -1204,11 +1216,11 @@ mc_resp* resp_finish(conn *c, mc_resp *resp) {
         free(resp->write_and_free);
     }
     if (resp->io_pending) {
+        io_pending_t *io = resp->io_pending;
         // If we had a pending IO, tell it to internally clean up then return
         // the main object back to our thread cache.
-        io_queue_cb_t *qcb = thread_io_queue_get(c->thread, resp->io_pending->io_queue_type);
-        qcb->finalize_cb(resp->io_pending);
-        do_cache_free(c->thread->io_cache, resp->io_pending);
+        io->finalize_cb(io);
+        do_cache_free(c->thread->io_cache, io);
         resp->io_pending = NULL;
     }
     if (c->resp_head == resp) {
@@ -1217,10 +1229,7 @@ mc_resp* resp_finish(conn *c, mc_resp *resp) {
     if (c->resp == resp) {
         c->resp = NULL;
     }
-    resp_free(c, resp);
-    THR_STATS_LOCK(c);
-    c->thread->stats.response_obj_count--;
-    THR_STATS_UNLOCK(c);
+    resp_free(c->thread, resp);
     return next;
 }
 
@@ -1554,9 +1563,9 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  *
  * Returns the state of storage.
  */
-enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
+enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const uint32_t hv, uint64_t *cas, bool cas_stale) {
     char *key = ITEM_key(it);
-    item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
+    item *old_it = do_item_get(key, it->nkey, hv, t, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
 
     enum cas_result { CAS_NONE, CAS_MATCH, CAS_BADVAL, CAS_STALE, CAS_MISS };
@@ -1576,7 +1585,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             cas_res = CAS_NONE;
         } else if (it_cas == old_cas) {
             cas_res = CAS_MATCH;
-        } else if (c->set_stale && it_cas < old_cas) {
+        } else if (cas_stale && it_cas < old_cas) {
             cas_res = CAS_STALE;
         } else {
             cas_res = CAS_BADVAL;
@@ -1592,9 +1601,9 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                     // cas validates
                     // it and old_it may belong to different classes.
                     // I'm updating the stats for the one that's getting pushed out
-                    pthread_mutex_lock(&c->thread->stats.mutex);
-                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
-                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    pthread_mutex_lock(&t->stats.mutex);
+                    t->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+                    pthread_mutex_unlock(&t->stats.mutex);
                     do_store = true;
                 } else if (cas_res == CAS_STALE) {
                     // if we're allowed to set a stale value, CAS must be lower than
@@ -1607,15 +1616,15 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                         it->it_flags |= ITEM_TOKEN_SENT;
                     }
 
-                    pthread_mutex_lock(&c->thread->stats.mutex);
-                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
-                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    pthread_mutex_lock(&t->stats.mutex);
+                    t->stats.slab_stats[ITEM_clsid(old_it)].cas_hits++;
+                    pthread_mutex_unlock(&t->stats.mutex);
                     do_store = true;
                 } else {
                     // NONE or BADVAL are the same for CAS cmd
-                    pthread_mutex_lock(&c->thread->stats.mutex);
-                    c->thread->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
-                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    pthread_mutex_lock(&t->stats.mutex);
+                    t->stats.slab_stats[ITEM_clsid(old_it)].cas_badval++;
+                    pthread_mutex_unlock(&t->stats.mutex);
 
                     if (settings.verbose > 1) {
                         fprintf(stderr, "CAS:  failure: expected %llu, got %llu\n",
@@ -1663,7 +1672,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         }
 
         if (do_store) {
-            STORAGE_delete(c->thread->storage, old_it);
+            STORAGE_delete(t->storage, old_it);
             item_replace(old_it, it, hv);
             stored = STORED;
         }
@@ -1688,9 +1697,9 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             case NREAD_CAS:
                 // LRU expired
                 stored = NOT_FOUND;
-                pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.cas_misses++;
-                pthread_mutex_unlock(&c->thread->stats.mutex);
+                pthread_mutex_lock(&t->stats.mutex);
+                t->stats.cas_misses++;
+                pthread_mutex_unlock(&t->stats.mutex);
                 break;
             case NREAD_REPLACE:
             case NREAD_APPEND:
@@ -1705,12 +1714,12 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         }
     }
 
-    if (stored == STORED) {
-        c->cas = ITEM_get_cas(it);
+    if (stored == STORED && cas != NULL) {
+        *cas = ITEM_get_cas(it);
     }
-    LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
+    LOGGER_LOG(t->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->nbytes, it->exptime,
-            ITEM_clsid(it), c->sfd);
+            ITEM_clsid(it), t->cur_sfd);
 
     return stored;
 }
@@ -1792,6 +1801,15 @@ void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("read_buf_bytes_free", "%llu", (unsigned long long)thread_stats.read_buf_bytes_free);
     APPEND_STAT("read_buf_oom", "%llu", (unsigned long long)thread_stats.read_buf_oom);
     APPEND_STAT("reserved_fds", "%u", stats_state.reserved_fds);
+#ifdef PROXY
+    if (settings.proxy_enabled) {
+        APPEND_STAT("proxy_conn_requests", "%llu", (unsigned long long)thread_stats.proxy_conn_requests);
+        APPEND_STAT("proxy_conn_errors", "%llu", (unsigned long long)thread_stats.proxy_conn_errors);
+        APPEND_STAT("proxy_conn_oom", "%llu", (unsigned long long)thread_stats.proxy_conn_oom);
+        APPEND_STAT("proxy_req_active", "%llu", (unsigned long long)thread_stats.proxy_req_active);
+        APPEND_STAT("proxy_await_active", "%llu", (unsigned long long)thread_stats.proxy_await_active);
+    }
+#endif
     APPEND_STAT("cmd_get", "%llu", (unsigned long long)thread_stats.get_cmds);
     APPEND_STAT("cmd_set", "%llu", (unsigned long long)slab_stats.set_cmds);
     APPEND_STAT("cmd_flush", "%llu", (unsigned long long)thread_stats.flush_cmds);
@@ -1809,13 +1827,6 @@ void server_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("recache_from_extstore", "%llu", (unsigned long long)thread_stats.recache_from_extstore);
         APPEND_STAT("miss_from_extstore", "%llu", (unsigned long long)thread_stats.miss_from_extstore);
         APPEND_STAT("badcrc_from_extstore", "%llu", (unsigned long long)thread_stats.badcrc_from_extstore);
-    }
-#endif
-#ifdef PROXY
-    if (settings.proxy_enabled) {
-        APPEND_STAT("proxy_conn_requests", "%llu", (unsigned long long)thread_stats.proxy_conn_requests);
-        APPEND_STAT("proxy_conn_errors", "%llu", (unsigned long long)thread_stats.proxy_conn_errors);
-        APPEND_STAT("proxy_conn_oom", "%llu", (unsigned long long)thread_stats.proxy_conn_oom);
     }
 #endif
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
@@ -1876,7 +1887,7 @@ void server_stats(ADD_STAT add_stats, conn *c) {
     storage_stats(add_stats, c);
 #endif
 #ifdef PROXY
-    proxy_stats(add_stats, c);
+    proxy_stats(settings.proxy_ctx, add_stats, c);
 #endif
 #ifdef TLS
     if (settings.ssl_enabled) {
@@ -1960,6 +1971,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ext_wbuf_size", "%u", settings.ext_wbuf_size);
     APPEND_STAT("ext_compact_under", "%u", settings.ext_compact_under);
     APPEND_STAT("ext_drop_under", "%u", settings.ext_drop_under);
+    APPEND_STAT("ext_max_sleep", "%u", settings.ext_max_sleep);
     APPEND_STAT("ext_max_frag", "%.2f", settings.ext_max_frag);
     APPEND_STAT("slab_automove_freeratio", "%.3f", settings.slab_automove_freeratio);
     APPEND_STAT("ext_drop_unread", "%s", settings.ext_drop_unread ? "yes" : "no");
@@ -1974,7 +1986,12 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
     APPEND_STAT("ssl_ca_cert", "%s", settings.ssl_ca_cert ? settings.ssl_ca_cert : "NULL");
     APPEND_STAT("ssl_wbuf_size", "%u", settings.ssl_wbuf_size);
     APPEND_STAT("ssl_session_cache", "%s", settings.ssl_session_cache ? "yes" : "no");
+    APPEND_STAT("ssl_kernel_tls", "%s", settings.ssl_kernel_tls ? "yes" : "no");
     APPEND_STAT("ssl_min_version", "%s", ssl_proto_text(settings.ssl_min_version));
+#endif
+#ifdef PROXY
+    APPEND_STAT("proxy_enabled", "%s", settings.proxy_enabled ? "yes" : "no");
+    APPEND_STAT("proxy_uring_enabled", "%s", settings.proxy_uring ? "yes" : "no");
 #endif
     APPEND_STAT("num_napi_ids", "%s", settings.num_napi_ids);
     APPEND_STAT("memory_file", "%s", settings.memory_file);
@@ -2042,7 +2059,7 @@ static inline void get_conn_text(const conn *c, const int af,
                     &((struct sockaddr_in6 *)sock_addr)->sin6_addr,
                     addr_text + 1,
                     sizeof(addr_text) - 2)) {
-                strcat(addr_text, "]");
+                strncat(addr_text, "]", 2);
             }
             port = ntohs(((struct sockaddr_in6 *)sock_addr)->sin6_port);
             protoname = IS_UDP(c->transport) ? "udp6" : "tcp6";
@@ -2084,21 +2101,21 @@ static inline void get_conn_text(const conn *c, const int af,
          * has no peer socket address, but there's no portable way
          * to tell for sure.
          */
-        sprintf(addr_text, "<AF %d>", af);
+        snprintf(addr_text, MAXPATHLEN, "<AF %d>", af);
     }
 
     if (port) {
-        sprintf(addr, "%s:%s:%u", protoname, addr_text, port);
+        snprintf(addr, MAXPATHLEN + 11, "%s:%s:%u", protoname, addr_text, port);
     } else {
-        sprintf(addr, "%s:%s", protoname, addr_text);
+        snprintf(addr, MAXPATHLEN + 11, "%s:%s", protoname, addr_text);
     }
 }
 
 static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
     if (!c) {
-        strcpy(addr, "<null>");
+        memcpy(addr, "<null>", 6);
     } else if (c->state == conn_closed) {
-        strcpy(addr, "<closed>");
+        memcpy(addr, "<closed>", 8);
     } else {
         struct sockaddr_in6 local_addr;
         struct sockaddr *sock_addr = (void *)&c->request_addr;
@@ -2107,6 +2124,7 @@ static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
         if (c->state == conn_listening ||
                 (IS_UDP(c->transport) &&
                  c->state == conn_read)) {
+            memset(&local_addr, 0, sizeof(local_addr));
             socklen_t local_addr_len = sizeof(local_addr);
 
             if (getsockname(c->sfd,
@@ -2120,6 +2138,7 @@ static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
         if (c->state != conn_listening && !(IS_UDP(c->transport) &&
                  c->state == conn_read)) {
             struct sockaddr_storage svr_sock_addr;
+            memset(&svr_sock_addr, 0, sizeof(svr_sock_addr));
             socklen_t svr_addr_len = sizeof(svr_sock_addr);
             getsockname(c->sfd, (struct sockaddr *)&svr_sock_addr, &svr_addr_len);
             get_conn_text(c, svr_sock_addr.ss_family, svr_addr, (struct sockaddr *)&svr_sock_addr);
@@ -2131,9 +2150,11 @@ void process_stats_conns(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
     char val_str[STAT_VAL_LEN];
-    size_t extras_len = sizeof("unix:") + sizeof("65535");
+    size_t extras_len = sizeof(":unix:") + sizeof("65535");
     char addr[MAXPATHLEN + extras_len];
     char svr_addr[MAXPATHLEN + extras_len];
+    memset(addr, 0, sizeof(addr));
+    memset(svr_addr, 0, sizeof(svr_addr));
     int klen = 0, vlen = 0;
 
     assert(add_stats);
@@ -2166,12 +2187,12 @@ void process_stats_conns(ADD_STAT add_stats, void *c) {
 }
 
 #define IT_REFCOUNT_LIMIT 60000
-item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should_touch, bool do_update, bool *overflow) {
+item* limited_get(const char *key, size_t nkey, LIBEVENT_THREAD *t, uint32_t exptime, bool should_touch, bool do_update, bool *overflow) {
     item *it;
     if (should_touch) {
-        it = item_touch(key, nkey, exptime, c);
+        it = item_touch(key, nkey, exptime, t);
     } else {
-        it = item_get(key, nkey, c, do_update);
+        it = item_get(key, nkey, t, do_update);
     }
     if (it && it->refcount > IT_REFCOUNT_LIMIT) {
         item_remove(it);
@@ -2187,9 +2208,9 @@ item* limited_get(char *key, size_t nkey, conn *c, uint32_t exptime, bool should
 // locked, caller can directly change what it needs.
 // though it might eventually be a better interface to sink it all into
 // items.c.
-item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32_t *hv, bool *overflow) {
+item* limited_get_locked(const char *key, size_t nkey, LIBEVENT_THREAD *t, bool do_update, uint32_t *hv, bool *overflow) {
     item *it;
-    it = item_get_locked(key, nkey, c, do_update, hv);
+    it = item_get_locked(key, nkey, t, do_update, hv);
     if (it && it->refcount > IT_REFCOUNT_LIMIT) {
         do_item_remove(it);
         it = NULL;
@@ -2212,7 +2233,7 @@ item* limited_get_locked(char *key, size_t nkey, conn *c, bool do_update, uint32
  *
  * returns a response string to send back to the client.
  */
-enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
+enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const size_t nkey,
                                     const bool incr, const int64_t delta,
                                     char *buf, uint64_t *cas,
                                     const uint32_t hv,
@@ -2222,7 +2243,7 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
     int res;
     item *it;
 
-    it = do_item_get(key, nkey, hv, c, DONT_UPDATE);
+    it = do_item_get(key, nkey, hv, t, DONT_UPDATE);
     if (!it) {
         return DELTA_ITEM_NOT_FOUND;
     }
@@ -2252,23 +2273,23 @@ enum delta_result_type do_add_delta(conn *c, const char *key, const size_t nkey,
 
     if (incr) {
         value += delta;
-        MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
+        //MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
     } else {
         if(delta > value) {
             value = 0;
         } else {
             value -= delta;
         }
-        MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
+        //MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
     }
 
-    pthread_mutex_lock(&c->thread->stats.mutex);
+    pthread_mutex_lock(&t->stats.mutex);
     if (incr) {
-        c->thread->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
+        t->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
     } else {
-        c->thread->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
+        t->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
     }
-    pthread_mutex_unlock(&c->thread->stats.mutex);
+    pthread_mutex_unlock(&t->stats.mutex);
 
     itoa_u64(value, buf);
     res = strlen(buf);
@@ -3060,7 +3081,7 @@ static void drive_machine(conn *c) {
 #endif
 
                 dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
-                                     READ_BUFFER_CACHED, c->transport, ssl_v);
+                                     READ_BUFFER_CACHED, c->transport, ssl_v, c->tag, c->protocol);
             }
 
             stop = true;
@@ -3358,7 +3379,6 @@ static void drive_machine(conn *c) {
             break;
         case conn_io_queue:
             /* Complete our queued IO's from within the worker thread. */
-            conn_io_queue_complete(c);
             conn_set_state(c, conn_mwrite);
             break;
         case conn_max_state:
@@ -3460,7 +3480,9 @@ static void maximize_sndbuf(const int sfd) {
 static int server_socket(const char *interface,
                          int port,
                          enum network_transport transport,
-                         FILE *portnumber_file, bool ssl_enabled) {
+                         FILE *portnumber_file, bool ssl_enabled,
+                         uint64_t conntag,
+                         enum protocol bproto) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
@@ -3519,6 +3541,13 @@ static int server_socket(const char *interface,
                 close(sfd);
                 continue;
             }
+        }
+#endif
+#ifdef SOCK_COOKIE_ID
+        if (settings.sock_cookie_id != 0) {
+            error = setsockopt(sfd, SOL_SOCKET, SOCK_COOKIE_ID, (void *)&settings.sock_cookie_id, sizeof(uint32_t));
+            if (error != 0)
+                perror("setsockopt");
         }
 #endif
 
@@ -3602,12 +3631,12 @@ static int server_socket(const char *interface,
                 }
                 dispatch_conn_new(per_thread_fd, conn_read,
                                   EV_READ | EV_PERSIST,
-                                  UDP_READ_BUFFER_SIZE, transport, NULL);
+                                  UDP_READ_BUFFER_SIZE, transport, NULL, conntag, bproto);
             }
         } else {
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
                                              EV_READ | EV_PERSIST, 1,
-                                             transport, main_base, NULL))) {
+                                             transport, main_base, NULL, conntag, bproto))) {
                 fprintf(stderr, "failed to create listening connection\n");
                 exit(EXIT_FAILURE);
             }
@@ -3637,7 +3666,7 @@ static int server_sockets(int port, enum network_transport transport,
 #endif
 
     if (settings.inter == NULL) {
-        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled);
+        return server_socket(settings.inter, port, transport, portnumber_file, ssl_enabled, 0, settings.binding_protocol);
     } else {
         // tokenize them and bind to each one of them..
         char *b;
@@ -3653,6 +3682,7 @@ static int server_sockets(int port, enum network_transport transport,
         for (char *p = strtok_r(list, ";,", &b);
             p != NULL;
             p = strtok_r(NULL, ";,", &b)) {
+            uint64_t conntag = 0;
             int the_port = port;
 #ifdef TLS
             ssl_enabled = settings.ssl_enabled;
@@ -3667,6 +3697,77 @@ static int server_sockets(int port, enum network_transport transport,
                 p += strlen(notls) + 1;
             }
 #endif
+
+            // Allow forcing the protocol of this listener.
+            const char *protostr = "proto";
+            enum protocol bproto = settings.binding_protocol;
+            if (strncmp(p, protostr, strlen(protostr)) == 0) {
+                p += strlen(protostr);
+                if (*p == '[') {
+                    char *e = strchr(p, ']');
+                    if (e == NULL) {
+                        fprintf(stderr, "Invalid protocol spec: \"%s\"\n", p);
+                        free(list);
+                        return 1;
+                    }
+                    char *st = ++p; // skip '[';
+                    *e = '\0';
+                    size_t len = e - st;
+                    p = ++e; // skip ']'
+                    p++; // skip an assumed ':'
+
+                    if (strncmp(st, "ascii", len) == 0) {
+                        bproto = ascii_prot;
+                    } else if (strncmp(st, "binary", len) == 0) {
+                        bproto = binary_prot;
+                    } else if (strncmp(st, "negotiating", len) == 0) {
+                        bproto = negotiating_prot;
+                    } else if (strncmp(st, "proxy", len) == 0) {
+#ifdef PROXY
+                        if (settings.proxy_enabled) {
+                            bproto = proxy_prot;
+                        } else {
+                            fprintf(stderr, "Proxy must be enabled to use: \"%s\"\n", list);
+                            free(list);
+                            return 1;
+                        }
+#else
+                        fprintf(stderr, "Server not built with proxy: \"%s\"\n", list);
+                        free(list);
+                        return 1;
+#endif
+                    }
+                }
+            }
+
+            const char *tagstr = "tag";
+            if (strncmp(p, tagstr, strlen(tagstr)) == 0) {
+                p += strlen(tagstr);
+                if (*p == '[') {
+                    char *e = strchr(p, ']');
+                    if (e == NULL) {
+                        fprintf(stderr, "Invalid tag in socket config: \"%s\"\n", p);
+                        free(list);
+                        return 1;
+                    }
+                    char *st = ++p; // skip '['
+                    *e = '\0';
+                    size_t len = e - st;
+                    p = ++e; // skip ']'
+                    p++; // skip an assumed ':'
+
+                    // validate the tag and copy it in.
+                    if (len > 8 || len < 1) {
+                        fprintf(stderr, "Listener tags must be between 1 and 8 characters: \"%s\"\n", st);
+                        free(list);
+                        return 1;
+                    }
+
+                    // C programmers love turning string comparisons into
+                    // integer comparisons.
+                    memcpy(&conntag, st, len);
+                }
+            }
 
             char *h = NULL;
             if (*p == '[') {
@@ -3693,7 +3794,7 @@ static int server_sockets(int port, enum network_transport transport,
                     *s = '\0';
                     ++s;
                     if (!safe_strtol(s, &the_port)) {
-                        fprintf(stderr, "Invalid port number: \"%s\"", s);
+                        fprintf(stderr, "Invalid port number: \"%s\"\n", s);
                         free(list);
                         return 1;
                     }
@@ -3706,7 +3807,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strcmp(p, "*") == 0) {
                 p = NULL;
             }
-            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled);
+            ret |= server_socket(p, the_port, transport, portnumber_file, ssl_enabled, conntag, bproto);
             if (ret != 0 && errno_save == 0) errno_save = errno;
         }
         free(list);
@@ -3786,7 +3887,7 @@ static int server_socket_unix(const char *path, int access_mask) {
     }
     if (!(listen_conn = conn_new(sfd, conn_listening,
                                  EV_READ | EV_PERSIST, 1,
-                                 local_transport, main_base, NULL))) {
+                                 local_transport, main_base, NULL, 0, settings.binding_protocol))) {
         fprintf(stderr, "failed to create listening connection\n");
         exit(EXIT_FAILURE);
     }
@@ -4018,6 +4119,9 @@ static void usage(void) {
            flag_enabled_disabled(settings.relaxed_privileges));
 #endif
 #endif
+#ifdef SOCK_COOKIE_ID
+    printf("   - sock_cookie_id:      attributes an ID to a socket for ip filtering/firewalls \n");
+#endif
 #ifdef EXTSTORE
     printf("\n   - External storage (ext_*) related options (see: https://memcached.org/extstore)\n");
     printf("   - ext_path:            file to write to for external storage.\n"
@@ -4035,12 +4139,13 @@ static void usage(void) {
            "   - ext_drop_under:      drop COLD items when fewer than this many free pages\n"
            "                          (default: 1/4th of the assigned storage)\n"
            "   - ext_max_frag:        max page fragmentation to tolerate (default: %.2f)\n"
+           "   - ext_max_sleep:       max sleep time of background threads in us (default: %u)\n"
            "   - slab_automove_freeratio: ratio of memory to hold free as buffer.\n"
            "                          (see doc/storage.txt for more info, default: %.3f)\n",
            settings.ext_page_size / (1 << 20), settings.ext_wbuf_size / (1 << 20), settings.ext_io_threadcount,
            settings.ext_item_size, settings.ext_low_ttl,
            flag_enabled_disabled(settings.ext_drop_unread), settings.ext_recache_rate,
-           settings.ext_max_frag, settings.slab_automove_freeratio);
+           settings.ext_max_frag, settings.ext_max_sleep, settings.slab_automove_freeratio);
     verify_default("ext_item_age", settings.ext_item_age == UINT_MAX);
 #endif
 #ifdef PROXY
@@ -4062,15 +4167,15 @@ static void usage(void) {
            "                          (default: %u)\n", settings.ssl_wbuf_size / (1 << 10));
     printf("   - ssl_session_cache:   enable server-side SSL session cache, to support session\n"
            "                          resumption\n"
-           "   - ssl_min_version:     minimum protocol version to accept (default: %s)\n"
+           "   - ssl_kernel_tls:      enable kernel TLS offload\n"
+           "   - ssl_min_version:     minimum protocol version to accept (default: %s)\n",
+           ssl_proto_text(settings.ssl_min_version));
 #if defined(TLS1_3_VERSION)
-           "                          valid values are 0(%s), 1(%s), 2(%s), or 3(%s).\n",
-           ssl_proto_text(settings.ssl_min_version),
+    printf("                          valid values are 0(%s), 1(%s), 2(%s), or 3(%s).\n",
            ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
            ssl_proto_text(TLS1_2_VERSION), ssl_proto_text(TLS1_3_VERSION));
 #else
-           "                          valid values are 0(%s), 1(%s), or 2(%s).\n",
-           ssl_proto_text(settings.ssl_min_version),
+    printf("                          valid values are 0(%s), 1(%s), or 2(%s).\n",
            ssl_proto_text(TLS1_VERSION), ssl_proto_text(TLS1_1_VERSION),
            ssl_proto_text(TLS1_2_VERSION));
 #endif
@@ -4115,39 +4220,6 @@ static void usage_license(void) {
     "THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n"
     "(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n"
     "OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
-    "\n"
-    "\n"
-    "This product includes software developed by Niels Provos.\n"
-    "\n"
-    "[ libevent ]\n"
-    "\n"
-    "Copyright 2000-2003 Niels Provos <provos@citi.umich.edu>\n"
-    "All rights reserved.\n"
-    "\n"
-    "Redistribution and use in source and binary forms, with or without\n"
-    "modification, are permitted provided that the following conditions\n"
-    "are met:\n"
-    "1. Redistributions of source code must retain the above copyright\n"
-    "   notice, this list of conditions and the following disclaimer.\n"
-    "2. Redistributions in binary form must reproduce the above copyright\n"
-    "   notice, this list of conditions and the following disclaimer in the\n"
-    "   documentation and/or other materials provided with the distribution.\n"
-    "3. All advertising materials mentioning features or use of this software\n"
-    "   must display the following acknowledgement:\n"
-    "      This product includes software developed by Niels Provos.\n"
-    "4. The name of the author may not be used to endorse or promote products\n"
-    "   derived from this software without specific prior written permission.\n"
-    "\n"
-    "THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR\n"
-    "IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES\n"
-    "OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.\n"
-    "IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,\n"
-    "INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT\n"
-    "NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\n"
-    "DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\n"
-    "THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n"
-    "(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF\n"
-    "THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
     );
 
     return;
@@ -4204,7 +4276,6 @@ static void remove_pidfile(const char *pid_file) {
 
 static void sig_handler(const int sig) {
     stop_main_loop = EXIT_NORMALLY;
-    printf("Signal handled: %s.\n", strsignal(sig));
 }
 
 static void sighup_handler(const int sig) {
@@ -4212,7 +4283,6 @@ static void sighup_handler(const int sig) {
 }
 
 static void sig_usrhandler(const int sig) {
-    printf("Graceful shutdown signal handled: %s.\n", strsignal(sig));
     stop_main_loop = GRACE_STOP;
 }
 
@@ -4726,7 +4796,6 @@ int main (int argc, char **argv) {
         DROP_PRIVILEGES,
         RESP_OBJ_MEM_LIMIT,
         READ_BUF_MEM_LIMIT,
-        META_RESPONSE_OLD,
 #ifdef TLS
         SSL_CERT,
         SSL_KEY,
@@ -4736,6 +4805,7 @@ int main (int argc, char **argv) {
         SSL_CA_CERT,
         SSL_WBUF_SIZE,
         SSL_SESSION_CACHE,
+        SSL_KERNEL_TLS,
         SSL_MIN_VERSION,
 #endif
 #ifdef PROXY
@@ -4744,6 +4814,9 @@ int main (int argc, char **argv) {
 #endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
+#endif
+#ifdef SOCK_COOKIE_ID
+        COOKIE_ID,
 #endif
     };
     char *const subopts_tokens[] = {
@@ -4785,7 +4858,6 @@ int main (int argc, char **argv) {
         [DROP_PRIVILEGES] = "drop_privileges",
         [RESP_OBJ_MEM_LIMIT] = "resp_obj_mem_limit",
         [READ_BUF_MEM_LIMIT] = "read_buf_mem_limit",
-        [META_RESPONSE_OLD] = "meta_response_old",
 #ifdef TLS
         [SSL_CERT] = "ssl_chain_cert",
         [SSL_KEY] = "ssl_key",
@@ -4795,6 +4867,7 @@ int main (int argc, char **argv) {
         [SSL_CA_CERT] = "ssl_ca_cert",
         [SSL_WBUF_SIZE] = "ssl_wbuf_size",
         [SSL_SESSION_CACHE] = "ssl_session_cache",
+        [SSL_KERNEL_TLS] = "ssl_kernel_tls",
         [SSL_MIN_VERSION] = "ssl_min_version",
 #endif
 #ifdef PROXY
@@ -4803,6 +4876,9 @@ int main (int argc, char **argv) {
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
+#endif
+#ifdef SOCK_COOKIE_ID
+        [COOKIE_ID] = "sock_cookie_id",
 #endif
         NULL
     };
@@ -4830,9 +4906,6 @@ int main (int argc, char **argv) {
         return 1;
     }
 #endif
-
-    /* Run regardless of initializing it later */
-    init_lru_maintainer();
 
     /* set stderr non-buffering (for running under, say, daemontools) */
     setbuf(stderr, NULL);
@@ -5387,9 +5460,6 @@ int main (int argc, char **argv) {
                 start_lru_maintainer = false;
                 settings.lru_segmented = false;
                 break;
-            case META_RESPONSE_OLD:
-                settings.meta_response_old = true;
-                break;
 #ifdef TLS
             case SSL_CERT:
                 if (subopts_value == NULL) {
@@ -5475,6 +5545,9 @@ int main (int argc, char **argv) {
                 break;
             case SSL_SESSION_CACHE:
                 settings.ssl_session_cache = true;
+                break;
+            case SSL_KERNEL_TLS:
+                settings.ssl_kernel_tls = true;
                 break;
             case SSL_MIN_VERSION: {
                 int min_version;
@@ -5566,6 +5639,11 @@ int main (int argc, char **argv) {
 #ifdef MEMCACHED_DEBUG
             case RELAXED_PRIVILEGES:
                 settings.relaxed_privileges = true;
+                break;
+#endif
+#ifdef SOCK_COOKIE_ID
+            case COOKIE_ID:
+                (void)safe_strtoul(subopts_value, &settings.sock_cookie_id);
                 break;
 #endif
             default:
@@ -5721,6 +5799,11 @@ int main (int argc, char **argv) {
 
     if (udp_specified && settings.udpport != 0 && !tcp_specified) {
         settings.port = settings.udpport;
+    }
+
+    if (settings.port > 65535) {
+        fprintf(stderr, "ERROR: Invalid port number %d.\n", settings.port);
+        exit(EX_USAGE);
     }
 
 
@@ -5968,10 +6051,7 @@ int main (int argc, char **argv) {
     /* start up worker threads if MT mode */
 #ifdef PROXY
     if (settings.proxy_enabled) {
-        proxy_init(settings.proxy_uring);
-        if (proxy_load_config(settings.proxy_ctx) != 0) {
-            exit(EXIT_FAILURE);
-        }
+        settings.proxy_ctx = proxy_init(settings.proxy_uring);
     }
 #endif
 #ifdef EXTSTORE
@@ -5981,6 +6061,14 @@ int main (int argc, char **argv) {
 #else
     memcached_thread_init(settings.num_threads, NULL);
     init_lru_crawler(NULL);
+#endif
+
+#ifdef PROXY
+    if (settings.proxy_enabled) {
+        if (proxy_first_confload(settings.proxy_ctx) != 0) {
+            exit(EXIT_FAILURE);
+        }
+    }
 #endif
 
     if (start_assoc_maint && start_assoc_maintenance_thread() == -1) {
@@ -6142,16 +6230,24 @@ int main (int argc, char **argv) {
             fprintf(stderr, "Gracefully stopping\n");
         break;
         case EXIT_NORMALLY:
-            // Don't need to print anything to STDERR for a normal shutdown.
+            // Don't need to print anything to STDERR for a normal shutdown except
+            // if we want to.
+
+            if (settings.verbose) {
+                fprintf(stderr, "Exiting normally\n");
+            }
+
         break;
         default:
             fprintf(stderr, "Exiting on error\n");
         break;
     }
 
-    stop_threads();
-    if (settings.memory_file != NULL && stop_main_loop == GRACE_STOP) {
-        restart_mmap_close();
+    if (stop_main_loop == GRACE_STOP) {
+        stop_threads();
+        if (settings.memory_file != NULL) {
+            restart_mmap_close();
+        }
     }
 
     /* remove the PID file if we're a daemon */

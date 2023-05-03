@@ -44,6 +44,16 @@ static int wait_for_process(pid_t pid)
             break;
         } else {
             int sig = 0;
+            /* pass along SIGHUP gracefully */
+            if (caught_sig == SIGHUP) {
+                i = 0;
+                int sig = caught_sig;
+                if (kill(pid, sig) < 0) {
+                    /* Kill failed.  Must have lost the process. :/ */
+                    perror("lost child when trying to kill");
+                }
+                continue;
+            }
             switch (i) {
             case 0:
                 /* On the first iteration, pass the signal through */

@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 use strict;
 use FindBin qw($Bin);
 our @files;
@@ -11,7 +11,7 @@ BEGIN {
         exit 0;
     }
 
-    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md compile_commands.json);
+    my @exempted = qw(Makefile.am ChangeLog doc/Makefile.am README README.md compile_commands.json md5.c md5.h);
     push(@exempted, glob("doc/*.xml"));
     push(@exempted, glob("doc/*.full"));
     push(@exempted, glob("doc/xml2rfc/*.xsl"));

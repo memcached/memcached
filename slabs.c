@@ -638,7 +638,7 @@ static void *memory_allocate(size_t size) {
 }
 
 /* Must only be used if all pages are item_size_max */
-static void memory_release() {
+static void memory_release(void) {
     void *p = NULL;
     if (mem_base != NULL)
         return;
@@ -1326,6 +1326,7 @@ int start_slab_maintenance_thread(void) {
         fprintf(stderr, "Can't create rebal thread: %s\n", strerror(ret));
         return -1;
     }
+    thread_setname(rebalance_tid, "mc-slabmaint");
     return 0;
 }
 

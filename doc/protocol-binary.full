@@ -1,0 +1,1498 @@
+<?xml version="1.0"?>
+<?rfc toc="yes"?><?rfc strict="yes"?><?rfc symrefs="yes"?><?rfc sortrefs="yes" ?><?rfc compact="yes" ?><?rfc subcompact="yes" ?><rfc category="info" docName="draft-stone-memcache-binary-01" ipr="trust200902" obsoletes="" updates="" submissionType="IETF" xml:lang="en">
+  <front>
+    <title> Memcache Binary Protocol </title>
+
+    <author fullname="Aaron Stone" surname="Stone" role="editor">
+      <organization>Six Apart, Ltd.</organization>
+      <address>
+        <postal>
+          <street>548 4th Street</street>
+          <city>San Francisco</city>
+          <region>CA</region>
+          <code>94107</code>
+          <country>USA</country>
+        </postal>
+        <email>aaron@serendipity.palo-alto.ca.us</email>
+      </address>
+    </author>
+    <author fullname="Trond Norbye" surname="Norbye" role="editor">
+      <organization>Sun Microsystems, INC</organization>
+      <address>
+        <postal>
+          <street>Haakon VII g. 7B</street>
+          <city>Trondheim</city>
+          <code>NO-7485 Trondheim</code>
+          <country>Norway</country>
+        </postal>
+        <email>trond.norbye@sun.com</email>
+      </address>
+    </author>
+    <date day="28" month="August" year="2008"/>
+    <area>Applications</area>
+    <keyword>memcache memcached cache</keyword>
+    <abstract>
+      <t>
+        This memo explains the memcache binary protocol for informational
+        purposes.
+      </t>
+      <t>
+        Memcache is a high performance key-value cache. It is intentionally a
+        dumb cache, optimized for speed only. Applications using memcache do
+        not rely on it for data -- a persistent database with guaranteed
+        reliability is strongly recommended -- but applications can run much
+        faster when cached data is available in memcache.
+      </t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section anchor="introduction" title="Introduction" toc="default">
+      <t>
+        Memcache is a high performance key-value cache. It is intentionally a
+        dumb cache, optimized for speed only. Applications using memcache should
+        not rely on it for data -- a persistent database with guaranteed
+        reliability is strongly recommended -- but applications can run much
+        faster when cached data is available in memcache.
+      </t>
+      <t>
+        Memcache was originally written to make
+        <xref target="LJ">LiveJournal</xref> faster. It now powers all of
+        the fastest web sites that you love.
+      </t>
+      <section anchor="conventions" title="Conventions Used In This Document" toc="default">
+        <t>
+          The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+          "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+          document are to be interpreted as described in
+          <xref target="KEYWORDS"/>.
+        </t>
+      </section>
+    </section>
+
+    <section anchor="packet" title="Packet Structure" toc="default">
+      <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+        <preamble>General format of a packet:</preamble>
+        <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0/ HEADER                                                        /
+    /                                                               /
+    /                                                               /
+    /                                                               /
+    +---------------+---------------+---------------+---------------+
+  24/ COMMAND-SPECIFIC EXTRAS (as needed)                           /
+   +/  (note length in the extras length header field)              /
+    +---------------+---------------+---------------+---------------+
+   m/ Key (as needed)                                               /
+   +/  (note length in key length header field)                     /
+    +---------------+---------------+---------------+---------------+
+   n/ Value (as needed)                                             /
+   +/  (note length is total body length header field, minus        /
+   +/   sum of the extras and key length body fields)               /
+    +---------------+---------------+---------------+---------------+
+    Total 24 bytes
+        </artwork>
+      </figure>
+
+      <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+        <preamble>Request header:</preamble>
+        <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| Magic         | Opcode        | Key length                    |
+    +---------------+---------------+---------------+---------------+
+   4| Extras length | Data type     | Reserved                      |
+    +---------------+---------------+---------------+---------------+
+   8| Total body length                                             |
+    +---------------+---------------+---------------+---------------+
+  12| Opaque                                                        |
+    +---------------+---------------+---------------+---------------+
+  16| CAS                                                           |
+    |                                                               |
+    +---------------+---------------+---------------+---------------+
+    Total 24 bytes
+        </artwork>
+      </figure>
+
+      <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+        <preamble>Response header:</preamble>
+        <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| Magic         | Opcode        | Key Length                    |
+    +---------------+---------------+---------------+---------------+
+   4| Extras length | Data type     | Status                        |
+    +---------------+---------------+---------------+---------------+
+   8| Total body length                                             |
+    +---------------+---------------+---------------+---------------+
+  12| Opaque                                                        |
+    +---------------+---------------+---------------+---------------+
+  16| CAS                                                           |
+    |                                                               |
+    +---------------+---------------+---------------+---------------+
+    Total 24 bytes
+        </artwork>
+      </figure>
+
+      <t>
+        Header fields:
+        <list hangIndent="20" style="hanging">
+          <t hangText="Magic">Magic number.</t>
+          <t hangText="Opcode">Command code.</t>
+          <t hangText="Key length">Length in bytes of the text key that follows the command extras.</t>
+          <t hangText="Status">Status of the response (non-zero on error).</t>
+          <t hangText="Extras length">Length in bytes of the command extras.</t>
+          <t hangText="Data type">Reserved for future use (Sean is using this soon).</t>
+          <t hangText="Reserved">Really reserved for future use (up for grabs).</t>
+          <t hangText="Total body length">Length in bytes of extra + key + value.</t>
+          <t hangText="Opaque">Will be copied back to you in the response.</t>
+          <t hangText="CAS">Data version check.</t>
+        </list>
+      </t>
+    </section>
+
+    <section anchor="values" title="Defined Values" toc="default">
+      <section anchor="value-magic" title="Magic Byte" toc="default">
+        <t>
+        <list hangIndent="8" style="hanging">
+          <t hangText="0x80">Request packet for this protocol version</t>
+          <t hangText="0x81">Response packet for this protocol version</t>
+        </list>
+        </t>
+
+        <t>
+          Magic byte / version. For each version of the protocol, we'll use a
+          different request/response value pair. This is useful for protocol
+          analyzers to distinguish the nature of the packet from the direction
+          which it is moving. Note, it is common to run a memcached instance on
+	  a host that also runs an application server. Such a host will both
+	  send and receive memcache packets.
+        </t>
+
+        <t>
+          The version should hopefully correspond only to different meanings of
+          the command byte. In an ideal world, we will not change the header
+          format. As reserved bytes are given defined meaning, the protocol
+          version / magic byte values should be incremented.
+        </t>
+
+        <t>
+          Traffic analysis tools are encouraged to identify memcache packets
+          and provide detailed interpretation if the magic bytes are recognized
+          and otherwise to provide a generic breakdown of the packet. Note, that
+          the key and value positions can always be identified even if the magic
+          byte or command opcode are not recognized.
+        </t>
+      </section>
+
+      <section anchor="value-status" title="Response Status" toc="default">
+        <t>
+        Possible values of this two-byte field:
+        <list hangIndent="8" style="hanging">
+          <t hangText="0x0000">No error</t>
+          <t hangText="0x0001">Key not found</t>
+          <t hangText="0x0002">Key exists</t>
+          <t hangText="0x0003">Value too large</t>
+          <t hangText="0x0004">Invalid arguments</t>
+          <t hangText="0x0005">Item not stored</t>
+          <t hangText="0x0006">Incr/Decr on non-numeric value.</t>
+          <t hangText="0x0081">Unknown command</t>
+          <t hangText="0x0082">Out of memory</t>
+        </list>
+        </t>
+      </section>
+
+      <section anchor="value-opcodes" title="Command Opcodes" toc="default">
+        <t>
+        Possible values of the one-byte field:
+        <list hangIndent="8" style="hanging">
+          <t hangText="0x00">Get</t>
+          <t hangText="0x01">Set</t>
+          <t hangText="0x02">Add</t>
+          <t hangText="0x03">Replace</t>
+          <t hangText="0x04">Delete</t>
+          <t hangText="0x05">Increment</t>
+          <t hangText="0x06">Decrement</t>
+          <t hangText="0x07">Quit</t>
+          <t hangText="0x08">Flush</t>
+          <t hangText="0x09">GetQ</t>
+          <t hangText="0x0A">No-op</t>
+          <t hangText="0x0B">Version</t>
+          <t hangText="0x0C">GetK</t>
+          <t hangText="0x0D">GetKQ</t>
+          <t hangText="0x0E">Append</t>
+          <t hangText="0x0F">Prepend</t>
+	  <t hangText="0x10">Stat</t>
+          <t hangText="0x11">SetQ</t>
+          <t hangText="0x12">AddQ</t>
+          <t hangText="0x13">ReplaceQ</t>
+          <t hangText="0x14">DeleteQ</t>
+          <t hangText="0x15">IncrementQ</t>
+          <t hangText="0x16">DecrementQ</t>
+          <t hangText="0x17">QuitQ</t>
+          <t hangText="0x18">FlushQ</t>
+          <t hangText="0x19">AppendQ</t>
+          <t hangText="0x1A">PrependQ</t>
+        </list>
+        </t>
+	      <t>
+	        As a convention all of the commands ending with "Q" for
+	        Quiet.  A quiet version of a command will omit responses
+	        that are considered uninteresting.  Whether a given response
+	        is interesting is dependent upon the command.  See the
+	        descriptions of the
+	        <xref target="command-get">set commands</xref>
+	        and <xref target="command-set">set commands</xref> for
+	        examples of commands that include quiet variants.
+	      </t>
+      </section>
+
+      <section anchor="value-types" title="Data Types" toc="default">
+        <t>
+        Possible values of the one-byte field:
+        <list hangIndent="8" style="hanging">
+          <t hangText="0x00">Raw bytes</t>
+        </list>
+        </t>
+      </section>
+    </section>
+
+    <section title="Commands" toc="default">
+      <section anchor="command-introduction" title="Introduction" toc="default">
+        <t>
+        All communication is initiated by a request from the client,
+        and the server will respond to each request with zero or
+	multiple packets for each request. If the status code of a response
+	packet is non-nil, the body of the packet will contain a textual error
+	message. If the status code is nil, the command opcode will define the
+	layout of the body of the message.
+        </t>
+        <section anchor="command-introduction-example" title="Example" toc="default">
+            <t>
+                The following figure illustrates the packet layout for
+                a packet with an error message.
+            </t>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Packet layout:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x81          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x01          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x09          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x4e ('N')    | 0x6f ('o')    | 0x74 ('t')    | 0x20 (' ')    |
+    +---------------+---------------+---------------+---------------+
+  28| 0x66 ('f')    | 0x6f ('o')    | 0x75 ('u')    | 0x6e ('n')    |
+    +---------------+---------------+---------------+---------------+
+  32| 0x64 ('d')    |
+    +---------------+
+    Total 33 bytes (24 byte header, and 9 bytes value)
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x00
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0001
+Total body   (8-11) : 0x00000009
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value        (24-32): The textual string "Not found"
+            </artwork>
+          </figure>
+        </section>
+      </section>
+
+      <section anchor="command-get" title="Get, Get Quietly, Get Key, Get Key Quietly" toc="default">
+        <t>
+            Request:
+        </t>
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+            Response (if found):
+        </t>
+        <t>
+        <list style="empty">
+          <t>MUST have extras.</t>
+          <t>MAY have key.</t>
+          <t>MAY have value.</t>
+        </list>
+        </t>
+
+        <t>
+        <list style="symbols">
+          <t>4 byte flags</t>
+        </list>
+        </t>
+
+        <t>
+        <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+          <preamble>Extra data for the get commands:</preamble>
+          <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| Flags                                                         |
+    +---------------+---------------+---------------+---------------+
+
+    Total 4 bytes
+          </artwork>
+        </figure>
+        </t>
+
+        <t>
+          The get command gets a single key. The getq command is both mum
+          on cache miss and quiet, holding its response until a non-quiet
+          command is issued. Getk and getkq differs from get and getq by
+          adding the key into the response packet.
+        </t>
+
+        <t>
+          You're not guaranteed a response to a getq/getkq cache hit until
+          you send a non-getq/getkq command later, which uncorks the
+          server and bundles up IOs to send to the client in one go.
+        </t>
+
+        <t>
+          Clients should implement multi-get (still important for
+          reducing network roundtrips!) as n pipelined requests, the
+          first n-1 being getq/getkq, the last being a regular
+          get/getk.  That way you're guaranteed to get a response, and
+          you know when the server's done.  You can also do the naive
+          thing and send n pipelined get/getks, but then you could potentially
+          get back a lot of "NOT_FOUND" error code packets.
+          Alternatively, you can send 'n' getq/getkqs, followed by a
+          'noop' command.
+        </t>
+
+        <section anchor="command-get-example" title="Example" toc="default">
+          <t>
+           To request the data associated with the key "Hello" the
+           following fields must be specified in the packet.
+          </t>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>get request:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x00          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+    +---------------+---------------+---------------+---------------+
+  28| 0x6f ('o')    |
+    +---------------+
+
+    Total 29 bytes (24 byte header, and 5 bytes key)
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x00
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000005
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key          (24-29): The textual string: "Hello"
+Value               : None
+            </artwork>
+          </figure>
+          <t>If the item exist on the server the following packet is returned,
+          otherwise a packet with status code != 0 will be returned (see
+           <xref target="command-introduction">Introduction</xref>)
+          </t>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>get/getq response:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x81          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x04          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x09          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x01          |
+    +---------------+---------------+---------------+---------------+
+  24| 0xde          | 0xad          | 0xbe          | 0xef          |
+    +---------------+---------------+---------------+---------------+
+  28| 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    | 0x6c ('l')    |
+    +---------------+---------------+---------------+---------------+
+  32| 0x64 ('d')    |
+    +---------------+
+
+    Total 33 bytes (24 byte header, 4 byte extras and 5 byte value)
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x00
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x04
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000009
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000001
+Extras              :
+  Flags      (24-27): 0xdeadbeef
+Key                 : None
+Value        (28-32): The textual string "World"
+            </artwork>
+          </figure>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>getk/getkq response:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x81          | 0x00          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x04          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x09          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x01          |
+    +---------------+---------------+---------------+---------------+
+  24| 0xde          | 0xad          | 0xbe          | 0xef          |
+    +---------------+---------------+---------------+---------------+
+  28| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+    +---------------+---------------+---------------+---------------+
+  32| 0x6f ('o')    | 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    |
+    +---------------+---------------+---------------+---------------+
+  36| 0x6c ('l')    | 0x64 ('d')    |
+    +---------------+---------------+
+
+    Total 38 bytes (24 byte header, 4 byte extras, 5 byte key
+                    and 5 byte value)
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x00
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x04
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x0000000E
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000001
+Extras              :
+  Flags      (24-27): 0xdeadbeef
+Key          (28-32): The textual string: "Hello"
+Value        (33-37): The textual string: "World"
+            </artwork>
+          </figure>
+        </section>
+      </section>
+
+      <section anchor="command-set" title="Set, Add, Replace" toc="default">
+        <t>
+        <list style="empty">
+          <t>MUST have extras.</t>
+          <t>MUST have key.</t>
+          <t>MUST have value.</t>
+        </list>
+        </t>
+
+        <t>
+          <list style="symbols">
+            <t>4 byte flags</t>
+            <t>4 byte expiration time</t>
+          </list>
+        </t>
+
+        <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+          <preamble>Extra data for set/add/replace:</preamble>
+          <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| Flags                                                         |
+    +---------------+---------------+---------------+---------------+
+   4| Expiration                                                    |
+    +---------------+---------------+---------------+---------------+
+    Total 8 bytes
+          </artwork>
+        </figure>
+
+        <t>
+        If the Data Version Check (CAS) is nonzero, the requested
+        operation MUST only succeed if the item exists and has a CAS value
+        identical to the provided value.
+        </t>
+
+        <t>
+        Add MUST fail if the item already exist.
+        </t>
+
+        <t>
+        Replace MUST fail if the item doesn't exist.
+        </t>
+
+        <t>
+        Set should store the data unconditionally if the item exists
+        or not.
+        </t>
+
+        <t>
+          Quiet mutations only return responses on failure.  Success
+          is considered the general case and is suppressed when in
+          quiet mode, but errors should not be allowed to go
+          unnoticed.
+        </t>
+
+        <section anchor="command-set-example" title="Example" toc="default">
+            <t>The following figure shows an add-command for
+                <list style="empty">
+                  <t>Key: "Hello"</t>
+                  <t>Value: "World"</t>
+                  <t>Flags: 0xdeadbeef</t>
+                  <t>Expiry: in two hours</t>
+                </list>
+            </t>
+           <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+             <preamble>Add request:</preamble>
+             <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x02          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x08          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x12          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0xde          | 0xad          | 0xbe          | 0xef          |
+    +---------------+---------------+---------------+---------------+
+  28| 0x00          | 0x00          | 0x1c          | 0x20          |
+    +---------------+---------------+---------------+---------------+
+  32| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+    +---------------+---------------+---------------+---------------+
+  36| 0x6f ('o')    | 0x57 ('W')    | 0x6f ('o')    | 0x72 ('r')    |
+    +---------------+---------------+---------------+---------------+
+  40| 0x6c ('l')    | 0x64 ('d')    |
+    +---------------+---------------+
+
+    Total 42 bytes (24 byte header, 8 byte extras, 5 byte key and
+                    5 byte value)
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x02
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x08
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000012
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              :
+  Flags      (24-27): 0xdeadbeef
+  Expiry     (28-31): 0x00001c20
+Key          (32-36): The textual string "Hello"
+Value        (37-41): The textual string "World"
+             </artwork>
+           </figure>
+           <t>
+        The response-packet contains no extra data, and the result of the
+        operation is signaled through the status code. If the command
+        succeeds, the CAS value for the item is returned in the CAS-field
+        of the packet.
+           </t>
+           <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+             <preamble>Successful add response:</preamble>
+             <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x81          | 0x02          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x01          |
+    +---------------+---------------+---------------+---------------+
+
+    Total 24 bytes
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x02
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000001
+Extras              : None
+Key                 : None
+Value               : None
+             </artwork>
+           </figure>
+         </section>
+      </section>
+
+      <section anchor="command-delete" title="Delete" toc="default">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+	  Delete the item with the specific key.
+        </t>
+
+        <section anchor="command-delete-example" title="Example" toc="default">
+          <t>The following figure shows a delete message for the
+            item "Hello".</t>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Delete request:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x04          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+    +---------------+---------------+---------------+---------------+
+  28| 0x6f ('o')    |
+    +---------------+
+
+    Total 29 bytes (24 byte header, 5 byte value)
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x04
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000005
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : The textual string "Hello"
+Value               : None
+            </artwork>
+          </figure>
+          <t>
+            The response-packet contains no extra data, and the result of the
+            operation is signaled through the status code.
+          </t>
+        </section>
+      </section>
+
+      <section anchor="command-incr" title="Increment, Decrement" toc="default">
+        <t>
+          <list style="empty">
+            <t>MUST have extras.</t>
+            <t>MUST have key.</t>
+            <t>MUST NOT have value.</t>
+          </list>
+        </t>
+
+        <t>
+          <list style="symbols">
+            <t>8 byte value to add / subtract</t>
+            <t>8 byte initial value (unsigned)</t>
+            <t>4 byte expiration time</t>
+          </list>
+        </t>
+        <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+          <preamble>Extra data for incr/decr:</preamble>
+          <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| Amount to add                                                 |
+    |                                                               |
+    +---------------+---------------+---------------+---------------+
+   8| Initial value                                                 |
+    |                                                               |
+    +---------------+---------------+---------------+---------------+
+  16| Expiration                                                    |
+    +---------------+---------------+---------------+---------------+
+    Total 20 bytes
+          </artwork>
+        </figure>
+
+        <t>
+          These commands will either add or remove the specified
+          amount to the requested counter.
+        </t>
+        <t>
+          If the counter does not exist, one of two things may happen:
+        </t>
+        <t>
+          <list style="numbers">
+          <t>If the expiration value is all one-bits (0xffffffff), the
+             operation will fail with NOT_FOUND.</t>
+          <t>For all other expiration values, the operation will succeed
+             by seeding the value for this key with the provided initial
+             value to expire with the provided expiration time. The flags
+             will be set to zero.</t>
+          </list>
+        </t>
+        <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+          <preamble>incr/decr response body:</preamble>
+          <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 64-bit unsigned response.                                     |
+    |                                                               |
+    +---------------+---------------+---------------+---------------+
+    Total 8 bytes
+          </artwork>
+        </figure>
+        <section anchor="command-incr-example" title="Example" toc="default">
+            <t>The following figure shows an incr-command for
+                <list style="empty">
+                  <t>Key: "counter"</t>
+                  <t>Delta: 0x01</t>
+                  <t>Initial: 0x00</t>
+                  <t>Expiry: in two hours</t>
+                </list>
+            </t>
+            <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+              <preamble>Increment request:</preamble>
+              <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x05          | 0x00          | 0x07          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x14          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x1b          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  28| 0x00          | 0x00          | 0x00          | 0x01          |
+    +---------------+---------------+---------------+---------------+
+  32| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  36| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  40| 0x00          | 0x00          | 0x1c          | 0x20          |
+    +---------------+---------------+---------------+---------------+
+  44| 0x63 ('c')    | 0x6f ('o')    | 0x75 ('u')    | 0x6e ('n')    |
+    +---------------+---------------+---------------+---------------+
+  48| 0x74 ('t')    | 0x65 ('e')    | 0x72 ('r')    |
+    +---------------+---------------+---------------+
+    Total 51 bytes (24 byte header, 20 byte extras, 7 byte key)
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x05
+Key length   (2,3)  : 0x0007
+Extra length (4)    : 0x14
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x0000001b
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              :
+  delta      (24-31): 0x0000000000000001
+  initial    (32-39): 0x0000000000000000
+  expiration (40-43): 0x00001c20
+Key                 : Textual string "counter"
+Value               : None
+              </artwork>
+            </figure>
+            <t>
+             If the key doesn't exist, the server will respond with the
+             initial value. If not the incremented value will be returned.
+             Let's assume that the key didn't exist, so the initial value
+             is returned.
+            </t>
+            <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+              <preamble>Increment response:</preamble>
+              <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x81          | 0x05          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x08          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  28| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+    Total 32 bytes (24 byte header, 8 byte value)
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x05
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000008
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000005
+Extras              : None
+Key                 : None
+Value               : 0x0000000000000000
+              </artwork>
+            </figure>
+          </section>
+      </section>
+
+      <section anchor="command-quit" title="quit" toc="default">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+        Close the connection to the server.
+        </t>
+
+        <section anchor="command-quit-example" title="Example" toc="default">
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Quit request:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x07          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+    Total 24 bytes
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x07
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+            </artwork>
+          </figure>
+          <t>
+            The response-packet contains no extra data, and the result of the
+            operation is signaled through the status code. The server will
+            then close the connection.
+          </t>
+        </section>
+      </section>
+
+      <section anchor="command-flush" title="Flush" toc="default">
+        <t>
+          <list style="empty">
+            <t>MAY have extras.</t>
+            <t>MUST NOT have key.</t>
+            <t>MUST NOT have value.</t>
+          </list>
+        </t>
+
+        <t>
+          <list style="symbols">
+            <t>4 byte expiration time</t>
+          </list>
+        </t>
+        <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+          <preamble>Extra data for flush:</preamble>
+          <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| Expiration                                                    |
+    +---------------+---------------+---------------+---------------+
+  Total 4 bytes
+          </artwork>
+        </figure>
+        <t>
+            Flush the items in the cache now or some time in the future as
+            specified by the expiration field. See the documentation of the
+            textual protocol for the full description on how to specify the
+            expiration time.
+        </t>
+        <section anchor="command-flush-example" title="Example" toc="default">
+        <t>
+            To flush the cache (delete all items) in two hours, the set
+            the following values in the request
+        </t>
+        <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+          <preamble>Flush request:</preamble>
+          <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x08          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x04          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x04          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x00          | 0x00          | 0x1c          | 0x20          |
+    +---------------+---------------+---------------+---------------+
+    Total 28 bytes (24 byte header, 4 byte body)
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x08
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x04
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000004
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              :
+   Expiry    (24-27): 0x00001c20
+Key                 : None
+Value               : None
+          </artwork>
+        </figure>
+          <t>
+            The response-packet contains no extra data, and the result of the
+            operation is signaled through the status code.
+          </t>
+        </section>
+      </section>
+      <section anchor="command-noop" title="noop" toc="default">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+        Used as a keep alive. Flushes outstanding getq/getkq's.
+        </t>
+        <section anchor="command-noop-example" title="Example" toc="default">
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Noop request:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x0a          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+    Total 24 bytes
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x0a
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+            </artwork>
+          </figure>
+          <t>
+            The response-packet contains no extra data, and the result of the
+            operation is signaled through the status code.
+          </t>
+        </section>
+      </section>
+
+      <section anchor="command-version" title="version" toc="default">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST NOT have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+          Request the server version.
+        </t>
+        <t>
+	  The server responds with a packet containing the version string
+	  in the body with the following format: "x.y.z"
+        </t>
+        <section anchor="command-version-example" title="Example" toc="default">
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Version request:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x0b          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+    Total 24 bytes
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x0b
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+            </artwork>
+          </figure>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Version response:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x81          | 0x0b          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x31 ('1')    | 0x2e ('.')    | 0x33 ('3')    | 0x2e ('.')    |
+    +---------------+---------------+---------------+---------------+
+  28| 0x31 ('1')    |
+    +---------------+
+    Total 29 bytes (24 byte header, 5 byte body)
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x0b
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000005
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : Textual string "1.3.1"
+            </artwork>
+          </figure>
+        </section>
+      </section>
+
+      <section anchor="command-append" title="Append, Prepend" toc="default">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MUST have key.</t>
+          <t>MUST have value.</t>
+        </list>
+        </t>
+
+        <t>
+          These commands will either append or prepend the specified
+          value to the requested key.
+        </t>
+
+        <section anchor="command-append-example" title="Example" toc="default">
+          <t>The following example appends '!' to the 'Hello' key.</t>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Append request:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x0e          | 0x00          | 0x05          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x06          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x48 ('H')    | 0x65 ('e')    | 0x6c ('l')    | 0x6c ('l')    |
+    +---------------+---------------+---------------+---------------+
+  28| 0x6f ('o')    | 0x21 ('!')    |
+    +---------------+---------------+
+    Total 30 bytes (24 byte header, 5 byte key, 1 byte value)
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x0e
+Key length   (2,3)  : 0x0005
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000006
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key          (24-28): The textual string "Hello"
+Value        (29)   : "!"
+            </artwork>
+          </figure>
+          <t>
+            The response-packet contains no extra data, and the result of the
+            operation is signaled through the status code.
+          </t>
+        </section>
+      </section>
+
+      <section anchor="command-stat" title="Stat" toc="default">
+        <t>
+        <list style="empty">
+          <t>MUST NOT have extras.</t>
+          <t>MAY have key.</t>
+          <t>MUST NOT have value.</t>
+        </list>
+        </t>
+
+        <t>
+	  Request server statistics. Without a key specified the server will
+          respond with a "default" set of statistics information. Each piece
+          of statistical information is returned in its own packet (key
+          contains the name of the statistical item and the body contains the
+          value in ASCII format). The sequence of return packets is terminated
+          with a packet that contains no key and no value.
+        </t>
+        <section anchor="command-stat-example" title="Example" toc="default">
+            <t>The following example requests all statistics from the server</t>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Stat request:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x80          | 0x10          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+    Total 24 bytes
+
+Field        (offset) (value)
+Magic        (0)    : 0x80
+Opcode       (1)    : 0x10
+Key length   (2,3)  : 0x0000
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Reserved     (6,7)  : 0x0000
+Total body   (8-11) : 0x00000000
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : None
+Value               : None
+            </artwork>
+          </figure>
+          <t>
+              The server will send each value in a separate packet with
+              an "empty" packet (no key / no value) to terminate the sequence.
+              Each of the response packets look like the following example:
+         </t>
+          <figure title="" suppress-title="false" align="left" alt="" width="" height="">
+            <preamble>Stat response:</preamble>
+            <artwork xml:space="preserve" name="" type="" align="left" alt="" width="" height="">
+  Byte/     0       |       1       |       2       |       3       |
+     /              |               |               |               |
+    |0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|0 1 2 3 4 5 6 7|
+    +---------------+---------------+---------------+---------------+
+   0| 0x81          | 0x10          | 0x00          | 0x03          |
+    +---------------+---------------+---------------+---------------+
+   4| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+   8| 0x00          | 0x00          | 0x00          | 0x07          |
+    +---------------+---------------+---------------+---------------+
+  12| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  16| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  20| 0x00          | 0x00          | 0x00          | 0x00          |
+    +---------------+---------------+---------------+---------------+
+  24| 0x70 ('p')    | 0x69 ('i')    | 0x64 ('d')    | 0x33 ('3')    |
+    +---------------+---------------+---------------+---------------+
+  28| 0x30 ('0')    | 0x37 ('7')    | 0x38 ('8')    |
+    +---------------+---------------+---------------+
+    Total 31 bytes (24 byte header, 3 byte key, 4 byte body)
+
+Field        (offset) (value)
+Magic        (0)    : 0x81
+Opcode       (1)    : 0x10
+Key length   (2,3)  : 0x0003
+Extra length (4)    : 0x00
+Data type    (5)    : 0x00
+Status       (6,7)  : 0x0000
+Total body   (8-11) : 0x00000007
+Opaque       (12-15): 0x00000000
+CAS          (16-23): 0x0000000000000000
+Extras              : None
+Key                 : The textual string "pid"
+Value               : The textual string "3078"
+            </artwork>
+          </figure>
+        </section>
+      </section>
+    </section>
+    <section anchor="security" title="Security Considerations" toc="default">
+      <t>
+      Memcache has few authentication and no security layers whatsoever. It is
+      RECOMMENDED that memcache be deployed strictly on closed, protected,
+      back-end networks within a single data center, within a single cluster of
+      servers, or even on a single host, providing shared caching for multiple
+      applications. Memcache MUST NOT be made available on a public network.
+      </t>
+
+      <t>
+      SASL is supported as an authentication mechanism. See the wiki for more
+      information.
+      </t>
+    </section>
+
+  </middle>
+
+  <back>
+    <references title="Normative References">
+      <reference anchor="LJ" quote-title="true">
+        <front>
+          <title>LJ NEEDS MOAR SPEED</title>
+          <author fullname="Brad Fitzpatrick">
+            <organization>Danga Interactive</organization>
+          </author>
+          <date day="5" month="10" year="1999"/>
+          <abstract>
+            <t>http://www.livejournal.com/</t>
+          </abstract>
+        </front>
+      </reference>
+      <reference anchor="KEYWORDS">
+
+<front>
+<title abbrev="RFC Key Words">Key words for use in RFCs to Indicate Requirement Levels</title>
+<author initials="S." surname="Bradner" fullname="Scott Bradner">
+<organization>Harvard University</organization>
+<address>
+<postal>
+<street>1350 Mass. Ave.</street>
+<street>Cambridge</street>
+<street>MA 02138</street></postal>
+<phone>- +1 617 495 3864</phone>
+<email>sob@harvard.edu</email></address></author>
+<date year="1997" month="March"/>
+<area>General</area>
+<keyword>keyword</keyword>
+<abstract>
+<t>
+   In many standards track documents several words are used to signify
+   the requirements in the specification.  These words are often
+   capitalized.  This document defines these words as they should be
+   interpreted in IETF documents.  Authors who follow these guidelines
+   should incorporate this phrase near the beginning of their document:
+
+<list>
+<t>
+      The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL
+      NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED",  "MAY", and
+      "OPTIONAL" in this document are to be interpreted as described in
+      RFC 2119.
+</t></list></t>
+<t>
+   Note that the force of these words is modified by the requirement
+   level of the document in which they are used.
+</t></abstract></front>
+
+<seriesInfo name="BCP" value="14"/>
+<seriesInfo name="RFC" value="2119"/>
+<format type="TXT" octets="4723" target="http://www.rfc-editor.org/rfc/rfc2119.txt"/>
+<format type="HTML" octets="17970" target="http://xml.resource.org/public/rfc/html/rfc2119.html"/>
+<format type="XML" octets="5777" target="http://xml.resource.org/public/rfc/xml/rfc2119.xml"/>
+</reference>
+    </references>
+
+    <section anchor="acknowledgments" title="Acknowledgments" toc="default">
+      <t>
+      Thanks to Brad Fitzpatrick, Anatoly Vorobey, Steven Grimm, and Dustin
+      Sallings, for their work on the memcached server.
+      </t>
+
+      <t>
+      Thanks to Sean Chittenden, Jonathan Steinert, Brian Aker, Evan Martin,
+      Nathan Neulinger, Eric Hodel, Michael Johnson, Paul Querna, Jamie
+      McCarthy, Philip Neustrom, Andrew O'Brien, Josh Rotenberg, Robin H.
+      Johnson, Tim Yardley, Paolo Borelli, Eli Bingham, Jean-Francois
+      Bustarret, Paul G, Paul Lindner, Alan Kasindorf, Chris Goffinet, Tomash
+      Brechko, and others for their work reporting bugs and maintaining
+      memcached client libraries and bindings in many languages.
+      </t>
+    </section>
+  </back>
+
+</rfc>

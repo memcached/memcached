@@ -2,7 +2,7 @@ FROM alpine:latest
 
 ARG CONFIGURE_OPTS="--enable-seccomp"
 
-RUN apk update && apk add --no-cache musl-dev libevent-dev libseccomp-dev linux-headers gcc make automake autoconf perl-test-harness-utils git
+RUN apk update && apk add --no-cache musl-dev libevent-dev libseccomp-dev linux-headers gcc make automake autoconf perl-test-harness-utils git pkgconfig
 
 RUN adduser -S memcached
 ADD . /src

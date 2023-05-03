@@ -9,6 +9,7 @@ local my_zone = 'z1'
 
 local STAT_EXAMPLE <const> = 1
 local STAT_ANOTHER <const> = 2
+--mcp.tcp_keepalive(true)
 
 function mcp_config_pools(oldss)
     mcp.add_stat(STAT_EXAMPLE, "example")
@@ -22,56 +23,56 @@ function mcp_config_pools(oldss)
     -- IPs are "127" . "zone" . "pool" . "srv"
     local pfx = 'fooz1'
     local fooz1 = {
-        srv(pfx .. 'srv1', '127.1.1.1', 11212, 1),
-        srv(pfx .. 'srv2', '127.1.1.2', 11212, 1),
-        srv(pfx .. 'srv3', '127.1.1.3', 11212, 1),
+        srv(pfx .. 'srv1', '127.1.1.1', 11212),
+        srv(pfx .. 'srv2', '127.1.1.2', 11212),
+        srv(pfx .. 'srv3', '127.1.1.3', 11212),
     }
     pfx = 'fooz2'
     local fooz2 = {
-        srv(pfx .. 'srv1', '127.2.1.1', 11213, 1),
-        srv(pfx .. 'srv2', '127.2.1.2', 11213, 1),
-        srv(pfx .. 'srv3', '127.2.1.3', 11213, 1),
+        srv(pfx .. 'srv1', '127.2.1.1', 11213),
+        srv(pfx .. 'srv2', '127.2.1.2', 11213),
+        srv(pfx .. 'srv3', '127.2.1.3', 11213),
     }
     pfx = 'fooz3'
     local fooz3 = {
-        srv(pfx .. 'srv1', '127.3.1.1', 11214, 1),
-        srv(pfx .. 'srv2', '127.3.1.2', 11214, 1),
-        srv(pfx .. 'srv3', '127.3.1.3', 11214, 1),
+        srv(pfx .. 'srv1', '127.3.1.1', 11214),
+        srv(pfx .. 'srv2', '127.3.1.2', 11214),
+        srv(pfx .. 'srv3', '127.3.1.3', 11214),
     }
 
     pfx = 'barz1'
     -- zone "/bar/"-s primary zone should fail; all down.
     local barz1 = {
-        srv(pfx .. 'srv1', '127.1.2.1', 11210, 1),
-        srv(pfx .. 'srv2', '127.1.2.1', 11210, 1),
-        srv(pfx .. 'srv3', '127.1.2.1', 11210, 1),
+        srv(pfx .. 'srv1', '127.1.2.1', 11210),
+        srv(pfx .. 'srv2', '127.1.2.2', 11210),
+        srv(pfx .. 'srv3', '127.1.2.3', 11210),
     }
     pfx = 'barz2'
     local barz2 = {
-        srv(pfx .. 'srv1', '127.2.2.2', 11215, 1),
-        srv(pfx .. 'srv2', '127.2.2.2', 11215, 1),
-        srv(pfx .. 'srv3', '127.2.2.2', 11215, 1),
+        srv(pfx .. 'srv1', '127.2.2.1', 11215),
+        srv(pfx .. 'srv2', '127.2.2.2', 11215),
+        srv(pfx .. 'srv3', '127.2.2.3', 11215),
     }
     pfx = 'barz3'
     local barz3 = {
-        srv(pfx .. 'srv1', '127.3.2.3', 11216, 1),
-        srv(pfx .. 'srv2', '127.3.2.3', 11216, 1),
-        srv(pfx .. 'srv3', '127.3.2.3', 11216, 1),
+        srv(pfx .. 'srv1', '127.3.2.1', 11216),
+        srv(pfx .. 'srv2', '127.3.2.2', 11216),
+        srv(pfx .. 'srv3', '127.3.2.3', 11216),
     }
 
     -- fallback cache for any zone
     -- NOT USED YET
     pfx = 'fallz1'
     local fallz1 = {
-        srv(pfx .. 'srv1', '127.0.2.1', 11212, 1),
+        srv(pfx .. 'srv1', '127.0.2.1', 11212),
     }
     pfx = 'fallz2'
     local fallz2 = {
-        srv(pfx .. 'srv1', '127.0.2.2', 11212, 1),
+        srv(pfx .. 'srv1', '127.0.2.2', 11212),
     }
     pfx = 'fallz3'
     local fallz3 = {
-        srv(pfx .. 'srv1', '127.0.2.3', 11212, 1),
+        srv(pfx .. 'srv1', '127.0.2.3', 11212),
     }
 
     local main_zones = {
@@ -83,19 +84,16 @@ function mcp_config_pools(oldss)
     -- FIXME: should we copy the table to keep the pool tables around?
     -- does the hash selector hold a reference to the pool (but only available in main config?)
 
-    -- uncomment to use the ketama loadable module.
-    -- FIXME: passing an argument to the ketama module doesn't work yet.
-    -- local ketama = require("ketama")
-
     -- convert the pools into hash selectors.
     -- TODO: is this a good place to add prefixing/hash editing?
     for _, subs in pairs(main_zones) do
         for k, v in pairs(subs) do
-            -- use next line instead for a third party ketama hash
-            -- subs[k] = mcp.pool(v, { dist = ketama, hash = ketama.hash })
-            -- this line overrides the default bucket size for ketama
-            -- subs[k] = mcp.pool(v, { dist = ketama, obucket = 80 })
-            -- this line uses the default murmur3 straight hash.
+            -- next line uses a ring hash in "evcache compat" mode. note the
+            -- hash= override to use MD5 key hashing from ketama.
+            -- subs[k] = mcp.pool(v, { dist = mcp.dist_ring_hash, omode = "evcache", hash = mcp.dist_ring_hash.hash })
+            -- override the number of buckets per server.
+            -- subs[k] = mcp.pool(v, { dist = mcp.dist_ring_hash, omode = "evcache", hash = mcp.dist_ring_hash.hash, obuckets = 240 })
+            -- this line uses the default (currently xxhash + jump hash)
             subs[k] = mcp.pool(v)
 
             -- use this next line instead for jump hash.
@@ -117,6 +115,15 @@ end
 
 -- need to redefine main_zones using fetched selectors?
 
+function reqlog_factory(route)
+    local nr = route
+    return function(r)
+        local res, detail = nr(r)
+        mcp.log_req(r, res, detail)
+        return res
+    end
+end
+
 -- TODO: Fallback zone here?
 function failover_factory(zones, local_zone)
     local near_zone = zones[local_zone]
@@ -131,14 +138,57 @@ function failover_factory(zones, local_zone)
     return function(r)
         local res = near_zone(r)
         if res:hit() == false then
-            for _, zone in pairs(far_zones) do
-                res = zone(r)
+            -- example for mcp.log... Don't do this though :)
+            -- mcp.log("failed to find " .. r:key() .. " in zone: " .. local_zone)
+            --for _, zone in pairs(far_zones) do
+            --    res = zone(r)
+            local restable = mcp.await(r, far_zones, 1)
+            for _, res in pairs(restable) do
                 if res:hit() then
-                    break
+                    --break
+                    return res, "failover_backup_hit"
                 end
             end
+            return restable[1], "failover_backup_miss"
         end
-        return res -- send result back to client
+        -- example of making a new set request on the side.
+        -- local nr = mcp.request("set /foo/asdf 0 0 " .. res:vlen() .. "\r\n", res)
+        -- local nr = mcp.request("set /foo/asdf 0 0 2\r\n", "mo\r\n")
+        -- near_zone(nr)
+        return res, "failover_hit" -- send result back to client
+    end
+end
+
+function meta_get_factory(zones, local_zone)
+    local near_zone = zones[local_zone]
+    -- in this test function we only fetch from the local zone.
+    return function(r)
+        if r:has_flag("l") == true then
+            print("client asking for last access time")
+        end
+        local texists, token = r:flag_token("O")
+        -- next example returns the previous token and replaces it.
+        -- local texists, token = r:flag_token("O", "Odoot")
+        if token ~= nil then
+            print("meta opaque flag token: " .. token)
+        end
+        local res = near_zone(r)
+
+        return res
+    end
+end
+
+function meta_set_factory(zones, local_zone)
+    local near_zone = zones[local_zone]
+    -- in this test function we only talk to the local zone.
+    return function(r)
+        local res = near_zone(r)
+        if res:code() == mcp.MCMC_CODE_NOT_FOUND then
+            print("got meta NF response")
+        end
+        print("meta response line: " .. res:line())
+
+        return res
     end
 end
 
@@ -159,10 +209,14 @@ function setinvalidate_factory(zones, local_zone)
         if res:ok() == true then
             -- create a new delete request
             local dr = new_req("delete /testing/" .. r:key() .. "\r\n")
-            for _, zone in pairs(far_zones) do
-                -- NOTE: can check/do things on the specific response here.
-                zone(dr)
-            end
+            -- example of new request from existing request
+            -- note this isn't trimming the key so it'll make a weird one.
+            -- local dr = new_req("set /bar/" .. r:key() .. " 0 0 " .. r:token(5) .. "\r\n", r)
+            -- AWAIT_BACKGROUND allows us to immediately resume processing, executing the
+            -- delete requests in the background.
+            mcp.await(dr, far_zones, 0, mcp.AWAIT_BACKGROUND)
+            --mcp.await(dr, far_zones, 0)
+            mcp.log_req(r, res, "setinvalidate") -- time against the original request, since we have no result.
         end
         -- use original response for client, not DELETE's response.
         -- else client won't understand.
@@ -256,7 +310,7 @@ function mcp_config_routes(main_zones)
     -- generate the prefix routes from zones.
     local prefixes = {}
     for pfx, z in pairs(main_zones) do
-        local failover = failover_factory(z, my_zone)
+        local failover = reqlog_factory(failover_factory(z, my_zone))
         local all = walkall_factory(main_zones[pfx])
         local setdel = setinvalidate_factory(z, my_zone)
         local map = {}
@@ -268,6 +322,8 @@ function mcp_config_routes(main_zones)
         -- need better routes designed for the test suite (edit the key
         -- prefix or something)
         map[mcp.CMD_ADD] = failover_factory(z, my_zone)
+        map[mcp.CMD_MG] = meta_get_factory(z, my_zone)
+        map[mcp.CMD_MS] = meta_set_factory(z, my_zone)
         prefixes[pfx] = command_factory(map, failover)
     end
 
@@ -278,4 +334,7 @@ function mcp_config_routes(main_zones)
     -- are attached to the internal parser.
     --mcp.attach(mcp.CMD_ANY, function (r) return routetop(r) end)
     mcp.attach(mcp.CMD_ANY_STORAGE, routetop)
+    -- tagged top level attachments. ex: memcached -l tag[tagtest]:127.0.0.1:11212
+    -- mcp.attach(mcp.CMD_ANY_STORAGE, function (r) return "SERVER_ERROR no route\r\n" end, "tagtest")
+    -- mcp.attach(mcp.CMD_ANY_STORAGE, function (r) return "SERVER_ERROR my route\r\n" end, "newtag")
 end

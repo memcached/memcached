@@ -427,6 +427,11 @@ sub graceful_stop {
     kill 'SIGUSR1', $self->{pid};
 }
 
+sub reload {
+    my $self = shift;
+    kill 'SIGHUP', $self->{pid};
+}
+
 # -1 if the pid is actually dead.
 sub is_running {
     my $self = shift;

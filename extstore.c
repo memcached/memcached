@@ -1,5 +1,6 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
+#include "config.h"
 // FIXME: config.h?
 #include <stdint.h>
 #include <stdbool.h>
@@ -16,7 +17,6 @@
 #include <string.h>
 #include <assert.h>
 #include "extstore.h"
-#include "config.h"
 
 // TODO: better if an init option turns this on/off.
 #ifdef EXTSTORE_DEBUG
@@ -111,6 +111,19 @@ struct store_engine {
     pthread_mutex_t stats_mutex;
     struct extstore_stats stats;
 };
+
+// FIXME: code is duplicated from thread.c since extstore.c doesn't pull in
+// the memcached ecosystem. worth starting a cross-utility header with static
+// definitions/macros?
+// keeping a minimal func here for now.
+#define THR_NAME_MAXLEN 16
+static void thread_setname(pthread_t thread, const char *name) {
+assert(strlen(name) < THR_NAME_MAXLEN);
+#if defined(__linux__)
+pthread_setname_np(thread, name);
+#endif
+}
+#undef THR_NAME_MAXLEN
 
 static _store_wbuf *wbuf_new(size_t size) {
     _store_wbuf *b = calloc(1, sizeof(_store_wbuf));
@@ -378,6 +391,7 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
         e->io_threads[i].e = e;
         // FIXME: error handling
         pthread_create(&thread, NULL, extstore_io_thread, &e->io_threads[i]);
+        thread_setname(thread, "mc-ext-io");
     }
     e->io_threadcount = cf->io_threadcount;
 
@@ -387,6 +401,7 @@ void *extstore_init(struct extstore_conf_file *fh, struct extstore_conf *cf,
     pthread_mutex_init(&e->maint_thread->mutex, NULL);
     pthread_cond_init(&e->maint_thread->cond, NULL);
     pthread_create(&thread, NULL, extstore_maint_thread, e->maint_thread);
+    thread_setname(thread, "mc-ext-maint");
 
     extstore_run_maint(e);
 

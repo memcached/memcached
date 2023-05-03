@@ -21,7 +21,7 @@ list to ask questions, github issues aren't seen by everyone!
 * libseccomp (optional, experimental, linux) - enables process restrictions for
   better security. Tested only on x86-64 architectures.
 * openssl (optional) - enables TLS support. need relatively up to date
-  version.
+  version. pkg-config is needed to find openssl dependencies (such as -lz).
 
 ## Environment
 

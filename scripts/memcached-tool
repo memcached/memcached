@@ -36,6 +36,12 @@ if ($mode eq "display") {
         undef $mode if $limit < 1;
         print STDERR "ERROR: invalid limit (should be a positive number)\n\n" unless $mode;
     }
+} elsif ($mode eq 'keys') {
+    if (@ARGV) {
+        $limit = shift;
+        undef $mode if $limit < 1;
+        print STDERR "ERROR: invalid limit (should be a positive number)\n\n" unless $mode;
+    }
 } elsif ($mode eq 'stats') {
     ;
 } elsif ($mode eq 'settings') {
@@ -56,6 +62,7 @@ die
        memcached-tool 10.0.0.5:11211 settings       # shows settings stats
        memcached-tool 10.0.0.5:11211 sizes          # shows sizes stats
        memcached-tool 10.0.0.5:11211 dump [limit]   # dumps keys and values
+       memcached-tool 10.0.0.5:11211 keys [limit]   # dumps keys
 
 WARNING! sizes is a development command.
 As of 1.4 it is still the only command which will lock your memcached instance for some time.
@@ -134,6 +141,25 @@ if ($mode eq 'dump') {
             $_ = <$sock>;
             $_ = <$sock>;
         }
+    }
+    exit;
+}
+
+if ($mode eq 'keys') {
+    print STDERR "Dumping memcache keys";
+    print STDERR " (limiting to $limit keys)" unless !$limit;
+    print STDERR "\n";
+    print $sock "lru_crawler metadump all\r\n";
+    my %keyexp;
+    my $keycount = 0;
+    while (<$sock>) {
+        last if /^END/ or ($limit and $keycount == $limit);
+        # return format looks like this
+        # key=foo exp=2147483647 la=1521046038 cas=717111 fetch=no cls=13 size=1232
+        if (/^key=(\S+) exp=(-?\d+) .*/) {
+            print $_
+        }
+        $keycount++;
     }
     exit;
 }

@@ -273,8 +273,12 @@ void crc32c_init(void) {
     }
 }
 
-#elif defined(__aarch64__) && defined(__linux__)
+#elif defined(__aarch64__) && (defined(__linux__) || defined(__APPLE__))
+#if defined(__linux__)
 #include <sys/auxv.h>
+#elif defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 
 #if defined(HWCAP_CRC32)
 static inline uint32_t crc32cx(uint32_t crc, const uint64_t data)
@@ -331,11 +335,20 @@ static uint32_t crc32c_hw(uint32_t crc, void const *buf, size_t len) {
 }
 
 void crc32c_init(void) {
+#if defined(__linux__)
     uint64_t auxv = getauxval(AT_HWCAP);
 
     crc32c = crc32c_sw;
     if (auxv & HWCAP_CRC32)
         crc32c = crc32c_hw;
+#elif defined(__APPLE__)
+    int armv8_crc32;
+    size_t size = sizeof(armv8_crc32);
+
+    if (sysctlbyname("hw.optional.armv8_crc32", &armv8_crc32, &size, NULL, 0) == 0 &&
+       armv8_crc32 == 1)
+        crc32c = crc32c_hw;
+#endif
 }
 #else /* no hw crc32 on arm64 system supported? old compiler/libc/kernel? */
 void crc32c_init(void) {

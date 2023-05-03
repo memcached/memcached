@@ -80,7 +80,7 @@ static struct conn *con = NULL;
 static bool allow_closed_read = false;
 static bool enable_ssl = false;
 
-static void close_conn() {
+static void close_conn(void) {
     if (con == NULL) return;
 #ifdef TLS
     if (con->ssl) {
@@ -216,6 +216,8 @@ static enum test_return cache_limit_revised_downward_test(void)
 
     assert(cache->total == allocated_num-1);
     cache_destroy(cache);
+
+    free(alloc_objs);
 
     return TEST_PASS;
 }
@@ -2011,7 +2013,7 @@ static void *binary_hickup_recv_verification_thread(void *arg) {
 
 static enum test_return test_binary_pipeline_hickup_chunk(void *buffer, size_t buffersize) {
     off_t offset = 0;
-    char *key[256];
+    char *key[256] = { NULL };
     uint64_t value = 0xfeedfacedeadbeef;
 
     while (hickup_thread_running &&
