@@ -126,7 +126,6 @@ function mcp_config_routes(zones)
     end
 
     pfx_mg["hasflag"] = function(r)
-        local hasflag = r:has_flag("c")
         if r:has_flag("c") then
             return "HD C123\r\n"
         else

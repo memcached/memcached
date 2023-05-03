@@ -433,6 +433,8 @@ check_version($ps);
 
 {
     announce("Test quiet flag", __LINE__);
+
+    # make sure q is replaced by a space, and HD is not returned to client
     my $be = $mbe[0];
     my $cmd = "ms /b/a 2 q\r\nhi\r\n";
     print $ps $cmd;
@@ -441,9 +443,9 @@ check_version($ps);
     
     print $be "HD\r\n";
 
-    # Make a version request to ensure HD is not responded to client.
     check_version($ps);
 
+    # make sure q is replaced by a space, and none-HD reponse are returned to client.
     my $cmd = "ms /b/a 2 q\r\nhi\r\n";
     print $ps $cmd;
     is(scalar <$be>, "ms /b/a 2  \r\n", "set received with q replaced by a space");
@@ -451,7 +453,7 @@ check_version($ps);
 
     print $be "EX\r\n";
 
-    # EX is still returned
+    # EX response is returned to client
     is(scalar <$ps>, "EX\r\n", "EX return to client.");
 
     check_version($ps);
@@ -463,7 +465,7 @@ check_version($ps);
 
     print $be "garbage\r\n";
 
-    # error is still returned to client
+    # a failure is returned to client
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend failure error");
 
     $mbe[0] = accept_backend($mocksrvs[0]);
@@ -497,26 +499,26 @@ check_version($ps);
     print $be "END\r\n";
     is(scalar <$ps>, "END\r\n", "ltrimkey END");
 
-    # request:ntokens()
+    # return the number of token as the value and verify.
     print $ps "mg /ntokens/test c v\r\n";
     is(scalar <$ps>, "VA 1 C123 v\r\n", "request:key()");
     is(scalar <$ps>, "4\r\n", "request:ntokens() value");
 
-    # token(n, "replacement")
+    # replace a token and verify request received by backend
     print $ps "ms /token/replacement 2 C123\r\nhi\r\n";
     is(scalar <$be>, "ms /token/replacement 2 C456\r\n", "token replacement");
     is(scalar <$be>, "hi\r\n", "token replacement");
     print $be "NF\r\n";
     is(scalar <$ps>, "NF\r\n", "NF");
 
-    # token(n, "") removal
+    # remove a token and verify request received by backend.
     print $ps "ms /token/removal 2 C123\r\nhi\r\n";
     is(scalar <$be>, "ms /token/removal 2 \r\n", "token removal, note the space");
     is(scalar <$be>, "hi\r\n", "token removal");
     print $be "NF\r\n";
     is(scalar <$ps>, "NF\r\n", "NF");
 
-    # token() fetch
+    # fetch a token and verify in lua then return HD if matched.
     print $ps "ms /token/fetch 2\r\nhi\r\n";
     is(scalar <$ps>, "HD\r\n", "HD is received");
 
