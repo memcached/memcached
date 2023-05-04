@@ -275,6 +275,11 @@ function mcp_config_routes(zones)
         return good_res
     end
 
+    pfx_touch["sanity"] = function(r)
+        local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 })
+        return rtable[3]
+    end
+
     mcp.attach(mcp.CMD_GET, toproute_factory(pfx_get, "get"))
     mcp.attach(mcp.CMD_SET, toproute_factory(pfx_set, "set"))
     mcp.attach(mcp.CMD_TOUCH, toproute_factory(pfx_touch, "touch"))

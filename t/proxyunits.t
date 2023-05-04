@@ -41,14 +41,6 @@ sub accept_backend {
     return $be;
 }
 
-# Put a version command down the pipe to ensure the socket is clear.
-# client version commands skip the proxy code
-sub check_version {
-    my $ps = shift;
-    print $ps "version\r\n";
-    like(<$ps>, qr/VERSION /, "version received");
-}
-
 my @mocksrvs = ();
 #diag "making mock servers";
 for my $port (11411, 11412, 11413) {
@@ -67,6 +59,27 @@ my @mbe = ();
 for my $msrv (@mocksrvs) {
     my $be = accept_backend($msrv);
     push(@mbe, $be);
+}
+
+# Put a version command down the pipe to ensure the socket is clear.
+# client version commands skip the proxy code
+sub check_version {
+    my $ps = shift;
+    print $ps "version\r\n";
+    like(<$ps>, qr/VERSION /, "version received");
+}
+
+# Send a touch command to all backends, and verify response.
+# This makes sure socket buffers are clean between tests.
+sub check_sanity {
+    my $ps = shift;
+    my $cmd = "touch /sanity/a 50\r\n";
+    print $ps $cmd;
+    foreach my $be (@mbe) {
+        is(scalar <$be>, $cmd, "sanity check: touch cmd received");
+        print $be "TOUCHED\r\n";
+    }
+    is(scalar <$ps>, "TOUCHED\r\n", "sanity check: TOUCHED response received.");
 }
 
 # Basic test with no backends. Write a command to the client, and check the
@@ -347,7 +360,7 @@ SKIP: {
 
 # run a cleanser check between each set of tests.
 # This ensures nothing was left in the client pipeline.
-check_version($ps);
+check_sanity($ps);
 
 {
     # multiget syntax
@@ -388,7 +401,7 @@ check_version($ps);
     is(scalar <$ps>, "END\r\n", "end after empty multiget");
 }
 
-check_version($ps);
+check_sanity($ps);
 
 {
     # noreply tests.
@@ -417,7 +430,7 @@ check_version($ps);
     # - errors should still pass through to client
 }
 
-check_version($ps);
+check_sanity($ps);
 
 # Test Lua request API
 {
@@ -464,7 +477,7 @@ check_version($ps);
     # - passing in value blob
 }
 
-check_version($ps);
+check_sanity($ps);
 # Test Lua response API
 #{
     # elapsed()
@@ -493,7 +506,7 @@ check_version($ps);
     is(scalar <$ps>, "END\r\n", "END from invalid route");
 }
 
-check_version($ps);
+check_sanity($ps);
 # Test re-requests in lua.
 # - fetch zones.z1() then fetch zones.z2()
 # - return z1 or z2 or netiher
@@ -531,7 +544,7 @@ check_version($ps);
 
 # Test user stats
 
-check_version($ps);
+check_sanity($ps);
 # Test await arguments (may move to own file?)
 # TODO: the results table from mcp.await() contains all of the results so far,
 # regardless of the mode.
@@ -660,6 +673,7 @@ check_version($ps);
     $fbe = $mbe[2];
     is(scalar <$fbe>, "set $key 0 0 2\r\n", "set backend req");
     is(scalar <$fbe>, "mo\r\n", "set backend data");
+    print $fbe "STORED\r\n";
 
     # Testing another set; ensure it isn't returning early.
     my $s = IO::Select->new();
@@ -695,6 +709,8 @@ check_version($ps);
     # test hitting mcp.await() then a pool normally
 }
 
+check_sanity($ps);
+
 {
     my $watcher = $p_srv->new_sock;
     print $watcher "watch proxyreqs\n";
@@ -717,6 +733,7 @@ check_version($ps);
         is(scalar <$be>, "hello\r\n", "await_logerrors set payload");
         print $be "SERVER_ERROR out of memory\r\n";
     }
+
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=\d+ code=\d+ status=-1 be=(\S+) detail=write_failed req=set \/awaitlogerr\/a/, "await_logerrors log entry 1");
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=\d+ code=\d+ status=-1 be=(\S+) detail=write_failed req=set \/awaitlogerr\/a/, "await_logerrors log entry 2");
 
@@ -729,7 +746,8 @@ check_version($ps);
     like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 be=127.0.0.1:11411 detail=logreqtest req=get \/logreqtest\/a/, "found request log entry");
 }
 
-check_version($ps);
+check_sanity($ps);
+
 # Test out of spec commands from client
 # - wrong # of tokens
 # - bad key size
@@ -825,5 +843,5 @@ check_version($ps);
     is(scalar <$ps>, "SERVER_ERROR\r\n", "lua saw correct error code");
 }
 
-check_version($ps);
+check_sanity($ps);
 done_testing();
