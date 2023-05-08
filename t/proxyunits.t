@@ -84,9 +84,55 @@ sub check_sanity {
     is(scalar <$ps>, "TOUCHED\r\n", "sanity check: TOUCHED response received.");
 }
 
-# Basic test with no backends. Write a command to the client, and check the
-# response.
+# $ps_send : request to proxy
+# $be_recv : ref to a hashmap from be index to an array of received requests for validation.
+# $be_send : ref to a hashmap from be index to an array of responses to proxy.
+# $ps_recv : ref to response returned by proxy
+# backends in $be_recv and $be_send are vistied by looping through the @mbe.
+sub proxy_test {
+    my %args = @_;
+
+    my $ps_send = $args{ps_send};
+    my $be_recv = $args{be_recv} // {};
+    my $be_send = $args{be_send} // {};
+    my $ps_recv = $args{ps_recv} // [];
+
+    # sends request to proxy
+    print $ps $ps_send;
+
+    # verify all backends received request
+    foreach my $idx (keys @mbe) {
+        if (exists $be_recv->{$idx}) {
+            my $be = $mbe[$idx];
+            foreach my $recv (@{$be_recv->{$idx}}) {
+                is(scalar <$be>, $recv, "be " . $idx . " received expected response");
+            }
+        }
+    }
+
+    # backends send responses
+    foreach my $idx (keys @mbe) {
+        if (exists $be_send->{$idx}) {
+            my $be = $mbe[$idx];
+            foreach my $send (@{$be_send->{$idx}}) {
+                print $be $send;
+            }
+        }
+    }
+
+    # verify proxy received response
+    if (scalar @{$ps_recv}) {
+        foreach my $recv (@{$ps_recv}) {
+            is(scalar <$ps>, $recv, "ps returned expected response.");
+        }
+    } else {
+        # makes sure nothing was received when ps_recv is empty.
+        check_version($ps)
+    }
+}
+
 {
+    # Write a request with bad syntax, and check the response.
     print $ps "set with the wrong number of tokens\n";
     is(scalar <$ps>, "CLIENT_ERROR parsing request\r\n", "got CLIENT_ERROR for bad syntax");
 }
@@ -104,14 +150,27 @@ sub check_sanity {
     note("Test missing END:" . __LINE__);
 
     # Test a fix for passing through partial read data if END ends up missing.
-    print $ps "get /b/a\r\n";
     my $be = $mbe[0];
+    my $w = $p_srv->new_sock;
+    print $w "watch proxyevents\n";
+    is(<$w>, "OK\r\n", "watcher enabled");
 
+    # write a request to proxy.
+    print $ps "get /b/a\r\n";
+
+    # verify request is received by backend.
     is(scalar <$be>, "get /b/a\r\n", "get passthrough");
+
+    # write a response with partial data.
     print $be "VALUE /b/a 0 2\r\nhi\r\nEN";
 
+    # verify the error response from proxy
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend failure error");
 
+    # verify a particular proxy event logline is received
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=timeout name=127.0.0.1 port=\d+ depth=1 rbuf=EN/, "got backend error log line");
+
+    # backend is disconnected due to the error, so we have to re-establish it.
     $mbe[0] = accept_backend($mocksrvs[0]);
 }
 
@@ -438,10 +497,43 @@ check_sanity($ps);
     print $be "TOUCHED\r\n";
 
     is(scalar <$ps>, "TOUCHED\r\n", "got TOUCHED instread of STORED");
+}
 
-    # TODO: meta quiet cases
-    # - q should be turned into a space on the backend
-    # - errors should still pass through to client
+check_sanity($ps);
+
+{
+    subtest 'quiet flag: HD response' => sub {
+        # be_recv must receive a response with quiet flag replaced by a space.
+        # ps_recv must not receoved HD response.
+        proxy_test(
+            ps_send => "ms /b/a 2 q\r\nhi\r\n",
+            be_recv => {0 => ["ms /b/a 2  \r\n", "hi\r\n"]},
+            be_send => {0 => ["HD\r\n"]},
+        );
+    };
+
+    subtest 'quiet flag: EX response' => sub {
+        # be_recv must receive a response with quiet flag replaced by a space.
+        # ps_recv must return EX response from the backend.
+        proxy_test(
+            ps_send => "ms /b/a 2 q\r\nhi\r\n",
+            be_recv => {0 => ["ms /b/a 2  \r\n", "hi\r\n"]},
+            be_send => {0 => ["EX\r\n"]},
+            ps_recv => ["EX\r\n"],
+        );
+    };
+
+    subtest 'quiet flag: backend failure' => sub {
+        # be_recv must receive a response with quiet flag replaced by a space.
+        # ps_recv must return backend failure response from the backend.
+        proxy_test(
+            ps_send => "ms /b/a 2 q\r\nhi\r\n",
+            be_recv => {0 => ["ms /b/a 2  \r\n", "hi\r\n"]},
+            be_send => {0 => ["garbage\r\n"]},
+            ps_recv => ["SERVER_ERROR backend failure\r\n"],
+        );
+        $mbe[0] = accept_backend($mocksrvs[0]);
+    };
 }
 
 check_sanity($ps);
@@ -473,15 +565,68 @@ check_sanity($ps);
     print $be "END\r\n";
     is(scalar <$ps>, "END\r\n", "ltrimkey END");
 
-    # token(n) fetch
-    # token(n, "replacement")
-    # token(n, "") removal
-    # ntokens()
-    # command() integer
-    #
-    # meta:
-    # has_flag("F")
-    # test has_flag() against non-meta command
+    subtest 'request:ntokens()' => sub {
+        # ps_recv must return value that matches the number of tokens.
+        proxy_test(
+            ps_send => "mg /ntokens/test c v\r\n",
+            ps_recv => ["VA 1 C123 v\r\n", "4\r\n"],
+        );
+    };
+
+    subtest 'request:token() replacement' => sub {
+        # be_recv must received a response with replaced CAS token.
+        proxy_test(
+            ps_send => "ms /token/replacement 2 C123\r\nhi\r\n",
+            be_recv => {0 => ["ms /token/replacement 2 C456\r\n", "hi\r\n"]},
+            be_send => {0 => ["NF\r\n"]},
+            ps_recv => ["NF\r\n"],
+        );
+    };
+
+    subtest 'request:token() remove' => sub {
+        # be_recv must received a response with CAS token removed.
+        proxy_test(
+            ps_send => "ms /token/removal 2 C123\r\nhi\r\n",
+            be_recv => {0 => ["ms /token/removal 2 \r\n", "hi\r\n"]},
+            be_send => {0 => ["NF\r\n"]},
+            ps_recv => ["NF\r\n"],
+        );
+    };
+
+    subtest 'request:token() fetch' => sub {
+        # ps_recv must received HD for a successful fetch call.
+        proxy_test(
+            ps_send => "ms /token/fetch 2 C123\r\nhi\r\n",
+            ps_recv => ["HD\r\n"],
+        );
+    };
+
+    # # command() integer
+
+    subtest 'request:has_flag() meta 1' => sub {
+        # ps_recv must receive HD C123 for a successful hash_flag call.
+        proxy_test(
+            ps_send => "mg /hasflag/test c\r\n",
+            ps_recv => ["HD C123\r\n"],
+        );
+    };
+
+    subtest 'request:has_flag() meta 2' => sub {
+        # ps_recv must receive HD Oabc for a successful hash_flag call.
+        proxy_test(
+            ps_send => "mg /hasflag/test Oabc T999\r\n",
+            ps_recv => ["HD Oabc\r\n"],
+        );
+    };
+
+    subtest 'request:has_flag() none-meta ' => sub {
+        # ps_recv must receive END for a successful hash_flag call.
+        proxy_test(
+            ps_send => "get /hasflag/test\r\n",
+            ps_recv => ["END\r\n"],
+        );
+    };
+
     # flag_token("F") with no token (bool, nil|token)
     # flag_token("F") with token
     # flag_token("F", "FReplacement")
@@ -572,20 +717,21 @@ check_sanity($ps);
 {
     note("Test await argument:" . __LINE__);
 
+    subtest 'Await hits all 3 backends' => sub {
+        # be_recv must receive hit from all three backends
+        my $key = "/awaitbasic/a";
+        my $ps_send = "get $key\r\n";
+        my @be_send = ["VALUE $key 0 2\r\nok\r\nEND\r\n"];
+        proxy_test(
+            ps_send => $ps_send,
+            be_recv => {0 => [$ps_send], 1 => [$ps_send], 2 => [$ps_send]},
+            be_send => {0 => @be_send, 1 => @be_send, 2 => @be_send},
+            ps_recv => ["VALUE $key 0 11\r\n", "hit hit hit\r\n", "END\r\n"],
+        );
+    };
+
     my $cmd;
-    # await(r, p)
-    # this should hit all three backends
-    my $key = "/awaitbasic/a";
-    $cmd = "get $key\r\n";
-    print $ps $cmd;
-    for my $be (@mbe) {
-        is(scalar <$be>, $cmd, "awaitbasic backend req");
-        print $be "VALUE $key 0 2\r\nok\r\nEND\r\n";
-    }
-    is(scalar <$ps>, "VALUE $key 0 11\r\n", "response from await");
-    is(scalar <$ps>, "hit hit hit\r\n", "hit responses from await");
-    is(scalar <$ps>, "END\r\n", "end from await");
-    # repeat above test but with different combo of results
+    my $key;
 
     # await(r, p, 1)
     $key = "/awaitone/a";

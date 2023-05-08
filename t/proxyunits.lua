@@ -120,6 +120,45 @@ function mcp_config_routes(zones)
         return zones.z1(r)
     end
 
+    pfx_mg["ntokens"] = function(r)
+        return "VA 1 C123 v\r\n" .. r:ntokens() .. "\r\n"
+    end
+
+    pfx_mg["hasflag"] = function(r)
+        if r:has_flag("c") then
+            return "HD C123\r\n"
+        elseif r:has_flag("O") then
+            return "HD Oabc\r\n"
+        end
+        return "FAIL"
+    end
+
+    pfx_get["hasflag"] = function(r)
+        if r:has_flag("F") then
+            return "FAIL"
+        end
+        return "END\r\n"
+    end
+
+    pfx_ms["token"] = function(r)
+        local key = r:key()
+        if key == "/token/replacement" then
+            r:token(4, "C456")
+            return zones.z1(r)
+        elseif key == "/token/removal" then
+            r:token(4, "")
+            return zones.z1(r)
+        else
+            local token = r:token(2)
+            if token == "/token/fetch" then
+                return "HD\r\n"
+            else
+                return "NF\r\n"
+            end
+        end
+        return "FAIL"
+    end
+
     -- Basic test for routing requests to specific pools.
     -- Not sure how this could possibly break but testing for completeness.
     pfx_get["zonetest"] = function(r)
