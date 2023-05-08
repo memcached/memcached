@@ -347,10 +347,10 @@ static void _copy_config_table(lua_State *from, lua_State *to, LIBEVENT_THREAD *
                         lua_pushlstring(to, lua_tostring(from, -2), lua_rawlen(from, -2));
                         break;
                     case LUA_TNUMBER:
-                        if (lua_isinteger(from, -1)) {
-                            lua_pushinteger(to, lua_tointeger(from, -1));
+                        if (lua_isinteger(from, -2)) {
+                            lua_pushinteger(to, lua_tointeger(from, -2));
                         } else {
-                            lua_pushnumber(to, lua_tonumber(from, -1));
+                            lua_pushnumber(to, lua_tonumber(from, -2));
                         }
                         break;
                     default:
