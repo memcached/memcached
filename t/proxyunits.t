@@ -116,7 +116,7 @@ sub proxy_test {
     }
 
     # verify proxy received response
-    if (@{$ps_recv}) { 
+    if (@{$ps_recv}) {
         foreach my $recv (@{$ps_recv}) {
             is(scalar <$ps>, $recv, "ps returned expected response.");
         }
@@ -729,7 +729,7 @@ check_sanity($ps);
 
         my @be_send = ["VALUE $key 0 2\r\nok\r\nEND\r\n"];
         my %be_send = (0 => @be_send, 1 => @be_send, 2 => @be_send);
-        
+
         my @ps_recv = ("VALUE $key 0 11\r\n", "hit hit hit\r\n", "END\r\n");
         proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
     };
