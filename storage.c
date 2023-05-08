@@ -574,8 +574,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
 
 static pthread_t storage_write_tid;
 static pthread_mutex_t storage_write_plock;
-#define WRITE_SLEEP_MIN 500
-#define MIN_PAGES_FREE 3
+#define WRITE_SLEEP_MIN 200
 
 static void *storage_write_thread(void *arg) {
     void *storage = arg;
@@ -597,6 +596,10 @@ static void *storage_write_thread(void *arg) {
         int min_class = slabs_clsid(settings.ext_item_size);
         unsigned int global_pages = global_page_pool_size(NULL);
         bool do_sleep = true;
+        int target_pages = 0;
+        if (global_pages < settings.ext_global_pool_min) {
+            target_pages = settings.ext_global_pool_min - global_pages;
+        }
         counter++;
         if (to_sleep > settings.ext_max_sleep)
             to_sleep = settings.ext_max_sleep;
@@ -606,10 +609,8 @@ static void *storage_write_thread(void *arg) {
             bool mem_limit_reached = false;
             unsigned int chunks_free;
             int item_age;
+
             if (min_class > x || (backoff[x] && (counter % backoff[x] != 0))) {
-                // Long sleeps means we should retry classes sooner.
-                if (to_sleep > WRITE_SLEEP_MIN * 10)
-                    backoff[x] /= 2;
                 continue;
             }
 
@@ -617,12 +618,12 @@ static void *storage_write_thread(void *arg) {
             unsigned int chunks_perpage = 0;
             chunks_free = slabs_available_chunks(x, &mem_limit_reached,
                     &chunks_perpage);
-            unsigned int target = chunks_perpage * MIN_PAGES_FREE;
+            unsigned int target = chunks_perpage * target_pages;
 
             // storage_write() will fail and cut loop after filling write buffer.
             while (1) {
                 // if we are low on chunks and no spare, push out early.
-                if (chunks_free < target && global_pages <= settings.ext_global_pool_min) {
+                if (chunks_free < target) {
                     item_age = 0;
                 } else {
                     item_age = settings.ext_item_age;
@@ -630,6 +631,7 @@ static void *storage_write_thread(void *arg) {
                 if (storage_write(storage, x, item_age)) {
                     chunks_free++; // Allow stopping if we've done enough this loop
                     did_move = true;
+                    do_sleep = false;
                     if (to_sleep > WRITE_SLEEP_MIN)
                         to_sleep /= 2;
                 } else {
@@ -639,7 +641,7 @@ static void *storage_write_thread(void *arg) {
 
             if (!did_move) {
                 backoff[x]++;
-            } else if (backoff[x]) {
+            } else {
                 backoff[x] = 1;
             }
         }
@@ -647,6 +649,11 @@ static void *storage_write_thread(void *arg) {
         // flip lock so we can be paused or stopped
         pthread_mutex_unlock(&storage_write_plock);
         if (do_sleep) {
+            // Only do backoffs on other slab classes if we're actively
+            // flushing at least one class.
+            for (int x = 0; x < MAX_NUMBER_OF_SLAB_CLASSES; x++) {
+                backoff[x] = 1;
+            }
             usleep(to_sleep);
             to_sleep++;
         }
