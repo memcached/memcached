@@ -41,6 +41,8 @@ sub accept_backend {
     return $be;
 }
 
+note("Initialization:" . __LINE__);
+
 my @mocksrvs = ();
 #diag "making mock servers";
 for my $port (11411, 11412, 11413) {
@@ -99,6 +101,8 @@ sub check_sanity {
 # In this case the client will receive an error and the backend gets closed,
 # so we have to re-establish it.
 {
+    note("Test missing END:" . __LINE__);
+
     # Test a fix for passing through partial read data if END ends up missing.
     print $ps "get /b/a\r\n";
     my $be = $mbe[0];
@@ -114,6 +118,8 @@ sub check_sanity {
 # This test is similar to the above one, except we also establish a watcher to
 # check for appropriate log entries.
 {
+    note("Test trailingdata:" . __LINE__);
+
     # Test a log line with detailed data from backend failures.
     my $be = $mbe[0];
     my $w = $p_srv->new_sock;
@@ -133,6 +139,8 @@ sub check_sanity {
 
     $mbe[0] = accept_backend($mocksrvs[0]);
 }
+
+note("Test bugfix for missingend:" . __LINE__);
 
 # This is an example of a test which will only pass before a bugfix is issued.
 # It's good practice where possible to write a failing test, then check it
@@ -193,6 +201,8 @@ SKIP: {
 # Should test all command types.
 # uses /b/ path for "basic"
 {
+    note("Test all commands to a single backend:" . __LINE__);
+
     # Test invalid route.
     print $ps "set /invalid/a 0 0 2\r\nhi\r\n";
     is(scalar <$ps>, "SERVER_ERROR no set route\r\n");
@@ -363,6 +373,8 @@ SKIP: {
 check_sanity($ps);
 
 {
+    note("Test multiget:" . __LINE__);
+
     # multiget syntax
     # - gets broken into individual gets on backend
     my $be = $mbe[0];
@@ -404,6 +416,8 @@ check_sanity($ps);
 check_sanity($ps);
 
 {
+    note("Test noreply:" . __LINE__);
+
     # noreply tests.
     # - backend should receive with noreply/q stripped or mangled
     # - backend should reply as normal
@@ -434,6 +448,8 @@ check_sanity($ps);
 
 # Test Lua request API
 {
+    note("Test Lua request APIs:" . __LINE__);
+
     my $be = $mbe[0];
 
     # fetching the key.
@@ -490,6 +506,8 @@ check_sanity($ps);
 
 # Test requests land in proper backend in basic scenarios
 {
+    note("Test routing by zone:" . __LINE__);
+
     # TODO: maybe should send values to ensure the right response?
     # I don't think this test is very useful though; probably better to try
     # harder when testing error conditions.
@@ -517,6 +535,8 @@ check_sanity($ps);
 
 # Test Lua logging (see t/watcher.t)
 {
+    note("Test Lua logging:" . __LINE__);
+
     my $be = $mbe[0];
     my $watcher = $p_srv->new_sock;
     print $watcher "watch proxyuser proxyreqs\n";
@@ -550,6 +570,8 @@ check_sanity($ps);
 # regardless of the mode.
 # need some tests that show this.
 {
+    note("Test await argument:" . __LINE__);
+
     my $cmd;
     # await(r, p)
     # this should hit all three backends
@@ -712,6 +734,8 @@ check_sanity($ps);
 check_sanity($ps);
 
 {
+    note("Test await_logerrors:" . __LINE__);
+
     my $watcher = $p_srv->new_sock;
     print $watcher "watch proxyreqs\n";
     is(<$watcher>, "OK\r\n", "watcher enabled");
@@ -757,6 +781,8 @@ check_sanity($ps);
 # - certain errors pass through to the client, most close the backend.
 # - should be able to retrieve the error message
 {
+    note("Test error/garbage from backend:" . __LINE__);
+
     my $be = $mbe[0];
     print $ps "set /b/foo 0 0 2\r\nhi\r\n";
     is(scalar <$be>, "set /b/foo 0 0 2\r\n", "received set cmd");
