@@ -90,7 +90,12 @@ sub check_sanity {
 # $ps_recv : ref to response returned by proxy
 # backends in $be_recv and $be_send are vistied by looping through the @mbe.
 sub proxy_test {
-    my ($ps_send, $be_recv, $be_send, $ps_recv) = @_;
+    my %args = @_;
+
+    my $ps_send = $args{ps_send};
+    my $be_recv = $args{be_recv} // {};
+    my $be_send = $args{be_send} // {};
+    my $ps_recv = $args{ps_recv} // [];
 
     # sends request to proxy
     print $ps $ps_send;
@@ -116,7 +121,7 @@ sub proxy_test {
     }
 
     # verify proxy received response
-    if (@{$ps_recv}) {
+    if (scalar @{$ps_recv}) {
         foreach my $recv (@{$ps_recv}) {
             is(scalar <$ps>, $recv, "ps returned expected response.");
         }
@@ -497,39 +502,36 @@ check_sanity($ps);
 check_sanity($ps);
 
 {
-    subtest 'quiet flag 1' => sub {
-        # Test Scenario
-        my $ps_send = "ms /b/a 2 q\r\nhi\r\n";
-        # backend must receive response with quiet flag replaced by a space.
-        my %be_recv = (0 => ["ms /b/a 2  \r\n", "hi\r\n"]);
-        my %be_send = (0 => ["HD\r\n"]);
-        # proxy must not return HD response from the backend.
-        my @ps_recv = ();
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+    subtest 'quiet flag: HD response' => sub {
+        # be_recv must receive a response with quiet flag replaced by a space.
+        # ps_recv must not receoved HD response.
+        proxy_test(
+            ps_send => "ms /b/a 2 q\r\nhi\r\n",
+            be_recv => {0 => ["ms /b/a 2  \r\n", "hi\r\n"]},
+            be_send => {0 => ["HD\r\n"]},
+        );
     };
 
-    subtest 'quiet flag 2' => sub {
-        # Test Scenario
-        my $ps_send = "ms /b/a 2 q\r\nhi\r\n";
-        # backend must receive response with quiet flag replaced by a space.
-        my %be_recv = (0 => ["ms /b/a 2  \r\n", "hi\r\n"]);
-        my %be_send = (0 => ["EX\r\n"]);
-        # proxy must return EX response from the backend.
-        my @ps_recv = ("EX\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+    subtest 'quiet flag: EX response' => sub {
+        # be_recv must receive a response with quiet flag replaced by a space.
+        # ps_recv must return EX response from the backend.
+        proxy_test(
+            ps_send => "ms /b/a 2 q\r\nhi\r\n",
+            be_recv => {0 => ["ms /b/a 2  \r\n", "hi\r\n"]},
+            be_send => {0 => ["EX\r\n"]},
+            ps_recv => ["EX\r\n"],
+        );
     };
 
-    subtest 'quiet flag 3' => sub {
-        # Test Scenario
-        my $ps_send = "ms /b/a 2 q\r\nhi\r\n";
-        # backend must receive response with quiet flag replaced by a space.
-        my %be_recv = (0 => ["ms /b/a 2  \r\n", "hi\r\n"]);
-        # backend returns garbage
-        my %be_send = (0 => ["garbage\r\n"]);
-        # proxy must return backend failure.
-        my @ps_recv = ("SERVER_ERROR backend failure\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
-        # fix connection due to backend failure.
+    subtest 'quiet flag: backend failure' => sub {
+        # be_recv must receive a response with quiet flag replaced by a space.
+        # ps_recv must return backend failure response from the backend.
+        proxy_test(
+            ps_send => "ms /b/a 2 q\r\nhi\r\n",
+            be_recv => {0 => ["ms /b/a 2  \r\n", "hi\r\n"]},
+            be_send => {0 => ["garbage\r\n"]},
+            ps_recv => ["SERVER_ERROR backend failure\r\n"],
+        );
         $mbe[0] = accept_backend($mocksrvs[0]);
     };
 }
@@ -564,69 +566,65 @@ check_sanity($ps);
     is(scalar <$ps>, "END\r\n", "ltrimkey END");
 
     subtest 'request:ntokens()' => sub {
-        my $ps_send = "mg /ntokens/test c v\r\n";
-        my %be_recv = ();
-        my %be_send = ();
-        # proxy must return value that matches the number of tokens.
-        my @ps_recv = ("VA 1 C123 v\r\n", "4\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+        # ps_recv must return value that matches the number of tokens.
+        proxy_test(
+            ps_send => "mg /ntokens/test c v\r\n",
+            ps_recv => ["VA 1 C123 v\r\n", "4\r\n"],
+        );
     };
 
     subtest 'request:token() replacement' => sub {
-        my $ps_send = "ms /token/replacement 2 C123\r\nhi\r\n";
-        # backend must verify CAS token got replaced.
-        my %be_recv = (0 => ["ms /token/replacement 2 C456\r\n", "hi\r\n"]);
-        my %be_send = (0 => ["NF\r\n"]);
-        my @ps_recv = ("NF\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+        # be_recv must received a response with replaced CAS token.
+        proxy_test(
+            ps_send => "ms /token/replacement 2 C123\r\nhi\r\n",
+            be_recv => {0 => ["ms /token/replacement 2 C456\r\n", "hi\r\n"]},
+            be_send => {0 => ["NF\r\n"]},
+            ps_recv => ["NF\r\n"],
+        );
     };
 
     subtest 'request:token() remove' => sub {
-        my $ps_send = "ms /token/removal 2 C123\r\nhi\r\n";
-        # backend must verify CAS token got removed.
-        my %be_recv = (0 => ["ms /token/removal 2 \r\n", "hi\r\n"]);
-        my %be_send = (0 => ["NF\r\n"]);
-        my @ps_recv = ("NF\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+        # be_recv must received a response with CAS token removed.
+        proxy_test(
+            ps_send => "ms /token/removal 2 C123\r\nhi\r\n",
+            be_recv => {0 => ["ms /token/removal 2 \r\n", "hi\r\n"]},
+            be_send => {0 => ["NF\r\n"]},
+            ps_recv => ["NF\r\n"],
+        );
     };
 
     subtest 'request:token() fetch' => sub {
-        my $ps_send = "ms /token/fetch 2 C123\r\nhi\r\n";
-        my %be_recv = ();
-        my %be_send = ();
-        # proxy must return HD for the test to succeed, more detail in Lua.
-        my @ps_recv = ("HD\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+        # ps_recv must received HD for a successful fetch call.
+        proxy_test(
+            ps_send => "ms /token/fetch 2 C123\r\nhi\r\n",
+            ps_recv => ["HD\r\n"],
+        );
     };
 
-    # command() integer
+    # # command() integer
 
     subtest 'request:has_flag() meta 1' => sub {
-        # Test Scenario: check flags with request:has_flag()
-        my $ps_send = "mg /hasflag/test c\r\n";
-        my %be_recv = ();
-        my %be_send = ();
-        # proxy must return HD C123 for the test to succeed, more detail in Lua.
-        my @ps_recv = ("HD C123\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+        # ps_recv must receive HD C123 for a successful hash_flag call.
+        proxy_test(
+            ps_send => "mg /hasflag/test c\r\n",
+            ps_recv => ["HD C123\r\n"],
+        );
     };
 
     subtest 'request:has_flag() meta 2' => sub {
-        my $ps_send = "mg /hasflag/test Oabc T999\r\n";
-        my %be_recv = ();
-        my %be_send = ();
-        # proxy must return HD Oabc for the test to succeed, more detail in Lua.
-        my @ps_recv = ("HD Oabc\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+        # ps_recv must receive HD Oabc for a successful hash_flag call.
+        proxy_test(
+            ps_send => "mg /hasflag/test Oabc T999\r\n",
+            ps_recv => ["HD Oabc\r\n"],
+        );
     };
 
     subtest 'request:has_flag() none-meta ' => sub {
-        my $ps_send = "get /hasflag/test\r\n";
-        my %be_recv = ();
-        my %be_send = ();
-        # proxy must return END for the test to succeed, more detail in Lua.
-        my @ps_recv = ("END\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+        # ps_recv must receive END for a successful hash_flag call.
+        proxy_test(
+            ps_send => "get /hasflag/test\r\n",
+            ps_recv => ["END\r\n"],
+        );
     };
 
     # flag_token("F") with no token (bool, nil|token)
@@ -720,18 +718,16 @@ check_sanity($ps);
     note("Test await argument:" . __LINE__);
 
     subtest 'Await hits all 3 backends' => sub {
-        # Test Scenario
+        # be_recv must receive hit from all three backends
         my $key = "/awaitbasic/a";
         my $ps_send = "get $key\r\n";
-
-        my @be_recv = [$ps_send];
-        my %be_recv = (0 => @be_recv, 1 => @be_recv, 2 => @be_recv);
-
         my @be_send = ["VALUE $key 0 2\r\nok\r\nEND\r\n"];
-        my %be_send = (0 => @be_send, 1 => @be_send, 2 => @be_send);
-
-        my @ps_recv = ("VALUE $key 0 11\r\n", "hit hit hit\r\n", "END\r\n");
-        proxy_test($ps_send, \%be_recv, \%be_send, \@ps_recv);
+        proxy_test(
+            ps_send => $ps_send,
+            be_recv => {0 => [$ps_send], 1 => [$ps_send], 2 => [$ps_send]},
+            be_send => {0 => @be_send, 1 => @be_send, 2 => @be_send},
+            ps_recv => ["VALUE $key 0 11\r\n", "hit hit hit\r\n", "END\r\n"],
+        );
     };
 
     my $cmd;
