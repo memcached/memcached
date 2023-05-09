@@ -594,16 +594,18 @@ check_sanity($ps);
     };
 
     subtest 'request:token() fetch' => sub {
-        # ps_recv must received HD for a successful fetch call.
+        # be_recv must received the key token in the P flag.
         proxy_test(
-            ps_send => "ms /token/fetch 2 C123\r\nhi\r\n",
+            ps_send => "ms /token/fetch 2 C123 P\r\nhi\r\n",
+            be_recv => {0 => ["ms /token/fetch 2 C123 P/token/fetch\r\n", "hi\r\n"]},
+            be_send => {0 => ["HD\r\n"]},
             ps_recv => ["HD\r\n"],
         );
     };
 
     # # command() integer
 
-    subtest 'request:has_flag() meta 1' => sub {
+    subtest 'request:has_flag() meta positive 1' => sub {
         # ps_recv must receive HD C123 for a successful hash_flag call.
         proxy_test(
             ps_send => "mg /hasflag/test c\r\n",
@@ -611,11 +613,19 @@ check_sanity($ps);
         );
     };
 
-    subtest 'request:has_flag() meta 2' => sub {
+    subtest 'request:has_flag() meta positive 2' => sub {
         # ps_recv must receive HD Oabc for a successful hash_flag call.
         proxy_test(
             ps_send => "mg /hasflag/test Oabc T999\r\n",
             ps_recv => ["HD Oabc\r\n"],
+        );
+    };
+
+    subtest 'request:has_flag() meta negative' => sub {
+        # ps_recv must receive NF when has_flag returns false.
+        proxy_test(
+            ps_send => "mg /hasflag/test T999\r\n",
+            ps_recv => ["NF\r\n"],
         );
     };
 
@@ -627,15 +637,46 @@ check_sanity($ps);
         );
     };
 
-    # flag_token("F") with no token (bool, nil|token)
-    # flag_token("F") with token
-    # flag_token("F", "FReplacement")
-    # flag_token("F", "") removal
-    # flag_token("F", "FReplacement") -> flag_token("F") test repeated fetch
+    subtest 'request:flag_token()' => sub {
+        # be_recv must receive expected flags after a series of flag_token() calls.
+        proxy_test(
+            ps_send => "mg /flagtoken/a N10 k c R10\r\n",
+            ps_recv => ["HD\r\n"],
+        );
+    };
 
-    # mcp.request() - has a few modes to test
-    # - allows passing in an existing request to clone/edit
-    # - passing in value blob
+
+    subtest 'request edit' => sub {
+        # be_recv must receive the edited request.
+        proxy_test(
+            ps_send => "ms /request/edit 2\r\nhi\r\n",
+            be_recv => {0 => ["ms /request/edit 2\r\n", "ab\r\n"]},
+            be_send => {0 => ["HD\r\n"]},
+            ps_recv => ["HD\r\n"],
+        );
+    };
+
+    subtest 'request new' => sub {
+        # be_recv must receive the new request.
+        proxy_test(
+            ps_send => "mg /request/old\r\n",
+            be_recv => {0 => ["mg /request/new c\r\n"]},
+            be_send => {0 => ["HD C123\r\n"]},
+            ps_recv => ["HD C123\r\n"],
+        );
+    };
+
+    subtest 'request clone response' => sub {
+        # be must receive cloned meta-set from the previous meta-get.
+        my $be = $mbe[0];
+        print $ps "mg /request/clone v\r\n";
+        is(scalar <$be>, "mg /request/clone v\r\n", "get passthrough");
+        print $be "VA 1 v\r\n4\r\n";
+        is(scalar <$be>, "ms /request/a 1\r\n", "received cloned meta-set");
+        is(scalar <$be>, "4\r\n", "received cloned meta-set value");
+        print $be "HD\r\n";
+        is(scalar <$ps>, "HD\r\n", "received HD");
+    };
 }
 
 check_sanity($ps);
