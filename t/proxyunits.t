@@ -680,15 +680,245 @@ check_sanity($ps);
 }
 
 check_sanity($ps);
+
 # Test Lua response API
-#{
-    # elapsed()
-    # ok()
-    # hit()
-    # vlen()
-    # code()
-    # line()
-#}
+{
+    subtest 'response:elapsed() >100000micros' => sub {
+        # ps_recv must not receive an error
+        my $be = $mbe[0];
+        my $cmd = "mg /response/elapsed\r\n";
+        print $ps $cmd;
+        is(scalar <$be>, $cmd, "be received request.");
+        sleep 0.1;
+        print $be "HD\r\n";
+        is(scalar <$ps>, "HD\r\n", "proxy received HD");
+    };
+
+
+    subtest 'response:ok()' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "mg /response/ok\r\n",
+            be_recv => {0 => ["mg /response/ok\r\n"]},
+            be_send => {0 => ["HD\r\n"]},
+            ps_recv => ["HD\r\n"],
+        );
+    };
+
+    subtest 'response:ok() false 1' => sub {
+        # ps_recv must receive an error
+        proxy_test(
+            ps_send => "mg /response/not_ok\r\n",
+            be_recv => {0 => ["mg /response/not_ok\r\n"]},
+            be_send => {0 => ["SERVER_ERROR\r\n"]},
+            ps_recv => ["SERVER_ERROR\r\n"],
+        );
+    };
+
+    subtest 'response:ok() false 2' => sub {
+        # ps_recv must receive an error
+        proxy_test(
+            ps_send => "mg /response/not_ok\r\n",
+            be_recv => {0 => ["mg /response/not_ok\r\n"]},
+            be_send => {0 => ["GARBAGE\r\n"]},
+            ps_recv => ["SERVER_ERROR\r\n"],
+        );
+
+        # test not_ok when backend is disconnected.
+        # ps_recv must receive an error
+        proxy_test(
+            ps_send => "mg /response/not_ok\r\n",
+            ps_recv => ["SERVER_ERROR\r\n"],
+        );
+
+        $mbe[0] = accept_backend($mocksrvs[0]);
+        $mbe[0] = accept_backend($mocksrvs[0]);
+    };
+
+    subtest 'response:ok() false 3' => sub {
+        # ps_recv must receive an error
+        proxy_test(
+            ps_send => "mg /response/not_ok\r\n",
+            be_recv => {0 => ["mg /response/not_ok\r\n"]},
+            be_send => {0 => ["HD\r"]},
+            ps_recv => ["SERVER_ERROR\r\n"],
+        );
+        $mbe[0] = accept_backend($mocksrvs[0]);
+    };
+
+    subtest 'response:hit() mg' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "mg /response/hit\r\n",
+            be_recv => {0 => ["mg /response/hit\r\n"]},
+            be_send => {0 => ["HD\r\n"]},
+            ps_recv => ["HD\r\n"],
+        );
+    };
+
+    subtest 'response:hit() get' => sub {
+        # ps_recv must not receive an error
+        my $key = "/response/hit";
+        proxy_test(
+            ps_send => "get $key\r\n",
+            be_recv => {0 => ["get $key\r\n"]},
+            be_send => {0 => ["VALUE $key 0 1\r\na\r\nEND\r\n"]},
+            ps_recv => ["VALUE $key 0 1\r\n", "a\r\n", "END\r\n"],
+        );
+    };
+
+    subtest 'response:hit() false 1' => sub {
+        # ps_recv must receive an error
+        proxy_test(
+            ps_send => "mg /response/not_hit\r\n",
+            be_recv => {0 => ["mg /response/not_hit\r\n"]},
+            be_send => {0 => ["EN\r\n"]},
+            ps_recv => ["SERVER_ERROR\r\n"],
+        );
+    };
+
+    subtest 'response:hit() false 2' => sub {
+        # ps_recv must receive an error
+        proxy_test(
+            ps_send => "get /response/not_hit\r\n",
+            be_recv => {0 => ["get /response/not_hit\r\n"]},
+            be_send => {0 => ["END\r\n"]},
+            ps_recv => ["SERVER_ERROR\r\n"],
+        );
+    };
+
+    subtest 'response:hit() false 3' => sub {
+        # ps_recv must receive an error
+        proxy_test(
+            ps_send => "mg /response/not_hit\r\n",
+            be_recv => {0 => ["mg /response/not_hit\r\n"]},
+            be_send => {0 => ["SERVER_ERROR\r\n"]},
+            ps_recv => ["SERVER_ERROR\r\n"],
+        );
+    };
+
+    subtest 'response:vlen()' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "mg /response/vlen v\r\n",
+            be_recv => {0 => ["mg /response/vlen v\r\n"]},
+            be_send => {0 => ["VA 1 v\r\n", "4\r\n"]},
+            ps_recv => ["VA 1 v\r\n", "4\r\n"],
+        );
+    };
+
+    subtest 'response:code() MCMC_CODE_OK' => sub {
+        # ps_recv must not receive an error
+        my $cmd = "mg /response/code_ok v\r\n";
+        proxy_test(
+            ps_send => $cmd,
+            be_recv => {0 => [$cmd]},
+            be_send => {0 => ["VA 1 v\r\n", "4\r\n"]},
+            ps_recv => ["VA 1 v\r\n", "4\r\n"],
+        );
+
+        proxy_test(
+            ps_send => "ms /response/code_ok 1\r\na\r\n",
+            be_recv => {0 => ["ms /response/code_ok 1\r\n", "a\r\n"]},
+            be_send => {0 => ["HD\r\n"]},
+            ps_recv => ["HD\r\n"],
+        );
+    };
+
+    subtest 'response:code() MCMC_CODE_MISS' => sub {
+        # ps_recv must not receive an error
+        my $cmd = "mg /response/code_miss v\r\n";
+        proxy_test(
+            ps_send => $cmd,
+            be_recv => {0 => [$cmd]},
+            be_send => {0 => ["EN\r\n"]},
+            ps_recv => ["EN\r\n"],
+        );
+    };
+
+    subtest 'response:code() MCMC_CODE_STORED' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "set /response/code_stored 0 0 1\r\na\r\n",
+            be_recv => {0 => ["set /response/code_stored 0 0 1\r\n", "a\r\n"]},
+            be_send => {0 => ["STORED\r\n"]},
+            ps_recv => ["STORED\r\n"],
+        );
+    };
+
+    subtest 'response:code() MCMC_CODE_EXISTS' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "set /response/code_exists 0 0 1\r\na\r\n",
+            be_recv => {0 => ["set /response/code_exists 0 0 1\r\n", "a\r\n"]},
+            be_send => {0 => ["EXISTS\r\n"]},
+            ps_recv => ["EXISTS\r\n"],
+        );
+    };
+
+    subtest 'response:code() MCMC_CODE_NOT_STORED' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "set /response/code_not_stored 0 0 1\r\na\r\n",
+            be_recv => {0 => ["set /response/code_not_stored 0 0 1\r\n", "a\r\n"]},
+            be_send => {0 => ["NOT_STORED\r\n"]},
+            ps_recv => ["NOT_STORED\r\n"],
+        );
+    };
+
+    subtest 'response:code() MCMC_CODE_NOT_FOUND' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "set /response/code_not_found 0 0 1\r\na\r\n",
+            be_recv => {0 => ["set /response/code_not_found 0 0 1\r\n", "a\r\n"]},
+            be_send => {0 => ["NOT_FOUND\r\n"]},
+            ps_recv => ["NOT_FOUND\r\n"],
+        );
+    };
+
+    subtest 'response:code() MCMC_CODE_TOUCHED' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "touch /response/code_touched 50\r\n",
+            be_recv => {0 => ["touch /response/code_touched 50\r\n"]},
+            be_send => {0 => ["TOUCHED\r\n"]},
+            ps_recv => ["TOUCHED\r\n"],
+        );
+    };
+
+    subtest 'response:code() MCMC_CODE_DELETED' => sub {
+        # ps_recv must not receive an error
+        proxy_test(
+            ps_send => "delete /response/code_deleted\r\n",
+            be_recv => {0 => ["delete /response/code_deleted\r\n"]},
+            be_send => {0 => ["DELETED\r\n"]},
+            ps_recv => ["DELETED\r\n"],
+        );
+    };
+
+    SKIP: {
+        skip "response:line() is broken";
+        subtest 'response:line()' => sub {
+            # ps_recv must not receive an error
+            my $cmd = "mg /response/line v\r\n";
+            proxy_test(
+                ps_send => $cmd,
+                be_recv => {0 => [$cmd]},
+                be_send => {0 => ["VA 1 v c123\r\n", "a\r\n"]},
+                ps_recv => ["VA 1 v c123\r\n", "a\r\n"],
+            );
+
+            # ps_recv must not receive an error
+            proxy_test(
+                ps_send => "ms /response/line 2\r\nab\r\n",
+                be_recv => {0 => ["ms /response/line 2\r\n", "ab\r\n"]},
+                be_send => {0 => ["HD O123 C123\r\n"]},
+                ps_recv => ["HD O123 C123\r\n"],
+            );
+        };
+    };
+}
+
 
 # Test requests land in proper backend in basic scenarios
 {
