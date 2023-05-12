@@ -141,41 +141,41 @@ function mcp_config_routes(zones)
         local Otoken = r:flag_token("O", nil)
         local vtoken = r:flag_token("v", "")
         if vtoken or Otoken or Ttoken then
-            return "ERROR found non-existing flag."
+            return "ERROR found non-existing flag.\r\n"
         end
 
         -- flag_token to replace: N10 -> N100
         local found, Ntoken = r:flag_token("N", "N100")
         if not found or Ntoken ~= "10" then
-            return "ERROR unexpected N token."
+            return "ERROR unexpected N token.\r\n"
         end
 
         -- flag_token with nil 2nd arg: equvalent to fetch
         r:flag_token("k", nil)
         if not r:has_flag("k") then
-            return "ERROR unexpected k token."
+            return "ERROR unexpected k token.\r\n"
         end
 
         -- flag_token with self 2nd arg: no effect
         r:flag_token("c", "c")
         if not r:has_flag("c") then
-            return "ERROR unexpected c token 1."
+            return "ERROR unexpected c token 1.\r\n"
         end
 
         -- flag_token with "" 2nd arg: remove
         r:flag_token("c", "")
         if r:has_flag("c") then
-            return "ERROR unexpected c token 2."
+            return "ERROR unexpected c token 2.\r\n"
         end
 
         -- repeated flag_token calls: new value is returned.
         local _, Rtoken = r:flag_token("R", "R100")
         if Rtoken ~= '10' then
-            return "ERROR unexpected R token 1."
+            return "ERROR unexpected R token 1.\r\n"
         end
         _, Rtoken = r:flag_token("R", "R100")
         if Rtoken ~= '100' then
-            return "ERROR unexpected R token 2."
+            return "ERROR unexpected R token 2.\r\n"
         end
 
         return "HD\r\n"
@@ -197,6 +197,157 @@ function mcp_config_routes(zones)
             local newReq = mcp.request("ms /request/a " .. res:vlen() .. "\r\n", res)
             return zones.z1(newReq)
         end
+    end
+
+    pfx_get["response"] = function(r)
+        local res = zones.z1(r)
+        local key = r:key()
+        if key == "/response/hit" then
+            local hit = res:hit()
+            if hit then
+                return res
+            end
+            return "ERROR hit is false\r\n"
+        elseif key == "/response/not_hit" then
+            local hit = res:hit()
+            if not hit then
+                return "SERVER_ERROR\r\n"
+            end
+            return res
+        end
+        return "ERROR unhandled key\r\n"
+    end
+
+    pfx_mg["response"] = function(r)
+        local res = zones.z1(r)
+        local key = r:key()
+        if key == "/response/elapsed" then
+            local elapsed = res:elapsed()
+            if elapsed > 100000 then
+                return res
+            end
+            return "ERROR elapsed is invalid.\r\n"
+        elseif key == "/response/ok" then
+            local ok = res:ok()
+            if ok then
+                return res
+            end
+            return "ERROR ok is false\r\n"
+        elseif key == "/response/not_ok" then
+            local ok = res:ok()
+            if not ok then
+                return "SERVER_ERROR\r\n"
+            end
+            return "HD\r\n"
+        elseif key == "/response/hit" then
+            local hit = res:hit()
+            if hit then
+                return res
+            end
+            return "ERROR hit is false\r\n"
+        elseif key == "/response/not_hit" then
+            local hit = res:hit()
+            if not hit then
+                return "SERVER_ERROR\r\n"
+            end
+            return "HD\r\n"
+        elseif key == "/response/vlen" then
+            local vlen = res:vlen()
+            if vlen == 1 then
+                return res
+            end
+            return "ERROR vlen is not 1\r\n"
+        elseif key == "/response/code_ok" then
+            local code = res:code()
+            if code == mcp.MCMC_CODE_OK then
+                return res
+            end
+            return "ERROR expect MCMC_CODE_OK, but got " .. code .. "\r\n"
+        elseif key == "/response/code_miss" then
+            local code = res:code()
+            if code == mcp.MCMC_CODE_END then
+                return res
+            end
+            return "ERROR expect MCMC_CODE_END, but got " .. code .. "\r\n"
+        elseif key == "/response/line" then
+            local line = res:line()
+            if line == "v c123\r\n" then
+                return res
+            end
+            return "ERROR unexpected line, got [" .. line .. "]\r\n"
+        end
+        return "ERROR unhandled key\r\n"
+    end
+
+    pfx_ms["response"] = function(r)
+        local key = r:key()
+        local res = zones.z1(r)
+        local code = res:code()
+
+        if key == "/response/code_ok" then
+            if code == mcp.MCMC_CODE_OK then
+                return res
+            end
+            return "ERROR expect MCMC_CODE_OK, but got " .. code .. "\r\n"
+        elseif key == "/response/line" then
+            local line = res:line()
+            if line == "O123 C123\r\n" then
+                return res
+            end
+            return "ERROR unexpected line, got [" .. line .. "]\r\n"
+        end
+        return "ERROR unhandled key\r\n"
+    end
+
+    pfx_set["response"] = function(r)
+        local res = zones.z1(r)
+        local key = r:key()
+        if key == "/response/code_stored" then
+            local code = res:code()
+            if code == mcp.MCMC_CODE_STORED then
+                return res
+            end
+            return "ERROR expect MCMC_CODE_STORED, but got " .. code .. "\r\n"
+        elseif key == "/response/code_exists" then
+            local code = res:code()
+            if code == mcp.MCMC_CODE_EXISTS then
+                return res
+            end
+            return "ERROR expect MCMC_CODE_EXISTS, but got " .. code .. "\r\n"
+        elseif key == "/response/code_not_stored" then
+            local code = res:code()
+            if code == mcp.MCMC_CODE_NOT_STORED then
+                return res
+            end
+            return "ERROR expect MCMC_CODE_NOT_STORED, but got " .. code .. "\r\n"
+        elseif key == "/response/code_not_found" then
+            local code = res:code()
+            if code == mcp.MCMC_CODE_NOT_FOUND then
+                return res
+            end
+            return "ERROR expect MCMC_CODE_NOT_FOUND, but got " .. code .. "\r\n"
+        end
+        return "ERROR unhandled key\r\n"
+    end
+
+    pfx_touch["response"] = function(r)
+        local res = zones.z1(r)
+        local key = r:key()
+        local code = res:code()
+        if code == mcp.MCMC_CODE_TOUCHED then
+            return res
+        end
+        return "ERROR expect MCMC_CODE_TOUCHED, but got " .. code .. "\r\n"
+    end
+
+    pfx_delete["response"] = function(r)
+        local res = zones.z1(r)
+        local key = r:key()
+        local code = res:code()
+        if code == mcp.MCMC_CODE_DELETED then
+            return res
+        end
+        return "ERROR expect MCMC_CODE_DELETED, but got " .. code .. "\r\n"
     end
 
     pfx_get["hasflag"] = function(r)
