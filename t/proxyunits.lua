@@ -429,13 +429,22 @@ function mcp_config_routes(zones)
         end
         local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 }, num)
 
+        local ok_cnt = 0
+        local hit_cnt = 0
         local count = 0
         for i, res in pairs(rtable) do
+            if res:ok() then
+                ok_cnt = ok_cnt + 1
+            end
+            if res:hit() then
+                hit_cnt = hit_cnt + 1
+            end
             count = count + 1
         end
+        local resp = count .. ":" .. ok_cnt .. ":" .. hit_cnt
 
-        local vlen = string.len(count)
-        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. count .. "\r\nEND\r\n"
+        local vlen = string.len(resp)
+        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. resp .. "\r\nEND\r\n"
     end
 
     -- should be the same as awaitone
@@ -449,13 +458,22 @@ function mcp_config_routes(zones)
         end
         local rtable = mcp.await(r, { zones.z1, zones.z2, zones.z3 }, num, mcp.AWAIT_GOOD)
 
+        local ok_cnt = 0
+        local hit_cnt = 0
         local count = 0
         for i, res in pairs(rtable) do
+            if res:ok() then
+                ok_cnt = ok_cnt + 1
+            end
+            if res:hit() then
+                hit_cnt = hit_cnt + 1
+            end
             count = count + 1
         end
+        local resp = count .. ":" .. ok_cnt .. ":" .. hit_cnt
 
-        local vlen = string.len(count)
-        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. count .. "\r\nEND\r\n"
+        local vlen = string.len(resp)
+        return "VALUE " .. r:key() .. " 0 " .. vlen .. "\r\n" .. resp .. "\r\nEND\r\n"
     end
 
     -- not sure if anything else should be checked here? if err or not?
