@@ -1074,6 +1074,9 @@ struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size)
             multiplier = 1024 * 1024;
             multiplier *= 1024 * 1024 * 1024;
             break;
+        default:
+            fprintf(stderr, "must supply size to ext_path, ie: ext_path=/f/e:64m (M|G|T|P supported)\n");
+            goto error;
     }
     base_size = atoi(p);
     multiplier *= base_size;
