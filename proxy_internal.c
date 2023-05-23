@@ -698,7 +698,7 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
             case 'M': // mset and marithmetic mode switch
                 // FIXME: this used to error if the token isn't a single byte.
                 // It probably should still?
-                of->mode = pr->request[pr->tokens[i]];
+                of->mode = pr->request[pr->tokens[i]+1];
                 break;
             case 'J': // marithmetic initial value
                 if (!safe_strtoull(&pr->request[pr->tokens[i]+1], &of->initial)) {
