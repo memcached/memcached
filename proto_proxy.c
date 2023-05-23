@@ -9,11 +9,13 @@
  */
 
 #include "proxy.h"
+#include "storage.h"
 
 #define PROCESS_MULTIGET true
 #define PROCESS_NORMAL false
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget);
 static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc);
+static int mcp_storage_recache(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc);
 
 /******** EXTERNAL FUNCTIONS ******/
 // functions starting with _ are breakouts for the public functions.
@@ -703,6 +705,17 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
                     proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad request");
                 }
                 break;
+            case MCP_YIELD_RECACHE:
+                res = mcp_storage_recache(c, resp, coro_ref, Lc);
+                // immediately resume if object was already in memory.
+                if (res == 0) {
+                    lua_rawgeti(c->thread->L, LUA_REGISTRYINDEX, coro_ref);
+                    luaL_unref(c->thread->L, LUA_REGISTRYINDEX, coro_ref);
+                    proxy_run_coroutine(Lc, resp, NULL, c);
+                } else {
+                    // suspending.
+                }
+                break;
             default:
                 abort();
         }
@@ -924,6 +937,219 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     proxy_run_coroutine(Lc, c->resp, NULL, c);
 
     lua_settop(L, 0); // clear anything remaining on the main thread.
+}
+
+static void _mcp_storage_cb(void *e, obj_io *eio, int ret) {
+    io_pending_proxy_t *io = (io_pending_proxy_t *)eio->data;
+    assert(io->active == true);
+    item *read_it = (item *)eio->buf;
+    bool miss = false;
+
+    if (ret < 1) {
+        miss = true;
+    } else {
+        uint32_t crc2;
+        uint32_t crc = (uint32_t) read_it->exptime;
+        crc2 = crc32c(0, (char *)read_it+STORE_OFFSET, eio->len-STORE_OFFSET);
+
+        if (crc != crc2) {
+            miss = true;
+            io->badcrc = true;
+        }
+    }
+
+    io->miss = miss;
+    io->active = false;
+
+    return_io_pending((io_pending_t *)io);
+}
+
+static void _mcp_storage_return_cb(io_pending_t *pending) {
+    io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
+    lua_State *Lc = p->coro;
+    assert(p->io_type == IO_PENDING_TYPE_EXTSTORE);
+    assert(p->hdr_it);
+    item *it = (item *)p->eio.buf;
+    item *h_it = p->hdr_it;
+    if (p->miss) {
+        //fprintf(stderr, "MISS FROM EXTSTORE\n");
+        size_t ntotal = ITEM_ntotal(p->hdr_it);
+        item_unlink(p->hdr_it);
+        slabs_free(it, ntotal, slabs_clsid(ntotal));
+        lua_pushboolean(Lc, 0);
+    } else {
+        // hashvalue is cuddled during store
+        uint32_t hv = (uint32_t)it->time;
+        item_lock(hv);
+        if ((h_it->it_flags & ITEM_LINKED)) {
+            // In case it's been updated.
+            it->exptime = h_it->exptime;
+            it->it_flags &= ~ITEM_LINKED;
+            it->refcount = 0;
+            it->h_next = NULL; // might not be necessary.
+            STORAGE_delete(p->thread->storage, h_it);
+            item_replace(h_it, it, hv);
+            lua_pushboolean(Lc, 1);
+        } else {
+            //fprintf(stderr, "ht_it missing ITEM_LINKED\n");
+            lua_pushboolean(Lc, 0);
+            slabs_free(it, ITEM_ntotal(it), ITEM_clsid(it));
+        }
+        item_unlock(hv);
+    }
+    item_remove(h_it);
+    p->hdr_it = NULL;
+
+    lua_rotate(Lc, 1, 1);
+    lua_settop(Lc, 1);
+
+    // p can be freed/changed from the call below, so fetch the queue now.
+    io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
+    conn *c = p->c;
+    proxy_run_coroutine(Lc, p->resp, p, c);
+
+    q->count--;
+    if (q->count == 0) {
+        // call re-add directly since we're already in the worker thread.
+        conn_worker_readd(c);
+    }
+}
+
+static void _mcp_storage_finalize_cb(io_pending_t *pending) {
+    io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
+
+    if (p->io_type == IO_PENDING_TYPE_EXTSTORE) {
+        if (p->hdr_it) {
+            //fprintf(stderr, "CALLED WITH VALID HDR_IT\n");
+            // TODO: lock once, worst case this hashes/locks twice.
+            if (p->miss) {
+                item_unlink(p->hdr_it);
+            }
+            item_remove(p->hdr_it);
+        }
+    }
+
+    // release our coroutine reference.
+    // TODO (v2): coroutines are reusable in lua 5.4. we can stack this onto a freelist
+    // after a lua_resetthread(Lc) call.
+    if (p->coro_ref) {
+        // Note: lua registry is the same for main thread or a coroutine.
+        luaL_unref(p->coro, LUA_REGISTRYINDEX, p->coro_ref);
+    }
+
+    return;
+}
+
+// - get request object from stack
+// - use key from object to look up it
+// - if it is not header or miss, return 0
+//   - push proper return value first? ie nil on miss, true on hit
+// - if header, allocate io_pending and configure it.
+// - stack io pending into resp ie mcp_queue_io
+// - return 1 for sucesssfully queued.
+// PART TWO:
+// - need specialized callbacks:
+// 1) extstore cb for crc32 checker and return_io_pending
+// 2) queue return_cb: recache if possible and resume coroutine
+// 3) finalize_cb: for handling an early death.
+static int mcp_storage_recache(conn *c, mc_resp *resp, int coro_ref, lua_State *L) {
+    mcp_request_t *rq = lua_touserdata(L, -1); // type already checked.
+    const char *key = rq->pr.request + rq->pr.tokens[rq->pr.keytoken];
+    int klen = rq->pr.klen;
+    bool overflow = false;
+    LIBEVENT_THREAD *t = c->thread;
+    item *it = limited_get(key, klen, t, 0, false, DONT_UPDATE, &overflow);
+
+    if (it == NULL) {
+        // miss.
+        lua_pushnil(L);
+        return 0;
+    }
+
+    if ((it->it_flags & ITEM_HDR) == 0) {
+        // already in memory.
+        item_remove(it);
+        lua_pushboolean(L, 1);
+        return 0;
+    }
+
+#ifdef NEED_ALIGN
+    item_hdr hdr;
+    memcpy(&hdr, ITEM_data(it), sizeof(hdr));
+#else
+    item_hdr *hdr = (item_hdr *)ITEM_data(it);
+#endif
+    size_t ntotal = ITEM_ntotal(it);
+
+    // bail if ntotal > slab chunk alloc max
+    // returns false to caller so it knows to not retry.
+    if (ntotal > settings.slab_chunk_size_max) {
+        lua_pushboolean(L, 0);
+        return 0;
+    }
+
+    // use slab allocator so we can recache the item.
+    unsigned int clsid = slabs_clsid(ntotal);
+    item *new_it = do_item_alloc_pull(ntotal, clsid);
+    if (new_it == NULL) {
+        lua_pushboolean(L, 0);
+        return 0;
+    }
+
+    io_pending_proxy_t *io = do_cache_alloc(t->io_cache);
+    // this is a re-cast structure, so assert that we never outsize it.
+    assert(sizeof(io_pending_t) >= sizeof(io_pending_proxy_t));
+    memset(io, 0, sizeof(io_pending_proxy_t));
+    io->active = true;
+    // io_pending owns the reference for this object now.
+    io->hdr_it = it;
+    io->tresp = resp; // our mc_resp is a temporary object.
+    io->io_queue_type = IO_QUEUE_EXTSTORE;
+    io->io_type = IO_PENDING_TYPE_EXTSTORE; // proxy specific sub-type.
+    io->gettype = 0; // unused for this function.
+    io->thread = t;
+    io->return_cb = _mcp_storage_return_cb;
+    io->finalize_cb = _mcp_storage_finalize_cb;
+    obj_io *eio = &io->eio;
+
+    eio->buf = (void *)new_it;
+
+    // We can't bail out anymore, so mc_resp owns the IO from here.
+    resp->io_pending = (io_pending_t *)io;
+
+    // reference ourselves for the callback.
+    eio->data = (void *)io;
+
+    // Now, fill in io->io based on what was in our header.
+#ifdef NEED_ALIGN
+    eio->page_version = hdr.page_version;
+    eio->page_id = hdr.page_id;
+    eio->offset = hdr.offset;
+#else
+    eio->page_version = hdr->page_version;
+    eio->page_id = hdr->page_id;
+    eio->offset = hdr->offset;
+#endif
+    eio->len = ntotal;
+    eio->mode = OBJ_IO_READ;
+    eio->cb = _mcp_storage_cb;
+
+    // Add io object to extstore submission queue.
+    io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_EXTSTORE);
+
+    io->eio.next = q->stack_ctx;
+    q->stack_ctx = &io->eio;
+    assert(q->count >= 0);
+    q->count++;
+
+    io->coro_ref = coro_ref;
+    io->coro = L;
+    io->c  = c;
+    // we need to associate the top level mc_resp here so the run routine
+    // can fill it in later.
+    io->resp = resp;
+
+    return 1; // successfully queued
 }
 
 // analogue for storage_get_item(); add a deferred IO object to the current

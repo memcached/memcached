@@ -11,6 +11,64 @@
 // normal library open:
 // int luaopen_mcp(lua_State *L) { }
 
+static int mcplib_force_recache(lua_State *L) {
+    luaL_checkudata(L, 1, "mcp.request");
+    lua_pushinteger(L, MCP_YIELD_RECACHE);
+
+    return lua_yield(L, 2);
+}
+
+static int mcplib_response_bucketscan(lua_State *L) {
+    mcp_resp_t *r = luaL_checkudata(L, 1, "mcp.response");
+    mcp_request_t *rq = luaL_checkudata(L, 2, "mcp.request");
+
+    // - get key from original request
+    const char *okey = rq->pr.request + rq->pr.tokens[rq->pr.keytoken];
+    const uint8_t oklen = rq->pr.klen;
+    // - get value from response
+    if (!r->cresp) {
+        lua_pushnil(L);
+        return 1;
+    }
+    // TODO: sometimes ITEM_data(r->cresp->item) ? sometimes not?
+    // Need to simplify the response code soon.
+    //const char *p = ITEM_data(r->cresp->item);
+    //int bytes = r->cresp->item->nbytes;
+    const char *p = r->cresp->iov[1].iov_base;
+    int bytes = r->cresp->iov[1].iov_len;
+    const char *e = p + bytes;
+    // FIXME: return nil if chunked
+    // TODO: check what we get on top level miss
+    // FIXME: seems like it's comparing off the end of the value sometimes?
+
+    // - scan value for original key
+    while (p <= e) {
+        uint8_t klen;
+        uint16_t vlen;
+        memcpy(&klen, p, sizeof(uint8_t));
+        p++; // skip key length byte.
+        //fprintf(stderr, "checking: [orig: %.*s] [buck: %.*s]\n", oklen, okey, klen, p);
+        if (klen == oklen && strncmp(okey, p, oklen) == 0) {
+            // Found the original key.
+            p += klen;
+            memcpy(&vlen, p, sizeof(uint16_t));
+            //fprintf(stderr, "original vlen: %d\n", vlen);
+            p += 2;
+            lua_pushlstring(L, p, vlen);
+            return 1;
+        } else {
+            // Not found, skip to next key.
+            p += klen;
+            memcpy(&vlen, p, sizeof(uint16_t));
+            p += vlen + 2;
+        }
+    }
+
+    // If we got here, we didn't find the value.
+    lua_pushnil(L);
+    return 1;
+}
+
 static int mcplib_response_elapsed(lua_State *L) {
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
     lua_pushinteger(L, r->elapsed);
@@ -1197,6 +1255,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"flag_token", mcplib_request_flag_token},
         {"__tostring", NULL},
         {"__gc", mcplib_request_gc},
+        {"bucket", mcplib_request_bucket},
         {NULL, NULL}
     };
 
@@ -1208,6 +1267,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"line", mcplib_response_line},
         {"elapsed", mcplib_response_elapsed},
         {"__gc", mcplib_response_gc},
+        {"bucketscan", mcplib_response_bucketscan},
         {NULL, NULL}
     };
 
@@ -1246,6 +1306,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"log_reqsample", mcplib_log_reqsample},
         {"stat", mcplib_stat},
         {"request", mcplib_request},
+        {"force_recache", mcplib_force_recache},
         {NULL, NULL}
     };
     // VM's have void* extra space in the VM by default for fast-access to a

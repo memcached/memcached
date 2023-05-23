@@ -81,6 +81,7 @@
 #define MCP_YIELD_POOL 1
 #define MCP_YIELD_AWAIT 2
 #define MCP_YIELD_LOCAL 3
+#define MCP_YIELD_RECACHE 4
 
 // all possible commands.
 #define CMD_FIELDS \
@@ -544,6 +545,7 @@ int mcplib_request_ntokens(lua_State *L);
 int mcplib_request_has_flag(lua_State *L);
 int mcplib_request_flag_token(lua_State *L);
 int mcplib_request_gc(lua_State *L);
+int mcplib_request_bucket(lua_State *L);
 
 int mcplib_open_dist_jump_hash(lua_State *L);
 int mcplib_open_dist_ring_hash(lua_State *L);

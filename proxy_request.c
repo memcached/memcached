@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
 #include "proxy.h"
+#include "base64.h"
 
 #define PARSER_MAXLEN USHRT_MAX-1
 
@@ -793,3 +794,139 @@ int mcplib_request_gc(lua_State *L) {
 // stored from a table/similar (ie; the prefix check code).
 // If it's not copying anything, we can add request-side functions to do most
 // forms of matching and avoid copying the key to lua space.
+
+// Proof of concept HACK.
+// Must only be called with metaset or metaget requests.
+int mcplib_request_bucket(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    int bits = luaL_checkinteger(L, 2);
+
+    // - if set request
+    //   - find rightmost '/'
+    //   - hash rest of string
+    //   - mask `bits` from hash
+    //   - copy first chunk of key into new key
+    //   - append base64 of new hash
+    //   - use "meta append" flag
+    //   - for POC: ignore TTL/client flags/etc.
+    //   - push original key and value into new value
+    //   - 1b int key 2b int value?
+    //   - return new request
+    // - if get request
+    //   - repack key as above
+    //   - copy flags
+    //   - return new request
+
+    if (rq->pr.command == CMD_MS) {
+        const char *okey = rq->pr.request + rq->pr.tokens[rq->pr.keytoken];
+        const char *keyend = okey + rq->pr.klen;
+        const char *p = memrchr(okey, '/', rq->pr.klen);
+        if (p == NULL) {
+            lua_pushnil(L);
+            return 1;
+        }
+        // skip the '/' character.
+        p++;
+        // FIXME: check for p >= end and fail
+        // check distance from p to keyend to see len of key postfix
+        int klen = keyend - p;
+        uint64_t hash = XXH3_64bits(p, klen);
+        //fprintf(stderr, "hash before: %llu\n", (unsigned long long)hash);
+        hash &= (((uint64_t)1<<(bits))-1);
+        //fprintf(stderr, "hash after: %llu\n", (unsigned long long)hash);
+
+        // Now to build the new request.
+        mcp_request_t *nrq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN + KEY_MAX_LENGTH, 1);
+        memset(nrq, 0, sizeof(mcp_request_t));
+
+        char *rp = nrq->request;
+        memcpy(rp, "ms ", 3);
+        rp += 3;
+        // add original key prefix.
+        memcpy(rp, okey, p - okey);
+        rp += p - okey;
+        // encode new key directly into request memory.
+        rp += base64_encode((unsigned char *)&hash, sizeof(hash), (unsigned char*)rp, KEY_MAX_LENGTH - (p - okey + 3));
+        *rp = ' ';
+        rp++;
+        // add new value length. key, value and length bytes
+        rp = itoa_u32(rq->pr.klen + rq->pr.vlen + 3, rp);
+        // add flags and \r\n
+        // TODO: need to copy original flags...
+        // We should require that the user bother set MA/N0/etc so we can copy
+        // blindly here and have the response make sense (key/etc)
+        // it will return a weird key if 'k' mode is used, but this is a
+        // hack so that could be dealt with another time.
+        memcpy(rp, " MA N0\r\n", 8);
+        rp += 8;
+
+        process_request(&nrq->pr, nrq->request, rp - nrq->request);
+
+        luaL_getmetatable(L, "mcp.request");
+        lua_setmetatable(L, -2);
+
+        // allocate new value
+        // copy old key and old value into new value
+        if (rq->pr.vlen != 0) {
+            nrq->pr.vbuf = malloc(nrq->pr.vlen);
+            if (nrq->pr.vbuf == NULL) {
+                proxy_lua_error(L, "failed to allocate value memory for request object");
+            }
+            char *vbuf = nrq->pr.vbuf;
+            uint8_t val_klen = rq->pr.klen;
+            uint16_t val_vlen = rq->pr.vlen;
+            memcpy(vbuf, &val_klen, sizeof(val_klen));
+            vbuf += sizeof(val_klen);
+            memcpy(vbuf, okey, val_klen);
+            vbuf += val_klen;
+            memcpy(vbuf, &val_vlen, sizeof(val_vlen));
+            vbuf += sizeof(val_vlen);
+            memcpy(vbuf, rq->pr.vbuf, val_vlen);
+        }
+
+        // done.
+    } else if (rq->pr.command == CMD_MG) {
+        const char *okey = rq->pr.request + rq->pr.tokens[rq->pr.keytoken];
+        const char *keyend = okey + rq->pr.klen;
+        const char *p = memrchr(okey, '/', rq->pr.klen);
+        if (p == NULL) {
+            lua_pushnil(L);
+            return 1;
+        }
+        // skip the '/' character.
+        p++;
+        // FIXME: check for p >= end and fail
+        // check distance from p to keyend to see len of key postfix
+        int klen = keyend - p;
+        uint64_t hash = XXH3_64bits(p, klen);
+        //fprintf(stderr, "hash before: %llu\n", (unsigned long long)hash);
+        hash &= (((uint64_t)1<<(bits))-1);
+        //fprintf(stderr, "hash after: %llu\n", (unsigned long long)hash);
+
+        // Now to build the new request.
+        mcp_request_t *nrq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN + KEY_MAX_LENGTH, 1);
+        memset(nrq, 0, sizeof(mcp_request_t));
+
+        char *rp = nrq->request;
+        memcpy(rp, "mg ", 3);
+        rp += 3;
+        // add original key prefix.
+        memcpy(rp, okey, p - okey);
+        rp += p - okey;
+        // encode new key directly into request memory.
+        rp += base64_encode((unsigned char *)&hash, sizeof(hash), (unsigned char*)rp, KEY_MAX_LENGTH - (p - okey + 3));
+        // FIXME: copy flags from original request
+        memcpy(rp, " v\r\n", 4);
+        rp += 4;
+
+        process_request(&nrq->pr, nrq->request, rp - nrq->request);
+
+        luaL_getmetatable(L, "mcp.request");
+        lua_setmetatable(L, -2);
+
+        // done.
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
