@@ -153,7 +153,7 @@ unsigned int do_get_lru_size(uint32_t id) {
 /**
  * Generates the variable-sized part of the header for an object.
  *
- * nkey    - The length of the key with terminating null
+ * nkey    - The length of the key without terminating null
  * flags   - key flags
  * nbytes  - Number of bytes to hold value and addition CRLF terminator
  *
@@ -162,7 +162,7 @@ unsigned int do_get_lru_size(uint32_t id) {
 static size_t item_make_header(const uint8_t nkey, const unsigned int flags, const int nbytes) {
     int cas_bytes = (settings.use_cas ? sizeof(uint64_t) : 0);
     int flag_bytes = (flags != 0 ? sizeof(flags) : 0);
-    return sizeof(item) + cas_bytes + nkey + flag_bytes + nbytes;
+    return sizeof(item) + cas_bytes + nkey + 1 + flag_bytes + nbytes;
 }
 
 item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
@@ -259,7 +259,7 @@ item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags
     if (nbytes < 2)
         return 0;
 
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes);
+    size_t ntotal = item_make_header(nkey, flags, nbytes);
 
     unsigned int id = slabs_clsid(ntotal);
     unsigned int hdr_id = 0;
@@ -274,11 +274,7 @@ item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags
          * we're pulling a header from an entirely different slab class. The
          * free routines handle large items specifically.
          */
-        int htotal = nkey + 1 + (flags != 0 ? sizeof(flags) : 0)
-            + sizeof(item) + sizeof(item_chunk);
-        if (settings.use_cas) {
-            htotal += sizeof(uint64_t);
-        }
+        int htotal = item_make_header(nkey, flags, sizeof(item_chunk));
 #ifdef NEED_ALIGN
         // header chunk needs to be padded on some systems
         int remain = htotal % 8;
@@ -371,7 +367,7 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
     if (nbytes < 2)
         return false;
 
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes);
+    size_t ntotal = item_make_header(nkey, flags, nbytes);
 
     return slabs_clsid(ntotal) != 0;
 }
