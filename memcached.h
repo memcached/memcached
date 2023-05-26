@@ -595,7 +595,7 @@ typedef struct _stritem {
     } data[];
     /* if it_flags & ITEM_CAS we have 8 bytes CAS */
     /* then null-terminated key */
-    /* then " flags length\r\n" (no terminating null) */
+    /* if it_flags & ITEM_CFLAGS we have 4 bytes client flags */
     /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
 
