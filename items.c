@@ -153,22 +153,16 @@ unsigned int do_get_lru_size(uint32_t id) {
 /**
  * Generates the variable-sized part of the header for an object.
  *
- * nkey    - The length of the key
+ * nkey    - The length of the key with terminating null
  * flags   - key flags
  * nbytes  - Number of bytes to hold value and addition CRLF terminator
- * suffix  - Buffer for the "VALUE" line suffix (flags, size).
- * nsuffix - The length of the suffix is stored here.
  *
  * Returns the total size of the header.
  */
-static size_t item_make_header(const uint8_t nkey, const unsigned int flags, const int nbytes,
-                     char *suffix, uint8_t *nsuffix) {
-    if (flags == 0) {
-        *nsuffix = 0;
-    } else {
-        *nsuffix = sizeof(flags);
-    }
-    return sizeof(item) + nkey + *nsuffix + nbytes;
+static size_t item_make_header(const uint8_t nkey, const unsigned int flags, const int nbytes) {
+    int cas_bytes = (settings.use_cas ? sizeof(uint64_t) : 0);
+    int flag_bytes = (flags != 0 ? sizeof(flags) : 0);
+    return sizeof(item) + cas_bytes + nkey + flag_bytes + nbytes;
 }
 
 item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
@@ -260,17 +254,12 @@ item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain) {
 
 item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags,
                     const rel_time_t exptime, const int nbytes) {
-    uint8_t nsuffix;
     item *it = NULL;
-    char suffix[40];
     // Avoid potential underflows.
     if (nbytes < 2)
         return 0;
 
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
-    if (settings.use_cas) {
-        ntotal += sizeof(uint64_t);
-    }
+    size_t ntotal = item_make_header(nkey + 1, flags, nbytes);
 
     unsigned int id = slabs_clsid(ntotal);
     unsigned int hdr_id = 0;
@@ -285,7 +274,8 @@ item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags
          * we're pulling a header from an entirely different slab class. The
          * free routines handle large items specifically.
          */
-        int htotal = nkey + 1 + nsuffix + sizeof(item) + sizeof(item_chunk);
+        int htotal = nkey + 1 + (flags != 0 ? sizeof(flags) : 0)
+            + sizeof(item) + sizeof(item_chunk);
         if (settings.use_cas) {
             htotal += sizeof(uint64_t);
         }
@@ -334,12 +324,12 @@ item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags
 
     DEBUG_REFCNT(it, '*');
     it->it_flags |= settings.use_cas ? ITEM_CAS : 0;
-    it->it_flags |= nsuffix != 0 ? ITEM_CFLAGS : 0;
+    it->it_flags |= flags != 0 ? ITEM_CFLAGS : 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
     memcpy(ITEM_key(it), key, nkey);
     it->exptime = exptime;
-    if (nsuffix > 0) {
+    if (flags > 0) {
         memcpy(ITEM_suffix(it), &flags, sizeof(flags));
     }
 
@@ -378,16 +368,10 @@ void item_free(item *it) {
  * the maximum for a cache entry.)
  */
 bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
-    char prefix[40];
-    uint8_t nsuffix;
     if (nbytes < 2)
         return false;
 
-    size_t ntotal = item_make_header(nkey + 1, flags, nbytes,
-                                     prefix, &nsuffix);
-    if (settings.use_cas) {
-        ntotal += sizeof(uint64_t);
-    }
+    size_t ntotal = item_make_header(nkey + 1, flags, nbytes);
 
     return slabs_clsid(ntotal) != 0;
 }
