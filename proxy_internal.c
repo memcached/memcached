@@ -203,7 +203,7 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
         *p = '0';
         p++;
     } else {
-        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
+        p = itoa_u32(*((uint32_t *) ITEM_client_flags(it)), p);
     }
     *p = ' ';
     p = itoa_u32(nbytes-2, p+1);
@@ -854,7 +854,7 @@ static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
                         *p = '0';
                         p++;
                     } else {
-                        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
+                        p = itoa_u32(*((uint32_t *) ITEM_client_flags(it)), p);
                     }
                     break;
                 case 'l':

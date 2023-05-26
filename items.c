@@ -330,7 +330,7 @@ item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags
     memcpy(ITEM_key(it), key, nkey);
     it->exptime = exptime;
     if (flags > 0) {
-        memcpy(ITEM_suffix(it), &flags, sizeof(flags));
+        memcpy(ITEM_client_flags(it), &flags, sizeof(flags));
     }
 
     /* Initialize internal chunk. */
