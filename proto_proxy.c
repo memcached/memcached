@@ -9,6 +9,8 @@
  */
 
 #include "proxy.h"
+#include "statsd.h"
+#include <stdio.h>
 
 #define PROCESS_MULTIGET true
 #define PROCESS_NORMAL false
@@ -47,6 +49,9 @@ void proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
 }
 
 void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
+    statsd_link *link;
+    link = statsd_init_with_namespace("127.0.0.1", 8200, "memrouter.vnext");
+
     char key_str[STAT_KEY_LEN];
     struct proxy_int_stats istats = {0};
     uint64_t req_limit = 0;
@@ -92,9 +97,13 @@ void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
         if (us->names[x]) {
             snprintf(key_str, STAT_KEY_LEN-1, "user_%s", us->names[x]);
             APPEND_STAT(key_str, "%llu", (unsigned long long)counters[x]);
+
+            fprintf(stdout, "Emitting proxy metric [%s - %llu]\n", key_str, (unsigned long long)counters[x]);
+            statsd_gauge(link, key_str, (unsigned long long)counters[x]);
         }
     }
 
+    fflush(stdout);
     STAT_UL(ctx);
 
     if (buffer_memory_limit == UINT64_MAX) {
@@ -132,6 +141,8 @@ void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_prepend", "%llu", (unsigned long long)istats.counters[CMD_PREPEND]);
     APPEND_STAT("cmd_delete", "%llu", (unsigned long long)istats.counters[CMD_DELETE]);
     APPEND_STAT("cmd_replace", "%llu", (unsigned long long)istats.counters[CMD_REPLACE]);
+
+    statsd_finalize(link);
 }
 
 // start the centralized lua state and config thread.
@@ -730,6 +741,8 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // also calls resp_start().
     // Tighter integration later should obviate the need for this, it is not a
     // permanent solution.
+    //fprintf(stdout, "Processing command %s\n", command);
+    //fflush(stdout);
     int ret = process_request(&pr, command, cmdlen);
     if (ret != 0) {
         WSTAT_INCR(c->thread, proxy_conn_errors, 1);
