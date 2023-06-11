@@ -132,9 +132,15 @@ sub proxy_test {
 }
 
 {
+    note("Bad syntax tests");
     # Write a request with bad syntax, and check the response.
     print $ps "set with the wrong number of tokens\n";
     is(scalar <$ps>, "CLIENT_ERROR parsing request\r\n", "got CLIENT_ERROR for bad syntax");
+
+    for ('get', 'incr', 'decr', 'touch', 'gat', 'gats', 'mg', 'md', 'ma', 'ms') {
+        print $ps "$_\r\n";
+        is(scalar <$ps>, "CLIENT_ERROR parsing request\r\n", "$_ got CLIENT_ERROR for too few tokens");
+    }
 }
 
 # Basic test with a backend; write a request to the client socket, read it

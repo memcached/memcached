@@ -266,8 +266,12 @@ static int _process_request_storage(mcp_parser_t *pr, size_t max) {
 }
 
 // common request with key: <cmd> <key> <args>
-static int _process_request_simple(mcp_parser_t *pr, const size_t max) {
+static int _process_request_simple(mcp_parser_t *pr, const int min, const int max) {
     _process_tokenize(pr, max);
+    if (pr->ntokens < min) {
+        P_DEBUG("%s: not enough tokens for simple request: %d\n", __func__, pr->ntokens);
+        return -1;
+    }
     pr->keytoken = 1; // second token is usually the key... stupid GAT.
 
     _process_request_key(pr);
@@ -351,7 +355,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
                     cmd = CMD_GET;
                     type = CMD_TYPE_GET;
                     token_max = 2; // don't chew through multigets.
-                    ret = _process_request_simple(pr, 2);
+                    ret = _process_request_simple(pr, 2, 2);
                 }
                 if (cm[1] == 'a' && cm[2] == 't') {
                     type = CMD_TYPE_GET;
@@ -375,13 +379,13 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
                 cmd = CMD_GETS;
                 type = CMD_TYPE_GET;
                 token_max = 2; // don't chew through multigets.
-                ret = _process_request_simple(pr, 2);
+                ret = _process_request_simple(pr, 2, 2);
             } else if (strncmp(cm, "incr", 4) == 0) {
                 cmd = CMD_INCR;
-                ret = _process_request_simple(pr, 4);
+                ret = _process_request_simple(pr, 3, 4);
             } else if (strncmp(cm, "decr", 4) == 0) {
                 cmd = CMD_DECR;
-                ret = _process_request_simple(pr, 4);
+                ret = _process_request_simple(pr, 3, 4);
             } else if (strncmp(cm, "gats", 4) == 0) {
                 cmd = CMD_GATS;
                 type = CMD_TYPE_GET;
@@ -393,7 +397,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
         case 5:
             if (strncmp(cm, "touch", 5) == 0) {
                 cmd = CMD_TOUCH;
-                ret = _process_request_simple(pr, 4);
+                ret = _process_request_simple(pr, 3, 4);
             } else if (strncmp(cm, "stats", 5) == 0) {
                 cmd = CMD_STATS;
                 // Don't process a key; fetch via arguments.
@@ -406,7 +410,7 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
         case 6:
             if (strncmp(cm, "delete", 6) == 0) {
                 cmd = CMD_DELETE;
-                ret = _process_request_simple(pr, 4);
+                ret = _process_request_simple(pr, 2, 4);
             } else if (strncmp(cm, "append", 6) == 0) {
                 cmd = CMD_APPEND;
                 ret = _process_request_storage(pr, token_max);
