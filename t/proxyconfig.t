@@ -224,6 +224,9 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
         my @temp = ();
         for (0 .. 3) {
             my $be = accept_backend($msrv);
+            # For this set of tests we need to fetch until no data remains in
+            # the socket.
+            $be->blocking(0);
             $bes->add($be);
             push(@temp, $be);
         }
@@ -269,6 +272,47 @@ is(<$watcher>, "OK\r\n", "watcher enabled");
     wait_reload($watcher);
     @readable = $s->can_read(0.25);
     is(scalar @readable, 0, "no listeners should be active post-reload");
+
+    note "testing batch workload";
+
+    my $batch = '';
+    my $batch_size = 50;
+    for (0 .. $batch_size) {
+        $batch .= "ms /test/$_ 5\r\nhello\r\n";
+    }
+    print $ps $batch;
+
+    my $remain = $batch_size;
+    # Not using the test hardness for the readback to cut spam/time.
+    while ($remain > 0) {
+        my @ready = $bes->can_read();
+        for my $be (@ready) {
+            while (1) {
+                my $be1 = $be->getline;
+                my $be2 = $be->getline;
+                if ($be1 && $be2) {
+                    print $be "HD\r\n";
+                } else {
+                    last;
+                }
+                #diag "read " . $remain;
+                $remain--;
+            }
+        }
+    }
+
+    is($remain, -1, "completed batch workload to backends");
+
+    for (0 .. $batch_size) {
+        my $res = <$ps>;
+        if ($res ne "HD\r\n") {
+            is($res, "HD\r\n", "correct result returned to client " . $_);
+        }
+    }
+
+    note "done testing batch limit";
+
+    check_version($ps);
 }
 
 ###
