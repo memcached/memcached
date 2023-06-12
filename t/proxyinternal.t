@@ -74,6 +74,41 @@ $ps->autoflush(1);
 #    print $be "VERSION 1.0.0-mock\r\n";
 #}
 
+note "ascii multiget";
+{
+    # First test all miss.
+    my @keys = ();
+    for (0 .. 50) {
+        push(@keys, "/b/" . $_);
+    }
+    print $ps "get ", join(' ', @keys), "\r\n";
+    is(scalar <$ps>, "END\r\n", "all misses from multiget");
+    # No extra END's after the solitary one.
+    check_version($ps);
+
+    for (@keys) {
+        print $ps "set $_ 0 0 2\r\nhi\r\n";
+        is(scalar <$ps>, "STORED\r\n", "successful set");
+    }
+    check_version($ps);
+    print $ps "get ", join(' ', @keys), "\r\n";
+    for (@keys) {
+        is(scalar <$ps>, "VALUE $_ 0 2\r\n", "resline matches");
+        is(scalar <$ps>, "hi\r\n", "value matches");
+    }
+    is(scalar <$ps>, "END\r\n", "final END from multiget");
+    check_version($ps);
+}
+
+note "ascii basic";
+{
+    # Ensure all of that END removal we do in multiget doesn't apply to
+    # non-multiget get mode.
+    print $ps "get /b/miss\r\n";
+    is(scalar <$ps>, "END\r\n", "basic miss");
+    check_version($ps);
+}
+
 #diag "object too large"
 {
     my $data = 'x' x 2000000;

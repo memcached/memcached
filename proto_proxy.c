@@ -596,6 +596,13 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
                 for (int x = 0; x < tresp->iovcnt; x++) {
                     resp->iov[x] = tresp->iov[x];
                 }
+                // resp->iov[x].iov_base needs to be updated if it's
+                // pointing within its wbuf.
+                // FIXME: This is too fragile. we need to be able to
+                // inherit details and swap resp objects around.
+                if (tresp->iov[0].iov_base == tresp->wbuf) {
+                    resp->iov[0].iov_base = resp->wbuf;
+                }
                 resp->iovcnt = tresp->iovcnt;
                 resp->chunked_total = tresp->chunked_total;
                 resp->chunked_data_iov = tresp->chunked_data_iov;
@@ -882,9 +889,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     lua_rawgeti(Lc, LUA_REGISTRYINDEX, hook_ref);
 
     mcp_request_t *rq = mcp_new_request(Lc, &pr, command, cmdlen);
-    if (multiget) {
-        rq->ascii_multiget = true;
-    }
+    rq->ascii_multiget = multiget;
     // NOTE: option 1) copy c->tag into rq->tag here.
     // add req:listen_tag() to retrieve in top level route.
 

@@ -106,9 +106,15 @@ static void _storage_get_item_cb(void *e, obj_io *eio, int ret) {
     if (miss && !resp->skip) {
         resp->iovcnt = 1;
         if (io->gettype == PROXY_STORAGE_GET) {
-            resp->iov[0].iov_len = 5;
-            resp->iov[0].iov_base = "END\r\n";
-            resp->tosend = 5;
+            if (io->ascii_multiget) {
+                resp->iov[0].iov_len = 0;
+                resp->iov[0].iov_base = "";
+                resp->tosend = 0;
+            } else {
+                resp->iov[0].iov_len = 5;
+                resp->iov[0].iov_base = "END\r\n";
+                resp->tosend = 5;
+            }
         } else if (io->gettype == PROXY_STORAGE_MG) {
             resp->iov[0].iov_len = 4;
             resp->iov[0].iov_base = "EN\r\n";
@@ -1679,6 +1685,15 @@ int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref) 
     // Either way this is a lot less code.
     mcmc_bare_parse_buf(resp->iov[0].iov_base, resp->iov[0].iov_len, &r->resp);
 
+    if (rq->ascii_multiget) {
+        if (r->resp.type == MCMC_RESP_GET) {
+            // Blank out the END. Bad hack.
+            resp->iovcnt--;
+        } else if (r->resp.type == MCMC_RESP_END) {
+            resp->skip = true;
+        }
+    }
+
     // in case someone logs this response it should make sense.
     memcpy(r->be_name, "internal", strlen("internal"));
     memcpy(r->be_port, "0", 1);
@@ -1709,6 +1724,7 @@ int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref) 
         io->coro_ref = coro_ref;
         io->coro = L;
         io->c  = c;
+        io->ascii_multiget = rq->ascii_multiget;
         // we need to associate the top level mc_resp here so the run routine
         // can fill it in later.
         io->resp = top_resp;

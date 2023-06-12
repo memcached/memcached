@@ -435,6 +435,7 @@ struct _io_pending_proxy_t {
     int io_type; // extstore IO or backend IO
     int coro_ref; // lua registry reference to the coroutine
     lua_State *coro; // pointer directly to the coroutine
+    bool ascii_multiget; // passed on from mcp_r_t
     union {
         // extstore IO.
         struct {
@@ -459,7 +460,6 @@ struct _io_pending_proxy_t {
             int await_ref; // lua reference if we were an await object
             mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
             bool flushed; // whether we've fully written this request to a backend.
-            bool ascii_multiget; // passed on from mcp_r_t
             bool is_await; // are we an await object?
             bool await_first; // are we the main route for an await object?
             bool await_background; // dummy IO for backgrounded awaits
