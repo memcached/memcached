@@ -1083,6 +1083,10 @@ struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size)
     // page_count is nearest-but-not-larger-than pages * psize
     cf->page_count = multiplier / page_size;
     assert(page_size * cf->page_count <= multiplier);
+    if (cf->page_count == 0) {
+        fprintf(stderr, "supplied ext_path has zero size, cannot use\n");
+        goto error;
+    }
 
     // final token would be a default free bucket
     p = strtok_r(NULL, ",", &b);
