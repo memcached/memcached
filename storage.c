@@ -788,7 +788,7 @@ struct storage_compact_wrap {
 
 static void storage_compact_readback(void *storage, logger *l,
         bool drop_unread, char *readback_buf,
-        uint32_t page_id, uint64_t page_version, uint64_t read_size) {
+        uint32_t page_id, uint64_t page_version, uint32_t page_offset, uint64_t read_size) {
     uint64_t offset = 0;
     unsigned int rescues = 0;
     unsigned int lost = 0;
@@ -817,7 +817,8 @@ static void storage_compact_readback(void *storage, logger *l,
             if ((hdr_it->it_flags & ITEM_HDR) && !item_is_flushed(hdr_it) &&
                    (hdr_it->exptime == 0 || hdr_it->exptime > current_time)) {
                 hdr = (item_hdr *)ITEM_data(hdr_it);
-                if (hdr->page_id == page_id && hdr->page_version == page_version) {
+                if (hdr->page_id == page_id && hdr->page_version == page_version
+                        && hdr->offset == (int)offset + page_offset) {
                     // Item header is still completely valid.
                     extstore_delete(storage, page_id, page_version, 1, ntotal);
                     // drop inactive items.
@@ -903,7 +904,7 @@ static void *storage_compact_thread(void *arg) {
     bool compacting = false;
     uint64_t page_version = 0;
     uint64_t page_size = 0;
-    uint64_t page_offset = 0;
+    uint32_t page_offset = 0;
     uint32_t page_id = 0;
     bool drop_unread = false;
     char *readback_buf = NULL;
@@ -971,7 +972,8 @@ static void *storage_compact_thread(void *arg) {
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_COMPACT_READ_START,
                         NULL, page_id, page_offset);
                 storage_compact_readback(storage, l, drop_unread,
-                        readback_buf, page_id, page_version, settings.ext_wbuf_size);
+                        readback_buf, page_id, page_version, page_offset,
+                        settings.ext_wbuf_size);
                 page_offset += settings.ext_wbuf_size;
                 wrap.done = false;
                 wrap.submitted = false;
