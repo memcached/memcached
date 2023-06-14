@@ -1461,6 +1461,7 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
             case 'c':
                 // need to set the cas value post-assignment.
                 META_CHAR(p, 'c');
+                break;
             case 's':
                 // get the final size post-fill
                 META_CHAR(p, 's');
