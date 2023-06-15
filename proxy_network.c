@@ -581,6 +581,8 @@ static int proxy_backend_drive_machine(mcp_backend_t *be) {
                         // markers down here.
                         memcpy(r->buf+r->blen, ENDSTR, ENDLEN);
                         r->blen += 5;
+                    } else {
+                        r->extra = 5;
                     }
 
                     // advance buffer

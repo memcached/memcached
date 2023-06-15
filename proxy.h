@@ -408,12 +408,13 @@ typedef struct {
     char *buf; // response line + potentially value.
     mc_resp *cresp; // client mc_resp object during extstore fetches.
     LIBEVENT_THREAD *thread; // cresp's owner thread needed for extstore cleanup.
-    size_t blen; // total size of the value to read.
+    unsigned int blen; // total size of the value to read.
     struct timeval start; // time this object was created.
     long elapsed; // time elapsed once handled.
     int status; // status code from mcmc_read()
     int bread; // amount of bytes read into value so far.
     uint8_t cmd; // from parser (pr.command)
+    uint8_t extra; // ascii multiget hack for memory accounting. extra blen.
     enum mcp_resp_mode mode; // reply mode (for noreply fixing)
     char be_name[MAX_NAMELEN+1];
     char be_port[MAX_PORTLEN+1];

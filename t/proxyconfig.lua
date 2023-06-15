@@ -39,57 +39,6 @@ function mcp_config_pools(old)
             test = mcp.pool({b1, b2, b3}, { iothread = false })
         }
         return pools
-    elseif mode == "reqlimit" then
-        mcp.active_req_limit(4)
-        local b1 = mcp.backend('b1', '127.0.0.1', 11511)
-        local b2 = mcp.backend('b2', '127.0.0.1', 11512)
-        local b3 = mcp.backend('b3', '127.0.0.1', 11513)
-
-        -- Direct all traffic at a single backend to simplify the test.
-        local pools = {
-            test = mcp.pool({b1}),
-            hold = mcp.pool({b2, b3})
-        }
-        return pools
-    elseif mode == "noreqlimit" then
-        mcp.active_req_limit(0)
-        local b1 = mcp.backend('b1', '127.0.0.1', 11511)
-        local b2 = mcp.backend('b2', '127.0.0.1', 11512)
-        local b3 = mcp.backend('b3', '127.0.0.1', 11513)
-
-        -- Direct all traffic at a single backend to simplify the test.
-        local pools = {
-            test = mcp.pool({b1}),
-            hold = mcp.pool({b2, b3})
-        }
-        return pools
-    elseif mode == "buflimit" or mode == "buflimit2" then
-        mcp.buffer_memory_limit(20)
-        if mode == "buflimit2" then
-            mcp.buffer_memory_limit(200)
-        end
-        local b1 = mcp.backend('b1', '127.0.0.1', 11511)
-        local b2 = mcp.backend('b2', '127.0.0.1', 11512)
-        local b3 = mcp.backend('b3', '127.0.0.1', 11513)
-
-        -- Direct all traffic at a single backend to simplify the test.
-        local pools = {
-            test = mcp.pool({b1}),
-            hold = mcp.pool({b2, b3})
-        }
-        return pools
-    elseif mode == "nobuflimit" then
-        mcp.buffer_memory_limit(0)
-        local b1 = mcp.backend('b1', '127.0.0.1', 11511)
-        local b2 = mcp.backend('b2', '127.0.0.1', 11512)
-        local b3 = mcp.backend('b3', '127.0.0.1', 11513)
-
-        -- Direct all traffic at a single backend to simplify the test.
-        local pools = {
-            test = mcp.pool({b1}),
-            hold = mcp.pool({b2, b3})
-        }
-        return pools
     end
 end
 

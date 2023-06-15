@@ -88,7 +88,7 @@ static int mcplib_response_gc(lua_State *L) {
     // FIXME: we handle the accounting here, but the actual response buffer is
     // freed elsewhere, after the network write.
     pthread_mutex_lock(&t->proxy_limit_lock);
-    t->proxy_buffer_memory_used -= r->blen;
+    t->proxy_buffer_memory_used -= r->blen + r->extra;
     pthread_mutex_unlock(&t->proxy_limit_lock);
 
     // On error/similar we might be holding the read buffer.
@@ -891,9 +891,8 @@ static int mcplib_buffer_memory_limit(lua_State *L) {
         if (limit > tcount * 2) {
             limit /= tcount;
         }
-
-        ctx->buffer_memory_limit = limit;
     }
+    ctx->buffer_memory_limit = limit;
 
     return 0;
 }
