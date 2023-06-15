@@ -139,7 +139,9 @@ memcached_debug_dtrace.o: $(memcached_debug_OBJECTS)
 SUBDIRS = doc
 DIST_DIRS = scripts
 EXTRA_DIST = doc scripts t memcached.spec memcached_dtrace.d version.m4 README.md LICENSE.bipbuffer
-EXTRA_DIST += vendor/Makefile vendor/lua vendor/mcmc
+EXTRA_DIST += vendor/Makefile vendor/lua/doc/* vendor/lua/Makefile vendor/lua/README
+EXTRA_DIST += vendor/lua/src/*.c vendor/lua/src/*.h vendor/lua/src/Makefile
+EXTRA_DIST += vendor/mcmc/LICENSE vendor/mcmc/Makefile vendor/mcmc/README.md vendor/mcmc/*.c vendor/mcmc/*.h
 
 if ENABLE_PROXY
 SUBDIRS += vendor
