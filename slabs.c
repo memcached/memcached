@@ -205,7 +205,7 @@ unsigned int slabs_fixup(char *chunk, const int border) {
  * Determines the chunk sizes and initializes the slab class descriptors
  * accordingly.
  */
-void slabs_init(const size_t limit, const double factor, const bool prealloc, const uint32_t *slab_sizes, void *mem_base_external, bool reuse_mem) {
+void slabs_init(const size_t limit, const double* factors, const bool prealloc, const uint32_t *slab_sizes, void *mem_base_external, bool reuse_mem) {
     int i = POWER_SMALLEST - 1;
     unsigned int size = sizeof(item) + settings.chunk_size;
 
@@ -246,13 +246,12 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
 
     memset(slabclass, 0, sizeof(slabclass));
 
-    while (++i < MAX_NUMBER_OF_SLAB_CLASSES-1) {
-        if (slab_sizes != NULL) {
+    // allocate using slab sizes
+    if (slab_sizes != NULL) {
+        while (++i < MAX_NUMBER_OF_SLAB_CLASSES-1) {
             if (slab_sizes[i-1] == 0)
                 break;
             size = slab_sizes[i-1];
-        } else if (size >= settings.slab_chunk_size_max / factor) {
-            break;
         }
         /* Make sure items are always n-byte aligned */
         if (size % CHUNK_ALIGN_BYTES)
@@ -260,11 +259,53 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
 
         slabclass[i].size = size;
         slabclass[i].perslab = settings.slab_page_size / slabclass[i].size;
-        if (slab_sizes == NULL)
-            size *= factor;
         if (settings.verbose > 1) {
             fprintf(stderr, "slab class %3d: chunk size %9u perslab %7u\n",
                     i, slabclass[i].size, slabclass[i].perslab);
+        }
+    }
+
+    // allocate using factor(s)
+    if (slab_sizes == NULL) {
+
+        // how many factors we have
+        int factor_count = 0; {
+            const double *f = factors;
+            while (*f != 0) {
+                factor_count++;
+                f += 1;
+            }
+        }
+
+        while (++i < MAX_NUMBER_OF_SLAB_CLASSES - 1) {
+            if (size >= settings.slab_chunk_size_max / factors[factor_count-1]) {
+                break;
+            }
+            /* Make sure items are always n-byte aligned */
+            if (size % CHUNK_ALIGN_BYTES)
+                size += CHUNK_ALIGN_BYTES - (size % CHUNK_ALIGN_BYTES);
+
+            slabclass[i].size = size;
+            slabclass[i].perslab = settings.slab_page_size / slabclass[i].size;
+
+            // calculate which factor we want, proportionally and increase size
+            int factor_no = (int) ( ((double)i / (double)MAX_NUMBER_OF_SLAB_CLASSES) * (double)factor_count );
+            if (factor_no >= factor_count) {
+                factor_no = factor_count-1;
+            }
+            double factor = factors[factor_no];
+            size *= factor;
+
+            if (slabclass[i-1].perslab == slabclass[i].perslab) {
+                size++;
+                i--;
+                continue;
+            }
+
+            if (settings.verbose > 1) {
+                fprintf(stderr, "slab class %3d: chunk size %9u (factor #: %i) perslab %7u\n",
+                        i, slabclass[i].size, factor_no+1, slabclass[i].perslab);
+            }
         }
     }
 

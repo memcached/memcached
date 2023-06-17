@@ -246,7 +246,8 @@ static void settings_init(void) {
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.auth_file = NULL;        /* by default, not using ASCII authentication tokens */
-    settings.factor = 1.25;
+    settings.factor[0] = 1.25;
+    settings.factor[1] = 0;
     settings.chunk_size = 48;         /* space for a modest key and value */
     settings.num_threads = 4;         /* N workers */
     settings.num_threads_per_udp = 0;
@@ -4030,10 +4031,12 @@ static void usage(void) {
            "-i, --license             print memcached and libevent license\n"
            "-V, --version             print version and exit\n"
            "-P, --pidfile=<file>      save PID in <file>, only used with -d option\n"
-           "-f, --slab-growth-factor=<num> chunk size growth factor (default: %2.2f)\n"
+           "-f <F1, ..Fn>             chunk size growth factor (default: %2.2f), you can\n"
+           "                          enter one or several factors, which will be used\n"
+           "                          proportionally. Separate by comma. Example: -f1.2,2\n"
            "-n, --slab-min-size=<bytes> min space used for key+value+flags (default: %d)\n",
            (unsigned long) settings.maxbytes / (1 << 20),
-           settings.maxconns, settings.factor, settings.chunk_size);
+           settings.maxconns, settings.factor[0], settings.chunk_size);
     verify_default("udp-port",settings.udpport == 0);
     printf("-L, --enable-largepages  try to use large memory pages (if available)\n");
     printf("-D <char>     Use <char> as the delimiter between key prefixes and IDs.\n"
@@ -5108,12 +5111,35 @@ int main (int argc, char **argv) {
             settings.memory_file = optarg;
             break;
         case 'f':
-            settings.factor = atof(optarg);
-            if (settings.factor <= 1.0) {
-                fprintf(stderr, "Factor must be greater than 1\n");
-                return 1;
-            }
             meta->slab_config = strdup(optarg);
+
+            int i = 0;
+            while (true) {
+                if (i >= FACTOR_MAX_COUNT) {
+                    fprintf(stderr, "Too many factors specified, maximum is: %d\n", FACTOR_MAX_COUNT);
+                    return 1;
+                }
+
+                char *pch = strchr(optarg, ',');
+                if (pch != NULL)
+                    *pch = 0;
+                if (strlen(optarg) == 0) {
+                    fprintf(stderr, "Factor component not specified, please use correct format\n");
+                    return 1;
+                }
+
+                double _tmp = atof(optarg);
+                if (_tmp < 1.0) {
+                    fprintf(stderr, "Factor value must be >=1 (`%s`).\n", optarg);
+                    return 1;
+                }
+                settings.factor[i++] = _tmp;
+
+                if (pch == NULL || strlen(optarg) == 0)
+                    break;
+                optarg = pch + 1;
+            }
+            settings.factor[i] = 0;
             break;
         case 'n':
             settings.chunk_size = atoi(optarg);
