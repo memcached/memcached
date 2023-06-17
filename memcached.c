@@ -175,6 +175,7 @@ static void maxconns_handler(const evutil_socket_t fd, const short which, void *
  * be that low).
  */
 rel_time_t realtime(const time_t exptime) {
+    rel_time_t res;
     /* no. of seconds in 30 days - largest possible delta exptime */
 
     if (exptime == 0) return 0; /* 0 means never expire */
@@ -188,7 +189,10 @@ rel_time_t realtime(const time_t exptime) {
            really expiring never */
         if (exptime <= process_started)
             return (rel_time_t)1;
-        return (rel_time_t)(exptime - process_started);
+        if (__builtin_sub_overflow(exptime, process_started, &res)) {
+            res = 0x7fffffff;
+        }
+        return res;
     } else {
         return (rel_time_t)(exptime + current_time);
     }
