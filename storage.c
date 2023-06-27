@@ -31,6 +31,7 @@ typedef struct _io_pending_storage_t {
     mc_resp *resp;
     io_queue_cb return_cb;    // called on worker thread.
     io_queue_cb finalize_cb;  // called back on the worker thread.
+    STAILQ_ENTRY(io_pending_t) iop_next; // queue chain.
                               /* original struct ends here */
     item *hdr_it;             /* original header item. */
     obj_io io_ctx;            /* embedded extstore IO header */

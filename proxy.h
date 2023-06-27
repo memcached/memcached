@@ -437,6 +437,7 @@ struct _io_pending_proxy_t {
     mc_resp *resp;
     io_queue_cb return_cb; // called on worker thread.
     io_queue_cb finalize_cb; // called back on the worker thread.
+    STAILQ_ENTRY(io_pending_t) iop_next; // queue chain.
     // original struct ends here
 
     int io_type; // extstore IO or backend IO
@@ -457,6 +458,7 @@ struct _io_pending_proxy_t {
         };
         // backend request IO
         struct {
+            // FIXME: use top level next chain
             struct _io_pending_proxy_t *next; // stack for IO submission
             STAILQ_ENTRY(_io_pending_proxy_t) io_next; // stack for backends
             int mcpres_ref; // mcp.res reference used for await()
