@@ -38,7 +38,6 @@ enum conn_queue_item_modes {
     queue_timeout,    /* socket sfd timed out */
     queue_redispatch, /* return conn from side thread */
     queue_stop,       /* exit thread */
-    queue_return_io,  /* returning a pending IO object immediately */
 #ifdef PROXY
     queue_proxy_reload, /* signal proxy to reload worker VM */
 #endif
@@ -109,6 +108,7 @@ static CQ_ITEM *cqi_new(CQ *cq);
 static void cq_push(CQ *cq, CQ_ITEM *item);
 
 static void thread_libevent_process(evutil_socket_t fd, short which, void *arg);
+static void thread_libevent_ionotify(evutil_socket_t fd, short which, void *arg);
 
 /* item_lock() must be held for an item before any modifications to either its
  * associated hash bucket, or the structure itself.
@@ -341,13 +341,13 @@ static void notify_worker(LIBEVENT_THREAD *t, CQ_ITEM *item) {
     cq_push(t->ev_queue, item);
 #ifdef HAVE_EVENTFD
     uint64_t u = 1;
-    if (write(t->notify_event_fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
+    if (write(t->n.notify_event_fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
         perror("failed writing to worker eventfd");
         /* TODO: This is a fatal problem. Can it ever happen temporarily? */
     }
 #else
     char buf[1] = "c";
-    if (write(t->notify_send_fd, buf, 1) != 1) {
+    if (write(t->n.notify_send_fd, buf, 1) != 1) {
         perror("Failed writing to notify pipe");
         /* TODO: This is a fatal problem. Can it ever happen temporarily? */
     }
@@ -401,6 +401,23 @@ void accept_new_conns(const bool do_accept) {
 }
 /****************************** LIBEVENT THREADS *****************************/
 
+static void setup_thread_notify(LIBEVENT_THREAD *me, struct thread_notify *tn,
+        void(*cb)(int, short, void *)) {
+#ifdef HAVE_EVENTFD
+    event_set(&tn->notify_event, tn->notify_event_fd,
+              EV_READ | EV_PERSIST, cb, me);
+#else
+    event_set(&tn->notify_event, tn->notify_receive_fd,
+              EV_READ | EV_PERSIST, cb, me);
+#endif
+    event_base_set(me->base, &tn->notify_event);
+
+    if (event_add(&tn->notify_event, 0) == -1) {
+        fprintf(stderr, "Can't monitor libevent notify pipe\n");
+        exit(1);
+    }
+}
+
 /*
  * Set up a thread's information.
  */
@@ -421,19 +438,10 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     }
 
     /* Listen for notifications from other threads */
-#ifdef HAVE_EVENTFD
-    event_set(&me->notify_event, me->notify_event_fd,
-              EV_READ | EV_PERSIST, thread_libevent_process, me);
-#else
-    event_set(&me->notify_event, me->notify_receive_fd,
-              EV_READ | EV_PERSIST, thread_libevent_process, me);
-#endif
-    event_base_set(me->base, &me->notify_event);
-
-    if (event_add(&me->notify_event, 0) == -1) {
-        fprintf(stderr, "Can't monitor libevent notify pipe\n");
-        exit(1);
-    }
+    setup_thread_notify(me, &me->n, thread_libevent_process);
+    setup_thread_notify(me, &me->ion, thread_libevent_ionotify);
+    pthread_mutex_init(&me->ion_lock, NULL);
+    STAILQ_INIT(&me->ion_head);
 
     me->ev_queue = malloc(sizeof(struct conn_queue));
     if (me->ev_queue == NULL) {
@@ -527,6 +535,43 @@ static void *worker_libevent(void *arg) {
     return NULL;
 }
 
+// dedicated worker thread notify system for IO objects.
+static void thread_libevent_ionotify(evutil_socket_t fd, short which, void *arg) {
+    LIBEVENT_THREAD *me = arg;
+    uint64_t ev_count = 0;
+    iop_head_t head;
+
+    STAILQ_INIT(&head);
+#ifdef HAVE_EVENTFD
+    if (read(fd, &ev_count, sizeof(uint64_t)) != sizeof(uint64_t)) {
+        if (settings.verbose > 0)
+            fprintf(stderr, "Can't read from libevent pipe\n");
+        return;
+    }
+#else
+    char buf[MAX_PIPE_EVENTS];
+
+    ev_count = read(fd, buf, MAX_PIPE_EVENTS);
+    if (ev_count == 0) {
+        if (settings.verbose > 0)
+            fprintf(stderr, "Can't read from libevent pipe\n");
+        return;
+    }
+#endif
+
+    // pull entire queue and zero the thread head.
+    // need to do this after reading a syscall as we are only guaranteed to
+    // get syscalls if the queue is empty.
+    pthread_mutex_lock(&me->ion_lock);
+    STAILQ_CONCAT(&head, &me->ion_head);
+    pthread_mutex_unlock(&me->ion_lock);
+
+    while (!STAILQ_EMPTY(&head)) {
+        io_pending_t *io = STAILQ_FIRST(&head);
+        STAILQ_REMOVE_HEAD(&head, iop_next);
+        conn_io_queue_return(io);
+    }
+}
 
 /*
  * Processes an incoming "connection event" item. This is called when
@@ -614,10 +659,6 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
             case queue_stop:
                 /* asked to stop */
                 event_base_loopexit(me->base, NULL);
-                break;
-            case queue_return_io:
-                /* getting an individual IO object back */
-                conn_io_queue_return(item->io);
                 break;
 #ifdef PROXY
             case queue_proxy_reload:
@@ -777,19 +818,32 @@ void proxy_reload_notify(LIBEVENT_THREAD *t) {
 #endif
 
 void return_io_pending(io_pending_t *io) {
-    CQ_ITEM *item = cqi_new(io->thread->ev_queue);
-    if (item == NULL) {
-        // TODO: how can we avoid this?
-        // In the main case I just loop, since a malloc failure here for a
-        // tiny object that's generally in a fixed size queue is going to
-        // implode shortly.
-        return;
+    bool do_notify = false;
+    LIBEVENT_THREAD *t = io->thread;
+    pthread_mutex_lock(&t->ion_lock);
+    if (STAILQ_EMPTY(&t->ion_head)) {
+        do_notify = true;
     }
+    STAILQ_INSERT_TAIL(&t->ion_head, io, iop_next);
+    pthread_mutex_unlock(&t->ion_lock);
 
-    item->mode = queue_return_io;
-    item->io = io;
-
-    notify_worker(io->thread, item);
+    // skip the syscall if there was already data in the queue, as it's
+    // already been notified.
+    if (do_notify) {
+#ifdef HAVE_EVENTFD
+        uint64_t u = 1;
+        if (write(t->ion.notify_event_fd, &u, sizeof(uint64_t)) != sizeof(uint64_t)) {
+            perror("failed writing to worker eventfd");
+            /* TODO: This is a fatal problem. Can it ever happen temporarily? */
+        }
+#else
+        char buf[1] = "c";
+        if (write(t->ion.notify_send_fd, buf, 1) != 1) {
+            perror("Failed writing to notify pipe");
+            /* TODO: This is a fatal problem. Can it ever happen temporarily? */
+        }
+#endif
+    }
 }
 
 /* This misses the allow_new_conns flag :( */
@@ -1013,6 +1067,25 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     }
 }
 
+static void memcached_thread_notify_init(struct thread_notify *tn) {
+#ifdef HAVE_EVENTFD
+        tn->notify_event_fd = eventfd(0, EFD_NONBLOCK);
+        if (tn->notify_event_fd == -1) {
+            perror("failed creating eventfd for worker thread");
+            exit(1);
+        }
+#else
+        int fds[2];
+        if (pipe(fds)) {
+            perror("Can't create notify pipe");
+            exit(1);
+        }
+
+        tn->notify_receive_fd = fds[0];
+        tn->notify_send_fd = fds[1];
+#endif
+}
+
 /*
  * Initializes the thread subsystem, creating various worker threads.
  *
@@ -1072,22 +1145,8 @@ void memcached_thread_init(int nthreads, void *arg) {
     }
 
     for (i = 0; i < nthreads; i++) {
-#ifdef HAVE_EVENTFD
-        threads[i].notify_event_fd = eventfd(0, EFD_NONBLOCK);
-        if (threads[i].notify_event_fd == -1) {
-            perror("failed creating eventfd for worker thread");
-            exit(1);
-        }
-#else
-        int fds[2];
-        if (pipe(fds)) {
-            perror("Can't create notify pipe");
-            exit(1);
-        }
-
-        threads[i].notify_receive_fd = fds[0];
-        threads[i].notify_send_fd = fds[1];
-#endif
+        memcached_thread_notify_init(&threads[i].n);
+        memcached_thread_notify_init(&threads[i].ion);
 #ifdef EXTSTORE
         threads[i].storage = arg;
 #endif
