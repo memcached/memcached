@@ -279,13 +279,18 @@ void proxy_submit_cb(io_queue_t *q) {
     q->stack_ctx = NULL;
 
     if (!STAILQ_EMPTY(&head)) {
+        bool do_notify = false;
         P_DEBUG("%s: submitting queue to IO thread\n", __func__);
         // Transfer request stack to event thread.
         pthread_mutex_lock(&e->mutex);
+        if (STAILQ_EMPTY(&e->io_head_in)) {
+            do_notify = true;
+        }
         STAILQ_CONCAT(&e->io_head_in, &head);
         // No point in holding the lock since we're not doing a cond signal.
         pthread_mutex_unlock(&e->mutex);
 
+        if (do_notify) {
         // Signal to check queue.
 #ifdef USE_EVENTFD
         uint64_t u = 1;
@@ -299,6 +304,7 @@ void proxy_submit_cb(io_queue_t *q) {
             assert(1 == 0);
         }
 #endif
+        }
     }
 
     if (!STAILQ_EMPTY(&w_head)) {
