@@ -205,6 +205,8 @@ enum conn_states {
     conn_closed,     /**< connection is closed */
     conn_watch,      /**< held by the logger thread as a watcher */
     conn_io_queue,   /**< wait on async. process to get response object */
+    conn_io_resume,  /**< ready to resume mwrite after async work */
+    conn_io_pending, /**< got woken up while waiting for async work */
     conn_max_state   /**< Max state value (used for assertion) */
 };
 
