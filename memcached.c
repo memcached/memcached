@@ -538,16 +538,7 @@ void conn_close_idle(conn *c) {
     }
 }
 
-/* bring conn back from a sidethread. could have had its event base moved. */
-void conn_worker_readd(conn *c) {
-    if (c->state == conn_io_queue) {
-        c->io_queues_submitted--;
-        // If we're still waiting for other queues to return, don't re-add the
-        // connection yet.
-        if (c->io_queues_submitted != 0) {
-            return;
-        }
-    }
+static void _conn_event_readd(conn *c) {
     c->ev_flags = EV_READ | EV_PERSIST;
     event_set(&c->event, c->sfd, c->ev_flags, event_handler, (void *)c);
     event_base_set(c->thread->base, &c->event);
@@ -556,17 +547,41 @@ void conn_worker_readd(conn *c) {
     if (event_add(&c->event, 0) == -1) {
         perror("event_add");
     }
+}
 
-    // side thread wanted us to close immediately.
-    if (c->state == conn_closing) {
-        drive_machine(c);
-        return;
-    } else if (c->state == conn_io_queue) {
-        // machine will know how to return based on secondary state.
-        drive_machine(c);
-    } else {
-        conn_set_state(c, conn_new_cmd);
+/* bring conn back from a sidethread. could have had its event base moved. */
+void conn_worker_readd(conn *c) {
+    if (c->io_queues_submitted) { // TODO: ensure this is safe?
+        c->io_queues_submitted--;
+        // If we're still waiting for other queues to return, don't re-add the
+        // connection yet.
+        if (c->io_queues_submitted != 0) {
+            return;
+        }
     }
+
+    switch (c->state) {
+        case conn_closing:
+            // might be fixable: only need to do this because we can't do
+            // event_del() without the event being armed.
+            _conn_event_readd(c);
+            drive_machine(c);
+            break;
+        case conn_io_pending:
+            // The event listener was removed as more data showed up while
+            // waiting for the async response.
+            _conn_event_readd(c);
+            // Explicit fall-through.
+        case conn_io_queue:
+            conn_set_state(c, conn_io_resume);
+            // machine will know how to return based on secondary state.
+            drive_machine(c);
+            break;
+        default:
+            _conn_event_readd(c);
+            conn_set_state(c, conn_new_cmd);
+    }
+
 }
 
 void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb) {
@@ -969,7 +984,9 @@ static const char *state_text(enum conn_states state) {
                                        "conn_mwrite",
                                        "conn_closed",
                                        "conn_watch",
-                                       "conn_io_queue" };
+                                       "conn_io_queue",
+                                       "conn_io_resume",
+                                       "conn_io_pending" };
     return statenames[state];
 }
 
@@ -3336,7 +3353,6 @@ static void drive_machine(conn *c) {
             }
             if (c->io_queues_submitted != 0) {
                 conn_set_state(c, conn_io_queue);
-                event_del(&c->event);
 
                 stop = true;
                 break;
@@ -3386,6 +3402,16 @@ static void drive_machine(conn *c) {
             stop = true;
             break;
         case conn_io_queue:
+            /* Woke up while waiting for an async return, but not ready. */
+            event_del(&c->event);
+            conn_set_state(c, conn_io_pending);
+            stop = true;
+            break;
+        case conn_io_pending:
+            /* Should not be reachable */
+            assert(false);
+            break;
+        case conn_io_resume:
             /* Complete our queued IO's from within the worker thread. */
             conn_set_state(c, conn_mwrite);
             break;
