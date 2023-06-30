@@ -1599,7 +1599,8 @@ The server terminates this list with the line
 END\r\n
 
 'size' is an approximate size of the item, within 32 bytes.
-'count' is the amount of items that exist within that 32-byte range.
+'count' is the approximate amount of items that exist within that 32-byte
+range.
 
 This is essentially a display of all of your items if there was a slab class
 for every 32 bytes. You can use this to determine if adjusting the slab growth

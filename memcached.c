@@ -4107,6 +4107,7 @@ static void usage(void) {
            "   - worker_logbuf_size:  size in kilobytes of per-worker-thread buffer\n"
            "                          read by background thread, then written to watchers. (default: %u)\n"
            "   - track_sizes:         enable dynamic reports for 'stats sizes' command.\n"
+           "                          note that counts for each size are approximate.\n"
            "   - no_hashexpand:       disables hash table expansion (dangerous)\n"
            "   - modern:              enables options which will be default in future.\n"
            "                          currently: nothing\n"
