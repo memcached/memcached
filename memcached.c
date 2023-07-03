@@ -5912,9 +5912,6 @@ int main (int argc, char **argv) {
     /* daemonize if requested */
     /* if we want to ensure our ability to dump core, don't chdir to / */
     if (do_daemonize) {
-        if (signal(SIGHUP, SIG_IGN) == SIG_ERR) {
-            perror("Failed to ignore SIGHUP");
-        }
         if (daemonize(maxcore, settings.verbose) == -1) {
             fprintf(stderr, "failed to daemon() in order to daemonize\n");
             exit(EXIT_FAILURE);
