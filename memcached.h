@@ -801,6 +801,7 @@ struct conn {
     bool close_after_write; /** flush write then move to close connection */
     bool rbuf_malloced; /** read buffer was malloc'ed for ascii mget, needs free() */
     bool item_malloced; /** item for conn_nread state is a temporary malloc */
+    bool graceful_stop; /** close self from conn_waiting */
 #ifdef TLS
     SSL    *ssl;
     char   *ssl_wbuf;
@@ -929,6 +930,7 @@ conn *conn_new(const int sfd, const enum conn_states init_state, const int event
     enum network_transport transport, struct event_base *base, void *ssl, uint64_t conntag, enum protocol bproto);
 
 void conn_worker_readd(conn *c);
+void conn_worker_gracestop(LIBEVENT_THREAD *t);
 extern int daemonize(int nochdir, int noclose);
 
 #define mutex_lock(x) pthread_mutex_lock(x)
@@ -985,6 +987,7 @@ void item_trylock_unlock(void *arg);
 void item_unlock(uint32_t hv);
 void pause_threads(enum pause_thread_types type);
 void stop_threads(void);
+void graceful_stop_workers(void);
 int stop_conn_timeout_thread(void);
 #define refcount_incr(it) ++(it->refcount)
 #define refcount_decr(it) --(it->refcount)
