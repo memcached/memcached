@@ -46,6 +46,13 @@ function mcp_config_pools(old)
             test = mcp.pool({b1})
         }
         return pools
+    elseif mode == "connectionsreload" then
+        local b1 = mcp.backend({ label = "b1c", host = "127.0.0.1", port = 11511,
+                               connections = 1})
+        local pools = {
+            test = mcp.pool({b1})
+        }
+        return pools
     end
 end
 

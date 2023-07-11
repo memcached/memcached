@@ -257,6 +257,17 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     for my $psc (@psocks) {
         is(scalar <$psc>, "EN\r\n", "miss from backend");
     }
+
+    # Verify the backend changes if we only change the connection count.
+    write_modefile('return "connectionsreload"');
+    $p_srv->reload();
+    wait_reload($watcher);
+
+    my $ms = IO::Select->new();
+    $ms->add($msrv);
+    my @readable = $ms->can_read(0.25);
+    is(scalar @readable, 1, "listener became readable after changing conncount");
+    $bes[0] = accept_backend($readable[0]);
 }
 
 # Disconnect the existing sockets
