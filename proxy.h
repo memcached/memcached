@@ -543,6 +543,10 @@ size_t _process_request_next_key(mcp_parser_t *pr);
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen);
 
+// rate limit interfaces
+int mcplib_ratelim_tbf(lua_State *L);
+int mcplib_ratelim_tbf_call(lua_State *L);
+
 // request interface
 int mcplib_request(lua_State *L);
 int mcplib_request_command(lua_State *L);

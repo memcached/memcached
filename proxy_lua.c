@@ -1241,6 +1241,11 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {NULL, NULL}
     };
 
+    const struct luaL_Reg mcplib_ratelim_tbf_m[] = {
+        {"__call", mcplib_ratelim_tbf_call},
+        {NULL, NULL}
+    };
+
     const struct luaL_Reg mcplib_f_config [] = {
         {"pool", mcplib_pool},
         {"backend", mcplib_backend},
@@ -1265,6 +1270,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"log_reqsample", mcplib_log_reqsample},
         {"stat", mcplib_stat},
         {"request", mcplib_request},
+        {"ratelim_tbf", mcplib_ratelim_tbf},
         {NULL, NULL}
     };
     // VM's have void* extra space in the VM by default for fast-access to a
@@ -1292,6 +1298,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         lua_setfield(L, -2, "__index"); // mt.__index = mt
         luaL_setfuncs(L, mcplib_pool_proxy_m, 0); // register methods
         lua_pop(L, 1); // drop the hash selector metatable
+
+        luaL_newmetatable(L, "mcp.ratelim_tbf");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_ratelim_tbf_m, 0); // register methods
+        lua_pop(L, 1);
 
         luaL_newlibtable(L, mcplib_f_routes);
     } else {
