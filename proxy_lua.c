@@ -11,6 +11,23 @@
 // normal library open:
 // int luaopen_mcp(lua_State *L) { }
 
+static lua_Integer _mcplib_backend_get_waittime(lua_Number secondsf) {
+    lua_Integer secondsi = (lua_Integer) secondsf;
+    lua_Number subseconds = secondsf - secondsi;
+    if (subseconds >= 0.5) {
+        // Yes, I know this rounding is probably wrong. it's close enough.
+        // Rounding functions have tricky portability and whole-integer
+        // rounding is at least simpler to reason about.
+        secondsi++;
+    }
+    if (secondsi < 1) {
+        secondsi = 1;
+    }
+    return secondsi;
+}
+
+// end util funcs.
+
 static int mcplib_response_elapsed(lua_State *L) {
     mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
     lua_pushinteger(L, r->elapsed);
@@ -229,6 +246,19 @@ static int mcplib_backend(lua_State *L) {
         }
         lua_pop(L, 1);
 
+        // TODO (v2): print deprecation warning.
+        if (lua_getfield(L, 1, "retrytimeout") != LUA_TNIL) {
+            be->tunables.retry.tv_sec =
+                _mcplib_backend_get_waittime(luaL_checknumber(L, -1));
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "retrywaittime") != LUA_TNIL) {
+            be->tunables.retry.tv_sec =
+                _mcplib_backend_get_waittime(luaL_checknumber(L, -1));
+        }
+        lua_pop(L, 1);
+
         if (lua_getfield(L, 1, "retrytimeout") != LUA_TNIL) {
             lua_Number secondsf = luaL_checknumber(L, -1);
             lua_Integer secondsi = (lua_Integer) secondsf;
@@ -252,6 +282,32 @@ static int mcplib_backend(lua_State *L) {
         if (lua_getfield(L, 1, "down") != LUA_TNIL) {
             int down = lua_toboolean(L, -1);
             be->tunables.down = down;
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "flaptime") != LUA_TNIL) {
+            lua_Number secondsf = luaL_checknumber(L, -1);
+            lua_Integer secondsi = (lua_Integer) secondsf;
+            lua_Number subseconds = secondsf - secondsi;
+
+            be->tunables.flap.tv_sec = secondsi;
+            be->tunables.flap.tv_usec = MICROSECONDS(subseconds);
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "flapbackofframp") != LUA_TNIL) {
+            float ramp = luaL_checknumber(L, -1);
+            if (ramp <= 1.1) {
+                ramp = 1.1;
+            }
+            be->tunables.flap_backoff_ramp = ramp;
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "flapbackoffmax") != LUA_TNIL) {
+            luaL_checknumber(L, -1);
+            uint32_t max = lua_tointeger(L, -1);
+            be->tunables.flap_backoff_max = max;
         }
         lua_pop(L, 1);
 
@@ -854,18 +910,22 @@ static int mcplib_backend_connect_timeout(lua_State *L) {
     return 0;
 }
 
-static int mcplib_backend_retry_timeout(lua_State *L) {
+static int mcplib_backend_retry_waittime(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);
-    lua_Integer secondsi = (lua_Integer) secondsf;
-    lua_Number subseconds = secondsf - secondsi;
     proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    lua_Integer secondsi = _mcplib_backend_get_waittime(secondsf);
 
     STAT_L(ctx);
     ctx->tunables.retry.tv_sec = secondsi;
-    ctx->tunables.retry.tv_usec = MICROSECONDS(subseconds);
+    ctx->tunables.retry.tv_usec = 0;
     STAT_UL(ctx);
 
     return 0;
+}
+
+// TODO (v2): deprecation notice print when using this function.
+static int mcplib_backend_retry_timeout(lua_State *L) {
+    return mcplib_backend_retry_waittime(L);
 }
 
 static int mcplib_backend_read_timeout(lua_State *L) {
@@ -877,6 +937,46 @@ static int mcplib_backend_read_timeout(lua_State *L) {
     STAT_L(ctx);
     ctx->tunables.read.tv_sec = secondsi;
     ctx->tunables.read.tv_usec = MICROSECONDS(subseconds);
+    STAT_UL(ctx);
+
+    return 0;
+}
+
+static int mcplib_backend_flap_time(lua_State *L) {
+    lua_Number secondsf = luaL_checknumber(L, -1);
+    lua_Integer secondsi = (lua_Integer) secondsf;
+    lua_Number subseconds = secondsf - secondsi;
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+
+    STAT_L(ctx);
+    ctx->tunables.flap.tv_sec = secondsi;
+    ctx->tunables.flap.tv_usec = MICROSECONDS(subseconds);
+    STAT_UL(ctx);
+
+    return 0;
+}
+
+static int mcplib_backend_flap_backoff_ramp(lua_State *L) {
+    float factor = luaL_checknumber(L, -1);
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    if (factor <= 1.1) {
+        factor = 1.1;
+    }
+
+    STAT_L(ctx);
+    ctx->tunables.flap_backoff_ramp = factor;
+    STAT_UL(ctx);
+
+    return 0;
+}
+
+static int mcplib_backend_flap_backoff_max(lua_State *L) {
+    luaL_checknumber(L, -1);
+    uint32_t max = lua_tointeger(L, -1);
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+
+    STAT_L(ctx);
+    ctx->tunables.flap_backoff_max = max;
     STAT_UL(ctx);
 
     return 0;
@@ -1259,8 +1359,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"add_stat", mcplib_add_stat},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
+        {"backend_retry_waittime", mcplib_backend_retry_waittime},
         {"backend_read_timeout", mcplib_backend_read_timeout},
         {"backend_failure_limit", mcplib_backend_failure_limit},
+        {"backend_flap_time", mcplib_backend_flap_time},
+        {"backend_flap_backoff_ramp", mcplib_backend_flap_backoff_ramp},
+        {"backend_flap_backoff_max", mcplib_backend_flap_backoff_max},
         {"tcp_keepalive", mcplib_tcp_keepalive},
         {"active_req_limit", mcplib_active_req_limit},
         {"buffer_memory_limit", mcplib_buffer_memory_limit},

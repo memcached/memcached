@@ -156,6 +156,8 @@ void *proxy_init(bool use_uring) {
     ctx->tunables.connect.tv_sec = 5;
     ctx->tunables.retry.tv_sec = 3;
     ctx->tunables.read.tv_sec = 3;
+    ctx->tunables.flap_backoff_ramp = 1.5;
+    ctx->tunables.flap_backoff_max = 3600;
 
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = luaL_newstate();

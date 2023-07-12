@@ -181,11 +181,9 @@ struct proxy_tunables {
     struct timeval connect;
     struct timeval retry; // wait time before retrying a dead backend
     struct timeval read;
-#ifdef HAVE_LIBURING
-    struct __kernel_timespec connect_ur;
-    struct __kernel_timespec retry_ur;
-    struct __kernel_timespec read_ur;
-#endif // HAVE_LIBURING
+    struct timeval flap; // need to stay connected this long or it's flapping
+    float flap_backoff_ramp; // factorial for retry time
+    uint32_t flap_backoff_max; // don't backoff longer than this.
     int backend_failure_limit;
     bool tcp_keepalive;
     bool down; // backend is forced into a down/bad state.
@@ -335,6 +333,7 @@ struct mcp_backendconn_s {
     int depth; // total number of requests in queue
     int pending_read; // number of requests written to socket, pending read.
     int failed_count; // number of fails (timeouts) in a row
+    int flap_count; // number of times we've "flapped" into bad state.
     proxy_event_thread_t *event_thread; // event thread owning this backend.
     void *client; // mcmc client
     io_head_t io_head; // stack of requests.
@@ -345,6 +344,7 @@ struct mcp_backendconn_s {
     struct event write_event; // libevent: only used when socket wbuf full
     struct event timeout_event; // libevent: alarm for pending reads
     struct proxy_tunables tunables;
+    struct timeval last_failed; // time the backend was last reset.
     enum mcp_backend_states state; // readback state machine
     int connect_flags; // flags to pass to mcmc_connect
     bool connecting; // in the process of an asynch connection.
