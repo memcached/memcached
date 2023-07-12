@@ -48,8 +48,7 @@ static int _prep_pending_write(struct mcp_backendconn_s *be);
 static void _post_pending_write(struct mcp_backendconn_s *be, ssize_t sent);
 static int _flush_pending_write(struct mcp_backendconn_s *be);
 static void _cleanup_backend(mcp_backend_t *be);
-static int _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failures err);
-static void _backend_failed(struct mcp_backendconn_s *be);
+static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failures err);
 static void _set_main_event(struct mcp_backendconn_s *be, struct event_base *base, int flags, struct timeval *t, event_callback_fn callback);
 static void _stop_main_event(struct mcp_backendconn_s *be);
 static void _start_write_event(struct mcp_backendconn_s *be);
@@ -90,13 +89,14 @@ static int _proxy_beconn_checkconnect(struct mcp_backendconn_s *be) {
         // FIXME (v2): if a connect fails, anything currently in the queue
         // should be safe to hold up until their timeout.
         _reset_bad_backend(be, P_BE_FAIL_CONNECTING);
-        _backend_failed(be);
         return -1;
     }
     P_DEBUG("%s: backend connected (%s:%s)\n", __func__, be->be_parent->name, be->be_parent->port);
     be->connecting = false;
     be->state = mcp_backend_read;
     be->bad = false;
+    // seed the failure time for the flap check.
+    gettimeofday(&be->last_failed, NULL);
     be->depth = 0; // was set to INT_MAX if bad, need to reset.
     be->failed_count = 0;
 
@@ -105,7 +105,6 @@ static int _proxy_beconn_checkconnect(struct mcp_backendconn_s *be) {
 
     if (_beconn_send_validate(be) == -1) {
         _reset_bad_backend(be, P_BE_FAIL_BADVALIDATE);
-        _backend_failed(be);
         return -1;
     } else {
         // buffer should be empty during validation stage.
@@ -236,7 +235,6 @@ static void _setup_backend(mcp_backend_t *be) {
             event_add(&bec->main_event, &bec->tunables.connect);
         } else {
             _reset_bad_backend(bec, P_BE_FAIL_CONNECTING);
-            _backend_failed(bec);
         }
     }
 }
@@ -315,7 +313,6 @@ void proxy_run_backend_queue(be_head_t *head) {
 
             if (flags == -1) {
                 _reset_bad_backend(bec, P_BE_FAIL_WRITING);
-                _backend_failed(bec);
             } else if (flags & EV_WRITE) {
                 // only get here because we need to kick off the write handler
                 _start_write_event(bec);
@@ -748,13 +745,34 @@ static void proxy_backend_retry_handler(const int fd, const short which, void *a
 // clear.
 // TODO (v2): extra counter for "backend connect tries" so it's still possible
 // to see dead backends exist
-static void _backend_failed(struct mcp_backendconn_s *be) {
-    if (++be->failed_count > be->tunables.backend_failure_limit) {
-        struct timeval tmp_time = be->tunables.retry;
+static void _backend_reschedule(struct mcp_backendconn_s *be) {
+    bool failed = false;
+    struct timeval tmp_time = {0};
+    long int retry_time = be->tunables.retry.tv_sec;
+    char *badtext = "markedbad";
+    if (be->flap_count > be->tunables.backend_failure_limit) {
+        // reduce retry frequency to avoid noise.
+        float backoff = retry_time;
+        for (int x = 0; x < be->flap_count; x++) {
+            backoff *= be->tunables.flap_backoff_ramp;
+        }
+        retry_time = (uint32_t)backoff;
+
+        if (retry_time > be->tunables.flap_backoff_max) {
+            retry_time = be->tunables.flap_backoff_max;
+        }
+        badtext = "markedbadflap";
+        failed = true;
+    } else if (be->failed_count > be->tunables.backend_failure_limit) {
+        failed = true;
+    }
+    tmp_time.tv_sec = retry_time;
+
+    if (failed) {
         if (!be->bad) {
             P_DEBUG("%s: marking backend as bad\n", __func__);
             STAT_INCR(be->event_thread->ctx, backend_marked_bad, 1);
-            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, "markedbad", be->be_parent->name, be->be_parent->port, 0, NULL, 0);
+            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, badtext, be->be_parent->name, be->be_parent->port, 0, NULL, 0, retry_time);
         }
         be->bad = true;
         be->depth = INT_MAX/2; // fast-path cache for "bad" marker
@@ -767,6 +785,46 @@ static void _backend_failed(struct mcp_backendconn_s *be) {
     }
 }
 
+static void _backend_flap_check(struct mcp_backendconn_s *be, enum proxy_be_failures err) {
+    struct timeval now;
+    struct timeval *flap = &be->tunables.flap;
+
+    switch (err) {
+        case P_BE_FAIL_TIMEOUT:
+        case P_BE_FAIL_DISCONNECTED:
+        case P_BE_FAIL_WRITING:
+        case P_BE_FAIL_READING:
+            if (flap->tv_sec != 0 || flap->tv_usec != 0) {
+                struct timeval delta = {0};
+                int64_t subsec = 0;
+                gettimeofday(&now, NULL);
+                delta.tv_sec = now.tv_sec - be->last_failed.tv_sec;
+                subsec = now.tv_usec - be->last_failed.tv_usec;
+                if (subsec < 0) {
+                    // tv_usec is specced as "at least" [-1, 1000000]
+                    // so to guarantee lower negatives we need this temp var.
+                    delta.tv_sec--;
+                    subsec += 1000000;
+                    delta.tv_usec = subsec;
+                }
+
+                if (flap->tv_sec < delta.tv_sec ||
+                    (flap->tv_sec == delta.tv_sec && flap->tv_usec < delta.tv_usec)) {
+                    // delta is larger than our flap range. reset the flap counter.
+                    be->flap_count = 0;
+                } else {
+                    // seems like we flapped again.
+                    be->flap_count++;
+                }
+                be->last_failed = now;
+            }
+            break;
+        default:
+            // only perform a flap check on network related errors.
+            break;
+    }
+}
+
 // TODO (v2): add a second argument for assigning a specific error to all pending
 // IO's (ie; timeout).
 // The backend has gotten into a bad state (timed out, protocol desync, or
@@ -775,7 +833,7 @@ static void _backend_failed(struct mcp_backendconn_s *be) {
 // Note that some types of errors may not require flushing the queue and
 // should be fixed as they're figured out.
 // _must_ be called from within the event thread.
-static int _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failures err) {
+static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failures err) {
     io_pending_proxy_t *io = NULL;
     P_DEBUG("%s: resetting bad backend: %s\n", __func__, proxy_be_failure_text[err]);
     // Can't use STAILQ_FOREACH() since return_io_pending() free's the current
@@ -796,20 +854,23 @@ static int _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failur
 
     // Only log if we don't already know it's messed up.
     if (!be->bad) {
-        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->be_parent->name, be->be_parent->port, depth, be->rbuf, be->rbufused);
+        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->be_parent->name, be->be_parent->port, depth, be->rbuf, be->rbufused, 0);
     }
 
     // reset buffer to blank state.
     be->rbufused = 0;
     be->pending_read = 0;
-    // allow the _backend_failed() routine to connect when ready.
+    // clear events so the reconnect handler can re-arm them with a few fd.
     _stop_write_event(be);
     _stop_main_event(be);
     _stop_timeout_event(be);
     mcmc_disconnect(be->client);
     // we leave the main event alone, because be_failed() always overwrites.
 
-    return 0;
+    // check failure counters and schedule a retry.
+    be->failed_count++;
+    _backend_flap_check(be, err);
+    _backend_reschedule(be);
 }
 
 static int _prep_pending_write(struct mcp_backendconn_s *be) {
@@ -932,7 +993,6 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
         } else {
             _reset_bad_backend(be, P_BE_FAIL_READVALIDATE);
         }
-        _backend_failed(be);
         return;
     }
 
@@ -951,7 +1011,6 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
             int res = _flush_pending_write(be);
             if (res == -1) {
                 _reset_bad_backend(be, P_BE_FAIL_WRITING);
-                _backend_failed(be);
                 return;
             }
             flags |= res;
@@ -977,13 +1036,11 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
                 }
 
                 _reset_bad_backend(be, P_BE_FAIL_READVALIDATE);
-                _backend_failed(be);
                 return;
             }
 
             if (r.code != MCMC_CODE_VERSION) {
                 _reset_bad_backend(be, P_BE_FAIL_BADVALIDATE);
-                _backend_failed(be);
                 return;
             }
 
@@ -992,13 +1049,11 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
         } else if (read == 0) {
             // not connected or error.
             _reset_bad_backend(be, P_BE_FAIL_DISCONNECTED);
-            _backend_failed(be);
             return;
         } else if (read == -1) {
             // sit on epoll again.
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
                 _reset_bad_backend(be, P_BE_FAIL_READING);
-                _backend_failed(be);
                 return;
             }
             _set_main_event(be, be->event_thread->base, EV_READ, &tmp_time, proxy_beconn_handler);
@@ -1009,7 +1064,6 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
         int res = _flush_pending_write(be);
         if (res == -1) {
             _reset_bad_backend(be, P_BE_FAIL_WRITING);
-            _backend_failed(be);
             return;
         }
         if (flags & EV_WRITE) {
@@ -1035,7 +1089,6 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
     if (which & EV_TIMEOUT) {
         P_DEBUG("%s: timeout received, killing backend queue\n", __func__);
         _reset_bad_backend(be, P_BE_FAIL_TIMEOUT);
-        _backend_failed(be);
         return;
     }
 
@@ -1044,7 +1097,6 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
         int res = _flush_pending_write(be);
         if (res == -1) {
             _reset_bad_backend(be, P_BE_FAIL_WRITING);
-            _backend_failed(be);
             return;
         }
         if (res & EV_WRITE) {
@@ -1064,19 +1116,16 @@ static void proxy_backend_handler(const int fd, const short which, void *arg) {
             int res = proxy_backend_drive_machine(be);
             if (res != 0) {
                 _reset_bad_backend(be, res);
-                _backend_failed(be);
                 return;
             }
         } else if (read == 0) {
             // not connected or error.
             _reset_bad_backend(be, P_BE_FAIL_DISCONNECTED);
-            _backend_failed(be);
             return;
         } else if (read == -1) {
             // sit on epoll again.
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
                 _reset_bad_backend(be, P_BE_FAIL_READING);
-                _backend_failed(be);
                 return;
             }
         }

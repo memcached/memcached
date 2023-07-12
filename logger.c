@@ -412,9 +412,11 @@ static void _logger_log_proxy_errbe(logentry *e, const entry_details *d, const v
     int be_depth = va_arg(ap, int);
     char *be_rbuf = va_arg(ap, char *);
     int be_rbuflen = va_arg(ap, int);
+    int be_retry = va_arg(ap, int);
 
     struct logentry_proxy_errbe *le = (void *)e->data;
     le->be_depth = be_depth;
+    le->retry = be_retry;
     le->errlen = strlen(errmsg);
     if (be_name && be_port) {
         le->be_namelen = strlen(be_name);
@@ -453,11 +455,19 @@ static int _logger_parse_prx_errbe(logentry *e, char *scratch) {
     char *be_rbuf = data;
 
     uriencode(be_rbuf, rbuf, le->be_rbuflen, MAX_RBUF_READ * 3);
-    total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%lld.%d gid=%llu type=proxy_backend error=%.*s name=%.*s port=%.*s depth=%d rbuf=%s\n",
-            (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
-            (int)le->errlen, errmsg, (int)le->be_namelen, be_name,
-            (int)le->be_portlen, be_port, le->be_depth, rbuf);
+    if (le->retry) {
+        total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+                "ts=%lld.%d gid=%llu type=proxy_backend error=%.*s name=%.*s port=%.*s retry=%d\n",
+                (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+                (int)le->errlen, errmsg, (int)le->be_namelen, be_name,
+                (int)le->be_portlen, be_port, le->retry);
+    } else {
+        total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
+                "ts=%lld.%d gid=%llu type=proxy_backend error=%.*s name=%.*s port=%.*s depth=%d rbuf=%s\n",
+                (long long int)e->tv.tv_sec, (int)e->tv.tv_usec, (unsigned long long) e->gid,
+                (int)le->errlen, errmsg, (int)le->be_namelen, be_name,
+                (int)le->be_portlen, be_port, le->be_depth, rbuf);
+    }
 
     return total;
 }
