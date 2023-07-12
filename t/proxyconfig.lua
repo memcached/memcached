@@ -53,6 +53,20 @@ function mcp_config_pools(old)
             test = mcp.pool({b1})
         }
         return pools
+    elseif mode == "down" then
+        local down = mcp.backend({ label = "down", host = "127.0.0.1", port = 11517,
+                                   down = true })
+        local pools = {
+            test = mcp.pool({down})
+        }
+        return pools
+    elseif mode == "notdown" then
+        local down = mcp.backend({ label = "down", host = "127.0.0.1", port = 11517,
+                                   down = false })
+        local pools = {
+            test = mcp.pool({down})
+        }
+        return pools
     end
 end
 
