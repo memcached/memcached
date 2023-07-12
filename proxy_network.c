@@ -180,23 +180,25 @@ static void _cleanup_backend(mcp_backend_t *be) {
     for (int x = 0; x < be->conncount; x++) {
         struct mcp_backendconn_s *bec = &be->be[x];
         // remove any pending events.
-        int pending = event_pending(&bec->main_event, EV_READ|EV_WRITE|EV_TIMEOUT, NULL);
-        if ((pending & (EV_READ|EV_WRITE|EV_TIMEOUT)) != 0) {
-            event_del(&bec->main_event); // an error to call event_del() without event.
-        }
-        pending = event_pending(&bec->write_event, EV_READ|EV_WRITE|EV_TIMEOUT, NULL);
-        if ((pending & (EV_READ|EV_WRITE|EV_TIMEOUT)) != 0) {
-            event_del(&bec->write_event); // an error to call event_del() without event.
-        }
-        pending = event_pending(&bec->timeout_event, EV_TIMEOUT, NULL);
-        if ((pending & (EV_TIMEOUT)) != 0) {
-            event_del(&bec->timeout_event); // an error to call event_del() without event.
-        }
+        if (!be->tunables.down) {
+            int pending = event_pending(&bec->main_event, EV_READ|EV_WRITE|EV_TIMEOUT, NULL);
+            if ((pending & (EV_READ|EV_WRITE|EV_TIMEOUT)) != 0) {
+                event_del(&bec->main_event); // an error to call event_del() without event.
+            }
+            pending = event_pending(&bec->write_event, EV_READ|EV_WRITE|EV_TIMEOUT, NULL);
+            if ((pending & (EV_READ|EV_WRITE|EV_TIMEOUT)) != 0) {
+                event_del(&bec->write_event); // an error to call event_del() without event.
+            }
+            pending = event_pending(&bec->timeout_event, EV_TIMEOUT, NULL);
+            if ((pending & (EV_TIMEOUT)) != 0) {
+                event_del(&bec->timeout_event); // an error to call event_del() without event.
+            }
 
-        // - assert on empty queue
-        assert(STAILQ_EMPTY(&bec->io_head));
+            // - assert on empty queue
+            assert(STAILQ_EMPTY(&bec->io_head));
 
-        mcmc_disconnect(bec->client);
+            mcmc_disconnect(bec->client);
+        }
         // - free be->client
         free(bec->client);
         // - free be->rbuf
@@ -209,6 +211,13 @@ static void _cleanup_backend(mcp_backend_t *be) {
 static void _setup_backend(mcp_backend_t *be) {
     for (int x = 0; x < be->conncount; x++) {
         struct mcp_backendconn_s *bec = &be->be[x];
+        if (be->tunables.down) {
+            // backend is "forced" into a bad state. never connect or
+            // otherwise attempt to use it.
+            be->be[x].bad = true;
+            be->be[x].depth = UINT_MAX / 2;
+            continue;
+        }
         // assign the initial events to the backend, so we don't have to
         // constantly check if they were initialized yet elsewhere.
         // note these events will not fire until event_add() is called.

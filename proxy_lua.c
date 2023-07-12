@@ -249,6 +249,12 @@ static int mcplib_backend(lua_State *L) {
         }
         lua_pop(L, 1);
 
+        if (lua_getfield(L, 1, "down") != LUA_TNIL) {
+            int down = lua_toboolean(L, -1);
+            be->tunables.down = down;
+        }
+        lua_pop(L, 1);
+
         if (lua_getfield(L, 1, "connections") != LUA_TNIL) {
             int c = luaL_checkinteger(L, -1);
             if (c <= 0) {
@@ -262,6 +268,7 @@ static int mcplib_backend(lua_State *L) {
             be->conncount = c;
         }
         lua_pop(L, 1);
+
     } else {
         label = luaL_checklstring(L, 1, &llen);
         name = luaL_checklstring(L, 2, &nlen);

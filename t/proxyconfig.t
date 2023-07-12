@@ -270,6 +270,46 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     $bes[0] = accept_backend($readable[0]);
 }
 
+{
+    note("Testing down backends");
+    $watcher = $p_srv->new_sock;
+    # Reset the watcher and let logs die off.
+    sleep 1;
+    print $watcher "watch proxyevents\n";
+    is(<$watcher>, "OK\r\n", "watcher enabled");
+
+    # Make a dedicated mock server for the down host.
+    my $msrv = mock_server(11517);
+
+    write_modefile('return "down"');
+    $p_srv->reload();
+    wait_reload($watcher);
+
+    my $ms = IO::Select->new();
+    $ms->add($msrv);
+    my @readable = $ms->can_read(0.25);
+    is(scalar @readable, 0, "listener did not become readable for down backend");
+
+    print $ps "mg toast\r\n";
+    is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "client received SERVER_ERROR");
+
+    write_modefile('return "notdown"');
+    $p_srv->reload();
+    wait_reload($watcher);
+
+    my @readable = $ms->can_read(0.25);
+    is(scalar @readable, 1, "listener did become readable for backend that was down");
+
+    my $be = accept_backend($readable[0]);
+
+    print $ps "mg toast\r\n";
+    is(scalar <$be>, "mg toast\r\n", "backend works");
+    print $be "HD\r\n";
+    is(scalar <$ps>, "HD\r\n", "backned to client works");
+
+    check_version($ps);
+}
+
 # Disconnect the existing sockets
 @mbe = ();
 @holdbe = ();

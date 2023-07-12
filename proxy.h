@@ -188,6 +188,7 @@ struct proxy_tunables {
 #endif // HAVE_LIBURING
     int backend_failure_limit;
     bool tcp_keepalive;
+    bool down; // backend is forced into a down/bad state.
 };
 
 typedef STAILQ_HEAD(pool_head_s, mcp_pool_s) pool_head_t;
