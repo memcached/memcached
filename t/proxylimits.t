@@ -213,7 +213,10 @@ check_version($ps);
 
     my $stats = mem_stats($ps, 'proxy');
     my $used = $stats->{buffer_memory_used};
-    cmp_ok($used, '<', 1000, 'pre: buffer memory usage not inflated');
+    # check a very high number at first. The next batch of requests should
+    # kick the GC enough times to free memory from the previous set of tests.
+    # The rest should be much lower.
+    cmp_ok($used, '<', 1000000, 'pre: buffer memory usage not inflated');
 
     my $cmd = "get foo\r\n";
     for (1 .. 100) {
