@@ -856,8 +856,32 @@ static void storage_compact_readback(void *storage, logger *l,
                         hdr->offset = io.offset;
                         rescues++;
                     } else {
-                        lost++;
-                        // TODO: re-alloc and replace header.
+                        // re-alloc and replace header.
+                        uint32_t flags;
+                        FLAGS_CONV(hdr_it, flags);
+                        item *new_it = do_item_alloc(ITEM_key(hdr_it), hdr_it->nkey, flags, hdr_it->exptime, sizeof(item_hdr));
+                        if (new_it) {
+                            // need to preserve the original item flags, but we
+                            // start unlinked, with linked being added during
+                            // item_replace below.
+                            new_it->it_flags = hdr_it->it_flags & (~ITEM_LINKED);
+                            new_it->time = hdr_it->time;
+                            new_it->nbytes = hdr_it->nbytes;
+
+                            // copy the hdr data.
+                            item_hdr *new_hdr = (item_hdr *) ITEM_data(new_it);
+                            new_hdr->page_version = io.page_version;
+                            new_hdr->page_id = io.page_id;
+                            new_hdr->offset = io.offset;
+
+                            // replace the item in the hash table.
+                            item_replace(hdr_it, new_it, hv);
+                            ITEM_set_cas(new_it, (settings.use_cas) ? ITEM_get_cas(hdr_it) : 0);
+                            do_item_remove(new_it); // release our reference.
+                            rescues++;
+                        } else {
+                            lost++;
+                        }
                     }
                 } else {
                     lost++;
