@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
 #include "config.h"
+#include "portability.h"
 // FIXME: config.h?
 #include <stdint.h>
 #include <stdbool.h>
@@ -111,19 +112,6 @@ struct store_engine {
     pthread_mutex_t stats_mutex;
     struct extstore_stats stats;
 };
-
-// FIXME: code is duplicated from thread.c since extstore.c doesn't pull in
-// the memcached ecosystem. worth starting a cross-utility header with static
-// definitions/macros?
-// keeping a minimal func here for now.
-#define THR_NAME_MAXLEN 16
-static void thread_setname(pthread_t thread, const char *name) {
-assert(strlen(name) < THR_NAME_MAXLEN);
-#if defined(__linux__)
-pthread_setname_np(thread, name);
-#endif
-}
-#undef THR_NAME_MAXLEN
 
 static _store_wbuf *wbuf_new(size_t size) {
     _store_wbuf *b = calloc(1, sizeof(_store_wbuf));
