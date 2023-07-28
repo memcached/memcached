@@ -721,6 +721,12 @@ int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, con
     return 0;
 }
 
+// basically any data before the first key.
+// max is like 15ish plus spaces. we can be more strict about how many spaces
+// to expect because any client spamming space is being deliberately stupid
+// anyway.
+#define MAX_CMD_PREFIX 20
+
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget) {
     assert(c != NULL);
     LIBEVENT_THREAD *thr = c->thread;
@@ -793,12 +799,18 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     if (!multiget && pr.cmd_type == CMD_TYPE_GET && pr.has_space) {
         uint32_t keyoff = pr.tokens[pr.keytoken];
         while (pr.klen != 0) {
-            char temp[KEY_MAX_LENGTH + 30];
+            char temp[KEY_MAX_LENGTH + MAX_CMD_PREFIX + 30];
             char *cur = temp;
             // Core daemon can abort the entire command if one key is bad, but
             // we cannot from the proxy. Instead we have to inject errors into
             // the stream. This should, thankfully, be rare at least.
-            if (pr.klen > KEY_MAX_LENGTH) {
+            if (pr.tokens[pr.keytoken] > MAX_CMD_PREFIX) {
+                if (!resp_start(c)) {
+                    conn_set_state(c, conn_closing);
+                    return;
+                }
+                proxy_out_errstring(c->resp, PROXY_CLIENT_ERROR, "malformed request");
+            } else if (pr.klen > KEY_MAX_LENGTH) {
                 if (!resp_start(c)) {
                     conn_set_state(c, conn_closing);
                     return;

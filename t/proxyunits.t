@@ -151,6 +151,12 @@ sub proxy_test {
         print $ps "$_\r\n";
         is(scalar <$ps>, "CLIENT_ERROR parsing request\r\n", "$_ got CLIENT_ERROR for too few tokens");
     }
+
+    my $space = ' ' x 200;
+    print $ps "get$space key key\r\n";
+    is(scalar <$ps>, "CLIENT_ERROR malformed request\r\n");
+    is(scalar <$ps>, "CLIENT_ERROR malformed request\r\n");
+    is(scalar <$ps>, "END\r\n"); # god damn multiget syntax.
 }
 
 # Basic test with a backend; write a request to the client socket, read it
