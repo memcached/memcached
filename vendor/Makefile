@@ -1,5 +1,5 @@
 all:
-	cd lua && $(MAKE) all CFLAGS="-g" && cd ..
+	cd lua && $(MAKE) all MYCFLAGS="-g" && cd ..
 	cd mcmc && $(MAKE) all && cd ..
 
 clean:
