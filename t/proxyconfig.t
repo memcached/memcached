@@ -265,7 +265,7 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
 
     my $ms = IO::Select->new();
     $ms->add($msrv);
-    my @readable = $ms->can_read(0.25);
+    @readable = $ms->can_read(0.25);
     is(scalar @readable, 1, "listener became readable after changing conncount");
     $bes[0] = accept_backend($readable[0]);
 }
@@ -297,7 +297,7 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
     $p_srv->reload();
     wait_reload($watcher);
 
-    my @readable = $ms->can_read(0.25);
+    @readable = $ms->can_read(0.25);
     is(scalar @readable, 1, "listener did become readable for backend that was down");
 
     my $be = accept_backend($readable[0]);
