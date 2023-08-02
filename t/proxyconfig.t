@@ -70,6 +70,17 @@ sub wait_reload {
     like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_conf status=done/, "reload completed");
 }
 
+# Not looking for a clear pipeline, just when a reload finishes.
+sub wait_reload_relaxed {
+    my $w = shift;
+    while (my $line = <$w>) {
+        if ($line =~ m/type=proxy_conf status=done/) {
+            last;
+        }
+    }
+    pass("reload complete");
+}
+
 my @mocksrvs = ();
 #diag "making mock servers";
 for my $port (11511, 11512, 11513) {
@@ -273,8 +284,6 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
 {
     note("Testing down backends");
     $watcher = $p_srv->new_sock;
-    # Reset the watcher and let logs die off.
-    sleep 1;
     print $watcher "watch proxyevents\n";
     is(<$watcher>, "OK\r\n", "watcher enabled");
 
@@ -283,7 +292,7 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
 
     write_modefile('return "down"');
     $p_srv->reload();
-    wait_reload($watcher);
+    wait_reload_relaxed($watcher);
 
     my $ms = IO::Select->new();
     $ms->add($msrv);
@@ -295,7 +304,7 @@ my @holdbe = (); # avoid having the backends immediately disconnect and pollute 
 
     write_modefile('return "notdown"');
     $p_srv->reload();
-    wait_reload($watcher);
+    wait_reload_relaxed($watcher);
 
     @readable = $ms->can_read(0.25);
     is(scalar @readable, 1, "listener did become readable for backend that was down");
