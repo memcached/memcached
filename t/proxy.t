@@ -151,13 +151,14 @@ my $p_sock = $p_srv->sock;
 # NOTE: memcached always allowed [\r]\n for single command lines, but payloads
 # (set/etc) require exactly \r\n as termination.
 # doc/protocol.txt has always specified \r\n for command/response.
-# Proxy is more strict than normal server in this case.
+# Note a bug lead me to believe that the proxy was more strict, we accept any
+# \n or \r\n terminated commands.
 {
     my $s = $srv[0]->sock;
     print $s "version\n";
     like(<$s>, qr/VERSION/, "direct server version cmd with just newline");
     print $p_sock "version\n";
-    like(<$p_sock>, qr/CLIENT_ERROR/, "proxy version cmd with just newline");
+    like(<$p_sock>, qr/VERSION/, "proxy version cmd with just newline");
     print $p_sock "version\r\n";
     like(<$p_sock>, qr/VERSION/, "proxy version cmd with full CRLF");
 }

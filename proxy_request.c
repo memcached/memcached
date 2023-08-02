@@ -9,7 +9,7 @@
 // where we later scan or directly feed data into API's.
 static int _process_tokenize(mcp_parser_t *pr, const size_t max) {
     const char *s = pr->request;
-    int len = pr->reqlen - 2;
+    int len = pr->endlen;
 
     // since multigets can be huge, we can't purely judge reqlen against this
     // limit, but we also can't index past it since the tokens are shorts.
@@ -93,7 +93,7 @@ static int _process_request_key(mcp_parser_t *pr) {
 // Returns the offset for the next key.
 size_t _process_request_next_key(mcp_parser_t *pr) {
     const char *cur = pr->request + pr->parsed;
-    int remain = pr->reqlen - pr->parsed - 2;
+    int remain = pr->endlen - pr->parsed;
 
     // chew off any leading whitespace.
     while (remain) {
@@ -126,7 +126,7 @@ static int _process_request_metaflags(mcp_parser_t *pr, int token) {
         return 0;
     }
     const char *cur = pr->request + pr->tokens[token];
-    const char *end = pr->request + pr->reqlen - 2;
+    const char *end = pr->request + pr->endlen;
 
     // We blindly convert flags into bits, since the range of possible
     // flags is deliberately < 64.
@@ -294,15 +294,25 @@ int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen) {
         return -1;
     }
 
-    const char *s = memchr(command, ' ', cmdlen-2);
+    // Commands can end with bare '\n's. Depressingly I intended to be strict
+    // with a \r\n requirement but never did this and need backcompat.
+    // In this case we _know_ \n is at cmdlen because we can't enter this
+    // function otherwise.
+    if (cm[cmdlen-2] == '\r') {
+        pr->endlen = cmdlen - 2;
+    } else {
+        pr->endlen = cmdlen - 1;
+    }
+
+    const char *s = memchr(command, ' ', pr->endlen);
     if (s != NULL) {
         cl = s - command;
     } else {
-        cl = cmdlen - 2;
+        cl = pr->endlen;
     }
     pr->keytoken = 0;
     pr->has_space = false;
-    pr->parsed = cl + 1;
+    pr->parsed = cl;
     pr->request = command;
     pr->reqlen = cmdlen;
     int token_max = PARSER_MAX_TOKENS;
