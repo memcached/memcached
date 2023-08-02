@@ -535,6 +535,10 @@ static void *worker_libevent(void *arg) {
     return NULL;
 }
 
+// Syscalls can be expensive enough that handling a few of them once here can
+// save both throughput and overall latency.
+#define MAX_PIPE_EVENTS 32
+
 // dedicated worker thread notify system for IO objects.
 static void thread_libevent_ionotify(evutil_socket_t fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
@@ -577,9 +581,6 @@ static void thread_libevent_ionotify(evutil_socket_t fd, short which, void *arg)
  * Processes an incoming "connection event" item. This is called when
  * input arrives on the libevent wakeup pipe.
  */
-// Syscalls can be expensive enough that handling a few of them once here can
-// save both throughput and overall latency.
-#define MAX_PIPE_EVENTS 32
 static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     CQ_ITEM *item;
