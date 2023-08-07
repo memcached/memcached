@@ -166,6 +166,9 @@ sub proxy_test {
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "Backend failed");
     my $end = int(time());
     cmp_ok($end - $start, '<', 3, "backend failed immediately");
+
+    print $ps "get /deadrespcode/foo\r\n";
+    is(scalar <$ps>, "ERROR code_correct\r\n", "Backend had correct response code on failure");
 }
 
 # Basic test with a backend; write a request to the client socket, read it
