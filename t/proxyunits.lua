@@ -552,6 +552,15 @@ function mcp_config_routes(zones)
         return zones.dead(r)
     end
 
+   pfx_get["deadrespcode"] = function(r)
+       local res = zones.dead(r)
+
+       if res:code() == mcp.MCMC_CODE_SERVER_ERROR then
+         return "ERROR code_correct\r\n"
+       end
+       return "ERROR code_incorrect: " .. res:code() .. "\r\n"
+   end
+
     mcp.attach(mcp.CMD_GET, toproute_factory(pfx_get, "get"))
     mcp.attach(mcp.CMD_SET, toproute_factory(pfx_set, "set"))
     mcp.attach(mcp.CMD_TOUCH, toproute_factory(pfx_touch, "touch"))

@@ -303,6 +303,7 @@ void proxy_run_backend_queue(be_head_t *head) {
                 io = STAILQ_FIRST(&bec->io_head);
                 STAILQ_REMOVE_HEAD(&bec->io_head, io_next);
                 io->client_resp->status = MCMC_ERR;
+                io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
                 bec->depth--;
                 return_io_pending((io_pending_t *)io);
             }
@@ -845,6 +846,7 @@ static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failu
         // TODO (v2): Unsure if this is the best way of surfacing errors to lua,
         // but will do for V1.
         io->client_resp->status = MCMC_ERR;
+        io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
         be->depth--;
         return_io_pending((io_pending_t *)io);
     }
