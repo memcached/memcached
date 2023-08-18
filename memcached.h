@@ -780,6 +780,9 @@ typedef struct _mc_resp {
      */
     bool skip;
     bool free; // double free detection.
+#ifdef PROXY
+    bool proxy_res; // we're handling a proxied response buffer.
+#endif
     // UDP bits. Copied in from the client.
     uint16_t    request_id; /* Incoming UDP request ID, if this is a UDP "connection" */
     uint16_t    udp_sequence; /* packet counter when transmitting result */
@@ -794,6 +797,7 @@ typedef struct _mc_resp {
 struct _mc_resp_bundle {
     uint8_t refcount;
     uint8_t next_check; // next object to check on assignment.
+    LIBEVENT_THREAD *thread;
     struct _mc_resp_bundle *next;
     struct _mc_resp_bundle *prev;
     mc_resp r[];
@@ -861,7 +865,7 @@ struct conn {
     int io_queues_submitted; /* see notes on io_queue_t */
     io_queue_t io_queues[IO_QUEUE_COUNT]; /* set of deferred IO queues. */
 #ifdef PROXY
-    unsigned int proxy_coro_ref; /* lua reference for active coroutine */
+    void *proxy_rctx; /* pointer to active request context */
 #endif
 #ifdef EXTSTORE
     unsigned int recache_counter;

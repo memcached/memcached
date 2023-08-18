@@ -876,7 +876,7 @@ static void conn_cleanup(conn *c) {
 
     conn_release_items(c);
 #ifdef PROXY
-    if (c->proxy_coro_ref) {
+    if (c->proxy_rctx) {
         proxy_cleanup_conn(c);
     }
 #endif
@@ -1022,6 +1022,14 @@ void resp_reset(mc_resp *resp) {
         resp->item = NULL;
     }
     if (resp->write_and_free) {
+#ifdef PROXY
+        if (resp->proxy_res) {
+            LIBEVENT_THREAD *t = resp->bundle->thread;
+            pthread_mutex_lock(&t->proxy_limit_lock);
+            t->proxy_buffer_memory_used -= resp->wbytes;
+            pthread_mutex_unlock(&t->proxy_limit_lock);
+        }
+#endif
         free(resp->write_and_free);
         resp->write_and_free = NULL;
     }
@@ -1104,6 +1112,7 @@ static mc_resp* resp_allocate(conn *c) {
             }
             b->next = 0;
             b->prev = 0;
+            b->thread = th;
             th->open_bundle = b;
             resp = &b->r[0];
             memset(resp, 0, sizeof(*resp));
@@ -1230,6 +1239,14 @@ mc_resp* resp_finish(conn *c, mc_resp *resp) {
         resp->item = NULL;
     }
     if (resp->write_and_free) {
+#ifdef PROXY
+        if (resp->proxy_res) {
+            LIBEVENT_THREAD *t = resp->bundle->thread;
+            pthread_mutex_lock(&t->proxy_limit_lock);
+            t->proxy_buffer_memory_used -= resp->wbytes;
+            pthread_mutex_unlock(&t->proxy_limit_lock);
+        }
+#endif
         free(resp->write_and_free);
     }
     if (resp->io_pending) {
@@ -3778,8 +3795,13 @@ static int server_sockets(int port, enum network_transport transport,
             const char *tagstr = "tag";
             if (strncmp(p, tagstr, strlen(tagstr)) == 0) {
                 p += strlen(tagstr);
-                if (*p == '[') {
+                // NOTE: should probably retire the [] dumbassery. those're
+                // shell characters.
+                if (*p == '[' || *p == '_') {
                     char *e = strchr(p, ']');
+                    if (e == NULL) {
+                        e = strchr(p+1, '_');
+                    }
                     if (e == NULL) {
                         fprintf(stderr, "Invalid tag in socket config: \"%s\"\n", p);
                         free(list);

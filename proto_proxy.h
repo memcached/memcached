@@ -3,6 +3,7 @@
 
 void proxy_stats(void *arg, ADD_STAT add_stats, conn *c);
 void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c);
+void process_proxy_funcstats(void *arg, ADD_STAT add_stats, conn *c);
 
 /* proxy mode handlers */
 int try_read_command_proxy(conn *c);
@@ -19,8 +20,6 @@ void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr);
 
 void proxy_submit_cb(io_queue_t *q);
 void proxy_complete_cb(io_queue_t *q);
-void proxy_return_cb(io_pending_t *pending);
-void proxy_finalize_cb(io_pending_t *pending);
 
 /* lua */
 int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state);
