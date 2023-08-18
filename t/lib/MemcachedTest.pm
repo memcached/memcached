@@ -480,4 +480,195 @@ sub new_udp_sock {
 
 }
 
+############################################################################
+package Memcached::ProxyTest;
+use IO::Socket qw(AF_INET SOCK_STREAM);
+# We call out to Test::More because of some package instancing. Not completely
+# sure if this is necessary anymore?
+use strict;
+use warnings;
+
+sub new {
+    my ($class, %p) = @_;
+
+    die "needs servers argument"
+        unless exists $p{servers} && ref($p{servers}) eq 'ARRAY';
+
+    $p{_srv} = [];
+    for my $port (@{$p{servers}}) {
+        my $srv = _mock_server($port);
+        Test::More::ok(defined $srv, "mock server object created");
+        push(@{$p{_srv}}, $srv);
+    }
+
+    $p{_csel} = IO::Select->new();
+
+    return bless \%p, $class;
+}
+
+sub _mock_server {
+    my $port = shift;
+    my $srv = IO::Socket->new(
+        Domain => AF_INET,
+        Type => SOCK_STREAM,
+        Proto => 'tcp',
+        LocalHost => '127.0.0.1',
+        LocalPort => $port,
+        ReusePort => 1,
+        Listen => 5) || die "IO::Socket: $@";
+    return $srv;
+}
+
+sub _accept_backend {
+    my $srv = shift;
+    my $be = $srv->accept();
+    $be->autoflush(1);
+    Test::More::ok(defined $be, "mock backend created");
+    Test::More::like(<$be>, qr/version/, "received version command");
+    print $be "VERSION 1.0.0-mock\r\n";
+
+    return $be;
+}
+
+sub accept_backends {
+    my $self = shift;
+    $self->{_be} = [];
+    for my $srv (@{$self->{_srv}}) {
+        my $be = _accept_backend($srv);
+        push(@{$self->{_be}}, $be);
+    }
+}
+
+sub accept_backend {
+    my $self = shift;
+    my $idx = shift;
+    $self->{_be}->[$idx] = _accept_backend($self->{_srv}->[$idx]);
+}
+
+sub set_c {
+    my $self = shift;
+    my $sel = $self->{_csel};
+    if (exists $self->{_c}) {
+        $sel->remove($self->{_c});
+    }
+    $self->{_c} = shift;
+    $sel->add($self->{_c});
+}
+
+sub check_c {
+    my $self = shift;
+    my $c = $self->{_c};
+    print $c "version\r\n";
+    Test::More::like(scalar <$c>, qr/VERSION /, "version received");
+}
+
+sub wait_c {
+    my ($self, $wait) = @_;
+    return $self->{_csel}->can_read($wait);
+}
+
+# Remembers the last command sent to the client socket.
+sub c_send {
+    my $self = shift;
+    my $cmd = shift;
+    my $c = $self->{_c};
+    print $c $cmd;
+    $self->{_cmd} = $cmd;
+}
+
+# Backends can be specified as a bare number, and array reference ([0,1,2]),
+# or 'all' to run against all available backends.
+sub _be_list {
+    my $self = shift;
+    my $list = shift;
+    my @l = ();
+    if (ref $list eq '') {
+        if (exists $self->{_be}->[$list]) {
+            push(@l, $self->{_be}->[$list]);
+        } elsif ($list eq 'all') {
+            @l = @{$self->{_be}};
+        } else {
+            die "unknown argument";
+        }
+    } elsif (ref $list eq 'ARRAY') {
+        for my $i (@$list) {
+            push(@l, $self->{_be}->[$i]);
+        }
+    }
+    return \@l;
+}
+
+# Check that the last command sent to the client arrives at the backends.
+# This is a common case so this saves typing/errors while writing tests.
+sub be_recv_c {
+    my $self = shift;
+    my $list = shift;
+    my $detail = shift || 'be received data';
+    die "issue a a command with c_send before calling be_recv_c" unless exists $self->{_cmd};
+
+    my $l = $self->_be_list($list);
+    my $cmd = $self->{_cmd};
+    for my $be (@$l) {
+        Test::More::is(scalar <$be>, $cmd, $detail);
+    }
+}
+
+# TODO: be_recv_c_like
+
+# Receive a different/specific string to the backend socket.
+sub be_recv {
+    my $self = shift;
+    my $list = shift;
+    my $cmd = shift || die "must provide a command to check";
+    my $detail = shift || 'be received data';
+
+    my $l = $self->_be_list($list);
+    for my $be (@$l) {
+        Test::More::is(scalar <$be>, $cmd, $detail);
+    }
+}
+
+# Sends a specific command to a backend socket back towards the proxy.
+# Remembers the last command sent.
+sub be_send {
+    my $self = shift;
+    my $list = shift;
+    my $cmd = shift || die "must provide data to return";
+
+    $self->{_becmd} = $cmd;
+    my $l = $self->_be_list($list);
+    for my $be (@$l) {
+        print $be $cmd;
+    }
+}
+
+# Client receives the last command sent to any backend. This is also a common
+# case so we save some typing/errors by remembering this here.
+sub c_recv_be {
+    my $self = shift;
+    my $detail = shift || 'client received be response';
+
+    my $cmd = $self->{_becmd};
+    my $c = $self->{_c};
+    Test::More::is(scalar <$c>, $cmd, $detail);
+}
+
+# Client to receive an arbitrary string.
+sub c_recv {
+    my $self = shift;
+    my $cmd = shift;
+    my $detail = shift || 'client received response';
+
+    my $c = $self->{_c};
+    Test::More::is(scalar <$c>, $cmd, $detail);
+}
+
+# Clear out any remembered commands and check the client pipe is clear.
+sub clear {
+    my $self = shift;
+    delete $self->{_becmd} if exists $self->{_becmd};
+    delete $self->{_cmd} if exists $self->{_cmd};
+    $self->check_c();
+}
+
 1;

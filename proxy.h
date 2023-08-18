@@ -98,7 +98,9 @@ struct mcp_memprofile {
 
 #define MCP_YIELD_POOL 1
 #define MCP_YIELD_AWAIT 2
-#define MCP_YIELD_LOCAL 3
+#define MCP_YIELD_INTERNAL 3
+#define MCP_YIELD_WAITFOR 4
+#define MCP_YIELD_WAITHANDLE 5
 
 // all possible commands.
 #define CMD_FIELDS \
@@ -241,13 +243,18 @@ typedef struct {
 // Operations from the config VM don't have a libevent thread.
 #define PROXY_GET_CTX(L) (*(proxy_ctx_t **)lua_getextraspace(L))
 
+struct proxy_hook_ref {
+    int lua_ref;
+    void *ctx; // if we're a generator based function.
+};
+
 struct proxy_hook_tagged {
     uint64_t tag;
-    int lua_ref;
+    struct proxy_hook_ref ref;
 };
 
 struct proxy_hook {
-    int lua_ref;
+    struct proxy_hook_ref ref;
     int tagcount;
     struct proxy_hook_tagged *tagged; // array of possible tagged hooks.
 };
@@ -279,6 +286,7 @@ typedef struct mcp_backend_label_s mcp_backend_label_t;
 typedef struct mcp_backend_s mcp_backend_t;
 typedef struct mcp_request_s mcp_request_t;
 typedef struct mcp_parser_s mcp_parser_t;
+typedef struct mcp_rcontext_s mcp_rcontext_t;
 
 #define PARSER_MAX_TOKENS 24
 
@@ -313,7 +321,6 @@ struct mcp_parser_s {
 #define MAX_REQ_TOKENS 2
 struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
-    mcp_backend_t *be; // backend handling this request.
     bool ascii_multiget; // ascii multiget mode. (hide errors/END)
     char request[];
 };
@@ -464,10 +471,10 @@ struct _io_pending_proxy_t {
     STAILQ_ENTRY(io_pending_t) iop_next; // queue chain.
     // original struct ends here
 
-    int io_type; // extstore IO or backend IO
-    int coro_ref; // lua registry reference to the coroutine
-    lua_State *coro; // pointer directly to the coroutine
+    mcp_rcontext_t *rctx; // pointer to request context.
+    int queue_handle; // queue slot to return this result to
     bool ascii_multiget; // passed on from mcp_r_t
+    uint8_t io_type; // extstore IO or backend IO
     union {
         // extstore IO.
         struct {
@@ -485,17 +492,18 @@ struct _io_pending_proxy_t {
             // FIXME: use top level next chain
             struct _io_pending_proxy_t *next; // stack for IO submission
             STAILQ_ENTRY(_io_pending_proxy_t) io_next; // stack for backends
-            int mcpres_ref; // mcp.res reference used for await()
             mcp_backend_t *backend; // backend server to request from
             struct iovec iov[2]; // request string + tail buffer
             int iovcnt; // 1 or 2...
             unsigned int iovbytes; // total bytes in the iovec
+            int mcpres_ref; // mcp.res reference used for await()
             int await_ref; // lua reference if we were an await object
             mcp_resp_t *client_resp; // reference (currently pointing to a lua object)
             bool flushed; // whether we've fully written this request to a backend.
             bool is_await; // are we an await object?
             bool await_first; // are we the main route for an await object?
             bool await_background; // dummy IO for backgrounded awaits
+            bool qcount_incr; // HACK.
         };
     };
 };
@@ -542,6 +550,9 @@ void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct e
 void *proxy_event_thread(void *arg);
 void proxy_run_backend_queue(be_head_t *head);
 struct mcp_backendconn_s *proxy_choose_beconn(mcp_backend_t *be);
+mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t);
+mcp_resp_t *mcp_prep_bare_resobj(lua_State *L, LIBEVENT_THREAD *t);
+io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_backend_t *be, mcp_resp_t *r);
 
 // await interface
 enum mcp_await_e {
@@ -554,12 +565,12 @@ enum mcp_await_e {
 };
 int mcplib_await(lua_State *L);
 int mcplib_await_logerrors(lua_State *L);
-int mcplib_await_run(conn *c, mc_resp *resp, lua_State *L, int coro_ref);
+int mcplib_await_run_rctx(mcp_rcontext_t *rctx);
 int mcplib_await_return(io_pending_proxy_t *p);
 
 // internal request interface
 int mcplib_internal(lua_State *L);
-int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref);
+int mcplib_internal_run(mcp_rcontext_t *rctx);
 
 // user stats interface
 #define MAX_USTATS_DEFAULT 1024
@@ -568,10 +579,110 @@ int mcplib_stat(lua_State *L);
 size_t _process_request_next_key(mcp_parser_t *pr);
 int process_request(mcp_parser_t *pr, const char *command, size_t cmdlen);
 mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *command, size_t cmdlen);
+void mcp_set_request(mcp_parser_t *pr, mcp_request_t *r, const char *command, size_t cmdlen);
 
 // rate limit interfaces
 int mcplib_ratelim_tbf(lua_State *L);
 int mcplib_ratelim_tbf_call(lua_State *L);
+
+// request function generator interface
+void proxy_return_rctx_cb(io_pending_t *pending);
+void proxy_finalize_rctx_cb(io_pending_t *pending);
+
+enum mcp_rqueue_e {
+    WAIT_ANY = 0,
+    WAIT_OK,
+    WAIT_GOOD,
+    WAIT_HANDLE
+};
+
+typedef struct {
+    LIBEVENT_THREAD *thread; // worker thread that created this funcgen.
+    int generator_ref; // reference to the generator function.
+    int self_ref; // self-reference if we're attached anywhere
+    int argument_ref; // reference to an argument to pass to generator
+    int max_queues; // how many queue slots rctx's have
+    unsigned int refcount; // reference counter
+    unsigned int total; // total contexts managed
+    unsigned int free; // free contexts
+    unsigned int free_max; // size of list below.
+    bool closed; // the hook holding this fgen has been replaced
+    mcp_rcontext_t **list;
+} mcp_funcgen_t;
+
+#define RQUEUE_TYPE_NONE 0
+#define RQUEUE_TYPE_POOL 1
+#define RQUEUE_TYPE_FGEN 2
+#define RQUEUE_ASSIGNED (1<<0)
+#define RQUEUE_R_GOOD (1<<3)
+#define RQUEUE_R_OK (1<<4)
+#define RQUEUE_R_ANY (1<<5)
+#define RQUEUE_R_RESUME (1<<6)
+#define RQUEUE_R_ERROR (1<<7)
+
+enum mcp_rqueue_state {
+    RQUEUE_IDLE = 0,
+    RQUEUE_QUEUED,
+    RQUEUE_ACTIVE,
+    RQUEUE_COMPLETE,
+    RQUEUE_WAITED
+};
+
+// FIXME: obj_ref -> intptr_t and use for both obj_ref and rctx to cut the
+// total size of the slot down?
+struct mcp_rqueue_s {
+    int obj_ref; // reference to pool/func/etc object
+    int cb_ref; // if a lua callback was specified
+    int res_ref; // reference to lua response object.
+    void *obj; // direct pointer to the object for fast access.
+    mcp_request_t *rq; // request set to this slot
+    enum mcp_rqueue_state state; // queued/active/etc
+    uint8_t obj_type; // what the obj_ref actually is.
+    uint8_t flags; // bit flags for various states
+};
+
+struct mcp_rcontext_s {
+    int request_ref; // top level request for this context.
+    int function_ref; // ref to the created route function.
+    int coroutine_ref; // ref to our encompassing coroutine.
+    unsigned int async_pending; // legacy async handling
+    unsigned int pending_reqs; // pending requests and sub-requests
+    unsigned int wait_count;
+    unsigned int wait_done; // TODO: change these variables to uint8's
+    int wait_handle; // waiting on a specific queue slot
+    int parent_handle; // queue slot in parent rctx
+    enum mcp_rqueue_e wait_mode;
+    bool first_queue; // HACK
+    lua_State *Lc; // coroutine thread pointer.
+    mcp_request_t *request; // ptr to the above reference.
+    mcp_rcontext_t *parent; // parent rctx in the call graph
+    conn *c; // associated client object.
+    mc_resp *resp; // top level response object to fill.
+    mcp_funcgen_t *fgen; // parent function generator context.
+    struct mcp_rqueue_s qslots[]; // queueable slots.
+};
+
+void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle);
+void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle);
+int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res);
+int mcplib_rcontext_queue_assign(lua_State *L);
+int mcplib_rcontext_queue(lua_State *L);
+int mcplib_rcontext_wait_for(lua_State *L);
+int mcplib_rcontext_wait_handle(lua_State *L);
+int mcplib_rcontext_good(lua_State *L);
+int mcplib_rcontext_any(lua_State *L);
+int mcplib_rcontext_ok(lua_State *L);
+int mcplib_funcgenbare_new(lua_State *L);
+int mcplib_funcgen_new(lua_State *L);
+mcp_rcontext_t *mcplib_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *fgen);
+void mcp_funcgen_return_rctx(mcp_rcontext_t *rctx);
+int mcplib_funcgen_gc(lua_State *L);
+void mcp_funcgen_reference(lua_State *L);
+void mcp_funcgen_dereference(lua_State *L, mcp_funcgen_t *fgen);
+void mcp_rcontext_push_rqu_res(lua_State *L, mcp_rcontext_t *rctx, int handle);
+
+
+int mcplib_factory_command_new(lua_State *L);
 
 // request interface
 int mcplib_request(lua_State *L);
@@ -584,12 +695,13 @@ int mcplib_request_ntokens(lua_State *L);
 int mcplib_request_has_flag(lua_State *L);
 int mcplib_request_flag_token(lua_State *L);
 int mcplib_request_gc(lua_State *L);
+void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq);
 
 int mcplib_open_dist_jump_hash(lua_State *L);
 int mcplib_open_dist_ring_hash(lua_State *L);
 
-int proxy_run_coroutine(lua_State *Lc, mc_resp *resp, io_pending_proxy_t *p, conn *c);
-mcp_backend_t *mcplib_pool_proxy_call_helper(lua_State *L, mcp_pool_proxy_t *pp, const char *key, size_t len);
+int proxy_run_rcontext(mcp_rcontext_t *rctx);
+mcp_backend_t *mcplib_pool_proxy_call_helper(mcp_pool_proxy_t *pp, const char *key, size_t len);
 void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p);
 int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len);
 void proxy_lua_error(lua_State *L, const char *s);

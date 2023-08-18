@@ -472,6 +472,16 @@ mcp_request_t *mcp_new_request(lua_State *L, mcp_parser_t *pr, const char *comma
     return rq;
 }
 
+// fill a preallocated request object.
+void mcp_set_request(mcp_parser_t *pr, mcp_request_t *rq, const char *command, size_t cmdlen) {
+    memset(rq, 0, sizeof(mcp_request_t));
+    memcpy(&rq->pr, pr, sizeof(*pr));
+
+    memcpy(rq->request, command, cmdlen);
+    rq->pr.request = rq->request;
+    rq->pr.reqlen = cmdlen;
+}
+
 // Replaces a token inside a request and re-parses.
 // Note that this has some optimization opportunities. Delaying until
 // required.
@@ -530,6 +540,7 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len) 
     return 0;
 }
 
+// FIXME: remove lua_state from arguments.
 void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p) {
     mcp_parser_t *pr = &rq->pr;
     char *r = (char *) pr->request;
@@ -787,9 +798,7 @@ int mcplib_request_flag_token(lua_State *L) {
     return ret;
 }
 
-int mcplib_request_gc(lua_State *L) {
-    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
-    mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
+void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq) {
     // During nread c->item is the malloc'ed buffer. not yet put into
     // rq->buf - this gets freed because we've also set c->item_malloced if
     // the connection closes before finishing nread.
@@ -799,6 +808,12 @@ int mcplib_request_gc(lua_State *L) {
         pthread_mutex_unlock(&t->proxy_limit_lock);
         free(rq->pr.vbuf);
     }
+}
+
+int mcplib_request_gc(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    mcp_request_t *rq = luaL_checkudata(L, -1, "mcp.request");
+    mcp_request_cleanup(t, rq);
 
     return 0;
 }

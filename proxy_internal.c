@@ -159,8 +159,8 @@ static int proxy_storage_get(LIBEVENT_THREAD *t, item *it, mc_resp *resp,
     io->io_type = IO_PENDING_TYPE_EXTSTORE; // proxy specific sub-type.
     io->gettype = type;
     io->thread = t;
-    io->return_cb = proxy_return_cb;
-    io->finalize_cb = proxy_finalize_cb;
+    io->return_cb = proxy_return_rctx_cb;
+    io->finalize_cb = proxy_finalize_rctx_cb;
     obj_io *eio = &io->eio;
 
     eio->buf = malloc(ntotal);
@@ -1594,18 +1594,19 @@ int mcplib_internal(lua_State *L) {
     luaL_getmetatable(L, "mcp.response");
     lua_setmetatable(L, -2);
 
-    lua_pushinteger(L, MCP_YIELD_LOCAL);
+    lua_pushinteger(L, MCP_YIELD_INTERNAL);
     return lua_yield(L, 2);
 }
 
 // we're pretending to be p_c_ascii(), but reusing our already tokenized code.
 // the text parser should eventually move to the new tokenizer and we can
 // merge all of this code together.
-int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref) {
+int mcplib_internal_run(mcp_rcontext_t *rctx) {
+    lua_State *L = rctx->Lc;
     mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
     mcp_resp_t *r = luaL_checkudata(L, 2, "mcp.response");
-    mc_resp *resp = resp_start_unlinked(c);
-    LIBEVENT_THREAD *t = c->thread;
+    mc_resp *resp = resp_start_unlinked(rctx->c);
+    LIBEVENT_THREAD *t = rctx->c->thread;
     mcp_parser_t *pr = &rq->pr;
     if (resp == NULL) {
         return -1;
@@ -1695,7 +1696,7 @@ int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref) 
 
     // TODO: r-> will need status/code/mode copied from resp.
     r->cresp = resp;
-    r->thread = c->thread;
+    r->thread = t;
     r->cmd = rq->pr.command;
     // Always return OK from here as this is signalling an internal error.
     r->status = MCMC_OK;
@@ -1704,25 +1705,21 @@ int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref) 
         // TODO (v2): here we move the IO from the temporary resp to the top
         // resp, but this feels kludgy so I'm leaving an explicit note to find
         // a better way to do this.
-        top_resp->io_pending = resp->io_pending;
+        rctx->resp->io_pending = resp->io_pending;
         resp->io_pending = NULL;
 
         // Add io object to extstore submission queue.
-        io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_EXTSTORE);
-        io_pending_proxy_t *io = (io_pending_proxy_t *)top_resp->io_pending;
+        io_queue_t *q = conn_io_queue_get(rctx->c, IO_QUEUE_EXTSTORE);
+        io_pending_proxy_t *io = (io_pending_proxy_t *)rctx->resp->io_pending;
 
         io->eio.next = q->stack_ctx;
         q->stack_ctx = &io->eio;
         assert(q->count >= 0);
         q->count++;
 
-        io->coro_ref = coro_ref;
-        io->coro = L;
-        io->c  = c;
+        io->rctx = rctx;
+        io->c = rctx->c;
         io->ascii_multiget = rq->ascii_multiget;
-        // we need to associate the top level mc_resp here so the run routine
-        // can fill it in later.
-        io->resp = top_resp;
         // mark the buffer into the mcp_resp for freeing later.
         r->buf = io->eio.buf;
         return 1;

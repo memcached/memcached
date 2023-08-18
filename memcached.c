@@ -876,7 +876,7 @@ static void conn_cleanup(conn *c) {
 
     conn_release_items(c);
 #ifdef PROXY
-    if (c->proxy_coro_ref) {
+    if (c->proxy_rctx) {
         proxy_cleanup_conn(c);
     }
 #endif
