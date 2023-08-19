@@ -136,6 +136,7 @@ static void *_proxy_config_thread(void *arg) {
 
     logger_create();
     pthread_mutex_lock(&ctx->config_lock);
+    pthread_cond_signal(&ctx->config_cond);
     while (1) {
         ctx->loading = false;
         pthread_cond_wait(&ctx->config_cond, &ctx->config_lock);
@@ -203,6 +204,8 @@ int _start_proxy_config_threads(proxy_ctx_t *ctx) {
         return -1;
     }
     thread_setname(ctx->config_tid, "mc-prx-config");
+    // Avoid returning until the config thread has actually started.
+    pthread_cond_wait(&ctx->config_cond, &ctx->config_lock);
     pthread_mutex_unlock(&ctx->config_lock);
 
     pthread_mutex_lock(&ctx->manager_lock);
