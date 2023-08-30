@@ -481,7 +481,7 @@ static int mcplib_pool_gc(lua_State *L) {
     assert(p->refcount == 0);
     pthread_mutex_destroy(&p->lock);
 
-    for (int x = 0; x < p->pool_size; x++) {
+    for (int x = 0; x < p->pool_be_total; x++) {
         if (p->pool[x].ref) {
             luaL_unref(L, LUA_REGISTRYINDEX, p->pool[x].ref);
         }
@@ -673,6 +673,7 @@ static int mcplib_pool(lua_State *L) {
     // Zero the memory before use, so we can realibly use __gc to clean up
     memset(p, 0, plen);
     p->pool_size = n;
+    p->pool_be_total = n * workers;
     p->use_iothread = true;
     // TODO (v2): Nicer if this is fetched from mcp.default_key_hash
     p->key_hasher = XXH3_64bits_withSeed;

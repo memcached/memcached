@@ -502,6 +502,7 @@ struct mcp_pool_s {
     int phc_ref;
     int self_ref; // TODO (v2): double check that this is needed.
     int pool_size;
+    int pool_be_total; // can be different from pool size for worker IO
     bool use_iothread;
     mcp_pool_be_t pool[];
 };
