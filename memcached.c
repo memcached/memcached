@@ -4843,6 +4843,7 @@ int main (int argc, char **argv) {
 #ifdef PROXY
         PROXY_CONFIG,
         PROXY_URING,
+        PROXY_MEMPROFILE,
 #endif
 #ifdef MEMCACHED_DEBUG
         RELAXED_PRIVILEGES,
@@ -4905,6 +4906,7 @@ int main (int argc, char **argv) {
 #ifdef PROXY
         [PROXY_CONFIG] = "proxy_config",
         [PROXY_URING] = "proxy_uring",
+        [PROXY_MEMPROFILE] = "proxy_memprofile",
 #endif
 #ifdef MEMCACHED_DEBUG
         [RELAXED_PRIVILEGES] = "relaxed_privileges",
@@ -5667,6 +5669,9 @@ int main (int argc, char **argv) {
             case PROXY_URING:
                 settings.proxy_uring = true;
                 break;
+            case PROXY_MEMPROFILE:
+                settings.proxy_memprofile = true;
+                break;
 #endif
 #ifdef MEMCACHED_DEBUG
             case RELAXED_PRIVILEGES:
@@ -6080,7 +6085,7 @@ int main (int argc, char **argv) {
     /* start up worker threads if MT mode */
 #ifdef PROXY
     if (settings.proxy_enabled) {
-        settings.proxy_ctx = proxy_init(settings.proxy_uring);
+        settings.proxy_ctx = proxy_init(settings.proxy_uring, settings.proxy_memprofile);
     }
 #endif
 #ifdef EXTSTORE

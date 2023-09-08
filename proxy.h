@@ -70,6 +70,24 @@
 // FIXME (v2): do include dir properly.
 #include "vendor/mcmc/mcmc.h"
 
+enum mcp_memprofile_types {
+    mcp_memp_free = 0,
+    mcp_memp_string,
+    mcp_memp_table,
+    mcp_memp_func,
+    mcp_memp_userdata,
+    mcp_memp_thread,
+    mcp_memp_default,
+    mcp_memp_realloc,
+};
+
+struct mcp_memprofile {
+    struct timespec last_status; // for per-second prints on status
+    int id;
+    uint64_t allocs[8];
+    uint64_t alloc_bytes[8];
+};
+
 // Note: value created from thin air. Could be shorter.
 #define MCP_REQUEST_MAXLEN KEY_MAX_LENGTH * 2
 
@@ -209,6 +227,8 @@ typedef struct {
     bool worker_failed; // covered by worker_lock as well.
     bool use_uring; // use IO_URING for backend connections.
     bool loading; // bool indicating an active config load.
+    bool memprofile; // indicate if we want to profile lua memory.
+    uint8_t memprofile_thread_counter;
     struct proxy_global_stats global_stats;
     struct proxy_user_stats user_stats;
     struct proxy_tunables tunables; // NOTE: updates covered by stats_lock

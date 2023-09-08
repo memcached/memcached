@@ -14,6 +14,7 @@
 #define PROCESS_NORMAL false
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget);
 static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc);
+static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
 
 /******** EXTERNAL FUNCTIONS ******/
 // functions starting with _ are breakouts for the public functions.
@@ -135,9 +136,10 @@ void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
 }
 
 // start the centralized lua state and config thread.
-void *proxy_init(bool use_uring) {
+void *proxy_init(bool use_uring, bool proxy_memprofile) {
     proxy_ctx_t *ctx = calloc(1, sizeof(proxy_ctx_t));
     ctx->use_uring = use_uring;
+    ctx->memprofile = proxy_memprofile; // FIXME: take from argument.
 
     pthread_mutex_init(&ctx->config_lock, NULL);
     pthread_cond_init(&ctx->config_cond, NULL);
@@ -160,7 +162,14 @@ void *proxy_init(bool use_uring) {
     ctx->tunables.flap_backoff_max = 3600;
 
     STAILQ_INIT(&ctx->manager_head);
-    lua_State *L = luaL_newstate();
+    lua_State *L = NULL;
+    if (ctx->memprofile) {
+        struct mcp_memprofile *prof = calloc(1, sizeof(struct mcp_memprofile));
+        prof->id = ctx->memprofile_thread_counter++;
+        L = lua_newstate(mcp_profile_alloc, prof);
+    } else {
+        L = luaL_newstate();
+    }
     ctx->proxy_state = L;
     luaL_openlibs(L);
     // NOTE: might need to differentiate the libs yes?
@@ -199,7 +208,15 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
     thr->proxy_ctx = ctx;
 
     // Initialize the lua state.
-    lua_State *L = luaL_newstate();
+    proxy_ctx_t *pctx = ctx;
+    lua_State *L = NULL;
+    if (pctx->memprofile) {
+        struct mcp_memprofile *prof = calloc(1, sizeof(struct mcp_memprofile));
+        prof->id = pctx->memprofile_thread_counter++;
+        L = lua_newstate(mcp_profile_alloc, prof);
+    } else {
+        L = luaL_newstate();
+    }
     thr->L = L;
     luaL_openlibs(L);
     proxy_register_libs(ctx, thr, L);
@@ -1041,6 +1058,85 @@ static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc) {
     q->stack_ctx = p;
 
     return;
+}
+
+static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize,
+                                            size_t nsize) {
+    struct mcp_memprofile *prof = ud;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    enum mcp_memprofile_types t = mcp_memp_free;
+    if (ptr == NULL) {
+        switch (osize) {
+            case LUA_TSTRING:
+                t = mcp_memp_string;
+                //fprintf(stderr, "alloc string: %ld\n", nsize);
+                break;
+            case LUA_TTABLE:
+                t = mcp_memp_table;
+                //fprintf(stderr, "alloc table: %ld\n", nsize);
+                break;
+            case LUA_TFUNCTION:
+                t = mcp_memp_func;
+                //fprintf(stderr, "alloc func: %ld\n", nsize);
+                break;
+            case LUA_TUSERDATA:
+                t = mcp_memp_userdata;
+                //fprintf(stderr, "alloc userdata: %ld\n", nsize);
+                break;
+            case LUA_TTHREAD:
+                t = mcp_memp_thread;
+                //fprintf(stderr, "alloc thread: %ld\n", nsize);
+                break;
+            default:
+                t = mcp_memp_default;
+                //fprintf(stderr, "alloc osize: %ld nsize: %ld\n", osize, nsize);
+        }
+        prof->allocs[t]++;
+        prof->alloc_bytes[t] += nsize;
+    } else {
+        if (nsize != 0) {
+            prof->allocs[mcp_memp_realloc]++;
+            prof->alloc_bytes[mcp_memp_realloc] += nsize;
+        } else {
+            prof->allocs[mcp_memp_free]++;
+            prof->alloc_bytes[mcp_memp_free] += osize;
+        }
+        //fprintf(stderr, "realloc: osize: %ld nsize: %ld\n", osize, nsize);
+    }
+
+    if (now.tv_sec != prof->last_status.tv_sec) {
+        prof->last_status.tv_sec = now.tv_sec;
+        fprintf(stderr, "MEMPROF[%d]:\tstring[%llu][%llu] table[%llu][%llu] func[%llu][%llu] udata[%llu][%llu] thr[%llu][%llu] def[%llu][%llu] realloc[%llu][%llu] free[%llu][%llu]\n",
+                prof->id,
+                (unsigned long long)prof->allocs[1],
+                (unsigned long long)prof->alloc_bytes[1],
+                (unsigned long long)prof->allocs[2],
+                (unsigned long long)prof->alloc_bytes[2],
+                (unsigned long long)prof->allocs[3],
+                (unsigned long long)prof->alloc_bytes[3],
+                (unsigned long long)prof->allocs[4],
+                (unsigned long long)prof->alloc_bytes[4],
+                (unsigned long long)prof->allocs[5],
+                (unsigned long long)prof->alloc_bytes[5],
+                (unsigned long long)prof->allocs[6],
+                (unsigned long long)prof->alloc_bytes[6],
+                (unsigned long long)prof->allocs[7],
+                (unsigned long long)prof->alloc_bytes[7],
+                (unsigned long long)prof->allocs[0],
+                (unsigned long long)prof->alloc_bytes[0]);
+        for (int x = 0; x < 8; x++) {
+            prof->allocs[x] = 0;
+            prof->alloc_bytes[x] = 0;
+        }
+    }
+
+    if (nsize == 0) {
+        free(ptr);
+        return NULL;
+    } else {
+        return realloc(ptr, nsize);
+    }
 }
 
 // Common lua debug command.

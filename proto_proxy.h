@@ -9,7 +9,7 @@ int try_read_command_proxy(conn *c);
 void complete_nread_proxy(conn *c);
 void proxy_cleanup_conn(conn *c);
 void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr);
-void *proxy_init(bool proxy_uring);
+void *proxy_init(bool proxy_uring, bool proxy_memprofile);
 // TODO: need better names or a better interface for these. can be confusing
 // to reason about the order.
 void proxy_start_reload(void *arg);
