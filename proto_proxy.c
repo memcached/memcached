@@ -12,12 +12,27 @@
 
 #define PROCESS_MULTIGET true
 #define PROCESS_NORMAL false
+#define PROXY_GC_BACKGROUND_SECONDS 2
 static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool multiget);
 static void mcp_queue_io(conn *c, mc_resp *resp, int coro_ref, lua_State *Lc);
 static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
 
 /******** EXTERNAL FUNCTIONS ******/
 // functions starting with _ are breakouts for the public functions.
+
+// We want to ensure we slowly iterate through VM memory in two cases:
+// - If using the newer zero-allocation API, old backends will never close
+// after reload.
+// - If the server is completely idle and user is issuing reloads, they will
+// be confused when old backends do not close.
+// So every few seconds we push one minimal GC step.
+static void proxy_gc_poke(evutil_socket_t fd, short event, void *arg) {
+    LIBEVENT_THREAD *t = arg;
+    lua_State *L = t->L;
+    struct timeval next = { PROXY_GC_BACKGROUND_SECONDS, 0 };
+    lua_gc(L, LUA_GCSTEP, 0);
+    evtimer_add(t->proxy_gc_timer, &next);
+}
 
 bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len) {
     bool oom = false;
@@ -224,6 +239,10 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
     for (int x = 0; x < 3; x++) {
         thr->proxy_rng[x] = rand();
     }
+
+    thr->proxy_gc_timer = evtimer_new(thr->base, proxy_gc_poke, thr);
+    // kick off the timer loop.
+    proxy_gc_poke(0, 0, thr);
 
     // Create a proxy event thread structure to piggyback on the worker.
     proxy_event_thread_t *t = calloc(1, sizeof(proxy_event_thread_t));
