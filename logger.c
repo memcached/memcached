@@ -301,7 +301,7 @@ static int _logger_parse_extw(logentry *e, char *scratch) {
 
 static int _logger_parse_cne(logentry *e, char *scratch) {
     int total;
-    unsigned short rport;
+    unsigned short rport = 0;
     char rip[64];
     struct logentry_conn_event *le = (struct logentry_conn_event *) e->data;
     const char * const transport_map[] = { "local", "tcp", "udp" };
@@ -318,7 +318,7 @@ static int _logger_parse_cne(logentry *e, char *scratch) {
 
 static int _logger_parse_cce(logentry *e, char *scratch) {
     int total;
-    unsigned short rport;
+    unsigned short rport = 0;
     char rip[64];
     struct logentry_conn_event *le = (struct logentry_conn_event *) e->data;
     const char * const transport_map[] = { "local", "tcp", "udp" };
