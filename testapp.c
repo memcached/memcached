@@ -393,6 +393,14 @@ static enum test_return test_safe_strtoul(void) {
        assert(!safe_strtoul("4294967296", &val)); // 2**32
     */
     assert(!safe_strtoul("-1", &val));  // negative
+
+    // huge number, with a negative sign _past_ the value
+    if (sizeof(unsigned long) > 4) {
+        assert(safe_strtoul("18446744073709551615\r\nextrastring-morestring", &val));
+    } else {
+        assert(safe_strtoul("4294967295\r\nextrastring-morestring", &val));
+    }
+
     return TEST_PASS;
 }
 
@@ -413,6 +421,9 @@ static enum test_return test_safe_strtoull(void) {
     assert(val == 18446744073709551615ULL);
     assert(!safe_strtoull("18446744073709551616", &val)); // 2**64
     assert(!safe_strtoull("-1", &val));  // negative
+
+    // huge number, with a negative sign _past_ the value
+    assert(safe_strtoull("18446744073709551615\r\nextrastring-morestring", &val));
     return TEST_PASS;
 }
 
