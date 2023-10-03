@@ -77,6 +77,11 @@ $ps->autoflush(1);
 {
     print $ps "ms /b/a 2\r\nhi\r\n";
     is(scalar <$ps>, "HD\r\n", "bare ms command works");
+
+    print $ps "ms /b/a 2 T100\r\nhi\r\n";
+    is(scalar <$ps>, "HD\r\n", "set ms with a TTL");
+    print $ps "mg /b/a t\r\n";
+    isnt(scalar <$ps>, "HD t-1\r\n");
 }
 
 note "ascii multiget";

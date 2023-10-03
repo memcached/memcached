@@ -1052,7 +1052,6 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
     assert(t != NULL);
     char *p = resp->wbuf;
     int tlen = 0;
-    rel_time_t exptime = 0;
 
     //WANT_TOKENS_MIN(ntokens, 3);
 
@@ -1074,6 +1073,7 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
         goto error;
     }
 
+    rel_time_t exptime = of.exptime;
     // "mode switch" to alternative commands
     switch (of.mode) {
         case 0:
