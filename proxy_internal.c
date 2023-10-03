@@ -1056,7 +1056,7 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
 
     //WANT_TOKENS_MIN(ntokens, 3);
 
-    if (nkey > KEY_MAX_LENGTH) {
+    if (nkey > KEY_MAX_LENGTH || pr->ntokens < 3) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
         return;
     }
@@ -1064,11 +1064,6 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
     if (pr->ntokens > MFLAG_MAX_OPT_LENGTH) {
         // TODO: ensure the command tokenizer gives us at least this many
         pout_errstring(resp, "CLIENT_ERROR options flags are too long");
-        return;
-    }
-
-    if (pr->ntokens == 3) {
-        pout_errstring(resp, "CLIENT_ERROR bad command line format");
         return;
     }
 

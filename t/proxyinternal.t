@@ -74,6 +74,11 @@ $ps->autoflush(1);
 #    print $be "VERSION 1.0.0-mock\r\n";
 #}
 
+{
+    print $ps "ms /b/a 2\r\nhi\r\n";
+    is(scalar <$ps>, "HD\r\n", "bare ms command works");
+}
+
 note "ascii multiget";
 {
     # First test all miss.
