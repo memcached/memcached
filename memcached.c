@@ -1588,7 +1588,7 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
     enum cas_result { CAS_NONE, CAS_MATCH, CAS_BADVAL, CAS_STALE, CAS_MISS };
 
     item *new_it = NULL;
-    uint32_t flags;
+    client_flags_t flags;
 
     /* Do the CAS test up front so we can apply to all store modes */
     enum cas_result cas_res = CAS_NONE;
@@ -2020,6 +2020,7 @@ void process_stat_settings(ADD_STAT add_stats, void *c) {
 #endif
     APPEND_STAT("num_napi_ids", "%s", settings.num_napi_ids);
     APPEND_STAT("memory_file", "%s", settings.memory_file);
+    APPEND_STAT("client_flags_size", "%d", sizeof(client_flags_t));
 }
 
 static int nz_strcmp(int nzlength, const char *nz, const char *z) {
@@ -2335,7 +2336,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         do_item_update(it);
     } else if (it->refcount > 1) {
         item *new_it;
-        uint32_t flags;
+        client_flags_t flags;
         FLAGS_CONV(it, flags);
         new_it = do_item_alloc(ITEM_key(it), it->nkey, flags, it->exptime, res + 2);
         if (new_it == 0) {

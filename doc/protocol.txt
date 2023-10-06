@@ -1498,6 +1498,7 @@ other stats command.
                     | bool     | If proxy is configured to use IO_URING.      |
                     |          | NOTE: uring may be used if kernel too old    |
 | memory_file       | char     | Warm restart memory file path, if enabled    |
+| client_flags_size | 32u      | Size in bytes of client flags                |
 |-------------------+----------+----------------------------------------------|
 
 
