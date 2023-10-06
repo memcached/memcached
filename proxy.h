@@ -388,6 +388,7 @@ struct mcp_backend_s {
     io_head_t io_head; // stack of inbound requests.
     char name[MAX_NAMELEN+1];
     char port[MAX_PORTLEN+1];
+    char label[MAX_LABELLEN+1];
     struct proxy_tunables tunables; // this gets copied a few times for speed.
     struct mcp_backendconn_s be[];
 };

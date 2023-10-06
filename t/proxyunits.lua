@@ -16,6 +16,8 @@ function mcp_config_pools(oldss)
 
     local dead = srv('dead', '127.9.9.9', 11011);
 
+    local no_label = srv('', '127.0.0.1', 11414)
+
     -- convert the backends to pools.
     -- as per a normal full config see simple.lua or t/startfile.lua
     local zones = {
@@ -23,6 +25,7 @@ function mcp_config_pools(oldss)
         z2 = mcp.pool(b2z),
         z3 = mcp.pool(b3z),
         dead = mcp.pool({dead}),
+        no_label = mcp.pool({no_label})
     }
 
     return zones
@@ -122,6 +125,10 @@ function mcp_config_routes(zones)
     pfx_get["ltrimkey"] = function(r)
         r:ltrimkey(10)
         return zones.z1(r)
+    end
+
+    pfx_get["nolabel"] = function(r)
+        return zones.no_label(r)
     end
 
     pfx_mg["ntokens"] = function(r)

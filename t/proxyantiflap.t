@@ -85,7 +85,7 @@ $ps->autoflush(1);
     # Block until we error and reconnect.
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "request cancelled");
     $be = accept_backend($msrv);
-    like(<$watcher>, qr/error=markedbadflap name=\S+ port=\S+ retry=1/, "got caught flapping");
+    like(<$watcher>, qr/error=markedbadflap name=\S+ port=\S+ label=b\d+ retry=1/, "got caught flapping");
 
     print $ps "mg baz\r\n";
     is(scalar <$be>, "mg baz\r\n", "backend does reconnect and still works");
@@ -94,7 +94,7 @@ $ps->autoflush(1);
 
     # clear error logs.
     like(<$watcher>, qr/error=timeout/, "timeout error log");
-    like(<$watcher>, qr/error=markedbadflap name=\S+ port=\S+ retry=2/, "re-flapped, longer retry");
+    like(<$watcher>, qr/error=markedbadflap name=\S+ port=\S+ label=b\d+ retry=2/, "re-flapped, longer retry");
     $p_srv->reload();
     wait_reload($watcher);
 

@@ -202,7 +202,7 @@ sub proxy_test {
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n", "backend failure error");
 
     # verify a particular proxy event logline is received
-    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=timeout name=127.0.0.1 port=\d+ depth=1 rbuf=EN/, "got backend error log line");
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=timeout name=127.0.0.1 port=\d+ label=b\d+ depth=1 rbuf=EN/, "got backend error log line");
 
     # backend is disconnected due to the error, so we have to re-establish it.
     $mbe[0] = accept_backend($mocksrvs[0]);
@@ -228,9 +228,35 @@ sub proxy_test {
     is(scalar <$ps>, "ok\r\n", "got data back");
     is(scalar <$ps>, "END\r\n", "got end string");
 
-    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=trailingdata name=127.0.0.1 port=\d+ depth=0 rbuf=garbage/, "got backend error log line");
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=trailingdata name=127.0.0.1 port=\d+ label=b\d+ depth=0 rbuf=garbage/, "got backend error log line");
 
     $mbe[0] = accept_backend($mocksrvs[0]);
+}
+
+{
+    note("Test proxyevents for a backend without a label");
+
+    my $msrv_nolabel = mock_server(11414);
+    ok(defined $msrv_nolabel, "mock server with no label created");
+    my $mbe_nolabel = accept_backend($msrv_nolabel);
+
+    # Trigger a proxyevent error by adding trailing data ("garbage") to the
+    # backend response.
+    my $w = $p_srv->new_sock;
+    print $w "watch proxyevents\n";
+    is(<$w>, "OK\r\n", "watcher enabled");
+
+    print $ps "get /nolabel/c\r\n";
+    is(scalar <$mbe_nolabel>, "get /nolabel/c\r\n", "get passthrough");
+    # Set off a "trailing data" error
+    print $mbe_nolabel "VALUE /nolabel/c 0 2\r\nok\r\nEND\r\ngarbage";
+
+    is(scalar <$ps>, "VALUE /nolabel/c 0 2\r\n", "got value back");
+    is(scalar <$ps>, "ok\r\n", "got data back");
+    is(scalar <$ps>, "END\r\n", "got end string");
+
+    # Verify a proxy event logline is received with empty label
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=trailingdata name=127.0.0.1 port=11414 label= depth=0 rbuf=garbage/, "got backend error log line");
 }
 
 note("Test bugfix for missingend:" . __LINE__);
@@ -262,7 +288,7 @@ SKIP: {
 
     is(scalar <$ps>, "SERVER_ERROR backend failure\r\n");
 
-    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=missingend name=127.0.0.1 port=\d+ depth=1 rbuf=/, "got missingend error log line");
+    like(<$w>, qr/ts=(\S+) gid=\d+ type=proxy_backend error=missingend name=127.0.0.1 port=\d+ label=b\d+ depth=1 rbuf=/, "got missingend error log line");
 
     $mbe[0] = accept_backend($mocksrvs[0]);
 }

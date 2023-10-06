@@ -773,7 +773,7 @@ static void _backend_reschedule(struct mcp_backendconn_s *be) {
         if (!be->bad) {
             P_DEBUG("%s: marking backend as bad\n", __func__);
             STAT_INCR(be->event_thread->ctx, backend_marked_bad, 1);
-            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, badtext, be->be_parent->name, be->be_parent->port, 0, NULL, 0, retry_time);
+            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, badtext, be->be_parent->name, be->be_parent->port, be->be_parent->label, 0, NULL, 0, retry_time);
         }
         be->bad = true;
         be->depth = INT_MAX/2; // fast-path cache for "bad" marker
@@ -856,7 +856,7 @@ static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failu
 
     // Only log if we don't already know it's messed up.
     if (!be->bad) {
-        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->be_parent->name, be->be_parent->port, depth, be->rbuf, be->rbufused, 0);
+        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_BE_ERROR, NULL, proxy_be_failure_text[err], be->be_parent->name, be->be_parent->port, be->be_parent->label, depth, be->rbuf, be->rbufused, 0);
     }
 
     // reset buffer to blank state.
