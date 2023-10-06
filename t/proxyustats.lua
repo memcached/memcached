@@ -8,11 +8,19 @@ function mcp_config_pools(old)
     mcp.backend_read_timeout(4)
     mcp.backend_connect_timeout(5)
     local pfx, f, l = string.match(config, "(%S+)%s*(%S+)%s*(%S+)")
-    local first = tonumber(f)
-    local last = tonumber(l)
-    while first <= last do
-        mcp.add_stat(first, pfx .. first)
-        first = first + 1
+    if pfx == "mask1" then
+        mcp.add_stat(1, "maska")
+        mcp.add_stat(2, "maskb")
+    elseif pfx == "mask2" then
+        mcp.add_stat(1, "")
+        mcp.add_stat(2, "maskb")
+    else
+        local first = tonumber(f)
+        local last = tonumber(l)
+        while first <= last do
+            mcp.add_stat(first, pfx .. first)
+            first = first + 1
+        end
     end
 
     return {}

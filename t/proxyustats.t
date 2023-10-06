@@ -220,6 +220,27 @@ subtest 'negative ustat value underflow' => sub {
     isnt($stats->{user_a1}, -1, "user_a1 is not -1");
 };
 
+subtest 'mask off stat after reload' => sub {
+    restart_memcached();
+
+    write_config('return "mask1 1 1"');
+    $p_srv->reload();
+    wait_reload($watcher);
+
+    my $s1 = mem_stats($ps, 'proxy');
+    is($s1->{"user_maska"}, 0, "maska is 0");
+    is($s1->{"user_maskb"}, 0, "maskb is 0");
+
+    write_config('return "mask2 1 1"');
+    $p_srv->reload();
+    wait_reload($watcher);
+
+    my $s2 = mem_stats($ps, 'proxy');
+
+    is($s2->{"user_maska"}, undef, "maska is gone");
+    is($s2->{"user_maskb"}, 0, "maskb is 0");
+};
+
 done_testing();
 
 END {
