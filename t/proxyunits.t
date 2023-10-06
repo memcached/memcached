@@ -316,6 +316,44 @@ SKIP: {
 
     is(scalar <$ps>, "STORED\r\n", "got STORED from set");
 
+    # set (large value)
+    my $datasize = 256000;
+    my $data = 'x' x $datasize;
+    $cmd = "set /b/a 0 0 $datasize";
+    print $ps "$cmd\r\n$data\r\n";
+    is(scalar <$be>, "$cmd\r\n", "set passthrough (large value)");
+    is(scalar <$be>, "$data\r\n", "set value (large value)");
+    print $be "STORED\r\n";
+
+    is(scalar <$ps>, "STORED\r\n", "got STORED from set (large value)");
+
+    # set (pipelined)
+    my $num_repetitions = 5;
+    my $cmd = "set /b/a 0 0 2";
+    my $data = "ab";
+    my $req_ps = "$cmd\r\n$data\r\n";
+    my $resp_be = "STORED\r\n";
+
+    my $repeated_req_ps = "";
+    my $repeated_resp_be = "";
+    for (1..$num_repetitions) {
+        $repeated_req_ps = $repeated_req_ps . $req_ps;
+        $repeated_resp_be = $repeated_resp_be . $resp_be;
+    }
+
+    print $ps $repeated_req_ps;
+
+    for (1..$num_repetitions) {
+        is(scalar <$be>, "$cmd\r\n", "set passthrough (repeated)");
+        is(scalar <$be>, "$data\r\n", "set value (repeated)");
+    }
+
+    print $be $repeated_resp_be;
+
+    for (1..$num_repetitions) {
+        is(scalar <$ps>, "STORED\r\n", "got STORED from set (repeated)");
+    }
+
     # Basic get
     $cmd = "get /b/a\r\n";
     print $ps $cmd;
@@ -325,6 +363,18 @@ SKIP: {
     is(scalar <$ps>, "VALUE /b/a 0 2\r\n", "get rline");
     is(scalar <$ps>, "hi\r\n", "get data");
     is(scalar <$ps>, "END\r\n", "get end");
+
+    # get (large value)
+    my $datasize = 256000;
+    my $data = 'x' x $datasize;
+    $cmd = "get /b/a\r\n";
+    print $ps $cmd;
+    is(scalar <$be>, $cmd, "get passthrough (large value)");
+    print $be "VALUE /b/a 0 $datasize\r\n$data\r\nEND\r\n";
+
+    is(scalar <$ps>, "VALUE /b/a 0 $datasize\r\n", "get rline (large value)");
+    is(scalar <$ps>, "$data\r\n", "get data (large value)");
+    is(scalar <$ps>, "END\r\n", "get end (large value)");
 
     # touch
     $cmd = "touch /b/a 50\r\n";
@@ -354,6 +404,14 @@ SKIP: {
     is(scalar <$ps>, "hi\r\n", "gat data");
     is(scalar <$ps>, "END\r\n", "gat end");
 
+    # gat (cache miss)
+    $cmd = "gat 10 /b/a\r\n";
+    print $ps $cmd;
+    is(scalar <$be>, $cmd, "gat passthrough");
+    print $be "END\r\n";
+
+    is(scalar <$ps>, "END\r\n", "gat end, cache miss");
+
     # gats
     $cmd = "gats 11 /b/a\r\n";
     print $ps $cmd;
@@ -373,6 +431,15 @@ SKIP: {
 
     is(scalar <$ps>, "STORED\r\n", "got STORED from cas");
 
+    # cas (already exists failure)
+    $cmd = "cas /b/a 0 0 3 6";
+    print $ps "$cmd\r\nabc\r\n";
+    is(scalar <$be>, "$cmd\r\n", "cas passthrough");
+    is(scalar <$be>, "abc\r\n", "cas value");
+    print $be "EXISTS\r\n";
+
+    is(scalar <$ps>, "EXISTS\r\n", "got EXISTS from cas");
+
     # add
     $cmd = "add /b/a 0 0 2";
     print $ps "$cmd\r\nhi\r\n";
@@ -381,6 +448,15 @@ SKIP: {
     print $be "STORED\r\n";
 
     is(scalar <$ps>, "STORED\r\n", "got STORED from add");
+
+    # add (re-add failure)
+    $cmd = "add /b/a 0 0 4";
+    print $ps "$cmd\r\nabcd\r\n";
+    is(scalar <$be>, "$cmd\r\n", "add passthrough");
+    is(scalar <$be>, "abcd\r\n", "add value");
+    print $be "NOT_STORED\r\n";
+
+    is(scalar <$ps>, "NOT_STORED\r\n", "got STORED from add");
 
     # delete
     $cmd = "delete /b/a\r\n";
