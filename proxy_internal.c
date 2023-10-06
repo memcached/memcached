@@ -209,7 +209,7 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
         *p = '0';
         p++;
     } else {
-        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
+        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
     }
     *p = ' ';
     p = itoa_u32(nbytes-2, p+1);
@@ -309,7 +309,7 @@ static void process_get_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp,
 static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, int comm, bool handle_cas) {
     const char *key = &pr->request[pr->tokens[pr->keytoken]];
     size_t nkey = pr->klen;
-    unsigned int flags;
+    client_flags_t flags;
     int32_t exptime_int = 0;
     rel_time_t exptime = 0;
     uint64_t req_cas_id = 0;
@@ -326,7 +326,7 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
     // tokens simply end with a space or carriage return/newline, so we either
     // need custom functions or validate harder that these calls won't bite us
     // later.
-    if (! (safe_strtoul(&pr->request[pr->tokens[2]], (uint32_t *)&flags)
+    if (! (safe_strtoflags(&pr->request[pr->tokens[2]], &flags)
            && safe_strtol(&pr->request[pr->tokens[3]], &exptime_int))) {
         pout_string(resp, "CLIENT_ERROR bad command line format");
         return;
@@ -592,7 +592,7 @@ struct _meta_flags {
     rel_time_t exptime;
     rel_time_t autoviv_exptime;
     rel_time_t recache_time;
-    uint32_t client_flags;
+    client_flags_t client_flags;
     uint64_t req_cas_id;
     uint64_t delta; // ma
     uint64_t initial; // ma
@@ -689,7 +689,7 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 break;
             // mset-related.
             case 'F':
-                if (!safe_strtoul(&pr->request[pr->tokens[i]+1], &of->client_flags)) {
+                if (!safe_strtoflags(&pr->request[pr->tokens[i]+1], &of->client_flags)) {
                     of->has_error = true;
                 }
                 break;
@@ -860,7 +860,7 @@ static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
                         *p = '0';
                         p++;
                     } else {
-                        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
+                        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
                     }
                     break;
                 case 'l':

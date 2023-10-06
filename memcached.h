@@ -50,6 +50,7 @@
 #include "cache.h"
 #include "logger.h"
 #include "queue.h"
+#include "util.h"
 
 #ifdef EXTSTORE
 #include "crc32c.h"
@@ -89,6 +90,15 @@
 /* Initial power multiplier for the hash table */
 #define HASHPOWER_DEFAULT 16
 #define HASHPOWER_MAX 32
+
+/* Abstract the size of an item's client flag suffix */
+#ifdef LARGE_CLIENT_FLAGS
+typedef uint64_t client_flags_t;
+#define safe_strtoflags safe_strtoull
+#else
+typedef uint32_t client_flags_t;
+#define safe_strtoflags safe_strtoul
+#endif
 
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned
@@ -132,12 +142,12 @@
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_data(item) ((char*) &((item)->data) + (item)->nkey + 1 \
-         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0) \
+         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(client_flags_t) : 0) \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
          + (item)->nbytes \
-         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0) \
+         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(client_flags_t) : 0) \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_clsid(item) ((item)->slabs_clsid & ~(3<<6))
@@ -164,13 +174,13 @@
 /** Item client flag conversion */
 #define FLAGS_CONV(it, flag) { \
     if ((it)->it_flags & ITEM_CFLAGS) { \
-        flag = *((uint32_t *)ITEM_suffix((it))); \
+        flag = *((client_flags_t *)ITEM_suffix((it))); \
     } else { \
         flag = 0; \
     } \
 }
 
-#define FLAGS_SIZE(item) (((item)->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0)
+#define FLAGS_SIZE(item) (((item)->it_flags & ITEM_CFLAGS) ? sizeof(client_flags_t) : 0)
 
 /**
  * Callback for any function producing stats.
@@ -643,7 +653,7 @@ typedef struct _strchunk {
 #ifdef NEED_ALIGN
 static inline char *ITEM_schunk(item *it) {
     int offset = it->nkey + 1
-        + ((it->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0)
+        + ((it->it_flags & ITEM_CFLAGS) ? sizeof(client_flags_t) : 0)
         + ((it->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0);
     int remain = offset % 8;
     if (remain != 0) {
@@ -653,7 +663,7 @@ static inline char *ITEM_schunk(item *it) {
 }
 #else
 #define ITEM_schunk(item) ((char*) &((item)->data) + (item)->nkey + 1 \
-         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(uint32_t) : 0) \
+         + (((item)->it_flags & ITEM_CFLAGS) ? sizeof(client_flags_t) : 0) \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 #endif
 
@@ -955,7 +965,6 @@ extern int daemonize(int nochdir, int noclose);
 #include "crawler.h"
 #include "trace.h"
 #include "hash.h"
-#include "util.h"
 
 /*
  * Functions such as the libevent-related calls that need to do cross-thread
@@ -982,7 +991,7 @@ enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
 void accept_new_conns(const bool do_accept);
 void  conn_close_idle(conn *c);
 void  conn_close_all(void);
-item *item_alloc(const char *key, size_t nkey, int flags, rel_time_t exptime, int nbytes);
+item *item_alloc(const char *key, size_t nkey, client_flags_t flags, rel_time_t exptime, int nbytes);
 #define DO_UPDATE true
 #define DONT_UPDATE false
 item *item_get(const char *key, const size_t nkey, LIBEVENT_THREAD *t, const bool do_update);

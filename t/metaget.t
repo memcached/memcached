@@ -178,6 +178,23 @@ my $sock = $server->sock;
 }
 
 {
+    note "client flags";
+    my @fset = (0, 123, 2**16-1, 2**31);
+    my $stats = mem_stats($sock, "settings");
+    if ($stats->{client_flags_size} == 8) {
+        note "extra tests for large flags";
+        push(@fset, 2**32);
+        push(@fset, 2**48);
+    }
+    for my $flags (@fset) {
+        print $sock "ms a 1 F$flags\r\n1\r\n";
+        is(scalar <$sock>, "HD\r\n", "client flags $flags set");
+        my $res = mget($sock, 'a', 'f');
+        is(get_flag($res, 'f'), $flags, "client flags $flags returned");
+    }
+}
+
+{
     note "basic mset CAS";
     my $key = "msetcas";
     print $sock "ms $key 2\r\nbo\r\n";

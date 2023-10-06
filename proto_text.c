@@ -529,7 +529,7 @@ static inline int make_ascii_get_suffix(char *suffix, item *it, bool return_cas,
         *p = '0';
         p++;
     } else {
-        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
+        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
     }
     *p = ' ';
     p = itoa_u32(nbytes-2, p+1);
@@ -917,7 +917,7 @@ struct _meta_flags {
     rel_time_t exptime;
     rel_time_t autoviv_exptime;
     rel_time_t recache_time;
-    uint32_t client_flags;
+    client_flags_t client_flags;
     uint64_t req_cas_id;
     uint64_t delta; // ma
     uint64_t initial; // ma
@@ -1012,7 +1012,7 @@ static int _meta_flag_preparse(token_t *tokens, const size_t start,
                 break;
             // mset-related.
             case 'F':
-                if (!safe_strtoul(tokens[i].value+1, &of->client_flags)) {
+                if (!safe_strtoflags(tokens[i].value+1, &of->client_flags)) {
                     of->has_error = true;
                 }
                 break;
@@ -1196,7 +1196,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
                         *p = '0';
                         p++;
                     } else {
-                        p = itoa_u32(*((uint32_t *) ITEM_suffix(it)), p);
+                        p = itoa_u64(*((client_flags_t *) ITEM_suffix(it)), p);
                     }
                     break;
                 case 'l':
@@ -1944,7 +1944,7 @@ error:
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm, bool handle_cas) {
     char *key;
     size_t nkey;
-    unsigned int flags;
+    client_flags_t flags;
     int32_t exptime_int = 0;
     rel_time_t exptime = 0;
     int vlen;
@@ -1963,7 +1963,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
-    if (! (safe_strtoul(tokens[2].value, (uint32_t *)&flags)
+    if (! (safe_strtoflags(tokens[2].value, &flags)
            && safe_strtol(tokens[3].value, &exptime_int)
            && safe_strtol(tokens[4].value, (int32_t *)&vlen))) {
         out_string(c, "CLIENT_ERROR bad command line format");

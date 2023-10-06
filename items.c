@@ -161,7 +161,7 @@ unsigned int do_get_lru_size(uint32_t id) {
  *
  * Returns the total size of the header.
  */
-static size_t item_make_header(const uint8_t nkey, const unsigned int flags, const int nbytes,
+static size_t item_make_header(const uint8_t nkey, const client_flags_t flags, const int nbytes,
                      char *suffix, uint8_t *nsuffix) {
     if (flags == 0) {
         *nsuffix = 0;
@@ -258,7 +258,7 @@ item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain) {
     return nch;
 }
 
-item *do_item_alloc(const char *key, const size_t nkey, const unsigned int flags,
+item *do_item_alloc(const char *key, const size_t nkey, const client_flags_t flags,
                     const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
     item *it = NULL;
@@ -377,7 +377,7 @@ void item_free(item *it) {
  * Returns true if an item will fit in the cache (its size does not exceed
  * the maximum for a cache entry.)
  */
-bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
+bool item_size_ok(const size_t nkey, const client_flags_t flags, const int nbytes) {
     char prefix[40];
     uint8_t nsuffix;
     if (nbytes < 2)

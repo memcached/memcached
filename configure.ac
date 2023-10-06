@@ -133,6 +133,9 @@ AC_ARG_ENABLE(proxy-uring,
 AC_ARG_ENABLE(werror,
   [AS_HELP_STRING([--enable-werror], [Enable -Werror])])
 
+AC_ARG_ENABLE(large-client-flags,
+  [AS_HELP_STRING([--enable-large-client-flags], [Change client flags from 32bit to 64bit EXPERIMENTAL])])
+
 dnl **********************************************************************
 dnl DETECT_SASL_CB_GETCONF
 dnl
@@ -252,6 +255,10 @@ if test "x$enable_proxy_uring" = "xyes"; then
     CPPFLAGS="-Ivendor/liburing/src/include $CPPFLAGS"
 fi
 
+if test "x$enable_large_client_flags" = "xyes"; then
+    AC_DEFINE([LARGE_CLIENT_FLAGS],1,[Set to nonzero if you want 64bit client flags])
+fi
+
 AM_CONDITIONAL([BUILD_DTRACE],[test "$build_dtrace" = "yes"])
 AM_CONDITIONAL([DTRACE_INSTRUMENT_OBJ],[test "$dtrace_instrument_obj" = "yes"])
 AM_CONDITIONAL([ENABLE_SASL],[test "$enable_sasl" = "yes"])
@@ -263,6 +270,7 @@ AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
 AM_CONDITIONAL([ENABLE_PROXY],[test "$enable_proxy" = "yes"])
 AM_CONDITIONAL([ENABLE_PROXY_URING],[test "$enable_proxy_uring" = "yes"])
+AM_CONDITIONAL([LARGE_CLIENT_FLAGS],[test "$enable_large_client_flags" = "yes"])
 
 
 AC_SUBST(DTRACE)
