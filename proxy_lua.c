@@ -404,6 +404,7 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
 
     strncpy(be->name, bel->name, MAX_NAMELEN+1);
     strncpy(be->port, bel->port, MAX_PORTLEN+1);
+    strncpy(be->label, bel->label, MAX_LABELLEN+1);
     memcpy(&be->tunables, &bel->tunables, sizeof(bel->tunables));
     be->conncount = bel->conncount;
     STAILQ_INIT(&be->io_head);
