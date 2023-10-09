@@ -555,7 +555,7 @@ The flags used by the 'mg' command are:
 
 These flags can modify the item:
 - N(token): vivify on miss, takes TTL as a argument
-- R(token): if token is less than remaining TTL win for recache
+- R(token): if remaining TTL is less than token, win for recache
 - T(token): update remaining TTL
 
 These extra flags can be added to the response:
