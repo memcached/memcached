@@ -355,8 +355,8 @@ SKIP: {
 
     # set (pipelined)
     my $num_repetitions = 5;
-    my $cmd = "set /b/a 0 0 2";
-    my $data = "ab";
+    $cmd = "set /b/a 0 0 2";
+    $data = "ab";
     my $req_ps = "$cmd\r\n$data\r\n";
     my $resp_be = "STORED\r\n";
 
@@ -391,8 +391,8 @@ SKIP: {
     is(scalar <$ps>, "END\r\n", "get end");
 
     # get (large value)
-    my $datasize = 256000;
-    my $data = 'x' x $datasize;
+    $datasize = 256000;
+    $data = 'x' x $datasize;
     $cmd = "get /b/a\r\n";
     print $ps $cmd;
     is(scalar <$be>, $cmd, "get passthrough (large value)");
