@@ -1111,6 +1111,21 @@ check_sanity($ps);
 
     # test log_req with nil res (should be 0's in places)
     # log_reqsample()
+    $cmd = "get /logreqstest/a\r\n";
+    print $ps $cmd;
+    is(scalar <$be>, $cmd, "got passthru for logsamp");
+    print $be "END\r\n";
+    is(scalar <$ps>, "END\r\n", "got END from log test");
+
+    $cmd = "get /logreqstest/b\r\n";
+    print $ps $cmd;
+    is(scalar <$be>, $cmd, "got passthru for logsamp");
+
+    # cause the sampler time limit to trigger.
+    sleep 0.3;
+    print $be "END\r\n";
+    is(scalar <$ps>, "END\r\n", "got END from log test");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 be=127.0.0.1:11411 detail=logsampletest req=get \/logreqstest\/b/, "only got b request from log sample");
 }
 
 # Basic proxy stats validation

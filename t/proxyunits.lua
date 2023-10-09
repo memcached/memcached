@@ -409,6 +409,12 @@ function mcp_config_routes(zones)
         return res
     end
 
+    pfx_get["logreqstest"] = function(r)
+        local res = zones.z1(r)
+        mcp.log_reqsample(150, 0, true, r, res, "logsampletest")
+        return res
+    end
+
     -- tell caller what we got back via a fake response
     pfx_get["awaitbasic"] = function(r)
         local vals = {}
