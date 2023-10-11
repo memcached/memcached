@@ -128,7 +128,7 @@
 #define ITEM_key(item) (((char*)&((item)->data)) \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
-#define ITEM_suffix(item) ((char*) &((item)->data) + (item)->nkey + 1 \
+#define ITEM_client_flags(item) ((char*) &((item)->data) + (item)->nkey + 1 \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
 #define ITEM_data(item) ((char*) &((item)->data) + (item)->nkey + 1 \
@@ -164,7 +164,7 @@
 /** Item client flag conversion */
 #define FLAGS_CONV(it, flag) { \
     if ((it)->it_flags & ITEM_CFLAGS) { \
-        flag = *((uint32_t *)ITEM_suffix((it))); \
+        flag = *((uint32_t *)ITEM_client_flags((it))); \
     } else { \
         flag = 0; \
     } \
@@ -599,7 +599,7 @@ typedef struct _stritem {
     } data[];
     /* if it_flags & ITEM_CAS we have 8 bytes CAS */
     /* then null-terminated key */
-    /* then " flags length\r\n" (no terminating null) */
+    /* if it_flags & ITEM_CFLAGS we have 4 bytes client flags */
     /* then data with terminating \r\n (no terminating null; it's binary!) */
 } item;
 
