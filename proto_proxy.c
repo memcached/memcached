@@ -175,6 +175,7 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     ctx->tunables.read.tv_sec = 3;
     ctx->tunables.flap_backoff_ramp = 1.5;
     ctx->tunables.flap_backoff_max = 3600;
+    ctx->tunables.max_ustats = MAX_USTATS_DEFAULT;
 
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = NULL;
@@ -529,14 +530,6 @@ void complete_nread_proxy(conn *c) {
 // for clarity add a 'return' after calls to this.
 void proxy_lua_error(lua_State *L, const char *s) {
     lua_pushstring(L, s);
-    lua_error(L);
-}
-
-void proxy_lua_ferror(lua_State *L, const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    lua_pushfstring(L, fmt, ap);
-    va_end(ap);
     lua_error(L);
 }
 

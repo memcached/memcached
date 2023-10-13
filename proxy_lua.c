@@ -984,6 +984,25 @@ static int mcplib_backend_flap_backoff_max(lua_State *L) {
     return 0;
 }
 
+static int mcplib_stat_limit(lua_State *L) {
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    int limit = luaL_checkinteger(L, -1);
+
+    if (limit == 0) {
+        limit = MAX_USTATS_DEFAULT;
+    }
+    if (limit > MAX_USTATS_DEFAULT) {
+        fprintf(stderr, "PROXY WARNING: setting ustats limit above default may cause performance problems\n");
+    }
+
+    // lock isn't necessary as this is only used from the config thread.
+    // keeping the lock call for code consistency.
+    STAT_L(ctx);
+    ctx->tunables.max_ustats = limit;
+    STAT_UL(ctx);
+    return 0;
+}
+
 static int mcplib_active_req_limit(lua_State *L) {
     proxy_ctx_t *ctx = PROXY_GET_CTX(L);
     uint64_t limit = luaL_checkinteger(L, -1);
@@ -1359,6 +1378,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"pool", mcplib_pool},
         {"backend", mcplib_backend},
         {"add_stat", mcplib_add_stat},
+        {"stat_limit", mcplib_stat_limit},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
         {"backend_retry_waittime", mcplib_backend_retry_waittime},

@@ -7,14 +7,14 @@
 int mcplib_add_stat(lua_State *L) {
     int idx = luaL_checkinteger(L, -2);
     const char *name = luaL_checkstring(L, -1);
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     if (idx < 1) {
         proxy_lua_error(L, "stat index must be 1 or higher");
         return 0;
     }
-    // max user counters? 1024? some weird number.
-    if (idx > 1024) {
-        proxy_lua_error(L, "stat index must be 1024 or less");
+    if (idx > ctx->tunables.max_ustats) {
+        proxy_lua_ferror(L, "stat index must be %d or less", ctx->tunables.max_ustats);
         return 0;
     }
     // max name length? avoids errors if something huge gets thrown in.
@@ -30,8 +30,6 @@ int mcplib_add_stat(lua_State *L) {
             return 0;
         }
     }
-
-    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
 
     STAT_L(ctx);
     struct proxy_user_stats *us = &ctx->user_stats;

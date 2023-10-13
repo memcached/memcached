@@ -312,7 +312,7 @@ static void _copy_config_table(lua_State *from, lua_State *to, LIBEVENT_THREAD *
                 lua_pop(from, 2);
             }
             if (!found) {
-                proxy_lua_ferror(from, "unhandled userdata type in configuration table\n");
+                proxy_lua_error(from, "unhandled userdata type in configuration table\n");
             }
             break;
         case LUA_TNUMBER:

@@ -203,6 +203,7 @@ struct proxy_tunables {
     float flap_backoff_ramp; // factorial for retry time
     uint32_t flap_backoff_max; // don't backoff longer than this.
     int backend_failure_limit;
+    int max_ustats; // limit the ustats index.
     bool tcp_keepalive;
     bool down; // backend is forced into a down/bad state.
 };
@@ -561,6 +562,7 @@ int mcplib_internal(lua_State *L);
 int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref);
 
 // user stats interface
+#define MAX_USTATS_DEFAULT 1024
 int mcplib_add_stat(lua_State *L);
 int mcplib_stat(lua_State *L);
 size_t _process_request_next_key(mcp_parser_t *pr);
@@ -591,7 +593,12 @@ mcp_backend_t *mcplib_pool_proxy_call_helper(lua_State *L, mcp_pool_proxy_t *pp,
 void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p);
 int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len);
 void proxy_lua_error(lua_State *L, const char *s);
-void proxy_lua_ferror(lua_State *L, const char *fmt, ...);
+#define proxy_lua_ferror(L, fmt, ...) \
+    do { \
+        lua_pushfstring(L, fmt, __VA_ARGS__); \
+        lua_error(L); \
+    } while (0)
+
 #define PROXY_SERVER_ERROR "SERVER_ERROR "
 #define PROXY_CLIENT_ERROR "CLIENT_ERROR "
 void proxy_out_errstring(mc_resp *resp, char *type, const char *str);
