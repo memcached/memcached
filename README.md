@@ -1,53 +1,25 @@
-# Memcached
+# Memcached Challenge
 
-Memcached is a high performance multithreaded event-based key/value cache
-store intended to be used in a distributed system.
+Inspired by [Arthur O’Dwyer's Blog](https://quuxplusone.github.io/blog/2022/01/06/memcached-interview/), I start this challenge as a engineering interview (a little big different from the blog):
 
-See: https://memcached.org/about
+1. Fork [**memcached** - master](https://github.com/memcached/memcached/), and build it;
 
-A fun story explaining usage: https://memcached.org/tutorial
+I suggest using Linux os to do this, since there may be errors in compile stage in MacOS (not test on Windows).
 
-If you're having trouble, try the wiki: https://memcached.org/wiki
+```
+git clone --depth=1 https://github.com/memcached/memcached.git
 
-If you're trying to troubleshoot odd behavior or timeouts, see:
-https://memcached.org/timeouts
+sh autogen.sh
+./configure
+make
+```
 
-https://memcached.org/ is a good resource in general. Please use the mailing
-list to ask questions, github issues aren't seen by everyone!
+2. Provide a `mult` method to multiply a unsigned instance number to a stored number.
 
-## Dependencies
+Here is the demo from my impl:
 
-* libevent - https://www.monkey.org/~provos/libevent/ (libevent-dev)
-* libseccomp (optional, experimental, linux) - enables process restrictions for
-  better security. Tested only on x86-64 architectures.
-* openssl (optional) - enables TLS support. need relatively up to date
-  version. pkg-config is needed to find openssl dependencies (such as -lz).
+![demo](https://imgbed.scubot.com/image/202310151637925.png)
 
-## Environment
+For more details, checkout the [>**PR**<](https://github.com/hx-w/memcached/pull/1).
 
-Be warned that the -k (mlockall) option to memcached might be
-dangerous when using a large cache. Just make sure the memcached machines
-don't swap.  memcached does non-blocking network I/O, but not disk.  (it
-should never go to disk, or you've lost the whole point of it)
-
-## Build status
-
-See https://build.memcached.org/ for multi-platform regression testing status.
-
-## Bug reports
-
-Feel free to use the issue tracker on github.
-
-**If you are reporting a security bug** please contact a maintainer privately.
-We follow responsible disclosure: we handle reports privately, prepare a
-patch, allow notifications to vendor lists. Then we push a fix release and your
-bug can be posted publicly with credit in our release notes and commit
-history.
-
-## Website
-
-* https://www.memcached.org
-
-## Contributing
-
-See https://github.com/memcached/memcached/wiki/DevelopmentRepos
+I DO need some suggests, just leave a issue.

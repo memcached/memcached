@@ -74,33 +74,35 @@ is($stats->{delete_misses}, 1);
 # incr stats
 
 sub check_incr_stats {
-    my ($ih, $im, $dh, $dm) = @_;
+    my ($ih, $im, $dh, $dm, $mh, $mm) = @_;
     my $stats = mem_stats($sock);
 
     is($stats->{incr_hits}, $ih);
     is($stats->{incr_misses}, $im);
     is($stats->{decr_hits}, $dh);
     is($stats->{decr_misses}, $dm);
+    is($stats->{mult_hits}, $mh);
+    is($stats->{mult_misses}, $mm);
 }
 
 print $sock "incr i 1\r\n";
 is(scalar <$sock>, "NOT_FOUND\r\n", "shouldn't incr a missing thing");
-check_incr_stats(0, 1, 0, 0);
+check_incr_stats(0, 1, 0, 0, 0, 0);
 
 print $sock "decr d 1\r\n";
 is(scalar <$sock>, "NOT_FOUND\r\n", "shouldn't decr a missing thing");
-check_incr_stats(0, 1, 0, 1);
+check_incr_stats(0, 1, 0, 1, 0, 1);
 
 print $sock "set n 0 0 1\r\n0\r\n";
 is(scalar <$sock>, "STORED\r\n", "stored n");
 
 print $sock "incr n 3\r\n";
 is(scalar <$sock>, "3\r\n", "incr works");
-check_incr_stats(1, 1, 0, 1);
+check_incr_stats(1, 1, 0, 1, 0, 1);
 
 print $sock "decr n 1\r\n";
 is(scalar <$sock>, "2\r\n", "decr works");
-check_incr_stats(1, 1, 1, 1);
+check_incr_stats(1, 1, 1, 1, 1, 1);
 
 # cas stats
 
@@ -166,6 +168,8 @@ is(0, $stats->{'incr_misses'});
 is(0, $stats->{'incr_hits'});
 is(0, $stats->{'decr_misses'});
 is(0, $stats->{'decr_hits'});
+is(0, $stats->{'mult_misses'});
+is(0, $stats->{'mult_hits'});
 is(0, $stats->{'cas_misses'});
 is(0, $stats->{'cas_hits'});
 is(0, $stats->{'cas_badval'});

@@ -417,7 +417,7 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
     item_remove(it);
 }
 
-static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr) {
+static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const enum op_type op) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
     const char *key = &pr->request[pr->tokens[pr->keytoken]];
@@ -435,7 +435,7 @@ static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp
         return;
     }
 
-    switch(add_delta(t, key, nkey, incr, delta, temp, NULL)) {
+    switch(arithmetic_cmd(t, key, nkey, op, delta, temp, NULL)) {
     case OK:
         pout_string(resp, temp);
         break;
@@ -447,10 +447,18 @@ static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp
         break;
     case DELTA_ITEM_NOT_FOUND:
         pthread_mutex_lock(&t->stats.mutex);
-        if (incr) {
-            t->stats.incr_misses++;
-        } else {
-            t->stats.decr_misses++;
+
+        switch (op) {
+        case ADD:
+            c->thread->stats.incr_misses++;
+            break;
+        case DEC:
+            c->thread->stats.decr_misses++;
+            break;
+        case MULT:
+            c->thread->stats.mult_misses++;
+            break;
+        default: break;
         }
         pthread_mutex_unlock(&t->stats.mutex);
 
@@ -1385,7 +1393,7 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
     // If no argument supplied, incr or decr by one.
     of.delta = 1;
     of.initial = 0; // redundant, for clarity.
-    bool incr = true; // default mode is to increment.
+    enum op_type op = ADD; // default mode is to increment.
     bool locked = false;
     uint32_t hv = 0;
     item *it = NULL; // item returned by do_add_delta.
@@ -1417,11 +1425,15 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
             break;
         case 'I': // Incr (default)
         case '+':
-            incr = true;
+            op = ADD;
             break;
         case 'D': // Decr.
         case '-':
-            incr = false;
+            op = DEC;
+            break;
+        case 'M': // Mult
+        case '*':
+            op = MULT;
             break;
         default:
             errstr = "CLIENT_ERROR invalid mode for ma M token";
@@ -1437,10 +1449,10 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
     char tmpbuf[INCR_MAX_STORAGE_LEN];
 
     // return a referenced item if it exists, so we can modify it here, rather
-    // than adding even more parameters to do_add_delta.
+    // than adding even more parameters to do_arithmetic.
     bool item_created = false;
     uint64_t cas = 0;
-    switch(do_add_delta(t, key, nkey, incr, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
+    switch(do_arithmetic(t, key, nkey, op, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
     case OK:
         //if (c->noreply)
         //    resp->skip = true;
@@ -1476,10 +1488,17 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
             }
         } else {
             pthread_mutex_lock(&t->stats.mutex);
-            if (incr) {
+            switch (op) {
+            case ADD:
                 t->stats.incr_misses++;
-            } else {
+                break;
+            case DEC:
                 t->stats.decr_misses++;
+                break;
+            case MULT:
+                t->stats.mult_misses++;
+                break;
+            default: break;
             }
             pthread_mutex_unlock(&t->stats.mutex);
             // won't have a valid it here.
@@ -1661,10 +1680,13 @@ int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref) 
             process_update_cmd(t, pr, resp, NREAD_REPLACE, _DO_CAS);
             break;
         case CMD_INCR:
-            process_arithmetic_cmd(t, pr, resp, true);
+            process_arithmetic_cmd(t, pr, resp, ADD);
             break;
         case CMD_DECR:
-            process_arithmetic_cmd(t, pr, resp, false);
+            process_arithmetic_cmd(t, pr, resp, DEC);
+            break;
+        case CMD_MULT:
+            process_arithmetic_cmd(t, pr, resp, MULT);
             break;
         case CMD_DELETE:
             process_delete_cmd(t, pr, resp);

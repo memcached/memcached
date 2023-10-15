@@ -1238,6 +1238,7 @@ static void validate_response_header(protocol_binary_response_no_extras *respons
         case PROTOCOL_BINARY_CMD_QUITQ:
         case PROTOCOL_BINARY_CMD_REPLACEQ:
         case PROTOCOL_BINARY_CMD_SETQ:
+        case PROTOCOL_BINARY_CMD_MULTIPLYQ:
             assert("Quiet command shouldn't return on success" == NULL);
         default:
             break;
@@ -2062,6 +2063,8 @@ static enum test_return test_binary_pipeline_hickup_chunk(void *buffer, size_t b
         case PROTOCOL_BINARY_CMD_DECREMENTQ:
         case PROTOCOL_BINARY_CMD_INCREMENT:
         case PROTOCOL_BINARY_CMD_INCREMENTQ:
+        case PROTOCOL_BINARY_CMD_MULTIPLY:
+        case PROTOCOL_BINARY_CMD_MULTIPLYQ:
             len = arithmetic_command(command.bytes, sizeof(command.bytes), cmd,
                                      key, keylen, 1, 0, 0);
             break;
