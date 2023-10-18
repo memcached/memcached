@@ -603,6 +603,7 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
     /* add overall slab stats and append terminator */
 
     APPEND_STAT("active_slabs", "%d", total);
+    APPEND_STAT("global_pool_pages", "%u", slabclass[SLAB_GLOBAL_PAGE_POOL].slabs);
     APPEND_STAT("total_malloced", "%llu", (unsigned long long)mem_malloced);
     add_stats(NULL, 0, NULL, 0, c);
 }
