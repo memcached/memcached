@@ -6,6 +6,7 @@
 
 #include "memcached.h"
 #include "proto_bin.h"
+#include "protocol_binary.h"
 #include "storage.h"
 #ifdef TLS
 #include "tls.h"
@@ -19,7 +20,7 @@ static void process_bin_append_prepend(conn *c);
 static void process_bin_update(conn *c, char *extbuf);
 static void process_bin_get_or_touch(conn *c, char *extbuf);
 static void process_bin_delete(conn *c);
-static void complete_incr_bin(conn *c, char *extbuf);
+static void process_bin_arithmetic(conn *c, char *extbuf);
 static void process_bin_stat(conn *c);
 static void process_bin_sasl_auth(conn *c);
 static void dispatch_bin_command(conn *c, char *extbuf);
@@ -257,11 +258,12 @@ static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen)
     conn_set_state(c, conn_new_cmd);
 }
 
-static void complete_incr_bin(conn *c, char *extbuf) {
+static void process_bin_arithmetic(conn *c, char *extbuf) {
     item *it;
     char *key;
     size_t nkey;
-    /* Weird magic in add_delta forces me to pad here */
+    enum arithmetic_operations operation;
+    /* Weird magic in arithmetic_operation forces me to pad here */
     char tmpbuf[INCR_MAX_STORAGE_LEN];
     uint64_t cas = 0;
 
@@ -294,7 +296,18 @@ static void complete_incr_bin(conn *c, char *extbuf) {
     if (c->binary_header.request.cas != 0) {
         cas = c->binary_header.request.cas;
     }
-    switch(add_delta(c->thread, key, nkey, c->cmd == PROTOCOL_BINARY_CMD_INCREMENT,
+    switch (c->cmd) {
+      case PROTOCOL_BINARY_CMD_INCREMENT:
+        operation = INCR;
+        break;
+      case PROTOCOL_BINARY_CMD_DECREMENT:
+        operation = DECR;
+        break;
+      case PROTOCOL_BINARY_CMD_MULTIPLY:
+        operation = MULT;
+        break;
+    }
+    switch(arithmetic_operation(c->thread, key, nkey, operation,
                      req->message.body.delta, tmpbuf,
                      &cas)) {
     case OK:
@@ -311,7 +324,7 @@ static void complete_incr_bin(conn *c, char *extbuf) {
     case EOM:
         out_of_memory(c, "SERVER_ERROR Out of memory incrementing value");
         break;
-    case DELTA_ITEM_NOT_FOUND:
+    case ARITHMETIC_ITEM_NOT_FOUND:
         if (req->message.body.expiration != 0xffffffff) {
             /* Save some room for the response */
             rsp->message.body.value = htonll(req->message.body.initial);
@@ -342,17 +355,23 @@ static void complete_incr_bin(conn *c, char *extbuf) {
             }
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
-            if (c->cmd == PROTOCOL_BINARY_CMD_INCREMENT) {
+            switch (c->cmd) {
+              case PROTOCOL_BINARY_CMD_INCREMENT:
                 c->thread->stats.incr_misses++;
-            } else {
+                break;
+              case PROTOCOL_BINARY_CMD_DECREMENT:
                 c->thread->stats.decr_misses++;
+                break;
+              case PROTOCOL_BINARY_CMD_MULTIPLY:
+                // TODO: Implement thread stats for mult_misses
+                break;
             }
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
             write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
         }
         break;
-    case DELTA_ITEM_CAS_MISMATCH:
+    case ARITHMETIC_ITEM_CAS_MISMATCH:
         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
         break;
     }
@@ -934,6 +953,9 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
     case PROTOCOL_BINARY_CMD_DECREMENTQ:
         c->cmd = PROTOCOL_BINARY_CMD_DECREMENT;
         break;
+    case PROTOCOL_BINARY_CMD_MULTIPLYQ:
+        c->cmd = PROTOCOL_BINARY_CMD_MULTIPLY;
+        break;
     case PROTOCOL_BINARY_CMD_QUITQ:
         c->cmd = PROTOCOL_BINARY_CMD_QUIT;
         break;
@@ -1014,8 +1036,9 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
             break;
         case PROTOCOL_BINARY_CMD_INCREMENT:
         case PROTOCOL_BINARY_CMD_DECREMENT:
+        case PROTOCOL_BINARY_CMD_MULTIPLY:
             if (keylen > 0 && extlen == 20 && bodylen == (keylen + extlen)) {
-                complete_incr_bin(c, extbuf);
+                process_bin_arithmetic(c, extbuf);
             } else {
                 protocol_error = 1;
             }

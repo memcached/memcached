@@ -292,8 +292,12 @@ enum store_item_type {
     NOT_STORED=0, STORED, EXISTS, NOT_FOUND, TOO_LARGE, NO_MEMORY
 };
 
-enum delta_result_type {
-    OK, NON_NUMERIC, EOM, DELTA_ITEM_NOT_FOUND, DELTA_ITEM_CAS_MISMATCH
+enum arithmetic_operations {
+  INCR, DECR, MULT
+};
+
+enum arithmetic_result_type {
+    OK, NON_NUMERIC, EOM, ARITHMETIC_ITEM_NOT_FOUND, ARITHMETIC_ITEM_CAS_MISMATCH
 };
 
 /** Time relative to server start. Smaller than time_t on 64-bit systems. */
@@ -938,8 +942,8 @@ extern void *ext_storage;
  * Functions
  */
 void do_accept_new_conns(const bool do_accept);
-enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
-                                    const size_t nkey, const bool incr,
+enum arithmetic_result_type do_arithmetic_operation(LIBEVENT_THREAD *t, const char *key,
+                                    const size_t nkey, enum arithmetic_operations operation,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
@@ -984,8 +988,8 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, in
 void sidethread_conn_close(conn *c);
 
 /* Lock wrappers for cache functions that are called from main loop. */
-enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
-                                 const size_t nkey, bool incr,
+enum arithmetic_result_type arithmetic_operation(LIBEVENT_THREAD *t, const char *key,
+                                 const size_t nkey, enum arithmetic_operations operation,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas);
 void accept_new_conns(const bool do_accept);

@@ -1730,10 +1730,10 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     // If no argument supplied, incr or decr by one.
     of.delta = 1;
     of.initial = 0; // redundant, for clarity.
-    bool incr = true; // default mode is to increment.
+    enum arithmetic_operations operation = INCR; // default mode is to increment.
     bool locked = false;
     uint32_t hv = 0;
-    item *it = NULL; // item returned by do_add_delta.
+    item *it = NULL; // item returned by do_arithmetic_operation.
 
     WANT_TOKENS_MIN(ntokens, 3);
 
@@ -1766,11 +1766,17 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
             break;
         case 'I': // Incr (default)
         case '+':
-            incr = true;
+            operation = INCR;
             break;
         case 'D': // Decr.
         case '-':
-            incr = false;
+            operation = DECR;
+            break;
+        case 'M':
+        case '*':
+            operation = MULT;
+            // If no argument supplied, mult by two
+            of.delta = 2;
             break;
         default:
             errstr = "CLIENT_ERROR invalid mode for ma M token";
@@ -1786,23 +1792,23 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
     char tmpbuf[INCR_MAX_STORAGE_LEN];
 
     // return a referenced item if it exists, so we can modify it here, rather
-    // than adding even more parameters to do_add_delta.
+    // than adding even more parameters to do_arithmetic_operation.
     bool item_created = false;
-    switch(do_add_delta(c->thread, key, nkey, incr, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
+    switch(do_arithmetic_operation(c->thread, key, nkey, operation, of.delta, tmpbuf, &of.req_cas_id, hv, &it)) {
     case OK:
         if (c->noreply)
             resp->skip = true;
         // *it was filled, set the status below.
         break;
     case NON_NUMERIC:
-        errstr = "CLIENT_ERROR cannot increment or decrement non-numeric value";
+        errstr = "CLIENT_ERROR cannot do arithmetic operation with non-numeric value";
         goto error;
         break;
     case EOM:
         errstr = "SERVER_ERROR out of memory";
         goto error;
         break;
-    case DELTA_ITEM_NOT_FOUND:
+    case ARITHMETIC_ITEM_NOT_FOUND:
         if (of.vivify) {
             itoa_u64(of.initial, tmpbuf);
             int vlen = strlen(tmpbuf);
@@ -1823,10 +1829,16 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
             }
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
-            if (incr) {
+            switch (operation) {
+            case INCR:
                 c->thread->stats.incr_misses++;
-            } else {
+                break;
+            case DECR:
                 c->thread->stats.decr_misses++;
+                break;
+            case MULT:
+                // TODO: Implement thread stats for mult_misses
+                break;
             }
             pthread_mutex_unlock(&c->thread->stats.mutex);
             // won't have a valid it here.
@@ -1834,7 +1846,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
             p += 2;
         }
         break;
-    case DELTA_ITEM_CAS_MISMATCH:
+    case ARITHMETIC_ITEM_CAS_MISMATCH:
         // also returns without a valid it.
         memcpy(p, "EX", 2);
         p += 2;
@@ -1843,7 +1855,7 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
 
     // final loop
     // allows building the response with information after vivifying from a
-    // miss, or returning a new CAS value after add_delta().
+    // miss, or returning a new CAS value after arithmetic_operation().
     if (it) {
         size_t vlen = strlen(tmpbuf);
         if (of.value) {
@@ -2087,7 +2099,7 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
     }
 }
 
-static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
+static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, enum arithmetic_operations operation) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
     char *key;
@@ -2110,28 +2122,34 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
-    switch(add_delta(c->thread, key, nkey, incr, delta, temp, NULL)) {
+    switch(arithmetic_operation(c->thread, key, nkey, operation, delta, temp, NULL)) {
     case OK:
         out_string(c, temp);
         break;
     case NON_NUMERIC:
-        out_string(c, "CLIENT_ERROR cannot increment or decrement non-numeric value");
+        out_string(c, "CLIENT_ERROR cannot do arithmetic operation with non-numeric non-numeric value");
         break;
     case EOM:
         out_of_memory(c, "SERVER_ERROR out of memory");
         break;
-    case DELTA_ITEM_NOT_FOUND:
+    case ARITHMETIC_ITEM_NOT_FOUND:
         pthread_mutex_lock(&c->thread->stats.mutex);
-        if (incr) {
+        switch (operation) {
+        case INCR:
             c->thread->stats.incr_misses++;
-        } else {
+            break;
+        case DECR:
             c->thread->stats.decr_misses++;
+            break;
+        case MULT:
+            // TODO: Implement thread stats for mult_misses
+            break;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
         out_string(c, "NOT_FOUND");
         break;
-    case DELTA_ITEM_CAS_MISMATCH:
+    case ARITHMETIC_ITEM_CAS_MISMATCH:
         break; /* Should never get here */
     }
 }
@@ -2897,7 +2915,7 @@ void process_command_ascii(conn *c, char *command) {
         if (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
-            process_arithmetic_command(c, tokens, ntokens, 1);
+            process_arithmetic_command(c, tokens, ntokens, INCR);
         } else {
             out_string(c, "ERROR");
         }
@@ -2909,7 +2927,7 @@ void process_command_ascii(conn *c, char *command) {
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
-            process_arithmetic_command(c, tokens, ntokens, 0);
+            process_arithmetic_command(c, tokens, ntokens, DECR);
 #ifdef MEMCACHED_DEBUG
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "debugtime") == 0) {
             WANT_TOKENS_MIN(ntokens, 2);
@@ -2917,6 +2935,12 @@ void process_command_ascii(conn *c, char *command) {
 #endif
         } else {
             out_string(c, "ERROR");
+        }
+    } else if (first == 'm') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "mult") == 0) {
+
+          WANT_TOKENS_OR(ntokens, 4, 5);
+          process_arithmetic_command(c, tokens, ntokens, MULT);
         }
     } else if (first == 't') {
         if (strcmp(tokens[COMMAND_TOKEN].value, "touch") == 0) {

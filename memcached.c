@@ -2259,8 +2259,8 @@ item* limited_get_locked(const char *key, size_t nkey, LIBEVENT_THREAD *t, bool 
  *
  * returns a response string to send back to the client.
  */
-enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const size_t nkey,
-                                    const bool incr, const int64_t delta,
+enum arithmetic_result_type do_arithmetic_operation(LIBEVENT_THREAD *t, const char *key, const size_t nkey,
+                                    enum arithmetic_operations operation, const int64_t delta,
                                     char *buf, uint64_t *cas,
                                     const uint32_t hv,
                                     item **it_ret) {
@@ -2271,7 +2271,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
 
     it = do_item_get(key, nkey, hv, t, DONT_UPDATE);
     if (!it) {
-        return DELTA_ITEM_NOT_FOUND;
+        return ARITHMETIC_ITEM_NOT_FOUND;
     }
 
     /* Can't delta zero byte values. 2-byte are the "\r\n" */
@@ -2287,7 +2287,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
 
     if (cas != NULL && *cas != 0 && ITEM_get_cas(it) != *cas) {
         do_item_remove(it);
-        return DELTA_ITEM_CAS_MISMATCH;
+        return ARITHMETIC_ITEM_CAS_MISMATCH;
     }
 
     ptr = ITEM_data(it);
@@ -2296,24 +2296,36 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         do_item_remove(it);
         return NON_NUMERIC;
     }
-
-    if (incr) {
+    
+    switch (operation) {
+    case INCR:
         value += delta;
         //MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
-    } else {
+        break;
+    case DECR:
         if(delta > value) {
             value = 0;
         } else {
             value -= delta;
         }
         //MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
+        break;
+    case MULT:
+        value *= delta;
+        break;
     }
 
     pthread_mutex_lock(&t->stats.mutex);
-    if (incr) {
+    switch (operation) {
+    case INCR:
         t->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
-    } else {
+        break;
+    case DECR:
         t->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
+        break;
+    case MULT:
+        // TODO: add slab_stats for mult_hits
+        break;
     }
     pthread_mutex_unlock(&t->stats.mutex);
 
@@ -2358,7 +2370,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         }
         if (it->refcount == 1)
             do_item_remove(it);
-        return DELTA_ITEM_NOT_FOUND;
+        return ARITHMETIC_ITEM_NOT_FOUND;
     }
 
     if (cas) {

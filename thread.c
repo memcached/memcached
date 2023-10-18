@@ -955,16 +955,16 @@ void item_unlink(item *item) {
 /*
  * Does arithmetic on a numeric item value.
  */
-enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
-                                 const size_t nkey, bool incr,
+enum arithmetic_result_type arithmetic_operation(LIBEVENT_THREAD *t, const char *key,
+                                 const size_t nkey, enum arithmetic_operations operation,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas) {
-    enum delta_result_type ret;
+    enum arithmetic_result_type ret;
     uint32_t hv;
 
     hv = hash(key, nkey);
     item_lock(hv);
-    ret = do_add_delta(t, key, nkey, incr, delta, buf, cas, hv, NULL);
+    ret = do_arithmetic_operation(t, key, nkey, operation, delta, buf, cas, hv, NULL);
     item_unlock(hv);
     return ret;
 }
