@@ -283,6 +283,13 @@ void proxy_submit_cb(io_queue_t *q) {
     while (p) {
         mcp_backend_t *be;
         P_DEBUG("%s: queueing req for backend: %p\n", __func__, (void *)p);
+        if (p->qcount_incr) {
+            // funny workaround: awaiting IOP's don't count toward
+            // resuming a connection, only the completion of the await
+            // condition.
+            q->count++;
+        }
+
         if (p->await_background) {
             P_DEBUG("%s: fast-returning await_background object: %p\n", __func__, (void *)p);
             // intercept await backgrounds
@@ -292,11 +299,6 @@ void proxy_submit_cb(io_queue_t *q) {
             return_io_pending((io_pending_t *)p);
             p = p->next;
             continue;
-        } else if (p->qcount_incr) {
-            // funny workaround: awaiting IOP's don't count toward
-            // resuming a connection, only the completion of the await
-            // condition.
-            q->count++;
         }
         be = p->backend;
 
