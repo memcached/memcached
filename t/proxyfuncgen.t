@@ -62,6 +62,45 @@ sub test_waitfor {
         $t->c_recv_be();
         $t->clear();
     };
+
+    subtest 'queue two, wait_handle individually' => sub {
+        $t->c_send("mg /waitfor/d t\r\n");
+        $t->be_recv_c([0, 1]);
+        # respond from the non-waited be first
+        $t->be_send(1, "HD t23\r\n");
+        ok(!$t->wait_c(0.2), 'client doesnt become readable');
+        $t->be_send(0, "HD t17\r\n");
+        $t->c_recv("HD t23\r\n");
+        $t->clear();
+    };
+
+    subtest 'failover route first success' => sub {
+        $t->c_send("mg /failover/a t\r\n");
+        $t->be_recv_c(0);
+        $t->be_send(0, "HD t31\r\n");
+        $t->c_recv_be();
+        $t->clear();
+    };
+
+    subtest 'failover route failover success' => sub {
+        $t->c_send("mg /failover/b t\r\n");
+        $t->be_recv_c(0, 'first backend receives client req');
+        $t->be_send(0, "EN\r\n");
+        # TODO: test that they aren't active before we send the resposne to 0?
+        $t->be_recv_c([1, 2], 'rest of be then receive the retry');
+        $t->be_send(1, "EN\r\n");
+        $t->be_send(2, "HD t41\r\n");
+        $t->c_recv_be('client received last response');
+    };
+
+    subtest 'failover route failover fail' => sub {
+        $t->c_send("mg /failover/c t\r\n");
+        $t->be_recv_c(0, 'first backend receives client req');
+        $t->be_send(0, "EN Ofirst\r\n");
+        $t->be_recv_c([1, 2], 'rest of be receives retry');
+        $t->be_send([1, 2], "EN Ofailover\r\n");
+        $t->c_recv("EN Ofirst\r\n", 'client receives first res');
+    };
 }
 
 sub test_basic {

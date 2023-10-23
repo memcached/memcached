@@ -408,6 +408,52 @@ function waitfor_factory(rctx, arg)
             rctx:queue(r, t[3])
             -- wait explicitly for the first queued one.
             return rctx:wait_handle(r, t[1])
+        elseif key == "/waitfor/d" then
+            -- queue two then wait on each individually
+            rctx:queue(r, t[1])
+            rctx:queue(r, t[2])
+            rctx:wait_handle(r, t[1])
+            return rctx:wait_handle(r, t[2])
+        end
+    end
+end
+
+-- try "primary zone" and then fail over to secondary zones.
+-- using simplified code that just treats the first pool as the primary zone.
+function failover_factory(rctx, arg)
+    say("generating failover factory function")
+    local t = {}
+    local count = 0
+    for _, v in pairs(arg.list) do
+        count = count + 1
+    end
+    local first = rctx:queue_assign(arg.list[1])
+
+    for x=2, count do
+        table.insert(t, rctx:queue_assign(arg.list[x]))
+    end
+
+    return function(r)
+        -- first try local
+        local fres = rctx:wait_handle(r, first)
+
+        if fres == nil or fres:hit() == false then
+            -- failed to get a local hit, queue all "far" zones.
+            rctx:queue(r, t)
+            -- wait for one.
+            local done = rctx:wait_for(1, mcp.WAIT_GOOD)
+            -- find the good from the second set.
+            for x=1, count-1 do
+                local res = rctx:good(t[x])
+                if res ~= nil then
+                    say("found a result")
+                    return res
+                end
+            end
+            -- got nothing from second set, just return anything.
+            return rctx:any(first)
+        else
+            return fres
         end
     end
 end
@@ -438,6 +484,7 @@ function mcp_config_routes(p)
     local logall = mcp.funcgen_new({ func = logall_factory, arg = { list = p }, max_queues = 3})
     local summary = mcp.funcgen_new({ func = summary_factory, arg = { list = p }, max_queues = 3})
     local waitfor = mcp.funcgen_new({ func = waitfor_factory, arg = { list = p }, max_queues = 3})
+    local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3})
 
     local map = {
         ["single"] = single,
@@ -449,6 +496,7 @@ function mcp_config_routes(p)
         ["logall"] = logall,
         ["summary"] = summary,
         ["waitfor"] = waitfor,
+        ["failover"] = failover,
     }
 
     local parg = {
