@@ -33,8 +33,45 @@ $t->accept_backends();
 # Comment out unused sections when debugging.
 test_basic();
 test_waitfor();
+test_returns();
 
 done_testing();
+
+sub test_returns {
+    note 'stress testing return scenarios for ctx and sub-ctx';
+
+    # TODO: check that we don't re-generate a slot after each error type
+    subtest 'top level result errors' => sub {
+        $t->c_send("mg reterror t\r\n");
+        $t->c_recv("SERVER_ERROR lua failure\r\n", "lua threw an error");
+
+        $t->c_send("mg retnil t\r\n");
+        $t->c_recv("SERVER_ERROR bad response\r\n", "lua returned nil");
+
+        $t->c_send("mg retint t\r\n");
+        $t->c_recv("SERVER_ERROR bad response\r\n", "lua returned an integer");
+
+        $t->c_send("mg retnone t\r\n");
+        $t->c_recv("SERVER_ERROR bad response\r\n", "lua returned nothing");
+    };
+
+    # TODO: method to differentiate a sub-rctx failure from a "backend
+    # failure"
+    subtest 'sub-rctx result errors' => sub {
+        $t->c_send("mg /suberrors/error t\r\n");
+        $t->c_recv("SERVER_ERROR backend failure\r\n", "lua threw an error");
+
+        $t->c_send("mg /suberrors/nil t\r\n");
+        $t->c_recv("SERVER_ERROR backend failure\r\n", "lua returned nil");
+
+        $t->c_send("mg /suberrors/int t\r\n");
+        $t->c_recv("SERVER_ERROR backend failure\r\n", "lua returned an integer");
+
+        $t->c_send("mg /suberrors/none t\r\n");
+        $t->c_recv("SERVER_ERROR backend failure\r\n", "lua returned nothing");
+    };
+
+}
 
 sub test_waitfor {
     note 'stress testing rctx:wait_for scenarios';

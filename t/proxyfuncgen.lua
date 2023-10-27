@@ -100,7 +100,19 @@ function prefix_factory(rctx, arg)
     end
 
     return function(r)
-        local handle = map[string.match(r:key(), p)]
+        local key = r:key()
+        -- failure scenarios that require a top-level request context
+        if key == "reterror" then
+            error("test error")
+        elseif key == "retnil" then
+            return nil
+        elseif key == "retint" then
+            return 5
+        elseif key == "retnone" then
+            return
+        end
+
+        local handle = map[string.match(key, p)]
         if handle == nil then
             return rctx:wait_handle(r, d)
         end
@@ -458,6 +470,24 @@ function failover_factory(rctx, arg)
     end
 end
 
+function suberrors_factory(rctx)
+    say("generating suberrors factory function")
+
+    return function(r)
+        local key = r:key()
+        if key == "/suberrors/error" then
+            error("test error")
+        elseif key == "/suberrors/nil" then
+            return nil
+        elseif key == "/suberrors/int" then
+            return 5
+        elseif key == "/suberrors/none" then
+            return
+        end
+
+    end
+end
+
 -- TODO: this might be supported only in a later update.
 -- new queue after parent return
 -- - do an immediate return + cb queue, queue from that callback
@@ -485,6 +515,7 @@ function mcp_config_routes(p)
     local summary = mcp.funcgen_new({ func = summary_factory, arg = { list = p }, max_queues = 3})
     local waitfor = mcp.funcgen_new({ func = waitfor_factory, arg = { list = p }, max_queues = 3})
     local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3})
+    local suberrors = mcp.funcgen_new({ func = suberrors_factory, max_queues = 3})
 
     local map = {
         ["single"] = single,
@@ -497,6 +528,7 @@ function mcp_config_routes(p)
         ["summary"] = summary,
         ["waitfor"] = waitfor,
         ["failover"] = failover,
+        ["suberrors"] = suberrors
     }
 
     local parg = {

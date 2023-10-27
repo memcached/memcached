@@ -478,6 +478,21 @@ int mcplib_rcontext_queue(lua_State *L) {
     return 0;
 }
 
+// TODO: pre-generate a result object into sub-rctx's that we can pull up for
+// this, instead of allocating outside of a protected call.
+static void _mcp_resume_rctx_process_error(mcp_rcontext_t *rctx, struct mcp_rqueue_s *rqu) {
+    // we have an error. need to mark the error into the parent rqu
+    rqu->flags |= RQUEUE_R_ERROR|RQUEUE_R_ANY;
+    mcp_resp_t *r = mcp_prep_bare_resobj(rctx->Lc, rctx->fgen->thread);
+    r->status = MCMC_ERR;
+    r->resp.code = MCMC_CODE_SERVER_ERROR;
+    rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
+    mcp_process_rqueue_return(rctx->parent, rctx->parent_handle, r);
+    if (rctx->parent->wait_count) {
+        mcp_process_rctx_wait(rctx->parent, rctx->parent_handle);
+    }
+}
+
 // TODO: dedupe the handler code.
 // TODO: rename to mcp_resume_rctx ?
 static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
@@ -501,8 +516,8 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
                 rqu->flags |= RQUEUE_R_ANY;
                 rqu->state = RQUEUE_COMPLETE;
             } else {
-                // FIXME: generate a generic object with an error.
-                assert(1 == 0);
+                // generate a generic object with an error.
+                _mcp_resume_rctx_process_error(rctx, rqu);
             }
             if (rctx->parent->wait_count) {
                 mcp_process_rctx_wait(rctx->parent, rctx->parent_handle);
@@ -511,18 +526,8 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
         } else if (res == LUA_YIELD) {
             // normal.
         } else {
-            // we have an error. need to mark the error into the parent rqu
-            // slot.
-            rqu->flags |= RQUEUE_R_ERROR|RQUEUE_R_ANY;
             lua_pop(rctx->Lc, 1); // drop the error message.
-            mcp_resp_t *r = mcp_prep_bare_resobj(rctx->Lc, rctx->fgen->thread);
-            r->status = MCMC_ERR;
-            r->resp.code = MCMC_CODE_SERVER_ERROR;
-            rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
-            mcp_process_rqueue_return(rctx->parent, rctx->parent_handle, r);
-            if (rctx->parent->wait_count) {
-                mcp_process_rctx_wait(rctx->parent, rctx->parent_handle);
-            }
+            _mcp_resume_rctx_process_error(rctx, rqu);
             mcp_funcgen_return_rctx(rctx);
         }
     } else {
