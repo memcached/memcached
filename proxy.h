@@ -646,7 +646,7 @@ struct mcp_rcontext_s {
     int function_ref; // ref to the created route function.
     int coroutine_ref; // ref to our encompassing coroutine.
     unsigned int async_pending; // legacy async handling
-    unsigned int pending_reqs; // pending requests and sub-requests
+    int pending_reqs; // pending requests and sub-requests
     unsigned int wait_count;
     unsigned int wait_done; // TODO: change these variables to uint8's
     int wait_handle; // waiting on a specific queue slot

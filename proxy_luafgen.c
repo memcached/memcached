@@ -3,6 +3,7 @@
 #include "proxy.h"
 
 static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen);
+static void proxy_return_rqu_cb(io_pending_t *pending);
 
 // If we're GC'ed but not closed, it means it was created but never
 // attached to a function, so ensure everything is closed properly.
@@ -113,8 +114,24 @@ static mcp_rcontext_t *_mcplib_funcgen_gencall(lua_State *L, mcp_funcgen_t *fgen
 static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     mcp_funcgen_t *fgen = rctx->fgen;
     assert(rctx->pending_reqs == 0);
-    // TODO: resetthread instead?
-    lua_settop(rctx->Lc, 0);
+    int res = lua_resetthread(rctx->Lc);
+    if (res != LUA_OK) {
+        // TODO: I was under the impression it was possible to reuse a
+        // coroutine from an error state, but it seems like this only works if
+        // the routine landed in LUA_YIELD or LUA_OK
+        // Leaving a note here to triple check this or if my memory was wrong.
+        // Instead for now we throw away the coroutine if it was involved in
+        // an error. Realistically this shouldn't be normal so it might not
+        // matter anyway.
+        lua_State *L = fgen->thread->L;
+        luaL_unref(L, LUA_REGISTRYINDEX, rctx->coroutine_ref);
+        lua_newthread(L);
+        rctx->Lc = lua_tothread(L, -1);
+        rctx->coroutine_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    } else {
+        lua_settop(rctx->Lc, 0);
+    }
+    // TODO: only do resetthread if an error was previously returned?
     rctx->resp = NULL;
     rctx->first_queue = false; // HACK
     mcp_request_cleanup(fgen->thread, rctx->request);
@@ -150,6 +167,7 @@ void mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
         // Important: we need to hold the parent request reference until this
         // subrctx is fully depleted of outstanding requests itself.
         rctx->parent->pending_reqs--;
+        assert(rctx->parent->pending_reqs > -1);
         if (rctx->parent->pending_reqs == 0) {
             mcp_funcgen_return_rctx(rctx->parent);
         }
@@ -493,8 +511,56 @@ static void _mcp_resume_rctx_process_error(mcp_rcontext_t *rctx, struct mcp_rque
     }
 }
 
-// TODO: dedupe the handler code.
-// TODO: rename to mcp_resume_rctx ?
+static void _mcp_start_rctx_process_error(mcp_rcontext_t *rctx, struct mcp_rqueue_s *rqu) {
+    // we have an error. need to mark the error into the parent rqu
+    rqu->flags |= RQUEUE_R_ERROR|RQUEUE_R_ANY;
+    mcp_resp_t *r = mcp_prep_bare_resobj(rctx->Lc, rctx->fgen->thread);
+    r->status = MCMC_ERR;
+    r->resp.code = MCMC_CODE_SERVER_ERROR;
+    rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
+
+    // queue an IO to return later.
+    io_pending_proxy_t *p = mcp_queue_rctx_io(rctx->parent, NULL, NULL, r);
+    p->return_cb = proxy_return_rqu_cb;
+    p->queue_handle = rctx->parent_handle;
+    p->await_background = true;
+}
+
+static void mcp_start_subrctx(mcp_rcontext_t *rctx) {
+    int res = proxy_run_rcontext(rctx);
+    struct mcp_rqueue_s *rqu = &rctx->parent->qslots[rctx->parent_handle];
+    if (res == LUA_OK) {
+        int type = lua_type(rctx->Lc, 1);
+        if (type == LUA_TUSERDATA) {
+            // move stack result object into parent rctx rqu slot.
+            // FIXME: crashes. use testudata and internal error handling.
+            mcp_resp_t *r = luaL_checkudata(rctx->Lc, 1, "mcp.response");
+            rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
+
+            io_pending_proxy_t *p = mcp_queue_rctx_io(rctx->parent, NULL, NULL, r);
+            p->return_cb = proxy_return_rqu_cb;
+            p->queue_handle = rctx->parent_handle;
+            p->await_background = true; // FIXME: change name of property to
+                                        // fast-return.
+        } else if (type == LUA_TSTRING) {
+            // TODO: wrap with a resobj and parse it.
+            // for now we bypass the rqueue process handling
+            // meaning no callbacks/etc.
+            rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
+            rqu->flags |= RQUEUE_R_ANY;
+            rqu->state = RQUEUE_COMPLETE;
+        } else {
+            // generate a generic object with an error.
+            _mcp_start_rctx_process_error(rctx, rqu);
+        }
+    } else if (res == LUA_YIELD) {
+        // normal.
+    } else {
+        lua_pop(rctx->Lc, 1); // drop the error message.
+        _mcp_start_rctx_process_error(rctx, rqu);
+    }
+}
+
 static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
     int res = proxy_run_rcontext(rctx);
     if (rctx->parent) {
@@ -502,7 +568,6 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
         if (res == LUA_OK) {
             int type = lua_type(rctx->Lc, 1);
             if (type == LUA_TUSERDATA) {
-                assert(rctx->parent->wait_count > 0);
                 // move stack result object into parent rctx rqu slot.
                 // FIXME: crashes. use testudata and internal error handling.
                 mcp_resp_t *r = luaL_checkudata(rctx->Lc, 1, "mcp.response");
@@ -562,6 +627,7 @@ static void proxy_return_rqu_dummy_cb(io_pending_t *pending) {
     conn *c = rctx->c;
 
     rctx->pending_reqs--;
+    assert(rctx->pending_reqs > -1);
 
     lua_settop(rctx->Lc, 0);
     lua_pushinteger(rctx->Lc, 0); // return a "0" done count to the function.
@@ -701,6 +767,7 @@ static void proxy_return_rqu_cb(io_pending_t *pending) {
 
     mcp_process_rqueue_return(rctx, p->queue_handle, p->client_resp);
     rctx->pending_reqs--;
+    assert(rctx->pending_reqs > -1);
 
     if (rctx->wait_count) {
         mcp_process_rctx_wait(rctx, p->queue_handle);
@@ -751,7 +818,7 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
             mcp_rcontext_t *subrctx = rqu->obj;
             subrctx->c = rctx->c;
             rctx->pending_reqs++;
-            mcp_resume_rctx_from_cb(subrctx);
+            mcp_start_subrctx(subrctx);
         } else {
             assert(1==0);
         }

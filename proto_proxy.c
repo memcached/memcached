@@ -786,6 +786,7 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
             WSTAT_DECR(c->thread, proxy_req_active, 1);
             proxy_out_errstring(resp, PROXY_SERVER_ERROR, "lua failure");
         }
+        rctx->pending_reqs--;
     }
 
     return cores;
