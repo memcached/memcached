@@ -488,6 +488,26 @@ function suberrors_factory(rctx)
     end
 end
 
+-- example of a factory that takes two other factories and copies traffic
+-- across them.
+-- If an additional API's for hashing to numerics are added, keys can be
+-- hashed to allow "1/n" of keys to copy to one of the splits. This allows
+-- shadowing traffic to new/experimental pools, slow-warming traffic, etc.
+function split_factory(rctx, arg)
+    say("generating split factory function")
+    local a = rctx:queue_assign(arg.a)
+    local b = rctx:queue_assign(arg.b)
+
+    return function(r)
+        say("splitting traffic")
+        -- b is the split path.
+        rctx:queue(r, b)
+
+        -- a is the main path. so we only explicitly wait on and return a.
+        return rctx:wait_handle(r, a)
+    end
+end
+
 -- TODO: this might be supported only in a later update.
 -- new queue after parent return
 -- - do an immediate return + cb queue, queue from that callback
@@ -505,6 +525,8 @@ function mcp_config_routes(p)
     local b_pool = p.b
     p = p.p
     local single = mcp.funcgen_new({ func = direct_factory, arg = p[1], max_queues = 1 })
+    -- use the typically unused backend.
+    local singletwo = mcp.funcgen_new({ func = direct_factory, arg = b_pool, max_queues = 1 })
 
     local first = mcp.funcgen_new({ func = first_factory, arg = p, max_queues = 3 })
     local partial = mcp.funcgen_new({ func = partial_factory, arg = { list = p, wait = 2 }, max_queues = 3 })
@@ -517,6 +539,10 @@ function mcp_config_routes(p)
     local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3})
     local suberrors = mcp.funcgen_new({ func = suberrors_factory, max_queues = 3})
 
+    -- for testing traffic splitting.
+    local split = mcp.funcgen_new({ func = split_factory, arg = { a = single, b = singletwo }, max_queues = 2})
+    local splitfailover = mcp.funcgen_new({ func = split_factory, arg = { a = failover, b = singletwo }, max_queues = 2})
+
     local map = {
         ["single"] = single,
         ["first"] = first,
@@ -528,7 +554,9 @@ function mcp_config_routes(p)
         ["summary"] = summary,
         ["waitfor"] = waitfor,
         ["failover"] = failover,
-        ["suberrors"] = suberrors
+        ["suberrors"] = suberrors,
+        ["split"] = split,
+        ["splitfailover"] = splitfailover,
     }
 
     local parg = {

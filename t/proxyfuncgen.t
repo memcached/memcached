@@ -31,11 +31,68 @@ $t->set_c($ps);
 $t->accept_backends();
 
 # Comment out unused sections when debugging.
+test_pipeline();
+test_split();
 test_basic();
 test_waitfor();
 test_returns();
 
 done_testing();
+
+sub test_pipeline {
+    note 'test pipelining of requests';
+
+    subtest 'some pipelines' => sub {
+        note 'run a couple pipelines to check for leaks';
+        for (1 .. 3) {
+            my @keys = ("a".."f");
+            my $cmd = '';
+            for my $k (@keys) {
+                $cmd .= "mg /all/$k O$k\r\n";
+            }
+            $t->c_send("$cmd");
+            for my $k (@keys) {
+                $t->be_recv([0, 1, 2], "mg /all/$k O$k\r\n", "backend received pipelined $k");
+                $t->be_send([0, 1, 2], "HD O$k\r\n");
+            }
+
+            for my $k (@keys) {
+                $t->c_recv("HD O$k\r\n", "client got res $k");
+            }
+            $t->clear();
+        }
+    };
+}
+
+sub test_split {
+    note 'test tiering of factories';
+
+    # be's 0 and 3 are in use.
+    subtest 'basic split' => sub {
+        $t->c_send("mg /split/a t\r\n");
+        $t->be_recv_c([0, 3], 'each factory be gets the request');
+        $t->be_send(3, "EN\r\n");
+        $t->be_send(0, "HD t70\r\n");
+        $t->c_recv_be('client received hit');
+        $t->clear();
+    };
+
+    # one side of split is a complex function; doing its own waits and wakes.
+    # other side is simple, and response ignored.
+    subtest 'failover split' => sub {
+        $t->c_send("mg /splitfailover/f t\r\n");
+        $t->be_recv_c(0, 'first backend receives client req');
+        $t->be_recv_c(3, 'split factory gets client req');
+        $t->be_send(3, "HD t133\r\n");
+
+        # ensure all of the failover backends have their results processed.
+        $t->be_send(0, "EN Ofirst\r\n");
+        $t->be_recv_c([1, 2], 'rest of be receives retry');
+        $t->be_send([1, 2], "EN Ofailover\r\n");
+        $t->c_recv("EN Ofirst\r\n", 'client receives first res');
+        $t->clear();
+    };
+}
 
 sub test_returns {
     note 'stress testing return scenarios for ctx and sub-ctx';
@@ -53,6 +110,7 @@ sub test_returns {
 
         $t->c_send("mg retnone t\r\n");
         $t->c_recv("SERVER_ERROR bad response\r\n", "lua returned nothing");
+        $t->clear();
     };
 
     # TODO: method to differentiate a sub-rctx failure from a "backend
@@ -69,8 +127,8 @@ sub test_returns {
 
         $t->c_send("mg /suberrors/none t\r\n");
         $t->c_recv("SERVER_ERROR backend failure\r\n", "lua returned nothing");
+        $t->clear();
     };
-
 }
 
 sub test_waitfor {
