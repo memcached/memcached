@@ -524,24 +524,24 @@ end
 function mcp_config_routes(p)
     local b_pool = p.b
     p = p.p
-    local single = mcp.funcgen_new({ func = direct_factory, arg = p[1], max_queues = 1 })
+    local single = mcp.funcgen_new({ func = direct_factory, arg = p[1], max_queues = 1, name = "single" })
     -- use the typically unused backend.
-    local singletwo = mcp.funcgen_new({ func = direct_factory, arg = b_pool, max_queues = 1 })
+    local singletwo = mcp.funcgen_new({ func = direct_factory, arg = b_pool, max_queues = 1, name = "singletwo" })
 
-    local first = mcp.funcgen_new({ func = first_factory, arg = p, max_queues = 3 })
-    local partial = mcp.funcgen_new({ func = partial_factory, arg = { list = p, wait = 2 }, max_queues = 3 })
-    local all = mcp.funcgen_new({ func = all_factory, arg = { list = p }, max_queues = 3})
-    local fastgood = mcp.funcgen_new({ func = fastgood_factory, arg = { list = p, wait = 2 }, max_queues = 3})
-    local blocker = mcp.funcgen_new({ func = blocker_factory, arg = { blocker = b_pool, list = p }, max_queues = 4})
-    local logall = mcp.funcgen_new({ func = logall_factory, arg = { list = p }, max_queues = 3})
-    local summary = mcp.funcgen_new({ func = summary_factory, arg = { list = p }, max_queues = 3})
-    local waitfor = mcp.funcgen_new({ func = waitfor_factory, arg = { list = p }, max_queues = 3})
-    local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3})
-    local suberrors = mcp.funcgen_new({ func = suberrors_factory, max_queues = 3})
+    local first = mcp.funcgen_new({ func = first_factory, arg = p, max_queues = 3, name = "first" })
+    local partial = mcp.funcgen_new({ func = partial_factory, arg = { list = p, wait = 2 }, max_queues = 3, name = "partial" })
+    local all = mcp.funcgen_new({ func = all_factory, arg = { list = p }, max_queues = 3, name = "all"})
+    local fastgood = mcp.funcgen_new({ func = fastgood_factory, arg = { list = p, wait = 2 }, max_queues = 3, name = "fastgood"})
+    local blocker = mcp.funcgen_new({ func = blocker_factory, arg = { blocker = b_pool, list = p }, max_queues = 4, name = "blocker"})
+    local logall = mcp.funcgen_new({ func = logall_factory, arg = { list = p }, max_queues = 3, name = "logall"})
+    local summary = mcp.funcgen_new({ func = summary_factory, arg = { list = p }, max_queues = 3, name = "summary"})
+    local waitfor = mcp.funcgen_new({ func = waitfor_factory, arg = { list = p }, max_queues = 3, name = "waitfor"})
+    local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3, name = "failover"})
+    local suberrors = mcp.funcgen_new({ func = suberrors_factory, max_queues = 3, name = "suberrors"})
 
     -- for testing traffic splitting.
-    local split = mcp.funcgen_new({ func = split_factory, arg = { a = single, b = singletwo }, max_queues = 2})
-    local splitfailover = mcp.funcgen_new({ func = split_factory, arg = { a = failover, b = singletwo }, max_queues = 2})
+    local split = mcp.funcgen_new({ func = split_factory, arg = { a = single, b = singletwo }, max_queues = 2, name = "split"})
+    local splitfailover = mcp.funcgen_new({ func = split_factory, arg = { a = failover, b = singletwo }, max_queues = 2, name = "splitfailover"})
 
     local map = {
         ["single"] = single,
@@ -564,7 +564,7 @@ function mcp_config_routes(p)
         list = map,
         pattern = "^/(%a+)/"
     }
-    local pfx = mcp.funcgen_new({ func = prefix_factory, arg = parg, max_queues = 16 })
+    local pfx = mcp.funcgen_new({ func = prefix_factory, arg = parg, max_queues = 16, name = "prefix" })
 
     mcp.attach(mcp.CMD_ANY_STORAGE, pfx)
 end

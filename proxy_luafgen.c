@@ -107,6 +107,15 @@ static mcp_rcontext_t *_mcplib_funcgen_gencall(lua_State *L, mcp_funcgen_t *fgen
     rc->Lc = lua_tothread(L, -1);
     rc->coroutine_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
+    // increment the slot counter
+    if (fgen->name_ref) {
+        LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+        lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->name_ref);
+        const char *name = lua_tostring(L, -1);
+        mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, name, 1);
+        lua_pop(L, 1);
+    }
+
     // return the rcontext
     return rc;
 }
@@ -335,6 +344,12 @@ int mcplib_funcgen_new(lua_State *L) {
         } else {
             lua_pop(L, 1);
         }
+
+        if (lua_getfield(L, tidx, "name") == LUA_TSTRING) {
+            fgen->name_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        } else {
+            lua_pop(L, 1);
+        }
     }
 
     // stack should now be: -2: func -1: mcp.funcgen
@@ -351,6 +366,14 @@ int mcplib_funcgen_new(lua_State *L) {
     fgen->generator_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // top of stack is now: gfunc, fgen
+
+    // add us to the global state
+    if (fgen->name_ref) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->name_ref);
+        const char *name = lua_tostring(L, -1);
+        mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGEN_IDX, name, 1);
+        lua_pop(L, 1);
+    }
 
     // return the generator for attach() later.
     return 1;

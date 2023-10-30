@@ -3,6 +3,7 @@
 
 void proxy_stats(void *arg, ADD_STAT add_stats, conn *c);
 void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c);
+void process_proxy_funcstats(void *arg, ADD_STAT add_stats, conn *c);
 
 /* proxy mode handlers */
 int try_read_command_proxy(conn *c);

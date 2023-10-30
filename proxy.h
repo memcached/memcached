@@ -102,6 +102,9 @@ struct mcp_memprofile {
 #define MCP_YIELD_WAITFOR 4
 #define MCP_YIELD_WAITHANDLE 5
 
+#define SHAREDVM_FGEN_IDX 1
+#define SHAREDVM_FGENSLOT_IDX 2
+
 // all possible commands.
 #define CMD_FIELDS \
     X(CMD_MG) \
@@ -212,7 +215,8 @@ struct proxy_tunables {
 
 typedef STAILQ_HEAD(pool_head_s, mcp_pool_s) pool_head_t;
 typedef struct {
-    lua_State *proxy_state;
+    lua_State *proxy_state; // main configuration vm
+    lua_State *proxy_sharedvm; // sub VM for short-lock global events/data
     void *proxy_code;
     proxy_event_thread_t *proxy_io_thread;
     uint64_t active_req_limit; // max total in-flight requests
@@ -225,6 +229,7 @@ typedef struct {
     pthread_t manager_tid; // deallocation management thread
     pthread_mutex_t manager_lock;
     pthread_cond_t manager_cond;
+    pthread_mutex_t sharedvm_lock; // protect statevm above
     pool_head_t manager_head; // stack for pool deallocation.
     bool worker_done; // signal variable for the worker lock/cond system.
     bool worker_failed; // covered by worker_lock as well.
@@ -544,6 +549,7 @@ typedef struct {
 
 // utils
 bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len);
+void mcp_sharedvm_delta(proxy_ctx_t *ctx, int tidx, const char *name, int delta);
 
 // networking interface
 void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct event_base *base);
@@ -601,6 +607,7 @@ typedef struct {
     int generator_ref; // reference to the generator function.
     int self_ref; // self-reference if we're attached anywhere
     int argument_ref; // reference to an argument to pass to generator
+    int name_ref; // reference to string name for the generator
     int max_queues; // how many queue slots rctx's have
     unsigned int refcount; // reference counter
     unsigned int total; // total contexts managed

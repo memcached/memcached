@@ -149,6 +149,43 @@ void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_replace", "%llu", (unsigned long long)istats.counters[CMD_REPLACE]);
 }
 
+void process_proxy_funcstats(void *arg, ADD_STAT add_stats, conn *c) {
+    char key_str[STAT_KEY_LEN];
+    if (!arg) {
+        return;
+    }
+    proxy_ctx_t *ctx = arg;
+    lua_State *L = ctx->proxy_sharedvm;
+    pthread_mutex_lock(&ctx->sharedvm_lock);
+
+    // iterate all of the named function slots
+    lua_pushnil(L);
+    while (lua_next(L, SHAREDVM_FGEN_IDX) != 0) {
+        int n = lua_tointeger(L, -1);
+        lua_pop(L, 1); // drop the value, leave the key.
+        if (n != 0) {
+            // reuse the key. make a copy since rawget will pop it.
+            lua_pushvalue(L, -1);
+            lua_rawget(L, SHAREDVM_FGENSLOT_IDX);
+            int slots = lua_tointeger(L, -1);
+            lua_pop(L, 1); // drop the slot count.
+
+            // now grab the name key.
+            const char *name = lua_tostring(L, -1);
+            snprintf(key_str, STAT_KEY_LEN-1, "funcs_%s", name);
+            APPEND_STAT(key_str, "%d", n);
+            snprintf(key_str, STAT_KEY_LEN-1, "slots_%s", name);
+            APPEND_STAT(key_str, "%d", slots);
+        } else {
+            // TODO: Is it safe to delete keys in the middle here?
+            // not worried at all about just leaking memory here.
+            lua_pop(L, 1); // drop value, keep key, loop.
+        }
+    }
+
+    pthread_mutex_unlock(&ctx->sharedvm_lock);
+}
+
 // start the centralized lua state and config thread.
 void *proxy_init(bool use_uring, bool proxy_memprofile) {
     proxy_ctx_t *ctx = calloc(1, sizeof(proxy_ctx_t));
@@ -189,6 +226,16 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     luaL_openlibs(L);
     // NOTE: might need to differentiate the libs yes?
     proxy_register_libs(ctx, NULL, L);
+
+    // set up the shared state VM. Used by short-lock events (counters/state)
+    // for global visibility.
+    pthread_mutex_init(&ctx->sharedvm_lock, NULL);
+    ctx->proxy_sharedvm = luaL_newstate();
+    luaL_openlibs(ctx->proxy_sharedvm);
+    // we keep info tables in the top level stack so we don't have to
+    // constantly fetch them from registry.
+    lua_newtable(ctx->proxy_sharedvm); // fgen count
+    lua_newtable(ctx->proxy_sharedvm); // fgen slot count
 
     // Create/start the IO thread, which we need before servers
     // start getting created.
@@ -1129,6 +1176,24 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
     P_DEBUG("%s: queued\n", __func__);
 
     return p;
+}
+
+// DO NOT call this method frequently! globally locked!
+void mcp_sharedvm_delta(proxy_ctx_t *ctx, int tidx, const char *name, int delta) {
+    lua_State *L = ctx->proxy_sharedvm;
+    pthread_mutex_lock(&ctx->sharedvm_lock);
+
+    if (lua_getfield(L, tidx, name) == LUA_TNIL) {
+        lua_pop(L, 1);
+        lua_pushinteger(L, delta);
+        lua_setfield(L, tidx, name);
+    } else {
+        lua_pushinteger(L, delta);
+        lua_arith(L, LUA_OPADD);
+        lua_setfield(L, tidx, name);
+    }
+
+    pthread_mutex_unlock(&ctx->sharedvm_lock);
 }
 
 static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize,
