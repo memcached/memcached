@@ -108,13 +108,18 @@ static mcp_rcontext_t *_mcplib_funcgen_gencall(lua_State *L, mcp_funcgen_t *fgen
     rc->coroutine_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // increment the slot counter
+    const char *name = NULL;
     if (fgen->name_ref) {
-        LIBEVENT_THREAD *t = PROXY_GET_THR(L);
         lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->name_ref);
-        const char *name = lua_tostring(L, -1);
-        mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, name, 1);
+        name = lua_tostring(L, -1);
+        // popping early: string stays referenced in name_ref and no other lua
+        // code executing on this VM, so it's safe to reference immediately.
         lua_pop(L, 1);
+    } else {
+        name = "anonymous";
     }
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, name, 1);
 
     // return the rcontext
     return rc;
@@ -368,12 +373,15 @@ int mcplib_funcgen_new(lua_State *L) {
     // top of stack is now: gfunc, fgen
 
     // add us to the global state
+    const char *name = NULL;
     if (fgen->name_ref) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->name_ref);
-        const char *name = lua_tostring(L, -1);
-        mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGEN_IDX, name, 1);
+        name = lua_tostring(L, -1);
         lua_pop(L, 1);
+    } else {
+        name = "anonymous";
     }
+    mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGEN_IDX, name, 1);
 
     // return the generator for attach() later.
     return 1;
