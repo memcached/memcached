@@ -29,22 +29,31 @@ $ps->autoflush(1);
 
 $t->set_c($ps);
 $t->accept_backends();
-
-# Comment out unused sections when debugging.
-test_pipeline();
-test_split();
-test_basic();
-test_waitfor();
-test_returns();
+{
+    # Comment out unused sections when debugging.
+    test_pipeline();
+    test_split();
+    test_basic();
+    test_waitfor();
+    # Run test returns twice for extra leak checking.
+    my $func_before = mem_stats($ps, "proxyfuncs");
+    test_returns();
+    test_returns();
+    check_func_counts($ps, $func_before);
+}
 
 done_testing();
 
 sub test_pipeline {
     note 'test pipelining of requests';
 
+    # We're expecting the slots to actually increase on the first loop, so
+    # make sure we test that explicitly.
+    my $func_before = mem_stats($ps, "proxyfuncs");
+
     subtest 'some pipelines' => sub {
         note 'run a couple pipelines to check for leaks';
-        for (1 .. 3) {
+        for my $count (1 .. 3) {
             my @keys = ("a".."f");
             my $cmd = '';
             for my $k (@keys) {
@@ -60,6 +69,15 @@ sub test_pipeline {
                 $t->c_recv("HD O$k\r\n", "client got res $k");
             }
             $t->clear();
+
+            if ($count == 1) {
+                my $func_after = mem_stats($ps, "proxyfuncs");
+                cmp_ok($func_after->{"slots_all"}, '>=', $func_before->{"slots_all"}, 'slot count increased');
+                # ensure we don't add more slots after this run.
+                $func_before = $func_after;
+            } else {
+                check_func_counts($ps, $func_before);
+            }
         }
     };
 }
@@ -67,6 +85,7 @@ sub test_pipeline {
 sub test_split {
     note 'test tiering of factories';
 
+    my $func_before = mem_stats($ps, "proxyfuncs");
     # be's 0 and 3 are in use.
     subtest 'basic split' => sub {
         $t->c_send("mg /split/a t\r\n");
@@ -92,6 +111,7 @@ sub test_split {
         $t->c_recv("EN Ofirst\r\n", 'client receives first res');
         $t->clear();
     };
+    check_func_counts($ps, $func_before);
 }
 
 sub test_returns {
@@ -134,6 +154,7 @@ sub test_returns {
 sub test_waitfor {
     note 'stress testing rctx:wait_for scenarios';
 
+    my $func_before = mem_stats($ps, "proxyfuncs");
     subtest 'wait_for(0)' => sub {
         $t->c_send("mg /waitfor/a\r\n");
         $t->c_recv("HD t1\r\n", 'client response before backends receive cmd');
@@ -196,11 +217,13 @@ sub test_waitfor {
         $t->be_send([1, 2], "EN Ofailover\r\n");
         $t->c_recv("EN Ofirst\r\n", 'client receives first res');
     };
+    check_func_counts($ps, $func_before);
 }
 
 sub test_basic {
     note 'basic functionality tests';
 
+    my $func_before = mem_stats($ps, "proxyfuncs");
     subtest 'single backend route' => sub {
         $t->c_send("mg /single/a\r\n");
         $t->be_recv_c(0);
@@ -303,5 +326,29 @@ sub test_basic {
         like(<$w>, qr/received all responses/, 'got a log summary line');
         $t->clear();
     };
+
+    check_func_counts($ps, $func_before);
 }
 
+# To help debug, if a failure is encountered move this function up in its
+# caller function and bisect.
+# This is an out of band test: it won't fail on the test that breaks it.
+# If a slot isn't returned properly the next test will generate one, and
+# the counts will be off after that.
+# This might mean to be absolutely sure, we should run the last test in a set
+# twice.
+sub check_func_counts {
+    my $c = shift;
+    my $a = shift;
+    my $b = mem_stats($c, "proxyfuncs");
+    for my $key (keys %$a) {
+        # Don't want to pollute/slow down the output with tons of ok's here,
+        # so only fail on the fail conditions.
+        if (! exists $b->{$key}) {
+            fail("func stat gone missing: $key");
+        }
+        if ($a->{$key} != $b->{$key}) {
+            cmp_ok($b->{$key}, '==', $a->{$key}, "func stat for $key");
+        }
+    }
+}
