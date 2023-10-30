@@ -807,6 +807,9 @@ void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq) {
         t->proxy_buffer_memory_used -= rq->pr.vlen;
         pthread_mutex_unlock(&t->proxy_limit_lock);
         free(rq->pr.vbuf);
+        // need to ensure we NULL this out now, since we can call the cleanup
+        // routine independent of GC, and a later GC would double-free.
+        rq->pr.vbuf = NULL;
     }
 }
 
