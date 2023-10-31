@@ -42,7 +42,9 @@ static void _mcplib_funcgen_cache(mcp_funcgen_t *fgen, mcp_rcontext_t *rctx) {
 }
 
 // call with stack: mcp.funcgen -2, function -1
-static mcp_rcontext_t *_mcplib_funcgen_gencall(lua_State *L, mcp_funcgen_t *fgen) {
+static int _mcplib_funcgen_gencall(lua_State *L) {
+    mcp_funcgen_t *fgen = luaL_checkudata(L, -2, "mcp.funcgen");
+    int fgen_idx = lua_absindex(L, -2);
     // create the ctx object.
     size_t rctx_len = sizeof(mcp_rcontext_t) + sizeof(struct mcp_rqueue_s) * fgen->max_queues;
     mcp_rcontext_t *rc = lua_newuserdatauv(L, rctx_len, 0);
@@ -50,20 +52,46 @@ static mcp_rcontext_t *_mcplib_funcgen_gencall(lua_State *L, mcp_funcgen_t *fgen
 
     luaL_getmetatable(L, "mcp.rcontext");
     lua_setmetatable(L, -2);
+    // allow the rctx to reference the function generator.
+    rc->fgen = fgen;
+    // copy the rcontext reference
+    lua_pushvalue(L, -1);
+
+    // issue a rotation so one rcontext is now below genfunc, and one rcontext
+    // is on the top.
+    // right shift: gf, rc1, rc2 -> rc2, gf, rc1
+    lua_rotate(L, -3, 1);
+
+    // current stack should be func, mcp.rcontext.
+    int call_argnum = 1;
+    // stack will be func, rctx, arg if there is an arg.
+    if (fgen->argument_ref) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->argument_ref);
+        call_argnum++;
+    }
+
+    // can throw an error upstream.
+    lua_call(L, call_argnum, 1);
+
+    // we should have a top level function as a result.
+    if (!lua_isfunction(L, -1)) {
+        proxy_lua_error(L, "function generator didn't return a function");
+        return 0;
+    }
+    // can't fail past this point.
+
+    // pop the returned function.
+    rc->function_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // link the rcontext into the function generator.
-    // FIXME: triple check this actually cleans up if we bail.
-    // TODO: copy the func then the rcontext again and do this after the pcall
-    // to avoid having to unwind it post-failure.
-    rc->fgen = fgen;
     fgen->total++;
 
-    lua_getiuservalue(L, -3, 1); // get the reference table.
-    lua_pushvalue(L, -2); // copy rcontext
+    lua_getiuservalue(L, fgen_idx, 1); // get the reference table.
+    // rc, t -> t, rc
+    lua_rotate(L, -2, 1);
     lua_rawseti(L, -2, fgen->total); // pop rcontext
     lua_pop(L, 1); // pop ref table.
 
-    // FIXME: move this to the end, so we only cache on success.
     _mcplib_funcgen_cache(fgen, rc);
 
     // pre-create a top level request object.
@@ -75,36 +103,9 @@ static mcp_rcontext_t *_mcplib_funcgen_gencall(lua_State *L, mcp_funcgen_t *fgen
     rc->request_ref = luaL_ref(L, LUA_REGISTRYINDEX); // pop the request
     rc->request = rq;
 
-    // current stack should be func, mcp.rcontext.
-    int call_argnum = 1;
-    // stack will be func, rctx, arg if there is an arg.
-    if (fgen->argument_ref) {
-        lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->argument_ref);
-        call_argnum++;
-    }
-
-    // TODO: lua_call instead of pcall?
-    int res = lua_pcall(L, call_argnum, 1, 0);
-    if (res != LUA_OK) {
-        // TODO: give this a proxy_lua_error.
-        lua_error(L);
-        return 0;
-    }
-
-    // we should have a top level function as a result.
-    if (!lua_isfunction(L, -1)) {
-        proxy_lua_error(L, "function generator didn't return a function");
-        return 0;
-    }
-
-    // TODO: copy the function, return "rcontext, rfunction"
-    // so it can be immediately executed?
-    // pop the returned function.
-    rc->function_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-
     // associate a coroutine thread with this context.
-    lua_newthread(L);
-    rc->Lc = lua_tothread(L, -1);
+    rc->Lc = lua_newthread(L);
+    assert(rc->Lc);
     rc->coroutine_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // increment the slot counter
@@ -121,8 +122,10 @@ static mcp_rcontext_t *_mcplib_funcgen_gencall(lua_State *L, mcp_funcgen_t *fgen
     LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, name, 1);
 
-    // return the rcontext
-    return rc;
+    // return the fgen.
+    // FIXME: just return 0? need to adjust caller to not mis-ref the
+    // generator function.
+    return 1;
 }
 
 static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
@@ -139,8 +142,8 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
         // matter anyway.
         lua_State *L = fgen->thread->L;
         luaL_unref(L, LUA_REGISTRYINDEX, rctx->coroutine_ref);
-        lua_newthread(L);
-        rctx->Lc = lua_tothread(L, -1);
+        rctx->Lc = lua_newthread(L);
+        assert(rctx->Lc);
         rctx->coroutine_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     } else {
         lua_settop(rctx->Lc, 0);
@@ -191,21 +194,25 @@ void mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     _mcplib_funcgen_cache(fgen, rctx);
 }
 
-// FIXME: should be able to avoid the fgen ref, because we only need the fgen lua
-// object if there were no empty slots.
 // FIXME: mcplib -> mcp?
 mcp_rcontext_t *mcplib_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *fgen) {
     mcp_rcontext_t *rctx = NULL;
     // nothing left in slot cache, generate a new function.
     if (fgen->free == 0) {
+        // TODO (perf): pre-create this c closure somewhere hidden.
+        lua_pushcclosure(L, _mcplib_funcgen_gencall, 0);
         // pull in the funcgen object
         lua_rawgeti(L, LUA_REGISTRYINDEX, fgen_ref);
         // then generator function
         lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->generator_ref);
         // then generate a new function slot.
-        // FIXME: do a lua_pcall here so the arguments make sense?
-        _mcplib_funcgen_gencall(L, fgen);
-        lua_pop(L, 1); // drop the extra funcgen ref
+        int res = lua_pcall(L, 2, 1, 0);
+        if (res != LUA_OK) {
+            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(L, -1));
+            lua_settop(L, 0);
+            return NULL;
+        }
+        lua_pop(L, 1); // drop the extra funcgen
     } else {
         P_DEBUG("%s: serving from cache\n", __func__);
     }
@@ -363,7 +370,7 @@ int mcplib_funcgen_new(lua_State *L) {
     lua_pushvalue(L, -2);
     // run the generator function once, which caches a new function call
     // object.
-    _mcplib_funcgen_gencall(L, fgen);
+    _mcplib_funcgen_gencall(L);
 
     // we've survived one call to the function generator, so lets reference it
     // now.
@@ -436,6 +443,9 @@ int mcplib_rcontext_queue_assign(lua_State *L) {
         // this is okay temporarily since the above reference ensures fgen's
         // self ref is set.
         mcp_rcontext_t *subrctx = mcplib_funcgen_get_rctx(L, fgen->self_ref, fgen);
+        if (subrctx == NULL) {
+            proxy_lua_error(L, "failed to generate request slot during queue_assign()");
+        }
         // link the new rctx into this chain; we'll hold onto it until the
         // parent de-allocates.
         subrctx->parent = rctx;

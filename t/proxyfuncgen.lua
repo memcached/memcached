@@ -63,6 +63,9 @@
 --  - same but "WAIT_OK"
 
 verbose = true
+-- global for an error handling test
+failgen_armed = false
+failgenret_armed = false
 
 function say(...)
     if verbose then
@@ -520,6 +523,31 @@ function split_factory(rctx, arg)
     end
 end
 
+-- test handling of failure to generate a function slot
+function failgen_factory(rctx)
+    if failgen_armed then
+        say("throwing failgen error")
+        error("failgen")
+    end
+    say("arming failgen")
+    failgen_armed = true
+
+    return function(r)
+        return "NF\r\n"
+    end
+end
+
+function failgenret_factory(rctx)
+    if failgenret_armed then
+        return nil
+    end
+    failgenret_armed = true
+
+    return function(r)
+        return "NF\r\n"
+    end
+end
+
 -- TODO: this might be supported only in a later update.
 -- new queue after parent return
 -- - do an immediate return + cb queue, queue from that callback
@@ -551,6 +579,8 @@ function mcp_config_routes(p)
     local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3, name = "failover"})
     local suberrors = mcp.funcgen_new({ func = suberrors_factory, max_queues = 3, name = "suberrors"})
     local locality = mcp.funcgen_new({ func = locality_factory, max_queues = 1, name = "locality"})
+    local failgen = mcp.funcgen_new({ func = failgen_factory, max_queues = 1, name = "failgen"})
+    local failgenret = mcp.funcgen_new({ func = failgenret_factory, max_queues = 1, name = "failgenret"})
 
     -- for testing traffic splitting.
     local split = mcp.funcgen_new({ func = split_factory, arg = { a = single, b = singletwo }, max_queues = 2, name = "split"})
@@ -578,7 +608,22 @@ function mcp_config_routes(p)
         list = map,
         pattern = "^/(%a+)/"
     }
-    local pfx = mcp.funcgen_new({ func = prefix_factory, arg = parg, max_queues = 16, name = "prefix" })
+
+    local mapfail = {
+        ["failgen"] = failgen,
+        ["failgenret"] = failgenret,
+    }
+    local farg = {
+        default = single,
+        list = mapfail,
+        pattern = "^/(%a+)/"
+    }
+
+    local pfx = mcp.funcgen_new({ func = prefix_factory, arg = parg, max_queues = 24, name = "prefix" })
+    local pfxfail = mcp.funcgen_new({ func = prefix_factory, arg = farg, max_queues = 24, name = "prefixfail" })
 
     mcp.attach(mcp.CMD_ANY_STORAGE, pfx)
+    -- TODO: might need to move this fail stuff to another test file.
+    mcp.attach(mcp.CMD_MS, pfxfail)
+    mcp.attach(mcp.CMD_MD, pfxfail)
 end

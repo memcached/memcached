@@ -555,7 +555,8 @@ void complete_nread_proxy(conn *c) {
         // FIXME (v2): need to set noreply false if mset_res, but that's kind
         // of a weird hack to begin with. Evaluate how to best do that here.
         out_string(c, "CLIENT_ERROR bad data chunk");
-        // TODO: return rctx.
+        rctx->pending_reqs--;
+        mcp_funcgen_return_rctx(rctx);
         return;
     }
 
@@ -1011,8 +1012,16 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     }
 
     // hook is owned by a function generator.
-    // FIXME: allow to fail?
     mcp_rcontext_t *rctx = mcplib_funcgen_get_rctx(L, hook_ref.lua_ref, hook_ref.ctx);
+    if (rctx == NULL) {
+        proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "lua failure");
+        WSTAT_DECR(c->thread, proxy_req_active, 1);
+        if (pr.vlen != 0) {
+            c->sbytes = pr.vlen;
+            conn_set_state(c, conn_swallow);
+        }
+        return;
+    }
     mcp_set_request(&pr, rctx->request, command, cmdlen);
     rctx->request->ascii_multiget = multiget;
     rctx->c = c;
@@ -1038,6 +1047,10 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
             c->item = malloc(pr.vlen);
         }
         if (c->item == NULL) {
+            // return the RCTX
+            rctx->pending_reqs--;
+            mcp_funcgen_return_rctx(rctx);
+            // normal cleanup
             lua_settop(L, 0);
             proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "out of memory");
             WSTAT_DECR(c->thread, proxy_req_active, 1);

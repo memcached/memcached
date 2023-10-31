@@ -40,9 +40,36 @@ $t->accept_backends();
     test_returns();
     test_returns();
     check_func_counts($ps, $func_before);
+    test_errors();
 }
 
 done_testing();
+
+# This kind of testing is difficult to do from integration level test suites
+# like this, but do what we can.
+sub test_errors {
+    note 'test specific error handling';
+
+    # Looking specifically for slot leaks. So we run the test N times and
+    # check immediately.
+    my $func_before = mem_stats($ps, "proxyfuncs");
+    subtest 'bad data chunk' => sub {
+        for (1 .. 3) {
+            $t->c_send("ms badchunk 2\r\nfail");
+            $t->c_recv("CLIENT_ERROR bad data chunk\r\n", "got bad data chunk response");
+        }
+        $t->clear();
+    };
+    check_func_counts($ps, $func_before);
+
+    # Need to pipeline to force the second slot to generate.
+    subtest 'slot generation failure' => sub {
+        my $cmd = "md /failgen/a\r\n";
+        $t->c_send("$cmd$cmd");
+        $t->c_recv("NF\r\n");
+        $t->c_recv("SERVER_ERROR lua failure\r\n");
+    };
+}
 
 sub test_pipeline {
     note 'test pipelining of requests';
