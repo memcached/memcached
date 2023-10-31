@@ -130,6 +130,18 @@ function direct_factory(rctx, arg)
     end
 end
 
+-- factory for proving slots have unique environmental memory.
+function locality_factory(rctx, arg)
+    say("generating locality factory function")
+    local x = 0
+
+    return function(r)
+        say("returning from locality")
+        x = x + 1
+        return "HD t" .. x .. "\r\n"
+    end
+end
+
 -- waits for only the _first_ queued handle to return.
 -- ie; position 1 in the table.
 -- we do a numeric for loop in the returned function to avoid allocations done
@@ -538,6 +550,7 @@ function mcp_config_routes(p)
     local waitfor = mcp.funcgen_new({ func = waitfor_factory, arg = { list = p }, max_queues = 3, name = "waitfor"})
     local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3, name = "failover"})
     local suberrors = mcp.funcgen_new({ func = suberrors_factory, max_queues = 3, name = "suberrors"})
+    local locality = mcp.funcgen_new({ func = locality_factory, max_queues = 1, name = "locality"})
 
     -- for testing traffic splitting.
     local split = mcp.funcgen_new({ func = split_factory, arg = { a = single, b = singletwo }, max_queues = 2, name = "split"})
@@ -557,6 +570,7 @@ function mcp_config_routes(p)
         ["suberrors"] = suberrors,
         ["split"] = split,
         ["splitfailover"] = splitfailover,
+        ["locality"] = locality,
     }
 
     local parg = {

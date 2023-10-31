@@ -80,6 +80,20 @@ sub test_pipeline {
             }
         }
     };
+
+    subtest 'ensuring unique slot environments' => sub {
+        # In each loop we send the command three times pipelined, but we
+        # should get three unique lua environments.
+        # In subsequent loops, the numbers will increment in lockstep.
+        for my $x (1 .. 5) {
+            # key doesn't matter; function isn't looking at it.
+            my $cmd = "mg /locality/a\r\n";
+            $t->c_send("$cmd$cmd$cmd");
+            for (1 .. 3) {
+                $t->c_recv("HD t$x\r\n", "client got return sequence $x");
+            }
+        }
+    };
 }
 
 sub test_split {

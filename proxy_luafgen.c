@@ -580,6 +580,10 @@ static void mcp_start_subrctx(mcp_rcontext_t *rctx) {
             rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
             rqu->flags |= RQUEUE_R_ANY;
             rqu->state = RQUEUE_COMPLETE;
+            io_pending_proxy_t *p = mcp_queue_rctx_io(rctx->parent, NULL, NULL, NULL);
+            p->return_cb = proxy_return_rqu_cb;
+            p->queue_handle = rctx->parent_handle;
+            p->await_background = true;
         } else {
             // generate a generic object with an error.
             _mcp_start_rctx_process_error(rctx, rqu);
@@ -796,7 +800,9 @@ static void proxy_return_rqu_cb(io_pending_t *pending) {
     // Hold the client object before we potentially return the rctx below.
     conn *c = rctx->c;
 
-    mcp_process_rqueue_return(rctx, p->queue_handle, p->client_resp);
+    if (p->client_resp) {
+        mcp_process_rqueue_return(rctx, p->queue_handle, p->client_resp);
+    }
     rctx->pending_reqs--;
     assert(rctx->pending_reqs > -1);
 
