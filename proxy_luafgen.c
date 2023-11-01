@@ -227,14 +227,28 @@ mcp_rcontext_t *mcplib_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_
 // calling either with self_ref set, or with fgen in stack -1 (ie; from GC
 // function without ever being attached to anything)
 static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
-    assert(fgen->closed);
     // pull the fgen into the stack.
     if (fgen->self_ref) {
+        // pull self onto the stack and hold until the end of the func.
         lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->self_ref);
         // remove the C reference to the fgen
         luaL_unref(L, LUA_REGISTRYINDEX, fgen->self_ref);
         fgen->self_ref = 0;
+    } else {
+        // we've already cleaned up, probably redundant call from _gc()
+        return;
     }
+
+    // increment the slot counter
+    const char *name = NULL;
+    if (fgen->name_ref) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->name_ref);
+        name = lua_tostring(L, -1);
+    } else {
+        name = "anonymous";
+    }
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGEN_IDX, name, -1);
 
     // Walk every requets context and issue cleanup.
     for (int x = 0; x < fgen->total; x++) {
@@ -242,9 +256,35 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
 
         luaL_unref(L, LUA_REGISTRYINDEX, rctx->coroutine_ref);
         luaL_unref(L, LUA_REGISTRYINDEX, rctx->function_ref);
-        luaL_unref(L, LUA_REGISTRYINDEX, rctx->request_ref);
-        // TODO: cleanup of request queue entries. recurse funcgen cleanup.
+        if (rctx->request_ref) {
+            luaL_unref(L, LUA_REGISTRYINDEX, rctx->request_ref);
+        }
+        assert(rctx->pending_reqs == 0);
+
+        // cleanup of request queue entries. recurse funcgen cleanup.
+        for (int x = 0; x < fgen->max_queues; x++) {
+            struct mcp_rqueue_s *rqu = &rctx->qslots[x];
+            if (rqu->obj_type == RQUEUE_TYPE_POOL) {
+                // just the obj_ref
+                luaL_unref(L, LUA_REGISTRYINDEX, rqu->obj_ref);
+            } else if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
+                // don't need to recurse, just return the subrctx.
+                mcp_rcontext_t *subrctx = rqu->obj;
+                _mcplib_funcgen_cache(subrctx->fgen, subrctx);
+                mcp_funcgen_dereference(L, subrctx->fgen);
+            } else if (rqu->obj_type != RQUEUE_TYPE_NONE) {
+                assert(1 == 0);
+            }
+            if (rqu->cb_ref) {
+                luaL_unref(L, LUA_REGISTRYINDEX, rqu->cb_ref);
+            }
+        }
     }
+    // decrement the slot tracker. apply full delta at once for efficiency.
+    mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, name, -fgen->total);
+
+    lua_pop(L, 1); // pop the name string.
+    luaL_unref(L, LUA_REGISTRYINDEX, fgen->name_ref);
 
     // Finally, get the rctx reference table and nil each reference to allow
     // garbage collection to happen sooner on the rctx's
