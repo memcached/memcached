@@ -144,10 +144,10 @@
 
       <section anchor="command-getr-request" title="Get Range Request">
         <t>
-	  The Get Range request is primarily intended for use over a UDP transport
-	  to request byte ranges of the value for a key. In the event that the Data version
-	  check fails to match that of the key, an error MUST be returned.
-	</t>
+        The Get Range request is primarily intended for use over a UDP transport
+        to request byte ranges of the value for a key. In the event that the Data version
+        check fails to match that of the key, an error MUST be returned.
+        </t>
         <t>
       <figure>
         <preamble>Extra data for get range request:</preamble>
@@ -172,12 +172,12 @@ Total 20 bytes
 
       <section anchor="command-getr-response" title="Get Range Response">
         <t>
-	  The Get Range request is primarily intended for use over a UDP transport
-	  to indicate the location of the bytes of the value for a key contained in
-	  a given packet. A client receives enough information in each Get Range
-	  extras to construct an appropriately sized buffer in its own memory and
-	  blindly insert the contents of the packet at the given byte offset.
-	</t>
+        The Get Range request is primarily intended for use over a UDP transport
+        to indicate the location of the bytes of the value for a key contained in
+        a given packet. A client receives enough information in each Get Range
+        extras to construct an appropriately sized buffer in its own memory and
+        blindly insert the contents of the packet at the given byte offset.
+        </t>
         <t>
       <figure>
         <preamble>Extra data for get range response:</preamble>
