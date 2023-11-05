@@ -590,6 +590,8 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
                     (unsigned long long)thread_stats.slab_stats[i].incr_hits);
             APPEND_NUM_STAT(i, "decr_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].decr_hits);
+            APPEND_NUM_STAT(i, "mult_hits", "%llu",
+                    (unsigned long long)thread_stats.slab_stats[i].mult_hits);
             APPEND_NUM_STAT(i, "cas_hits", "%llu",
                     (unsigned long long)thread_stats.slab_stats[i].cas_hits);
             APPEND_NUM_STAT(i, "cas_badval", "%llu",

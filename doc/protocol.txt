@@ -1326,6 +1326,8 @@ integers separated by a colon (treat this as a floating point number).
 | incr_hits             | 64u     | Number of successful incr reqs.           |
 | decr_misses           | 64u     | Number of decr reqs against missing keys. |
 | decr_hits             | 64u     | Number of successful decr reqs.           |
+| mult_hits             | 64u     | Number of successful mult reqs.           |
+| mult_misses           | 64u     | Number of mult reqs against missing keys. |
 | cas_misses            | 64u     | Number of CAS reqs against missing keys.  |
 | cas_hits              | 64u     | Number of successful CAS reqs.            |
 | cas_badval            | 64u     | Number of CAS reqs for which a key was    |

@@ -2087,7 +2087,7 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
     }
 }
 
-static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
+static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr, const bool mult) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
     char *key;
@@ -2109,8 +2109,13 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         out_string(c, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
-
-    switch(add_delta(c->thread, key, nkey, incr, delta, temp, NULL)) {
+    enum delta_result_type res;
+    if (mult) {
+        res = mult_delta(c->thread, key, nkey, delta, temp, NULL);
+    } else {
+        res = add_delta(c->thread, key, nkey, incr, delta, temp, NULL);
+    }
+    switch(res) {
     case OK:
         out_string(c, temp);
         break;
@@ -2837,6 +2842,11 @@ void process_command_ascii(conn *c, char *command) {
                 out_string(c, "ERROR");
                 break;
         }
+    } else if (first == 'm') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "mult") == 0) {
+            WANT_TOKENS_OR(ntokens, 4, 5);
+            process_arithmetic_command(c, tokens, ntokens, 0, 1);
+        }
     } else if (first == 'g') {
         // Various get commands are very common.
         WANT_TOKENS_MIN(ntokens, 3);
@@ -2897,7 +2907,7 @@ void process_command_ascii(conn *c, char *command) {
         if (strcmp(tokens[COMMAND_TOKEN].value, "incr") == 0) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
-            process_arithmetic_command(c, tokens, ntokens, 1);
+            process_arithmetic_command(c, tokens, ntokens, 1, 0);
         } else {
             out_string(c, "ERROR");
         }
@@ -2909,7 +2919,7 @@ void process_command_ascii(conn *c, char *command) {
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "decr") == 0) {
 
             WANT_TOKENS_OR(ntokens, 4, 5);
-            process_arithmetic_command(c, tokens, ntokens, 0);
+            process_arithmetic_command(c, tokens, ntokens, 0, 0);
 #ifdef MEMCACHED_DEBUG
         } else if (strcmp(tokens[COMMAND_TOKEN].value, "debugtime") == 0) {
             WANT_TOKENS_MIN(ntokens, 2);
@@ -2990,5 +3000,3 @@ void process_command_ascii(conn *c, char *command) {
     }
     return;
 }
-
-

@@ -417,7 +417,7 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
     item_remove(it);
 }
 
-static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr) {
+static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp, const bool incr, const bool mult) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
     const char *key = &pr->request[pr->tokens[pr->keytoken]];
@@ -435,7 +435,14 @@ static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp
         return;
     }
 
-    switch(add_delta(t, key, nkey, incr, delta, temp, NULL)) {
+    enum delta_result_type res;
+    if (mult) {
+        res = mult_delta(t, key, nkey, delta, temp, NULL);
+    }
+    else {
+        res = add_delta(t, key, nkey, incr, delta, temp, NULL);
+    }
+    switch(res) {
     case OK:
         pout_string(resp, temp);
         break;
@@ -447,7 +454,9 @@ static void process_arithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp
         break;
     case DELTA_ITEM_NOT_FOUND:
         pthread_mutex_lock(&t->stats.mutex);
-        if (incr) {
+        if (mult) {
+            t->stats.mult_misses++;
+        } else if (incr) {
             t->stats.incr_misses++;
         } else {
             t->stats.decr_misses++;
@@ -1660,6 +1669,9 @@ int mcplib_internal_run(lua_State *L, conn *c, mc_resp *top_resp, int coro_ref) 
             break;
         case CMD_DECR:
             process_arithmetic_cmd(t, pr, resp, false);
+            break;
+        case CMD_MULT:
+            process_arithmetic_cmd(t, pr, resp, true);
             break;
         case CMD_DELETE:
             process_delete_cmd(t, pr, resp);

@@ -312,6 +312,7 @@ enum delta_result_type {
     X(cas_hits) \
     X(cas_badval) \
     X(incr_hits) \
+    X(mult_hits) \
     X(decr_hits)
 
 /** Stats stored per slab (and per thread). */
@@ -330,6 +331,7 @@ struct slab_stats {
     X(touch_misses) \
     X(delete_misses) \
     X(incr_misses) \
+    X(mult_misses) \
     X(decr_misses) \
     X(cas_misses) \
     X(meta_cmds) \
@@ -943,6 +945,10 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key,
                                     const int64_t delta, char *buf,
                                     uint64_t *cas, const uint32_t hv,
                                     item **it_ret);
+enum delta_result_type do_mult_delta(LIBEVENT_THREAD *t, const char *key,
+                                     const size_t nkey, const int64_t delta,
+                                     char *buf, uint64_t *cas,
+                                     const uint32_t hv, item **it_ret);
 enum store_item_type do_store_item(item *item, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, bool cas_stale);
 void thread_io_queue_add(LIBEVENT_THREAD *t, int type, void *ctx, io_queue_stack_cb cb);
 void conn_io_queue_setup(conn *c);
@@ -988,6 +994,9 @@ enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
                                  const size_t nkey, bool incr,
                                  const int64_t delta, char *buf,
                                  uint64_t *cas);
+enum delta_result_type mult_delta(LIBEVENT_THREAD *t, const char *key,
+                                  const size_t nkey, const int64_t delta,
+                                  char *buf, uint64_t *cas);
 void accept_new_conns(const bool do_accept);
 void  conn_close_idle(conn *c);
 void  conn_close_all(void);
