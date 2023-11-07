@@ -1012,7 +1012,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     }
 
     // hook is owned by a function generator.
-    mcp_rcontext_t *rctx = mcplib_funcgen_get_rctx(L, hook_ref.lua_ref, hook_ref.ctx);
+    mcp_rcontext_t *rctx = mcp_funcgen_start(L, hook_ref.ctx, &pr);
     if (rctx == NULL) {
         proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "lua failure");
         WSTAT_DECR(c->thread, proxy_req_active, 1);
@@ -1022,6 +1022,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         }
         return;
     }
+    // TODO: move some of this junk into mcp_funcgen_start.
     mcp_set_request(&pr, rctx->request, command, cmdlen);
     rctx->request->ascii_multiget = multiget;
     rctx->c = c;

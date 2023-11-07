@@ -292,6 +292,7 @@ typedef struct mcp_backend_s mcp_backend_t;
 typedef struct mcp_request_s mcp_request_t;
 typedef struct mcp_parser_s mcp_parser_t;
 typedef struct mcp_rcontext_s mcp_rcontext_t;
+typedef struct mcp_funcgen_s mcp_funcgen_t;
 
 #define PARSER_MAX_TOKENS 24
 
@@ -602,7 +603,32 @@ enum mcp_rqueue_e {
     WAIT_HANDLE
 };
 
-typedef struct {
+enum mcp_funcgen_router_e {
+    FGEN_ROUTER_NONE = 0,
+    FGEN_ROUTER_SHORTSEP,
+    FGEN_ROUTER_LONGSEP,
+    FGEN_ROUTER_ANCHORSM,
+    FGEN_ROUTER_ANCHORBIG,
+};
+
+struct mcp_router_long_s {
+    char start[KEY_HASH_FILTER_MAX+1];
+    char until[KEY_HASH_FILTER_MAX+1];
+};
+
+struct mcp_funcgen_router {
+    enum mcp_funcgen_router_e type;
+    union {
+        char sep;
+        char lsep[KEY_HASH_FILTER_MAX+1];
+        char anchorsm[2]; // short anchored mode.
+        struct mcp_router_long_s big;
+    } conf;
+    mcp_funcgen_t *def_fgen; // default route
+    int map_ref;
+};
+
+struct mcp_funcgen_s {
     LIBEVENT_THREAD *thread; // worker thread that created this funcgen.
     int generator_ref; // reference to the generator function.
     int self_ref; // self-reference if we're attached anywhere
@@ -613,9 +639,11 @@ typedef struct {
     unsigned int total; // total contexts managed
     unsigned int free; // free contexts
     unsigned int free_max; // size of list below.
+    unsigned int routecount; // total routes if this fgen is a router.
     bool closed; // the hook holding this fgen has been replaced
     mcp_rcontext_t **list;
-} mcp_funcgen_t;
+    struct mcp_funcgen_router router;
+};
 
 #define RQUEUE_TYPE_NONE 0
 #define RQUEUE_TYPE_POOL 1
@@ -681,6 +709,8 @@ int mcplib_rcontext_any(lua_State *L);
 int mcplib_rcontext_ok(lua_State *L);
 int mcplib_funcgenbare_new(lua_State *L);
 int mcplib_funcgen_new(lua_State *L);
+int mcplib_router_new(lua_State *L);
+mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr);
 mcp_rcontext_t *mcplib_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *fgen);
 void mcp_funcgen_return_rctx(mcp_rcontext_t *rctx);
 int mcplib_funcgen_gc(lua_State *L);

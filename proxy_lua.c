@@ -1438,6 +1438,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"internal", mcplib_internal},
         {"attach", mcplib_attach},
         {"funcgen_new", mcplib_funcgen_new},
+        {"router_new", mcplib_router_new},
         {"await", mcplib_await},
         {"await_logerrors", mcplib_await_logerrors},
         {"log", mcplib_log},

@@ -2,6 +2,8 @@
 
 #include "proxy.h"
 
+static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr);
+static int mcp_funcgen_router_cleanup(lua_State *L, mcp_funcgen_t *fgen);
 static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen);
 static void proxy_return_rqu_cb(io_pending_t *pending);
 
@@ -224,9 +226,23 @@ mcp_rcontext_t *mcplib_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_
     return rctx;
 }
 
+mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr) {
+    if (fgen->router.type != FGEN_ROUTER_NONE) {
+        fgen = mcp_funcgen_route(L, fgen, pr);
+        if (fgen == NULL) {
+            return NULL;
+        }
+    }
+    // FIXME: check on the fgen->self_ref usage here. I'm 99% sure it's
+    // impossible to get here without self_ref set because attach would
+    // have to be overridden already, so the fgen is inaccessible.
+    return mcplib_funcgen_get_rctx(L, fgen->self_ref, fgen);
+}
+
 // calling either with self_ref set, or with fgen in stack -1 (ie; from GC
 // function without ever being attached to anything)
 static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
+    lua_checkstack(L, 5); // paranoia. this can recurse from a router.
     // pull the fgen into the stack.
     if (fgen->self_ref) {
         // pull self onto the stack and hold until the end of the func.
@@ -239,7 +255,12 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
         return;
     }
 
-    // increment the slot counter
+    if (fgen->router.type != FGEN_ROUTER_NONE) {
+        // we're actually a "router", send this out for cleanup.
+        mcp_funcgen_router_cleanup(L, fgen);
+    }
+
+    // decrement the slot counter
     const char *name = NULL;
     if (fgen->name_ref) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->name_ref);
@@ -250,7 +271,7 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
     LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGEN_IDX, name, -1);
 
-    // Walk every requets context and issue cleanup.
+    // Walk every request context and issue cleanup.
     for (int x = 0; x < fgen->total; x++) {
         mcp_rcontext_t *rctx = fgen->list[x];
 
@@ -1044,4 +1065,318 @@ int mcplib_rcontext_any(lua_State *L) {
 void mcp_rcontext_push_rqu_res(lua_State *L, mcp_rcontext_t *rctx, int handle) {
     struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
     lua_rawgeti(L, LUA_REGISTRYINDEX, rqu->res_ref);
+}
+
+/*
+ * Specialized router funcgen.
+ * For routing a key across a map of possible function generators, we use a
+ * specialized function generator. This is to keep the attach and start code
+ * consistent, as they only need to think about function generators.
+ * It also keeps the cleanup code consistent, as when a "router" funcgen is
+ * replaced by mcp.attach() during a reload, we can immediately dereference
+ * all of the route fgens, rather than have to wait for GC.
+ *
+ * Another upside is when we're starting a new request, we can immediately
+ * swap out the top level fgen object, rather than force all routes to be
+ * processed as sub-funcs, which is a tiny bit slower and disallows custom
+ * request object sizes.
+ *
+ * The downside is this will appear to be bolted onto the side of the existing
+ * structs rather than be its own object, like I initially wanted.
+ */
+
+static inline const char *_mcp_router_shortsep(const char *key, const int klen, const char needle, size_t *len) {
+    const char *end = NULL;
+    const char *lookup = NULL;
+
+    end = memchr(key, needle, klen);
+    if (end == NULL) {
+        lookup = key;
+    } else {
+        lookup = key;
+        *len = end - key;
+    }
+
+    return lookup;
+}
+
+// we take some liberties here because we know needle and key can't be zero
+// this isn't the most hyper optimized search but prefixes and separators
+// should both be short.
+static inline const char *_mcp_router_longsep(const char *key, const int klen, const char *needle, size_t *len) {
+    const char *end = NULL;
+    const char *lookup = key;
+    size_t nlen = strlen(needle);
+
+    end = memchr(key, needle[0], klen);
+    if (end == NULL) {
+        // definitely no needle in this haystack.
+        return key;
+    }
+
+    // find the last possible position
+    const char *last = key + (klen - (nlen + (end - key)));
+
+    while (end != last) {
+        if (*end == needle[0] && memcmp(end, needle, nlen) == 0) {
+            lookup = key;
+            *len = end - key;
+            break;
+        }
+        end++;
+    }
+
+    return lookup;
+}
+
+static inline const char *_mcp_router_anchorsm(const char *key, const int klen, const char *needle, size_t *len) {
+    // check the first byte anchor.
+    if (key[0] != needle[0]) {
+        return NULL;
+    }
+
+    // rest is same as shortsep.
+    return _mcp_router_shortsep(key+1, klen-1, needle[1], len);
+}
+
+static inline const char *_mcp_router_anchorbig(const char *key, const int klen, const struct mcp_router_long_s *conf, size_t *len) {
+    // check long anchored prefix.
+    size_t slen = strlen(conf->start);
+    // check for start len+2 to avoid sending a zero byte haystack to longsep
+    if (slen+2 > klen || memcmp(key, conf->start, slen) != 0) {
+        return NULL;
+    }
+
+    // rest is same as longsep
+    return _mcp_router_longsep(key+slen, klen-slen, conf->until, len);
+}
+
+static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr) {
+    struct mcp_funcgen_router *fr = &fgen->router;
+    if (pr->klen == 0) {
+        return NULL;
+    }
+    const char *key = &pr->request[pr->tokens[pr->keytoken]];
+    const char *lookup = NULL;
+    size_t lookuplen = 0;
+    switch(fr->type) {
+        case FGEN_ROUTER_NONE:
+            break;
+        case FGEN_ROUTER_SHORTSEP:
+            lookup = _mcp_router_shortsep(key, pr->klen, fr->conf.sep, &lookuplen);
+            break;
+        case FGEN_ROUTER_LONGSEP:
+            lookup = _mcp_router_longsep(key, pr->klen, fr->conf.lsep, &lookuplen);
+            break;
+        case FGEN_ROUTER_ANCHORSM:
+            lookup = _mcp_router_anchorsm(key, pr->klen, fr->conf.anchorsm, &lookuplen);
+            break;
+        case FGEN_ROUTER_ANCHORBIG:
+            lookup = _mcp_router_anchorbig(key, pr->klen, &fr->conf.big, &lookuplen);
+            break;
+    }
+
+    if (lookuplen == 0) {
+        return fr->def_fgen;
+    }
+
+    // hoping the lua short string cache helps us avoid allocations at least.
+    // since this lookup code is internal to the router object we can optimize
+    // this later and remove the lua bits.
+    lua_rawgeti(L, LUA_REGISTRYINDEX, fr->map_ref);
+    lua_pushlstring(L, lookup, lookuplen);
+    lua_rawget(L, -2); // pops key, returns value
+    if (lua_isnil(L, -1)) {
+        return fr->def_fgen;
+    } else {
+        mcp_funcgen_t *nfgen = lua_touserdata(L, -1);
+        lua_pop(L, 2); // drop fgen and map.
+        return nfgen;
+    }
+}
+
+// called from mcp_funcgen_cleanup if necessary.
+static int mcp_funcgen_router_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
+    struct mcp_funcgen_router *fr = &fgen->router;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, fr->map_ref);
+
+    // walk the map, de-ref any funcgens found.
+    int tidx = lua_absindex(L, -1);
+    lua_pushnil(L);
+    while (lua_next(L, tidx) != 0) {
+        // TODO: check for table, handle sub-map.
+        mcp_funcgen_t *mfgen = lua_touserdata(L, -1);
+        mcp_funcgen_dereference(L, mfgen);
+        lua_pop(L, 1);
+    }
+
+    lua_pop(L, 1); // drop the table.
+    luaL_unref(L, LUA_REGISTRYINDEX, fr->map_ref);
+    fr->map_ref = 0;
+
+    if (fr->def_fgen) {
+        mcp_funcgen_dereference(L, fr->def_fgen);
+        fr->def_fgen = NULL;
+    }
+
+    return 0;
+}
+
+// Note: the string should be safe to use after popping it here, because we
+// were fetching it from a table, but I might consider copying it into a
+// buffer from the caller first.
+static const char *_mcplib_router_new_check(lua_State *L, const char *arg, size_t *len) {
+    int type = lua_getfield(L, 1, arg);
+    if (type == LUA_TSTRING) {
+        const char *sep = lua_tolstring(L, -1, len);
+        if (*len == 0) {
+            proxy_lua_ferror(L, "must pass a non-zero length string to %s in mcp.router_new", arg);
+        } else if (*len > KEY_HASH_FILTER_MAX) {
+            proxy_lua_ferror(L, "%s is too long in mcp.router_new", arg);
+        }
+        lua_pop(L, 1); // drop until
+        return sep;
+    } else if (type != LUA_TNIL) {
+        proxy_lua_ferror(L, "must pass a string to %s in mcp.router_new", arg);
+    }
+    return NULL;
+}
+
+int mcplib_router_new(lua_State *L) {
+    struct mcp_funcgen_router fr = {0};
+    size_t route_count = 0;
+
+    if (!lua_istable(L, 1)) {
+        proxy_lua_error(L, "Must pass a table of arguments to mcp.router_new");
+    }
+
+    if (lua_getfield(L, 1, "map") != LUA_TNIL) {
+        if (!lua_istable(L, -1)) {
+            proxy_lua_error(L, "Must pass a table to map argument of router_new");
+        }
+        // walk map table, get size count.
+        lua_pushnil(L); // init table key.
+        while (lua_next(L, 2) != 0) {
+            int type = lua_type(L, -1);
+            if (type == LUA_TUSERDATA) {
+                luaL_checkudata(L, -1, "mcp.funcgen");
+            } else if (type == LUA_TTABLE) {
+                // TODO: if table, it's a command map, poke in and validate.
+                proxy_lua_error(L, "unfinished");
+            } else {
+                proxy_lua_error(L, "unhandled data in router_new map");
+            }
+            route_count++;
+            lua_pop(L, 1); // drop val, keep key.
+        }
+        lua_pop(L, 1); // drop the map for now.
+    } else {
+        lua_pop(L, 1); // pop nil
+    }
+
+    // default to a short prefix type with a single byte separator.
+    fr.type = FGEN_ROUTER_SHORTSEP;
+    fr.conf.sep = '/';
+
+    // config:
+    // { type = "anchor", start = "/", until = "/" }
+    // { type = "prefix", until = "/" }
+    // change internal type based on length of separator
+    if (lua_getfield(L, 1, "type") == LUA_TSTRING) {
+        const char *type = lua_tostring(L, -1);
+        size_t len = 0;
+        const char *sep = NULL;
+
+        if (strcmp(type, "prefix") == 0) {
+            sep = _mcplib_router_new_check(L, "until", &len);
+            if (sep == NULL) {
+                // defaults
+                fr.type = FGEN_ROUTER_SHORTSEP;
+                fr.conf.sep = '/';
+            } else if (len == 1) {
+                // optimized shortsep case.
+                fr.type = FGEN_ROUTER_SHORTSEP;
+                fr.conf.sep = sep[0];
+            } else {
+                // len is long.
+                fr.type = FGEN_ROUTER_LONGSEP;
+                memcpy(fr.conf.lsep, sep, len);
+                fr.conf.lsep[len] = '\0'; // cap it.
+            }
+        } else if (strcmp(type, "anchor") == 0) {
+            size_t ulen = 0; // until len.
+            const char *usep = _mcplib_router_new_check(L, "until", &len);
+            sep = _mcplib_router_new_check(L, "start", &len);
+            if (sep == NULL && usep == NULL) {
+                // no arguments, use a default.
+                fr.type = FGEN_ROUTER_ANCHORSM;
+                fr.conf.anchorsm[0] = '/';
+                fr.conf.anchorsm[1] = '/';
+            } else if (sep == NULL || usep == NULL) {
+                // reduce the combinatorial space because I'm lazy.
+                proxy_lua_error(L, "must specify start and until if type is anchor in mcp.router_new");
+            } else if (len == 1 && ulen == 1) {
+                fr.type = FGEN_ROUTER_ANCHORSM;
+                fr.conf.anchorsm[0] = sep[0];
+                fr.conf.anchorsm[1] = usep[0];
+            } else {
+                fr.type = FGEN_ROUTER_ANCHORBIG;
+                memcpy(fr.conf.big.start, sep, len);
+                memcpy(fr.conf.big.until, usep, ulen);
+                fr.conf.big.start[len] = '\0';
+                fr.conf.big.until[ulen] = '\0';
+            }
+        } else {
+            proxy_lua_error(L, "unknown type passed to mcp.router_new");
+        }
+        lua_pop(L, 1); // drop type
+    } else {
+        lua_pop(L, 1); // drop nil.
+    }
+
+    mcp_funcgen_t *fgen = lua_newuserdatauv(L, sizeof(mcp_funcgen_t), 0);
+    memset(fgen, 0, sizeof(mcp_funcgen_t));
+
+    luaL_getmetatable(L, "mcp.funcgen");
+    lua_setmetatable(L, -2);
+
+    int type = lua_getfield(L, 1, "default");
+    if (type == LUA_TUSERDATA) {
+        fr.def_fgen = luaL_checkudata(L, -1, "mcp.funcgen");
+        mcp_funcgen_reference(L); // pops the funcgen.
+    } else {
+        lua_pop(L, 1);
+    }
+
+    fgen->routecount = route_count;
+    memcpy(&fgen->router, &fr, sizeof(struct mcp_funcgen_router));
+
+    // walk map table again, funcgen_ref everyone.
+    lua_createtable(L, 0, route_count);
+    lua_pushvalue(L, -1); // dupe table ref for a moment.
+    fgen->router.map_ref = luaL_ref(L, LUA_REGISTRYINDEX); // pops extra map
+
+    int mymap = lua_absindex(L, -1);
+    lua_getfield(L, 1, "map");
+    int argmap = lua_absindex(L, -1);
+    lua_pushnil(L); // seed walk of the passed in map
+
+    while (lua_next(L, argmap) != 0) {
+        // types are already validated.
+        // TODO: check for TTABLE and add command map.
+        // first lets reference the function generator.
+        lua_pushvalue(L, -1); // duplicate value.
+        mcp_funcgen_reference(L); // pops the funcgen after referencing.
+
+        // duplicate key.
+        lua_pushvalue(L, -2);
+        // move key underneath value
+        lua_insert(L, -2); // take top (key) and move it down one.
+        // now key, key, value
+        lua_rawset(L, mymap); // pops k, v into our internal table.
+    }
+
+    lua_pop(L, 2); // drop argmap, mymap.
+
+    return 1;
 }

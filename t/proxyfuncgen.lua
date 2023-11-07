@@ -104,16 +104,6 @@ function prefix_factory(rctx, arg)
 
     return function(r)
         local key = r:key()
-        -- failure scenarios that require a top-level request context
-        if key == "reterror" then
-            error("test error")
-        elseif key == "retnil" then
-            return nil
-        elseif key == "retint" then
-            return 5
-        elseif key == "retnone" then
-            return
-        end
 
         local handle = map[string.match(key, p)]
         if handle == nil then
@@ -134,13 +124,17 @@ function direct_factory(rctx, arg)
 end
 
 -- factory for proving slots have unique environmental memory.
+-- we need to wait on a backend to allow the test to pipeline N requests in
+-- parallel, to prove that each parallel slot has a unique lua environment.
 function locality_factory(rctx, arg)
     say("generating locality factory function")
     local x = 0
+    local h = rctx:queue_assign(arg)
 
     return function(r)
-        say("returning from locality")
         x = x + 1
+        say("returning from locality: " .. x)
+        local res = rctx:wait_handle(r, h)
         return "HD t" .. x .. "\r\n"
     end
 end
@@ -406,11 +400,11 @@ function waitfor_factory(rctx, arg)
 
     return function(r)
         local key = r:key()
-        if key == "/waitfor/a" then
+        if key == "waitfor/a" then
             rctx:queue(r, t)
             rctx:wait_for(0) -- issue the requests in the background
             return "HD t1\r\n" -- return whatever to the client
-        elseif key == "/waitfor/b" then
+        elseif key == "waitfor/b" then
             rctx:queue(r, t)
             rctx:wait_for(0) -- issue requests and resume
             -- now go back into wait mode, but we've already dispatched
@@ -427,7 +421,7 @@ function waitfor_factory(rctx, arg)
                 end
                 return "SERVER_ERROR no good response"
             end
-        elseif key == "/waitfor/c" then
+        elseif key == "waitfor/c" then
             rctx:queue(r, t[1])
             rctx:wait_for(0) -- issue the first queued request
             -- queue two more
@@ -435,7 +429,7 @@ function waitfor_factory(rctx, arg)
             rctx:queue(r, t[3])
             -- wait explicitly for the first queued one.
             return rctx:wait_handle(r, t[1])
-        elseif key == "/waitfor/d" then
+        elseif key == "waitfor/d" then
             -- queue two then wait on each individually
             rctx:queue(r, t[1])
             rctx:queue(r, t[2])
@@ -485,18 +479,36 @@ function failover_factory(rctx, arg)
     end
 end
 
+function errors_factory(rctx)
+    say("generating errors factory")
+
+    return function(r)
+        local key = r:key()
+        -- failure scenarios that require a top-level request context
+        if key == "errors/reterror" then
+            error("test error")
+        elseif key == "errors/retnil" then
+            return nil
+        elseif key == "errors/retint" then
+            return 5
+        elseif key == "errors/retnone" then
+            return
+        end
+    end
+end
+
 function suberrors_factory(rctx)
     say("generating suberrors factory function")
 
     return function(r)
         local key = r:key()
-        if key == "/suberrors/error" then
+        if key == "suberrors/error" then
             error("test error")
-        elseif key == "/suberrors/nil" then
+        elseif key == "suberrors/nil" then
             return nil
-        elseif key == "/suberrors/int" then
+        elseif key == "suberrors/int" then
             return 5
-        elseif key == "/suberrors/none" then
+        elseif key == "suberrors/none" then
             return
         end
 
@@ -577,10 +589,11 @@ function mcp_config_routes(p)
     local summary = mcp.funcgen_new({ func = summary_factory, arg = { list = p }, max_queues = 3, name = "summary"})
     local waitfor = mcp.funcgen_new({ func = waitfor_factory, arg = { list = p }, max_queues = 3, name = "waitfor"})
     local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3, name = "failover"})
+    local locality = mcp.funcgen_new({ func = locality_factory, arg = p[1], max_queues = 1, name = "locality"})
+
+    local errors = mcp.funcgen_new({ func = errors_factory, max_queues = 1, name = "errors"})
     local suberrors = mcp.funcgen_new({ func = suberrors_factory, max_queues = 3, name = "suberrors"})
-    local locality = mcp.funcgen_new({ func = locality_factory, max_queues = 1, name = "locality"})
-    local failgen = mcp.funcgen_new({ func = failgen_factory, max_queues = 1, name = "failgen"})
-    local failgenret = mcp.funcgen_new({ func = failgenret_factory, max_queues = 1, name = "failgenret"})
+    local suberr_wrap = mcp.funcgen_new({ func = direct_factory, arg = suberrors, max_queues = 1, name = "suberrwrap"})
 
     -- for testing traffic splitting.
     local split = mcp.funcgen_new({ func = split_factory, arg = { a = single, b = singletwo }, max_queues = 2, name = "split"})
@@ -597,7 +610,8 @@ function mcp_config_routes(p)
         ["summary"] = summary,
         ["waitfor"] = waitfor,
         ["failover"] = failover,
-        ["suberrors"] = suberrors,
+        ["suberrors"] = suberr_wrap,
+        ["errors"] = errors,
         ["split"] = split,
         ["splitfailover"] = splitfailover,
         ["locality"] = locality,
@@ -609,6 +623,9 @@ function mcp_config_routes(p)
         pattern = "^/(%a+)/"
     }
 
+    local failgen = mcp.funcgen_new({ func = failgen_factory, max_queues = 1, name = "failgen"})
+    local failgenret = mcp.funcgen_new({ func = failgenret_factory, max_queues = 1, name = "failgenret"})
+
     local mapfail = {
         ["failgen"] = failgen,
         ["failgenret"] = failgenret,
@@ -616,11 +633,12 @@ function mcp_config_routes(p)
     local farg = {
         default = single,
         list = mapfail,
-        pattern = "^/(%a+)/"
+        pattern = "^(%a+)/"
     }
 
-    local pfx = mcp.funcgen_new({ func = prefix_factory, arg = parg, max_queues = 24, name = "prefix" })
-    local pfxfail = mcp.funcgen_new({ func = prefix_factory, arg = farg, max_queues = 24, name = "prefixfail" })
+    --local pfx = mcp.funcgen_new({ func = prefix_factory, arg = parg, max_queues = 24, name = "prefix" })
+    local pfx = mcp.router_new({ map = map })
+    local pfxfail = mcp.funcgen_new({ func = prefix_factory, arg = farg, max_queues = 3, name = "prefixfail" })
 
     mcp.attach(mcp.CMD_ANY_STORAGE, pfx)
     -- TODO: might need to move this fail stuff to another test file.
