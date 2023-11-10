@@ -1085,7 +1085,6 @@ static int mcplib_attach(lua_State *L) {
     void *fgen = NULL;
     if (lua_isfunction(L, 2)) {
         // create a funcgen with null generator that calls this function
-        lua_pushvalue(L, 2); // copy input function.
         mcplib_funcgenbare_new(L); // convert it into a function generator.
         fgen = luaL_checkudata(L, -1, "mcp.funcgen"); // set our pointer ref.
         lua_replace(L, 2); // move the function generator over the input

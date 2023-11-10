@@ -304,8 +304,10 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
     // decrement the slot tracker. apply full delta at once for efficiency.
     mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, name, -fgen->total);
 
-    lua_pop(L, 1); // pop the name string.
-    luaL_unref(L, LUA_REGISTRYINDEX, fgen->name_ref);
+    if (fgen->name_ref) {
+        lua_pop(L, 1); // pop the name string.
+        luaL_unref(L, LUA_REGISTRYINDEX, fgen->name_ref);
+    }
 
     // Finally, get the rctx reference table and nil each reference to allow
     // garbage collection to happen sooner on the rctx's
