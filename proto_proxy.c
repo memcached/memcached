@@ -1152,10 +1152,10 @@ static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize,
 }
 
 // Common lua debug command.
-__attribute__((unused)) void dump_stack(lua_State *L) {
+__attribute__((unused)) void dump_stack(lua_State *L, const char *msg) {
     int top = lua_gettop(L);
     int i = 1;
-    fprintf(stderr, "--TOP OF STACK [%d]\n", top);
+    fprintf(stderr, "--TOP OF STACK [%d] | %s\n", top, msg);
     for (; i < top + 1; i++) {
         int type = lua_type(L, i);
         // lets find the metatable of this userdata to identify it.

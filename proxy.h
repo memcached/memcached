@@ -608,5 +608,5 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr);
 // TODO (v2): more .h files, perhaps?
 int mcplib_open_hash_xxhash(lua_State *L);
 
-__attribute__((unused)) void dump_stack(lua_State *L);
+__attribute__((unused)) void dump_stack(lua_State *L, const char *msg);
 #endif
