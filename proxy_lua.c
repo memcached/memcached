@@ -1085,11 +1085,13 @@ static int mcplib_attach(lua_State *L) {
     void *fgen = NULL;
     if (lua_isfunction(L, 2)) {
         // create a funcgen with null generator that calls this function
+        lua_pushvalue(L, 2); // function must be at top of stack.
         mcplib_funcgenbare_new(L); // convert it into a function generator.
         fgen = luaL_checkudata(L, -1, "mcp.funcgen"); // set our pointer ref.
         lua_replace(L, 2); // move the function generator over the input
                            // function. necessary for alignment with the rest
                            // of the code.
+        lua_pop(L, 1); // drop the extra generator function reference.
     } else if ((fgen = luaL_testudata(L, 2, "mcp.funcgen")) != NULL) {
         // good
     } else {
