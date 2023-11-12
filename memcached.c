@@ -3778,8 +3778,13 @@ static int server_sockets(int port, enum network_transport transport,
             const char *tagstr = "tag";
             if (strncmp(p, tagstr, strlen(tagstr)) == 0) {
                 p += strlen(tagstr);
-                if (*p == '[') {
+                // NOTE: should probably retire the [] dumbassery. those're
+                // shell characters.
+                if (*p == '[' || *p == '_') {
                     char *e = strchr(p, ']');
+                    if (e == NULL) {
+                        e = strchr(p+1, '_');
+                    }
                     if (e == NULL) {
                         fprintf(stderr, "Invalid tag in socket config: \"%s\"\n", p);
                         free(list);
