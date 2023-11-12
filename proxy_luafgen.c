@@ -96,15 +96,6 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
 
     _mcplib_funcgen_cache(fgen, rc);
 
-    // pre-create a top level request object.
-    mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN + KEY_MAX_LENGTH, 0);
-    memset(rq, 0, sizeof(mcp_request_t));
-    luaL_getmetatable(L, "mcp.request");
-    lua_setmetatable(L, -2);
-
-    rc->request_ref = luaL_ref(L, LUA_REGISTRYINDEX); // pop the request
-    rc->request = rq;
-
     // associate a coroutine thread with this context.
     rc->Lc = lua_newthread(L);
     assert(rc->Lc);
@@ -153,7 +144,9 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     // TODO: only do resetthread if an error was previously returned?
     rctx->resp = NULL;
     rctx->first_queue = false; // HACK
-    mcp_request_cleanup(fgen->thread, rctx->request);
+    if (rctx->request) {
+        mcp_request_cleanup(fgen->thread, rctx->request);
+    }
 
     // reset each rqu.
     // TODO: keep the res obj but reset it internally.
@@ -236,7 +229,30 @@ mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_
     // FIXME: check on the fgen->self_ref usage here. I'm 99% sure it's
     // impossible to get here without self_ref set because attach would
     // have to be overridden already, so the fgen is inaccessible.
-    return mcplib_funcgen_get_rctx(L, fgen->self_ref, fgen);
+    mcp_rcontext_t *rctx = mcplib_funcgen_get_rctx(L, fgen->self_ref, fgen);
+
+    if (rctx == NULL) {
+        return NULL;
+    }
+
+    // only top level rctx's can have a request object assigned to them.
+    // so we create them late here, in the start function.
+    // Note that we can _technically_ fail with an OOM here, but we've not set
+    // up lua in a way that OOM's are possible.
+    if (rctx->request_ref == 0) {
+        mcp_request_t *rq = lua_newuserdatauv(L, sizeof(mcp_request_t) + MCP_REQUEST_MAXLEN + KEY_MAX_LENGTH, 0);
+        memset(rq, 0, sizeof(mcp_request_t));
+        luaL_getmetatable(L, "mcp.request");
+        lua_setmetatable(L, -2);
+
+        rctx->request_ref = luaL_ref(L, LUA_REGISTRYINDEX); // pop the request
+        rctx->request = rq;
+    }
+
+    // TODO: could probably move a few more lines from proto_proxy into here,
+    // but that's splitting hairs.
+
+    return rctx;
 }
 
 // calling either with self_ref set, or with fgen in stack -1 (ie; from GC
@@ -509,6 +525,16 @@ int mcplib_rcontext_queue_assign(lua_State *L) {
         if (subrctx == NULL) {
             proxy_lua_error(L, "failed to generate request slot during queue_assign()");
         }
+
+        // if this rctx ever had a request object assigned to it, we can get
+        // rid of it. we're pinning the subrctx in here and don't want
+        // to waste memory.
+        if (subrctx->request_ref) {
+            luaL_unref(L, LUA_REGISTRYINDEX, subrctx->request_ref);
+            subrctx->request_ref = 0;
+            subrctx->request = NULL;
+        }
+
         // link the new rctx into this chain; we'll hold onto it until the
         // parent de-allocates.
         subrctx->parent = rctx;

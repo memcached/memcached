@@ -1022,7 +1022,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
         }
         return;
     }
-    // TODO: move some of this junk into mcp_funcgen_start.
+
     mcp_set_request(&pr, rctx->request, command, cmdlen);
     rctx->request->ascii_multiget = multiget;
     rctx->c = c;
