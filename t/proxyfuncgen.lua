@@ -45,9 +45,13 @@
 --  - to be called from the request function, queues up a request against the
 --  designated slot handle, or an array style table of N handles
 --
--- res = rctx:wait_handle(r, h)
+-- res = rctx:queue_and_wait(r, h)
 --  - Directly returns a single result object after asynchronously waiting on
---  a specified queued handle.
+--  a specified unqueued handle.
+--
+-- res = rctx:wait_handle(h)
+--  - Directly returns a single result object after asynchronously waiting on
+--  a specified prequeued handle.
 --
 -- num_good = rctx:wait_for(count, mode)
 --  - Asynchronously waits for up to "count" results out of all currently
@@ -107,9 +111,9 @@ function prefix_factory(rctx, arg)
 
         local handle = map[string.match(key, p)]
         if handle == nil then
-            return rctx:wait_handle(r, d)
+            return rctx:queue_and_wait(r, d)
         end
-        return rctx:wait_handle(r, handle)
+        return rctx:queue_and_wait(r, handle)
     end
 end
 
@@ -119,7 +123,7 @@ function direct_factory(rctx, arg)
 
     return function(r)
         say("waiting on a single pool")
-        return rctx:wait_handle(r, h)
+        return rctx:queue_and_wait(r, h)
     end
 end
 
@@ -134,7 +138,7 @@ function locality_factory(rctx, arg)
     return function(r)
         x = x + 1
         say("returning from locality: " .. x)
-        local res = rctx:wait_handle(r, h)
+        local res = rctx:queue_and_wait(r, h)
         return "HD t" .. x .. "\r\n"
     end
 end
@@ -159,7 +163,7 @@ function first_factory(rctx, arg)
             rctx:queue(r, t[x])
         end
 
-        return rctx:wait_handle(r, t[1])
+        return rctx:wait_handle(t[1])
     end
 end
 
@@ -317,8 +321,7 @@ function blocker_factory(rctx, arg)
 
         -- any wait command will execute all queued queries at once, but here
         -- we only wait for the blocker to complete.
-        -- we also use wait_handle() to implicitly queue the blocker handle.
-        local bres = rctx:wait_handle(r, blocker)
+        local bres = rctx:queue_and_wait(r, blocker)
 
         -- another way of doing this is to ask:
         -- local res = rctx:good(blocker)
@@ -352,7 +355,7 @@ function logall_factory(rctx, arg)
 
     return function(r)
         rctx:queue(r, t)
-        return rctx:wait_handle(r, t[1])
+        return rctx:wait_handle(t[1])
     end
 end
 
@@ -384,7 +387,7 @@ function summary_factory(rctx, arg)
         -- we're just waiting for a single response, but we queue all of the
         -- handles. the callback uses data from the shared environment and a
         -- summary is logged.
-        return rctx:wait_handle(r, t[1])
+        return rctx:wait_handle(t[1])
     end
 end
 
@@ -428,13 +431,13 @@ function waitfor_factory(rctx, arg)
             rctx:queue(r, t[2])
             rctx:queue(r, t[3])
             -- wait explicitly for the first queued one.
-            return rctx:wait_handle(r, t[1])
+            return rctx:wait_handle(t[1])
         elseif key == "waitfor/d" then
             -- queue two then wait on each individually
             rctx:queue(r, t[1])
             rctx:queue(r, t[2])
-            rctx:wait_handle(r, t[1])
-            return rctx:wait_handle(r, t[2])
+            rctx:wait_handle(t[1])
+            return rctx:wait_handle(t[2])
         end
     end
 end
@@ -456,7 +459,7 @@ function failover_factory(rctx, arg)
 
     return function(r)
         -- first try local
-        local fres = rctx:wait_handle(r, first)
+        local fres = rctx:queue_and_wait(r, first)
 
         if fres == nil or fres:hit() == false then
             -- failed to get a local hit, queue all "far" zones.
@@ -531,7 +534,7 @@ function split_factory(rctx, arg)
         rctx:queue(r, b)
 
         -- a is the main path. so we only explicitly wait on and return a.
-        return rctx:wait_handle(r, a)
+        return rctx:queue_and_wait(r, a)
     end
 end
 

@@ -704,6 +704,7 @@ int mcplib_rcontext_queue_assign(lua_State *L);
 int mcplib_rcontext_queue(lua_State *L);
 int mcplib_rcontext_wait_for(lua_State *L);
 int mcplib_rcontext_wait_handle(lua_State *L);
+int mcplib_rcontext_queue_and_wait(lua_State *L);
 int mcplib_rcontext_good(lua_State *L);
 int mcplib_rcontext_any(lua_State *L);
 int mcplib_rcontext_ok(lua_State *L);

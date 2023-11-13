@@ -1017,7 +1017,7 @@ int mcplib_rcontext_wait_for(lua_State *L) {
     return lua_yield(L, 1);
 }
 
-int mcplib_rcontext_wait_handle(lua_State *L) {
+int mcplib_rcontext_queue_and_wait(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     mcp_request_t *rq = luaL_checkudata(L, 2, "mcp.request");
     int isnum = 0;
@@ -1035,6 +1035,31 @@ int mcplib_rcontext_wait_handle(lua_State *L) {
 
     // queue up this handle and yield for the direct wait.
     _mcplib_rcontext_queue(L, rctx, rq, handle);
+    rctx->wait_done = 0;
+    rctx->wait_count = 1;
+    rctx->wait_mode = WAIT_HANDLE;
+    rctx->wait_handle = handle;
+
+    lua_pushinteger(L, MCP_YIELD_WAITHANDLE);
+    return lua_yield(L, 1);
+}
+
+int mcplib_rcontext_wait_handle(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+    int isnum = 0;
+    int handle = lua_tointegerx(L, 2, &isnum);
+
+    if (!isnum || handle < 0 || handle > rctx->fgen->max_queues) {
+        proxy_lua_error(L, "invalid handle passed to wait_handle");
+        return 0;
+    }
+
+    struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
+    if (rqu->state == RQUEUE_IDLE) {
+        proxy_lua_error(L, "wait_handle called on unqueued handle");
+        return 0;
+    }
+
     rctx->wait_done = 0;
     rctx->wait_count = 1;
     rctx->wait_mode = WAIT_HANDLE;
