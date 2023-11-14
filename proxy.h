@@ -597,10 +597,10 @@ void proxy_return_rctx_cb(io_pending_t *pending);
 void proxy_finalize_rctx_cb(io_pending_t *pending);
 
 enum mcp_rqueue_e {
-    WAIT_ANY = 0,
-    WAIT_OK,
-    WAIT_GOOD,
-    WAIT_HANDLE
+    QWAIT_ANY = 0,
+    QWAIT_OK,
+    QWAIT_GOOD,
+    QWAIT_HANDLE
 };
 
 enum mcp_funcgen_router_e {

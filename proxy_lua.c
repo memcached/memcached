@@ -1311,6 +1311,9 @@ static void proxy_register_defines(lua_State *L) {
 #define X(x) \
     lua_pushinteger(L, x); \
     lua_setfield(L, -2, #x);
+#define Y(x, l) \
+    lua_pushinteger(L, x); \
+    lua_setfield(L, -2, l);
 
     X(MCMC_CODE_STORED);
     X(MCMC_CODE_EXISTS);
@@ -1335,11 +1338,12 @@ static void proxy_register_defines(lua_State *L) {
     X(AWAIT_FIRST);
     X(AWAIT_FASTGOOD);
     X(AWAIT_BACKGROUND);
-    X(WAIT_ANY);
-    X(WAIT_OK);
-    X(WAIT_GOOD);
+    Y(QWAIT_ANY, "WAIT_ANY");
+    Y(QWAIT_OK, "WAIT_OK");
+    Y(QWAIT_GOOD, "WAIT_GOOD");
     CMD_FIELDS
 #undef X
+#undef Y
 
     lua_pushboolean(L, 1);
     lua_setfield(L, -2, "WAIT_RESUME");

@@ -792,23 +792,23 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
     // we can also resume if we are in wait mode but pending_reqs is down
     // to 1.
     switch (rctx->wait_mode) {
-        case WAIT_GOOD:
+        case QWAIT_GOOD:
             if (status & RQUEUE_R_GOOD) {
                 rctx->wait_done++;
                 rqu->state = RQUEUE_WAITED;
             }
             break;
-        case WAIT_OK:
+        case QWAIT_OK:
             if (status & (RQUEUE_R_GOOD|RQUEUE_R_OK)) {
                 rctx->wait_done++;
                 rqu->state = RQUEUE_WAITED;
             }
             break;
-        case WAIT_ANY:
+        case QWAIT_ANY:
             rctx->wait_done++;
             rqu->state = RQUEUE_WAITED;
             break;
-        case WAIT_HANDLE:
+        case QWAIT_HANDLE:
             // waiting for a specific handle to return
             if (handle == rctx->wait_handle) {
                 rctx->wait_done++;
@@ -818,19 +818,19 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
     }
 
     assert(rctx->pending_reqs != 0);
-    // FIXME: need to only check R_RESUME if NOT WAIT_HANDLE?
+    // FIXME: need to only check R_RESUME if NOT QWAIT_HANDLE?
     if ((status & RQUEUE_R_RESUME) || rctx->wait_done == rctx->wait_count || rctx->pending_reqs == 1) {
         // ran out of stuff to wait for. time to resume.
         // TODO: can we do the settop at the yield? nothing we need to
         // keep in the stack in this mode.
         lua_settop(rctx->Lc, 0);
         rctx->wait_count = 0;
-        if (rctx->wait_mode == WAIT_HANDLE) {
+        if (rctx->wait_mode == QWAIT_HANDLE) {
             mcp_rcontext_push_rqu_res(rctx->Lc, rctx, handle);
         } else {
             lua_pushinteger(rctx->Lc, rctx->wait_done);
         }
-        rctx->wait_mode = WAIT_ANY;
+        rctx->wait_mode = QWAIT_ANY;
 
         mcp_resume_rctx_from_cb(rctx);
     }
@@ -865,13 +865,13 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
         } else {
             enum mcp_rqueue_e mode = lua_tointeger(rctx->Lc, 1);
             switch (mode) {
-                case WAIT_GOOD:
+                case QWAIT_GOOD:
                     flag = RQUEUE_R_GOOD;
                     break;
-                case WAIT_OK:
+                case QWAIT_OK:
                     flag = RQUEUE_R_OK;
                     break;
-                case WAIT_ANY:
+                case QWAIT_ANY:
                     break;
                 default:
                     fprintf(stderr, "BAD RESULT!!!\n");
@@ -973,7 +973,7 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
 int mcplib_rcontext_wait_for(lua_State *L) {
     // TODO: protect against double waitfor?
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
-    int mode = WAIT_ANY;
+    int mode = QWAIT_ANY;
     int wait = 0;
 
     if (!lua_isnumber(L, 2)) {
@@ -993,9 +993,9 @@ int mcplib_rcontext_wait_for(lua_State *L) {
     }
 
     switch (mode) {
-        case WAIT_ANY:
-        case WAIT_OK:
-        case WAIT_GOOD:
+        case QWAIT_ANY:
+        case QWAIT_OK:
+        case QWAIT_GOOD:
             break;
         default:
             proxy_lua_error(L, "invalid mode sent to wait_for");
@@ -1037,7 +1037,7 @@ int mcplib_rcontext_queue_and_wait(lua_State *L) {
     _mcplib_rcontext_queue(L, rctx, rq, handle);
     rctx->wait_done = 0;
     rctx->wait_count = 1;
-    rctx->wait_mode = WAIT_HANDLE;
+    rctx->wait_mode = QWAIT_HANDLE;
     rctx->wait_handle = handle;
 
     lua_pushinteger(L, MCP_YIELD_WAITHANDLE);
@@ -1062,7 +1062,7 @@ int mcplib_rcontext_wait_handle(lua_State *L) {
 
     rctx->wait_done = 0;
     rctx->wait_count = 1;
-    rctx->wait_mode = WAIT_HANDLE;
+    rctx->wait_mode = QWAIT_HANDLE;
     rctx->wait_handle = handle;
 
     lua_pushinteger(L, MCP_YIELD_WAITHANDLE);
