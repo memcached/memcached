@@ -380,9 +380,10 @@ function logall_factory_gen(rctx, arg)
     say("generating logall factory function")
     local t = arg.t
 
-    local cb = function(res)
+    local cb = function(res, req)
         say("received a response, logging...")
         mcp.log("received a response: " .. tostring(res:ok()))
+        mcp.log_req(req, res, "even more logs")
         return mcp.WAIT_ANY
     end
 

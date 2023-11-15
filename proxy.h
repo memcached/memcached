@@ -670,6 +670,7 @@ enum mcp_rqueue_state {
 struct mcp_rqueue_s {
     int obj_ref; // reference to pool/func/etc object
     int cb_ref; // if a lua callback was specified
+    int req_ref; // reference to associated request object.
     int res_ref; // reference to lua response object.
     void *obj; // direct pointer to the object for fast access.
     mcp_request_t *rq; // request set to this slot

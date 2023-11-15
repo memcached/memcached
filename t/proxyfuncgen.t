@@ -351,7 +351,7 @@ sub test_basic {
 
     subtest 'logall route' => sub {
         my $w = $p_srv->new_sock;
-        print $w "watch proxyuser\n";
+        print $w "watch proxyuser proxyreqs\n";
         is(<$w>, "OK\r\n", 'watcher enabled');
 
         $t->c_send("mg logall/a t\r\n");
@@ -360,6 +360,7 @@ sub test_basic {
         $t->c_recv_be();
         for (0 .. 2) {
             like(<$w>, qr/received a response: /, 'got a log line');
+            like(<$w>, qr/even more logs/, 'got logreq line');
         }
         $t->clear();
     };

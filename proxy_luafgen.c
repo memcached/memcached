@@ -189,10 +189,14 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
         struct mcp_rqueue_s *rqu = &rctx->qslots[x];
         if (rqu->res_ref) {
             luaL_unref(rctx->Lc, LUA_REGISTRYINDEX, rqu->res_ref);
+            rqu->res_ref = 0;
+        }
+        if (rqu->req_ref) {
+            luaL_unref(rctx->Lc, LUA_REGISTRYINDEX, rqu->req_ref);
+            rqu->req_ref = 0;
         }
         assert(rqu->state != RQUEUE_ACTIVE);
         rqu->state = RQUEUE_IDLE;
-        rqu->res_ref = 0;
         rqu->flags = 0;
         rqu->rq = NULL;
         if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
@@ -594,6 +598,8 @@ int mcplib_rcontext_queue_set_cb(lua_State *L) {
     return 0;
 }
 
+// call with request object on top of stack.
+// pops the request object
 static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_request_t *rq, int handle) {
     if (handle < 0 || handle > rctx->fgen->max_queues) {
         proxy_lua_error(L, "invalid handle passed to queue");
@@ -602,6 +608,7 @@ static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_reque
     struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
 
     if (rqu->state != RQUEUE_IDLE) {
+        lua_pop(L, 1);
         return;
     }
 
@@ -615,6 +622,9 @@ static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_reque
         lua_xmove(L, subrctx->Lc, 1); // move the requet object.
         subrctx->pending_reqs++;
     }
+
+    // hold the request reference.
+    rqu->req_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     rqu->state = RQUEUE_QUEUED;
     rqu->rq = rq;
@@ -641,6 +651,7 @@ int mcplib_rcontext_queue(lua_State *L) {
     if (type == LUA_TNUMBER) {
         int handle = lua_tointeger(L, 3);
 
+        lua_pushvalue(L, 2);
         _mcplib_rcontext_queue(L, rctx, rq, handle);
     } else if (type == LUA_TTABLE) {
         unsigned int len = lua_rawlen(L, 3);
@@ -654,6 +665,7 @@ int mcplib_rcontext_queue(lua_State *L) {
             int handle = lua_tointeger(L, 4);
             lua_pop(L, 1);
 
+            lua_pushvalue(L, 2);
             _mcplib_rcontext_queue(L, rctx, rq, handle);
         }
     } else {
@@ -897,7 +909,8 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
         lua_settop(rctx->Lc, 0);
         lua_rawgeti(rctx->Lc, LUA_REGISTRYINDEX, rqu->cb_ref);
         lua_rawgeti(rctx->Lc, LUA_REGISTRYINDEX, rqu->res_ref);
-        if (lua_pcall(rctx->Lc, 1, 2, 0) != LUA_OK) {
+        lua_rawgeti(rctx->Lc, LUA_REGISTRYINDEX, rqu->req_ref);
+        if (lua_pcall(rctx->Lc, 2, 2, 0) != LUA_OK) {
             LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(rctx->Lc, -1));
             flag = RQUEUE_R_ANY;
         } else {
@@ -1072,6 +1085,7 @@ int mcplib_rcontext_queue_and_wait(lua_State *L) {
     }
 
     // queue up this handle and yield for the direct wait.
+    lua_pushvalue(L, 2);
     _mcplib_rcontext_queue(L, rctx, rq, handle);
     rctx->wait_done = 0;
     rctx->wait_count = 1;
