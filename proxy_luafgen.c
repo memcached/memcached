@@ -56,6 +56,41 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
     lua_setmetatable(L, -2);
     // allow the rctx to reference the function generator.
     rc->fgen = fgen;
+
+    // initialize the queue slots based on the fgen parent
+    for (int x = 0; x < fgen->max_queues; x++) {
+        struct mcp_rqueue_s *frqu = &fgen->queue_list[x];
+        struct mcp_rqueue_s *rqu = &rc->qslots[x];
+        rqu->obj_type = frqu->obj_type;
+        if (frqu->obj_type == RQUEUE_TYPE_POOL) {
+            rqu->obj_ref = 0;
+            rqu->obj = frqu->obj;
+        } else if (frqu->obj_type == RQUEUE_TYPE_FGEN) {
+            // owner funcgen already holds the subfgen reference, so here we're just
+            // grabbing a subrctx to pin into the slot.
+            mcp_funcgen_t *fg = frqu->obj;
+            mcp_rcontext_t *subrctx = mcplib_funcgen_get_rctx(L, fg->self_ref, fg);
+            if (subrctx == NULL) {
+                proxy_lua_error(L, "failed to generate request slot during queue_assign()");
+            }
+
+            // if this rctx ever had a request object assigned to it, we can get
+            // rid of it. we're pinning the subrctx in here and don't want
+            // to waste memory.
+            if (subrctx->request_ref) {
+                luaL_unref(L, LUA_REGISTRYINDEX, subrctx->request_ref);
+                subrctx->request_ref = 0;
+                subrctx->request = NULL;
+            }
+
+            // link the new rctx into this chain; we'll hold onto it until the
+            // parent de-allocates.
+            subrctx->parent = rc;
+            subrctx->parent_handle = x;
+            rqu->obj = subrctx;
+        }
+    }
+
     // copy the rcontext reference
     lua_pushvalue(L, -1);
 
@@ -302,23 +337,39 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
         for (int x = 0; x < fgen->max_queues; x++) {
             struct mcp_rqueue_s *rqu = &rctx->qslots[x];
             if (rqu->obj_type == RQUEUE_TYPE_POOL) {
-                // just the obj_ref
-                luaL_unref(L, LUA_REGISTRYINDEX, rqu->obj_ref);
+                // nothing to do.
             } else if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
                 // don't need to recurse, just return the subrctx.
                 mcp_rcontext_t *subrctx = rqu->obj;
                 _mcplib_funcgen_cache(subrctx->fgen, subrctx);
-                mcp_funcgen_dereference(L, subrctx->fgen);
             } else if (rqu->obj_type != RQUEUE_TYPE_NONE) {
                 assert(1 == 0);
             }
             if (rqu->cb_ref) {
                 luaL_unref(L, LUA_REGISTRYINDEX, rqu->cb_ref);
+                rqu->cb_ref = 0;
             }
         }
     }
     // decrement the slot tracker. apply full delta at once for efficiency.
     mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, name, -fgen->total);
+
+    if (fgen->queue_list) {
+        for (int x = 0; x < fgen->max_queues; x++) {
+            struct mcp_rqueue_s *rqu = &fgen->queue_list[x];
+            if (rqu->obj_type == RQUEUE_TYPE_POOL) {
+                // just the obj_ref
+                luaL_unref(L, LUA_REGISTRYINDEX, rqu->obj_ref);
+            } else if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
+                // don't need to recurse, just deref.
+                mcp_rcontext_t *subrctx = rqu->obj;
+                mcp_funcgen_dereference(L, subrctx->fgen);
+            } else if (rqu->obj_type != RQUEUE_TYPE_NONE) {
+                assert(1 == 0);
+            }
+        }
+        free(fgen->queue_list);
+    }
 
     if (fgen->name_ref) {
         lua_pop(L, 1); // pop the name string.
@@ -383,39 +434,31 @@ int mcplib_funcgenbare_new(lua_State *L) {
 
     // Pops the function into the upvalue of this C closure function.
     lua_pushcclosure(L, _mcplib_funcgenbare_generator, 1);
+    // FIXME: not urgent, but this function chain isn't stack balanced, and its caller has
+    // to drop an extra reference.
+    // Need to re-audit and decide if we still need this pushvalue here or if
+    // we can drop the pop from the caller and leave this function balanced.
+    lua_pushvalue(L, -1);
+    int gen_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // Pass our fakeish generator function down the line.
-    return mcplib_funcgen_new(L);
+    mcplib_funcgen_new(L);
+
+    mcp_funcgen_t *fgen = lua_touserdata(L, -1);
+    const char *name = "anonymous";
+    mcp_sharedvm_delta(fgen->thread->proxy_ctx, SHAREDVM_FGEN_IDX, name, 1);
+
+    fgen->generator_ref = gen_ref;
+    fgen->ready = true;
+    return 1;
 }
 
-// TODO: find a better name for this function. _after_ its final placement.
 int mcplib_funcgen_new(lua_State *L) {
     LIBEVENT_THREAD *t = PROXY_GET_THR(L);
-    int max_queues = 1; // FIXME: define.
-    int tidx = 0;
 
-    if (lua_istable(L, -1)) {
-        tidx = lua_absindex(L, -1);
-        if (lua_getfield(L, -1, "max_queues") != LUA_TNIL) {
-            max_queues = lua_tointeger(L, -1);
-        }
-        lua_pop(L, 1);
-
-        if (lua_getfield(L, -1, "func") != LUA_TFUNCTION) {
-            proxy_lua_error(L, "Must specify generator function ('func') in mcp.funcgen_new");
-            return 0;
-        }
-
-        // now the generator function is at the top of the stack.
-    } else if (!lua_isfunction(L, -1)) {
-        proxy_lua_error(L, "Must pass a function or table to mcp.funcgen_new");
-        return 0;
-    }
-
-    mcp_funcgen_t *fgen = lua_newuserdatauv(L, sizeof(mcp_funcgen_t), 1);
+    mcp_funcgen_t *fgen = lua_newuserdatauv(L, sizeof(mcp_funcgen_t), 2);
     memset(fgen, 0, sizeof(mcp_funcgen_t));
     fgen->thread = t;
-    fgen->max_queues = max_queues;
     fgen->free_max = 8; // FIXME: define
     fgen->list = calloc(fgen->free_max, sizeof(mcp_rcontext_t *));
 
@@ -428,35 +471,90 @@ int mcplib_funcgen_new(lua_State *L) {
     // pops the table.
     lua_setiuservalue(L, -2, 1);
 
-    if (tidx) {
-        // check for a generator argument.
-        if (lua_getfield(L, tidx, "arg") != LUA_TNIL) {
-            fgen->argument_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-        } else {
-            lua_pop(L, 1);
-        }
+    return 1;
+}
 
-        if (lua_getfield(L, tidx, "name") == LUA_TSTRING) {
-            fgen->name_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-        } else {
-            lua_pop(L, 1);
-        }
+int mcplib_funcgen_queue_assign(lua_State *L) {
+    mcp_funcgen_t *fgen = lua_touserdata(L, 1);
+    mcp_pool_proxy_t *pp = NULL;
+    mcp_funcgen_t *fg = NULL;
+
+    if (fgen->ready) {
+        proxy_lua_error(L, "cannot modify function generator after calling ready");
+        return 0;
     }
 
-    // stack should now be: -2: func -1: mcp.funcgen
+    if ((pp = luaL_testudata(L, 2, "mcp.pool_proxy")) != NULL) {
+        // good.
+    } else if ((fg = luaL_testudata(L, 2, "mcp.funcgen")) != NULL) {
+        // good
+    } else {
+        proxy_lua_error(L, "invalid argument to queue_assign");
+        return 0;
+    }
 
-    // copy the generator function.
-    lua_pushvalue(L, -2);
-    // run the generator function once, which caches a new function call
-    // object.
-    _mcplib_funcgen_gencall(L);
+    fgen->max_queues++;
+    if (fgen->queue_list == NULL) {
+        fgen->queue_list = malloc(sizeof(struct mcp_rqueue_s));
+    } else {
+        fgen->queue_list = realloc(fgen->queue_list, fgen->max_queues * sizeof(struct mcp_rqueue_s));
+    }
+    if (fgen->queue_list == NULL) {
+        proxy_lua_error(L, "failed to realloc queue list during queue_assign()");
+        return 0;
+    }
 
-    // we've survived one call to the function generator, so lets reference it
-    // now.
-    lua_pushvalue(L, -2); // copy the generator again
+    struct mcp_rqueue_s *rqu = &fgen->queue_list[fgen->max_queues-1];
+    memset(rqu, 0, sizeof(*rqu));
+
+    if (pp) {
+        // pops pp from the stack
+        rqu->obj_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        rqu->obj_type = RQUEUE_TYPE_POOL;
+        rqu->obj = pp;
+    } else {
+        // pops the fgen from the stack.
+        mcp_funcgen_reference(L);
+        rqu->obj_type = RQUEUE_TYPE_FGEN;
+        rqu->obj = fg;
+    }
+
+    lua_pushinteger(L, fgen->max_queues-1);
+    return 1;
+}
+
+int mcplib_funcgen_ready(lua_State *L) {
+    mcp_funcgen_t *fgen = lua_touserdata(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+
+    if (fgen->ready) {
+        proxy_lua_error(L, "cannot modify function generator after calling ready");
+        return 0;
+    }
+
+    if (lua_getfield(L, 2, "f") != LUA_TFUNCTION) {
+        proxy_lua_error(L, "Must specify generator function ('f') to fgen:ready");
+        return 0;
+    }
     fgen->generator_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
-    // top of stack is now: gfunc, fgen
+    if (lua_getfield(L, 2, "a") != LUA_TNIL) {
+        fgen->argument_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    } else {
+        lua_pop(L, 1);
+    }
+
+    if (lua_getfield(L, 2, "n") == LUA_TSTRING) {
+        fgen->name_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    } else {
+        lua_pop(L, 1);
+    }
+
+    // now we test the generator function and create the first slot.
+    lua_pushvalue(L, 1); // copy the funcgen to pass into gencall
+    lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->generator_ref); // for gencall
+    _mcplib_funcgen_gencall(L);
+    lua_pop(L, 1); // drop extra funcgen ref.
 
     // add us to the global state
     const char *name = NULL;
@@ -467,93 +565,33 @@ int mcplib_funcgen_new(lua_State *L) {
     } else {
         name = "anonymous";
     }
-    mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGEN_IDX, name, 1);
+    mcp_sharedvm_delta(fgen->thread->proxy_ctx, SHAREDVM_FGEN_IDX, name, 1);
 
-    // return the generator for attach() later.
+    fgen->ready = true;
     return 1;
 }
 
 // Handlers for request contexts
 
-// first arg is rcontext
-// next is either a pool proxy or another function generator
-// TODO LATER: create a static result object
-int mcplib_rcontext_queue_assign(lua_State *L) {
+int mcplib_rcontext_queue_set_cb(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
-    mcp_pool_proxy_t *pp = NULL;
-    mcp_funcgen_t *fgen = NULL;
-    // FIXME: ensure only two or three arguments, else the references break.
-    int argc = lua_gettop(L);
+    luaL_checktype(L, 2, LUA_TNUMBER);
+    luaL_checktype(L, 3, LUA_TFUNCTION);
 
-    // find the next unused queue slot.
-    struct mcp_rqueue_s *rqu = NULL;
-    int x;
-    for (x = 0; x < rctx->fgen->max_queues; x++) {
-        if (rctx->qslots[x].obj_type == RQUEUE_TYPE_NONE) {
-            rqu = &rctx->qslots[x];
-            break;
-        }
-    }
-    if (!rqu) {
-        proxy_lua_error(L, "ran out of queue slots during queue_assign()");
+    int handle = lua_tointeger(L, 2);
+    // FIXME: is this an off-by-one? :P handle >= ?
+    if (handle < 0 || handle > rctx->fgen->max_queues) {
+        proxy_lua_error(L, "invalid handle passed to queue_set_cb");
         return 0;
     }
 
-    if (argc == 3) {
-        if (!lua_isfunction(L, 3)) {
-            proxy_lua_error(L, "second argument to queue_assign must be a callback function");
-        }
-
-        // pops top argument.
-        rqu->cb_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
+    if (rqu->cb_ref) {
+        luaL_unref(L, LUA_REGISTRYINDEX, rqu->cb_ref);
     }
+    rqu->cb_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
-    if ((pp = luaL_testudata(L, 2, "mcp.pool_proxy")) != NULL) {
-        // pops *pp from the stack.
-        rqu->obj_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-        rqu->obj_type = RQUEUE_TYPE_POOL;
-        rqu->obj = pp;
-        // TODO: ref incr on the pool proxy.
-    } else if ((fgen = luaL_testudata(L, 2, "mcp.funcgen")) != NULL) {
-        // pops the fgen from the stack.
-        mcp_funcgen_reference(L);
-        // now run the generator once to get an rctx to peg into this slot.
-        // FIXME: fix this self_ref business.
-        // this is okay temporarily since the above reference ensures fgen's
-        // self ref is set.
-        mcp_rcontext_t *subrctx = mcplib_funcgen_get_rctx(L, fgen->self_ref, fgen);
-        if (subrctx == NULL) {
-            proxy_lua_error(L, "failed to generate request slot during queue_assign()");
-        }
-
-        // if this rctx ever had a request object assigned to it, we can get
-        // rid of it. we're pinning the subrctx in here and don't want
-        // to waste memory.
-        if (subrctx->request_ref) {
-            luaL_unref(L, LUA_REGISTRYINDEX, subrctx->request_ref);
-            subrctx->request_ref = 0;
-            subrctx->request = NULL;
-        }
-
-        // link the new rctx into this chain; we'll hold onto it until the
-        // parent de-allocates.
-        subrctx->parent = rctx;
-        subrctx->parent_handle = x;
-        rqu->obj_type = RQUEUE_TYPE_FGEN;
-        rqu->obj = subrctx;
-    } else {
-        // unwind and throw error
-        if (rqu->cb_ref) {
-            luaL_unref(L, LUA_REGISTRYINDEX, rqu->cb_ref);
-            rqu->cb_ref = 0;
-        }
-        proxy_lua_error(L, "invalid argument to queue_assign");
-        return 0;
-    }
-
-    // return the "handle" of the queue slot.
-    lua_pushinteger(L, x);
-    return 1;
+    return 0;
 }
 
 static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_request_t *rq, int handle) {

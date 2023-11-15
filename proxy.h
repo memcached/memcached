@@ -641,7 +641,9 @@ struct mcp_funcgen_s {
     unsigned int free_max; // size of list below.
     unsigned int routecount; // total routes if this fgen is a router.
     bool closed; // the hook holding this fgen has been replaced
+    bool ready; // if we're locked down or not.
     mcp_rcontext_t **list;
+    struct mcp_rqueue_s *queue_list;
     struct mcp_funcgen_router router;
 };
 
@@ -700,7 +702,7 @@ struct mcp_rcontext_s {
 void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle);
 void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle);
 int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res);
-int mcplib_rcontext_queue_assign(lua_State *L);
+int mcplib_rcontext_queue_set_cb(lua_State *L);
 int mcplib_rcontext_queue(lua_State *L);
 int mcplib_rcontext_wait_for(lua_State *L);
 int mcplib_rcontext_wait_handle(lua_State *L);
@@ -710,6 +712,8 @@ int mcplib_rcontext_any(lua_State *L);
 int mcplib_rcontext_ok(lua_State *L);
 int mcplib_funcgenbare_new(lua_State *L);
 int mcplib_funcgen_new(lua_State *L);
+int mcplib_funcgen_queue_assign(lua_State *L);
+int mcplib_funcgen_ready(lua_State *L);
 int mcplib_router_new(lua_State *L);
 mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr);
 mcp_rcontext_t *mcplib_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *fgen);

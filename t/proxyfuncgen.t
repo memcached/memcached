@@ -330,7 +330,7 @@ sub test_basic {
         # The third backend is our blocker, first test that normal backends return
         # but we don't return to client.
         $t->c_send("mg blocker/a t Ltest\r\n");
-        $t->be_recv_c([0, 1, 2, 3]);
+        $t->be_recv_c([0, 1, 2, 3], 'received blocker requests');
         $t->be_send([0, 1, 2], "HD t10\r\n");
         ok(!$t->wait_c(0.2), 'client doesnt become readable');
         $t->be_send(3, "HD t15\r\n");

@@ -94,17 +94,48 @@ function mcp_config_pools()
     return p
 end
 
-function prefix_factory(rctx, arg)
-    local p = arg.pattern
-    local d = rctx:queue_assign(arg.default)
-    local map = {}
+-- many of these factories have the same basic init pattern, so we can save
+-- some code.
+function new_basic_factory(arg, func)
+    local fgen = mcp.funcgen_new()
+    local o = { t = {}, c = 0 }
 
-    say("generating a prefix factory function")
+    -- some of them have a wait, some don't.
+    -- here would be a good place to do bounds checking on arguments in
+    -- similar functions.
+    o.wait = arg.wait
+    for _, v in pairs(arg.list) do
+        table.insert(o.t, fgen:queue_assign(v))
+        o.c = o.c + 1
+    end
+
+    fgen:ready({ f = func, a = o, n = arg.name})
+    return fgen
+end
+
+function new_prefix_factory(arg)
+    local fgen = mcp.funcgen_new()
+    local o = {}
+    o.pattern = arg.pattern
+    o.default = fgen:queue_assign(arg.default)
+
+    o.map = {}
     -- get handler ids for each sub-route value
     -- convert the map.
     for k, v in pairs(arg.list) do
-        map[k] = rctx:queue_assign(v)
+        o.map[k] = fgen:queue_assign(v)
     end
+
+    fgen:ready({ f = prefix_factory_gen, a = o, n = arg.name })
+    return fgen
+end
+
+function prefix_factory_gen(rctx, arg)
+    local p = arg.pattern
+    local map = arg.map
+    local d = arg.default
+
+    say("generating a prefix factory function")
 
     return function(r)
         local key = r:key()
@@ -117,9 +148,15 @@ function prefix_factory(rctx, arg)
     end
 end
 
-function direct_factory(rctx, arg)
+function new_direct_factory(arg)
+    local fgen = mcp.funcgen_new()
+    local h = fgen:queue_assign(arg.p)
+    fgen:ready({ f = direct_factory_gen, a = h, n = arg.name })
+    return fgen
+end
+
+function direct_factory_gen(rctx, h)
     say("generating direct factory function")
-    local h = rctx:queue_assign(arg)
 
     return function(r)
         say("waiting on a single pool")
@@ -127,13 +164,19 @@ function direct_factory(rctx, arg)
     end
 end
 
+function new_locality_factory(arg)
+    local fgen = mcp.funcgen_new()
+    local h = fgen:queue_assign(arg.p)
+    fgen:ready({ f = locality_factory_gen, a = h, n = arg.name })
+    return fgen
+end
+
 -- factory for proving slots have unique environmental memory.
 -- we need to wait on a backend to allow the test to pipeline N requests in
 -- parallel, to prove that each parallel slot has a unique lua environment.
-function locality_factory(rctx, arg)
+function locality_factory_gen(rctx, h)
     say("generating locality factory function")
     local x = 0
-    local h = rctx:queue_assign(arg)
 
     return function(r)
         x = x + 1
@@ -147,15 +190,10 @@ end
 -- ie; position 1 in the table.
 -- we do a numeric for loop in the returned function to avoid allocations done
 -- by a call to pairs()
-function first_factory(rctx, arg)
+function first_factory_gen(rctx, arg)
     say("generating first factory function")
-    local t = {}
-    local count = 0
-
-    for _, v in pairs(arg) do
-        table.insert(t, rctx:queue_assign(v))
-        count = count + 1
-    end
+    local t = arg.t
+    local count = arg.c
 
     return function(r)
         say("waiting on first of " .. count .. " pools")
@@ -168,16 +206,11 @@ function first_factory(rctx, arg)
 end
 
 -- wait on x out of y
-function partial_factory(rctx, arg)
+function partial_factory_gen(rctx, arg)
     say("generating partial factory function")
-    local t = {}
-    local count = 0
+    local t = arg.t
+    local count = arg.c
     local wait = arg.wait
-
-    for _, v in pairs(arg.list) do
-        table.insert(t, rctx:queue_assign(v))
-        count = count + 1
-    end
 
     return function(r)
         say("waiting on first " .. wait .. " out of " .. count)
@@ -208,17 +241,12 @@ function partial_factory(rctx, arg)
 end
 
 -- wait on all pool arguments
-function all_factory(rctx, arg)
+function all_factory_gen(rctx, arg)
     say("generating all factory function")
-    local t = {}
-    local count = 0
+    local t = arg.t
+    local count = arg.c
     -- should be a minor speedup avoiding the table lookup.
     local mode = mcp.WAIT_ANY
-
-    for _, v in pairs(arg.list) do
-        table.insert(t, rctx:queue_assign(v))
-        count = count + 1
-    end
 
     return function(r)
         say("waiting on " .. count)
@@ -235,10 +263,10 @@ function all_factory(rctx, arg)
 end
 
 -- wait on the first good or N of total
-function fastgood_factory(rctx, arg)
+function fastgood_factory_gen(rctx, arg)
     say("generating fastgood factory function")
-    local t = {}
-    local count = 0
+    local t = arg.t
+    local count = arg.c
     local wait = arg.wait
 
     local cb = function(res)
@@ -251,9 +279,8 @@ function fastgood_factory(rctx, arg)
         -- default return code is mcp.WAIT_ANY
     end
 
-    for _, v in pairs(arg.list) do
-        table.insert(t, rctx:queue_assign(v, cb))
-        count = count + 1
+    for _, v in pairs(t) do
+        rctx:queue_set_cb(v, cb)
     end
 
     return function(r)
@@ -286,11 +313,26 @@ function fastgood_factory(rctx, arg)
     end
 end
 
+function new_blocker_factory(arg)
+    local fgen = mcp.funcgen_new()
+    local o = { c = 0, t = {} }
+    o.b = fgen:queue_assign(arg.blocker)
+
+    for _, v in pairs(arg.list) do
+        table.insert(o.t, fgen:queue_assign(v))
+        o.c = o.c + 1
+    end
+
+    fgen:ready({ f = blocker_factory_gen, a = o, n = arg.name })
+    return fgen
+end
+
 -- queue a bunch, but shortcut if a special auxiliary handle fails
-function blocker_factory(rctx, arg)
+function blocker_factory_gen(rctx, arg)
     say("generating blocker factory function")
-    local t = {}
-    local count = 0
+    local t = arg.t
+    local count = arg.c
+    local blocker = arg.b
     local was_blocked = false
 
     local cb = function(res)
@@ -306,12 +348,7 @@ function blocker_factory(rctx, arg)
         end
     end
 
-    local blocker = rctx:queue_assign(arg.blocker, cb)
-
-    for _, v in pairs(arg.list) do
-        table.insert(t, rctx:queue_assign(v))
-        count = count + 1
-    end
+    rctx:queue_set_cb(blocker, cb)
 
     return function(r)
         say("function blocker test")
@@ -339,9 +376,9 @@ function blocker_factory(rctx, arg)
 end
 
 -- log on all callbacks, even if waiting for 1
-function logall_factory(rctx, arg)
+function logall_factory_gen(rctx, arg)
     say("generating logall factory function")
-    local t = {}
+    local t = arg.t
 
     local cb = function(res)
         say("received a response, logging...")
@@ -349,8 +386,8 @@ function logall_factory(rctx, arg)
         return mcp.WAIT_ANY
     end
 
-    for _, v in pairs(arg.list) do
-        table.insert(t, rctx:queue_assign(v, cb))
+    for _, v in pairs(t) do
+        rctx:queue_set_cb(v, cb)
     end
 
     return function(r)
@@ -360,10 +397,10 @@ function logall_factory(rctx, arg)
 end
 
 -- log a summary after all callbacks run
-function summary_factory(rctx, arg)
+function summary_factory_gen(rctx, arg)
     say("generating summary factory function")
-    local t = {}
-    local count = 0
+    local t = arg.t
+    local count = arg.c
 
     local todo = 0
     local cb = function(res)
@@ -374,9 +411,8 @@ function summary_factory(rctx, arg)
         end
     end
 
-    for _, v in pairs(arg.list) do
-        table.insert(t, rctx:queue_assign(v, cb))
-        count = count + 1
+    for _, v in pairs(t) do
+        rctx:queue_set_cb(v, cb)
     end
 
     return function(r)
@@ -392,14 +428,10 @@ function summary_factory(rctx, arg)
 end
 
 -- testing various waitfor conditions.
-function waitfor_factory(rctx, arg)
+function waitfor_factory_gen(rctx, arg)
     say("generating background factory function")
-    local t = {}
-    local count = 0
-    for _, v in pairs(arg.list) do
-        table.insert(t, rctx:queue_assign(v))
-        count = count + 1
-    end
+    local t = arg.t
+    local count = arg.c
 
     return function(r)
         local key = r:key()
@@ -444,17 +476,14 @@ end
 
 -- try "primary zone" and then fail over to secondary zones.
 -- using simplified code that just treats the first pool as the primary zone.
-function failover_factory(rctx, arg)
+function failover_factory_gen(rctx, arg)
     say("generating failover factory function")
     local t = {}
-    local count = 0
-    for _, v in pairs(arg.list) do
-        count = count + 1
-    end
-    local first = rctx:queue_assign(arg.list[1])
+    local count = arg.c
+    local first = arg.t[1]
 
     for x=2, count do
-        table.insert(t, rctx:queue_assign(arg.list[x]))
+        table.insert(t, arg.t[x])
     end
 
     return function(r)
@@ -482,7 +511,13 @@ function failover_factory(rctx, arg)
     end
 end
 
-function errors_factory(rctx)
+function new_error_factory(func, name)
+    local fgen = mcp.funcgen_new()
+    fgen:ready({ f = func, n = name })
+    return fgen
+end
+
+function errors_factory_gen(rctx)
     say("generating errors factory")
 
     return function(r)
@@ -500,7 +535,7 @@ function errors_factory(rctx)
     end
 end
 
-function suberrors_factory(rctx)
+function suberrors_factory_gen(rctx)
     say("generating suberrors factory function")
 
     return function(r)
@@ -518,15 +553,24 @@ function suberrors_factory(rctx)
     end
 end
 
+function new_split_factory(arg)
+    local fgen = mcp.funcgen_new()
+    local o = {}
+    o.a = fgen:queue_assign(arg.a)
+    o.b = fgen:queue_assign(arg.b)
+    fgen:ready({ f = split_factory_gen, a = o, n = name })
+    return fgen
+end
+
 -- example of a factory that takes two other factories and copies traffic
 -- across them.
 -- If an additional API's for hashing to numerics are added, keys can be
 -- hashed to allow "1/n" of keys to copy to one of the splits. This allows
 -- shadowing traffic to new/experimental pools, slow-warming traffic, etc.
-function split_factory(rctx, arg)
+function split_factory_gen(rctx, arg)
     say("generating split factory function")
-    local a = rctx:queue_assign(arg.a)
-    local b = rctx:queue_assign(arg.b)
+    local a = arg.a
+    local b = arg.b
 
     return function(r)
         say("splitting traffic")
@@ -539,7 +583,7 @@ function split_factory(rctx, arg)
 end
 
 -- test handling of failure to generate a function slot
-function failgen_factory(rctx)
+function failgen_factory_gen(rctx)
     if failgen_armed then
         say("throwing failgen error")
         error("failgen")
@@ -552,7 +596,7 @@ function failgen_factory(rctx)
     end
 end
 
-function failgenret_factory(rctx)
+function failgenret_factory_gen(rctx)
     if failgenret_armed then
         return nil
     end
@@ -579,28 +623,28 @@ end
 function mcp_config_routes(p)
     local b_pool = p.b
     p = p.p
-    local single = mcp.funcgen_new({ func = direct_factory, arg = p[1], max_queues = 1, name = "single" })
+    local single = new_direct_factory({ p = p[1], name = "single" })
     -- use the typically unused backend.
-    local singletwo = mcp.funcgen_new({ func = direct_factory, arg = b_pool, max_queues = 1, name = "singletwo" })
+    local singletwo = new_direct_factory({ p = b_pool, name = "singletwo" })
 
-    local first = mcp.funcgen_new({ func = first_factory, arg = p, max_queues = 3, name = "first" })
-    local partial = mcp.funcgen_new({ func = partial_factory, arg = { list = p, wait = 2 }, max_queues = 3, name = "partial" })
-    local all = mcp.funcgen_new({ func = all_factory, arg = { list = p }, max_queues = 3, name = "all"})
-    local fastgood = mcp.funcgen_new({ func = fastgood_factory, arg = { list = p, wait = 2 }, max_queues = 3, name = "fastgood"})
-    local blocker = mcp.funcgen_new({ func = blocker_factory, arg = { blocker = b_pool, list = p }, max_queues = 4, name = "blocker"})
-    local logall = mcp.funcgen_new({ func = logall_factory, arg = { list = p }, max_queues = 3, name = "logall"})
-    local summary = mcp.funcgen_new({ func = summary_factory, arg = { list = p }, max_queues = 3, name = "summary"})
-    local waitfor = mcp.funcgen_new({ func = waitfor_factory, arg = { list = p }, max_queues = 3, name = "waitfor"})
-    local failover = mcp.funcgen_new({ func = failover_factory, arg = { list = p }, max_queues = 3, name = "failover"})
-    local locality = mcp.funcgen_new({ func = locality_factory, arg = p[1], max_queues = 1, name = "locality"})
+    local first = new_basic_factory({ list = p, name = "first" }, first_factory_gen)
+    local partial = new_basic_factory({ list = p, wait = 2, name = "partial" }, partial_factory_gen)
+    local all = new_basic_factory({ list = p, name = "all" }, all_factory_gen)
+    local fastgood = new_basic_factory({ list = p, wait = 2, name = "fastgood" }, fastgood_factory_gen)
+    local blocker = new_blocker_factory({ blocker = b_pool, list = p, name = "blocker" })
+    local logall = new_basic_factory({ list = p, name = "logall" }, logall_factory_gen)
+    local summary = new_basic_factory({ list = p, name = "summary" }, summary_factory_gen)
+    local waitfor = new_basic_factory({ list = p, name = "waitfor" }, waitfor_factory_gen)
+    local failover = new_basic_factory({ list = p, name = "failover" }, failover_factory_gen)
+    local locality = new_locality_factory({ p = p[1], name = "locality" })
 
-    local errors = mcp.funcgen_new({ func = errors_factory, max_queues = 1, name = "errors"})
-    local suberrors = mcp.funcgen_new({ func = suberrors_factory, max_queues = 3, name = "suberrors"})
-    local suberr_wrap = mcp.funcgen_new({ func = direct_factory, arg = suberrors, max_queues = 1, name = "suberrwrap"})
+    local errors = new_error_factory(errors_factory_gen, "errors")
+    local suberrors = new_error_factory(suberrors_factory_gen, "suberrors")
+    local suberr_wrap = new_direct_factory({ p = suberrors, name = "suberrwrap" })
 
     -- for testing traffic splitting.
-    local split = mcp.funcgen_new({ func = split_factory, arg = { a = single, b = singletwo }, max_queues = 2, name = "split"})
-    local splitfailover = mcp.funcgen_new({ func = split_factory, arg = { a = failover, b = singletwo }, max_queues = 2, name = "splitfailover"})
+    local split = new_split_factory({ a = single, b = singletwo, name = "split" })
+    local splitfailover = new_split_factory({ a = failover, b = singletwo, name = "splitfailover" })
 
     local map = {
         ["single"] = single,
@@ -626,8 +670,8 @@ function mcp_config_routes(p)
         pattern = "^/(%a+)/"
     }
 
-    local failgen = mcp.funcgen_new({ func = failgen_factory, max_queues = 1, name = "failgen"})
-    local failgenret = mcp.funcgen_new({ func = failgenret_factory, max_queues = 1, name = "failgenret"})
+    local failgen = new_error_factory(failgen_factory_gen, "failgen")
+    local failgenret = new_error_factory(failgenret_factory_gen, "failgenret")
 
     local mapfail = {
         ["failgen"] = failgen,
@@ -636,12 +680,12 @@ function mcp_config_routes(p)
     local farg = {
         default = single,
         list = mapfail,
-        pattern = "^(%a+)/"
+        pattern = "^(%a+)/",
+        name = "prefixfail"
     }
 
-    --local pfx = mcp.funcgen_new({ func = prefix_factory, arg = parg, max_queues = 24, name = "prefix" })
     local pfx = mcp.router_new({ map = map })
-    local pfxfail = mcp.funcgen_new({ func = prefix_factory, arg = farg, max_queues = 3, name = "prefixfail" })
+    local pfxfail = new_prefix_factory(farg)
 
     mcp.attach(mcp.CMD_ANY_STORAGE, pfx)
     -- TODO: might need to move this fail stuff to another test file.
