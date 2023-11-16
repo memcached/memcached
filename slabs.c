@@ -555,6 +555,7 @@ unsigned int global_page_pool_size(bool *mem_flag) {
 /*@null@*/
 static void do_slabs_stats(ADD_STAT add_stats, void *c) {
     int i, total;
+    uint64_t bytes_used = 0;
     /* Get the per-thread stats which contain some interesting aggregates */
     struct thread_stats thread_stats;
     threadlocal_stats_aggregate(&thread_stats);
@@ -571,6 +572,7 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
             char val_str[STAT_VAL_LEN];
             int klen = 0, vlen = 0;
 
+            bytes_used += (slabs * perslab - p->sl_curr) * p->size;
             APPEND_NUM_STAT(i, "chunk_size", "%u", p->size);
             APPEND_NUM_STAT(i, "chunks_per_page", "%u", perslab);
             APPEND_NUM_STAT(i, "total_pages", "%u", slabs);
@@ -604,6 +606,8 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
 
     APPEND_STAT("active_slabs", "%d", total);
     APPEND_STAT("total_malloced", "%llu", (unsigned long long)mem_malloced);
+    APPEND_STAT("bytes_available", "%llu", (unsigned long long)mem_limit - bytes_used);
+    APPEND_STAT("bytes_used", "%llu", (unsigned long long)bytes_used);
     add_stats(NULL, 0, NULL, 0, c);
 }
 
