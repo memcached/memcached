@@ -1220,7 +1220,7 @@ static inline const char *_mcp_router_longsep(const char *key, const int klen, c
     }
 
     // find the last possible position
-    const char *last = key + (klen - (nlen + (end - key)));
+    const char *last = key + (klen - nlen);
 
     while (end != last) {
         if (*end == needle[0] && memcmp(end, needle, nlen) == 0) {
@@ -1253,7 +1253,7 @@ static inline const char *_mcp_router_anchorbig(const char *key, const int klen,
     }
 
     // rest is same as longsep
-    return _mcp_router_longsep(key+slen, klen-slen, conf->until, len);
+    return _mcp_router_longsep(key+slen, klen-slen, conf->stop, len);
 }
 
 static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr) {
@@ -1292,6 +1292,7 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
     lua_pushlstring(L, lookup, lookuplen);
     lua_rawget(L, -2); // pops key, returns value
     if (lua_isnil(L, -1)) {
+        lua_pop(L, 2); // drop nil and map.
         return fr->def_fgen;
     } else {
         mcp_funcgen_t *nfgen = lua_touserdata(L, -1);
@@ -1339,7 +1340,7 @@ static const char *_mcplib_router_new_check(lua_State *L, const char *arg, size_
         } else if (*len > KEY_HASH_FILTER_MAX) {
             proxy_lua_ferror(L, "%s is too long in mcp.router_new", arg);
         }
-        lua_pop(L, 1); // drop until
+        lua_pop(L, 1); // drop key
         return sep;
     } else if (type != LUA_TNIL) {
         proxy_lua_ferror(L, "must pass a string to %s in mcp.router_new", arg);
@@ -1384,16 +1385,16 @@ int mcplib_router_new(lua_State *L) {
     fr.conf.sep = '/';
 
     // config:
-    // { type = "anchor", start = "/", until = "/" }
-    // { type = "prefix", until = "/" }
+    // { mode = "anchor", start = "/", stop = "/" }
+    // { mode = "prefix", stop = "/" }
     // change internal type based on length of separator
-    if (lua_getfield(L, 1, "type") == LUA_TSTRING) {
+    if (lua_getfield(L, 1, "mode") == LUA_TSTRING) {
         const char *type = lua_tostring(L, -1);
         size_t len = 0;
         const char *sep = NULL;
 
         if (strcmp(type, "prefix") == 0) {
-            sep = _mcplib_router_new_check(L, "until", &len);
+            sep = _mcplib_router_new_check(L, "stop", &len);
             if (sep == NULL) {
                 // defaults
                 fr.type = FGEN_ROUTER_SHORTSEP;
@@ -1409,8 +1410,8 @@ int mcplib_router_new(lua_State *L) {
                 fr.conf.lsep[len] = '\0'; // cap it.
             }
         } else if (strcmp(type, "anchor") == 0) {
-            size_t ulen = 0; // until len.
-            const char *usep = _mcplib_router_new_check(L, "until", &len);
+            size_t elen = 0; // stop len.
+            const char *usep = _mcplib_router_new_check(L, "stop", &elen);
             sep = _mcplib_router_new_check(L, "start", &len);
             if (sep == NULL && usep == NULL) {
                 // no arguments, use a default.
@@ -1419,17 +1420,17 @@ int mcplib_router_new(lua_State *L) {
                 fr.conf.anchorsm[1] = '/';
             } else if (sep == NULL || usep == NULL) {
                 // reduce the combinatorial space because I'm lazy.
-                proxy_lua_error(L, "must specify start and until if type is anchor in mcp.router_new");
-            } else if (len == 1 && ulen == 1) {
+                proxy_lua_error(L, "must specify start and stop if mode is anchor in mcp.router_new");
+            } else if (len == 1 && elen == 1) {
                 fr.type = FGEN_ROUTER_ANCHORSM;
                 fr.conf.anchorsm[0] = sep[0];
                 fr.conf.anchorsm[1] = usep[0];
             } else {
                 fr.type = FGEN_ROUTER_ANCHORBIG;
                 memcpy(fr.conf.big.start, sep, len);
-                memcpy(fr.conf.big.until, usep, ulen);
+                memcpy(fr.conf.big.stop, usep, elen);
                 fr.conf.big.start[len] = '\0';
-                fr.conf.big.until[ulen] = '\0';
+                fr.conf.big.stop[elen] = '\0';
             }
         } else {
             proxy_lua_error(L, "unknown type passed to mcp.router_new");

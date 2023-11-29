@@ -613,7 +613,7 @@ enum mcp_funcgen_router_e {
 
 struct mcp_router_long_s {
     char start[KEY_HASH_FILTER_MAX+1];
-    char until[KEY_HASH_FILTER_MAX+1];
+    char stop[KEY_HASH_FILTER_MAX+1];
 };
 
 struct mcp_funcgen_router {
