@@ -574,6 +574,11 @@ function mcp_config_routes(zones)
        return "ERROR code_incorrect: " .. res:code() .. "\r\n"
    end
 
+   pfx_mg["millis"] = function(r)
+        local time = mcp.time_real_millis()
+        return "HD t" .. time .. "\r\n"
+   end
+
     mcp.attach(mcp.CMD_GET, toproute_factory(pfx_get, "get"))
     mcp.attach(mcp.CMD_SET, toproute_factory(pfx_set, "set"))
     mcp.attach(mcp.CMD_TOUCH, toproute_factory(pfx_touch, "touch"))

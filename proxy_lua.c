@@ -26,6 +26,22 @@ static lua_Integer _mcplib_backend_get_waittime(lua_Number secondsf) {
     return secondsi;
 }
 
+static int mcplib_time_real_millis(lua_State *L) {
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    lua_Integer t = now.tv_nsec / 1000000 + now.tv_sec * 1000;
+    lua_pushinteger(L, t);
+    return 1;
+}
+
+static int mcplib_time_mono_millis(lua_State *L) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    lua_Integer t = now.tv_nsec / 1000000 + now.tv_sec * 1000;
+    lua_pushinteger(L, t);
+    return 1;
+}
+
 // end util funcs.
 
 static int mcplib_response_elapsed(lua_State *L) {
@@ -1404,6 +1420,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"stat", mcplib_stat},
         {"request", mcplib_request},
         {"ratelim_tbf", mcplib_ratelim_tbf},
+        {"time_real_millis", mcplib_time_real_millis},
+        {"time_mono_millis", mcplib_time_mono_millis},
         {NULL, NULL}
     };
     // VM's have void* extra space in the VM by default for fast-access to a
