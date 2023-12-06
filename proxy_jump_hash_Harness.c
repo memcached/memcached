@@ -3,6 +3,7 @@
 //
 
 #include "proxy.h"
+#include <stdio.h>
 
 typedef struct {
     struct proxy_hash_caller phc; // passed back to proxy API
@@ -31,10 +32,10 @@ int main() {
     uint64_t hash;
     void *ctx;
 
-    fscanf(file, "%ui %s", hash, *ctx);
+    fscanf(file, "%ui %s", hash, ctx);
     fclose(file);
 
-    mcplib_dist_jump_hash_get_server(uint64_t hash, void *ctx);
+    mcplib_dist_jump_hash_get_server(hash, ctx);
 
     return 0;
 };
