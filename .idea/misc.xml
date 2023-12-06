@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ExternalStorageConfigurationManager" enabled="true" />
+  <component name="MakefileSettings">
+    <option name="linkedExternalProjectsSettings">
+      <MakefileProjectSettings>
+        <option name="buildDirectory" value="build" />
+        <option name="buildOptions" value="--makefile=Makefile" />
+        <option name="buildSystemName" value="GNU Autotools" />
+        <option name="buildTarget" value="check" />
+        <option name="externalProjectPath" value="$PROJECT_DIR$" />
+        <option name="preConfigureCommands" value="#!/bin/sh&#10;#&#10;# GNU Autotools template, feel free to customize.&#10;#&#10;which autoreconf &gt;/dev/null &amp;&amp; autoreconf --install --force --verbose &quot;${PROJECT_DIR:-..}&quot; 2&gt;&amp;1; /bin/sh &quot;${PROJECT_DIR:-..}/configure&quot;" />
+        <option name="switches" value="--makefile=Makefile " />
+        <option name="version" value="2" />
+      </MakefileProjectSettings>
+    </option>
+  </component>
+  <component name="MakefileWorkspace" PROJECT_DIR="$PROJECT_DIR$" />
+</project>
