@@ -37,7 +37,7 @@ int main() {
 
     mcplib_dist_jump_hash_get_server(hash, ctx);
 
-    return 0;
+    return 1;
 };
 // stack = [pool, option]
 //static int mcplib_dist_jump_hash_new(lua_State *L) {
