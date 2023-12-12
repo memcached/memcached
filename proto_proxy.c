@@ -408,6 +408,13 @@ void proxy_submit_cb(io_queue_t *q) {
 // pool calls and mcp.await()
 void proxy_return_rctx_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
+    if (p->client_resp->blen) {
+        // FIXME: workaround for buffer memory being external to objects.
+        // can't run 0 since that means something special (run the GC)
+        unsigned int kb = p->client_resp->blen / 1000;
+        lua_gc(p->rctx->Lc, LUA_GCSTEP, kb > 0 ? kb : 1);
+    }
+
     if (p->is_await) {
         p->rctx->async_pending--;
         mcplib_await_return(p);

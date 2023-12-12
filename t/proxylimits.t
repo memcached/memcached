@@ -253,7 +253,7 @@ check_version($ps);
 
     $stats = mem_stats($ps, 'proxy');
     $used = $stats->{buffer_memory_used};
-    cmp_ok($used, '<', 2000, 'multiget: buffer memory usage not inflated');
+    cmp_ok($used, '<', 1000, 'multiget: buffer memory usage not inflated');
 
     $cmd = "get foo\r\n";
     for (1 .. 200) {
