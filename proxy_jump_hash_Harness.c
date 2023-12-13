@@ -2,9 +2,16 @@
 // Created by rigon on 04.12.23.
 //
 
-#include "proxy.h"
+//#include "proxy.h"
 #include <stdio.h>
+#include <stdint.h>
 
+
+typedef uint32_t (*hash_selector_func)(uint64_t hash, void *ctx);
+struct proxy_hash_caller {
+    hash_selector_func selector_func;
+    void *ctx;
+};
 typedef struct {
     struct proxy_hash_caller phc; // passed back to proxy API
     unsigned int buckets;
@@ -23,7 +30,7 @@ static uint32_t mcplib_dist_jump_hash_get_server(uint64_t hash, void *ctx) {
 }
 
 int main() {
-    FILE *file = fopen("proxy_jump_hash_input.txt", "r");
+    FILE *file = fopen("/home/rigon/Desktop/memcached_github_repo/memcached_bachelor_thesis/input/proxy_jump_hash_input.txt", "r");
 
     if (file == NULL) {
         perror("Fehler beim Öffnen der Datei");
