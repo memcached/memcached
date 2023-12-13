@@ -1701,6 +1701,11 @@ int mcplib_internal_run(mcp_rcontext_t *rctx) {
     // Always return OK from here as this is signalling an internal error.
     r->status = MCMC_OK;
 
+    // resp object is associated with the
+    // response object, which is about a
+    // kilobyte.
+    lua_gc(rctx->Lc, LUA_GCSTEP, 1);
+
     if (resp->io_pending) {
         // TODO (v2): here we move the IO from the temporary resp to the top
         // resp, but this feels kludgy so I'm leaving an explicit note to find
@@ -1724,5 +1729,6 @@ int mcplib_internal_run(mcp_rcontext_t *rctx) {
         r->buf = io->eio.buf;
         return 1;
     }
+
     return 0;
 }
