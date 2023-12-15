@@ -408,7 +408,7 @@ void proxy_submit_cb(io_queue_t *q) {
 // pool calls and mcp.await()
 void proxy_return_rctx_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
-    if (p->client_resp->blen) {
+    if (p->client_resp && p->client_resp->blen) {
         // FIXME: workaround for buffer memory being external to objects.
         // can't run 0 since that means something special (run the GC)
         unsigned int kb = p->client_resp->blen / 1000;
@@ -762,6 +762,9 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                     // response set from C.
                     resp->write_and_free = r->buf;
                     resp_add_iov(resp, r->buf, r->blen);
+                    // stash the length to later remove from memory tracking
+                    resp->wbytes = r->blen + r->extra;
+                    resp->proxy_res = true;
                     r->buf = NULL;
                 } else {
                     // Empty response: used for ascii multiget emulation.
@@ -1098,10 +1101,7 @@ mcp_resp_t *mcp_prep_bare_resobj(lua_State *L, LIBEVENT_THREAD *t) {
     return r;
 }
 
-mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t) {
-    mcp_resp_t *r = lua_newuserdatauv(L, sizeof(mcp_resp_t), 0);
-    // FIXME (v2): is this memset still necessary? I was using it for
-    // debugging.
+void mcp_set_resobj(mcp_resp_t *r, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t) {
     memset(r, 0, sizeof(mcp_resp_t));
     r->buf = NULL;
     r->blen = 0;
@@ -1134,6 +1134,12 @@ mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, 
 
     strncpy(r->be_name, be->name, MAX_NAMELEN+1);
     strncpy(r->be_port, be->port, MAX_PORTLEN+1);
+
+}
+
+mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t) {
+    mcp_resp_t *r = lua_newuserdatauv(L, sizeof(mcp_resp_t), 0);
+    mcp_set_resobj(r, rq, be, t);
 
     luaL_getmetatable(L, "mcp.response");
     lua_setmetatable(L, -2);

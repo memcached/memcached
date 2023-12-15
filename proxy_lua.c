@@ -114,19 +114,15 @@ static int mcplib_response_line(lua_State *L) {
     return 1;
 }
 
-static int mcplib_response_gc(lua_State *L) {
-    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
-    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
-
-    // FIXME: we handle the accounting here, but the actual response buffer is
-    // freed elsewhere, after the network write.
-    pthread_mutex_lock(&t->proxy_limit_lock);
-    t->proxy_buffer_memory_used -= r->blen + r->extra;
-    pthread_mutex_unlock(&t->proxy_limit_lock);
+void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
 
     // On error/similar we might be holding the read buffer.
     // If the buf is handed off to mc_resp for return, this pointer is NULL
     if (r->buf != NULL) {
+        pthread_mutex_lock(&t->proxy_limit_lock);
+        t->proxy_buffer_memory_used -= r->blen + r->extra;
+        pthread_mutex_unlock(&t->proxy_limit_lock);
+
         free(r->buf);
     }
 
@@ -136,6 +132,12 @@ static int mcplib_response_gc(lua_State *L) {
         assert(r->thread != NULL);
         resp_free(r->thread, cresp);
     }
+}
+
+static int mcplib_response_gc(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    mcp_resp_t *r = luaL_checkudata(L, -1, "mcp.response");
+    mcp_response_cleanup(t, r);
 
     return 0;
 }

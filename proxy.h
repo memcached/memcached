@@ -674,6 +674,7 @@ struct mcp_rqueue_s {
     int res_ref; // reference to lua response object.
     void *obj; // direct pointer to the object for fast access.
     mcp_request_t *rq; // request set to this slot
+    mcp_resp_t *res_obj; // pointer to result object
     enum mcp_rqueue_state state; // queued/active/etc
     uint8_t obj_type; // what the obj_ref actually is.
     uint8_t flags; // bit flags for various states
@@ -739,6 +740,10 @@ int mcplib_request_has_flag(lua_State *L);
 int mcplib_request_flag_token(lua_State *L);
 int mcplib_request_gc(lua_State *L);
 void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq);
+
+// response interface
+void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r);
+void mcp_set_resobj(mcp_resp_t *r, mcp_request_t *rq, mcp_backend_t *be, LIBEVENT_THREAD *t);
 
 int mcplib_open_dist_jump_hash(lua_State *L);
 int mcplib_open_dist_ring_hash(lua_State *L);

@@ -1022,6 +1022,14 @@ void resp_reset(mc_resp *resp) {
         resp->item = NULL;
     }
     if (resp->write_and_free) {
+#ifdef PROXY
+        if (resp->proxy_res) {
+            LIBEVENT_THREAD *t = resp->bundle->thread;
+            pthread_mutex_lock(&t->proxy_limit_lock);
+            t->proxy_buffer_memory_used -= resp->wbytes;
+            pthread_mutex_unlock(&t->proxy_limit_lock);
+        }
+#endif
         free(resp->write_and_free);
         resp->write_and_free = NULL;
     }
@@ -1104,6 +1112,7 @@ static mc_resp* resp_allocate(conn *c) {
             }
             b->next = 0;
             b->prev = 0;
+            b->thread = th;
             th->open_bundle = b;
             resp = &b->r[0];
             memset(resp, 0, sizeof(*resp));
@@ -1230,6 +1239,14 @@ mc_resp* resp_finish(conn *c, mc_resp *resp) {
         resp->item = NULL;
     }
     if (resp->write_and_free) {
+#ifdef PROXY
+        if (resp->proxy_res) {
+            LIBEVENT_THREAD *t = resp->bundle->thread;
+            pthread_mutex_lock(&t->proxy_limit_lock);
+            t->proxy_buffer_memory_used -= resp->wbytes;
+            pthread_mutex_unlock(&t->proxy_limit_lock);
+        }
+#endif
         free(resp->write_and_free);
     }
     if (resp->io_pending) {

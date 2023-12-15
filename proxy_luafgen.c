@@ -65,6 +65,9 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
         if (frqu->obj_type == RQUEUE_TYPE_POOL) {
             rqu->obj_ref = 0;
             rqu->obj = frqu->obj;
+            mcp_resp_t *r = mcp_prep_bare_resobj(L, fgen->thread);
+            rqu->res_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+            rqu->res_obj = r;
         } else if (frqu->obj_type == RQUEUE_TYPE_FGEN) {
             // owner funcgen already holds the subfgen reference, so here we're just
             // grabbing a subrctx to pin into the slot.
@@ -176,7 +179,6 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     } else {
         lua_settop(rctx->Lc, 0);
     }
-    // TODO: only do resetthread if an error was previously returned?
     rctx->resp = NULL;
     rctx->first_queue = false; // HACK
     if (rctx->request) {
@@ -184,12 +186,17 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     }
 
     // reset each rqu.
-    // TODO: keep the res obj but reset it internally.
     for (int x = 0; x < fgen->max_queues; x++) {
         struct mcp_rqueue_s *rqu = &rctx->qslots[x];
         if (rqu->res_ref) {
-            luaL_unref(rctx->Lc, LUA_REGISTRYINDEX, rqu->res_ref);
-            rqu->res_ref = 0;
+            if (rqu->res_obj) {
+                // using a persistent object.
+                mcp_response_cleanup(fgen->thread, rqu->res_obj);
+            } else {
+                // temporary error object
+                luaL_unref(rctx->Lc, LUA_REGISTRYINDEX, rqu->res_ref);
+                rqu->res_ref = 0;
+            }
         }
         if (rqu->req_ref) {
             luaL_unref(rctx->Lc, LUA_REGISTRYINDEX, rqu->req_ref);
@@ -684,6 +691,7 @@ static void _mcp_resume_rctx_process_error(mcp_rcontext_t *rctx, struct mcp_rque
     mcp_resp_t *r = mcp_prep_bare_resobj(rctx->Lc, rctx->fgen->thread);
     r->status = MCMC_ERR;
     r->resp.code = MCMC_CODE_SERVER_ERROR;
+    assert(rqu->res_ref == 0);
     rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
     mcp_process_rqueue_return(rctx->parent, rctx->parent_handle, r);
     if (rctx->parent->wait_count) {
@@ -697,6 +705,7 @@ static void _mcp_start_rctx_process_error(mcp_rcontext_t *rctx, struct mcp_rqueu
     mcp_resp_t *r = mcp_prep_bare_resobj(rctx->Lc, rctx->fgen->thread);
     r->status = MCMC_ERR;
     r->resp.code = MCMC_CODE_SERVER_ERROR;
+    assert(rqu->res_ref == 0);
     rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
 
     // queue an IO to return later.
@@ -715,6 +724,7 @@ static void mcp_start_subrctx(mcp_rcontext_t *rctx) {
             // move stack result object into parent rctx rqu slot.
             // FIXME: crashes. use testudata and internal error handling.
             mcp_resp_t *r = luaL_checkudata(rctx->Lc, 1, "mcp.response");
+            assert(rqu->res_ref == 0);
             rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
 
             io_pending_proxy_t *p = mcp_queue_rctx_io(rctx->parent, NULL, NULL, r);
@@ -726,6 +736,7 @@ static void mcp_start_subrctx(mcp_rcontext_t *rctx) {
             // TODO: wrap with a resobj and parse it.
             // for now we bypass the rqueue process handling
             // meaning no callbacks/etc.
+            assert(rqu->res_ref == 0);
             rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
             rqu->flags |= RQUEUE_R_ANY;
             rqu->state = RQUEUE_COMPLETE;
@@ -755,12 +766,14 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
                 // move stack result object into parent rctx rqu slot.
                 // FIXME: crashes. use testudata and internal error handling.
                 mcp_resp_t *r = luaL_checkudata(rctx->Lc, 1, "mcp.response");
+                assert(rqu->res_ref == 0);
                 rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
                 mcp_process_rqueue_return(rctx->parent, rctx->parent_handle, r);
             } else if (type == LUA_TSTRING) {
                 // TODO: wrap with a resobj and parse it.
                 // for now we bypass the rqueue process handling
                 // meaning no callbacks/etc.
+                assert(rqu->res_ref == 0);
                 rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
                 rqu->flags |= RQUEUE_R_ANY;
                 rqu->state = RQUEUE_COMPLETE;
@@ -998,13 +1011,11 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
             // into the connection for later submission, which means we
             // absolutely cannot queue things once *c becomes invalid.
             // need to assert/block this from happening.
-            mcp_resp_t *r = mcp_prep_resobj(rctx->Lc, rq, be, rctx->fgen->thread);
+            mcp_set_resobj(rqu->res_obj, rq, be, rctx->fgen->thread);
             // FIXME: check for NULL on the IO object and handle.
-            io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, rq, be, r);
+            io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, rq, be, rqu->res_obj);
             p->return_cb = proxy_return_rqu_cb;
             p->queue_handle = handle;
-            // need to reference the res object into the queue slot.
-            rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
             rctx->pending_reqs++;
         } else if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
             // TODO: NULL the ->c post-return?
