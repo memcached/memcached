@@ -871,6 +871,18 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
             rctx->wait_done++;
             rqu->state = RQUEUE_WAITED;
             break;
+        case QWAIT_FASTGOOD:
+            if (status & RQUEUE_R_GOOD) {
+                rctx->wait_done++;
+                rqu->state = RQUEUE_WAITED;
+                // resume early if "good"
+                status |= RQUEUE_R_RESUME;
+            } else if (status & RQUEUE_R_OK) {
+                // count but don't resume early if "ok"
+                rctx->wait_done++;
+                rqu->state = RQUEUE_WAITED;
+            }
+            break;
         case QWAIT_HANDLE:
             // waiting for a specific handle to return
             if (handle == rctx->wait_handle) {
@@ -1064,6 +1076,7 @@ int mcplib_rcontext_wait_for(lua_State *L) {
         case QWAIT_ANY:
         case QWAIT_OK:
         case QWAIT_GOOD:
+        case QWAIT_FASTGOOD:
             break;
         default:
             proxy_lua_error(L, "invalid mode sent to wait_for");

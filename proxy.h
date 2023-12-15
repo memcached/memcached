@@ -600,6 +600,7 @@ enum mcp_rqueue_e {
     QWAIT_ANY = 0,
     QWAIT_OK,
     QWAIT_GOOD,
+    QWAIT_FASTGOOD,
     QWAIT_HANDLE
 };
 

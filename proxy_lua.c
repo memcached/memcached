@@ -1343,6 +1343,7 @@ static void proxy_register_defines(lua_State *L) {
     Y(QWAIT_ANY, "WAIT_ANY");
     Y(QWAIT_OK, "WAIT_OK");
     Y(QWAIT_GOOD, "WAIT_GOOD");
+    Y(QWAIT_FASTGOOD, "WAIT_FASTGOOD");
     CMD_FIELDS
 #undef X
 #undef Y
