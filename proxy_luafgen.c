@@ -920,25 +920,23 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
 
     assert(rqu->state == RQUEUE_ACTIVE);
     rqu->state = RQUEUE_COMPLETE;
-    if (!rqu->cb_ref) {
-        if (res->status == MCMC_OK) {
-            if (res->resp.code != MCMC_CODE_END) {
-                flag = RQUEUE_R_GOOD;
-            } else {
-                flag = RQUEUE_R_OK;
-            }
+    if (res->status == MCMC_OK) {
+        if (res->resp.code != MCMC_CODE_END) {
+            flag = RQUEUE_R_GOOD;
+        } else {
+            flag = RQUEUE_R_OK;
         }
-        rqu->flags |= flag;
-        return flag;
-    } else {
+    }
+
+    if (rqu->cb_ref) {
         lua_settop(rctx->Lc, 0);
         lua_rawgeti(rctx->Lc, LUA_REGISTRYINDEX, rqu->cb_ref);
         lua_rawgeti(rctx->Lc, LUA_REGISTRYINDEX, rqu->res_ref);
         lua_rawgeti(rctx->Lc, LUA_REGISTRYINDEX, rqu->req_ref);
         if (lua_pcall(rctx->Lc, 2, 2, 0) != LUA_OK) {
             LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(rctx->Lc, -1));
-            flag = RQUEUE_R_ANY;
-        } else {
+        } else if (lua_isinteger(rctx->Lc, 1)) {
+            // allow overriding the result flag from the callback.
             enum mcp_rqueue_e mode = lua_tointeger(rctx->Lc, 1);
             switch (mode) {
                 case QWAIT_GOOD:
@@ -950,8 +948,7 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
                 case QWAIT_ANY:
                     break;
                 default:
-                    fprintf(stderr, "BAD RESULT!!!\n");
-                    // FIXME:
+                    // ANY
                     break;
             }
 
@@ -960,12 +957,12 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
                 flag |= RQUEUE_R_RESUME;
             }
         }
-        rqu->flags |= flag;
         lua_settop(rctx->Lc, 0); // FIXME: This might not be necessary.
                                  // we settop _before_ calling cb's and
                                  // _before_ setting up for a coro resume.
-        return rqu->flags;
     }
+    rqu->flags |= flag;
+    return rqu->flags;
 }
 
 // specific function for queue-based returns.
