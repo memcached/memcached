@@ -99,7 +99,7 @@ struct mcp_memprofile {
 #define MCP_YIELD_POOL 1
 #define MCP_YIELD_AWAIT 2
 #define MCP_YIELD_INTERNAL 3
-#define MCP_YIELD_WAITFOR 4
+#define MCP_YIELD_WAITCOND 4
 #define MCP_YIELD_WAITHANDLE 5
 
 #define SHAREDVM_FGEN_IDX 1
@@ -705,17 +705,17 @@ struct mcp_rcontext_s {
 void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle);
 void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle);
 int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res);
-int mcplib_rcontext_queue_set_cb(lua_State *L);
-int mcplib_rcontext_queue(lua_State *L);
-int mcplib_rcontext_wait_for(lua_State *L);
+int mcplib_rcontext_handle_set_cb(lua_State *L);
+int mcplib_rcontext_enqueue(lua_State *L);
+int mcplib_rcontext_wait_cond(lua_State *L);
 int mcplib_rcontext_wait_handle(lua_State *L);
-int mcplib_rcontext_queue_and_wait(lua_State *L);
+int mcplib_rcontext_enqueue_and_wait(lua_State *L);
 int mcplib_rcontext_good(lua_State *L);
 int mcplib_rcontext_any(lua_State *L);
 int mcplib_rcontext_ok(lua_State *L);
 int mcplib_funcgenbare_new(lua_State *L);
 int mcplib_funcgen_new(lua_State *L);
-int mcplib_funcgen_queue_assign(lua_State *L);
+int mcplib_funcgen_new_handle(lua_State *L);
 int mcplib_funcgen_ready(lua_State *L);
 int mcplib_router_new(lua_State *L);
 mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr);

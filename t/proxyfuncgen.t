@@ -197,10 +197,10 @@ sub test_returns {
 }
 
 sub test_waitfor {
-    note 'stress testing rctx:wait_for scenarios';
+    note 'stress testing rctx:wait_cond scenarios';
 
     my $func_before = mem_stats($ps, "proxyfuncs");
-    subtest 'wait_for(0)' => sub {
+    subtest 'wait_cond(0)' => sub {
         $t->c_send("mg waitfor/a\r\n");
         $t->c_recv("HD t1\r\n", 'client response before backends receive cmd');
         $t->be_recv_c([0, 1, 2]);
@@ -208,7 +208,7 @@ sub test_waitfor {
         $t->clear();
     };
 
-    subtest 'wait_for(0) then wait_for(2)' => sub {
+    subtest 'wait_cond(0) then wait_cond(2)' => sub {
         $t->c_send("mg waitfor/b t\r\n");
         $t->be_recv_c([0, 1, 2]);
         $t->be_send([0, 1, 2], "HD t13\r\n");
@@ -216,7 +216,7 @@ sub test_waitfor {
         $t->clear();
     };
 
-    subtest 'wait_for(0) then queue then wait_for(1)' => sub {
+    subtest 'wait_cond(0) then queue then wait_cond(1)' => sub {
         $t->c_send("mg waitfor/c t\r\n");
         $t->be_recv_c([0, 1, 2]);
         $t->be_send([0, 1, 2], "HD t11\r\n");

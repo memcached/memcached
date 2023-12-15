@@ -485,7 +485,7 @@ int mcplib_funcgen_new(lua_State *L) {
     return 1;
 }
 
-int mcplib_funcgen_queue_assign(lua_State *L) {
+int mcplib_funcgen_new_handle(lua_State *L) {
     mcp_funcgen_t *fgen = lua_touserdata(L, 1);
     mcp_pool_proxy_t *pp = NULL;
     mcp_funcgen_t *fg = NULL;
@@ -584,7 +584,7 @@ int mcplib_funcgen_ready(lua_State *L) {
 
 // Handlers for request contexts
 
-int mcplib_rcontext_queue_set_cb(lua_State *L) {
+int mcplib_rcontext_handle_set_cb(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     luaL_checktype(L, 2, LUA_TNUMBER);
     luaL_checktype(L, 3, LUA_TFUNCTION);
@@ -645,7 +645,7 @@ static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_reque
 // - prep the function reference into its coroutine
 // - lua_xmove the request object into place
 // - but don't execute it yet.
-int mcplib_rcontext_queue(lua_State *L) {
+int mcplib_rcontext_enqueue(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     mcp_request_t *rq = luaL_checkudata(L, 2, "mcp.request");
 
@@ -1043,23 +1043,23 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
 }
 
 // TODO: one more function to wait on a list of handles? to queue and wait on
-// a list of handles? expand wait_for()
+// a list of handles? expand wait_cond()
 
 // takes num, filter mode
 // TODO: if count is zero, queue dummy IO to force submission.
-int mcplib_rcontext_wait_for(lua_State *L) {
+int mcplib_rcontext_wait_cond(lua_State *L) {
     // TODO: protect against double waitfor?
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     int mode = QWAIT_ANY;
     int wait = 0;
 
     if (!lua_isnumber(L, 2)) {
-        proxy_lua_error(L, "must pass number to wait_for");
+        proxy_lua_error(L, "must pass number to wait_cond");
         return 0;
     } else {
         wait = lua_tointeger(L, 2);
         if (wait < 0) {
-            proxy_lua_error(L, "wait count for wait_for must be positive");
+            proxy_lua_error(L, "wait count for wait_cond must be positive");
             return 0;
         }
         rctx->wait_count = wait;
@@ -1076,7 +1076,7 @@ int mcplib_rcontext_wait_for(lua_State *L) {
         case QWAIT_FASTGOOD:
             break;
         default:
-            proxy_lua_error(L, "invalid mode sent to wait_for");
+            proxy_lua_error(L, "invalid mode sent to wait_cond");
             return 0;
     }
     rctx->wait_done = 0;
@@ -1091,11 +1091,11 @@ int mcplib_rcontext_wait_for(lua_State *L) {
         rctx->pending_reqs++;
     }
 
-    lua_pushinteger(L, MCP_YIELD_WAITFOR);
+    lua_pushinteger(L, MCP_YIELD_WAITCOND);
     return lua_yield(L, 1);
 }
 
-int mcplib_rcontext_queue_and_wait(lua_State *L) {
+int mcplib_rcontext_enqueue_and_wait(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     mcp_request_t *rq = luaL_checkudata(L, 2, "mcp.request");
     int isnum = 0;

@@ -15,7 +15,7 @@ end
 
 function factory(rctx, h)
     return function(r)
-        return rctx:queue_and_wait(r, h)
+        return rctx:enqueue_and_wait(r, h)
     end
 end
 
@@ -28,7 +28,7 @@ end
 -- TODO: make default path and some other paths that return static data
 function mcp_config_routes(p)
     local fg = mcp.funcgen_new()
-    local fgh = fg:queue_assign(p)
+    local fgh = fg:new_handle(p)
     fg:ready({ f = factory, a = fgh })
 
     local def_fg = mcp.funcgen_new()

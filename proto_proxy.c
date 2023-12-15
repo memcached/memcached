@@ -825,7 +825,7 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                     proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad request");
                 }
                 break;
-            case MCP_YIELD_WAITFOR:
+            case MCP_YIELD_WAITCOND:
             case MCP_YIELD_WAITHANDLE:
                 // Even if we're in WAITHANDLE, we want to dispatch any queued
                 // requests, so we still need to iterate the full set of qslots.

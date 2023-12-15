@@ -1,6 +1,4 @@
 -- New style request factories and backend request handling.
--- WARNING: UNDER DEVELOPMENT. MAY STILL CHANGE.
--- (though hopefully only subtly)
 --
 -- Please look at the examples below, and refer to the API notes here if
 -- necessary.
@@ -24,7 +22,7 @@
 -- make decisions on if a response is "good", to resume processing early, or
 -- post-process once all responses are received.
 --
--- The queueing system is now recursive: a fgen can queue_assign() another fgen.
+-- The queueing system is now recursive: a fgen can new_handle() another fgen.
 -- Meaning configurations can be assembled as call graphs. IE: If you have a
 -- route function A and want to "shadow" some of its requests onto route
 -- function B, instead of making A more complex you can create a third
@@ -35,17 +33,17 @@
 -- API:
 -- fgen = mcp.funcgen_new({ func = generator, arg = a, max_queues = n})
 --  - creates a new factory object. pass this object as the function argument
---  to mcp.attach() or rctx:queue_assign.
+--  to mcp.attach() or rctx:new_handle.
 --
--- handle = rctx:queue_assign(pool||funcgen, [cb])
+-- handle = rctx:new_handle(pool||funcgen, [cb])
 --  - to be called from the factory generator function, pre-assigns a pool or
 --  child fgen and optional callback function. returns a handle.
 --
--- rctx:queue(r, handle || table)
+-- rctx:enqueue(r, handle || table)
 --  - to be called from the request function, queues up a request against the
 --  designated slot handle, or an array style table of N handles
 --
--- res = rctx:queue_and_wait(r, h)
+-- res = rctx:enqueue_and_wait(r, h)
 --  - Directly returns a single result object after asynchronously waiting on
 --  a specified unqueued handle.
 --
@@ -53,7 +51,7 @@
 --  - Directly returns a single result object after asynchronously waiting on
 --  a specified prequeued handle.
 --
--- num_good = rctx:wait_for(count, mode)
+-- num_good = rctx:wait_cond(count, mode)
 --  - Asynchronously waits for up to "count" results out of all currently
 --  queued handles. Takes a mode to filter for valid responses to count:
 --  - mcp.WAIT_OK, WAIT_GOOD, WAIT_ANY
@@ -105,7 +103,7 @@ function new_basic_factory(arg, func)
     -- similar functions.
     o.wait = arg.wait
     for _, v in pairs(arg.list) do
-        table.insert(o.t, fgen:queue_assign(v))
+        table.insert(o.t, fgen:new_handle(v))
         o.c = o.c + 1
     end
 
@@ -117,13 +115,13 @@ function new_prefix_factory(arg)
     local fgen = mcp.funcgen_new()
     local o = {}
     o.pattern = arg.pattern
-    o.default = fgen:queue_assign(arg.default)
+    o.default = fgen:new_handle(arg.default)
 
     o.map = {}
     -- get handler ids for each sub-route value
     -- convert the map.
     for k, v in pairs(arg.list) do
-        o.map[k] = fgen:queue_assign(v)
+        o.map[k] = fgen:new_handle(v)
     end
 
     fgen:ready({ f = prefix_factory_gen, a = o, n = arg.name })
@@ -142,15 +140,15 @@ function prefix_factory_gen(rctx, arg)
 
         local handle = map[string.match(key, p)]
         if handle == nil then
-            return rctx:queue_and_wait(r, d)
+            return rctx:enqueue_and_wait(r, d)
         end
-        return rctx:queue_and_wait(r, handle)
+        return rctx:enqueue_and_wait(r, handle)
     end
 end
 
 function new_direct_factory(arg)
     local fgen = mcp.funcgen_new()
-    local h = fgen:queue_assign(arg.p)
+    local h = fgen:new_handle(arg.p)
     fgen:ready({ f = direct_factory_gen, a = h, n = arg.name })
     return fgen
 end
@@ -160,13 +158,13 @@ function direct_factory_gen(rctx, h)
 
     return function(r)
         say("waiting on a single pool")
-        return rctx:queue_and_wait(r, h)
+        return rctx:enqueue_and_wait(r, h)
     end
 end
 
 function new_locality_factory(arg)
     local fgen = mcp.funcgen_new()
-    local h = fgen:queue_assign(arg.p)
+    local h = fgen:new_handle(arg.p)
     fgen:ready({ f = locality_factory_gen, a = h, n = arg.name })
     return fgen
 end
@@ -181,7 +179,7 @@ function locality_factory_gen(rctx, h)
     return function(r)
         x = x + 1
         say("returning from locality: " .. x)
-        local res = rctx:queue_and_wait(r, h)
+        local res = rctx:enqueue_and_wait(r, h)
         return "HD t" .. x .. "\r\n"
     end
 end
@@ -198,7 +196,7 @@ function first_factory_gen(rctx, arg)
     return function(r)
         say("waiting on first of " .. count .. " pools")
         for x=1, count do
-            rctx:queue(r, t[x])
+            rctx:enqueue(r, t[x])
         end
 
         return rctx:wait_handle(t[1])
@@ -215,10 +213,10 @@ function partial_factory_gen(rctx, arg)
     return function(r)
         say("waiting on first " .. wait .. " out of " .. count)
         for x=1, count do
-            rctx:queue(r, t[x])
+            rctx:enqueue(r, t[x])
         end
 
-        local done = rctx:wait_for(wait)
+        local done = rctx:wait_cond(wait)
         for x=1, count do
             -- :good will only return the result object if the handle's
             -- response was considered "good"
@@ -251,8 +249,8 @@ function all_factory_gen(rctx, arg)
     return function(r)
         say("waiting on " .. count)
 
-        rctx:queue(r, t)
-        local done = rctx:wait_for(count, mode)
+        rctx:enqueue(r, t)
+        local done = rctx:wait_cond(count, mode)
         -- :any will give us the result object for that handle, regardless
         -- of return code/status.
         local res = rctx:any(t[1])
@@ -280,14 +278,14 @@ function fastgood_factory_gen(rctx, arg)
     end
 
     for _, v in pairs(t) do
-        rctx:queue_set_cb(v, cb)
+        rctx:handle_set_cb(v, cb)
     end
 
     return function(r)
         say("first good or wait for N")
 
-        rctx:queue(r, t)
-        local done = rctx:wait_for(wait, mcp.WAIT_GOOD)
+        rctx:enqueue(r, t)
+        local done = rctx:wait_cond(wait, mcp.WAIT_GOOD)
         say("fastgood done:", done)
 
         if done == 1 then
@@ -316,10 +314,10 @@ end
 function new_blocker_factory(arg)
     local fgen = mcp.funcgen_new()
     local o = { c = 0, t = {} }
-    o.b = fgen:queue_assign(arg.blocker)
+    o.b = fgen:new_handle(arg.blocker)
 
     for _, v in pairs(arg.list) do
-        table.insert(o.t, fgen:queue_assign(v))
+        table.insert(o.t, fgen:new_handle(v))
         o.c = o.c + 1
     end
 
@@ -348,17 +346,17 @@ function blocker_factory_gen(rctx, arg)
         end
     end
 
-    rctx:queue_set_cb(blocker, cb)
+    rctx:handle_set_cb(blocker, cb)
 
     return function(r)
         say("function blocker test")
 
         -- queue up the real queries we wanted to run.
-        rctx:queue(r, t)
+        rctx:enqueue(r, t)
 
         -- any wait command will execute all queued queries at once, but here
         -- we only wait for the blocker to complete.
-        local bres = rctx:queue_and_wait(r, blocker)
+        local bres = rctx:enqueue_and_wait(r, blocker)
 
         -- another way of doing this is to ask:
         -- local res = rctx:good(blocker)
@@ -367,7 +365,7 @@ function blocker_factory_gen(rctx, arg)
             -- our blocker is happy...
             -- wait for the rest of the handles to come in and make a decision
             -- on what to return to the client.
-            local done = rctx:wait_for(count, mcp.WAIT_ANY)
+            local done = rctx:wait_cond(count, mcp.WAIT_ANY)
             return rctx:any(t[1])
         else
             return "SERVER_ERROR blocked\r\n"
@@ -388,11 +386,11 @@ function logall_factory_gen(rctx, arg)
     end
 
     for _, v in pairs(t) do
-        rctx:queue_set_cb(v, cb)
+        rctx:handle_set_cb(v, cb)
     end
 
     return function(r)
-        rctx:queue(r, t)
+        rctx:enqueue(r, t)
         return rctx:wait_handle(t[1])
     end
 end
@@ -413,14 +411,14 @@ function summary_factory_gen(rctx, arg)
     end
 
     for _, v in pairs(t) do
-        rctx:queue_set_cb(v, cb)
+        rctx:handle_set_cb(v, cb)
     end
 
     return function(r)
         -- re-seed the todo value that the callback uses
         todo = count
 
-        rctx:queue(r, t)
+        rctx:enqueue(r, t)
         -- we're just waiting for a single response, but we queue all of the
         -- handles. the callback uses data from the shared environment and a
         -- summary is logged.
@@ -437,14 +435,14 @@ function waitfor_factory_gen(rctx, arg)
     return function(r)
         local key = r:key()
         if key == "waitfor/a" then
-            rctx:queue(r, t)
-            rctx:wait_for(0) -- issue the requests in the background
+            rctx:enqueue(r, t)
+            rctx:wait_cond(0) -- issue the requests in the background
             return "HD t1\r\n" -- return whatever to the client
         elseif key == "waitfor/b" then
-            rctx:queue(r, t)
-            rctx:wait_for(0) -- issue requests and resume
+            rctx:enqueue(r, t)
+            rctx:wait_cond(0) -- issue requests and resume
             -- now go back into wait mode, but we've already dispatched
-            local done = rctx:wait_for(2)
+            local done = rctx:wait_cond(2)
             if done ~= 2 then
                 return "SERVER_ERROR invalid wait"
             end
@@ -458,17 +456,17 @@ function waitfor_factory_gen(rctx, arg)
                 return "SERVER_ERROR no good response"
             end
         elseif key == "waitfor/c" then
-            rctx:queue(r, t[1])
-            rctx:wait_for(0) -- issue the first queued request
+            rctx:enqueue(r, t[1])
+            rctx:wait_cond(0) -- issue the first queued request
             -- queue two more
-            rctx:queue(r, t[2])
-            rctx:queue(r, t[3])
+            rctx:enqueue(r, t[2])
+            rctx:enqueue(r, t[3])
             -- wait explicitly for the first queued one.
             return rctx:wait_handle(t[1])
         elseif key == "waitfor/d" then
             -- queue two then wait on each individually
-            rctx:queue(r, t[1])
-            rctx:queue(r, t[2])
+            rctx:enqueue(r, t[1])
+            rctx:enqueue(r, t[2])
             rctx:wait_handle(t[1])
             return rctx:wait_handle(t[2])
         end
@@ -489,13 +487,13 @@ function failover_factory_gen(rctx, arg)
 
     return function(r)
         -- first try local
-        local fres = rctx:queue_and_wait(r, first)
+        local fres = rctx:enqueue_and_wait(r, first)
 
         if fres == nil or fres:hit() == false then
             -- failed to get a local hit, queue all "far" zones.
-            rctx:queue(r, t)
+            rctx:enqueue(r, t)
             -- wait for one.
-            local done = rctx:wait_for(1, mcp.WAIT_GOOD)
+            local done = rctx:wait_cond(1, mcp.WAIT_GOOD)
             -- find the good from the second set.
             for x=1, count-1 do
                 local res = rctx:good(t[x])
@@ -557,8 +555,8 @@ end
 function new_split_factory(arg)
     local fgen = mcp.funcgen_new()
     local o = {}
-    o.a = fgen:queue_assign(arg.a)
-    o.b = fgen:queue_assign(arg.b)
+    o.a = fgen:new_handle(arg.a)
+    o.b = fgen:new_handle(arg.b)
     fgen:ready({ f = split_factory_gen, a = o, n = name })
     return fgen
 end
@@ -576,10 +574,10 @@ function split_factory_gen(rctx, arg)
     return function(r)
         say("splitting traffic")
         -- b is the split path.
-        rctx:queue(r, b)
+        rctx:enqueue(r, b)
 
         -- a is the main path. so we only explicitly wait on and return a.
-        return rctx:queue_and_wait(r, a)
+        return rctx:enqueue_and_wait(r, a)
     end
 end
 
