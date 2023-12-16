@@ -666,8 +666,6 @@ enum mcp_rqueue_state {
     RQUEUE_WAITED
 };
 
-// FIXME: obj_ref -> intptr_t and use for both obj_ref and rctx to cut the
-// total size of the slot down?
 struct mcp_rqueue_s {
     int obj_ref; // reference to pool/func/etc object
     int cb_ref; // if a lua callback was specified

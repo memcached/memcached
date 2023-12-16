@@ -973,12 +973,6 @@ static void proxy_return_rqu_cb(io_pending_t *pending) {
     conn *c = rctx->c;
 
     if (p->client_resp) {
-        if (p->client_resp->blen) {
-            // FIXME: workaround for buffer memory being external to objects.
-            // can't run 0 since that means something special (run the GC)
-            unsigned int kb = p->client_resp->blen / 1000;
-            lua_gc(p->rctx->Lc, LUA_GCSTEP, kb > 0 ? kb : 1);
-        }
         mcp_process_rqueue_return(rctx, p->queue_handle, p->client_resp);
     }
     rctx->pending_reqs--;
