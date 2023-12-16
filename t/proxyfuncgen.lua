@@ -56,12 +56,12 @@
 --  queued handles. Takes a mode to filter for valid responses to count:
 --  - mcp.WAIT_OK, WAIT_GOOD, WAIT_ANY
 --
--- rctx:good(handle)
+-- rctx:res_good(handle)
 --  - returns result object if the queue response was considered "Good", else
 --  nil.
--- rctx:any(handle)
+-- rctx:res_any(handle)
 --  - same but "WAIT_ANY"
--- rctx:ok(handle)
+-- rctx:res_ok(handle)
 --  - same but "WAIT_OK"
 
 verbose = true
@@ -220,7 +220,7 @@ function partial_factory_gen(rctx, arg)
         for x=1, count do
             -- :good will only return the result object if the handle's
             -- response was considered "good"
-            local res = rctx:good(t[x])
+            local res = rctx:res_good(t[x])
             if res ~= nil then
                 say("found a result")
                 return res
@@ -230,7 +230,7 @@ function partial_factory_gen(rctx, arg)
         say("found nothing")
         -- didn't return anything good, so return one at random.
         for x=1, count do
-            local res = rctx:any(t[x])
+            local res = rctx:res_any(t[x])
             if res ~= nil then
                 return res
             end
@@ -253,7 +253,7 @@ function all_factory_gen(rctx, arg)
         local done = rctx:wait_cond(count, mode)
         -- :any will give us the result object for that handle, regardless
         -- of return code/status.
-        local res = rctx:any(t[1])
+        local res = rctx:res_any(t[1])
 
         -- TODO: tally up the responses and return summary for test.
         return res
@@ -292,7 +292,7 @@ function fastgood_factory_gen(rctx, arg)
             -- if we just got one "good", we're probably happy.
             for x=1, count do
                 -- loop to find the good handle.
-                local res = rctx:good(t[x])
+                local res = rctx:res_good(t[x])
                 if res ~= nil then
                     return res
                 end
@@ -302,7 +302,7 @@ function fastgood_factory_gen(rctx, arg)
             -- network error.
             -- but for this test we'll just return the first result.
             for x=1, count do
-                local res = rctx:any(t[x])
+                local res = rctx:res_any(t[x])
                 if res ~= nil then
                     return res
                 end
@@ -359,14 +359,14 @@ function blocker_factory_gen(rctx, arg)
         local bres = rctx:enqueue_and_wait(r, blocker)
 
         -- another way of doing this is to ask:
-        -- local res = rctx:good(blocker)
+        -- local res = rctx:res_good(blocker)
         -- if a result was returned, the callback had returned WAIT_GOOD
         if was_blocked == false then
             -- our blocker is happy...
             -- wait for the rest of the handles to come in and make a decision
             -- on what to return to the client.
             local done = rctx:wait_cond(count, mcp.WAIT_ANY)
-            return rctx:any(t[1])
+            return rctx:res_any(t[1])
         else
             return "SERVER_ERROR blocked\r\n"
         end
@@ -449,7 +449,7 @@ function waitfor_factory_gen(rctx, arg)
             -- TODO: bonus points, count the goods or check that everyone's t
             -- flag is right.
             for x=1, count do
-                local res = rctx:good(x)
+                local res = rctx:res_good(x)
                 if res ~= nil then
                     return res
                 end
@@ -496,14 +496,14 @@ function failover_factory_gen(rctx, arg)
             local done = rctx:wait_cond(1, mcp.WAIT_GOOD)
             -- find the good from the second set.
             for x=1, count-1 do
-                local res = rctx:good(t[x])
+                local res = rctx:res_good(t[x])
                 if res ~= nil then
                     say("found a result")
                     return res
                 end
             end
             -- got nothing from second set, just return anything.
-            return rctx:any(first)
+            return rctx:res_any(first)
         else
             return fres
         end

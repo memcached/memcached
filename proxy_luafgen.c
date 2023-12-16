@@ -1161,7 +1161,7 @@ static inline struct mcp_rqueue_s *_mcplib_rcontext_checkhandle(lua_State *L) {
     return rqu;
 }
 
-int mcplib_rcontext_good(lua_State *L) {
+int mcplib_rcontext_res_good(lua_State *L) {
     struct mcp_rqueue_s *rqu = _mcplib_rcontext_checkhandle(L);
     if (rqu->flags & RQUEUE_R_GOOD) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, rqu->res_ref);
@@ -1171,7 +1171,7 @@ int mcplib_rcontext_good(lua_State *L) {
     return 1;
 }
 
-int mcplib_rcontext_ok(lua_State *L) {
+int mcplib_rcontext_res_ok(lua_State *L) {
     struct mcp_rqueue_s *rqu = _mcplib_rcontext_checkhandle(L);
     if (rqu->flags & (RQUEUE_R_OK|RQUEUE_R_GOOD)) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, rqu->res_ref);
@@ -1181,7 +1181,7 @@ int mcplib_rcontext_ok(lua_State *L) {
     return 1;
 }
 
-int mcplib_rcontext_any(lua_State *L) {
+int mcplib_rcontext_res_any(lua_State *L) {
     struct mcp_rqueue_s *rqu = _mcplib_rcontext_checkhandle(L);
     if (rqu->flags & (RQUEUE_R_ANY|RQUEUE_R_OK|RQUEUE_R_GOOD)) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, rqu->res_ref);
@@ -1191,6 +1191,21 @@ int mcplib_rcontext_any(lua_State *L) {
         lua_pushnil(L);
     }
     return 1;
+}
+
+// returns res, RES_GOOD|OK|ANY
+int mcplib_rcontext_result(lua_State *L) {
+    struct mcp_rqueue_s *rqu = _mcplib_rcontext_checkhandle(L);
+    if (rqu->flags & (RQUEUE_R_ANY|RQUEUE_R_OK|RQUEUE_R_GOOD)) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, rqu->res_ref);
+        // mask away any other queue flags.
+        lua_pushinteger(L, rqu->flags & (RQUEUE_R_ANY|RQUEUE_R_OK|RQUEUE_R_GOOD));
+    } else {
+        lua_pushnil(L);
+        lua_pushnil(L);
+    }
+
+    return 2;
 }
 
 // the supplied handle must be valid.

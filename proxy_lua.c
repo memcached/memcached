@@ -1344,6 +1344,9 @@ static void proxy_register_defines(lua_State *L) {
     Y(QWAIT_OK, "WAIT_OK");
     Y(QWAIT_GOOD, "WAIT_GOOD");
     Y(QWAIT_FASTGOOD, "WAIT_FASTGOOD");
+    Y(RQUEUE_R_GOOD, "RES_GOOD");
+    Y(RQUEUE_R_OK, "RES_OK");
+    Y(RQUEUE_R_ANY, "RES_ANY");
     CMD_FIELDS
 #undef X
 #undef Y
@@ -1413,9 +1416,10 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"wait_cond", mcplib_rcontext_wait_cond},
         {"enqueue_and_wait", mcplib_rcontext_enqueue_and_wait},
         {"wait_handle", mcplib_rcontext_wait_handle},
-        {"good", mcplib_rcontext_good},
-        {"ok", mcplib_rcontext_ok},
-        {"any", mcplib_rcontext_any},
+        {"res_good", mcplib_rcontext_res_good},
+        {"res_ok", mcplib_rcontext_res_ok},
+        {"res_any", mcplib_rcontext_res_any},
+        {"result", mcplib_rcontext_result},
         {NULL, NULL}
     };
 

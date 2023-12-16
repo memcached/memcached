@@ -652,10 +652,10 @@ struct mcp_funcgen_s {
 #define RQUEUE_TYPE_POOL 1
 #define RQUEUE_TYPE_FGEN 2
 #define RQUEUE_ASSIGNED (1<<0)
+#define RQUEUE_R_RESUME (1<<1)
 #define RQUEUE_R_GOOD (1<<3)
 #define RQUEUE_R_OK (1<<4)
 #define RQUEUE_R_ANY (1<<5)
-#define RQUEUE_R_RESUME (1<<6)
 #define RQUEUE_R_ERROR (1<<7)
 
 enum mcp_rqueue_state {
@@ -710,9 +710,10 @@ int mcplib_rcontext_enqueue(lua_State *L);
 int mcplib_rcontext_wait_cond(lua_State *L);
 int mcplib_rcontext_wait_handle(lua_State *L);
 int mcplib_rcontext_enqueue_and_wait(lua_State *L);
-int mcplib_rcontext_good(lua_State *L);
-int mcplib_rcontext_any(lua_State *L);
-int mcplib_rcontext_ok(lua_State *L);
+int mcplib_rcontext_res_good(lua_State *L);
+int mcplib_rcontext_res_any(lua_State *L);
+int mcplib_rcontext_res_ok(lua_State *L);
+int mcplib_rcontext_result(lua_State *L);
 int mcplib_funcgenbare_new(lua_State *L);
 int mcplib_funcgen_new(lua_State *L);
 int mcplib_funcgen_new_handle(lua_State *L);
