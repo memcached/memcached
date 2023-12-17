@@ -63,6 +63,8 @@
 --  - same but "WAIT_ANY"
 -- rctx:res_ok(handle)
 --  - same but "WAIT_OK"
+-- res, mode = rctx:result(handle)
+--  - returns result object, mcp.RESULT_GOOD|OK|ANY
 
 verbose = true
 -- global for an error handling test
@@ -308,6 +310,31 @@ function fastgood_factory_gen(rctx, arg)
                 end
             end
         end
+    end
+end
+
+-- fastgood implemented using internal fastgood state
+function fastgoodint_factory_gen(rctx, arg)
+    local t = arg.t
+    local count = arg.c
+    local wait = arg.wait
+
+    return function(r)
+        rctx:enqueue(r, t)
+        local done = rctx:wait_cond(wait, mcp.WAIT_FASTGOOD)
+        say("fastgoodint done:", done)
+
+        local final = nil
+        for x=1, count do
+            local res, mode = rctx:result(t[x])
+            if mode == mcp.WAIT_GOOD then
+                return res
+            elseif res ~= nil then
+                final = res
+            end
+        end
+        -- if no good found, return anything.
+        return final
     end
 end
 
@@ -630,6 +657,7 @@ function mcp_config_routes(p)
     local partial = new_basic_factory({ list = p, wait = 2, name = "partial" }, partial_factory_gen)
     local all = new_basic_factory({ list = p, name = "all" }, all_factory_gen)
     local fastgood = new_basic_factory({ list = p, wait = 2, name = "fastgood" }, fastgood_factory_gen)
+    local fastgoodint = new_basic_factory({ list = p, wait = 2, name = "fastgoodint" }, fastgoodint_factory_gen)
     local blocker = new_blocker_factory({ blocker = b_pool, list = p, name = "blocker" })
     local logall = new_basic_factory({ list = p, name = "logall" }, logall_factory_gen)
     local summary = new_basic_factory({ list = p, name = "summary" }, summary_factory_gen)
@@ -651,6 +679,7 @@ function mcp_config_routes(p)
         ["partial"] = partial,
         ["all"] = all,
         ["fastgood"] = fastgood,
+        ["fastgoodint"] = fastgoodint,
         ["blocker"] = blocker,
         ["logall"] = logall,
         ["summary"] = summary,

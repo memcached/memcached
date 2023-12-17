@@ -200,6 +200,34 @@ sub test_waitfor {
     note 'stress testing rctx:wait_cond scenarios';
 
     my $func_before = mem_stats($ps, "proxyfuncs");
+    subtest 'wait_fastgood: hit, c_recv, miss miss' => sub {
+        $t->c_send("mg fastgoodint/a\r\n");
+        $t->be_recv_c([0, 1, 2]);
+        $t->be_send(0, "HD t1\r\n");
+        $t->c_recv_be('first good response');
+        $t->be_send([1, 2], "EN Ohmm\r\n");
+        $t->clear();
+    };
+
+    subtest 'wait_fastgood: miss, miss, c_recv, hit' => sub {
+        $t->c_send("mg fastgoodint/a\r\n");
+        $t->be_recv_c([0, 1, 2]);
+        $t->be_send([1, 2], "EN Ommh\r\n");
+        $t->c_recv_be('received miss');
+        $t->be_send([0], "HD t40\r\n");
+        $t->clear();
+    };
+
+    subtest 'wait_fastgood: miss, hit, hit' => sub {
+        $t->c_send("mg fastgoodint/a\r\n");
+        $t->be_recv_c([0, 1, 2]);
+        $t->be_send(0, "EN Omhh\r\n");
+        $t->be_send(1, "HD t43\r\n");
+        $t->be_send(2, "HD t44\r\n");
+        $t->c_recv("HD t43\r\n", 'received first');
+        $t->clear();
+    };
+
     subtest 'wait_cond(0)' => sub {
         $t->c_send("mg waitfor/a\r\n");
         $t->c_recv("HD t1\r\n", 'client response before backends receive cmd');
