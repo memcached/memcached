@@ -1170,9 +1170,6 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
     p->flushed = false;
     p->return_cb = proxy_return_rctx_cb;
     p->finalize_cb = proxy_finalize_rctx_cb;
-    // FIXME: Why was I doing this?
-    // - conn cannot resume until all queued requests resolve
-    //rctx->resp->io_pending = (io_pending_t *)p;
 
     // pass along the request context for resumption.
     p->rctx = rctx;
