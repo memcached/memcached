@@ -62,7 +62,6 @@ char* itoa_u32(uint32_t u, char* p) {
 }
 
 int main() {
-
     uint32_t u = __VERIFIER_nondet_uint();
     char p = __VERIFIER_nondet_char();
     printf("uint32_t: %u, char: %c\n", u, p);
