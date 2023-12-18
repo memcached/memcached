@@ -1148,6 +1148,9 @@ mcp_resp_t *mcp_prep_resobj(lua_State *L, mcp_request_t *rq, mcp_backend_t *be, 
 }
 
 // Used for any cases where we're queueing requests to the IO subsystem.
+// NOTE: it's not currently possible to limit the memory used by the IO
+// object cache. So this check is redundant, and any callers may proceed
+// as though it is successful.
 io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, mcp_backend_t *be, mcp_resp_t *r) {
     conn *c = rctx->c;
     io_queue_t *q = conn_io_queue_get(c, IO_QUEUE_PROXY);
@@ -1155,6 +1158,8 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
     if (p == NULL) {
         WSTAT_INCR(c->thread, proxy_conn_oom, 1);
         proxy_lua_error(rctx->Lc, "out of memory allocating from IO cache");
+        // NOTE: the error call above jumps to an error handler, so this does
+        // not actually return.
         return NULL;
     }
 

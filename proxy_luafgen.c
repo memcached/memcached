@@ -1015,7 +1015,6 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
             // absolutely cannot queue things once *c becomes invalid.
             // need to assert/block this from happening.
             mcp_set_resobj(rqu->res_obj, rq, be, rctx->fgen->thread);
-            // FIXME: check for NULL on the IO object and handle.
             io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, rq, be, rqu->res_obj);
             p->return_cb = proxy_return_rqu_cb;
             p->queue_handle = handle;
@@ -1078,7 +1077,6 @@ int mcplib_rcontext_wait_cond(lua_State *L) {
 
     // waiting for none, meaning just execute the queues.
     if (wait == 0) {
-        // FIXME: error handling for p == NULL
         io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, NULL, NULL, NULL);
         p->return_cb = proxy_return_rqu_dummy_cb;
         p->await_background = true;
