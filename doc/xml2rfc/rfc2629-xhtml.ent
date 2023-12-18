@@ -6,7 +6,7 @@
 
      These are known to (X)HTML, so any converter to these
      formats can just leave them as is without having
-     to invoke this file from the output file.
+     to invoke this file from the output_pjh file.
 
      Conversion to txt or nroff format will replace
      these entities by the parenthesized text.

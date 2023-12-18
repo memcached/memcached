@@ -206,7 +206,7 @@ enum conn_states {
     conn_new_cmd,    /**< Prepare connection for next command */
     conn_waiting,    /**< waiting for a readable socket */
     conn_read,       /**< reading in a command line */
-    conn_parse_cmd,  /**< try to parse a command from the input buffer */
+    conn_parse_cmd,  /**< try to parse a command from the input_pjh buffer */
     conn_write,      /**< writing out a simple response */
     conn_nread,      /**< reading in a fixed number of bytes */
     conn_swallow,    /**< swallowing unnecessary bytes w/o storing */
@@ -545,7 +545,7 @@ struct settings {
 #ifdef PROXY
     bool proxy_enabled;
     bool proxy_uring; /* if the proxy should use io_uring */
-    bool proxy_memprofile; /* output detail of lua allocations */
+    bool proxy_memprofile; /* output_pjh detail of lua allocations */
     char *proxy_startfile; /* lua file to run when workers start */
     void *proxy_ctx; /* proxy's state context */
 #endif
@@ -893,7 +893,7 @@ struct conn {
     int keylen;
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
-    int (*try_read_command)(conn *c); /* pointer for top level input parser */
+    int (*try_read_command)(conn *c); /* pointer for top level input_pjh parser */
     ssize_t (*read)(conn  *c, void *buf, size_t count);
     ssize_t (*sendmsg)(conn *c, struct msghdr *msg, int flags);
     ssize_t (*write)(conn *c, void *buf, size_t count);

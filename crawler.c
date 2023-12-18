@@ -31,7 +31,7 @@ typedef struct {
     int sfd; /* client fd. */
     int buflen;
     int bufused;
-    char *buf; /* output buffer */
+    char *buf; /* output_pjh buffer */
 } crawler_client_t;
 
 typedef struct _crawler_module_t crawler_module_t;

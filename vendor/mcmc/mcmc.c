@@ -211,7 +211,7 @@ static int _mcmc_parse_response(mcmc_ctx_t *ctx, mcmc_resp_t *r) {
                     // specific return code so user can see pipeline end.
                     code = MCMC_CODE_NOP;
                 } else if (buf[1] == 'E') {
-                    // ME is the debug output line.
+                    // ME is the debug output_pjh line.
                     // TODO: this just gets returned as an rline?
                     // specific code? specific type?
                     // ME <key> <key=value debug line>

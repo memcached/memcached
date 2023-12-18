@@ -205,7 +205,7 @@ typedef struct  {
     bool failed_flush; /* recently failed to write out (EAGAIN), wait before retry */
     enum logger_watcher_type t; /* stderr, client, syslog, etc */
     uint16_t eflags; /* flags we are interested in */
-    bipbuf_t *buf; /* per-watcher output buffer */
+    bipbuf_t *buf; /* per-watcher output_pjh buffer */
 } logger_watcher;
 
 

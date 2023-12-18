@@ -43,7 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /* Changes from original code:
  * - decode table is pre-generated
  * - no line splitting on encoder
- * - output buffers are passed in instead of malloc'ed
+ * - output_pjh buffers are passed in instead of malloc'ed
  * - returns encoded/decoded length instead of pointer.
  */
 
@@ -82,8 +82,8 @@ static const unsigned char dtable[256] = {
  * base64_encode - Base64 encode
  * @src: Data to be encoded
  * @len: Length of the data to be encoded
- * @out: output uffer
- * @out_len: length of output buffer
+ * @out: output_pjh uffer
+ * @out_len: length of output_pjh buffer
  * Returns: Number of actual bytes encoded into the buffer
  * or 0 on failure
  *
@@ -104,7 +104,7 @@ size_t base64_encode(const unsigned char *src, size_t len,
         return 0; /* integer overflow */
     }
     if (olen > out_len) {
-        return 0; /* not enough space in output buffer */
+        return 0; /* not enough space in output_pjh buffer */
     }
     if (out == NULL) {
         return 0;
@@ -144,7 +144,7 @@ size_t base64_encode(const unsigned char *src, size_t len,
  * @src: Data to be decoded
  * @len: Length of the data to be decoded
  * @out: Output buffer to decode into
- * @out_len: Length of output buffer
+ * @out_len: Length of output_pjh buffer
  * Returns: Length of encoded data, or 0 on failure
  */
 size_t base64_decode(const unsigned char *src, size_t len,

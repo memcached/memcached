@@ -134,7 +134,7 @@ char *stats_prefix_dump(int *length) {
     /*
      * Figure out how big the buffer needs to be. This is the sum of the
      * lengths of the prefixes themselves, plus the size of one copy of
-     * the per-prefix output with 20-digit values for all the counts,
+     * the per-prefix output_pjh with 20-digit values for all the counts,
      * plus space for the "END" at the end.
      */
     STATS_LOCK();

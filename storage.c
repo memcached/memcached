@@ -95,7 +95,7 @@ void process_extstore_stats(ADD_STAT add_stats, conn *c) {
     }
 }
 
-// Additional storage stats for the main stats output.
+// Additional storage stats for the main stats output_pjh.
 void storage_stats(ADD_STAT add_stats, conn *c) {
     struct extstore_stats st;
     if (c->thread->storage) {

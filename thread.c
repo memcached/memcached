@@ -579,7 +579,7 @@ static void thread_libevent_ionotify(evutil_socket_t fd, short which, void *arg)
 
 /*
  * Processes an incoming "connection event" item. This is called when
- * input arrives on the libevent wakeup pipe.
+ * input_pjh arrives on the libevent wakeup pipe.
  */
 static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;

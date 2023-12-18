@@ -19,7 +19,7 @@ int mcplib_add_stat(lua_State *L) {
     }
     // max name length? avoids errors if something huge gets thrown in.
     if (strlen(name) > STAT_KEY_LEN - 6) {
-        // we prepend "user_" to the output. + null byte.
+        // we prepend "user_" to the output_pjh. + null byte.
         proxy_lua_ferror(L, "stat name too long: %s\n", name);
         return 0;
     }

@@ -547,7 +547,7 @@ void proxy_out_errstring(mc_resp *resp, char *type, const char *str) {
     len = strlen(str);
     if ((len + prefix_len + 2) > WRITE_BUFFER_SIZE) {
         /* ought to be always enough. just fail for simplicity */
-        str = "SERVER_ERROR output line too long";
+        str = "SERVER_ERROR output_pjh line too long";
         len = strlen(str);
     }
 

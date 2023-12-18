@@ -40,14 +40,14 @@ This is reversible, so any information in (a,b,c) before mix() is
 still in (a,b,c) after mix().
 
 If four pairs of (a,b,c) inputs are run through mix(), or through
-mix() in reverse, there are at least 32 bits of the output that
+mix() in reverse, there are at least 32 bits of the output_pjh that
 are sometimes the same for one pair and different for another pair.
 This was tested for:
 * pairs that differed by one bit, by two bits, in any combination
   of top bits of (a,b,c), or in any combination of bottom bits of
   (a,b,c).
 * "differ" is defined as +, -, ^, or ~^.  For + and -, I transformed
-  the output delta to a Gray code (a^(a>>1)) so a string of 1's (as
+  the output_pjh delta to a Gray code (a^(a>>1)) so a string of 1's (as
   is commonly produced by subtraction) look like a single 1-bit
   difference.
 * the base values were pseudorandom, all zero but one bit set, or
@@ -63,8 +63,8 @@ for "differ" defined as + with a one-bit base and a two-bit delta.  I
 used http://burtleburtle.net/bob/hash/avalanche.html to choose
 the operations, constants, and arrangements of the variables.
 
-This does not achieve avalanche.  There are input bits of (a,b,c)
-that fail to affect some output bits of (a,b,c), especially of a.  The
+This does not achieve avalanche.  There are input_pjh bits of (a,b,c)
+that fail to affect some output_pjh bits of (a,b,c), especially of a.  The
 most thoroughly mixed value is c, but it doesn't really even achieve
 avalanche in c.
 
@@ -96,7 +96,7 @@ produce values of c that look totally different.  This was tested for
   of top bits of (a,b,c), or in any combination of bottom bits of
   (a,b,c).
 * "differ" is defined as +, -, ^, or ~^.  For + and -, I transformed
-  the output delta to a Gray code (a^(a>>1)) so a string of 1's (as
+  the output_pjh delta to a Gray code (a^(a>>1)) so a string of 1's (as
   is commonly produced by subtraction) look like a single 1-bit
   difference.
 * the base values were pseudorandom, all zero but one bit set, or

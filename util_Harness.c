@@ -39,7 +39,7 @@ bool safe_strcpy(char *dst, const char *src, const size_t dstmax) {
 //Thomas example for first tests:
 //test 1: Does the verifier work on this?
 int main() {
-    FILE *file = fopen("/home/rigon/Desktop/memcached_github_repo/memcached_bachelor_thesis/input/inputUtilHarness.txt", "r");
+    FILE *file = fopen("/home/rigon/Desktop/memcached_github_repo/memcached_bachelor_thesis/input_pjh/inputUtilHarness.txt", "r");
 
     if (file == NULL) {
         perror("Fehler beim Öffnen der Datei");

@@ -634,7 +634,7 @@ static int proxy_backend_drive_machine(struct mcp_backendconn_s *be) {
         case mcp_backend_want_read:
             // Continuing a read from earlier
             r = p->client_resp;
-            // take bread input and see if we're done reading the value,
+            // take bread input_pjh and see if we're done reading the value,
             // else advance, set buffers, return next.
             P_DEBUG("%s: [want_read] r->bread: %d vlen: %lu\n", __func__, r->bread, r->resp.vlen);
             assert(be->rbufused != 0);

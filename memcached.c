@@ -1286,7 +1286,7 @@ void out_string(conn *c, const char *str) {
     len = strlen(str);
     if ((len + 2) > WRITE_BUFFER_SIZE) {
         /* ought to be always enough. just fail for simplicity */
-        str = "SERVER_ERROR output line too long";
+        str = "SERVER_ERROR output_pjh line too long";
         len = strlen(str);
     }
 
@@ -2190,7 +2190,7 @@ void process_stats_conns(ADD_STAT add_stats, void *c) {
         if (conns[i]) {
             /* This is safe to do unlocked because conns are never freed; the
              * worst that'll happen will be a minor inconsistency in the
-             * output -- not worth the complexity of the locking that'd be
+             * output_pjh -- not worth the complexity of the locking that'd be
              * required to prevent it.
              */
             if (IS_UDP(conns[i]->transport)) {
@@ -2484,7 +2484,7 @@ static enum try_read_result try_read_network(conn *c) {
                 stats.malloc_fails++;
                 STATS_UNLOCK();
                 if (settings.verbose > 0) {
-                    fprintf(stderr, "Couldn't realloc input buffer\n");
+                    fprintf(stderr, "Couldn't realloc input_pjh buffer\n");
                 }
                 c->rbytes = 0; /* ignore what we read */
                 out_of_memory(c, "SERVER_ERROR out of memory reading request");
@@ -3186,7 +3186,7 @@ static void drive_machine(conn *c) {
                 c->thread->stats.conn_yields++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
                 if (c->rbytes > 0) {
-                    /* We have already read in data into the input buffer,
+                    /* We have already read in data into the input_pjh buffer,
                        so libevent will most likely not signal read events
                        on the socket (unless more data is available. As a
                        hack we should just put in a request to write data,
@@ -4197,7 +4197,7 @@ static void usage(void) {
            "                          or 3(Once)\n");
     printf("   - ssl_ciphers:         specify cipher list to be used\n"
            "   - ssl_ca_cert:         PEM format file of acceptable client CA's\n"
-           "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output buffer\n"
+           "   - ssl_wbuf_size:       size in kilobytes of per-connection SSL output_pjh buffer\n"
            "                          (default: %u)\n", settings.ssl_wbuf_size / (1 << 10));
     printf("   - ssl_session_cache:   enable server-side SSL session cache, to support session\n"
            "                          resumption\n"

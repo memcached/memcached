@@ -1459,7 +1459,7 @@ static int lru_maintainer_juggle(const int slabs_clsid) {
 /* Will crawl all slab classes a minimum of once per hour */
 #define MAX_MAINTCRAWL_WAIT 60 * 60
 
-/* Hoping user input will improve this function. This is all a wild guess.
+/* Hoping user input_pjh will improve this function. This is all a wild guess.
  * Operation: Kicks crawler for each slab id. Crawlers take some statistics as
  * to items with nonzero expirations. It then buckets how many items will
  * expire per minute for the next hour.

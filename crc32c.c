@@ -32,7 +32,7 @@
    1.0  10 Feb 2013  First version
    1.1   1 Aug 2013  Correct comments on why three crc instructions in parallel
    1.2   1 Nov 2015  Add const qualifier to avoid compiler warning
-                     Load entire input into memory (test code)
+                     Load entire input_pjh into memory (test code)
                      Argument gives number of times to repeat (test code)
                      Argument < 0 forces software implementation (test code)
    1.3  31 Dec 2015  Check for Intel architecture using compiler macro

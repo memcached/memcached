@@ -31,7 +31,7 @@ void stats_prefix_record_delete(const char *key, const size_t nkey);
 void stats_prefix_record_set(const char *key, const size_t nkey);
 
 /* Return the collected stats in a textual for suitable for writing to a client.
- * The size of the output text is stored in the length parameter.
+ * The size of the output_pjh text is stored in the length parameter.
  * Returns NULL on error
  */
 char *stats_prefix_dump(int *length);

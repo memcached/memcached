@@ -802,7 +802,7 @@ static void send_ascii_command(const char *buf) {
 
 /*
  * This is a dead slow single byte read, but it should only read out
- * _one_ response and I don't have an input buffer... The current
+ * _one_ response and I don't have an input_pjh buffer... The current
  * implementation only supports single-line responses, so if you want to use
  * it for get commands you need to implement that first ;-)
  */

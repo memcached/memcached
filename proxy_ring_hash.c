@@ -252,7 +252,7 @@ static int ketama_new(lua_State *L) {
     // NOTE: rawlen skips metatable redirection. if we care; lua_len instead.
     lua_Unsigned total = lua_rawlen(L, 1);
 
-    // check for optional input
+    // check for optional input_pjh
     int argc = lua_gettop(L);
     if (argc > 1) {
         luaL_checktype(L, 2, LUA_TTABLE);

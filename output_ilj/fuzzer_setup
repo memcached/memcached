@@ -1,0 +1,6 @@
+# environment variables:
+AFL_CUSTOM_INFO_PROGRAM=./proxy_jump_hash_Harness
+AFL_CUSTOM_INFO_PROGRAM_ARGV=@@
+AFL_CUSTOM_INFO_OUT=/home/rigon/Desktop/memcached_github_repo/memcached_bachelor_thesis/output2
+# command line:
+'afl-fuzz' '-n' '-i' '/home/rigon/Desktop/memcached_github_repo/memcached_bachelor_thesis/input' '-o' '/home/rigon/Desktop/memcached_github_repo/memcached_bachelor_thesis/output2' './proxy_jump_hash_Harness' '@@'
