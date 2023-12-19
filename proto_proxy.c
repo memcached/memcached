@@ -1169,7 +1169,6 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
     p->io_queue_type = IO_QUEUE_PROXY;
     p->thread = c->thread;
     p->c = c;
-    p->resp = rctx->resp; // FIXME: necessary?
     p->client_resp = r;
     p->flushed = false;
     p->return_cb = proxy_return_rctx_cb;
