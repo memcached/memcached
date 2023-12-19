@@ -462,13 +462,14 @@ int mcplib_funcgenbare_new(lua_State *L) {
     return 1;
 }
 
+#define FGEN_DEFAULT_FREELIST_SIZE 8
 int mcplib_funcgen_new(lua_State *L) {
     LIBEVENT_THREAD *t = PROXY_GET_THR(L);
 
     mcp_funcgen_t *fgen = lua_newuserdatauv(L, sizeof(mcp_funcgen_t), 2);
     memset(fgen, 0, sizeof(mcp_funcgen_t));
     fgen->thread = t;
-    fgen->free_max = 8; // FIXME: define
+    fgen->free_max = FGEN_DEFAULT_FREELIST_SIZE;
     fgen->list = calloc(fgen->free_max, sizeof(mcp_rcontext_t *));
 
     luaL_getmetatable(L, "mcp.funcgen");
@@ -588,8 +589,7 @@ int mcplib_rcontext_handle_set_cb(lua_State *L) {
     luaL_checktype(L, 3, LUA_TFUNCTION);
 
     int handle = lua_tointeger(L, 2);
-    // FIXME: is this an off-by-one? :P handle >= ?
-    if (handle < 0 || handle > rctx->fgen->max_queues) {
+    if (handle < 0 || handle >= rctx->fgen->max_queues) {
         proxy_lua_error(L, "invalid handle passed to queue_set_cb");
         return 0;
     }
@@ -606,7 +606,7 @@ int mcplib_rcontext_handle_set_cb(lua_State *L) {
 // call with request object on top of stack.
 // pops the request object
 static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_request_t *rq, int handle) {
-    if (handle < 0 || handle > rctx->fgen->max_queues) {
+    if (handle < 0 || handle >= rctx->fgen->max_queues) {
         proxy_lua_error(L, "invalid handle passed to queue");
         return;
     }
@@ -1117,7 +1117,7 @@ int mcplib_rcontext_wait_handle(lua_State *L) {
     int isnum = 0;
     int handle = lua_tointegerx(L, 2, &isnum);
 
-    if (!isnum || handle < 0 || handle > rctx->fgen->max_queues) {
+    if (!isnum || handle < 0 || handle >= rctx->fgen->max_queues) {
         proxy_lua_error(L, "invalid handle passed to wait_handle");
         return 0;
     }
@@ -1141,7 +1141,7 @@ static inline struct mcp_rqueue_s *_mcplib_rcontext_checkhandle(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     int isnum = 0;
     int handle = lua_tointegerx(L, 2, &isnum);
-    if (!isnum || handle < 0 || handle > rctx->fgen->max_queues) {
+    if (!isnum || handle < 0 || handle >= rctx->fgen->max_queues) {
         proxy_lua_error(L, "invalid queue handle passed to :good/:ok:/:any");
         return NULL;
     }
