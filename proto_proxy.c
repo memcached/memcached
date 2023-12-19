@@ -1182,7 +1182,7 @@ io_pending_proxy_t *mcp_queue_rctx_io(mcp_rcontext_t *rctx, mcp_request_t *rq, m
         // The direct backend object. Lc is holding the reference in the stack
         p->backend = be;
 
-        mcp_request_attach(rctx->Lc, rq, p);
+        mcp_request_attach(rq, p);
     }
 
     // HACK

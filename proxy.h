@@ -750,7 +750,7 @@ int mcplib_open_dist_ring_hash(lua_State *L);
 
 int proxy_run_rcontext(mcp_rcontext_t *rctx);
 mcp_backend_t *mcplib_pool_proxy_call_helper(mcp_pool_proxy_t *pp, const char *key, size_t len);
-void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p);
+void mcp_request_attach(mcp_request_t *rq, io_pending_proxy_t *p);
 int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len);
 void proxy_lua_error(lua_State *L, const char *s);
 #define proxy_lua_ferror(L, fmt, ...) \

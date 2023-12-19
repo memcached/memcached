@@ -890,7 +890,6 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
     }
 
     assert(rctx->pending_reqs != 0);
-    // FIXME: need to only check R_RESUME if NOT QWAIT_HANDLE?
     if ((status & RQUEUE_R_RESUME) || rctx->wait_done == rctx->wait_count || rctx->pending_reqs == 1) {
         // ran out of stuff to wait for. time to resume.
         // TODO: can we do the settop at the yield? nothing we need to

@@ -541,7 +541,7 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len) 
 }
 
 // FIXME: remove lua_state from arguments.
-void mcp_request_attach(lua_State *L, mcp_request_t *rq, io_pending_proxy_t *p) {
+void mcp_request_attach(mcp_request_t *rq, io_pending_proxy_t *p) {
     mcp_parser_t *pr = &rq->pr;
     char *r = (char *) pr->request;
     size_t len = pr->reqlen;
