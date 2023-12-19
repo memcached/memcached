@@ -1035,7 +1035,6 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
 // a list of handles? expand wait_cond()
 
 // takes num, filter mode
-// TODO: if count is zero, queue dummy IO to force submission.
 int mcplib_rcontext_wait_cond(lua_State *L) {
     // TODO: protect against double waitfor?
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
