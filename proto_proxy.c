@@ -1023,7 +1023,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     // hook is owned by a function generator.
     mcp_rcontext_t *rctx = mcp_funcgen_start(L, hook_ref.ctx, &pr);
     if (rctx == NULL) {
-        proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "lua failure");
+        proxy_out_errstring(c->resp, PROXY_SERVER_ERROR, "lua start failure");
         WSTAT_DECR(c->thread, proxy_req_active, 1);
         if (pr.vlen != 0) {
             c->sbytes = pr.vlen;
