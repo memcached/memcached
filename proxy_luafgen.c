@@ -271,9 +271,8 @@ mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_
             return NULL;
         }
     }
-    // FIXME: check on the fgen->self_ref usage here. I'm 99% sure it's
-    // impossible to get here without self_ref set because attach would
-    // have to be overridden already, so the fgen is inaccessible.
+    // fgen->self_ref must be valid because we cannot start a function that
+    // hasn't been referenced anywhere.
     mcp_rcontext_t *rctx = mcp_funcgen_get_rctx(L, fgen->self_ref, fgen);
 
     if (rctx == NULL) {
