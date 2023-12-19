@@ -633,6 +633,14 @@ function failgenret_factory_gen(rctx)
     end
 end
 
+function badreturn_gen(rctx)
+    -- returning a userdata that isn't the correct kind of userdata.
+    -- shouldn't crash the daemon!
+    return function(r)
+        return rctx
+    end
+end
+
 -- TODO: this might be supported only in a later update.
 -- new queue after parent return
 -- - do an immediate return + cb queue, queue from that callback
@@ -668,6 +676,7 @@ function mcp_config_routes(p)
     local errors = new_error_factory(errors_factory_gen, "errors")
     local suberrors = new_error_factory(suberrors_factory_gen, "suberrors")
     local suberr_wrap = new_direct_factory({ p = suberrors, name = "suberrwrap" })
+    local badreturn = new_error_factory(badreturn_gen, "badreturn")
 
     -- for testing traffic splitting.
     local split = new_split_factory({ a = single, b = singletwo, name = "split" })
@@ -690,6 +699,7 @@ function mcp_config_routes(p)
         ["split"] = split,
         ["splitfailover"] = splitfailover,
         ["locality"] = locality,
+        ["badreturn"] = badreturn,
     }
 
     local parg = {

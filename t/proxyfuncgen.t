@@ -68,6 +68,13 @@ sub test_errors {
         $t->c_send("$cmd$cmd");
         $t->c_recv("NF\r\n");
         $t->c_recv("SERVER_ERROR lua failure\r\n");
+        $t->clear();
+    };
+
+    subtest 'wrong return object' => sub {
+        $t->c_send("mg badreturn/a\r\n");
+        $t->c_recv("SERVER_ERROR bad response\r\n");
+        $t->clear();
     };
 }
 

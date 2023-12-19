@@ -744,10 +744,9 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
         if (!rctx->parent) {
             WSTAT_DECR(c->thread, proxy_req_active, 1);
             int type = lua_type(Lc, 1);
+            mcp_resp_t *r = NULL;
             P_DEBUG("%s: coroutine completed. return type: %d\n", __func__, type);
-            if (type == LUA_TUSERDATA) {
-                // TODO: panic'ing here crashes the daemon.
-                mcp_resp_t *r = luaL_checkudata(Lc, 1, "mcp.response");
+            if (type == LUA_TUSERDATA && (r = luaL_testudata(Lc, 1, "mcp.response")) != NULL) {
                 _set_noreply_mode(resp, r);
                 if (r->status != MCMC_OK && r->resp.type != MCMC_RESP_ERRMSG) {
                     proxy_out_errstring(resp, PROXY_SERVER_ERROR, "backend failure");

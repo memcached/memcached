@@ -720,18 +720,18 @@ static void mcp_start_subrctx(mcp_rcontext_t *rctx) {
     struct mcp_rqueue_s *rqu = &rctx->parent->qslots[rctx->parent_handle];
     if (res == LUA_OK) {
         int type = lua_type(rctx->Lc, 1);
-        if (type == LUA_TUSERDATA) {
+        mcp_resp_t *r = NULL;
+        if (type == LUA_TUSERDATA && (r = luaL_testudata(rctx->Lc, 1, "mcp.response")) != NULL) {
             // move stack result object into parent rctx rqu slot.
-            // FIXME: crashes. use testudata and internal error handling.
-            mcp_resp_t *r = luaL_checkudata(rctx->Lc, 1, "mcp.response");
             assert(rqu->res_ref == 0);
             rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
 
             io_pending_proxy_t *p = mcp_queue_rctx_io(rctx->parent, NULL, NULL, r);
             p->return_cb = proxy_return_rqu_cb;
             p->queue_handle = rctx->parent_handle;
-            p->await_background = true; // FIXME: change name of property to
-                                        // fast-return.
+            // TODO: change name of property to fast-return once mcp.await is
+            // retired.
+            p->await_background = true;
         } else if (type == LUA_TSTRING) {
             // TODO: wrap with a resobj and parse it.
             // for now we bypass the rqueue process handling
@@ -762,10 +762,9 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
         struct mcp_rqueue_s *rqu = &rctx->parent->qslots[rctx->parent_handle];
         if (res == LUA_OK) {
             int type = lua_type(rctx->Lc, 1);
-            if (type == LUA_TUSERDATA) {
+            mcp_resp_t *r = NULL;
+            if (type == LUA_TUSERDATA && (r = luaL_testudata(rctx->Lc, 1, "mcp.response")) != NULL) {
                 // move stack result object into parent rctx rqu slot.
-                // FIXME: crashes. use testudata and internal error handling.
-                mcp_resp_t *r = luaL_checkudata(rctx->Lc, 1, "mcp.response");
                 assert(rqu->res_ref == 0);
                 rqu->res_ref = luaL_ref(rctx->Lc, LUA_REGISTRYINDEX);
                 mcp_process_rqueue_return(rctx->parent, rctx->parent_handle, r);
