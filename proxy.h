@@ -718,7 +718,7 @@ int mcplib_funcgen_new_handle(lua_State *L);
 int mcplib_funcgen_ready(lua_State *L);
 int mcplib_router_new(lua_State *L);
 mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr);
-mcp_rcontext_t *mcplib_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *fgen);
+mcp_rcontext_t *mcp_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *fgen);
 void mcp_funcgen_return_rctx(mcp_rcontext_t *rctx);
 int mcplib_funcgen_gc(lua_State *L);
 void mcp_funcgen_reference(lua_State *L);

@@ -72,7 +72,7 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
             // owner funcgen already holds the subfgen reference, so here we're just
             // grabbing a subrctx to pin into the slot.
             mcp_funcgen_t *fg = frqu->obj;
-            mcp_rcontext_t *subrctx = mcplib_funcgen_get_rctx(L, fg->self_ref, fg);
+            mcp_rcontext_t *subrctx = mcp_funcgen_get_rctx(L, fg->self_ref, fg);
             if (subrctx == NULL) {
                 proxy_lua_error(L, "failed to generate request slot during queue_assign()");
             }
@@ -235,8 +235,7 @@ void mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     _mcplib_funcgen_cache(fgen, rctx);
 }
 
-// FIXME: mcplib -> mcp?
-mcp_rcontext_t *mcplib_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *fgen) {
+mcp_rcontext_t *mcp_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *fgen) {
     mcp_rcontext_t *rctx = NULL;
     // nothing left in slot cache, generate a new function.
     if (fgen->free == 0) {
@@ -275,7 +274,7 @@ mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_
     // FIXME: check on the fgen->self_ref usage here. I'm 99% sure it's
     // impossible to get here without self_ref set because attach would
     // have to be overridden already, so the fgen is inaccessible.
-    mcp_rcontext_t *rctx = mcplib_funcgen_get_rctx(L, fgen->self_ref, fgen);
+    mcp_rcontext_t *rctx = mcp_funcgen_get_rctx(L, fgen->self_ref, fgen);
 
     if (rctx == NULL) {
         return NULL;
