@@ -429,10 +429,8 @@ void proxy_return_rctx_cb(io_pending_t *pending) {
     mcp_rcontext_t *rctx = p->rctx;
     lua_rotate(rctx->Lc, 1, 1);
     lua_settop(rctx->Lc, 1);
-    // FIXME: ensure this was intentional.
-    // if we're making a sub-request that comes from extstore the iop needs to
-    // hang around.
-    //rctx->resp->io_pending = NULL;
+    // hold the resp for a minute.
+    mc_resp *resp = rctx->resp;
 
     proxy_run_rcontext(rctx);
     mcp_funcgen_return_rctx(rctx);
@@ -440,7 +438,12 @@ void proxy_return_rctx_cb(io_pending_t *pending) {
     io_queue_t *q = conn_io_queue_get(p->c, p->io_queue_type);
     // Detatch the iop from the mc_resp and free it here.
     conn *c = p->c;
-    do_cache_free(p->thread->io_cache, p);
+    if (p->io_type != IO_PENDING_TYPE_EXTSTORE) {
+        // if we're doing an extstore subrequest, the iop needs to live until
+        // resp's ->finish_cb is called.
+        resp->io_pending = NULL;
+        do_cache_free(p->thread->io_cache, p);
+    }
 
     q->count--;
     if (q->count == 0) {
@@ -465,9 +468,6 @@ void proxy_finalize_rctx_cb(io_pending_t *pending) {
             }
             item_remove(p->hdr_it);
         }
-    } else {
-        // FIXME: remove this after completing audit.
-        assert(1 == 0);
     }
 }
 
@@ -810,18 +810,24 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                 break;
             case MCP_YIELD_INTERNAL:
                 // stack should be: rq, res
-                res = mcplib_internal_run(rctx);
-                if (res == 0) {
-                    // stack should still be: rq, res
-                    // TODO: turn this function into a for loop that re-runs on
-                    // certain status codes, to avoid recursive depth here.
-                    // or maybe... a goto? :P
-                    proxy_run_rcontext(rctx);
-                } else if (res > 0) {
-                    // internal run queued for extstore.
+                if (rctx->parent) {
+                    LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, "cannot run mcp.internal from a sub request");
+                    rctx->pending_reqs--;
+                    return LUA_ERRRUN;
                 } else {
-                    assert(res < 0);
-                    proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad request");
+                    res = mcplib_internal_run(rctx);
+                    if (res == 0) {
+                        // stack should still be: rq, res
+                        // TODO: turn this function into a for loop that re-runs on
+                        // certain status codes, to avoid recursive depth here.
+                        // or maybe... a goto? :P
+                        proxy_run_rcontext(rctx);
+                    } else if (res > 0) {
+                        // internal run queued for extstore.
+                    } else {
+                        assert(res < 0);
+                        proxy_out_errstring(resp, PROXY_SERVER_ERROR, "bad request");
+                    }
                 }
                 break;
             case MCP_YIELD_WAITCOND:

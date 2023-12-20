@@ -67,7 +67,7 @@ sub test_errors {
         my $cmd = "md failgen/a\r\n";
         $t->c_send("$cmd$cmd");
         $t->c_recv("NF\r\n");
-        $t->c_recv("SERVER_ERROR lua failure\r\n");
+        $t->c_recv("SERVER_ERROR lua start failure\r\n");
         $t->clear();
     };
 

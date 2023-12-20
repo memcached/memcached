@@ -794,8 +794,6 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
         // level resp object and is now complete.
         // HACK
         // see notes in proxy_run_rcontext()
-        // FIXME: this may be incomplete, as mcp.internal() can make
-        // IO_QUEUE_EXTSTORE requests; need to audit the callbacks for that.
         // NOTE: this function is called from rqu_cb(), which pushes the
         // submission loop. This code below can call drive_machine(), which
         // calls submission loop if stuff is queued.
