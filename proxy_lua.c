@@ -1084,7 +1084,7 @@ static int mcplib_attach(lua_State *L) {
         loop_end = hook + 1;
     }
 
-    void *fgen = NULL;
+    mcp_funcgen_t *fgen = NULL;
     if (lua_isfunction(L, 2)) {
         // create a funcgen with null generator that calls this function
         lua_pushvalue(L, 2); // function must be at top of stack.
@@ -1097,7 +1097,12 @@ static int mcplib_attach(lua_State *L) {
     } else if ((fgen = luaL_testudata(L, 2, "mcp.funcgen")) != NULL) {
         // good
     } else {
-        proxy_lua_error(L, "Must pass a function to mcp.attach");
+        proxy_lua_error(L, "mcp.attach: must pass a function");
+        return 0;
+    }
+
+    if (fgen->closed) {
+        proxy_lua_error(L, "mcp.attach: cannot use a previously replaced function");
         return 0;
     }
 

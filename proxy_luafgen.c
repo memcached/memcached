@@ -501,6 +501,10 @@ int mcplib_funcgen_new_handle(lua_State *L) {
             proxy_lua_error(L, "cannot assign a router to a handle in new_handle");
             return 0;
         }
+        if (fg->closed) {
+            proxy_lua_error(L, "cannot use a replaced function in new_handle");
+            return 0;
+        }
     } else {
         proxy_lua_error(L, "invalid argument to new_handle");
         return 0;
