@@ -52,7 +52,7 @@ sub test_basic {
     subtest 'top level in memory mcp.internal() values' => sub {
         $t->c_send("ms top/a 2 F1 Oa1\r\nhi\r\n");
         $t->c_recv("HD Oa1\r\n", "set small value");
-        
+
         $t->c_send("mg top/a v f Oa2\r\n");
         $t->c_recv("VA 2 f1 Oa2\r\n", "header received");
         $t->c_recv("hi\r\n", "payload received");
