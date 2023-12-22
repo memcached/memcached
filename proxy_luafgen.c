@@ -497,9 +497,12 @@ int mcplib_funcgen_new_handle(lua_State *L) {
     if ((pp = luaL_testudata(L, 2, "mcp.pool_proxy")) != NULL) {
         // good.
     } else if ((fg = luaL_testudata(L, 2, "mcp.funcgen")) != NULL) {
-        // good
+        if (fg->router.type != FGEN_ROUTER_NONE) {
+            proxy_lua_error(L, "cannot assign a router to a handle in new_handle");
+            return 0;
+        }
     } else {
-        proxy_lua_error(L, "invalid argument to queue_assign");
+        proxy_lua_error(L, "invalid argument to new_handle");
         return 0;
     }
 
@@ -510,7 +513,7 @@ int mcplib_funcgen_new_handle(lua_State *L) {
         fgen->queue_list = realloc(fgen->queue_list, fgen->max_queues * sizeof(struct mcp_rqueue_s));
     }
     if (fgen->queue_list == NULL) {
-        proxy_lua_error(L, "failed to realloc queue list during queue_assign()");
+        proxy_lua_error(L, "failed to realloc queue list during new_handle()");
         return 0;
     }
 
