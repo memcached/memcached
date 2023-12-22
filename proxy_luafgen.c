@@ -646,14 +646,14 @@ static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_reque
 // first arg is rcontext
 // then a request object
 // then either a handle (integer) or array style table of handles
-// TODO: block queueing if the rctx is currently waiting
-// TODO: if passing to an fgen:
-// - prep the function reference into its coroutine
-// - lua_xmove the request object into place
-// - but don't execute it yet.
 int mcplib_rcontext_enqueue(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     mcp_request_t *rq = luaL_checkudata(L, 2, "mcp.request");
+
+    if (rctx->wait_mode != QWAIT_IDLE) {
+        proxy_lua_error(L, "enqueue: cannot enqueue new requests while in a wait");
+        return 0;
+    }
 
     if (!rq->pr.keytoken) {
         proxy_lua_error(L, "cannot queue requests without a key");
@@ -1048,7 +1048,6 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
 
 // takes num, filter mode
 int mcplib_rcontext_wait_cond(lua_State *L) {
-    // TODO: protect against double waitfor?
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     int mode = QWAIT_ANY;
     int wait = 0;
