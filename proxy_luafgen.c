@@ -179,6 +179,7 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     } else {
         lua_settop(rctx->Lc, 0);
     }
+    rctx->wait_mode = QWAIT_IDLE;
     rctx->resp = NULL;
     rctx->first_queue = false; // HACK
     if (rctx->request) {
@@ -857,6 +858,12 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
     // we can also resume if we are in wait mode but pending_reqs is down
     // to 1.
     switch (rctx->wait_mode) {
+        case QWAIT_IDLE:
+            // should be impossible to get here.
+            // TODO: find a better path for throwing real errors from these
+            // side cases. would feel better long term.
+            abort();
+            break;
         case QWAIT_GOOD:
             if (status & RQUEUE_R_GOOD) {
                 rctx->wait_done++;
@@ -906,7 +913,7 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
         } else {
             lua_pushinteger(rctx->Lc, rctx->wait_done);
         }
-        rctx->wait_mode = QWAIT_ANY;
+        rctx->wait_mode = QWAIT_IDLE;
 
         mcp_resume_rctx_from_cb(rctx);
     }
@@ -1046,6 +1053,11 @@ int mcplib_rcontext_wait_cond(lua_State *L) {
     int mode = QWAIT_ANY;
     int wait = 0;
 
+    if (rctx->wait_mode != QWAIT_IDLE) {
+        proxy_lua_error(L, "wait_cond: cannot call while already in wait mode");
+        return 0;
+    }
+
     if (!lua_isnumber(L, 2)) {
         proxy_lua_error(L, "must pass number to wait_cond");
         return 0;
@@ -1081,6 +1093,7 @@ int mcplib_rcontext_wait_cond(lua_State *L) {
         p->return_cb = proxy_return_rqu_dummy_cb;
         p->await_background = true;
         rctx->pending_reqs++;
+        rctx->wait_mode = QWAIT_IDLE; // not actually waiting.
     }
 
     lua_pushinteger(L, MCP_YIELD_WAITCOND);
@@ -1092,6 +1105,11 @@ int mcplib_rcontext_enqueue_and_wait(lua_State *L) {
     mcp_request_t *rq = luaL_checkudata(L, 2, "mcp.request");
     int isnum = 0;
     int handle = lua_tointegerx(L, 3, &isnum);
+
+    if (rctx->wait_mode != QWAIT_IDLE) {
+        proxy_lua_error(L, "wait_cond: cannot call while already in wait mode");
+        return 0;
+    }
 
     if (!rq->pr.keytoken) {
         proxy_lua_error(L, "cannot queue requests without a key");
@@ -1119,6 +1137,11 @@ int mcplib_rcontext_wait_handle(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     int isnum = 0;
     int handle = lua_tointegerx(L, 2, &isnum);
+
+    if (rctx->wait_mode != QWAIT_IDLE) {
+        proxy_lua_error(L, "wait_cond: cannot call while already in wait mode");
+        return 0;
+    }
 
     if (!isnum || handle < 0 || handle >= rctx->fgen->max_queues) {
         proxy_lua_error(L, "invalid handle passed to wait_handle");

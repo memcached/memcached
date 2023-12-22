@@ -597,7 +597,8 @@ void proxy_return_rctx_cb(io_pending_t *pending);
 void proxy_finalize_rctx_cb(io_pending_t *pending);
 
 enum mcp_rqueue_e {
-    QWAIT_ANY = 0,
+    QWAIT_IDLE = 0,
+    QWAIT_ANY,
     QWAIT_OK,
     QWAIT_GOOD,
     QWAIT_FASTGOOD,
