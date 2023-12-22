@@ -25,6 +25,16 @@ function d_factory(rctx)
     end
 end
 
+function string_fgen(msg)
+    local fg = mcp.funcgen_new()
+    fg:ready({ f = function(rctx)
+        return function(r)
+            return msg
+        end
+    end})
+    return fg
+end
+
 -- TODO: make default path and some other paths that return static data
 function mcp_config_routes(p)
     local fg = mcp.funcgen_new()
@@ -37,6 +47,8 @@ function mcp_config_routes(p)
     local map = {
         ["one"] = fg,
         ["two"] = fg,
+        ["cmd"] = { [mcp.CMD_MG] = string_fgen("SERVER_ERROR cmd_mg\r\n"),
+            [mcp.CMD_MS] = string_fgen("SERVER_ERROR cmd_ms\r\n") },
     }
 
     local rpfx_short = mcp.router_new({ map = map, mode = "prefix", stop = "|", default = def_fg })

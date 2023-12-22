@@ -31,11 +31,22 @@ $t->set_c($ps);
 $t->accept_backends();
 
 {
+    test_submap();
     test_basic();
     test_separators();
 }
 
 done_testing();
+
+sub test_submap {
+    subtest 'check sub map routing' => sub {
+        $t->c_send("mg cmd|test t3\r\n");
+        $t->c_recv("SERVER_ERROR cmd_mg\r\n", "routed to sub-mg function");
+        $t->c_send("ms cmd+#+test 2 T3\r\nhi\r\n");
+        $t->c_recv("SERVER_ERROR cmd_ms\r\n", "routed to sub-ms function");
+        $t->clear();
+    };
+}
 
 sub test_basic {
     # If there's a lua stack leak somewhere running the query a few hundred
