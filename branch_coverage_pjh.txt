@@ -1,0 +1,379 @@
+id:000000,time:0,execs:0,orig:proxy_jump_hash_input.txt:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:80.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:50.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:41.51% of 53
+
+id:000001,time:0,execs:0,orig:test_0:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:80.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:50.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:41.51% of 53
+
+id:000002,src:000001,time:4,execs:19,op:havoc,rep:2,+cov:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:100.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:100.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:47.17% of 53
+
+id:000003,src:000002,time:22,execs:55,op:flip1,pos:0:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:100.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:100.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:47.17% of 53
+
+id:000004,src:000002,time:68,execs:195,op:flip2,pos:4:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:100.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:100.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:47.17% of 53
+
+id:000005,src:000002,time:577,execs:1795,op:int32,pos:8,val:+0,+cov:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:100.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:100.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:47.17% of 53
+
+id:000006,src:000002,time:580,execs:1805,op:int32,pos:8,val:+16:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:100.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:100.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:47.17% of 53
+
+id:000007,src:000002,time:583,execs:1814,op:int32,pos:8,val:+32:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:100.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:100.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:47.17% of 53
+
+id:000008,src:000002,time:624,execs:1942,op:havoc,rep:7:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:100.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:100.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:47.17% of 53
+
+id:000009,src:000002,time:693,execs:2156,op:havoc,rep:14:
+
+File 'proxy_jump_hash_Harness.c'
+Lines executed:100.00% of 15
+Branches executed:100.00% of 2
+Taken at least once:100.00% of 2
+Calls executed:100.00% of 4
+Creating 'proxy_jump_hash_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:15.38% of 13
+Creating 'string_fortified.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:47.17% of 53
