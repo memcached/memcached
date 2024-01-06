@@ -13,30 +13,29 @@ struct cache_free_s {
     STAILQ_ENTRY(cache_free_s) c_next;
 };
 
-//typedef STAILQ_HEAD(cache_head_s, cache_free_s) cache_head_t;
 /**
- * Definition of the structure to keep track of the internal details of
- * the cache allocator. Touching any of these variables results in
- * undefined behavior.
+ * 结构体，用于跟踪缓存分配器的内部细节。
+ * 触摸这些变量中的任何一个都会导致未定义行为。
  */
 typedef struct {
-    /** Mutex to protect access to the structure */
+    /** 用于保护对结构的访问的互斥锁 */
     pthread_mutex_t mutex;
-    /** Name of the cache objects in this cache (provided by the caller) */
+    /** 缓存对象的名称（由调用者提供） */
     char *name;
-    /** freelist of available buffers */
+    /** 可用缓冲区的自由列表 */
     STAILQ_HEAD(cache_head, cache_free_s) head;
-    /** The size of each element in this cache */
+    /** 每个元素在此缓存中的大小 */
     size_t bufsize;
-    /** The capacity of the list of elements */
+    /** 元素列表的容量 */
     int freetotal;
-    /** Total malloc'ed objects */
+    /** 分配的对象总数 */
     int total;
-    /** The current number of free elements */
+    /** 当前空闲元素的数量 */
     int freecurr;
-    /** A limit on the total number of elements */
+    /** 元素总数的限制 */
     int limit;
 } cache_t;
+
 
 /**
  * Create an object cache.

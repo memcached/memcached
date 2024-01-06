@@ -323,10 +323,14 @@ struct name {								\
 #define	STAILQ_HEAD_INITIALIZER(head)					\
 	{ NULL, &(head).stqh_first }
 
-#define	STAILQ_ENTRY(type)						\
-struct {								\
-	struct type *stqe_next;	/* next element */			\
+/**
+ * 定义单链表入口的宏，用于指定类型。
+ */
+#define STAILQ_ENTRY(type)                  \
+struct {                                   \
+    struct type *stqe_next; /* 下一个元素 */  \
 }
+
 
 #define	STAILQ_CLASS_ENTRY(type)					\
 struct {								\

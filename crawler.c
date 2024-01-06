@@ -845,15 +845,22 @@ void lru_crawler_resume(void) {
     pthread_mutex_unlock(&lru_crawler_lock);
 }
 
+/*
+ * 初始化LRU爬行器。
+ */
 int init_lru_crawler(void *arg) {
     if (lru_crawler_initialized == 0) {
 #ifdef EXTSTORE
         storage = arg;
 #endif
+        // 初始化活跃的爬行器模块
         active_crawler_mod.c.c = NULL;
         active_crawler_mod.mod = NULL;
         active_crawler_mod.data = NULL;
+        
+        // 标记LRU爬行器已初始化
         lru_crawler_initialized = 1;
     }
     return 0;
 }
+

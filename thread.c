@@ -43,20 +43,24 @@ enum conn_queue_item_modes {
 #endif
 };
 typedef struct conn_queue_item CQ_ITEM;
+/**
+ * 表示连接队列中的一个项目的结构体。
+ */
 struct conn_queue_item {
-    int               sfd;
-    enum conn_states  init_state;
-    int               event_flags;
-    int               read_buffer_size;
-    enum network_transport     transport;
-    enum conn_queue_item_modes mode;
-    conn *c;
-    void    *ssl;
-    uint64_t conntag;
-    enum protocol bproto;
-    io_pending_t *io; // IO when used for deferred IO handling.
-    STAILQ_ENTRY(conn_queue_item) i_next;
+    int               sfd;                     // 套接字文件描述符
+    enum conn_states  init_state;              // 连接的初始状态
+    int               event_flags;             // 表示连接事件的标志位
+    int               read_buffer_size;        // 读缓冲区的大小
+    enum network_transport transport;           // 网络传输类型
+    enum conn_queue_item_modes mode;           // 连接队列项的模式
+    conn *c;                                  // 连接对象
+    void    *ssl;                             // SSL/TLS 信息（如果适用）
+    uint64_t conntag;                         // 连接的唯一标识符
+    enum protocol bproto;                     // 用于通信的协议
+    io_pending_t *io;                         // 延迟IO处理时使用的IO
+    STAILQ_ENTRY(conn_queue_item) i_next;     // 连接队列中的下一个项目
 };
+
 
 /* A connection queue. */
 typedef struct conn_queue CQ;
@@ -272,17 +276,23 @@ void stop_threads(void) {
 }
 
 /*
- * Initializes a connection queue.
+ * 初始化连接队列。
  */
 static void cq_init(CQ *cq) {
+    // 初始化连接队列的互斥锁
     pthread_mutex_init(&cq->lock, NULL);
+
+    // 初始化连接队列的头部
     STAILQ_INIT(&cq->head);
+
+    // 创建连接队列的缓存
     cq->cache = cache_create("cq", sizeof(CQ_ITEM), sizeof(char *));
     if (cq->cache == NULL) {
-        fprintf(stderr, "Failed to create connection queue cache\n");
+        fprintf(stderr, "无法创建连接队列缓存\n");
         exit(EXIT_FAILURE);
     }
 }
+
 
 /*
  * Looks for an item on a connection queue, but doesn't block if there isn't
@@ -374,94 +384,122 @@ static void notify_worker_fd(LIBEVENT_THREAD *t, int sfd, enum conn_queue_item_m
 }
 
 /*
- * Creates a worker thread.
+ * 创建工作线程。
  */
 static void create_worker(void *(*func)(void *), void *arg) {
     pthread_attr_t  attr;
     int             ret;
 
+    // 初始化线程属性
     pthread_attr_init(&attr);
 
+    // 创建线程并运行指定的函数
     if ((ret = pthread_create(&((LIBEVENT_THREAD*)arg)->thread_id, &attr, func, arg)) != 0) {
-        fprintf(stderr, "Can't create thread: %s\n",
-                strerror(ret));
+        fprintf(stderr, "无法创建线程: %s\n", strerror(ret));
         exit(1);
     }
 
+    // 为线程设置名称
     thread_setname(((LIBEVENT_THREAD*)arg)->thread_id, "mc-worker");
 }
 
+
 /*
- * Sets whether or not we accept new connections.
+ * 设置是否接受新连接。
+ * Parameters:
+ *   - do_accept: 指示是否接受新连接的布尔值。
  */
 void accept_new_conns(const bool do_accept) {
+    // 线程安全地锁住连接锁
     pthread_mutex_lock(&conn_lock);
+
+    // 调用实际处理新连接的函数
     do_accept_new_conns(do_accept);
+
+    // 解锁连接锁
     pthread_mutex_unlock(&conn_lock);
 }
+
 /****************************** LIBEVENT THREADS *****************************/
 
+/*
+ * 设置线程通知机制。
+ * Parameters:
+ *   - me: 指向当前线程结构体的指针。
+ *   - tn: 指向线程通知结构体的指针。
+ *   - cb: 线程通知回调函数。
+ */
 static void setup_thread_notify(LIBEVENT_THREAD *me, struct thread_notify *tn,
         void(*cb)(int, short, void *)) {
-#ifdef HAVE_EVENTFD
-    event_set(&tn->notify_event, tn->notify_event_fd,
-              EV_READ | EV_PERSIST, cb, me);
-#else
-    event_set(&tn->notify_event, tn->notify_receive_fd,
-              EV_READ | EV_PERSIST, cb, me);
-#endif
+    #ifdef HAVE_EVENTFD
+        // 使用eventfd进行线程通知
+        event_set(&tn->notify_event, tn->notify_event_fd,
+                  EV_READ | EV_PERSIST, cb, me);
+    #else
+        // 在没有eventfd的情况下，使用管道进行线程通知
+        event_set(&tn->notify_event, tn->notify_receive_fd,
+                  EV_READ | EV_PERSIST, cb, me);
+    #endif
+
+    // 将事件与当前线程的事件处理基底关联
     event_base_set(me->base, &tn->notify_event);
 
+    // 将事件添加到事件处理基底中，并设置为持久事件
     if (event_add(&tn->notify_event, 0) == -1) {
         fprintf(stderr, "Can't monitor libevent notify pipe\n");
         exit(1);
     }
 }
 
+
 /*
- * Set up a thread's information.
+ * 设置线程的信息。
  */
 static void setup_thread(LIBEVENT_THREAD *me) {
 #if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
+    // 使用新版本的libevent API设置线程的event base，并禁用基本的锁
     struct event_config *ev_config;
     ev_config = event_config_new();
     event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
     me->base = event_base_new_with_config(ev_config);
     event_config_free(ev_config);
 #else
+    // 使用旧版本的libevent API初始化线程的event base
     me->base = event_init();
 #endif
 
-    if (! me->base) {
-        fprintf(stderr, "Can't allocate event base\n");
+    if (!me->base) {
+        fprintf(stderr, "无法分配event base\n");
         exit(1);
     }
 
-    /* Listen for notifications from other threads */
+    /* 监听来自其他线程的通知 */
     setup_thread_notify(me, &me->n, thread_libevent_process);
     setup_thread_notify(me, &me->ion, thread_libevent_ionotify);
     pthread_mutex_init(&me->ion_lock, NULL);
     STAILQ_INIT(&me->ion_head);
 
+    // 分配连接队列
     me->ev_queue = malloc(sizeof(struct conn_queue));
     if (me->ev_queue == NULL) {
-        perror("Failed to allocate memory for connection queue");
+        perror("无法为连接队列分配内存");
         exit(EXIT_FAILURE);
     }
     cq_init(me->ev_queue);
 
+    // 初始化统计信息的互斥锁
     if (pthread_mutex_init(&me->stats.mutex, NULL) != 0) {
-        perror("Failed to initialize mutex");
+        perror("无法初始化互斥锁");
         exit(EXIT_FAILURE);
     }
 
+    // 创建读缓冲区的缓存
     me->rbuf_cache = cache_create("rbuf", READ_BUFFER_SIZE, sizeof(char *));
     if (me->rbuf_cache == NULL) {
-        fprintf(stderr, "Failed to create read buffer cache\n");
+        fprintf(stderr, "无法创建读缓冲区缓存\n");
         exit(EXIT_FAILURE);
     }
-    // Note: we were cleanly passing in num_threads before, but this now
-    // relies on settings globals too much.
+    // 注意: 以前是干净地传递num_threads的，但现在太过依赖settings全局变量。
     if (settings.read_buf_mem_limit) {
         int limit = settings.read_buf_mem_limit / settings.num_threads;
         if (limit < READ_BUFFER_SIZE) {
@@ -472,47 +510,51 @@ static void setup_thread(LIBEVENT_THREAD *me) {
         cache_set_limit(me->rbuf_cache, limit);
     }
 
-    me->io_cache = cache_create("io", sizeof(io_pending_t), sizeof(char*));
+    // 创建IO对象的缓存
+    me->io_cache = cache_create("io", sizeof(io_pending_t), sizeof(char *));
     if (me->io_cache == NULL) {
-        fprintf(stderr, "Failed to create IO object cache\n");
+        fprintf(stderr, "无法创建IO对象缓存\n");
         exit(EXIT_FAILURE);
     }
 #ifdef TLS
+    // 如果启用SSL，则分配SSL写缓冲区
     if (settings.ssl_enabled) {
         me->ssl_wbuf = (char *)malloc((size_t)settings.ssl_wbuf_size);
         if (me->ssl_wbuf == NULL) {
-            fprintf(stderr, "Failed to allocate the SSL write buffer\n");
+            fprintf(stderr, "无法分配SSL写缓冲区\n");
             exit(EXIT_FAILURE);
         }
     }
 #endif
 #ifdef EXTSTORE
-    // me->storage is set just before this function is called.
+    // 设置线程的存储引擎
     if (me->storage) {
-        thread_io_queue_add(me, IO_QUEUE_EXTSTORE, me->storage,
-            storage_submit_cb);
+        thread_io_queue_add(me, IO_QUEUE_EXTSTORE, me->storage, storage_submit_cb);
     }
 #endif
 #ifdef PROXY
+    // 向IO队列添加代理任务
     thread_io_queue_add(me, IO_QUEUE_PROXY, settings.proxy_ctx, proxy_submit_cb);
 
-    // TODO: maybe register hooks to be called here from sub-packages? ie;
-    // extstore, TLS, proxy.
+    // TODO: 或许可以在这里从子包注册需要调用的钩子? 比如; extstore, TLS, proxy.
     if (settings.proxy_enabled) {
+        // 初始化代理线程
         proxy_thread_init(settings.proxy_ctx, me);
     }
 #endif
+    // 向IO队列添加空任务
     thread_io_queue_add(me, IO_QUEUE_NONE, NULL, NULL);
 }
 
+
 /*
- * Worker thread: main event loop
+ * 工作线程: 主事件循环
  */
 static void *worker_libevent(void *arg) {
     LIBEVENT_THREAD *me = arg;
 
-    /* Any per-thread setup can happen here; memcached_thread_init() will block until
-     * all threads have finished initializing.
+    /* 在这里进行任何线程特定的设置；memcached_thread_init() 将会阻塞直到
+     * 所有线程完成初始化。
      */
     me->l = logger_create();
     me->lru_bump_buf = item_lru_bump_buf_create();
@@ -520,20 +562,25 @@ static void *worker_libevent(void *arg) {
         abort();
     }
 
+    // 如果设置了降低权限选项，则降低工作线程的权限
     if (settings.drop_privileges) {
         drop_worker_privileges();
     }
 
+    // 注册线程初始化完成
     register_thread_initialized();
 
+    // 进入libevent的事件循环
     event_base_loop(me->base, 0);
 
-    // same mechanism used to watch for all threads exiting.
+    // 使用相同的机制检测所有线程是否退出
     register_thread_initialized();
 
+    // 释放libevent的事件基础结构
     event_base_free(me->base);
     return NULL;
 }
+
 
 // Syscalls can be expensive enough that handling a few of them once here can
 // save both throughput and overall latency.
@@ -578,21 +625,19 @@ static void thread_libevent_ionotify(evutil_socket_t fd, short which, void *arg)
 }
 
 /*
- * Processes an incoming "connection event" item. This is called when
- * input arrives on the libevent wakeup pipe.
+ * 处理一个传入的“连接事件”项目。当libevent的唤醒管道上有输入时调用。
  */
 static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     CQ_ITEM *item;
     conn *c;
-    uint64_t ev_count = 0; // max number of events to loop through this run.
+    uint64_t ev_count = 0; // 本轮最大事件循环次数。
 #ifdef HAVE_EVENTFD
-    // NOTE: unlike pipe we aren't limiting the number of events per read.
-    // However we do limit the number of queue pulls to what the count was at
-    // the time of this function firing.
+    // 注意：与管道不同，我们没有限制每次读取的事件数量。
+    // 但我们确实限制了队列拉取的次数，即在此函数触发时的计数。
     if (read(fd, &ev_count, sizeof(uint64_t)) != sizeof(uint64_t)) {
         if (settings.verbose > 0)
-            fprintf(stderr, "Can't read from libevent pipe\n");
+            fprintf(stderr, "无法从libevent管道中读取\n");
         return;
     }
 #else
@@ -601,7 +646,7 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
     ev_count = read(fd, buf, MAX_PIPE_EVENTS);
     if (ev_count == 0) {
         if (settings.verbose > 0)
-            fprintf(stderr, "Can't read from libevent pipe\n");
+            fprintf(stderr, "无法从libevent管道中读取\n");
         return;
     }
 #endif
@@ -619,11 +664,11 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                                    me->base, item->ssl, item->conntag, item->bproto);
                 if (c == NULL) {
                     if (IS_UDP(item->transport)) {
-                        fprintf(stderr, "Can't listen for events on UDP socket\n");
+                        fprintf(stderr, "无法监听UDP套接字上的事件\n");
                         exit(1);
                     } else {
                         if (settings.verbose > 0) {
-                            fprintf(stderr, "Can't listen for events on fd %d\n",
+                            fprintf(stderr, "无法监听fd %d 上的事件\n",
                                 item->sfd);
                         }
 #ifdef TLS
@@ -646,19 +691,19 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
                 }
                 break;
             case queue_pause:
-                /* we were told to pause and report in */
+                /* 被告知暂停并报告 */
                 register_thread_initialized();
                 break;
             case queue_timeout:
-                /* a client socket timed out */
+                /* 客户端套接字超时 */
                 conn_close_idle(conns[item->sfd]);
                 break;
             case queue_redispatch:
-                /* a side thread redispatched a client connection */
+                /* 侧线程重新分发客户端连接 */
                 conn_worker_readd(conns[item->sfd]);
                 break;
             case queue_stop:
-                /* asked to stop */
+                /* 被要求停止 */
                 event_base_loopexit(me->base, NULL);
                 break;
 #ifdef PROXY
@@ -671,6 +716,7 @@ static void thread_libevent_process(evutil_socket_t fd, short which, void *arg) 
         cqi_free(me->ev_queue, item);
     }
 }
+
 
 // Interface is slightly different on various platforms.
 // On linux, at least, the len limit is 16 bytes.
@@ -695,6 +741,11 @@ static int last_thread = -1;
 /* Last thread we assigned to a connection based on napi_id */
 static int last_thread_by_napi_id = -1;
 
+/**
+ * 以轮询方式选择下一个事件处理线程
+ * 
+ * @return 返回选中的事件处理线程对象
+ */
 static LIBEVENT_THREAD *select_thread_round_robin(void)
 {
     int tid = (last_thread + 1) % settings.num_threads;
@@ -704,22 +755,31 @@ static LIBEVENT_THREAD *select_thread_round_robin(void)
     return threads + tid;
 }
 
+/**
+ * 重置所有事件处理线程的NAPI ID
+ */
 static void reset_threads_napi_id(void)
 {
     LIBEVENT_THREAD *thread;
     int i;
 
+    // 遍历所有事件处理线程，将其NAPI ID重置为0
     for (i = 0; i < settings.num_threads; i++) {
          thread = threads + i;
          thread->napi_id = 0;
     }
 
-    last_thread_by_napi_id = -1;
+    last_thread_by_napi_id = -1;  // 重置最后一个NAPI ID的记录
 }
 
-/* Select a worker thread based on the NAPI ID of an incoming connection
- * request. NAPI ID is a globally unique ID that identifies a NIC RX queue
- * on which a flow is received.
+
+/**
+ * 根据连接请求的NAPI ID选择一个工作线程
+ * NAPI ID是一个全局唯一的标识符，用于标识一个NIC RX队列
+ * 在该队列上接收到的流。
+ * 
+ * @param sfd 套接字文件描述符
+ * @return 返回选中的工作线程对象
  */
 static LIBEVENT_THREAD *select_thread_by_napi_id(int sfd)
 {
@@ -730,6 +790,8 @@ static LIBEVENT_THREAD *select_thread_by_napi_id(int sfd)
 
     len = sizeof(socklen_t);
     err = getsockopt(sfd, SOL_SOCKET, SO_INCOMING_NAPI_ID, &napi_id, &len);
+
+    // 获取NAPI ID失败或者NAPI ID为0，则使用轮询方式选择线程
     if ((err == -1) || (napi_id == 0)) {
         STATS_LOCK();
         stats.round_robin_fallback++;
@@ -738,20 +800,26 @@ static LIBEVENT_THREAD *select_thread_by_napi_id(int sfd)
     }
 
 select:
+    // 遍历所有线程，根据NAPI ID选择一个线程
     for (i = 0; i < settings.num_threads; i++) {
          thread = threads + i;
+
+         // 如果线程的NAPI ID之前未被记录，或者是第一个具有该NAPI ID的线程
          if (last_thread_by_napi_id < i) {
              thread->napi_id = napi_id;
              last_thread_by_napi_id = i;
              tid = i;
              break;
          }
+
+         // 如果线程的NAPI ID与给定NAPI ID相同，则选择该线程
          if (thread->napi_id == napi_id) {
              tid = i;
              break;
          }
     }
 
+    // 如果未找到匹配的线程，记录异常的NAPI ID数量，重置所有线程的NAPI ID，重新选择
     if (tid == -1) {
         STATS_LOCK();
         stats.unexpected_napi_ids++;
@@ -760,33 +828,38 @@ select:
         goto select;
     }
 
-    return threads + tid;
+    return threads + tid;  // 返回选中的工作线程对象
 }
 
+
 /*
- * Dispatches a new connection to another thread. This is only ever called
- * from the main thread, either during initialization (for UDP) or because
- * of an incoming connection.
+ * 将新连接分派给另一个线程。这只能从主线程调用，要么是在初始化时（用于UDP），要么是因为有新连接到来。
  */
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport, void *ssl,
                        uint64_t conntag, enum protocol bproto) {
+    // 申明一个连接队列项指针
     CQ_ITEM *item = NULL;
+
+    // 获取目标线程
     LIBEVENT_THREAD *thread;
 
+    // 根据是否启用 NAPI，选择线程的分配方式
     if (!settings.num_napi_ids)
         thread = select_thread_round_robin();
     else
         thread = select_thread_by_napi_id(sfd);
 
+    // 分配一个连接队列项
     item = cqi_new(thread->ev_queue);
     if (item == NULL) {
+        // 如果分配失败，关闭连接并输出错误信息
         close(sfd);
-        /* given that malloc failed this may also fail, but let's try */
         fprintf(stderr, "Failed to allocate memory for connection object\n");
         return;
     }
 
+    // 设置连接队列项的各项属性
     item->sfd = sfd;
     item->init_state = init_state;
     item->event_flags = event_flags;
@@ -797,9 +870,13 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     item->conntag = conntag;
     item->bproto = bproto;
 
+    // 记录连接调度的信息，包括连接描述符和目标线程的线程ID
     MEMCACHED_CONN_DISPATCH(sfd, (int64_t)thread->thread_id);
+
+    // 通知目标线程处理新连接
     notify_worker(thread, item);
 }
+
 
 /*
  * Re-dispatches a connection back to the original thread. Can be called from
@@ -1068,17 +1145,22 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     }
 }
 
+/*
+ * 初始化线程通知结构体。
+ */
 static void memcached_thread_notify_init(struct thread_notify *tn) {
 #ifdef HAVE_EVENTFD
+        // 使用eventfd创建通知事件描述符
         tn->notify_event_fd = eventfd(0, EFD_NONBLOCK);
         if (tn->notify_event_fd == -1) {
-            perror("failed creating eventfd for worker thread");
+            perror("创建工作线程的eventfd失败");
             exit(1);
         }
 #else
+        // 使用pipe创建通知事件描述符
         int fds[2];
         if (pipe(fds)) {
-            perror("Can't create notify pipe");
+            perror("无法创建通知管道");
             exit(1);
         }
 
@@ -1088,14 +1170,15 @@ static void memcached_thread_notify_init(struct thread_notify *tn) {
 }
 
 /*
- * Initializes the thread subsystem, creating various worker threads.
+ * 初始化线程子系统，创建各个工作线程。
  *
- * nthreads  Number of worker event handler threads to spawn
+ * nthreads  要生成的工作事件处理线程数
  */
 void memcached_thread_init(int nthreads, void *arg) {
     int         i;
     int         power;
 
+    // 初始化LRU锁
     for (i = 0; i < POWER_LARGEST; i++) {
         pthread_mutex_init(&lru_locks[i], NULL);
     }
@@ -1104,7 +1187,7 @@ void memcached_thread_init(int nthreads, void *arg) {
     pthread_mutex_init(&init_lock, NULL);
     pthread_cond_init(&init_cond, NULL);
 
-    /* Want a wide lock table, but don't waste memory */
+    /* 设置一个宽敞的锁表，但不浪费内存 */
     if (nthreads < 3) {
         power = 10;
     } else if (nthreads < 4) {
@@ -1116,35 +1199,40 @@ void memcached_thread_init(int nthreads, void *arg) {
     } else if (nthreads <= 20) {
         power = 14;
     } else {
-        /* 32k buckets. just under the hashpower default. */
+        /* 32k buckets. 刚好略小于散列幂的默认值。 */
         power = 15;
     }
 
+    // 确保散列表的大小大于等于项目锁表的大小
     if (power >= hashpower) {
-        fprintf(stderr, "Hash table power size (%d) cannot be equal to or less than item lock table (%d)\n", hashpower, power);
-        fprintf(stderr, "Item lock table grows with `-t N` (worker threadcount)\n");
-        fprintf(stderr, "Hash table grows with `-o hashpower=N` \n");
+        fprintf(stderr, "Hash表幂大小 (%d) 不能等于或小于项目锁表 (%d)\n", hashpower, power);
+        fprintf(stderr, "项目锁表随 `-t N` (工作线程数量) 增长\n");
+        fprintf(stderr, "Hash表随 `-o hashpower=N` 增长\n");
         exit(1);
     }
 
+    // 设置项目锁表的大小和散列幂
     item_lock_count = hashsize(power);
     item_lock_hashpower = power;
 
+    // 分配项目锁
     item_locks = calloc(item_lock_count, sizeof(pthread_mutex_t));
-    if (! item_locks) {
-        perror("Can't allocate item locks");
+    if (!item_locks) {
+        perror("无法分配项目锁");
         exit(1);
     }
     for (i = 0; i < item_lock_count; i++) {
         pthread_mutex_init(&item_locks[i], NULL);
     }
 
+    // 分配线程描述符
     threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
-    if (! threads) {
-        perror("Can't allocate thread descriptors");
+    if (!threads) {
+        perror("无法分配线程描述符");
         exit(1);
     }
 
+    // 初始化每个线程的相关属性
     for (i = 0; i < nthreads; i++) {
         memcached_thread_notify_init(&threads[i].n);
         memcached_thread_notify_init(&threads[i].ion);
@@ -1153,18 +1241,19 @@ void memcached_thread_init(int nthreads, void *arg) {
 #endif
         threads[i].thread_baseid = i;
         setup_thread(&threads[i]);
-        /* Reserve three fds for the libevent base, and two for the pipe */
+        /* 为libevent基础保留三个fd，为管道保留两个fd */
         stats_state.reserved_fds += 5;
     }
 
-    /* Create threads after we've done all the libevent setup. */
+    // 在进行libevent设置后创建线程
     for (i = 0; i < nthreads; i++) {
         create_worker(worker_libevent, &threads[i]);
     }
 
-    /* Wait for all the threads to set themselves up before returning. */
+    // 在返回前等待所有线程完成注册
     pthread_mutex_lock(&init_lock);
     wait_for_thread_registration(nthreads);
     pthread_mutex_unlock(&init_lock);
 }
+
 
