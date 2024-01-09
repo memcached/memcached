@@ -34,7 +34,7 @@ my $value;
 
 my $t = Memcached::ProxyTest->new(servers => [12081]);
 
-my $p_srv = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_item_size=512,ext_item_age=2,ext_path=$ext_path:64m,ext_max_sleep=100000,proxy_config=./t/proxyintext.lua");
+my $p_srv = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_item_size=512,ext_item_age=2,ext_path=$ext_path:64m,ext_max_sleep=100000,proxy_config=./t/proxyintext.lua -t 1");
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
 

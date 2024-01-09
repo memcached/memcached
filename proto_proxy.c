@@ -212,6 +212,7 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     ctx->tunables.flap_backoff_ramp = 1.5;
     ctx->tunables.flap_backoff_max = 3600;
     ctx->tunables.max_ustats = MAX_USTATS_DEFAULT;
+    ctx->tunables.use_iothread = false;
 
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = NULL;
@@ -353,7 +354,7 @@ void proxy_submit_cb(io_queue_t *q) {
             STAILQ_INSERT_HEAD(&head, p, io_next);
         } else {
             // emulate some of handler_dequeue()
-            STAILQ_INSERT_TAIL(&be->io_head, p, io_next);
+            STAILQ_INSERT_HEAD(&be->io_head, p, io_next);
             be->depth++;
             if (!be->stacked) {
                 be->stacked = true;

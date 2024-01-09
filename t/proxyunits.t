@@ -51,7 +51,7 @@ for my $port (11411, 11412, 11413) {
     push(@mocksrvs, $srv);
 }
 
-my $p_srv = new_memcached('-o proxy_config=./t/proxyunits.lua');
+my $p_srv = new_memcached('-o proxy_config=./t/proxyunits.lua -t 1');
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
 

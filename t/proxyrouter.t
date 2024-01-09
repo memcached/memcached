@@ -23,7 +23,7 @@ if (!supports_proxy()) {
 # the fourth listener is only occasionally used.
 my $t = Memcached::ProxyTest->new(servers => [12021]);
 
-my $p_srv = new_memcached('-o proxy_config=./t/proxyrouter.lua');
+my $p_srv = new_memcached('-o proxy_config=./t/proxyrouter.lua -t 1');
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
 

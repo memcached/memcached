@@ -15,7 +15,7 @@ if (!supports_proxy()) {
     exit 0;
 }
 
-my $p_srv = new_memcached('-o proxy_config=./t/proxyratelim.lua');
+my $p_srv = new_memcached('-o proxy_config=./t/proxyratelim.lua -t 1');
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
 

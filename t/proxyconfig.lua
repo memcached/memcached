@@ -3,6 +3,7 @@
 local mode = dofile("/tmp/proxyconfigmode.lua")
 
 function mcp_config_pools(old)
+    mcp.backend_use_iothread(true)
     mcp.backend_read_timeout(4)
     mcp.backend_connect_timeout(5)
 

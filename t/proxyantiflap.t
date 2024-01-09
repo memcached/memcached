@@ -60,7 +60,7 @@ note "making mock servers";
 my $msrv = mock_server(11799);
 
 # Start up a clean server.
-my $p_srv = new_memcached('-o proxy_config=./t/proxyantiflap.lua');
+my $p_srv = new_memcached('-o proxy_config=./t/proxyantiflap.lua -t 1');
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
 

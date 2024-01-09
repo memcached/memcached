@@ -124,6 +124,7 @@ void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
         pthread_mutex_unlock(&t->proxy_limit_lock);
 
         free(r->buf);
+        r->buf = NULL;
     }
 
     // release our temporary mc_resp sub-object.
@@ -131,6 +132,7 @@ void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
         mc_resp *cresp = r->cresp;
         assert(r->thread != NULL);
         resp_free(r->thread, cresp);
+        r->cresp = NULL;
     }
 }
 
@@ -682,6 +684,7 @@ static void _mcplib_pool_make_be(lua_State *L, mcp_pool_t *p) {
 
 // p = mcp.pool(backends, { dist = f, hashfilter = f, seed = "a", hash = f })
 static int mcplib_pool(lua_State *L) {
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
     int argc = lua_gettop(L);
     luaL_checktype(L, 1, LUA_TTABLE);
     int n = luaL_len(L, 1); // get length of array table
@@ -693,7 +696,7 @@ static int mcplib_pool(lua_State *L) {
     memset(p, 0, plen);
     p->pool_size = n;
     p->pool_be_total = n * workers;
-    p->use_iothread = true;
+    p->use_iothread = ctx->tunables.use_iothread;
     // TODO (v2): Nicer if this is fetched from mcp.default_key_hash
     p->key_hasher = XXH3_64bits_withSeed;
     pthread_mutex_init(&p->lock, NULL);
@@ -885,6 +888,18 @@ static int mcplib_pool_proxy_call(lua_State *L) {
     // now yield request, pool, backend, mode up.
     lua_pushinteger(L, MCP_YIELD_POOL);
     return lua_yield(L, 4);
+}
+
+static int mcplib_backend_use_iothread(lua_State *L) {
+    luaL_checktype(L, -1, LUA_TBOOLEAN);
+    int state = lua_toboolean(L, -1);
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+
+    STAT_L(ctx);
+    ctx->tunables.use_iothread = state;
+    STAT_UL(ctx);
+
+    return 0;
 }
 
 static int mcplib_tcp_keepalive(lua_State *L) {
@@ -1448,6 +1463,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"backend_flap_time", mcplib_backend_flap_time},
         {"backend_flap_backoff_ramp", mcplib_backend_flap_backoff_ramp},
         {"backend_flap_backoff_max", mcplib_backend_flap_backoff_max},
+        {"backend_use_iothread", mcplib_backend_use_iothread},
         {"tcp_keepalive", mcplib_tcp_keepalive},
         {"active_req_limit", mcplib_active_req_limit},
         {"buffer_memory_limit", mcplib_buffer_memory_limit},

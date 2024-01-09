@@ -72,7 +72,7 @@ sub restart_memcached {
         $p_srv->stop();
     }
     write_config('return "a 1 0"');
-    $p_srv = new_memcached('-o proxy_config=./t/proxyustats.lua');
+    $p_srv = new_memcached('-o proxy_config=./t/proxyustats.lua -t 1');
     $ps = $p_srv->sock;
     $ps->autoflush(1);
 
@@ -84,7 +84,7 @@ sub restart_memcached {
 diag "testing failure to start";
 write_config("invalid");
 eval {
-    $p_srv = new_memcached('-o proxy_config=./t/proxyustats.lua');
+    $p_srv = new_memcached('-o proxy_config=./t/proxyustats.lua -t 1');
 };
 ok($@ && $@ =~ m/Failed to connect/, "server successfully not started");
 

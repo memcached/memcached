@@ -19,7 +19,7 @@ my $modefile = "/tmp/proxytagmode.lua";
 my $t = Memcached::ProxyTest->new(servers => [12050]);
 
 write_modefile('return "start"');
-my $p_srv = new_memcached('-l 127.0.0.1:12051 -l tag_b_:127.0.0.1:12052 -l tag_cccc_:127.0.0.1:12053 -o proxy_config=./t/proxytags.lua', 12051);
+my $p_srv = new_memcached('-l 127.0.0.1:12051 -l tag_b_:127.0.0.1:12052 -l tag_cccc_:127.0.0.1:12053 -o proxy_config=./t/proxytags.lua -t 1', 12051);
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
 

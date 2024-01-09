@@ -210,6 +210,7 @@ struct proxy_tunables {
     int backend_failure_limit;
     int max_ustats; // limit the ustats index.
     bool tcp_keepalive;
+    bool use_iothread; // default for using the bg io thread.
     bool down; // backend is forced into a down/bad state.
 };
 
