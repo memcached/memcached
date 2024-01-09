@@ -47,8 +47,9 @@ function mcp_config_routes(p)
     local map = {
         ["one"] = fg,
         ["two"] = fg,
-        ["cmd"] = { [mcp.CMD_MG] = string_fgen("SERVER_ERROR cmd_mg\r\n"),
-            [mcp.CMD_MS] = string_fgen("SERVER_ERROR cmd_ms\r\n") },
+        ["cmd"] = { [mcp.CMD_GET] = string_fgen("SERVER_ERROR cmd_get\r\n"),
+            [mcp.CMD_SET] = string_fgen("SERVER_ERROR cmd_set\r\n") },
+        ["cmdd"] = { [mcp.CMD_ANY_STORAGE] = string_fgen("SERVER_ERROR cmd_default\r\n"), },
     }
 
     local rpfx_short = mcp.router_new({ map = map, mode = "prefix", stop = "|", default = def_fg })
@@ -56,6 +57,7 @@ function mcp_config_routes(p)
     local ranc_short = mcp.router_new({ map = map, mode = "anchor", start = "_", stop = ",", default = def_fg })
     local ranc_long = mcp.router_new({ map = map, mode = "anchor", start = "=?=", stop = "__", default = def_fg })
 
+    mcp.attach(mcp.CMD_ANY_STORAGE, rpfx_short)
     mcp.attach(mcp.CMD_MG, rpfx_short)
     mcp.attach(mcp.CMD_MS, rpfx_long)
     mcp.attach(mcp.CMD_MD, ranc_short)

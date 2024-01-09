@@ -1358,8 +1358,21 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
             return nfgen;
         } else if (type == LUA_TTABLE) {
             lua_rawgeti(L, -1, pr->command);
-            // TODO: if nil, check CMD_ANY_STORAGE index for a default
+            // If nil, check CMD_ANY_STORAGE index for a cmap default
             // if none there, return fr->def_fgen
+            if (lua_isnil(L, -1)) {
+                lua_pop(L, 1); // drop nil.
+                // check if we have a local-default
+                lua_rawgeti(L, -1, CMD_ANY_STORAGE);
+                if (lua_isnil(L, -1)) {
+                    lua_pop(L, 3); // drop map, cmd map, nil
+                    return fr->def_fgen;
+                } else {
+                    mcp_funcgen_t *nfgen = lua_touserdata(L, -1);
+                    lua_pop(L, 3); // drop map, cmd map, fgen
+                    return nfgen;
+                }
+            }
             mcp_funcgen_t *nfgen = lua_touserdata(L, -1);
             lua_pop(L, 3); // drop fgen, cmd map, map
             return nfgen;
@@ -1447,7 +1460,7 @@ static size_t _mcplib_router_new_mapcheck(lua_State *L) {
                     proxy_lua_error(L, "Non integer key in router command map in router_new");
                 }
                 int cmd = lua_tointeger(L, -2);
-                if (cmd <= 0 || cmd >= CMD_END_STORAGE) {
+                if ((cmd <= 0 || cmd >= CMD_END_STORAGE) && cmd != CMD_ANY_STORAGE) {
                     proxy_lua_error(L, "Bad command in router command map in router_new");
                 }
                 luaL_checkudata(L, -1, "mcp.funcgen");
