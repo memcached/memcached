@@ -92,7 +92,7 @@ Creating 'stdio2.h.gcov'
 File 'defs-testcomp.c'
 Lines executed:6.67% of 30
 Branches executed:11.11% of 36
-Taken at least once:8.33% of 36
+Taken at least once:5.56% of 36
 Calls executed:11.76% of 17
 Creating 'defs-testcomp.c.gcov'
 
@@ -130,7 +130,7 @@ Creating 'stdio2.h.gcov'
 File 'defs-testcomp.c'
 Lines executed:6.67% of 30
 Branches executed:11.11% of 36
-Taken at least once:8.33% of 36
+Taken at least once:5.56% of 36
 Calls executed:11.76% of 17
 Creating 'defs-testcomp.c.gcov'
 
@@ -168,7 +168,7 @@ Creating 'stdio2.h.gcov'
 File 'defs-testcomp.c'
 Lines executed:6.67% of 30
 Branches executed:11.11% of 36
-Taken at least once:8.33% of 36
+Taken at least once:5.56% of 36
 Calls executed:11.76% of 17
 Creating 'defs-testcomp.c.gcov'
 
@@ -191,9 +191,9 @@ Lines executed:47.17% of 53
 id:000005,src:000002,time:577,execs:1795,op:int32,pos:8,val:+0,+cov:
 
 File 'proxy_jump_hash_Harness.c'
-Lines executed:100.00% of 15
+Lines executed:80.00% of 15
 Branches executed:100.00% of 2
-Taken at least once:100.00% of 2
+Taken at least once:50.00% of 2
 Calls executed:100.00% of 4
 Creating 'proxy_jump_hash_Harness.c.gcov'
 
@@ -206,7 +206,7 @@ Creating 'stdio2.h.gcov'
 File 'defs-testcomp.c'
 Lines executed:6.67% of 30
 Branches executed:11.11% of 36
-Taken at least once:8.33% of 36
+Taken at least once:5.56% of 36
 Calls executed:11.76% of 17
 Creating 'defs-testcomp.c.gcov'
 
@@ -224,7 +224,7 @@ Taken at least once:0.00% of 8
 Calls executed:10.53% of 19
 Creating 'unistd.h.gcov'
 
-Lines executed:47.17% of 53
+Lines executed:41.51% of 53
 
 id:000006,src:000002,time:580,execs:1805,op:int32,pos:8,val:+16:
 
@@ -244,7 +244,7 @@ Creating 'stdio2.h.gcov'
 File 'defs-testcomp.c'
 Lines executed:6.67% of 30
 Branches executed:11.11% of 36
-Taken at least once:8.33% of 36
+Taken at least once:5.56% of 36
 Calls executed:11.76% of 17
 Creating 'defs-testcomp.c.gcov'
 
@@ -282,7 +282,7 @@ Creating 'stdio2.h.gcov'
 File 'defs-testcomp.c'
 Lines executed:6.67% of 30
 Branches executed:11.11% of 36
-Taken at least once:8.33% of 36
+Taken at least once:5.56% of 36
 Calls executed:11.76% of 17
 Creating 'defs-testcomp.c.gcov'
 
@@ -320,7 +320,7 @@ Creating 'stdio2.h.gcov'
 File 'defs-testcomp.c'
 Lines executed:6.67% of 30
 Branches executed:11.11% of 36
-Taken at least once:8.33% of 36
+Taken at least once:5.56% of 36
 Calls executed:11.76% of 17
 Creating 'defs-testcomp.c.gcov'
 
@@ -358,7 +358,7 @@ Creating 'stdio2.h.gcov'
 File 'defs-testcomp.c'
 Lines executed:6.67% of 30
 Branches executed:11.11% of 36
-Taken at least once:8.33% of 36
+Taken at least once:5.56% of 36
 Calls executed:11.76% of 17
 Creating 'defs-testcomp.c.gcov'
 

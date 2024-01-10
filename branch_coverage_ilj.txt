@@ -1,0 +1,1063 @@
+id:000000,time:0,execs:0,orig:itoa_ljust_input.txt:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000001,time:0,execs:0,orig:test_0:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:60.00% of 45
+Branches executed:81.82% of 22
+Taken at least once:22.73% of 22
+Calls executed:54.55% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:44.58% of 83
+
+id:000002,src:000001,time:4,execs:17,op:flip1,pos:0,+cov:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:77.78% of 45
+Branches executed:90.91% of 22
+Taken at least once:27.27% of 22
+Calls executed:54.55% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:54.22% of 83
+
+id:000003,src:000001,time:10,execs:34,op:flip2,pos:0,+cov:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:64.44% of 45
+Branches executed:81.82% of 22
+Taken at least once:22.73% of 22
+Calls executed:54.55% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:46.99% of 83
+
+id:000004,src:000001,time:41,execs:115,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:91.11% of 45
+Branches executed:81.82% of 22
+Taken at least once:36.36% of 22
+Calls executed:72.73% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:61.45% of 83
+
+id:000005,src:000001,time:45,execs:125,op:havoc,rep:4,+cov:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:84.44% of 45
+Branches executed:100.00% of 22
+Taken at least once:31.82% of 22
+Calls executed:54.55% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:57.83% of 83
+
+id:000006,src:000001,time:48,execs:133,op:havoc,rep:3:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000007,src:000001,time:53,execs:147,op:havoc,rep:2,+cov:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:91.11% of 45
+Branches executed:100.00% of 22
+Taken at least once:31.82% of 22
+Calls executed:54.55% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:61.45% of 83
+
+id:000008,src:000001,time:63,execs:174,op:havoc,rep:3:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:97.78% of 45
+Branches executed:100.00% of 22
+Taken at least once:45.45% of 22
+Calls executed:72.73% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:65.06% of 83
+
+id:000009,src:000001,time:66,execs:183,op:havoc,rep:4,+cov:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:77.78% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:54.22% of 83
+
+id:000010,src:000001,time:71,execs:195,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:93.33% of 45
+Branches executed:100.00% of 22
+Taken at least once:36.36% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:62.65% of 83
+
+id:000011,src:000001,time:77,execs:208,op:havoc,rep:4,+cov:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:80.00% of 45
+Branches executed:100.00% of 22
+Taken at least once:31.82% of 22
+Calls executed:54.55% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:55.42% of 83
+
+id:000012,src:000001,time:81,execs:219,op:havoc,rep:1:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000013,src:000001,time:95,execs:256,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:77.78% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:54.22% of 83
+
+id:000014,src:000001,time:144,execs:386,op:havoc,rep:2:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000015,src:000001,time:160,execs:429,op:havoc,rep:3,+cov:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:66.67% of 45
+Branches executed:90.91% of 22
+Taken at least once:27.27% of 22
+Calls executed:54.55% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:48.19% of 83
+
+id:000016,src:000001,time:174,execs:468,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:77.78% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:54.22% of 83
+
+id:000017,src:000001,time:208,execs:566,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000018,src:000001,time:228,execs:612,op:havoc,rep:2:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000019,src:000001,time:236,execs:633,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000020,src:000001,time:318,execs:867,op:havoc,rep:3:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000021,src:000001,time:339,execs:924,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000022,src:000001,time:368,execs:1007,op:havoc,rep:4,+cov:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:73.33% of 45
+Branches executed:100.00% of 22
+Taken at least once:31.82% of 22
+Calls executed:54.55% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:51.81% of 83
+
+id:000023,src:000001,time:432,execs:1180,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:88.89% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:60.24% of 83
+
+id:000024,src:000001,time:713,execs:1967,op:havoc,rep:3:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:82.22% of 45
+Branches executed:100.00% of 22
+Taken at least once:36.36% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:56.63% of 83
+
+id:000025,src:000001,time:1050,execs:2844,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:77.78% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:54.22% of 83
+
+id:000026,src:000001,time:1663,execs:4413,op:havoc,rep:4:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:82.22% of 45
+Branches executed:100.00% of 22
+Taken at least once:36.36% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:56.63% of 83
+
+id:000027,src:000016+000013,time:37510,execs:92337,op:splice,rep:22:
+
+File 'itoa_ljust_Harness.c'
+Lines executed:77.78% of 45
+Branches executed:72.73% of 22
+Taken at least once:22.73% of 22
+Calls executed:63.64% of 11
+Creating 'itoa_ljust_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 1
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:8.33% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:54.22% of 83
