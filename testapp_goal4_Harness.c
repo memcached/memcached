@@ -293,11 +293,11 @@ static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
 
 int main() {
     const char *inputkey = __VERIFIER_nondet_pchar();
-    uint inputcmd = __VERIFIER_nondet_uint();
+    char inputcmd = __VERIFIER_nondet_char();
 
-    printf("*key: %p cmd: %u\n", inputkey, inputcmd);
+    printf("*key: %p cmd: %u\n", inputkey, (int)inputcmd);
 
-    test_binary_add_impl(inputkey, inputcmd);
+    test_binary_add_impl(inputkey, (int)inputcmd);
 
     return 1;
 }
