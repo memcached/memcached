@@ -32,6 +32,8 @@
  * Author: Trond Norbye <trond.norbye@sun.com>
  */
 
+#include "stdint.h"
+
 #ifndef PROTOCOL_BINARY_H
 #define PROTOCOL_BINARY_H
 
