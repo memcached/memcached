@@ -1,2 +1,2 @@
-1
-'x'
+"hello"
+PROTOCOL_BINARY_CMD_ADD

@@ -7,7 +7,7 @@
 #include <assert.h>
 #include "in.h"
 #include "errno.h"
-#include "stdint.h"
+//#include "stdint.h"
 
 extern uint __VERIFIER_nondet_uint();
 
@@ -293,11 +293,11 @@ static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
 
 int main() {
     const char *inputkey = __VERIFIER_nondet_pchar();
-    char inputcmd = __VERIFIER_nondet_char();
+    uint8_t inputcmd = __VERIFIER_nondet_char();
 
-    printf("*key: %p cmd: %u\n", inputkey, (int)inputcmd);
+    printf("*key: %p cmd: %u\n", inputkey, (unsigned int)inputcmd);
 
-    test_binary_add_impl(inputkey, (int)inputcmd);
+    test_binary_add_impl(inputkey, inputcmd);
 
     return 1;
 }
