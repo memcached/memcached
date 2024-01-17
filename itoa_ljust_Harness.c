@@ -74,7 +74,17 @@ int main() {
     }
     str[strlength] = '\0';
 
-    printf("uint32_t: %u, String: %s\n", u, str);
+    int i = 0;
+    while (1) {
+        char nextValue = str[i];
+        if (nextValue == 0) {
+            break;
+        }
+        printf("String[%i]: %d\n", i, nextValue);
+        i++;
+    }
+    //, String: %s , str
+    printf("uint32_t: %u\n", u);
 
     itoa_u32(u, str);
 

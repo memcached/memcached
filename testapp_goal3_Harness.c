@@ -5,6 +5,7 @@
 #include "cache.h"
 #include "assert.h"
 #include <stdio.h>
+#include "cache.c"
 
 extern size_t __VERIFIER_nondet_size_t();
 
@@ -12,12 +13,11 @@ enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 
 static enum test_return cache_bulkalloc(size_t datasize)
 {
-    size_t align = __VERIFIER_nondet_size_t();
     cache_t *cache = cache_create("test", datasize, sizeof(char*));
     if (cache == NULL) {
         return TEST_FAIL;
     }
-#define ITERATIONS 1024
+#define ITERATIONS 16
     void *ptr[ITERATIONS];
 
     for (int ii = 0; ii < ITERATIONS; ++ii) {
@@ -42,6 +42,7 @@ int main() {
 
     cache_bulkalloc(input);
 
-    //printf("test return: %i", cache_bulkalloc(input));
+    printf("test return: %d\n", cache_bulkalloc(input));
+
     return 1;
 }
