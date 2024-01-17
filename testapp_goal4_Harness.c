@@ -60,6 +60,7 @@ static off_t storage_command(char*buf,
 
 static void safe_send(const void* buf, size_t len, bool hickup)
 {
+    printf("The error is in safe_send 2 in the for loop\n");
     off_t offset = 0;
     const char* ptr = buf;
 #ifdef MESSAGE_DEBUG
@@ -76,15 +77,19 @@ static void safe_send(const void* buf, size_t len, bool hickup)
     fprintf(stderr, "\n");
     usleep(500);
 #endif
-
+    printf("The error is in safe_send before do\n");
     do {
         size_t num_bytes = len - offset;
+        printf("The error is in safe_send in do after len - offset\n");
         if (hickup) {
+            printf("The error is in safe_send in do after first if cond\n");
             if (num_bytes > 1024) {
                 num_bytes = (rand() % 1023) + 1;
             }
         }
+        printf("The error is in safe_send in do after first if cond in ssize_t nw\n");
         ssize_t nw = con->write(con, ptr + offset, num_bytes);
+        printf("The error is not after first if cond after ssize_t\n");
         if (nw == -1) {
             if (errno != EINTR) {
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
@@ -95,8 +100,10 @@ static void safe_send(const void* buf, size_t len, bool hickup)
                 usleep(100);
             }
             offset += nw;
+            printf("The error is in safe_send, but not in the else condition\n");
         }
     } while (offset < len);
+    printf("The error is no error in safe_send\n");
 }
 
 static bool safe_recv(void *buf, size_t len) {
@@ -267,37 +274,52 @@ static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
         protocol_binary_response_no_extras response;
         char bytes[1024];
     } send, receive;
+    printf("The error is later than send, receive\n");
     size_t len = storage_command(send.bytes, sizeof(send.bytes), cmd, key,
                                  strlen(key), &value, sizeof(value),
                                  0, 0);
-
+    printf("The error is not in the storage_command method\n");
     /* Add should only work the first time */
     int ii;
+    printf("The error starts in the for loop\n");
     for (ii = 0; ii < 10; ++ii) {
+        printf("The error is in safe_send in the for loop\n");
         safe_send(send.bytes, len, false);
+        printf("The error is not in safe_send in the for loop\n");
         if (ii == 0) {
             if (cmd == PROTOCOL_BINARY_CMD_ADD) {
                 safe_recv_packet(receive.bytes, sizeof(receive.bytes));
                 validate_response_header(&receive.response, cmd,
                                          PROTOCOL_BINARY_RESPONSE_SUCCESS);
+                printf("The error is not in the if condition PROTOCOL_BINARY_CMD_ADD\n");
             }
-        } else {
+        }
+        else {
             safe_recv_packet(receive.bytes, sizeof(receive.bytes));
             validate_response_header(&receive.response, cmd,
                                      PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS);
         }
     }
-
+    printf("The error does never happen, the harness is the problem\n");
     return TEST_PASS;
 }
 
 int main() {
-    const char *inputkey = __VERIFIER_nondet_pchar();
-    uint8_t inputcmd = __VERIFIER_nondet_char();
+    //const char *inputkey = __VERIFIER_nondet_pchar();
+    //uint8_t inputcmd = __VERIFIER_nondet_char();
+    const char *inputkey = "user123";
+    uint8_t inputcmd = PROTOCOL_BINARY_CMD_ADD;
 
-    printf("*key: %p cmd: %u\n", inputkey, (unsigned int)inputcmd);
+    printf("*key: %s cmd: %u\n", inputkey, (unsigned int)inputcmd);
 
-    test_binary_add_impl(inputkey, inputcmd);
+    // Store the return value in a variable
+    enum test_return result = test_binary_add_impl(inputkey, inputcmd);
+
+    // should return a number according to the enum:
+    // TEST_SKIP = 0
+    // TEST_PASS = 1
+    // TEST_FAIL = 2
+    printf("test return enum: %d\n", result);
 
     return 1;
 }
