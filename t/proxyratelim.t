@@ -35,4 +35,21 @@ $ps->autoflush(1);
     is(scalar <$ps>, "HD\r\n", "not blocked after longer sleep");
 }
 
+{
+    my $x = 10;
+    while ($x--) {
+        print $ps "get na\r\n";
+        my $res = scalar <$ps>;
+        last if $res =~ m/SERVER_ERROR/;
+    }
+    cmp_ok($x, '>', 0, "global hit rate limit without trying too many times");
+    sleep 0.5;
+    print $ps "get na\r\n";
+    is(scalar <$ps>, "SERVER_ERROR global slow down\r\n", "global still blocked after short sleep");
+    sleep 3;
+    print $ps "get na\r\n";
+    is(scalar <$ps>, "END\r\n", "global not blocked after longer sleep");
+
+}
+
 done_testing();

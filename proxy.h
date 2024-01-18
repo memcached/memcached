@@ -214,7 +214,7 @@ struct proxy_tunables {
     bool down; // backend is forced into a down/bad state.
 };
 
-typedef STAILQ_HEAD(pool_head_s, mcp_pool_s) pool_head_t;
+typedef STAILQ_HEAD(globalobj_head_s, mcp_globalobj_s) globalobj_head_t;
 typedef struct {
     lua_State *proxy_state; // main configuration vm
     lua_State *proxy_sharedvm; // sub VM for short-lock global events/data
@@ -231,7 +231,7 @@ typedef struct {
     pthread_mutex_t manager_lock;
     pthread_cond_t manager_cond;
     pthread_mutex_t sharedvm_lock; // protect statevm above
-    pool_head_t manager_head; // stack for pool deallocation.
+    globalobj_head_t manager_head; // stack for pool deallocation.
     bool worker_done; // signal variable for the worker lock/cond system.
     bool worker_failed; // covered by worker_lock as well.
     bool use_uring; // use IO_URING for backend connections.
@@ -515,6 +515,13 @@ struct _io_pending_proxy_t {
     };
 };
 
+struct mcp_globalobj_s {
+    pthread_mutex_t lock; // protects refcount/object.
+    STAILQ_ENTRY(mcp_globalobj_s) next;
+    int refcount;
+    int self_ref;
+};
+
 // Note: does *be have to be a sub-struct? how stable are userdata pointers?
 // https://stackoverflow.com/questions/38718475/lifetime-of-lua-userdata-pointers
 // - says no.
@@ -529,17 +536,14 @@ struct mcp_pool_s {
     struct proxy_hash_caller phc;
     key_hash_filter_func key_filter;
     key_hash_func key_hasher;
-    pthread_mutex_t lock; // protects refcount.
     proxy_ctx_t *ctx; // main context.
-    STAILQ_ENTRY(mcp_pool_s) next; // stack for deallocator.
     char key_filter_conf[KEY_HASH_FILTER_MAX+1];
+    struct mcp_globalobj_s g;
     char beprefix[MAX_LABELLEN+1]; // TODO: should probably be shorter.
     uint64_t hash_seed; // calculated from a string.
-    int refcount;
-    int phc_ref;
-    int self_ref; // TODO (v2): double check that this is needed.
     int pool_size;
     int pool_be_total; // can be different from pool size for worker IO
+    int phc_ref;
     bool use_iothread;
     mcp_pool_be_t pool[];
 };
@@ -592,6 +596,11 @@ void mcp_set_request(mcp_parser_t *pr, mcp_request_t *r, const char *command, si
 // rate limit interfaces
 int mcplib_ratelim_tbf(lua_State *L);
 int mcplib_ratelim_tbf_call(lua_State *L);
+int mcplib_ratelim_global_tbf(lua_State *L);
+int mcplib_ratelim_proxy_tbf_call(lua_State *L);
+int mcp_ratelim_proxy_tbf(lua_State *from, lua_State *to);
+int mcplib_ratelim_global_tbf_gc(lua_State *L);
+int mcplib_ratelim_proxy_tbf_gc(lua_State *L);
 
 // request function generator interface
 void proxy_return_rctx_cb(io_pending_t *pending);

@@ -499,8 +499,10 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
 
 static int mcplib_pool_gc(lua_State *L) {
     mcp_pool_t *p = luaL_checkudata(L, -1, "mcp.pool");
-    assert(p->refcount == 0);
-    pthread_mutex_destroy(&p->lock);
+    assert(p->g.refcount == 0);
+    pthread_mutex_destroy(&p->g.lock);
+
+    luaL_unref(L, LUA_REGISTRYINDEX, p->phc_ref);
 
     for (int x = 0; x < p->pool_be_total; x++) {
         if (p->pool[x].ref) {
@@ -699,13 +701,13 @@ static int mcplib_pool(lua_State *L) {
     p->use_iothread = ctx->tunables.use_iothread;
     // TODO (v2): Nicer if this is fetched from mcp.default_key_hash
     p->key_hasher = XXH3_64bits_withSeed;
-    pthread_mutex_init(&p->lock, NULL);
+    pthread_mutex_init(&p->g.lock, NULL);
     p->ctx = PROXY_GET_CTX(L);
 
     luaL_setmetatable(L, "mcp.pool");
 
     lua_pushvalue(L, -1); // dupe self for reference.
-    p->self_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    p->g.self_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // Allow passing an ignored nil as a second argument. Makes the lua easier
     int type = lua_type(L, 2);
@@ -835,16 +837,16 @@ static int mcplib_pool(lua_State *L) {
 static int mcplib_pool_proxy_gc(lua_State *L) {
     mcp_pool_proxy_t *pp = luaL_checkudata(L, -1, "mcp.pool_proxy");
     mcp_pool_t *p = pp->main;
-    pthread_mutex_lock(&p->lock);
-    p->refcount--;
-    if (p->refcount == 0) {
+    pthread_mutex_lock(&p->g.lock);
+    p->g.refcount--;
+    if (p->g.refcount == 0) {
         proxy_ctx_t *ctx = p->ctx;
         pthread_mutex_lock(&ctx->manager_lock);
-        STAILQ_INSERT_TAIL(&ctx->manager_head, p, next);
+        STAILQ_INSERT_TAIL(&ctx->manager_head, &p->g, next);
         pthread_cond_signal(&ctx->manager_cond);
         pthread_mutex_unlock(&ctx->manager_lock);
     }
-    pthread_mutex_unlock(&p->lock);
+    pthread_mutex_unlock(&p->g.lock);
 
     return 0;
 }
@@ -1430,6 +1432,17 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {NULL, NULL}
     };
 
+    const struct luaL_Reg mcplib_ratelim_global_tbf_m[] = {
+        {"__gc", mcplib_ratelim_global_tbf_gc},
+        {NULL, NULL}
+    };
+
+    const struct luaL_Reg mcplib_ratelim_proxy_tbf_m[] = {
+        {"__call", mcplib_ratelim_proxy_tbf_call},
+        {"__gc", mcplib_ratelim_proxy_tbf_gc},
+        {NULL, NULL}
+    };
+
     const struct luaL_Reg mcplib_rcontext_m[] = {
         {"handle_set_cb", mcplib_rcontext_handle_set_cb},
         {"enqueue", mcplib_rcontext_enqueue},
@@ -1454,6 +1467,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"pool", mcplib_pool},
         {"backend", mcplib_backend},
         {"add_stat", mcplib_add_stat},
+        {"ratelim_global_tbf", mcplib_ratelim_global_tbf},
         {"stat_limit", mcplib_stat_limit},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
@@ -1519,6 +1533,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         luaL_setfuncs(L, mcplib_ratelim_tbf_m, 0); // register methods
         lua_pop(L, 1);
 
+        luaL_newmetatable(L, "mcp.ratelim_proxy_tbf");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_ratelim_proxy_tbf_m, 0); // register methods
+        lua_pop(L, 1);
+
         luaL_newmetatable(L, "mcp.rcontext");
         lua_pushvalue(L, -1); // duplicate metatable.
         lua_setfield(L, -2, "__index"); // mt.__index = mt
@@ -1562,6 +1582,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         lua_setfield(L, -2, "__index"); // mt.__index = mt
         luaL_setfuncs(L, mcplib_pool_m, 0); // register methods
         lua_pop(L, 1); // drop the hash selector metatable
+
+        luaL_newmetatable(L, "mcp.ratelim_global_tbf");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_ratelim_global_tbf_m, 0); // register methods
+        lua_pop(L, 1);
 
         luaL_newlibtable(L, mcplib_f_config);
     }
