@@ -284,7 +284,7 @@ static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
     printf("The error starts in the for loop\n");
     for (ii = 0; ii < 10; ++ii) {
         printf("The error is in safe_send in the for loop\n");
-        safe_send(send.bytes, len, false);
+        //safe_send(send.bytes, len, false);
         printf("The error is not in safe_send in the for loop\n");
         if (ii == 0) {
             if (cmd == PROTOCOL_BINARY_CMD_ADD) {
