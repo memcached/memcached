@@ -106,12 +106,13 @@ static void *_proxy_manager_thread(void *arg) {
             // reference to the object though.
             luaL_unref(L, LUA_REGISTRYINDEX, p->self_ref);
         }
-        pthread_mutex_unlock(&ctx->config_lock);
         // force lua garbage collection so any resources close out quickly.
         lua_gc(L, LUA_GCCOLLECT);
         // twice because objects with garbage collector handlers are only
         // marked on the first collection cycle.
         lua_gc(L, LUA_GCCOLLECT);
+        // must hold this lock while interacting with the config VM.
+        pthread_mutex_unlock(&ctx->config_lock);
 
         // done.
         pthread_mutex_lock(&ctx->manager_lock);
