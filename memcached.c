@@ -5145,7 +5145,7 @@ int main (int argc, char **argv) {
             break;
         case 'R':
             settings.reqs_per_event = atoi(optarg);
-            if (settings.reqs_per_event == 0) {
+            if (settings.reqs_per_event <= 0) {
                 fprintf(stderr, "Number of requests per event must be greater than 0\n");
                 return 1;
             }
@@ -5169,7 +5169,7 @@ int main (int argc, char **argv) {
             break;
         case 'n':
             settings.chunk_size = atoi(optarg);
-            if (settings.chunk_size == 0) {
+            if (settings.chunk_size <= 0) {
                 fprintf(stderr, "Chunk size must be greater than 0\n");
                 return 1;
             }
