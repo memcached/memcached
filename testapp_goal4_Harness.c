@@ -10,6 +10,8 @@
 //#include "stdint.h"
 
 extern uint __VERIFIER_nondet_uint();
+static in_port_t port;
+static bool enable_ssl = false;
 
 enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 
@@ -24,6 +26,90 @@ struct conn {
 };
 static struct conn *con = NULL;
 static bool allow_closed_read = false;
+
+ssize_t tcp_read(struct conn *c, void *buf, size_t count) {
+    assert(c != NULL);
+    return read(c->sock, buf, count);
+}
+
+ssize_t tcp_write(struct conn *c, const void *buf, size_t count) {
+    assert(c != NULL);
+    return write(c->sock, buf, count);
+}
+
+static struct conn *connect_server(const char *hostname, in_port_t port2,
+                                   bool nonblock, const bool ssl)
+{
+    struct conn *c;
+    if (!(c = (struct conn *)calloc(1, sizeof(struct conn)))) {
+        fprintf(stderr, "Failed to allocate the client connection: %s\n",
+                strerror(errno));
+        return NULL;
+    }
+
+    //struct addrinfo *ai = lookuphost(hostname, port);
+    //int sock = -1;
+    /*if (ai != NULL) {
+        if ((sock = socket(ai->ai_family, ai->ai_socktype,
+                           ai->ai_protocol)) != -1) {
+            if (connect(sock, ai->ai_addr, ai->ai_addrlen) == -1) {
+                fprintf(stderr, "Failed to connect socket: %s\n",
+                        strerror(errno));
+                close(sock);
+                sock = -1;
+            } else if (nonblock) {
+                int flags = fcntl(sock, F_GETFL, 0);
+                if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
+                    fprintf(stderr, "Failed to enable nonblocking mode: %s\n",
+                            strerror(errno));
+                    close(sock);
+                    sock = -1;
+                }
+            }
+        } else {
+            fprintf(stderr, "Failed to create socket: %s\n", strerror(errno));
+        }
+
+        freeaddrinfo(ai);
+    } */
+    c->sock = -1;
+#ifdef TLS
+    if (sock > 0 && ssl) {
+        c->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+        if (c->ssl_ctx == NULL) {
+            fprintf(stderr, "Failed to create the SSL context: %s\n",
+                strerror(errno));
+            close(sock);
+            sock = -1;
+        }
+        c->ssl = SSL_new(c->ssl_ctx);
+        if (c->ssl == NULL) {
+            fprintf(stderr, "Failed to create the SSL object: %s\n",
+                strerror(errno));
+            close(sock);
+            sock = -1;
+        }
+        SSL_set_fd (c->ssl, c->sock);
+        int ret = SSL_connect(c->ssl);
+        if (ret < 0) {
+            int err = SSL_get_error(c->ssl, ret);
+            if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+                fprintf(stderr, "SSL connection failed with error code : %s\n",
+                    strerror(errno));
+                close(sock);
+                sock = -1;
+            }
+        }
+        c->read = ssl_read;
+        c->write = ssl_write;
+    } else
+#endif
+    {
+        c->read = tcp_read;
+        c->write = tcp_write;
+    }
+    return c;
+}
 
 static off_t storage_command(char*buf,
                              size_t bufsz,
@@ -89,9 +175,10 @@ static void safe_send(const void* buf, size_t len, bool hickup)
         }
         printf("The error is in safe_send in do after first if cond in ssize_t nw\n");
         ssize_t nw = con->write(con, ptr + offset, num_bytes);
-        printf("The error is not after first if cond after ssize_t\n");
+        printf("The error is not after first if cond after ssize_t bahh\n");
         if (nw == -1) {
             if (errno != EINTR) {
+                printf("The error is because nw = -1\n");
                 fprintf(stderr, "Failed to write: %s\n", strerror(errno));
                 abort();
             }
@@ -100,7 +187,7 @@ static void safe_send(const void* buf, size_t len, bool hickup)
                 usleep(100);
             }
             offset += nw;
-            printf("The error is in safe_send, but not in the else condition\n");
+            printf("The error is in safe_send, but not in the else condition | offset: %ld \n", offset);
         }
     } while (offset < len);
     printf("The error is no error in safe_send\n");
@@ -284,7 +371,7 @@ static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
     printf("The error starts in the for loop\n");
     for (ii = 0; ii < 10; ++ii) {
         printf("The error is in safe_send in the for loop\n");
-        //safe_send(send.bytes, len, false);
+        safe_send(send.bytes, len, false);
         printf("The error is not in safe_send in the for loop\n");
         if (ii == 0) {
             if (cmd == PROTOCOL_BINARY_CMD_ADD) {
@@ -305,6 +392,7 @@ static enum test_return test_binary_add_impl(const char *key, uint8_t cmd) {
 }
 
 int main() {
+    con = connect_server("127.0.0.1", port, false, enable_ssl);
     //const char *inputkey = __VERIFIER_nondet_pchar();
     //uint8_t inputcmd = __VERIFIER_nondet_char();
     const char *inputkey = "user123";

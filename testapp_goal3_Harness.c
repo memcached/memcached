@@ -17,7 +17,7 @@ static enum test_return cache_bulkalloc(size_t datasize)
     if (cache == NULL) {
         return TEST_FAIL;
     }
-#define ITERATIONS 16
+#define ITERATIONS 1024
     void *ptr[ITERATIONS];
 
     for (int ii = 0; ii < ITERATIONS; ++ii) {

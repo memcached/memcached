@@ -1,0 +1,196 @@
+#!/bin/bash
+
+remote_repo=''
+remote_branch='main'
+sru_cycle=
+while :
+do
+	if [ "$1" = "--remote-repo" ]; then
+		remote_repo="$2"
+		shift 2
+
+	elif [ "$1" = "--remote-branch" ]; then
+		remote_branch="$2"
+		shift 2
+
+	elif [ "$1" = "--sru-cycle" ]; then
+		sru_cycle="$2"
+		shift 2
+
+	else
+		break
+	fi
+done
+if [ "$#" -ne 0 ]; then
+	{
+		echo "Usage: $0 [<options>]"
+		echo "       --remote-repo <url>"
+		echo "       --sru-cycle <cycle>"
+	} 1>&2
+	exit 1
+fi
+
+default_sru_cycle()
+{
+	local tracking_bug
+	local version
+
+	# Pick out the cycle from the tracking bug file.
+	if [ -f "$DEBIAN/tracking-bug" ]; then
+		read tracking_bug sru_cycle X <"$DEBIAN/tracking-bug"
+	fi
+
+	if [ -z "$sru_cycle" ]; then
+		echo "$0: sru-cycle not found via debian/tracking-bug; specify --sru-cycle" 1>&2
+		exit 1
+	fi
+
+	sru_cycle=$(echo "$sru_cycle" | sed -e 's/-[0-9][0-9]*$//' -e 's/^kernel-sru-cycle-//')
+
+	#echo "default_sru_cycle: version<$version> sru_cycle<$sru_cycle>"
+}
+
+# Determine where our changelog is.
+DEBIAN=debian
+[ -f 'debian/debian.env' ] && . 'debian/debian.env'
+
+[ -z "$sru_cycle" ] && default_sru_cycle
+if [ -z "$remote_repo" ]; then
+	case "$sru_cycle" in
+	c[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9])
+		remote_repo='security' ;;
+	*)
+		remote_repo='main' ;;
+	esac
+fi
+case "$remote_repo" in
+security)
+	remote_repo='ssh+git://git.launchpad.net/~canonical-kernel-security-team/canonical-kernel-private/+git/kernel-versions'
+	remote_name='security'
+	;;
+main)
+	remote_repo='git://git.launchpad.net/~canonical-kernel/+git/kernel-versions'
+	remote_name='main'
+	;;
+*)
+	remote_name='adhoc'
+	;;
+esac
+
+#
+# kernel-versoins repository dkms-version mapping see below for details:
+#  https://git.launchpad.net/~canonical-kernel/+git/kernel-versions/plain/README
+#
+kv_repo="$HOME/.cache/kernel-versions-bare"
+
+# Now we know where our repo is and what it called update it.
+# We maintain "persistent" remotes for main and security, but assume
+# any manually supplied entries are transient.
+(
+	[ ! -d "$kv_repo" ] && mkdir -p "$kv_repo"
+	cd "$kv_repo" || exit 1
+	[ ! -f config ] && git init -q --bare
+	current_url=$(git config "remote.$remote_name.url")
+	if [ -z "$current_url" ]; then
+		git remote add "$remote_name" "$remote_repo"
+	elif [ "$current_url" != "$remote_repo" ]; then
+		git config "remote.$remote_name.url" "$remote_repo"
+	fi
+	git fetch -q -p "$remote_name"
+) || exit 1
+
+cat_file()
+{
+	(cd "$kv_repo" && git cat-file "$@") || exit 1
+}
+
+# Determine if this is merge format (main branch exists).
+present=$(cat_file -t "$remote_name/main" 2>/dev/null)
+if [ "$present" ]; then
+	git_base="$remote_name/$remote_branch:$sru_cycle/"
+	git_base_devel="$remote_name/$remote_branch:tip/"
+else
+	git_base="$remote_name/$sru_cycle:"
+	git_base_devel="$remote_name/master:"
+fi
+git_human="$remote_name/$sru_cycle"
+
+# Determine if we have this cycle.
+present=$(cat_file -t "$git_base" 2>/dev/null)
+if [ "$present" = "" ]; then
+	# If we don't have the cycle in the development cycle then
+	# fall back to master.
+	case "$sru_cycle" in
+	d*)	git_base="$git_base_devel" ;;
+	*)	echo "$sru_cycle: cycle not found in $remote_repo" 2>&1
+		exit 1
+		;;
+	esac
+fi
+
+# Determine our series and mainline version from our own changelog.
+our_series=$(LC_ALL=C dpkg-parsechangelog -l"$DEBIAN/changelog" -SDistribution)
+if [ "$our_series" = "UNRELEASED" ]; then
+	our_series=$(LC_ALL=C dpkg-parsechangelog -l"$DEBIAN/changelog" -o1 -c1 -SDistribution)
+fi
+our_mainline=$(LC_ALL=C dpkg-parsechangelog -l"$DEBIAN/changelog" -SVersion | sed -e 's/-.*//')
+our_package=$(LC_ALL=C dpkg-parsechangelog -l"$DEBIAN/changelog" -SSource)
+our_source=$(echo "$our_package" | sed -e 's/-restricted-modules//')
+case "$our_package" in
+linux-restricted-modules*)	our_type="lrm" ;;
+*)				our_type="main" ;;
+esac
+
+# Update rules are complex.  We update development series kernels to the
+# versions in development.  For stable series we update versions against
+# the series in which our prime kernel was built.  This is expressed
+# via the map/dkms-versions namespace.  Attempt to map via our series
+# and then our mainline-version.
+
+# Try and find a package specific dkms-versions fragment.  Try:
+#  handle+type
+#  series+type
+#  mainline+type
+#  series			- backwards compatibility
+#  mainline			- backwards compatibility
+for versions_path_tail in \
+	"$our_series:$our_source:$our_type" \
+	"$our_series:$our_type" \
+	"$our_mainline:$our_type" \
+	"$our_series" \
+	"$our_mainline"
+do
+	echo "II: trying $versions_path_tail ..."
+	versions_paths=$(echo $(cat_file -p "${git_base}map/dkms-versions/$versions_path_tail" 2>/dev/null))
+	[ -n "$versions_paths" ] && break
+done
+
+if [ -z "$versions_paths" ]; then
+	echo "$0: unable to identify dkms-versions mapping" 1>&2
+	exit 1
+fi
+
+echo "git_base<$git_base> versions_paths<$versions_paths>"
+echo "II: grabbing dkms-versions from $sru_cycle $versions_paths"
+
+: ">debian/dkms-versions.new"
+for versions_path in $versions_paths
+do
+	cat_file -p "$git_base$versions_path" >>"debian/dkms-versions.new"
+	if [ "$?" -ne 0 ]; then
+		echo "$0: unable to download an updated dkms-versions file" 1>&2
+		exit 1
+	fi
+done
+mv "debian/dkms-versions.new" "debian/dkms-versions"
+
+thing="debian/dkms-versions"
+if ! git diff --exit-code -- "$thing" >/dev/null; then
+	git commit -m "UBUNTU: $thing -- update from kernel-versions ($git_human)" \
+		-m "BugLink: https://bugs.launchpad.net/bugs/1786013" \
+		-s -- "$thing"
+else
+	echo "$thing: no changes from kernel-versions"
+fi
+
+exit 0

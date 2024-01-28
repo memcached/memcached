@@ -17,8 +17,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
+#include <stdbool.h>
 
-#include "config.h"
+//#include "config.h"
 #include "cache.h"
 #include "crc32c.h"
 #include "hash.h"

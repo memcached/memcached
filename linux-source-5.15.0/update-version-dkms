@@ -1,0 +1,4 @@
+#!/bin/bash
+
+echo "EE: run update-dkms-versions after link-to-tracker" 1>&2
+exit 1

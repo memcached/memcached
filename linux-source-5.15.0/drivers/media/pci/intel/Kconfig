@@ -1,0 +1,20 @@
+config VIDEO_INTEL_IPU6
+	tristate "Intel IPU driver"
+	depends on ACPI
+	depends on MEDIA_SUPPORT
+	depends on MEDIA_PCI_SUPPORT
+	select IOMMU_API
+	select IOMMU_IOVA
+	select X86_DEV_DMA_OPS if X86
+	select VIDEOBUF2_DMA_CONTIG
+	select V4L2_FWNODE
+	select PHYS_ADDR_T_64BIT
+	select COMMON_CLK
+	help
+	  This is the Intel imaging processing unit, found in Intel SoCs and
+	  used for capturing images and video from a camera sensor.
+
+	  To compile this driver, say Y here! It contains 3 modules -
+	  intel_ipu6, intel_ipu6_isys and intel_ipu6_psys.
+
+source "drivers/media/pci/intel/ipu3/Kconfig"

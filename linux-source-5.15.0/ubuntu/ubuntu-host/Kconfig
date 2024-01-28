@@ -1,0 +1,5 @@
+config UBUNTU_HOST
+	tristate "proc dir for exporting host data to containers"
+	help
+	  Creates an ubuntu-host directory in proc for providing data from
+	  Ubuntu hosts to containers.

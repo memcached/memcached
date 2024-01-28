@@ -1,0 +1,125 @@
+find: 'arch/*/oprofile': No such file or directory
+find: 'arch/s390/*': No such file or directory
+find: 'drivers/crypto/nx/*': No such file or directory
+find: 'drivers/misc/cxl/*': No such file or directory
+find: 'drivers/net/ethernet/ibm/*': No such file or directory
+find: 'drivers/s390/*': No such file or directory
+find: 'drivers/scsi/cxlflash/*': No such file or directory
+find: 'drivers/scsi/ibmvscsi/*': No such file or directory
+find: 'fs/configfs/*': No such file or directory
+find: 'fs/ecryptfs/*': No such file or directory
+find: 'fs/efivarfs/*': No such file or directory
+find: 'fs/ext4/*': No such file or directory
+find: 'fs/squashfs/*': No such file or directory
+find: 'net/decnet/*': No such file or directory
+find: 'net/ipx/*': No such file or directory
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/arch/powerpc/kvm/kvm-hv.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/arch/powerpc/kvm/kvm-pr.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/arch/powerpc/kvm/vfio.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/arch/powerpc/platforms/powernv/opal-prd.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/ata/ahci_tegra.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/ata/ata_generic.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/block/loop.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/block/xen-blkfront.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/bus/tegra-aconnect.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/char/hw_random/powernv-rng.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/char/raw.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/char/virtio_console.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/clk/clk-max77686.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/cpufreq/tegra186-cpufreq.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/cpufreq/tegra194-cpufreq.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/crypto/vmx/vmx-crypto.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/dma/tegra210-adma.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/gpio/gpio-max77620.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/gpu/drm/bochs/bochs-drm.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/gpu/drm/cirrus/cirrus.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/gpu/drm/tegra/tegra-drm.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/gpu/host1x/host1x.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/hwmon/ibmpowernv.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/hwmon/pwm-fan.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/i2c/busses/i2c-tegra-bpmp.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/i2c/busses/i2c-tegra-bpmp.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/i2c/busses/i2c-tegra.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/infiniband/core/ib_addr.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/infiniband/core/ib_mad.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/infiniband/core/ib_sa.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/leds/leds-powernv.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/memory/tegra/tegra210-emc.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/mmc/host/sdhci-tegra.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/mtd/cmdlinepart.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/mtd/devices/powernv_flash.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/mtd/ofpart.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/net/appletalk/ipddp.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/net/ethernet/stmicro/stmmac/dwmac-dwc-qos-eth.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/net/pcs/pcs-xpcs.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/net/vxlan.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/net/xen-netfront.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/nvmem/nvmem_core.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/pci/controller/dwc/pcie-tegra194.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/pci/host/vmd.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/phy/tegra/phy-tegra194-p2u.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/pinctrl/pinctrl-max77620.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/platform/x86/pvpanic.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/pps/pps_core.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/ptp/ptp.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/pwm/pwm-tegra.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/regulator/max77620-regulator.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/rtc/rtc-max77686.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/rtc/rtc-tegra.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/s390/block/xpram.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/scsi/osd/libosd.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/scsi/osd/osd.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/scsi/sd_mod.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/scsi/sr_mod.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/spi/spi-tegra114.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/staging/media/tegra-video/tegra-video.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/thermal/tegra/tegra-bpmp-thermal.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/tty/serial/serial-tegra.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/drivers/usb/gadget/udc/tegra-xudc.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/fs/aufs/aufs.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/fs/exofs/libore.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/fs/nls/nls_cp437.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/sound/pci/hda/snd-hda-tegra.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/sound/soc/tegra/snd-soc-tegra186-dspk.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/sound/soc/tegra/snd-soc-tegra210-admaif.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/sound/soc/tegra/snd-soc-tegra210-ahub.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/sound/soc/tegra/snd-soc-tegra210-dmic.ko
+Warning: Could not find /build/linux-bslKhl/linux-5.15.0/debian/linux-modules-extra-5.15.0-92-generic/lib/modules/5.15.0-92-generic/kernel/sound/soc/tegra/snd-soc-tegra210-i2s.ko
+NOTE: pass 1: dependency scan
+NOTE: pass 1: arch/x86/kvm/kvm-amd.ko pulls in drivers/crypto/ccp/ccp.ko
+NOTE: pass 1: drivers/gpu/drm/ast/ast.ko pulls in drivers/gpu/drm/drm_vram_helper.ko
+NOTE: pass 1: drivers/gpu/drm/ast/ast.ko pulls in drivers/i2c/algos/i2c-algo-bit.ko
+NOTE: pass 1: drivers/gpu/drm/ast/ast.ko pulls in drivers/gpu/drm/drm_ttm_helper.ko
+NOTE: pass 1: drivers/gpu/drm/drm_kms_helper.ko pulls in drivers/media/cec/core/cec.ko
+NOTE: pass 1: drivers/infiniband/ulp/isert/ib_isert.ko pulls in drivers/target/iscsi/iscsi_target_mod.ko
+NOTE: pass 1: drivers/net/bonding/bonding.ko pulls in net/tls/tls.ko
+NOTE: pass 1: drivers/net/ethernet/broadcom/bnx2x/bnx2x.ko pulls in drivers/net/mdio.ko
+NOTE: pass 1: drivers/net/ethernet/intel/igb/igb.ko pulls in drivers/dca/dca.ko
+NOTE: pass 1: drivers/net/ethernet/mellanox/mlx5/core/mlx5_core.ko pulls in net/psample/psample.ko
+NOTE: pass 1: drivers/net/ethernet/mellanox/mlx5/core/mlx5_core.ko pulls in drivers/pci/controller/pci-hyperv-intf.ko
+NOTE: pass 1: drivers/net/ethernet/mellanox/mlxsw/mlxsw_spectrum.ko pulls in drivers/net/vxlan/vxlan.ko
+NOTE: pass 1: drivers/net/ethernet/stmicro/stmmac/stmmac.ko pulls in drivers/net/pcs/pcs_xpcs.ko
+NOTE: pass 1: drivers/net/ipvlan/ipvtap.ko pulls in drivers/net/tap.ko
+NOTE: pass 1: drivers/net/virtio_net.ko pulls in drivers/net/net_failover.ko
+NOTE: pass 1: drivers/net/wwan/mhi_wwan_ctrl.ko pulls in drivers/bus/mhi/host/mhi.ko
+NOTE: pass 1: drivers/net/wwan/rpmsg_wwan_ctrl.ko pulls in drivers/rpmsg/rpmsg_core.ko
+NOTE: pass 1: drivers/nvme/host/nvme.ko pulls in drivers/nvme/host/nvme-core.ko
+NOTE: pass 1: drivers/scsi/lpfc/lpfc.ko pulls in drivers/nvme/host/nvme-fc.ko
+NOTE: pass 1: drivers/scsi/lpfc/lpfc.ko pulls in drivers/nvme/target/nvmet-fc.ko
+NOTE: pass 1: drivers/usb/host/bcma-hcd.ko pulls in drivers/bcma/bcma.ko
+NOTE: pass 1: drivers/usb/host/sl811_cs.ko pulls in drivers/pcmcia/pcmcia.ko
+NOTE: pass 1: drivers/usb/host/ssb-hcd.ko pulls in drivers/ssb/ssb.ko
+NOTE: pass 1: drivers/usb/host/u132-hcd.ko pulls in drivers/usb/misc/ftdi-elan.ko
+NOTE: pass 1: drivers/vhost/vhost_vdpa.ko pulls in drivers/vdpa/vdpa.ko
+NOTE: pass 1: drivers/video/fbdev/sm501fb.ko pulls in drivers/mfd/sm501.ko
+NOTE: pass 1: fs/ceph/ceph.ko pulls in fs/netfs/netfs.ko
+NOTE: pass 1: fs/cifs/cifs.ko pulls in fs/smbfs_common/cifs_md4.ko
+NOTE: pass 1: fs/cifs/cifs.ko pulls in fs/smbfs_common/cifs_arc4.ko
+NOTE: pass 1: net/openvswitch/openvswitch.ko pulls in net/nsh/nsh.ko
+NOTE: pass 1: sound/core/snd-ctl-led.ko pulls in drivers/leds/trigger/ledtrig-audio.ko
+NOTE: pass 2: dependency scan
+NOTE: pass 2: drivers/media/cec/core/cec.ko pulls in drivers/media/rc/rc-core.ko
+NOTE: pass 2: drivers/nvme/host/nvme-fc.ko pulls in drivers/nvme/host/nvme-fabrics.ko
+NOTE: pass 2: drivers/nvme/target/nvmet-fc.ko pulls in drivers/nvme/target/nvmet.ko
+NOTE: pass 2: drivers/pcmcia/pcmcia.ko pulls in drivers/pcmcia/pcmcia_core.ko
+NOTE: pass 3: dependency scan

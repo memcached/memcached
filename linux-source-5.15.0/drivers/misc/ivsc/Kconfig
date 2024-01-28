@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (c) 2021, Intel Corporation. All rights reserved.
+
+config INTEL_VSC
+	tristate "Intel VSC"
+	select INTEL_MEI_VSC
+	help
+	  Add support of Intel Visual Sensing Controller (IVSC).
+
+config INTEL_VSC_CSI
+	tristate "Intel VSC CSI client"
+	depends on INTEL_VSC
+	select INTEL_MEI
+	help
+	  Add CSI support for Intel Visual Sensing Controller (IVSC).
+
+config INTEL_VSC_ACE
+	tristate "Intel VSC ACE client"
+	depends on INTEL_VSC
+	select INTEL_MEI
+	help
+	  Add ACE support for Intel Visual Sensing Controller (IVSC).
+
+config INTEL_VSC_PSE
+	tristate "Intel VSC PSE client"
+	depends on DEBUG_FS
+	select INTEL_MEI
+	select INTEL_MEI_VSC
+	help
+	  Add PSE support for Intel Visual Sensing Controller (IVSC) to
+	  expose debugging information in files under /sys/kernel/debug/.
+
+config INTEL_VSC_ACE_DEBUG
+	tristate "Intel VSC ACE debug client"
+	depends on DEBUG_FS
+	select INTEL_MEI
+	select INTEL_MEI_VSC
+	help
+	  Add ACE debug support for Intel Visual Sensing Controller (IVSC)
+	  to expose debugging information in files under /sys/kernel/debug/.
