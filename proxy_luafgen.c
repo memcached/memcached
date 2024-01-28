@@ -372,8 +372,8 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
                 luaL_unref(L, LUA_REGISTRYINDEX, rqu->obj_ref);
             } else if (rqu->obj_type == RQUEUE_TYPE_FGEN) {
                 // don't need to recurse, just deref.
-                mcp_rcontext_t *subrctx = rqu->obj;
-                mcp_funcgen_dereference(L, subrctx->fgen);
+                mcp_funcgen_t *subfgen = rqu->obj;
+                mcp_funcgen_dereference(L, subfgen);
             } else if (rqu->obj_type != RQUEUE_TYPE_NONE) {
                 assert(1 == 0);
             }
