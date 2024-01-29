@@ -216,7 +216,7 @@ check_version($ps);
     # check a very high number at first. The next batch of requests should
     # kick the GC enough times to free memory from the previous set of tests.
     # The rest should be much lower.
-    cmp_ok($used, '<', 1000000, 'pre: buffer memory usage not inflated');
+    cmp_ok($used, '<', 1000000, "pre: buffer memory usage not inflated: $used");
 
     my $cmd = "get foo\r\n";
     for (1 .. 100) {
@@ -233,7 +233,7 @@ check_version($ps);
 
     $stats = mem_stats($ps, 'proxy');
     $used = $stats->{buffer_memory_used};
-    cmp_ok($used, '<', 1000, 'mid: buffer memory usage not inflated');
+    cmp_ok($used, '<', 1000, "mid: buffer memory usage not inflated: $used");
 
     $cmd = "get foo foo foo foo\r\n";
     for (1 .. 50) {
@@ -253,7 +253,7 @@ check_version($ps);
 
     $stats = mem_stats($ps, 'proxy');
     $used = $stats->{buffer_memory_used};
-    cmp_ok($used, '<', 1000, 'multiget: buffer memory usage not inflated');
+    cmp_ok($used, '<', 1000, "multiget: buffer memory usage not inflated: $used");
 
     $cmd = "get foo\r\n";
     for (1 .. 200) {
@@ -270,7 +270,7 @@ check_version($ps);
 
     $stats = mem_stats($ps, 'proxy');
     $used = $stats->{buffer_memory_used};
-    cmp_ok($used, '<', 1000, 'post: buffer memory usage not inflated');
+    cmp_ok($used, '<', 1000, "post: buffer memory usage not inflated: $used");
 }
 
 # TODO:
