@@ -7,17 +7,18 @@
 #include <stdio.h>
 #include "cache.c"
 
-extern size_t __VERIFIER_nondet_size_t();
+extern unsigned int __VERIFIER_nondet_uint();
+extern unsigned char __VERIFIER_nondet_uchar();
 
 enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 
-static enum test_return cache_bulkalloc(size_t datasize)
+static enum test_return cache_bulkalloc(size_t datasize, int iterations)
 {
     cache_t *cache = cache_create("test", datasize, sizeof(char*));
     if (cache == NULL) {
         return TEST_FAIL;
     }
-#define ITERATIONS 1024
+#define ITERATIONS iterations
     void *ptr[ITERATIONS];
 
     for (int ii = 0; ii < ITERATIONS; ++ii) {
@@ -36,13 +37,14 @@ static enum test_return cache_bulkalloc(size_t datasize)
 }
 
 int main() {
-    size_t input = __VERIFIER_nondet_size_t();
+    unsigned int input = __VERIFIER_nondet_uint();
+    unsigned char iterations = __VERIFIER_nondet_uchar();
 
-    printf("size_t: %lu\n", input);
+    printf("int: %u iterations: %i\n", input, (int)iterations);
 
-    cache_bulkalloc(input);
+    cache_bulkalloc(input,(int)iterations);
 
-    printf("test return: %d\n", cache_bulkalloc(input));
+    printf("test return: %d\n", cache_bulkalloc(input,(int)iterations));
 
     return 1;
 }
