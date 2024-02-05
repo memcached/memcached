@@ -1,6 +1,6 @@
 Command line used to find this crash:
 
-afl-fuzz -i /data/memcached_bachelor_thesis/input_tag3 -o /data/memcached_bachelor_thesis/output_tag3_cpus0.3 -s 42 -D -- /data/memcached_bachelor_thesis/testapp_goal3_Harness
+afl-fuzz -i /data/memcached_bachelor_thesis/input_tag3_exp2 -o /data/memcached_bachelor_thesis/output_tag3_exp3 -s 42 -D -t 1000 -- /data/memcached_bachelor_thesis/testapp_goal3_Harness
 
 If you can't reproduce a bug outside of afl-fuzz, be sure to set the same
 memory limit. The limit used for this fuzzing session was 0 B.

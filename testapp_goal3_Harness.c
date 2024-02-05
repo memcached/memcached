@@ -7,24 +7,24 @@
 #include <stdio.h>
 #include "cache.c"
 
-extern unsigned int __VERIFIER_nondet_uint();
-extern unsigned char __VERIFIER_nondet_uchar();
+extern size_t __VERIFIER_nondet_size_t();
+extern char __VERIFIER_nondet_char();
 
 enum test_return { TEST_SKIP, TEST_PASS, TEST_FAIL };
 
-static enum test_return cache_bulkalloc(size_t datasize, int iterations)
+static enum test_return cache_bulkalloc(size_t datasize, int value)
 {
     cache_t *cache = cache_create("test", datasize, sizeof(char*));
     if (cache == NULL) {
         return TEST_FAIL;
     }
-#define ITERATIONS iterations
+#define ITERATIONS 1024
     void *ptr[ITERATIONS];
 
     for (int ii = 0; ii < ITERATIONS; ++ii) {
         ptr[ii] = cache_alloc(cache);
         assert(ptr[ii] != 0);
-        memset(ptr[ii], 0xff, datasize);
+        memset(ptr[ii], value, datasize);
     }
 
     for (int ii = 0; ii < ITERATIONS; ++ii) {
@@ -37,14 +37,14 @@ static enum test_return cache_bulkalloc(size_t datasize, int iterations)
 }
 
 int main() {
-    unsigned int input = __VERIFIER_nondet_uint();
-    unsigned char iterations = __VERIFIER_nondet_uchar();
+    size_t input = __VERIFIER_nondet_size_t();
+    char value = __VERIFIER_nondet_char();
 
-    printf("int: %u iterations: %i\n", input, (int)iterations);
+    printf("datasize: %lu value: %i\n", input, (int)value);
 
-    cache_bulkalloc(input,(int)iterations);
+    cache_bulkalloc(input, (int)value);
 
-    printf("test return: %d\n", cache_bulkalloc(input,(int)iterations));
+    printf("test return: %d\n", cache_bulkalloc(input, (int)value));
 
     return 1;
 }

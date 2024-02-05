@@ -1,0 +1,132 @@
+id:000000,time:0,execs:0,orig:input2.txt:
+File 'testapp_goal3_Harness.c'
+Lines executed:95.00% of 20
+Branches executed:100.00% of 8
+Taken at least once:75.00% of 8
+Calls executed:90.91% of 11
+Creating 'testapp_goal3_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 2
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'cache.c'
+Lines executed:73.08% of 78
+Branches executed:81.25% of 32
+Taken at least once:50.00% of 32
+Calls executed:61.54% of 13
+Creating 'cache.c.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:63.24% of 136
+
+id:000001,time:0,execs:0,orig:zero.txt:
+
+File 'testapp_goal3_Harness.c'
+Lines executed:95.00% of 20
+Branches executed:100.00% of 8
+Taken at least once:75.00% of 8
+Calls executed:90.91% of 11
+Creating 'testapp_goal3_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 2
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'cache.c'
+Lines executed:73.08% of 78
+Branches executed:81.25% of 32
+Taken at least once:50.00% of 32
+Calls executed:61.54% of 13
+Creating 'cache.c.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:63.24% of 136
+
+id:000002,src:000001,time:105309,execs:1305,op:havoc,rep:30,+cov:
+File 'testapp_goal3_Harness.c'
+Lines executed:95.00% of 20
+Branches executed:100.00% of 8
+Taken at least once:75.00% of 8
+Calls executed:90.91% of 11
+Creating 'testapp_goal3_Harness.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/stdio2.h'
+Lines executed:100.00% of 2
+No branches
+Calls executed:100.00% of 2
+Creating 'stdio2.h.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/string_fortified.h'
+Lines executed:100.00% of 4
+Branches executed:0.00% of 2
+Taken at least once:0.00% of 2
+Calls executed:7.69% of 13
+Creating 'string_fortified.h.gcov'
+
+File 'cache.c'
+Lines executed:73.08% of 78
+Branches executed:81.25% of 32
+Taken at least once:50.00% of 32
+Calls executed:61.54% of 13
+Creating 'cache.c.gcov'
+
+File 'defs-testcomp.c'
+Lines executed:6.67% of 30
+Branches executed:11.11% of 36
+Taken at least once:5.56% of 36
+Calls executed:11.76% of 17
+Creating 'defs-testcomp.c.gcov'
+
+File '/usr/include/x86_64-linux-gnu/bits/unistd.h'
+Lines executed:100.00% of 2
+Branches executed:0.00% of 8
+Taken at least once:0.00% of 8
+Calls executed:10.53% of 19
+Creating 'unistd.h.gcov'
+
+Lines executed:63.24% of 136

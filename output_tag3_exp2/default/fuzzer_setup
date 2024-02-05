@@ -1,9 +1,9 @@
 # environment variables:
 AFL_CUSTOM_INFO_PROGRAM=/data/memcached_bachelor_thesis/testapp_goal3_Harness
 AFL_CUSTOM_INFO_PROGRAM_ARGV=
-AFL_CUSTOM_INFO_OUT=/data/memcached_bachelor_thesis/output_tag3_exp2/default
+AFL_CUSTOM_INFO_OUT=/data/memcached_bachelor_thesis/output_tag3_exp3/default
 AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1
 AFL_TRY_AFFINITY=1
 AFL_SKIP_CPUFREQ=1
 # command line:
-'afl-fuzz' '-i' '/data/memcached_bachelor_thesis/input_tag3_exp2' '-o' '/data/memcached_bachelor_thesis/output_tag3_exp2' '-s' '42' '-D' '--' '/data/memcached_bachelor_thesis/testapp_goal3_Harness'
+'afl-fuzz' '-i' '/data/memcached_bachelor_thesis/input_tag3_exp2' '-o' '/data/memcached_bachelor_thesis/output_tag3_exp3' '-s' '42' '-D' '-t' '1000' '--' '/data/memcached_bachelor_thesis/testapp_goal3_Harness'
