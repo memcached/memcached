@@ -19,18 +19,92 @@ static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
 /******** EXTERNAL FUNCTIONS ******/
 // functions starting with _ are breakouts for the public functions.
 
-// We want to ensure we slowly iterate through VM memory in two cases:
-// - If using the newer zero-allocation API, old backends will never close
-// after reload.
-// - If the server is completely idle and user is issuing reloads, they will
-// be confused when old backends do not close.
-// So every few seconds we push one minimal GC step.
-static void proxy_gc_poke(evutil_socket_t fd, short event, void *arg) {
-    LIBEVENT_THREAD *t = arg;
+static inline void _proxy_advance_lastkb(lua_State *L, LIBEVENT_THREAD *t) {
+    int new_kb = lua_gc(L, LUA_GCCOUNT);
+    if (new_kb > t->proxy_vm_last_kb) {
+        // clamp increases of the base memory per run to help
+        // prevent runaway scenarios.
+        t->proxy_vm_last_kb += (new_kb - t->proxy_vm_last_kb) * 0.5;
+    } else {
+        t->proxy_vm_last_kb = new_kb;
+    }
+}
+
+// The lua GC is paused while running requests. Run it manually inbetween
+// processing network events.
+void proxy_gc_poke(LIBEVENT_THREAD *t) {
     lua_State *L = t->L;
+    int vm_kb = lua_gc(L, LUA_GCCOUNT) + t->proxy_vm_extra_kb;
+    if (t->proxy_vm_last_kb == 0) {
+        t->proxy_vm_last_kb = vm_kb;
+    }
+
+    // equivalent of luagc "pause" value
+    int last = t->proxy_vm_last_kb;
+    if (t->proxy_vm_gcrunning <= 0 && vm_kb > last * 2) {
+        t->proxy_vm_gcrunning = 1;
+        //fprintf(stderr, "PROXYGC: proxy_gc_poke START [cur: %d - last: %d]\n", vm_kb, last);
+    }
+
+    // We configure small GC "steps" then increase the number of times we run
+    // a step based on current memory usage.
+    if (t->proxy_vm_gcrunning > 0) {
+        t->proxy_vm_needspoke = false;
+        int loops = t->proxy_vm_gcrunning;
+        /*fprintf(stderr, "PROXYGC: proxy_gc_poke [cur: %d - last: %d - loops: %d]\n",
+            vm_kb,
+            t->proxy_vm_last_kb,
+            loops);*/
+        while (loops--) {
+            // reset counters once full GC cycle has completed
+            if (lua_gc(L, LUA_GCSTEP, 0)) {
+                _proxy_advance_lastkb(L, t);
+                t->proxy_vm_extra_kb = 0;
+                t->proxy_vm_gcrunning = 0;
+                //fprintf(stderr, "PROXYGC: proxy_gc_poke COMPLETE [cur: %d next: %d]\n", lua_gc(L, LUA_GCCOUNT), t->proxy_vm_last_kb);
+                break;
+            }
+        }
+
+        // increase the aggressiveness by memory bloat level.
+        if (t->proxy_vm_gcrunning && (last*2) + (last * t->proxy_vm_gcrunning*0.25) < vm_kb) {
+            t->proxy_vm_gcrunning++;
+            //fprintf(stderr, "PROXYGC: proxy_gc_poke INCREASING AGGRESSIVENESS [cur: %d - aggro: %d]\n", t->proxy_vm_last_kb, t->proxy_vm_gcrunning);
+        } else if (t->proxy_vm_gcrunning > 1) {
+            // memory can drop during a run, let the GC slow down again.
+            t->proxy_vm_gcrunning--;
+            //fprintf(stderr, "PROXYGC: proxy_gc_poke DECREASING AGGRESSIVENESS [cur: %d - aggro: %d]\n", t->proxy_vm_last_kb, t->proxy_vm_gcrunning);
+        }
+    }
+}
+
+// every couple seconds we force-run one GC step.
+// this is needed until after API1 is retired and pool objects are no longer
+// managed by the GC.
+// We use a negative value so a "timer poke" GC run doesn't cause requests to
+// suddenly aggressively run the GC.
+static void proxy_gc_timerpoke(evutil_socket_t fd, short event, void *arg) {
+    LIBEVENT_THREAD *t = arg;
     struct timeval next = { PROXY_GC_BACKGROUND_SECONDS, 0 };
-    lua_gc(L, LUA_GCSTEP, 0);
     evtimer_add(t->proxy_gc_timer, &next);
+    // if GC ran within the last few seconds, don't do anything.
+    if (!t->proxy_vm_needspoke) {
+        t->proxy_vm_needspoke = true;
+        return;
+    }
+
+    // if we weren't told to skip and there's otherwise no GC running, start a
+    // GC run.
+    if (t->proxy_vm_gcrunning == 0) {
+        t->proxy_vm_gcrunning = -1;
+    }
+
+    // only advance GC if we're doing our own timer run.
+    if (t->proxy_vm_gcrunning == -1 && lua_gc(t->L, LUA_GCSTEP, 0)) {
+        _proxy_advance_lastkb(t->L, t);
+        t->proxy_vm_extra_kb = 0;
+        t->proxy_vm_gcrunning = 0;
+    }
 }
 
 bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len) {
@@ -286,7 +360,8 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
     // We can't use GCGEN until we manage pools with reference counting, as
     // they may never hit GC and thus never release their connection
     // resources.
-    lua_gc(L, LUA_GCINC, 199, 100, 13);
+    lua_gc(L, LUA_GCINC, 199, 100, 12);
+    lua_gc(L, LUA_GCSTOP); // handle GC on our own schedule.
     thr->L = L;
     luaL_openlibs(L);
     proxy_register_libs(ctx, thr, L);
@@ -295,9 +370,9 @@ void proxy_thread_init(void *ctx, LIBEVENT_THREAD *thr) {
         thr->proxy_rng[x] = rand();
     }
 
-    thr->proxy_gc_timer = evtimer_new(thr->base, proxy_gc_poke, thr);
+    thr->proxy_gc_timer = evtimer_new(thr->base, proxy_gc_timerpoke, thr);
     // kick off the timer loop.
-    proxy_gc_poke(0, 0, thr);
+    proxy_gc_timerpoke(0, 0, thr);
 
     // Create a proxy event thread structure to piggyback on the worker.
     proxy_event_thread_t *t = calloc(1, sizeof(proxy_event_thread_t));
@@ -412,7 +487,7 @@ void proxy_return_rctx_cb(io_pending_t *pending) {
         // FIXME: workaround for buffer memory being external to objects.
         // can't run 0 since that means something special (run the GC)
         unsigned int kb = p->client_resp->blen / 1000;
-        lua_gc(p->rctx->Lc, LUA_GCSTEP, kb > 0 ? kb : 1);
+        p->thread->proxy_vm_extra_kb += kb > 0 ? kb : 1;
     }
 
     if (p->is_await) {

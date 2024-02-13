@@ -749,6 +749,10 @@ typedef struct {
     void *proxy_event_thread; // worker threads can also be proxy IO threads
     struct event *proxy_gc_timer; // periodic GC pushing.
     pthread_mutex_t proxy_limit_lock;
+    int proxy_vm_extra_kb;
+    int proxy_vm_last_kb;
+    int proxy_vm_gcrunning;
+    bool proxy_vm_needspoke;
     uint64_t proxy_active_req_limit;
     uint64_t proxy_buffer_memory_limit; // protected by limit_lock
     uint64_t proxy_buffer_memory_used; // protected by limit_lock

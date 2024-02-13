@@ -17,6 +17,7 @@ void proxy_start_reload(void *arg);
 int proxy_first_confload(void *arg);
 int proxy_load_config(void *arg);
 void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr);
+void proxy_gc_poke(LIBEVENT_THREAD *t);
 
 void proxy_submit_cb(io_queue_t *q);
 void proxy_complete_cb(io_queue_t *q);

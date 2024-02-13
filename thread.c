@@ -525,9 +525,16 @@ static void *worker_libevent(void *arg) {
     }
 
     register_thread_initialized();
-
+#ifdef PROXY
+    while (!event_base_got_exit(me->base)) {
+        event_base_loop(me->base, EVLOOP_ONCE);
+        if (me->proxy_ctx) {
+            proxy_gc_poke(me);
+        }
+    }
+#else
     event_base_loop(me->base, 0);
-
+#endif
     // same mechanism used to watch for all threads exiting.
     register_thread_initialized();
 
