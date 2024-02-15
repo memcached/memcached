@@ -17,6 +17,7 @@ int mcplib_funcgen_gc(lua_State *L) {
     assert(fgen->self_ref == 0);
 
     mcp_funcgen_cleanup(L, fgen);
+    fgen->closed = true;
     return 0;
 }
 
@@ -311,7 +312,7 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
         // remove the C reference to the fgen
         luaL_unref(L, LUA_REGISTRYINDEX, fgen->self_ref);
         fgen->self_ref = 0;
-    } else {
+    } else if (fgen->closed) {
         // we've already cleaned up, probably redundant call from _gc()
         return;
     }
