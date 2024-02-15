@@ -179,7 +179,6 @@ void process_proxy_funcstats(void *arg, ADD_STAT add_stats, conn *c) {
         } else {
             // TODO: Is it safe to delete keys in the middle here?
             // not worried at all about just leaking memory here.
-            lua_pop(L, 1); // drop value, keep key, loop.
         }
     }
 
