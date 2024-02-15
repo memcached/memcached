@@ -358,12 +358,29 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
             } else if (rqu->obj_type != RQUEUE_TYPE_NONE) {
                 assert(1 == 0);
             }
+
+            if (rqu->res_ref) {
+                luaL_unref(L, LUA_REGISTRYINDEX, rqu->res_ref);
+                rqu->res_ref = 0;
+            }
+
             if (rqu->cb_ref) {
                 luaL_unref(L, LUA_REGISTRYINDEX, rqu->cb_ref);
                 rqu->cb_ref = 0;
             }
         }
     }
+
+    if (fgen->argument_ref) {
+        luaL_unref(L, LUA_REGISTRYINDEX, fgen->argument_ref);
+        fgen->argument_ref = 0;
+    }
+
+    if (fgen->generator_ref) {
+        luaL_unref(L, LUA_REGISTRYINDEX, fgen->generator_ref);
+        fgen->generator_ref = 0;
+    }
+
     // decrement the slot tracker. apply full delta at once for efficiency.
     mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, name, -fgen->total);
 
