@@ -326,6 +326,8 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
     if (fgen->name_ref) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, fgen->name_ref);
         name = lua_tostring(L, -1);
+    } else if (fgen->router.type != FGEN_ROUTER_NONE) {
+        name = "mcp_router";
     } else {
         name = "anonymous";
     }
@@ -1618,6 +1620,9 @@ int mcplib_router_new(lua_State *L) {
     }
 
     lua_pop(L, 2); // drop argmap, mymap.
+
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGEN_IDX, "mcp_router", 1);
 
     return 1;
 }
