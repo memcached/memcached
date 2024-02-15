@@ -428,7 +428,7 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
     _copy_config_table(ctx->proxy_state, L, thr);
 
     // copied value is in front of route function, now call it.
-    if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+    if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
         fprintf(stderr, "Failed to execute mcp_config_routes: %s\n", lua_tostring(L, -1));
         return -1;
     }
