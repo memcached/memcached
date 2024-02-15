@@ -1334,4 +1334,42 @@ __attribute__((unused)) void dump_stack(lua_State *L, const char *msg) {
     fprintf(stderr, "-----------------\n");
 }
 
-
+// Not very pretty, but helped.
+// Nice to haves:
+// - summarize counts for each metatable (easy enough to do from logging)
+// - use a less noisy stack dump instead of calling dump_stack()
+__attribute__((unused)) void dump_registry(lua_State *L, const char *msg) {
+    int ref_size = lua_rawlen(L, LUA_REGISTRYINDEX);
+    fprintf(stderr, "--LUA REGISTRY TABLE [%d] | %s\n", ref_size, msg);
+    // walk registry
+    int ridx = lua_absindex(L, LUA_REGISTRYINDEX);
+    int udata = 0;
+    int number = 0;
+    int string = 0;
+    int function = 0;
+    int table = 0;
+    lua_pushnil(L);
+    while (lua_next(L, ridx) != 0) {
+        dump_stack(L, "===registry entry===");
+        int type = lua_type(L, -1);
+        if (type == LUA_TUSERDATA) {
+            udata++;
+        } else if (type == LUA_TNUMBER) {
+            number++;
+        } else if (type == LUA_TSTRING) {
+            string++;
+        } else if (type == LUA_TFUNCTION) {
+            function++;
+        } else if (type == LUA_TTABLE) {
+            table++;
+        }
+        lua_pop(L, 1); // drop value
+    }
+    fprintf(stderr, "SUMMARY:\n\n");
+    fprintf(stderr, "### UDATA\t[%d]\n", udata);
+    fprintf(stderr, "### NUMBER\t[%d]\n", number);
+    fprintf(stderr, "### STRING\t[%d]\n", string);
+    fprintf(stderr, "### FUNCTION\t[%d]\n", function );
+    fprintf(stderr, "### TABLE\t[%d]\n", table);
+    fprintf(stderr, "-----------------\n");
+}
