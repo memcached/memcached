@@ -95,11 +95,9 @@
 #ifdef LARGE_CLIENT_FLAGS
 typedef uint64_t client_flags_t;
 #define safe_strtoflags safe_strtoull
-#define CLIENT_FLAG_FORMAT_SPECIFIER "%llu"
 #else
 typedef uint32_t client_flags_t;
 #define safe_strtoflags safe_strtoul
-#define CLIENT_FLAG_FORMAT_SPECIFIER "%lu"
 #endif
 
 /*

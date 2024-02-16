@@ -273,7 +273,7 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
     // TODO: uriencode directly into the buffer.
     uriencode(ITEM_key(it), keybuf, it->nkey, KEY_MAX_URI_ENCODED_LENGTH);
     int total = snprintf(cm->c.buf + cm->c.bufused, 4096,
-            "key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu flags=" CLIENT_FLAG_FORMAT_SPECIFIER "\n",
+            "key=%s exp=%ld la=%llu cas=%llu fetch=%s cls=%u size=%lu flags=%llu\n",
             keybuf,
             (it->exptime == 0) ? -1 : (long)(it->exptime + process_started),
             (unsigned long long)(it->time + process_started),
