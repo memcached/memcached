@@ -432,6 +432,7 @@ static void recache_or_free(io_pending_t *pending) {
                 it->h_next = NULL; // might not be necessary.
                 STORAGE_delete(c->thread->storage, h_it);
                 item_replace(h_it, it, hv);
+                ITEM_set_cas(it, ITEM_get_cas(h_it));
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.recache_from_extstore++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
