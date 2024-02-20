@@ -1005,6 +1005,7 @@ static int slab_rebalance_move(void) {
                         new_it->it_flags &= ~ITEM_LINKED;
                         new_it->refcount = 0;
                         do_item_replace(it, new_it, hv);
+                        ITEM_set_cas(new_it, ITEM_get_cas(it));
                         /* Need to walk the chunks and repoint head  */
                         if (new_it->it_flags & ITEM_CHUNKED) {
                             item_chunk *fch = (item_chunk *) ITEM_schunk(new_it);
