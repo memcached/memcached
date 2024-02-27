@@ -880,7 +880,7 @@ static void process_meta_command(conn *c, token_t *tokens, const size_t ntokens)
 
         ret = snprintf(resp->wbuf + total, WRITE_BUFFER_SIZE - (it->nkey + 12),
                 "exp=%d la=%llu cas=%llu fetch=%s cls=%u size=%lu\r\n",
-                (it->exptime == 0) ? -1 : (current_time - it->exptime),
+                (it->exptime == 0) ? -1 : (it->exptime - current_time),
                 (unsigned long long)(current_time - it->time),
                 (unsigned long long)ITEM_get_cas(it),
                 (it->it_flags & ITEM_FETCHED) ? "yes" : "no",
