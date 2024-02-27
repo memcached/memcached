@@ -9,7 +9,7 @@ use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
 
-my $server = new_memcached('-m 48 -o slab_chunk_max=16384');
+my $server = new_memcached('-m 48 -o slab_chunk_max=16');
 my $sock = $server->sock;
 
 # We're testing to ensure item chaining doesn't corrupt or poorly overlap

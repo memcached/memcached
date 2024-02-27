@@ -122,7 +122,7 @@ $empty->('y');
 
 {
     diag "Some chunked item tests";
-    my $s2 = new_memcached('-o no_modern,slab_chunk_max=4096');
+    my $s2 = new_memcached('-o no_modern,slab_chunk_max=4');
     ok($s2, "started the server");
     my $m2 = MC::Client->new($s2);
     # Specifically trying to cross the chunk boundary when internally

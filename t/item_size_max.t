@@ -27,7 +27,7 @@ eval {
 ok($@ && $@ =~ m/^Failed/, "Shouldn't start with > 128m item max");
 
 # Minimum.
-$server = new_memcached('-I 1024 -o slab_chunk_max=1024');
+$server = new_memcached('-I 1024 -o slab_chunk_max=1');
 my $stats = mem_stats($server->sock, ' settings');
 is($stats->{item_size_max}, 1024);
 $server->stop();
@@ -39,7 +39,7 @@ is($stats->{item_size_max}, 2097152);
 $server->stop();
 
 # Suffix kilobytes.
-$server = new_memcached('-I 512k -o slab_chunk_max=16384');
+$server = new_memcached('-I 512k -o slab_chunk_max=16');
 my $stats = mem_stats($server->sock, ' settings');
 is($stats->{item_size_max}, 524288);
 $server->stop();

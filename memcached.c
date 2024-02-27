@@ -5484,10 +5484,21 @@ int main (int argc, char **argv) {
             case SLAB_CHUNK_MAX:
                 if (subopts_value == NULL) {
                     fprintf(stderr, "Missing slab_chunk_max argument\n");
+                    return 1;
                 }
                 if (!safe_strtol(subopts_value, &settings.slab_chunk_size_max)) {
                     fprintf(stderr, "could not parse argument to slab_chunk_max\n");
+                    return 1;
                 }
+                if (settings.slab_chunk_size_max <= 0) {
+                    fprintf(stderr, "slab_chunk_max must be >= 0\n");
+                    return 1;
+                }
+                if (settings.slab_chunk_size_max > (1 << 10)) {
+                    fprintf(stderr, "slab_chunk_max must be specified in kilobytes.\n");
+                    return 1;
+                }
+                settings.slab_chunk_size_max *= (1 << 10);
                 slab_chunk_size_changed = true;
                 break;
             case TRACK_SIZES:
