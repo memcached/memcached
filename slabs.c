@@ -1322,12 +1322,11 @@ int start_slab_maintenance_thread(void) {
     slab_rebalance_signal = 0;
     slab_rebal.slab_start = NULL;
 
-    if ((ret = pthread_create(&rebalance_tid, NULL,
-                              slab_rebalance_thread, NULL)) != 0) {
+    if ((ret = create_thread_with_name(&rebalance_tid, "mc-slabmaint", NULL, slab_rebalance_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create rebal thread: %s\n", strerror(ret));
         return -1;
     }
-    thread_setname(rebalance_tid, "mc-slabmaint");
+
     return 0;
 }
 

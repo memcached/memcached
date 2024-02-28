@@ -639,14 +639,12 @@ int start_item_crawler_thread(void) {
         return -1;
     pthread_mutex_lock(&lru_crawler_lock);
     do_run_lru_crawler_thread = 1;
-    if ((ret = pthread_create(&item_crawler_tid, NULL,
-        item_crawler_thread, NULL)) != 0) {
+    if ((ret = create_thread_with_name(&item_crawler_tid, "mc-itemcrawler", NULL, item_crawler_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create LRU crawler thread: %s\n",
             strerror(ret));
         pthread_mutex_unlock(&lru_crawler_lock);
         return -1;
     }
-    thread_setname(item_crawler_tid, "mc-itemcrawler");
     /* Avoid returning until the crawler has actually started */
     pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
     pthread_mutex_unlock(&lru_crawler_lock);

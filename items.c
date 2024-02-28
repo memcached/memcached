@@ -1722,14 +1722,12 @@ int start_lru_maintainer_thread(void *arg) {
     pthread_mutex_lock(&lru_maintainer_lock);
     do_run_lru_maintainer_thread = 1;
     settings.lru_maintainer_thread = true;
-    if ((ret = pthread_create(&lru_maintainer_tid, NULL,
-        lru_maintainer_thread, arg)) != 0) {
+    if ((ret = create_thread_with_name(&lru_maintainer_tid, "mc-lrumaint", NULL, lru_maintainer_thread, arg)) != 0) {
         fprintf(stderr, "Can't create LRU maintainer thread: %s\n",
             strerror(ret));
         pthread_mutex_unlock(&lru_maintainer_lock);
         return -1;
     }
-    thread_setname(lru_maintainer_tid, "mc-lrumaint");
     pthread_mutex_unlock(&lru_maintainer_lock);
 
     return 0;

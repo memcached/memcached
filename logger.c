@@ -932,12 +932,11 @@ static void *logger_thread(void *arg) {
 static int start_logger_thread(void) {
     int ret;
     do_run_logger_thread = 1;
-    if ((ret = pthread_create(&logger_tid, NULL,
-                              logger_thread, NULL)) != 0) {
+    if ((ret = create_thread_with_name(&logger_tid, "mc-log", NULL, logger_thread, NULL)) != 0) {
         fprintf(stderr, "Can't start logger thread: %s\n", strerror(ret));
         return -1;
     }
-    thread_setname(logger_tid, "mc-log");
+
     return 0;
 }
 

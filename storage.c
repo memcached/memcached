@@ -692,13 +692,11 @@ int start_storage_write_thread(void *arg) {
     int ret;
 
     pthread_mutex_init(&storage_write_plock, NULL);
-    if ((ret = pthread_create(&storage_write_tid, NULL,
-        storage_write_thread, arg)) != 0) {
+    if ((ret = create_thread_with_name(&storage_write_tid, "mc-ext-write", NULL, storage_write_thread, arg)) != 0) {
         fprintf(stderr, "Can't create storage_write thread: %s\n",
             strerror(ret));
         return -1;
     }
-    thread_setname(storage_write_tid, "mc-ext-write");
 
     return 0;
 }
@@ -1052,13 +1050,11 @@ int start_storage_compact_thread(void *arg) {
     int ret;
 
     pthread_mutex_init(&storage_compact_plock, NULL);
-    if ((ret = pthread_create(&storage_compact_tid, NULL,
-        storage_compact_thread, arg)) != 0) {
+    if ((ret = create_thread_with_name(&storage_compact_tid, "mc-ext-compact", NULL, storage_compact_thread, arg)) != 0) {
         fprintf(stderr, "Can't create storage_compact thread: %s\n",
             strerror(ret));
         return -1;
     }
-    thread_setname(storage_compact_tid, "mc-ext-compact");
 
     return 0;
 }

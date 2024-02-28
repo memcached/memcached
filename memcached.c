@@ -381,13 +381,11 @@ static int start_conn_timeout_thread(void) {
         return -1;
 
     do_run_conn_timeout_thread = 1;
-    if ((ret = pthread_create(&conn_timeout_tid, NULL,
-        conn_timeout_thread, NULL)) != 0) {
+    if ((ret = create_thread_with_name(&conn_timeout_tid, "mc-idletimeout", NULL, conn_timeout_thread, NULL)) != 0) {
         fprintf(stderr, "Can't create idle connection timeout thread: %s\n",
             strerror(ret));
         return -1;
     }
-    thread_setname(conn_timeout_tid, "mc-idletimeout");
 
     return 0;
 }
