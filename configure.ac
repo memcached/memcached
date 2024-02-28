@@ -694,6 +694,7 @@ AC_CHECK_FUNCS(clock_gettime)
 AC_CHECK_FUNCS(preadv)
 AC_CHECK_FUNCS(pread)
 AC_CHECK_FUNCS(eventfd)
+AC_CHECK_FUNCS([pthread_setname_np],[AC_DEFINE(HAVE_PTHREAD_SETNAME_NP, 1, [Define to 1 if support pthread_setname_np])])
 AC_CHECK_FUNCS([accept4], [AC_DEFINE(HAVE_ACCEPT4, 1, [Define to 1 if support accept4])])
 AC_CHECK_FUNCS([getopt_long], [AC_DEFINE(HAVE_GETOPT_LONG, 1, [Define to 1 if support getopt_long])])
 

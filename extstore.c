@@ -119,7 +119,7 @@ struct store_engine {
 #define THR_NAME_MAXLEN 16
 static void thread_setname(pthread_t thread, const char *name) {
 assert(strlen(name) < THR_NAME_MAXLEN);
-#if defined(__linux__)
+#if defined(__linux__) && defined(HAVE_PTHREAD_SETNAME_NP)
 pthread_setname_np(thread, name);
 #endif
 }
