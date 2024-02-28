@@ -22,6 +22,9 @@
 #include <signal.h>
 #include <assert.h>
 #include <pthread.h>
+#ifdef HAVE_MALLOC_TRIM
+#include <malloc.h>
+#endif
 
 //#define DEBUG_SLAB_MOVER
 /* powers-of-N allocation structures */
@@ -691,6 +694,9 @@ bool slabs_adjust_mem_limit(size_t new_mem_limit) {
     pthread_mutex_lock(&slabs_lock);
     ret = do_slabs_adjust_mem_limit(new_mem_limit);
     pthread_mutex_unlock(&slabs_lock);
+#ifdef HAVE_MALLOC_TRIM
+    malloc_trim(0); /* force return memory to OS */
+#endif
     return ret;
 }
 
