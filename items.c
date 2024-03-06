@@ -59,7 +59,7 @@ static unsigned int sizes[LARGEST_ID];
 static uint64_t sizes_bytes[LARGEST_ID];
 static unsigned int *stats_sizes_hist = NULL;
 static int stats_sizes_buckets = 0;
-static uint64_t cas_id = 0;
+static uint64_t cas_id = 1;
 
 static volatile int do_run_lru_maintainer_thread = 0;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -488,7 +488,7 @@ static void item_unlink_q(item *it) {
     pthread_mutex_unlock(&lru_locks[it->slabs_clsid]);
 }
 
-int do_item_link(item *it, const uint32_t hv) {
+int do_item_link(item *it, const uint32_t hv, const uint64_t cas) {
     MEMCACHED_ITEM_LINK(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
     it->it_flags |= ITEM_LINKED;
@@ -501,7 +501,7 @@ int do_item_link(item *it, const uint32_t hv) {
     STATS_UNLOCK();
 
     /* Allocate a new CAS ID on link. */
-    ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+    ITEM_set_cas(it, cas);
     assoc_insert(it, hv);
     item_link_q(it);
     refcount_incr(it);
@@ -581,13 +581,13 @@ void do_item_update(item *it) {
     }
 }
 
-int do_item_replace(item *it, item *new_it, const uint32_t hv) {
+int do_item_replace(item *it, item *new_it, const uint32_t hv, const uint64_t cas) {
     MEMCACHED_ITEM_REPLACE(ITEM_key(it), it->nkey, it->nbytes,
                            ITEM_key(new_it), new_it->nkey, new_it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);
 
     do_item_unlink(it, hv);
-    return do_item_link(new_it, hv);
+    return do_item_link(new_it, hv, cas);
 }
 
 void item_flush_expired(void) {

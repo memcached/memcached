@@ -443,8 +443,7 @@ static void recache_or_free(io_pending_t *pending) {
                 it->refcount = 0;
                 it->h_next = NULL; // might not be necessary.
                 STORAGE_delete(c->thread->storage, h_it);
-                item_replace(h_it, it, hv);
-                ITEM_set_cas(it, ITEM_get_cas(h_it));
+                item_replace(h_it, it, hv, ITEM_get_cas(h_it));
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.recache_from_extstore++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
@@ -570,8 +569,7 @@ static int storage_write(void *storage, const int clsid, const int item_age) {
                  * header and replace. Most of this requires the item lock
                  */
                 /* CAS gets set while linking. Copy post-replace */
-                item_replace(it, hdr_it, it_info.hv);
-                ITEM_set_cas(hdr_it, ITEM_get_cas(it));
+                item_replace(it, hdr_it, it_info.hv, ITEM_get_cas(it));
                 do_item_remove(hdr_it);
                 did_moves = 1;
                 LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EXTSTORE_WRITE, it, bucket);
@@ -997,8 +995,7 @@ static void storage_compact_readback(void *storage, logger *l,
                             new_hdr->offset = io.offset;
 
                             // replace the item in the hash table.
-                            item_replace(hdr_it, new_it, hv);
-                            ITEM_set_cas(new_it, (settings.use_cas) ? ITEM_get_cas(hdr_it) : 0);
+                            item_replace(hdr_it, new_it, hv, ITEM_get_cas(hdr_it));
                             do_item_remove(new_it); // release our reference.
                             rescued = true;
                         } else {

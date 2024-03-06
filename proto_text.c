@@ -51,7 +51,7 @@ typedef struct token_s {
     size_t length;
 } token_t;
 
-static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret) {
+static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret, uint64_t cas) {
     mc_resp *resp = c->resp;
     item *it = c->item;
     conn_set_state(c, conn_new_cmd);
@@ -103,7 +103,7 @@ static void _finalize_mset(conn *c, int nbytes, enum store_item_type ret) {
                 // We don't have the CAS until this point, which is why we
                 // generate this line so late.
                 META_CHAR(p, 'c');
-                p = itoa_u64(c->cas, p);
+                p = itoa_u64(cas, p);
                 break;
             case 's':
                 // Get final item size, ie from append/prepend
@@ -181,7 +181,8 @@ void complete_nread_ascii(conn *c) {
     } else {
       uint64_t cas = 0;
       c->thread->cur_sfd = c->sfd; // cuddle sfd for logging.
-      ret = store_item(it, comm, c->thread, &nbytes, &cas, c->set_stale);
+      ret = store_item(it, comm, c->thread, &nbytes, &cas, c->cas ? c->cas : get_cas_id(), c->set_stale);
+      c->cas = 0;
 
 #ifdef ENABLE_DTRACE
       switch (c->cmd) {
@@ -213,8 +214,7 @@ void complete_nread_ascii(conn *c) {
 #endif
 
       if (c->mset_res) {
-          c->cas = cas;
-          _finalize_mset(c, nbytes, ret);
+          _finalize_mset(c, nbytes, ret, cas);
       } else {
           switch (ret) {
           case STORED:
@@ -915,6 +915,7 @@ struct _meta_flags {
     unsigned int set_stale :1;
     unsigned int no_reply :1;
     unsigned int has_cas :1;
+    unsigned int has_cas_in :1;
     unsigned int new_ttl :1;
     unsigned int key_binary:1;
     char mode; // single character mode switch, common to ms/ma
@@ -923,6 +924,7 @@ struct _meta_flags {
     rel_time_t recache_time;
     client_flags_t client_flags;
     uint64_t req_cas_id;
+    uint64_t cas_id_in; // client supplied next-CAS
     uint64_t delta; // ma
     uint64_t initial; // ma
 };
@@ -1026,6 +1028,14 @@ static int _meta_flag_preparse(token_t *tokens, const size_t start,
                     of->has_error = true;
                 } else {
                     of->has_cas = true;
+                }
+                break;
+            case 'E': // ms, md, ma
+                if (!safe_strtoull(tokens[i].value+1, &of->cas_id_in)) {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = true;
+                } else {
+                    of->has_cas_in = true;
                 }
                 break;
             case 'M': // mset and marithmetic mode switch
@@ -1136,7 +1146,7 @@ static void process_mget_command(conn *c, token_t *tokens, const size_t ntokens)
             // I look forward to the day I get rid of this :)
             memcpy(ITEM_data(it), "\r\n", 2);
             // NOTE: This initializes the CAS value.
-            do_item_link(it, hv);
+            do_item_link(it, hv, of.has_cas_in ? of.cas_id_in : get_cas_id());
             item_created = true;
         }
     }
@@ -1440,8 +1450,8 @@ static void process_mset_command(conn *c, token_t *tokens, const size_t ntokens)
 
     // Set noreply after tokens are understood.
     c->noreply = of.no_reply;
-    // Clear cas return value
-    c->cas = 0;
+    // Set cas return value
+    c->cas = of.has_cas_in ? of.cas_id_in : get_cas_id();
     exptime = of.exptime;
 
     bool has_error = false;
@@ -1677,7 +1687,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             // Also need to remove TOKEN_SENT, so next client can win.
             it->it_flags &= ~ITEM_TOKEN_SENT;
 
-            ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+            ITEM_set_cas(it, of.has_cas_in ? of.cas_id_in : get_cas_id());
 
             // Clients can noreply nominal responses.
             if (c->noreply)
@@ -1797,6 +1807,11 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
         if (c->noreply)
             resp->skip = true;
         // *it was filled, set the status below.
+        if (of.has_cas_in) {
+            // override the CAS. slightly inefficient but fixing that can wait
+            // until the next time do_add_delta is changed.
+            ITEM_set_cas(it, of.cas_id_in);
+        }
         break;
     case NON_NUMERIC:
         errstr = "CLIENT_ERROR cannot increment or decrement non-numeric value";
@@ -1815,7 +1830,8 @@ static void process_marithmetic_command(conn *c, token_t *tokens, const size_t n
             if (it != NULL) {
                 memcpy(ITEM_data(it), tmpbuf, vlen);
                 memcpy(ITEM_data(it) + vlen, "\r\n", 2);
-                if (do_store_item(it, NREAD_ADD, c->thread, hv, NULL, NULL, CAS_NO_STALE)) {
+                if (do_store_item(it, NREAD_ADD, c->thread, hv, NULL, NULL,
+                            of.has_cas_in ? of.cas_id_in : get_cas_id(), CAS_NO_STALE)) {
                     item_created = true;
                 } else {
                     // Not sure how we can get here if we're holding the lock.

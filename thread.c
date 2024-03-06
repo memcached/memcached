@@ -913,20 +913,6 @@ item *item_touch(const char *key, size_t nkey, uint32_t exptime, LIBEVENT_THREAD
 }
 
 /*
- * Links an item into the LRU and hashtable.
- */
-int item_link(item *item) {
-    int ret;
-    uint32_t hv;
-
-    hv = hash(ITEM_key(item), item->nkey);
-    item_lock(hv);
-    ret = do_item_link(item, hv);
-    item_unlock(hv);
-    return ret;
-}
-
-/*
  * Decrements the reference count on an item and adds it to the freelist if
  * needed.
  */
@@ -944,8 +930,8 @@ void item_remove(item *item) {
  * Unprotected by a mutex lock since the core server does not require
  * it to be thread-safe.
  */
-int item_replace(item *old_it, item *new_it, const uint32_t hv) {
-    return do_item_replace(old_it, new_it, hv);
+int item_replace(item *old_it, item *new_it, const uint32_t hv, const uint64_t cas_in) {
+    return do_item_replace(old_it, new_it, hv, cas_in);
 }
 
 /*
@@ -979,13 +965,13 @@ enum delta_result_type add_delta(LIBEVENT_THREAD *t, const char *key,
 /*
  * Stores an item in the cache (high level, obeys set/add/replace semantics)
  */
-enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, int *nbytes, uint64_t *cas, bool cas_stale) {
+enum store_item_type store_item(item *item, int comm, LIBEVENT_THREAD *t, int *nbytes, uint64_t *cas, const uint64_t cas_in, bool cas_stale) {
     enum store_item_type ret;
     uint32_t hv;
 
     hv = hash(ITEM_key(item), item->nkey);
     item_lock(hv);
-    ret = do_store_item(item, comm, t, hv, nbytes, cas, cas_stale);
+    ret = do_store_item(item, comm, t, hv, nbytes, cas, cas_in, cas_stale);
     item_unlock(hv);
     return ret;
 }

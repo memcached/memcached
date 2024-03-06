@@ -554,6 +554,7 @@ The flags used by the 'mg' command are:
 - v: return item value in <data block>
 
 These flags can modify the item:
+- E(token): use token as new CAS value if item is modified
 - N(token): vivify on miss, takes TTL as a argument
 - R(token): if remaining TTL is less than token, win for recache
 - T(token): update remaining TTL
@@ -619,6 +620,13 @@ The data block for a metaget response is optional, requiring this flag to be
 passed in. The response code also changes from "HD" to "VA <size>"
 
 These flags can modify the item:
+- E(token): use token as new CAS value if item is modified
+
+Normally when an item is created it is given a CAS value from an internal
+atomically incrementing counter. This allows overriding the CAS (8 byte
+unsigned integer) with the specified value. This is useful for using an
+external system to version cache data (row versions, clocks, etc).
+
 - N(token): vivify on miss, takes TTL as a argument
 
 Used to help with so called "dog piling" problems with recaching of popular
@@ -721,6 +729,7 @@ The flags used by the 'ms' command are:
 - b: interpret key as base64 encoded binary value (see metaget)
 - c: return CAS value if successfully stored.
 - C(token): compare CAS value when storing item
+- E(token): use token as new CAS value (see metaget for detail)
 - F(token): set client flags to token (32 bit unsigned numeric)
 - I: invalidate. set-to-invalid if supplied CAS is older than item's CAS
 - k: return key as a token
@@ -815,6 +824,7 @@ The flags used by the 'md' command are:
 
 - b: interpret key as base64 encoded binary value (see metaget)
 - C(token): compare CAS value
+- E(token): use token as new CAS value (see metaget for detail)
 - I: invalidate. mark as stale, bumps CAS.
 - k: return key
 - O(token): opaque to copy back.
@@ -888,6 +898,7 @@ The flags used by the 'ma' command are:
 
 - b: interpret key as base64 encoded binary value (see metaget)
 - C(token): compare CAS value (see mset)
+- E(token): use token as new CAS value (see metaget for detail)
 - N(token): auto create item on miss with supplied TTL
 - J(token): initial value to use if auto created after miss (default 0)
 - D(token): delta to apply (decimal unsigned 64-bit number, default 1)

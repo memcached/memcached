@@ -6,6 +6,7 @@ use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
+use Data::Dumper qw/Dumper/;
 
 my $server = new_memcached();
 my $sock = $server->sock;
@@ -101,16 +102,12 @@ my $sock = $server->sock;
 # c: return current CAS
 # v: return new value
 #
+# All commands:
+# E(token): if supplied, set as CAS field on successful update operation
+#
 # mn\r\n
 # response:
 # MN\r\n
-
-# metaget tests
-
-# basic test
-# - raw mget
-# - raw mget miss
-# - raw mget bad key
 
 # Test basic parser.
 {
@@ -211,6 +208,75 @@ my $sock = $server->sock;
     print $sock "ms $key 2 c C$cas\r\nio\r\n";
     like(scalar <$sock>, qr/^HD c\d+/, "success on correct cas");
 }
+
+subtest 'mset with E CAS override' => sub {
+    my $key = "msetE";
+    my $cas = "973";
+    print $sock "ms $key 2 E$cas\r\nji\r\n";
+    like(scalar <$sock>, qr/^HD/, "set test key");
+
+    my $res = mget($sock, $key, 'c');
+    is(get_flag($res, 'c'), $cas, "got correct cas back");
+
+    my $cas2 = "4000";
+    print $sock "ms $key 2 c C$cas E$cas2\r\nlo\r\n";
+    like(scalar <$sock>, qr/^HD c$cas2/, "overwrite test key with new CAS");
+};
+
+subtest 'mget vivify with CAS override' => sub {
+    my $k = "mgetE";
+    my $cas = "9876";
+    my $res = mget($sock, $k, "s c v N30 t E$cas");
+    ok(find_flags($res, 'sctW'), "got expected flag results");
+    is(get_flag($res, 'Z'), "", "no already sent token");
+    is(get_flag($res, 'c'), $cas, "CAS was properly overridden");
+
+    # ensure we ignore the E when nothing was supposed to change
+    $res = mget($sock, $k, "c E5");
+    ok(find_flags($res, 'cZ'), "got expected flag results");
+    is(get_flag($res, 'c'), $cas, "CAS was not overridden");
+};
+
+subtest 'mdelete with CAS override' => sub {
+    my $k = "mdelE";
+    my $cas = "1234";
+
+    print $sock "ms $k 2 E$cas\r\nmE\r\n";
+    like(scalar <$sock>, qr/^HD/, "set test key");
+
+    my $res = mget($sock, $k, 'c');
+    is(get_flag($res, 'c'), $cas, "got cas value back");
+
+    my $ncas = "5678";
+    # update the CAS and invalidate the delete
+    print $sock "md $k C$cas E$ncas I\r\n";
+    my $dres = scalar <$sock>;
+    like($dres, qr/^HD/, "mdeleted key");
+
+    $res = mget($sock, $k, 'c');
+    is(get_flag($res, 'c'), $ncas, "got cas value back");
+};
+
+subtest 'marith with CAS override' => sub {
+    my $k = "maE";
+    my $cas = "4321";
+
+    # cas override during autoviv
+    my $res = marith($sock, $k, "v N0 c E$cas J5");
+    is($res->{val}, '5', "ma seeded");
+    is(get_flag($res, 'c'), $cas, "CAS came back");
+
+    $res = marith($sock, $k, "C$cas c v");
+    is($res->{val}, '6', "ma incremented");
+    # We didn't specify what the new CAS should be, so when the number changed
+    # it got a new internal CAS
+    isnt(get_flag($res, 'c'), $cas, "CAS came back");
+
+    my $ncas = "8765";
+    $res = marith($sock, $k, "c v E$ncas");
+    is($res->{val}, '7', "ma incremented");
+    is(get_flag($res, 'c'), $ncas, "CAS came back");
+};
 
 {
     note "mdelete with cas";
@@ -561,7 +627,7 @@ my $sock = $server->sock;
 #     - this should probably be conditional.
 
 {
-    diag "starting serve stale with mdelete";
+    note "starting serve stale with mdelete";
     my ($ttl, $cas, $res);
     print $sock "set toinv 0 0 3\r\nmoo\r\n";
     is(scalar <$sock>, "STORED\r\n", "stored key 'toinv'");
@@ -570,7 +636,7 @@ my $sock = $server->sock;
     unlike($res->{flags}, qr/[XWZ]/, "no extra flags");
 
     # Lets mark the sucker as invalid, and drop its TTL to 30s
-    diag "running mdelete";
+    note "running mdelete";
     print $sock "md toinv I T30\r\n";
     like(scalar <$sock>, qr/^HD/, "mdelete'd key");
 
@@ -588,14 +654,14 @@ my $sock = $server->sock;
     ok($res->{size} == 3, "Size returned correctly");
     is($res->{val}, "moo", "value matches");
 
-    diag "trying to fail then stale set via mset";
+    note "trying to fail then stale set via mset";
     print $sock "ms toinv 1 T90 C0\r\nf\r\n";
     like(scalar <$sock>, qr/^EX/, "failed to SET: low CAS didn't match");
 
     print $sock "ms toinv 1 I T90 C1\r\nf\r\n";
     like(scalar <$sock>, qr/^HD/, "SET an invalid/stale item");
 
-    diag "confirm item still stale, and TTL wasn't raised.";
+    note "confirm item still stale, and TTL wasn't raised.";
     $res = mget($sock, 'toinv', 's t c v');
     like($res->{flags}, qr/X/, "item is marked stale");
     like($res->{flags}, qr/Z/, "win token already sent");
@@ -605,7 +671,7 @@ my $sock = $server->sock;
 
     # TODO: CAS too high?
 
-    diag "do valid mset";
+    note "do valid mset";
     $cas = get_flag($res, 'c');
     print $sock "ms toinv 1 T90 C$cas\r\ng\r\n";
     like(scalar <$sock>, qr/^HD/, "SET over the stale item");
@@ -625,11 +691,11 @@ my $sock = $server->sock;
 # generate something. Not weird to parse like 'noreply' token was...
 # mget's with hits should return real data.
 {
-    diag "testing quiet flag";
+    note "testing quiet flag";
     print $sock "ms quiet 2 q\r\nmo\r\n";
     print $sock "md quiet q\r\n";
     print $sock "mg quiet s v q\r\n";
-    diag "now purposefully cause an error\r\n";
+    note "now purposefully cause an error\r\n";
     print $sock "ms quiet\r\n";
     like(scalar <$sock>, qr/^CLIENT_ERROR/, "resp not HD, or EN");
 
@@ -651,7 +717,7 @@ my $sock = $server->sock;
 
 {
     my $k = 'otest';
-    diag "testing mget opaque";
+    note "testing mget opaque";
     print $sock "ms $k 2 T100\r\nra\r\n";
     like(scalar <$sock>, qr/^HD/, "set $k");
 
@@ -660,13 +726,13 @@ my $sock = $server->sock;
 }
 
 {
-    diag "flag and token count errors";
+    note "flag and token count errors";
     print $sock "mg foo m o o o o o o o o o\r\n";
     like(scalar <$sock>, qr/^CLIENT_ERROR invalid flag/, "gone silly with flags");
 }
 
 {
-    diag "pipeline test";
+    note "pipeline test";
     print $sock "ms foo 2 T100\r\nna\r\n";
     like(scalar <$sock>, qr/^HD/, "set foo");
     print $sock "mg foo s\r\nmg foo s\r\nquit\r\nmg foo s\r\n";
@@ -697,7 +763,7 @@ sub wait_for_ext {
 my $ext_path;
 # Do a basic extstore test if enabled.
 if (supports_extstore()) {
-    diag "mget + extstore tests";
+    note "mget + extstore tests";
     $ext_path = "/tmp/extstore.$$";
     my $server = new_memcached("-m 64 -U 0 -o ext_page_size=8,ext_wbuf_size=2,ext_threads=1,ext_io_depth=2,ext_item_size=512,ext_item_age=2,ext_recache_rate=10000,ext_max_frag=0.9,ext_path=$ext_path:64m,slab_automove=0,ext_compact_under=1,no_lru_crawler");
     my $sock = $server->sock;
@@ -855,7 +921,6 @@ sub parse_res {
 sub get_flag {
     my $res = shift;
     my $flag = shift;
-    #print STDERR "FLAGS: $res->{flags}\n";
     my @flags = split(/ /, $res->{flags});
     for my $f (@flags) {
         if ($f =~ m/^$flag/) {
@@ -869,7 +934,7 @@ sub find_flags {
     my $flags = shift;
     my @flags = split(//, $flags);
     for my $f (@flags) {
-        return 0 unless get_flag($res, $f);
+        return 0 unless defined get_flag($res, $f);
     }
     return 1;
 }
