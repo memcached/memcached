@@ -738,7 +738,7 @@ check_sanity($ps);
         # be_recv must received a response with CAS token removed.
         proxy_test(
             ps_send => "ms /token/removal 2 C123\r\nhi\r\n",
-            be_recv => {0 => ["ms /token/removal 2 \r\n", "hi\r\n"]},
+            be_recv => {0 => ["ms /token/removal 2\r\n", "hi\r\n"]},
             be_send => {0 => ["NF\r\n"]},
             ps_recv => ["NF\r\n"],
         );

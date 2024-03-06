@@ -749,6 +749,10 @@ int mcplib_request_token(lua_State *L);
 int mcplib_request_ntokens(lua_State *L);
 int mcplib_request_has_flag(lua_State *L);
 int mcplib_request_flag_token(lua_State *L);
+int mcplib_request_flag_add(lua_State *L);
+int mcplib_request_flag_set(lua_State *L);
+int mcplib_request_flag_replace(lua_State *L);
+int mcplib_request_flag_del(lua_State *L);
 int mcplib_request_gc(lua_State *L);
 void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq);
 
@@ -762,7 +766,10 @@ int mcplib_open_dist_ring_hash(lua_State *L);
 int proxy_run_rcontext(mcp_rcontext_t *rctx);
 mcp_backend_t *mcplib_pool_proxy_call_helper(mcp_pool_proxy_t *pp, const char *key, size_t len);
 void mcp_request_attach(mcp_request_t *rq, io_pending_proxy_t *p);
-int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len);
+int mcp_request_render(mcp_request_t *rq, int idx, char flag, const char *tok, size_t len);
+int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size_t len);
+int mcp_request_find_flag_index(mcp_request_t *rq, const char flag);
+int mcp_request_find_flag_token(mcp_request_t *rq, const char flag, const char **token, size_t *len);
 void proxy_lua_error(lua_State *L, const char *s);
 #define proxy_lua_ferror(L, fmt, ...) \
     do { \

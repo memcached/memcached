@@ -1400,6 +1400,10 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"ntokens", mcplib_request_ntokens},
         {"has_flag", mcplib_request_has_flag},
         {"flag_token", mcplib_request_flag_token},
+        {"flag_add", mcplib_request_flag_add},
+        {"flag_set", mcplib_request_flag_set},
+        {"flag_replace", mcplib_request_flag_replace},
+        {"flag_del", mcplib_request_flag_del},
         {"__tostring", NULL},
         {"__gc", mcplib_request_gc},
         {NULL, NULL}

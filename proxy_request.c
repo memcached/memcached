@@ -487,14 +487,13 @@ void mcp_set_request(mcp_parser_t *pr, mcp_request_t *rq, const char *command, s
 // required.
 // We should not guarantee order when updating meta flags, which would allow
 // blanking tokens and appending new ones.
-// TODO (v2): function doesn't allow appending.
 // TODO (v2): much of the length is the key, avoid copying it.
-int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len) {
-    char temp[MCP_REQUEST_MAXLEN];
+int mcp_request_render(mcp_request_t *rq, int idx, const char flag, const char *tok, size_t len) {
+    char temp[MCP_REQUEST_MAXLEN+1];
     char *p = temp;
     mcp_parser_t *pr = &rq->pr;
 
-    if (pr->reqlen + len > MCP_REQUEST_MAXLEN) {
+    if (pr->reqlen + len + 2 > MCP_REQUEST_MAXLEN) {
         return -1;
     }
     // Cannot add/append tokens yet.
@@ -505,18 +504,29 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len) 
     memcpy(p, pr->request, pr->tokens[idx]);
     p += pr->tokens[idx];
 
-    memcpy(p, tok, len);
-    p += len;
+    if (flag) {
+        *p = flag;
+        p++;
+    }
+    if (tok) {
+        memcpy(p, tok, len);
+        p += len;
+    }
 
     // Add a space and copy more tokens if there were more.
     if (idx+1 < pr->ntokens) {
-        if (len != 0) {
+        if (flag || len != 0) {
             // Only pre-space if not deleting the token.
             *p = ' ';
             p++;
         }
         memcpy(p, &pr->request[pr->tokens[idx+1]], pr->tokens[pr->ntokens] - pr->tokens[idx+1]);
         p += pr->tokens[pr->ntokens] - pr->tokens[idx+1];
+    } else {
+        // If we removed something from the end we might've left some spaces.
+        while (*(p-1) == ' ') {
+            p--;
+        }
     }
 
     memcpy(p, "\r\n\0", 3);
@@ -540,7 +550,46 @@ int mcp_request_render(mcp_request_t *rq, int idx, const char *tok, size_t len) 
     return 0;
 }
 
-// FIXME: remove lua_state from arguments.
+int mcp_request_append(mcp_request_t *rq, const char flag, const char *tok, size_t len) {
+    mcp_parser_t *pr = &rq->pr;
+    const char *start = pr->request;
+    char *p = (char *)pr->request + pr->reqlen - 2; // start at the \r
+    assert(*p == '\r');
+
+    if (pr->reqlen + len + 2 > MCP_REQUEST_MAXLEN) {
+        return -1;
+    }
+
+    *p = ' ';
+    p++;
+
+    if (flag) {
+        *p = flag;
+        p++;
+    }
+    if (tok) {
+        memcpy(p, tok, len);
+        p += len;
+    }
+
+    memcpy(p, "\r\n\0", 3);
+    p += 2;
+
+    // See note on mcp_request_render()
+    void *vbuf = pr->vbuf;
+    int vlen = pr->vlen;
+
+    memset(pr, 0, sizeof(mcp_parser_t)); // TODO: required?
+    int ret = process_request(pr, rq->request, p - start);
+    if (ret != 0) {
+        return ret;
+    }
+    pr->vbuf = vbuf;
+    pr->vlen = vlen;
+
+    return 0;
+}
+
 void mcp_request_attach(mcp_request_t *rq, io_pending_proxy_t *p) {
     mcp_parser_t *pr = &rq->pr;
     char *r = (char *) pr->request;
@@ -691,7 +740,7 @@ int mcplib_request_token(lua_State *L) {
         // overwriting a token.
         size_t newlen = 0;
         const char *newtok = lua_tolstring(L, 3, &newlen);
-        if (mcp_request_render(rq, token-1, newtok, newlen) != 0) {
+        if (mcp_request_render(rq, token-1, 0, newtok, newlen) != 0) {
             proxy_lua_error(L, "token(): request malformed after edit");
             return 0;
         }
@@ -783,7 +832,7 @@ int mcplib_request_flag_token(lua_State *L) {
                 if (replace) {
                     size_t newlen = 0;
                     const char *newtok = lua_tolstring(L, 3, &newlen);
-                    if (mcp_request_render(rq, x, newtok, newlen) != 0) {
+                    if (mcp_request_render(rq, x, 0, newtok, newlen) != 0) {
                         proxy_lua_error(L, "token(): request malformed after edit");
                         return 0;
                     }
@@ -796,6 +845,159 @@ int mcplib_request_flag_token(lua_State *L) {
     }
 
     return ret;
+}
+
+// these functions take token as string or number
+// if number, internally convert it to avoid creating garbage
+static inline char _mcp_request_get_arg_flag(lua_State *L, int idx) {
+    size_t len = 0;
+    const char *flagstr = luaL_checklstring(L, idx, &len);
+
+    if (len != 1) {
+        proxy_lua_error(L, "request: meta flag must be a single character");
+        return 0;
+    }
+    if (flagstr[0] < 65 || flagstr[0] > 122) {
+        proxy_lua_error(L, "request: invalid flag, must be A-Z,a-z");
+        return 0;
+    }
+
+    return flagstr[0];
+}
+
+// *tostring must be large enough to hold a 64bit number as a string.
+static inline const char * _mcp_request_check_flag_token(lua_State *L, int idx, char *tostring, size_t *tlen) {
+    const char *token = NULL;
+    *tlen = 0;
+    if (lua_isstring(L, idx)) {
+        token = lua_tolstring(L, idx, tlen);
+    } else if (lua_isnumber(L, idx)) {
+        int isnum = 0;
+        lua_Integer n = lua_tointegerx(L, idx, &isnum);
+        if (isnum) {
+            char *end = itoa_64(n, tostring);
+            token = tostring;
+            *tlen = end - tostring;
+        } else {
+            proxy_lua_error(L, "request: invalid flag argument");
+            return NULL;
+        }
+    } else if (lua_isnoneornil(L, idx)) {
+        // no token, just add the flag.
+    } else {
+        proxy_lua_error(L, "request: invalid flag argument");
+        return NULL;
+    }
+
+    return token;
+}
+
+// req:flag_add("F", token) -> (bool)
+// if token is "example", appends "Fexample" to request
+int mcplib_request_flag_add(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    char flag = _mcp_request_get_arg_flag(L, 2);
+    char tostring[30];
+
+    uint64_t flagbit = (uint64_t)1 << (flag - 65);
+    if (rq->pr.t.meta.flags & flagbit) {
+        // fail, flag already exists.
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    size_t tlen = 0;
+    const char *token = _mcp_request_check_flag_token(L, 3, tostring, &tlen);
+
+    if (mcp_request_append(rq, flag, token, tlen) == 0) {
+        lua_pushboolean(L, 1);
+    } else {
+        lua_pushboolean(L, 0);
+    }
+
+    return 1;
+}
+
+// req:flag_set("F", token) -> (bool) [overwrites if exists]
+// if token is "example", appends "Fexample" to request
+int mcplib_request_flag_set(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    char flag = _mcp_request_get_arg_flag(L, 2);
+    char tostring[30];
+
+    int x = mcp_request_find_flag_index(rq, flag);
+    size_t tlen = 0;
+    const char *token = _mcp_request_check_flag_token(L, 3, tostring, &tlen);
+
+    if (x > 0) {
+        // TODO: do nothing if:
+        // flag exists in request, without token, and we're not setting a
+        // token.
+        if (mcp_request_render(rq, x, flag, token, tlen) != 0) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+    } else {
+        if (mcp_request_append(rq, flag, token, tlen) != 0) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+    }
+
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// allows replacing a flag with a different flag
+// req:flag_replace("F", "N", token) -> (bool)
+// if token is "example", appends "Nexample" to request
+int mcplib_request_flag_replace(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    char flag = _mcp_request_get_arg_flag(L, 2);
+    char newflag = _mcp_request_get_arg_flag(L, 3);
+    char tostring[30];
+
+    int x = mcp_request_find_flag_index(rq, flag);
+    size_t tlen = 0;
+    const char *token = _mcp_request_check_flag_token(L, 4, tostring, &tlen);
+
+    if (x > 0) {
+        if (mcp_request_render(rq, x, newflag, token, tlen) != 0) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+    } else {
+        if (mcp_request_append(rq, newflag, token, tlen) != 0) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+    }
+
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// req:flag_del("F") -> (bool)
+// remove a flag if exists
+int mcplib_request_flag_del(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    char flag = _mcp_request_get_arg_flag(L, 2);
+
+    int x = mcp_request_find_flag_index(rq, flag);
+
+    if (x > 0) {
+        if (mcp_request_render(rq, x, 0, NULL, 0) != 0) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+    } else {
+        // nothing there, didn't delete anything.
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
+    lua_pushboolean(L, 1);
+    return 1;
 }
 
 void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq) {
@@ -819,6 +1021,38 @@ int mcplib_request_gc(lua_State *L) {
     mcp_request_cleanup(t, rq);
 
     return 0;
+}
+
+static int _mcp_request_find_flag(mcp_request_t *rq, const char flag) {
+    uint64_t flagbit = (uint64_t)1 << (flag - 65);
+    if (rq->pr.t.meta.flags & flagbit) {
+        for (int x = rq->pr.keytoken+1; x < rq->pr.ntokens; x++) {
+            const char *s = rq->pr.request + rq->pr.tokens[x];
+            if (s[0] == flag) {
+                return x;
+            }
+        }
+    }
+    return -1;
+}
+
+int mcp_request_find_flag_index(mcp_request_t *rq, const char flag) {
+    int x = _mcp_request_find_flag(rq, flag);
+    return x;
+}
+
+int mcp_request_find_flag_token(mcp_request_t *rq, const char flag, const char **token, size_t *len) {
+    int x = _mcp_request_find_flag(rq, flag);
+    if (x > 0) {
+        size_t tlen = _process_token_len(&rq->pr, x);
+        if (tlen > 1) {
+            *token = rq->pr.request + rq->pr.tokens[x] +1;
+        } else {
+            *token = NULL;
+        }
+        *len = tlen-1;
+    }
+    return x;
 }
 
 // TODO (v2): check what lua does when it calls a function with a string argument
