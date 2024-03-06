@@ -264,6 +264,7 @@ sub run_help {
 
 # -1 if the pid is actually dead.
 sub is_running {
+    return unless defined $_[0];
     return waitpid($_[0], WNOHANG) >= 0 ? 1 : 0;
 }
 
@@ -273,6 +274,10 @@ sub new_memcached {
     my $host = '127.0.0.1';
     my $ssl_enabled  = enabled_tls_testing();
     my $unix_socket_disabled  = !supports_unix_socket();
+    my $use_external = 0;
+    if ($ENV{T_MEMD_EXTERNAL}) {
+        $use_external = $ENV{T_MEMD_EXTERNAL};
+    }
 
     if ($ENV{T_MEMD_USE_DAEMON}) {
         my ($host, $port) = ($ENV{T_MEMD_USE_DAEMON} =~ m/^([^:]+):(\d+)$/);
@@ -322,29 +327,39 @@ sub new_memcached {
     } elsif ($args !~ /-s (\S+)/) {
         my $num = @unixsockets;
         my $file = "/tmp/memcachetest.$$.$num";
+        if ($use_external) {
+            $file = "/tmp/memcachedtest.$use_external.$num";
+        }
         $args .= " -s $file";
         push(@unixsockets, $file);
     }
 
-    my $childpid = fork();
-
+    my $wait_tries = 60;
     my $exe = get_memcached_exe();
+    my $childpid;
+    if ($use_external) {
+        print STDERR "External daemon requested. Start arguments:\n$exe $args\n";
+        $wait_tries = 10000;
+        $childpid;
+    } else {
+        $childpid = fork();
 
-    unless ($childpid) {
-        my $valgrind = "";
-        my $valgrind_args = "--quiet --error-exitcode=1 --exit-on-first-error=yes";
-        if ($ENV{VALGRIND_ARGS}) {
-            $valgrind_args = $ENV{VALGRIND_ARGS};
+        unless ($childpid) {
+            my $valgrind = "";
+            my $valgrind_args = "--quiet --error-exitcode=1 --exit-on-first-error=yes";
+            if ($ENV{VALGRIND_ARGS}) {
+                $valgrind_args = $ENV{VALGRIND_ARGS};
+            }
+            if ($ENV{VALGRIND_TEST}) {
+                $valgrind = "valgrind $valgrind_args";
+                # NOTE: caller file stuff.
+                $valgrind .= " $ENV{VALGRIND_EXTRA_ARGS}";
+            }
+            my $cmd = "$builddir/timedrun 600 $valgrind $exe $args";
+            #print STDERR "RUN: $cmd\n\n";
+            exec $cmd;
+            exit; # never gets here.
         }
-        if ($ENV{VALGRIND_TEST}) {
-            $valgrind = "valgrind $valgrind_args";
-            # NOTE: caller file stuff.
-            $valgrind .= " $ENV{VALGRIND_EXTRA_ARGS}";
-        }
-        my $cmd = "$builddir/timedrun 600 $valgrind $exe $args";
-        #print STDERR "RUN: $cmd\n\n";
-        exec $cmd;
-        exit; # never gets here.
     }
 
     # unix domain sockets
@@ -352,7 +367,7 @@ sub new_memcached {
         # A slow/emulated/valgrinded/etc system may take longer than a second
         # for the unix socket to appear.
         my $filename = $1;
-        for (1..60) {
+        for (1..$wait_tries) {
             my $conn = IO::Socket::UNIX->new(Peer => $filename);
 
             if ($conn) {
@@ -362,7 +377,9 @@ sub new_memcached {
                                               host => $host,
                                               port => $port);
             } else {
-                croak("Failed to connect to unix socket: memcached not running") unless is_running($childpid);
+                if (!$ENV{T_MEMD_EXTERNAL}) {
+                    croak("Failed to connect to unix socket: memcached not running") unless is_running($childpid);
+                }
                 select undef, undef, undef, 0.20;
             }
         }
@@ -413,28 +430,48 @@ sub new {
 
 sub DESTROY {
     my $self = shift;
-    kill 2, $self->{pid};
+    if ($self->{pid}) {
+        kill 2, $self->{pid};
+    } else {
+        print STDERR "WANT TO ISSUE KILL: 2\n";
+    }
 }
 
 sub stop {
     my $self = shift;
-    kill 15, $self->{pid};
+    if ($self->{pid}) {
+        kill 15, $self->{pid};
+    } else {
+        print STDERR "WANT TO ISSUE KILL: 15\n";
+    }
 }
 
 sub graceful_stop {
     my $self = shift;
-    kill 'SIGUSR1', $self->{pid};
+    if ($self->{pid}) {
+        kill 'SIGUSR1', $self->{pid};
+    } else {
+        print STDERR "WANT TO ISSUE KILL: SIGUSR1\n";
+    }
 }
 
 sub reload {
     my $self = shift;
-    kill 'SIGHUP', $self->{pid};
+    if ($self->{pid}) {
+        kill 'SIGHUP', $self->{pid};
+    } else {
+        print STDERR "WANT TO ISSUE KILL: SIGHUP\n";
+    }
 }
 
 # -1 if the pid is actually dead.
 sub is_running {
     my $self = shift;
-    return waitpid($self->{pid}, WNOHANG) >= 0 ? 1 : 0;
+    if ($self->{pid}) {
+        return waitpid($self->{pid}, WNOHANG) >= 0 ? 1 : 0;
+    } else {
+        print STDERR "WANTED TO CHECK IF DAEMON IS RUNNING\n";
+    }
 }
 
 sub host { $_[0]{host} }
@@ -613,7 +650,17 @@ sub be_recv_c {
     }
 }
 
-# TODO: be_recv_c_like
+sub be_recv_like {
+    my $self = shift;
+    my $list = shift;
+    my $cmd = shift || die "must provide a command to check";
+    my $detail = shift || 'be received data';
+
+    my $l = $self->_be_list($list);
+    for my $be (@$l) {
+        Test::More::like(scalar <$be>, $cmd, $detail);
+    }
+}
 
 # Receive a different/specific string to the backend socket.
 sub be_recv {
