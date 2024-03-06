@@ -1487,6 +1487,21 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {NULL, NULL}
     };
 
+    const struct luaL_Reg mcplib_global_hlc_m[] = {
+        {"__gc", mcplib_global_hlc_gc},
+        {NULL, NULL}
+    };
+
+    const struct luaL_Reg mcplib_proxy_hlc_m[] = {
+        {"__gc", mcplib_proxy_hlc_gc},
+        {"time", mcplib_proxy_hlc_time},
+        {"time_string", mcplib_proxy_hlc_time_string},
+        {"add_to_req", mcplib_proxy_hlc_add_to_req},
+        {"get_from_req", mcplib_proxy_hlc_get_from_req},
+        {"get_from_res", mcplib_proxy_hlc_get_from_res},
+        {NULL, NULL}
+    };
+
     const struct luaL_Reg mcplib_rcontext_m[] = {
         {"handle_set_cb", mcplib_rcontext_handle_set_cb},
         {"enqueue", mcplib_rcontext_enqueue},
@@ -1513,6 +1528,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"backend", mcplib_backend},
         {"add_stat", mcplib_add_stat},
         {"ratelim_global_tbf", mcplib_ratelim_global_tbf},
+        {"global_hlc", mcplib_global_hlc},
         {"stat_limit", mcplib_stat_limit},
         {"backend_connect_timeout", mcplib_backend_connect_timeout},
         {"backend_retry_timeout", mcplib_backend_retry_timeout},
@@ -1584,6 +1600,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         luaL_setfuncs(L, mcplib_ratelim_proxy_tbf_m, 0); // register methods
         lua_pop(L, 1);
 
+        luaL_newmetatable(L, "mcp.proxy_hlc");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_proxy_hlc_m, 0); // register methods
+        lua_pop(L, 1);
+
         luaL_newmetatable(L, "mcp.rcontext");
         lua_pushvalue(L, -1); // duplicate metatable.
         lua_setfield(L, -2, "__index"); // mt.__index = mt
@@ -1632,6 +1654,12 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         lua_pushvalue(L, -1); // duplicate metatable.
         lua_setfield(L, -2, "__index"); // mt.__index = mt
         luaL_setfuncs(L, mcplib_ratelim_global_tbf_m, 0); // register methods
+        lua_pop(L, 1);
+
+        luaL_newmetatable(L, "mcp.global_hlc");
+        lua_pushvalue(L, -1); // duplicate metatable.
+        lua_setfield(L, -2, "__index"); // mt.__index = mt
+        luaL_setfuncs(L, mcplib_global_hlc_m, 0); // register methods
         lua_pop(L, 1);
 
         luaL_newlibtable(L, mcplib_f_config);

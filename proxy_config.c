@@ -381,6 +381,9 @@ static void _copy_config_table(lua_State *from, lua_State *to, LIBEVENT_THREAD *
                     } else if (strcmp(name, "mcp.ratelim_global_tbf") == 0) {
                         mcp_ratelim_proxy_tbf(from, to);
                         found = true;
+                    } else if (strcmp(name, "mcp.global_hlc") == 0) {
+                        mcp_proxy_hlc(from, to);
+                        found = true;
                     }
                 }
                 lua_pop(from, 2);

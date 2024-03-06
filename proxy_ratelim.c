@@ -16,8 +16,6 @@ struct mcp_ratelim_global_tbf {
     struct mcp_ratelim_tbf tbf;
 };
 
-#define TIMEVAL_TO_MILLIS(n) (n.tv_usec / 1000 + n.tv_sec * (uint64_t)1000)
-
 // global config VM object GC
 int mcplib_ratelim_global_tbf_gc(lua_State *L) {
     struct mcp_ratelim_global_tbf *lim = luaL_checkudata(L, 1, "mcp.ratelim_global_tbf");
