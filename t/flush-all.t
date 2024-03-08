@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 use strict;
-use Test::More tests => 27;
+use Test::More tests => 26;
 use FindBin qw($Bin);
 use lib "$Bin/lib";
 use MemcachedTest;
@@ -70,32 +70,3 @@ mem_get_is($sock, "foo", "fooval2");
 print $sock "flush_all\r\n";
 is(scalar <$sock>, "CLIENT_ERROR flush_all not allowed\r\n", "flush_all was not allowed");
 mem_get_is($sock, "foo", "fooval2");
-
-# Test that disabling CAS makes flush_all less accurate.
-# Due to lock ordering issues we can no longer evict items newer than
-# oldest_live, so we rely on the CAS counter for an exact cliff. So disabling
-# CAS now means all items set in the same second will fail to set.
-$server = new_memcached('-C');
-$sock = $server->sock;
-
-my $failed_nocas = 0;
-# Running this 100,000 times failed the test a handful of times. 50 tries
-# should be enough.
-for (1..50) {
-    print $sock "flush_all 0\r\n";
-    my $foo = scalar <$sock>;
-    print $sock "set foo 0 0 3\r\nnew\r\n";
-    $foo = scalar <$sock>;
-    print $sock "get foo\r\n";
-    my $line = scalar <$sock>;
-    if ($line =~ /^VALUE/) {
-        $line = scalar <$sock>;
-        $line = scalar <$sock>;
-        print STDERR "Succeeded!!!\n";
-        next;
-    } elsif ($line =~ /^END/) {
-        $failed_nocas++;
-        last;
-    }
-}
-is($failed_nocas, 1, "failed to set value after flush with no CAS at least once");

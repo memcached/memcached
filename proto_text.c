@@ -2524,18 +2524,13 @@ static void process_flush_all_command(conn *c, token_t *tokens, const size_t nto
       no delay is given at all.
     */
     if (exptime > 0) {
-        new_oldest = realtime(exptime);
+        new_oldest = realtime(exptime) - 1;
     } else { /* exptime == 0 */
-        new_oldest = current_time;
+        new_oldest = current_time - 1;
     }
 
-    if (settings.use_cas) {
-        settings.oldest_live = new_oldest - 1;
-        if (settings.oldest_live <= current_time)
-            settings.oldest_cas = get_cas_id();
-    } else {
-        settings.oldest_live = new_oldest;
-    }
+    settings.oldest_live = new_oldest;
+    item_flush_expired();
     out_string(c, "OK");
 }
 

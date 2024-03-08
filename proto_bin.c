@@ -1268,17 +1268,12 @@ static void process_bin_flush(conn *c, char *extbuf) {
     }
 
     if (exptime > 0) {
-        new_oldest = realtime(exptime);
+        new_oldest = realtime(exptime) - 1;
     } else {
-        new_oldest = current_time;
+        new_oldest = current_time - 1;
     }
-    if (settings.use_cas) {
-        settings.oldest_live = new_oldest - 1;
-        if (settings.oldest_live <= current_time)
-            settings.oldest_cas = get_cas_id();
-    } else {
-        settings.oldest_live = new_oldest;
-    }
+    settings.oldest_live = new_oldest;
+    item_flush_expired();
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.flush_cmds++;

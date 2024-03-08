@@ -183,6 +183,7 @@ is(1, $stats->{'get_expired'}, "get_expired counter is 1");
 
 print $sock "set should_be_flushed 0 0 6\r\nbooval\r\n";
 is(scalar <$sock>, "STORED\r\n", "set item to flush");
+mem_move_time($sock, 3); # need to wait so `flush_all` doesn't nuke the item.
 print $sock "flush_all\r\n";
 is(scalar <$sock>, "OK\r\n", "flushed");
 print $sock "get should_be_flushed\r\n";

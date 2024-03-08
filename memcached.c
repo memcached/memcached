@@ -242,7 +242,6 @@ static void settings_init(void) {
     settings.maxconns = 1024;         /* to limit connections-related memory to about 5MB */
     settings.verbose = 0;
     settings.oldest_live = 0;
-    settings.oldest_cas = 0;          /* supplements accuracy of oldest_live */
     settings.evict_to_free = 1;       /* push old items out of cache when memory runs out */
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.auth_file = NULL;        /* by default, not using ASCII authentication tokens */
@@ -4546,7 +4545,6 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
     // Might as well just fetch the next CAS value to use than tightly
     // coupling the internal variable into the restart system.
     restart_set_kv(ctx, "current_cas", "%llu", (unsigned long long) get_cas_id());
-    restart_set_kv(ctx, "oldest_cas", "%llu", (unsigned long long) settings.oldest_cas);
     restart_set_kv(ctx, "logger_gid", "%llu", logger_get_gid());
     restart_set_kv(ctx, "hashpower", "%u", stats_state.hash_power_level);
     // NOTE: oldest_live is a rel_time_t, which aliases for unsigned int.
@@ -4564,7 +4562,7 @@ static int _mc_meta_save_cb(const char *tag, void *ctx, void *data) {
 // TODO: Once crc32'ing of the metadata file is done this could be ensured better by
 // the restart module itself (crc32 + count of lines must match on the
 // backend)
-#define RESTART_REQUIRED_META 17
+#define RESTART_REQUIRED_META 16
 
 // With this callback we make a decision on if the current configuration
 // matches up enough to allow reusing the cache.
@@ -4592,7 +4590,6 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         R_USE_CAS,
         R_SLAB_REASSIGN,
         R_CURRENT_CAS,
-        R_OLDEST_CAS,
         R_OLDEST_LIVE,
         R_LOGGER_GID,
         R_CURRENT_TIME,
@@ -4612,7 +4609,6 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
         [R_USE_CAS] = "use_cas",
         [R_SLAB_REASSIGN] = "slab_reassign",
         [R_CURRENT_CAS] = "current_cas",
-        [R_OLDEST_CAS] = "oldest_cas",
         [R_OLDEST_LIVE] = "oldest_live",
         [R_LOGGER_GID] = "logger_gid",
         [R_CURRENT_TIME] = "current_time",
@@ -4702,13 +4698,6 @@ static int _mc_meta_load_cb(const char *tag, void *ctx, void *data) {
                 reuse_mmap = -1;
             } else {
                 set_cas_id(bigval_uint);
-            }
-            break;
-        case R_OLDEST_CAS:
-            if (!safe_strtoull(val, &bigval_uint)) {
-                reuse_mmap = -1;
-            } else {
-                settings.oldest_cas = bigval_uint;
             }
             break;
         case R_OLDEST_LIVE:

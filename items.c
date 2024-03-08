@@ -123,14 +123,9 @@ void set_cas_id(uint64_t new_cas) {
 
 int item_is_flushed(item *it) {
     rel_time_t oldest_live = settings.oldest_live;
-    uint64_t cas = ITEM_get_cas(it);
-    uint64_t oldest_cas = settings.oldest_cas;
-    if (oldest_live == 0 || oldest_live > current_time)
-        return 0;
-    if ((it->time <= oldest_live)
-            || (oldest_cas != 0 && cas != 0 && cas < oldest_cas)) {
+    if (it->time <= oldest_live && oldest_live <= current_time)
         return 1;
-    }
+
     return 0;
 }
 
@@ -595,6 +590,51 @@ int do_item_replace(item *it, item *new_it, const uint32_t hv) {
 
     do_item_unlink(it, hv);
     return do_item_link(new_it, hv);
+}
+
+void item_flush_expired(void) {
+    int i;
+    item *iter, *next;
+    if (settings.oldest_live == 0)
+        return;
+    for (i = 0; i < LARGEST_ID; i++) {
+        /* The LRU is sorted in decreasing time order, and an item's timestamp
+         * is never newer than its last access time, so we only need to walk
+         * back until we hit an item older than the oldest_live time.
+         * The oldest_live checking will auto-expire the remaining items.
+         */
+        pthread_mutex_lock(&lru_locks[i]);
+        for (iter = heads[i]; iter != NULL; iter = next) {
+            void *hold_lock = NULL;
+            next = iter->next;
+            if (iter->time == 0 && iter->nkey == 0 && iter->it_flags == 1) {
+                continue; // crawler item.
+            }
+            uint32_t hv = hash(ITEM_key(iter), iter->nkey);
+            // if we can't lock the item, just give up.
+            // we can't block here because the lock order is inverted.
+            if ((hold_lock = item_trylock(hv)) == NULL) {
+                continue;
+            }
+
+            if (iter->time >= settings.oldest_live) {
+                // note: not sure why SLABBED check is here. linked and slabbed
+                // are mutually exclusive, but this can't hurt and I don't
+                // want to validate it right now.
+                if ((iter->it_flags & ITEM_SLABBED) == 0) {
+                    STORAGE_delete(ext_storage, iter);
+                    // nolock version because we hold the LRU lock already.
+                    do_item_unlink_nolock(iter, hash(ITEM_key(iter), iter->nkey));
+                }
+                item_trylock_unlock(hold_lock);
+            } else {
+                /* We've hit the first old item. Continue to the next queue. */
+                item_trylock_unlock(hold_lock);
+                break;
+            }
+        }
+        pthread_mutex_unlock(&lru_locks[i]);
+    }
 }
 
 /*@null@*/

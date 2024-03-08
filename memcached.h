@@ -459,7 +459,6 @@ struct settings {
     char *inter;
     int verbose;
     rel_time_t oldest_live; /* ignore existing items older than this */
-    uint64_t oldest_cas; /* ignore existing items with CAS values lower than this */
     int evict_to_free;
     char *socketpath;   /* path to unix socket if using local socket */
     char *auth_file;    /* path to user authentication file */
