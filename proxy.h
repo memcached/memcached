@@ -640,23 +640,25 @@ struct mcp_funcgen_router {
     int map_ref;
 };
 
+#define FGEN_NAME_MAXLEN 80
 struct mcp_funcgen_s {
     LIBEVENT_THREAD *thread; // worker thread that created this funcgen.
     int generator_ref; // reference to the generator function.
     int self_ref; // self-reference if we're attached anywhere
     int argument_ref; // reference to an argument to pass to generator
-    int name_ref; // reference to string name for the generator
     int max_queues; // how many queue slots rctx's have
     unsigned int refcount; // reference counter
     unsigned int total; // total contexts managed
     unsigned int free; // free contexts
     unsigned int free_max; // size of list below.
+    unsigned int free_pressure; // "pressure" for when to early release rctx
     unsigned int routecount; // total routes if this fgen is a router.
     bool closed; // the hook holding this fgen has been replaced
     bool ready; // if we're locked down or not.
     mcp_rcontext_t **list;
     struct mcp_rqueue_s *queue_list;
     struct mcp_funcgen_router router;
+    char name[FGEN_NAME_MAXLEN+1]; // string name for the generator.
 };
 
 #define RQUEUE_TYPE_NONE 0
@@ -691,6 +693,7 @@ struct mcp_rqueue_s {
 };
 
 struct mcp_rcontext_s {
+    int self_ref; // reference to our own object
     int request_ref; // top level request for this context.
     int function_ref; // ref to the created route function.
     int coroutine_ref; // ref to our encompassing coroutine.
