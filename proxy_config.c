@@ -234,6 +234,12 @@ int proxy_load_config(void *arg) {
     db->buf = malloc(db->size);
     lua_dump(L, _dump_helper, db, 0);
     // 0 means no error.
+    if (ctx->proxy_code) {
+        struct _dumpbuf *old = ctx->proxy_code;
+        free(old->buf);
+        free(old);
+        ctx->proxy_code = NULL;
+    }
     ctx->proxy_code = db;
 
     // now we complete the data load by calling the function.
