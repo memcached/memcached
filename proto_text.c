@@ -915,6 +915,7 @@ struct _meta_flags {
     unsigned int has_cas :1;
     unsigned int new_ttl :1;
     unsigned int key_binary:1;
+    unsigned int remove_val:1;
     char mode; // single character mode switch, common to ms/ma
     rel_time_t exptime;
     rel_time_t autoviv_exptime;
@@ -1011,6 +1012,9 @@ static int _meta_flag_preparse(token_t *tokens, const size_t start,
                 break;
             case 'q':
                 of->no_reply = 1;
+                break;
+            case 'x':
+                of->remove_val = 1;
                 break;
             // mset-related.
             case 'F':
@@ -1598,7 +1602,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     size_t nkey;
     item *it = NULL;
     int i;
-    uint32_t hv;
+    uint32_t hv = 0;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
     assert(c != NULL);
@@ -1668,19 +1672,38 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
         // delete it. We mark the stale bit, bump CAS, and update exptime if
         // we were supplied a new TTL.
         if (of.set_stale) {
-            if (of.new_ttl) {
-                it->exptime = of.exptime;
+            // If requested, create a new empty item and mark _that_ as stale.
+            if (of.remove_val) {
+                item *new_it = item_alloc(key, nkey, of.client_flags, of.exptime, 2);
+                if (new_it != NULL) {
+                    memcpy(ITEM_data(new_it), "\r\n", 2);
+                    if (do_store_item(new_it, NREAD_SET, c->thread, hv, NULL, NULL, CAS_NO_STALE)) {
+                        new_it->it_flags |= ITEM_STALE;
+                        memcpy(resp->wbuf, "HD", 2);
+                        if (c->noreply)
+                            resp->skip = true;
+                    } else {
+                        do_item_remove(new_it);
+                        memcpy(resp->wbuf, "NS", 2);
+                    }
+                } else {
+                    errstr = "SERVER_ERROR out of memory";
+                    goto error;
+                }
+            } else {
+                if (of.new_ttl) {
+                    it->exptime = of.exptime;
+                }
+                it->it_flags |= ITEM_STALE;
+                // Also need to remove TOKEN_SENT, so next client can win.
+                it->it_flags &= ~ITEM_TOKEN_SENT;
+
+                ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+                if (c->noreply)
+                    resp->skip = true;
+
+                memcpy(resp->wbuf, "HD", 2);
             }
-            it->it_flags |= ITEM_STALE;
-            // Also need to remove TOKEN_SENT, so next client can win.
-            it->it_flags &= ~ITEM_TOKEN_SENT;
-
-            ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
-
-            // Clients can noreply nominal responses.
-            if (c->noreply)
-                resp->skip = true;
-            memcpy(resp->wbuf, "HD", 2);
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
@@ -1715,6 +1738,11 @@ cleanup:
     conn_set_state(c, conn_new_cmd);
     return;
 error:
+    // cleanup if an error happens after we fetched an item.
+    if (it) {
+        do_item_remove(it);
+        item_unlock(hv);
+    }
     out_errstring(c, errstr);
 }
 
