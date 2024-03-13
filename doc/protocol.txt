@@ -830,6 +830,7 @@ The flags used by the 'md' command are:
 - O(token): opaque to copy back.
 - q: noreply
 - T(token): updates TTL, only when paired with the 'I' flag
+- x: removes the item value, but leaves the item.
 
 The flags are now repeated with detailed information where useful:
 
@@ -857,6 +858,12 @@ response lines with the code "DE". It will still return any other responses.
 When marking an item as stale with 'I', the 'T' flag can be used to update the
 TTL as well; limiting the amount of time an item will live while stale and
 waiting to be recached.
+
+- x: removes the item value, but leaves the item.
+
+This deletes the value off of an item (by replacing it with an empty value
+item atomically). Combined with I this can leave what is effectively a
+tombstone of a previous value.
 
 Meta Arithmetic
 ---------------

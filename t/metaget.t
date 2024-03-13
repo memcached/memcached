@@ -733,6 +733,7 @@ subtest 'marith with CAS override' => sub {
 
 {
     note "pipeline test";
+    my $sock = $server->new_sock;
     print $sock "ms foo 2 T100\r\nna\r\n";
     like(scalar <$sock>, qr/^HD/, "set foo");
     print $sock "mg foo s\r\nmg foo s\r\nquit\r\nmg foo s\r\n";
@@ -740,6 +741,34 @@ subtest 'marith with CAS override' => sub {
     like(scalar <$sock>, qr/^HD /, "got resp");
     is(scalar <$sock>, undef, "final get didn't run");
 }
+
+subtest 'md x and I flags' => sub {
+    my $k = 'mdx';
+    print $sock "ms $k 2 T50\r\nmx\r\n";
+    like(scalar <$sock>, qr/^HD/, "set $k");
+
+    my $res = mget($sock, $k, 't v');
+    is($res->{val}, 'mx', 'seed value as expected');
+
+    print $sock "md $k x\r\n";
+    like(scalar <$sock>, qr/^HD/, "mdelete with x");
+
+    $res = mget($sock, $k, 't v');
+    is($res->{val}, '', 'value zeroed out');
+
+    # re-set for x + I
+    print $sock "ms $k 2 T50\r\nmz\r\n";
+    like(scalar <$sock>, qr/^HD/, "set $k");
+
+    $res = mget($sock, $k, 't v');
+    is($res->{val}, 'mz', 'seed value as expected');
+
+    print $sock "md $k x I\r\n";
+    like(scalar <$sock>, qr/^HD/, "mdelete with x and I");
+    $res = mget($sock, $k, 't v');
+    is($res->{val}, '', 'value zeroed out');
+    ok(find_flags($res, 'XW'), "got win and stale flags back");
+};
 
 # TODO: move wait_for_ext into Memcached.pm
 sub wait_for_ext {
@@ -902,6 +931,10 @@ sub mget_res {
     } elsif ($resp =~ m/^HD\s*([^\r]+)\r\n/gm) {
         $r{flags} = $1;
         $r{hd} = 1;
+    } elsif ($resp =~ m/^EN/gm) {
+        # do nothing?
+    } else {
+        die "Unable to parse mget response: $resp";
     }
 
     return \%r;

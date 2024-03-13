@@ -589,6 +589,7 @@ struct _meta_flags {
     unsigned int has_cas_in :1;
     unsigned int new_ttl :1;
     unsigned int key_binary:1;
+    unsigned int remove_val:1;
     char mode; // single character mode switch, common to ms/ma
     rel_time_t exptime;
     rel_time_t autoviv_exptime;
@@ -688,6 +689,9 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                 break;
             case 'q':
                 of->no_reply = 1;
+                break;
+            case 'x':
+                of->remove_val = 1;
                 break;
             // mset-related.
             case 'F':
@@ -1323,6 +1327,25 @@ static void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *r
             goto cleanup;
         }
 
+        // If requested, create a new empty tombstone item.
+        if (of.remove_val) {
+            item *new_it = item_alloc(key, nkey, of.client_flags, of.exptime, 2);
+            if (new_it != NULL) {
+                memcpy(ITEM_data(new_it), "\r\n", 2);
+                if (do_store_item(new_it, NREAD_SET, t, hv, NULL, NULL, ITEM_get_cas(it), CAS_NO_STALE)) {
+                    do_item_remove(it);
+                    it = new_it;
+                } else {
+                    do_item_remove(new_it);
+                    memcpy(resp->wbuf, "NS", 2);
+                    goto cleanup;
+                }
+            } else {
+                errstr = "SERVER_ERROR out of memory";
+                goto error;
+            }
+        }
+
         // If we're to set this item as stale, we don't actually want to
         // delete it. We mark the stale bit, bump CAS, and update exptime if
         // we were supplied a new TTL.
@@ -1335,18 +1358,18 @@ static void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *r
             it->it_flags &= ~ITEM_TOKEN_SENT;
 
             ITEM_set_cas(it, of.has_cas_in ? of.cas_id_in : get_cas_id());
-
-            // Clients can noreply nominal responses.
             if (of.no_reply)
                 resp->skip = true;
+
             memcpy(resp->wbuf, "HD", 2);
         } else {
             pthread_mutex_lock(&t->stats.mutex);
             t->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&t->stats.mutex);
-
-            do_item_unlink(it, hv);
-            STORAGE_delete(t->storage, it);
+            if (!of.remove_val) {
+                do_item_unlink(it, hv);
+                STORAGE_delete(t->storage, it);
+            }
             if (of.no_reply)
                 resp->skip = true;
             memcpy(resp->wbuf, "HD", 2);
@@ -1373,6 +1396,11 @@ cleanup:
     //conn_set_state(c, conn_new_cmd);
     return;
 error:
+    // cleanup if an error happens after we fetched an item.
+    if (it) {
+        do_item_remove(it);
+        item_unlock(hv);
+    }
     pout_errstring(resp, errstr);
 }
 

@@ -918,6 +918,7 @@ struct _meta_flags {
     unsigned int has_cas_in :1;
     unsigned int new_ttl :1;
     unsigned int key_binary:1;
+    unsigned int remove_val:1;
     char mode; // single character mode switch, common to ms/ma
     rel_time_t exptime;
     rel_time_t autoviv_exptime;
@@ -1015,6 +1016,9 @@ static int _meta_flag_preparse(token_t *tokens, const size_t start,
                 break;
             case 'q':
                 of->no_reply = 1;
+                break;
+            case 'x':
+                of->remove_val = 1;
                 break;
             // mset-related.
             case 'F':
@@ -1610,7 +1614,7 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
     size_t nkey;
     item *it = NULL;
     int i;
-    uint32_t hv;
+    uint32_t hv = 0;
     struct _meta_flags of = {0}; // option bitflags.
     char *errstr = "CLIENT_ERROR bad command line format";
     assert(c != NULL);
@@ -1676,6 +1680,25 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             goto cleanup;
         }
 
+        // If requested, create a new empty tombstone item.
+        if (of.remove_val) {
+            item *new_it = item_alloc(key, nkey, of.client_flags, of.exptime, 2);
+            if (new_it != NULL) {
+                memcpy(ITEM_data(new_it), "\r\n", 2);
+                if (do_store_item(new_it, NREAD_SET, c->thread, hv, NULL, NULL, ITEM_get_cas(it), CAS_NO_STALE)) {
+                    do_item_remove(it);
+                    it = new_it;
+                } else {
+                    do_item_remove(new_it);
+                    memcpy(resp->wbuf, "NS", 2);
+                    goto cleanup;
+                }
+            } else {
+                errstr = "SERVER_ERROR out of memory";
+                goto error;
+            }
+        }
+
         // If we're to set this item as stale, we don't actually want to
         // delete it. We mark the stale bit, bump CAS, and update exptime if
         // we were supplied a new TTL.
@@ -1688,10 +1711,10 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             it->it_flags &= ~ITEM_TOKEN_SENT;
 
             ITEM_set_cas(it, of.has_cas_in ? of.cas_id_in : get_cas_id());
-
             // Clients can noreply nominal responses.
             if (c->noreply)
                 resp->skip = true;
+
             memcpy(resp->wbuf, "HD", 2);
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -1699,8 +1722,10 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
             LOGGER_LOG(NULL, LOG_DELETIONS, LOGGER_DELETIONS, it, LOG_TYPE_META_DELETE);
-            do_item_unlink(it, hv);
-            STORAGE_delete(c->thread->storage, it);
+            if (!of.remove_val) {
+                do_item_unlink(it, hv);
+                STORAGE_delete(c->thread->storage, it);
+            }
             if (c->noreply)
                 resp->skip = true;
             memcpy(resp->wbuf, "HD", 2);
@@ -1727,6 +1752,11 @@ cleanup:
     conn_set_state(c, conn_new_cmd);
     return;
 error:
+    // cleanup if an error happens after we fetched an item.
+    if (it) {
+        do_item_remove(it);
+        item_unlock(hv);
+    }
     out_errstring(c, errstr);
 }
 
