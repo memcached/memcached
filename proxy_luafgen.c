@@ -510,8 +510,8 @@ int mcplib_funcgenbare_new(lua_State *L) {
     mcplib_funcgen_new(L);
 
     mcp_funcgen_t *fgen = lua_touserdata(L, -1);
-    const char *name = "anonymous";
-    mcp_sharedvm_delta(fgen->thread->proxy_ctx, SHAREDVM_FGEN_IDX, name, 1);
+    strncpy(fgen->name, "anonymous", FGEN_NAME_MAXLEN);
+    mcp_sharedvm_delta(fgen->thread->proxy_ctx, SHAREDVM_FGEN_IDX, fgen->name, 1);
 
     fgen->generator_ref = gen_ref;
     fgen->ready = true;
