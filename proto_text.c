@@ -1668,50 +1668,51 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             goto cleanup;
         }
 
+        // If requested, create a new empty tombstone item.
+        if (of.remove_val) {
+            item *new_it = item_alloc(key, nkey, of.client_flags, of.exptime, 2);
+            if (new_it != NULL) {
+                memcpy(ITEM_data(new_it), "\r\n", 2);
+                if (do_store_item(new_it, NREAD_SET, c->thread, hv, NULL, NULL, CAS_NO_STALE)) {
+                    do_item_remove(it);
+                    it = new_it;
+                } else {
+                    do_item_remove(new_it);
+                    memcpy(resp->wbuf, "NS", 2);
+                    goto cleanup;
+                }
+            } else {
+                errstr = "SERVER_ERROR out of memory";
+                goto error;
+            }
+        }
+
         // If we're to set this item as stale, we don't actually want to
         // delete it. We mark the stale bit, bump CAS, and update exptime if
         // we were supplied a new TTL.
         if (of.set_stale) {
-            // If requested, create a new empty item and mark _that_ as stale.
-            if (of.remove_val) {
-                item *new_it = item_alloc(key, nkey, of.client_flags, of.exptime, 2);
-                if (new_it != NULL) {
-                    memcpy(ITEM_data(new_it), "\r\n", 2);
-                    if (do_store_item(new_it, NREAD_SET, c->thread, hv, NULL, NULL, CAS_NO_STALE)) {
-                        new_it->it_flags |= ITEM_STALE;
-                        memcpy(resp->wbuf, "HD", 2);
-                        if (c->noreply)
-                            resp->skip = true;
-                    } else {
-                        do_item_remove(new_it);
-                        memcpy(resp->wbuf, "NS", 2);
-                    }
-                } else {
-                    errstr = "SERVER_ERROR out of memory";
-                    goto error;
-                }
-            } else {
-                if (of.new_ttl) {
-                    it->exptime = of.exptime;
-                }
-                it->it_flags |= ITEM_STALE;
-                // Also need to remove TOKEN_SENT, so next client can win.
-                it->it_flags &= ~ITEM_TOKEN_SENT;
-
-                ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
-                if (c->noreply)
-                    resp->skip = true;
-
-                memcpy(resp->wbuf, "HD", 2);
+            if (of.new_ttl) {
+                it->exptime = of.exptime;
             }
+            it->it_flags |= ITEM_STALE;
+            // Also need to remove TOKEN_SENT, so next client can win.
+            it->it_flags &= ~ITEM_TOKEN_SENT;
+
+            ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+            if (c->noreply)
+                resp->skip = true;
+
+            memcpy(resp->wbuf, "HD", 2);
         } else {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.slab_stats[ITEM_clsid(it)].delete_hits++;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
             LOGGER_LOG(NULL, LOG_DELETIONS, LOGGER_DELETIONS, it, LOG_TYPE_META_DELETE);
-            do_item_unlink(it, hv);
-            STORAGE_delete(c->thread->storage, it);
+            if (!of.remove_val) {
+                do_item_unlink(it, hv);
+                STORAGE_delete(c->thread->storage, it);
+            }
             if (c->noreply)
                 resp->skip = true;
             memcpy(resp->wbuf, "HD", 2);
