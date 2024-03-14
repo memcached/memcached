@@ -2477,7 +2477,7 @@ static enum try_read_result try_read_network(conn *c) {
     assert(c != NULL);
 
     if (c->rcurr != c->rbuf) {
-        if (c->rbytes != 0) /* otherwise there's nothing to copy */
+        if (c->rbytes > 0) /* otherwise there's nothing to copy */
             memmove(c->rbuf, c->rcurr, c->rbytes);
         c->rcurr = c->rbuf;
     }
@@ -6200,6 +6200,10 @@ int main (int argc, char **argv) {
         if (portnumber_filename != NULL) {
             len = strlen(portnumber_filename)+4+1;
             temp_portnumber_filename = malloc(len);
+            if (temp_portnumber_filename == NULL) {
+                vperror("Failed to allocate memory for portnumber file");
+                exit(EX_OSERR);
+            }
             snprintf(temp_portnumber_filename,
                      len,
                      "%s.lck", portnumber_filename);

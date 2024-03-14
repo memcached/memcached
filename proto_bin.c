@@ -737,7 +737,7 @@ static void process_bin_sasl_auth(conn *c) {
 
     assert(c->binary_header.request.extlen == 0);
 
-    int nkey = c->binary_header.request.keylen;
+    uint16_t nkey = c->binary_header.request.keylen;
     int vlen = c->binary_header.request.bodylen - nkey;
 
     if (nkey > MAX_SASL_MECH_LEN) {
@@ -776,7 +776,7 @@ static void process_bin_complete_sasl_auth(conn *c) {
     assert(c->item);
     init_sasl_conn(c);
 
-    int nkey = c->binary_header.request.keylen;
+    uint16_t nkey = c->binary_header.request.keylen;
     int vlen = c->binary_header.request.bodylen - nkey;
 
     if (nkey > ((item*) c->item)->nkey) {
@@ -1082,7 +1082,7 @@ static void dispatch_bin_command(conn *c, char *extbuf) {
 
 static void process_bin_update(conn *c, char *extbuf) {
     char *key;
-    int nkey;
+    uint16_t nkey;
     int vlen;
     item *it;
     protocol_binary_request_set* req = (void *)extbuf;
@@ -1191,7 +1191,7 @@ static void process_bin_update(conn *c, char *extbuf) {
 
 static void process_bin_append_prepend(conn *c) {
     char *key;
-    int nkey;
+    uint16_t nkey;
     int vlen;
     item *it;
 
