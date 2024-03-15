@@ -2063,10 +2063,6 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c) {
             slabs_stats(add_stats, c);
         } else if (nz_strcmp(nkey, stat_type, "sizes") == 0) {
             item_stats_sizes(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "sizes_enable") == 0) {
-            item_stats_sizes_enable(add_stats, c);
-        } else if (nz_strcmp(nkey, stat_type, "sizes_disable") == 0) {
-            item_stats_sizes_disable(add_stats, c);
         } else {
             ret = false;
         }

@@ -58,8 +58,6 @@ void item_stats_totals(ADD_STAT add_stats, void *c);
 /*@null@*/
 void item_stats_sizes(ADD_STAT add_stats, void *c);
 void item_stats_sizes_init(void);
-void item_stats_sizes_enable(ADD_STAT add_stats, void *c);
-void item_stats_sizes_disable(ADD_STAT add_stats, void *c);
 void item_stats_sizes_add(item *it);
 void item_stats_sizes_remove(item *it);
 bool item_stats_sizes_status(void);

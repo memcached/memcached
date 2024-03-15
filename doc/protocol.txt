@@ -1611,24 +1611,9 @@ most of your items are less than 200 bytes in size.
 
 In 1.4.27 and after, this feature must be manually enabled.
 
-A "stats" command with the argument of "sizes_enable" will enable the
-histogram at runtime. This has a small overhead to every store or delete
-operation. If you don't want to incur this, leave it off.
-
-A "stats" command with the argument of "sizes_disable" will disable the
-histogram.
-
-It can also be enabled at starttime with "-o track_sizes"
+It can be enabled at starttime with "-o track_sizes"
 
 If disabled, "stats sizes" will return:
-
-STAT sizes_status disabled\r\n
-
-"stats sizes_enable" will return:
-
-STAT sizes_status enabled\r\n
-
-"stats sizes_disable" will return:
 
 STAT sizes_status disabled\r\n
 
@@ -1637,8 +1622,17 @@ If an error happens, it will return:
 STAT sizes_status error\r\n
 STAT sizes_error [error_message]\r\n
 
-CAVEAT: If CAS support is disabled, you cannot enable/disable this feature at
-runtime.
+NOTE: From 1.4.27 to 1.6.24 this feature could be enabled or disabled at
+runtime via `stats sizes_enable` and `stats sizes_disable` - however this
+ability was not thread safe and could crash the server. While possible to fix,
+it would make the feature too slow to be usable.
+
+The feature can still be enabled at start time via `-o track_sizes` and has a
+low overhead.
+
+If you want to make a histogram of item sizes for a memcached instance that is
+already running, you can use `lru_crawler metadump` and process the output.
+This command does not block the server.
 
 Slab statistics
 ---------------

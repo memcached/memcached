@@ -58,14 +58,12 @@ static itemstats_t itemstats[LARGEST_ID];
 static unsigned int sizes[LARGEST_ID];
 static uint64_t sizes_bytes[LARGEST_ID];
 static unsigned int *stats_sizes_hist = NULL;
-static uint64_t stats_sizes_cas_min = 0;
 static int stats_sizes_buckets = 0;
 static uint64_t cas_id = 0;
 
 static volatile int do_run_lru_maintainer_thread = 0;
 static pthread_mutex_t lru_maintainer_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t cas_id_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t stats_sizes_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void item_stats_reset(void) {
     int i;
@@ -922,10 +920,8 @@ void item_stats(ADD_STAT add_stats, void *c) {
 
 bool item_stats_sizes_status(void) {
     bool ret = false;
-    mutex_lock(&stats_sizes_lock);
     if (stats_sizes_hist != NULL)
         ret = true;
-    mutex_unlock(&stats_sizes_lock);
     return ret;
 }
 
@@ -934,40 +930,10 @@ void item_stats_sizes_init(void) {
         return;
     stats_sizes_buckets = settings.item_size_max / 32 + 1;
     stats_sizes_hist = calloc(stats_sizes_buckets, sizeof(int));
-    stats_sizes_cas_min = (settings.use_cas) ? get_cas_id() : 0;
-}
-
-void item_stats_sizes_enable(ADD_STAT add_stats, void *c) {
-    mutex_lock(&stats_sizes_lock);
-    if (!settings.use_cas) {
-        APPEND_STAT("sizes_status", "error", "");
-        APPEND_STAT("sizes_error", "cas_support_disabled", "");
-    } else if (stats_sizes_hist == NULL) {
-        item_stats_sizes_init();
-        if (stats_sizes_hist != NULL) {
-            APPEND_STAT("sizes_status", "enabled", "");
-        } else {
-            APPEND_STAT("sizes_status", "error", "");
-            APPEND_STAT("sizes_error", "no_memory", "");
-        }
-    } else {
-        APPEND_STAT("sizes_status", "enabled", "");
-    }
-    mutex_unlock(&stats_sizes_lock);
-}
-
-void item_stats_sizes_disable(ADD_STAT add_stats, void *c) {
-    mutex_lock(&stats_sizes_lock);
-    if (stats_sizes_hist != NULL) {
-        free(stats_sizes_hist);
-        stats_sizes_hist = NULL;
-    }
-    APPEND_STAT("sizes_status", "disabled", "");
-    mutex_unlock(&stats_sizes_lock);
 }
 
 void item_stats_sizes_add(item *it) {
-    if (stats_sizes_hist == NULL || stats_sizes_cas_min > ITEM_get_cas(it))
+    if (stats_sizes_hist == NULL)
         return;
     int ntotal = ITEM_ntotal(it);
     int bucket = ntotal / 32;
@@ -979,7 +945,7 @@ void item_stats_sizes_add(item *it) {
  * Since items getting their time value bumped will pass this validation.
  */
 void item_stats_sizes_remove(item *it) {
-    if (stats_sizes_hist == NULL || stats_sizes_cas_min > ITEM_get_cas(it))
+    if (stats_sizes_hist == NULL)
         return;
     int ntotal = ITEM_ntotal(it);
     int bucket = ntotal / 32;
@@ -994,8 +960,6 @@ void item_stats_sizes_remove(item *it) {
  * which don't change.
  */
 void item_stats_sizes(ADD_STAT add_stats, void *c) {
-    mutex_lock(&stats_sizes_lock);
-
     if (stats_sizes_hist != NULL) {
         int i;
         for (i = 0; i < stats_sizes_buckets; i++) {
@@ -1010,7 +974,6 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
     }
 
     add_stats(NULL, 0, NULL, 0, c);
-    mutex_unlock(&stats_sizes_lock);
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */
