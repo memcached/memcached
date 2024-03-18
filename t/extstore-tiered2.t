@@ -80,6 +80,10 @@ my $OLD = 5;
         print $sock "set kfoo$_ 0 0 20000 noreply\r\n$value\r\n";
     }
     wait_ext_flush($sock);
+    # sleep workaround for slow systems as compaction gets behind.
+    # TODO: need some counters for when compaction runs and loop/monitor here
+    # instead of straight sleeping.
+    sleep(5);
     $keycount = 6000;
     for (1 .. $keycount) {
         print $sock "set zfoo$_ 0 0 20000 noreply\r\n$value\r\n";
