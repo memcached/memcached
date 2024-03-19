@@ -553,6 +553,7 @@ struct settings {
 #ifdef SOCK_COOKIE_ID
     uint32_t sock_cookie_id;
 #endif
+    bool opaque_ipv6_ns;
 };
 
 extern struct stats stats;
@@ -1071,6 +1072,7 @@ bool get_stats(const char *stat_type, int nkey, ADD_STAT add_stats, void *c);
 void stats_reset(void);
 void process_stat_settings(ADD_STAT add_stats, void *c);
 void process_stats_conns(ADD_STAT add_stats, void *c);
+uint64_t get_opaque_ipv6_namespace(const conn *c);
 
 #if HAVE_DROP_PRIVILEGES
 extern void setup_privilege_violations_handler(void);
