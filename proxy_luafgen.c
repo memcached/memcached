@@ -80,7 +80,7 @@ static void mcp_rcontext_cleanup(lua_State *L, mcp_funcgen_t *fgen, mcp_rcontext
 #define FGEN_FREE_PRESSURE_MAX 100
 #define FGEN_FREE_PRESSURE_DROP 10
 #else
-#define FGEN_FREE_PRESSURE_MAX 1000
+#define FGEN_FREE_PRESSURE_MAX 4000
 #define FGEN_FREE_PRESSURE_DROP 100
 #endif
 static void _mcplib_funcgen_cache(mcp_funcgen_t *fgen, mcp_rcontext_t *rctx) {
@@ -107,8 +107,8 @@ static void _mcplib_funcgen_cache(mcp_funcgen_t *fgen, mcp_rcontext_t *rctx) {
             lua_pop(L, 1); // drop fgen
             do_cache = false;
         }
-    } else if (fgen->free_pressure > 0) {
-        fgen->free_pressure--;
+    } else {
+        fgen->free_pressure >>= 1;
     }
 
     if (do_cache) {
