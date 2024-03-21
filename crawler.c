@@ -294,9 +294,11 @@ static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, i
 
 static void crawler_metadump_finalize(crawler_module_t *cm) {
     if (cm->c.c != NULL) {
-        lru_crawler_write(&cm->c); // empty the write buffer
-        memcpy(cm->c.buf, "END\r\n", 5);
-        cm->c.bufused += 5;
+        // flush any pending data.
+        if (lru_crawler_write(&cm->c) == 0) {
+            memcpy(cm->c.buf, "END\r\n", 5);
+            cm->c.bufused += 5;
+        }
     }
 }
 
@@ -331,9 +333,11 @@ static void crawler_mgdump_eval(crawler_module_t *cm, item *it, uint32_t hv, int
 
 static void crawler_mgdump_finalize(crawler_module_t *cm) {
     if (cm->c.c != NULL) {
-        lru_crawler_write(&cm->c); // empty the write buffer
-        memcpy(cm->c.buf, "EN\r\n", 4);
-        cm->c.bufused += 4;
+        // flush any pending data.
+        if (lru_crawler_write(&cm->c) == 0) {
+            memcpy(cm->c.buf, "EN\r\n", 4);
+            cm->c.bufused += 4;
+        }
     }
 }
 
@@ -353,6 +357,7 @@ static int lru_crawler_write(crawler_client_t *c) {
 
         if (ret < 0) {
             // fatal.
+            lru_crawler_close_client(c);
             return -1;
         }
 
