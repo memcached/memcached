@@ -4,17 +4,26 @@
 
 #include "proxy.h"
 
-struct _dumpbuf {
+// not using queue.h becuase those require specific storage for HEAD.
+// it's not possible to have the HEAD simply be in the proxy context because
+// it would need to know the offset into this private structure.
+// This might be doable but the problem is too trivial to spend time on it.
+#define MCP_LUAFILE_SIZE 16384
+struct _mcp_luafile {
     size_t size;
     size_t used;
+    bool loaded; // flip this to false before each load use
     char *buf;
+    char *fname; // filename to load
+    struct _mcp_luafile *next;
 };
 
 static int _dump_helper(lua_State *L, const void *p, size_t sz, void *ud) {
     (void)L;
-    struct _dumpbuf *db = ud;
+    struct _mcp_luafile *db = ud;
     if (db->used + sz > db->size) {
-        db->size *= 2;
+        // increase by blocks instead of doubling to avoid memory waste
+        db->size += MCP_LUAFILE_SIZE;
         char *nb = realloc(db->buf, db->size);
         if (nb == NULL) {
             return -1;
@@ -28,13 +37,13 @@ static int _dump_helper(lua_State *L, const void *p, size_t sz, void *ud) {
 
 static const char * _load_helper(lua_State *L, void *data, size_t *size) {
     (void)L;
-    struct _dumpbuf *db = data;
-    if (db->used == 0) {
+    struct _mcp_luafile *db = data;
+    if (db->loaded) {
         *size = 0;
         return NULL;
     }
     *size = db->used;
-    db->used = 0;
+    db->loaded = true;
     return db->buf;
 }
 
@@ -216,38 +225,100 @@ int _start_proxy_config_threads(proxy_ctx_t *ctx) {
     return 0;
 }
 
+// this splits a list of lua startfiles into independent data chunk buffers
+// we call this once the first time we start so we can use mallocs without
+// having to armor against runtime malloc failures... as much.
+static int proxy_init_startfiles(proxy_ctx_t *ctx, const char *files) {
+    char *flist = strdup(settings.proxy_startfile);
+    if (flist == NULL) {
+        fprintf(stderr, "ERROR: failed to allocate memory for parsing proxy_startfile\n");
+        return -1;
+    }
+
+    char *b;
+    for (const char *p = strtok_r(flist, ":", &b);
+            p != NULL;
+            p = strtok_r(NULL, ",", &b)) {
+        struct _mcp_luafile *db = calloc(sizeof(struct _mcp_luafile), 1);
+        if (db == NULL) {
+            fprintf(stderr, "ERROR: failed to allocate memory for parsing proxy_startfile\n");
+            return -1;
+        }
+        db->size = MCP_LUAFILE_SIZE;
+        db->buf = calloc(db->size, 1);
+        db->fname = strdup(p);
+        if (db->buf == NULL || db->fname == NULL) {
+            fprintf(stderr, "ERROR: failed to allocate memory while parsing proxy_startfile\n");
+            return -1;
+        }
+
+        // put new file at tail
+        if (ctx->proxy_code == NULL) {
+            ctx->proxy_code = db;
+        } else {
+            struct _mcp_luafile *list = ctx->proxy_code;
+            while (list->next) {
+                list = list->next;
+            }
+            assert(list->next == NULL);
+            list->next = db;
+        }
+    }
+
+    free(flist);
+    return 0;
+}
+
+static int proxy_load_files(proxy_ctx_t *ctx) {
+    lua_State *L = ctx->proxy_state;
+    struct _mcp_luafile *db = ctx->proxy_code;
+    assert(db);
+
+    while (db) {
+        int res;
+        // clear the buffer for reuse.
+        memset(db->buf, 0, db->size);
+        db->used = 0;
+
+        res = luaL_loadfile(L, db->fname);
+        if (res != LUA_OK) {
+            fprintf(stderr, "ERROR: Failed to load proxy_startfile: %s\n", lua_tostring(L, -1));
+            return -1;
+        }
+        // LUA_OK, LUA_ERRSYNTAX, LUA_ERRMEM, LUA_ERRFILE
+
+        // Now we need to dump the compiled code into bytecode.
+        // This will then get loaded into worker threads.
+        lua_dump(L, _dump_helper, db, 0);
+        // 0 means no error.
+
+        // now we complete the data load by calling the function.
+        res = lua_pcall(L, 0, LUA_MULTRET, 0);
+        if (res != LUA_OK) {
+            fprintf(stderr, "ERROR: Failed to load data into lua config state: %s\n", lua_tostring(L, -1));
+            exit(EXIT_FAILURE);
+        }
+
+        db = db->next;
+    }
+
+    return 0;
+}
+
 int proxy_load_config(void *arg) {
     proxy_ctx_t *ctx = arg;
     lua_State *L = ctx->proxy_state;
-    int res = luaL_loadfile(L, settings.proxy_startfile);
-    if (res != LUA_OK) {
-        fprintf(stderr, "ERROR: Failed to load proxy_startfile: %s\n", lua_tostring(L, -1));
-        return -1;
-    }
-    // LUA_OK, LUA_ERRSYNTAX, LUA_ERRMEM, LUA_ERRFILE
+    int res = 0;
 
-    // Now we need to dump the compiled code into bytecode.
-    // This will then get loaded into worker threads.
-    struct _dumpbuf *db = malloc(sizeof(struct _dumpbuf));
-    db->size = 16384;
-    db->used = 0;
-    db->buf = malloc(db->size);
-    lua_dump(L, _dump_helper, db, 0);
-    // 0 means no error.
-    if (ctx->proxy_code) {
-        struct _dumpbuf *old = ctx->proxy_code;
-        free(old->buf);
-        free(old);
-        ctx->proxy_code = NULL;
+    if (ctx->proxy_code == NULL) {
+        res = proxy_init_startfiles(ctx, settings.proxy_startfile);
+        if (res != 0) {
+            return res;
+        }
     }
-    ctx->proxy_code = db;
 
-    // now we complete the data load by calling the function.
-    res = lua_pcall(L, 0, LUA_MULTRET, 0);
-    if (res != LUA_OK) {
-        fprintf(stderr, "ERROR: Failed to load data into lua config state: %s\n", lua_tostring(L, -1));
-        exit(EXIT_FAILURE);
-    }
+    // load each of the data files in order.
+    res = proxy_load_files(ctx);
 
     // call the mcp_config_pools function to get the central backends.
     lua_getglobal(L, "mcp_config_pools");
@@ -394,20 +465,25 @@ void proxy_worker_reload(void *arg, LIBEVENT_THREAD *thr) {
 // needs to go somewhere useful, counters added, etc.
 int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
     lua_State *L = thr->L;
-    // load the precompiled config function.
-    struct _dumpbuf *db = ctx->proxy_code;
-    struct _dumpbuf db2; // copy because the helper modifies it.
-    memcpy(&db2, db, sizeof(struct _dumpbuf));
+    // load the precompiled config functions.
 
-    lua_load(L, _load_helper, &db2, "config", NULL);
-    // LUA_OK + all errs from loadfile except LUA_ERRFILE.
-    //dump_stack(L);
-    // - pcall the func (which should load it)
-    int res = lua_pcall(L, 0, LUA_MULTRET, 0);
-    if (res != LUA_OK) {
-        // FIXME (v2): don't exit here!
-        fprintf(stderr, "Failed to load data into worker thread: %s\n", lua_tostring(L, -1));
-        return -1;
+    struct _mcp_luafile *db = ctx->proxy_code;
+    while (db) {
+        db->loaded = false;
+        int res = lua_load(L, _load_helper, db, "config", NULL);
+        if (res != LUA_OK) {
+            fprintf(stderr, "Failed to load data into worker thread: %s\n", lua_tostring(L, -1));
+            return -1;
+        }
+
+        res = lua_pcall(L, 0, LUA_MULTRET, 0);
+        if (res != LUA_OK) {
+            // FIXME (v2): don't exit here!
+            fprintf(stderr, "Failed to load data into worker thread: %s\n", lua_tostring(L, -1));
+            return -1;
+        }
+
+        db = db->next;
     }
 
     lua_getglobal(L, "mcp_config_routes");
