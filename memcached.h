@@ -548,6 +548,7 @@ struct settings {
     bool proxy_uring; /* if the proxy should use io_uring */
     bool proxy_memprofile; /* output detail of lua allocations */
     char *proxy_startfile; /* lua file to run when workers start */
+    char *proxy_startarg; /* string argument to pass to proxy */
     void *proxy_ctx; /* proxy's state context */
 #endif
 #ifdef SOCK_COOKIE_ID

@@ -1377,6 +1377,44 @@ static void proxy_register_defines(lua_State *L) {
     lua_setfield(L, -2, "WAIT_RESUME");
 }
 
+// TODO: low priority malloc error handling.
+static void proxy_register_startarg(lua_State *L) {
+    int idx = lua_absindex(L, -1); // remember 'mcp' table.
+    if (settings.proxy_startarg == NULL) {
+        // no argument given.
+        lua_pushboolean(L, 0);
+        lua_setfield(L, idx, "start_arg");
+        return;
+    }
+
+    char *sarg = strdup(settings.proxy_startarg);
+    if (strchr(sarg, ':') == NULL) {
+        // just upload the string
+        lua_pushstring(L, sarg);
+    } else {
+        // split into a table and set that instead.
+        lua_newtable(L);
+        int nidx = lua_absindex(L, -1);
+        char *b = NULL;
+        for (char *p = strtok_r(sarg, ":", &b);
+                p != NULL;
+                p = strtok_r(NULL, ":", &b)) {
+            char *e = NULL;
+            char *name = strtok_r(p, "_", &e);
+            lua_pushstring(L, name); // table -> key
+            char *value = strtok_r(NULL, "_", &e);
+            if (value == NULL) {
+                lua_pushboolean(L, 1); // table -> key -> True
+            } else {
+                lua_pushstring(L, value); // table -> key -> value
+            }
+            lua_settable(L, nidx);
+        }
+    }
+    free(sarg);
+    lua_setfield(L, idx, "start_arg");
+}
+
 // Creates and returns the top level "mcp" module
 int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     lua_State *L = state;
@@ -1626,6 +1664,9 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
     } else {
         luaL_setfuncs(L, mcplib_f_config, 1); // store upvalues.
     }
+
+    // every VM gets a copy of the start arguments to work with.
+    proxy_register_startarg(L);
 
     lua_setglobal(L, "mcp"); // set the lib table to mcp global.
     return 1;

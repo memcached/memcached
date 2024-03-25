@@ -4202,7 +4202,8 @@ static void usage(void) {
     verify_default("ext_item_age", settings.ext_item_age == UINT_MAX);
 #endif
 #ifdef PROXY
-    printf("   - proxy_config:        path to lua config file.\n");
+    printf("   - proxy_config:        path to lua library file. separate with ':' for multiple files\n");
+    printf("   - proxy_arg:           string to pass to lua library\n");
 #endif
 #ifdef TLS
     printf("   - ssl_chain_cert:      certificate chain file in PEM format\n"
@@ -4850,6 +4851,7 @@ int main (int argc, char **argv) {
 #endif
 #ifdef PROXY
         PROXY_CONFIG,
+        PROXY_ARG,
         PROXY_URING,
         PROXY_MEMPROFILE,
 #endif
@@ -4913,6 +4915,7 @@ int main (int argc, char **argv) {
 #endif
 #ifdef PROXY
         [PROXY_CONFIG] = "proxy_config",
+        [PROXY_ARG] = "proxy_arg",
         [PROXY_URING] = "proxy_uring",
         [PROXY_MEMPROFILE] = "proxy_memprofile",
 #endif
@@ -5684,6 +5687,9 @@ int main (int argc, char **argv) {
                 settings.proxy_enabled = true;
                 settings.binding_protocol = proxy_prot;
                 protocol_specified = true;
+                break;
+            case PROXY_ARG:
+                settings.proxy_startarg = strdup(subopts_value);
                 break;
             case PROXY_URING:
                 settings.proxy_uring = true;
