@@ -395,7 +395,7 @@ static void process_update_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *re
         return;
     }
 
-    int ret = store_item(it, comm, t, NULL, NULL, CAS_NO_STALE);
+    int ret = store_item(it, comm, t, NULL, NULL, (settings.use_cas) ? get_cas_id() : 0, CAS_NO_STALE);
     switch (ret) {
     case STORED:
       pout_string(resp, "STORED");
@@ -586,6 +586,7 @@ struct _meta_flags {
     unsigned int set_stale :1;
     unsigned int no_reply :1;
     unsigned int has_cas :1;
+    unsigned int has_cas_in :1;
     unsigned int new_ttl :1;
     unsigned int key_binary:1;
     char mode; // single character mode switch, common to ms/ma
@@ -594,6 +595,7 @@ struct _meta_flags {
     rel_time_t recache_time;
     client_flags_t client_flags;
     uint64_t req_cas_id;
+    uint64_t cas_id_in; // client supplied next-CAS
     uint64_t delta; // ma
     uint64_t initial; // ma
 };
@@ -701,6 +703,14 @@ static int _meta_flag_preparse(mcp_parser_t *pr, const size_t start,
                     of->has_cas = true;
                 }
                 break;
+            case 'E': // ms, md, ma
+                if (!safe_strtoull(&pr->request[pr->tokens[i]+1], &of->cas_id_in)) {
+                    *errstr = "CLIENT_ERROR bad token in command line format";
+                    of->has_error = true;
+                } else {
+                    of->has_cas_in = true;
+                }
+                break;
             case 'M': // mset and marithmetic mode switch
                 // FIXME: this used to error if the token isn't a single byte.
                 // It probably should still?
@@ -796,7 +806,7 @@ static void process_mget_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
             // I look forward to the day I get rid of this :)
             memcpy(ITEM_data(it), "\r\n", 2);
             // NOTE: This initializes the CAS value.
-            do_item_link(it, hv);
+            do_item_link(it, hv, of.has_cas_in ? of.cas_id_in : get_cas_id());
             item_created = true;
         }
     }
@@ -1173,7 +1183,7 @@ static void process_mset_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *resp
 
     uint64_t cas = 0;
     int nbytes = 0;
-    int ret = store_item(it, comm, t, &nbytes, &cas, set_stale);
+    int ret = store_item(it, comm, t, &nbytes, &cas, of.has_cas_in ? of.cas_id_in : get_cas_id(), set_stale);
     switch (ret) {
         case STORED:
           memcpy(p, "HD", 2);
@@ -1324,7 +1334,7 @@ static void process_mdelete_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_resp *r
             // Also need to remove TOKEN_SENT, so next client can win.
             it->it_flags &= ~ITEM_TOKEN_SENT;
 
-            ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
+            ITEM_set_cas(it, of.has_cas_in ? of.cas_id_in : get_cas_id());
 
             // Clients can noreply nominal responses.
             if (of.no_reply)
@@ -1440,6 +1450,11 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
         //if (c->noreply)
         //    resp->skip = true;
         // *it was filled, set the status below.
+        if (of.has_cas_in) {
+            // override the CAS. slightly inefficient but fixing that can wait
+            // until the next time do_add_delta is changed.
+            ITEM_set_cas(it, of.cas_id_in);
+        }
         cas = ITEM_get_cas(it);
         break;
     case NON_NUMERIC:
@@ -1459,7 +1474,8 @@ static void process_marithmetic_cmd(LIBEVENT_THREAD *t, mcp_parser_t *pr, mc_res
             if (it != NULL) {
                 memcpy(ITEM_data(it), tmpbuf, vlen);
                 memcpy(ITEM_data(it) + vlen, "\r\n", 2);
-                if (do_store_item(it, NREAD_ADD, t, hv, NULL, &cas, CAS_NO_STALE)) {
+                if (do_store_item(it, NREAD_ADD, t, hv, NULL, &cas,
+                            of.has_cas_in ? of.cas_id_in : get_cas_id(), CAS_NO_STALE)) {
                     item_created = true;
                 } else {
                     // Not sure how we can get here if we're holding the lock.
