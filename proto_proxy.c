@@ -251,8 +251,39 @@ void process_proxy_funcstats(void *arg, ADD_STAT add_stats, conn *c) {
             snprintf(key_str, STAT_KEY_LEN-1, "slots_%s", name);
             APPEND_STAT(key_str, "%d", slots);
         } else {
-            // TODO: Is it safe to delete keys in the middle here?
-            // not worried at all about just leaking memory here.
+            // TODO: It is safe to delete keys here. Slightly complex so low
+            // priority.
+        }
+    }
+
+    pthread_mutex_unlock(&ctx->sharedvm_lock);
+}
+
+void process_proxy_bestats(void *arg, ADD_STAT add_stats, conn *c) {
+    char key_str[STAT_KEY_LEN];
+    if (!arg) {
+        return;
+    }
+    proxy_ctx_t *ctx = arg;
+    lua_State *L = ctx->proxy_sharedvm;
+    pthread_mutex_lock(&ctx->sharedvm_lock);
+
+    // iterate all of the listed backends
+    lua_pushnil(L);
+    while (lua_next(L, SHAREDVM_BACKEND_IDX) != 0) {
+        int n = lua_tointeger(L, -1);
+        lua_pop(L, 1); // drop the value, leave the key.
+        if (n != 0) {
+            // now grab the name key.
+            const char *name = lua_tostring(L, -1);
+            snprintf(key_str, STAT_KEY_LEN-1, "bad_%s", name);
+            APPEND_STAT(key_str, "%d", n);
+        } else {
+            // delete keys of backends that are no longer bad or no longer
+            // exist to keep the table small.
+            const char *name = lua_tostring(L, -1);
+            lua_pushnil(L);
+            lua_setfield(L, SHAREDVM_BACKEND_IDX, name);
         }
     }
 
@@ -310,6 +341,7 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     // constantly fetch them from registry.
     lua_newtable(ctx->proxy_sharedvm); // fgen count
     lua_newtable(ctx->proxy_sharedvm); // fgen slot count
+    lua_newtable(ctx->proxy_sharedvm); // backend down status
 
     // Create/start the IO thread, which we need before servers
     // start getting created.
@@ -1301,6 +1333,16 @@ void mcp_sharedvm_delta(proxy_ctx_t *ctx, int tidx, const char *name, int delta)
         lua_arith(L, LUA_OPADD);
         lua_setfield(L, tidx, name);
     }
+
+    pthread_mutex_unlock(&ctx->sharedvm_lock);
+}
+
+void mcp_sharedvm_remove(proxy_ctx_t *ctx, int tidx, const char *name) {
+    lua_State *L = ctx->proxy_sharedvm;
+    pthread_mutex_lock(&ctx->sharedvm_lock);
+
+    lua_pushnil(L);
+    lua_setfield(L, tidx, name);
 
     pthread_mutex_unlock(&ctx->sharedvm_lock);
 }

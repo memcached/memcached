@@ -104,6 +104,7 @@ struct mcp_memprofile {
 
 #define SHAREDVM_FGEN_IDX 1
 #define SHAREDVM_FGENSLOT_IDX 2
+#define SHAREDVM_BACKEND_IDX 3
 
 // all possible commands.
 #define CMD_FIELDS \
@@ -556,6 +557,7 @@ typedef struct {
 // utils
 bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len);
 void mcp_sharedvm_delta(proxy_ctx_t *ctx, int tidx, const char *name, int delta);
+void mcp_sharedvm_remove(proxy_ctx_t *ctx, int tidx, const char *name);
 
 // networking interface
 void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct event_base *base);

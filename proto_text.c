@@ -806,6 +806,8 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         process_proxy_stats(settings.proxy_ctx, &append_stats, c);
     } else if (strcmp(subcommand, "proxyfuncs") == 0) {
         process_proxy_funcstats(settings.proxy_ctx, &append_stats, c);
+    } else if (strcmp(subcommand, "proxybe") == 0) {
+        process_proxy_bestats(settings.proxy_ctx, &append_stats, c);
 #endif
     } else {
         /* getting here means that the subcommand is either engine specific or

@@ -562,7 +562,8 @@ sub _accept_backend {
     $be->autoflush(1);
     Test::More::ok(defined $be, "mock backend created");
     Test::More::like(<$be>, qr/version/, "received version command");
-    print $be "VERSION 1.0.0-mock\r\n";
+    my $sent = $be->send("VERSION 1.0.0-mock\r\n");
+    Test::More::cmp_ok($sent, '>', 0, "wrote VERSION back to backend");
 
     return $be;
 }
@@ -580,6 +581,21 @@ sub accept_backend {
     my $self = shift;
     my $idx = shift;
     $self->{_be}->[$idx] = _accept_backend($self->{_srv}->[$idx]);
+}
+
+sub close_backend {
+    my $self = shift;
+    my $idx = shift;
+    $self->{_be}->[$idx]->close;
+}
+
+sub srv_accept_waiting {
+    my $self = shift;
+    my $idx = shift;
+    my $wait = shift || 1;
+    my $s = IO::Select->new();
+    $s->add($self->{_srv}->[$idx]);
+    return $s->can_read($wait);
 }
 
 sub set_c {
