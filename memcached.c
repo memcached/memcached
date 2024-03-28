@@ -1596,7 +1596,7 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  *
  * Returns the state of storage.
  */
-enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, bool cas_stale) {
+enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const uint32_t hv, int *nbytes, uint64_t *cas, uint64_t cas_in, bool cas_stale) {
     char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey, hv, t, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
@@ -1712,7 +1712,7 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
 
         if (do_store) {
             STORAGE_delete(t->storage, old_it);
-            item_replace(old_it, it, hv);
+            item_replace(old_it, it, hv, cas_in);
             stored = STORED;
         }
 
@@ -1750,7 +1750,7 @@ enum store_item_type do_store_item(item *it, int comm, LIBEVENT_THREAD *t, const
         }
 
         if (do_store) {
-            do_item_link(it, hv);
+            do_item_link(it, hv, cas_in);
             stored = STORED;
         }
     }
@@ -2357,7 +2357,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         }
         memcpy(ITEM_data(new_it), buf, res);
         memcpy(ITEM_data(new_it) + res, "\r\n", 2);
-        item_replace(it, new_it, hv);
+        item_replace(it, new_it, hv, (settings.use_cas) ? get_cas_id() : 0);
         // Overwrite the older item's CAS with our new CAS since we're
         // returning the CAS of the old item below.
         ITEM_set_cas(it, (settings.use_cas) ? ITEM_get_cas(new_it) : 0);
