@@ -1272,6 +1272,12 @@ int mcplib_rcontext_result(lua_State *L) {
     return 2;
 }
 
+int mcplib_rcontext_cfd(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+    lua_pushinteger(L, rctx->conn_fd);
+    return 1;
+}
+
 // the supplied handle must be valid.
 void mcp_rcontext_push_rqu_res(lua_State *L, mcp_rcontext_t *rctx, int handle) {
     struct mcp_rqueue_s *rqu = &rctx->qslots[handle];

@@ -1121,7 +1121,7 @@ check_sanity($ps);
     is(scalar <$be>, $cmd, "got passthru for log");
     print $be "END\r\n";
     is(scalar <$ps>, "END\r\n", "got END from log test");
-    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 be=127.0.0.1:11411 detail=logreqtest req=get \/logreqtest\/a/, "found request log entry");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 cfd=\d+ be=127.0.0.1:11411 detail=logreqtest req=get \/logreqtest\/a/, "found request log entry");
 
     # test log_req with nil res (should be 0's in places)
     # log_reqsample()
@@ -1139,7 +1139,7 @@ check_sanity($ps);
     sleep 0.3;
     print $be "END\r\n";
     is(scalar <$ps>, "END\r\n", "got END from log test");
-    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 be=127.0.0.1:11411 detail=logsampletest req=get \/logreqstest\/b/, "only got b request from log sample");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 cfd=\d+ be=127.0.0.1:11411 detail=logsampletest req=get \/logreqstest\/b/, "only got b request from log sample");
 }
 
 # Basic proxy stats validation
@@ -1435,8 +1435,8 @@ check_sanity($ps);
         print $be "SERVER_ERROR out of memory\r\n";
     }
 
-    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=\d+ code=\d+ status=-1 be=(\S+) detail=write_failed req=set \/awaitlogerr\/a/, "await_logerrors log entry 1");
-    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=\d+ code=\d+ status=-1 be=(\S+) detail=write_failed req=set \/awaitlogerr\/a/, "await_logerrors log entry 2");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=\d+ code=\d+ status=-1 cfd=\d+ be=(\S+) detail=write_failed req=set \/awaitlogerr\/a/, "await_logerrors log entry 1");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=\d+ code=\d+ status=-1 cfd=\d+ be=(\S+) detail=write_failed req=set \/awaitlogerr\/a/, "await_logerrors log entry 2");
 
     # Repeat the logreqtest to ensure we only got the log lines we expected.
     $cmd = "get /logreqtest/a\r\n";
@@ -1444,7 +1444,7 @@ check_sanity($ps);
     is(scalar <$be>, $cmd, "got passthru for log");
     print $be "END\r\n";
     is(scalar <$ps>, "END\r\n", "got END from log test");
-    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 be=127.0.0.1:11411 detail=logreqtest req=get \/logreqtest\/a/, "found request log entry");
+    like(<$watcher>, qr/ts=(\S+) gid=\d+ type=proxy_req elapsed=\d+ type=105 code=17 status=0 cfd=\d+ be=127.0.0.1:11411 detail=logreqtest req=get \/logreqtest\/a/, "found request log entry");
 }
 
 check_sanity($ps);

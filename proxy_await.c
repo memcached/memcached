@@ -335,7 +335,7 @@ int mcplib_await_return(io_pending_proxy_t *p) {
                     lua_pop(L, 1);
                 }
 
-                logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, rs->elapsed, rs->resp.type, rs->resp.code, rs->status, detail, dlen, rs->be_name, rs->be_port);
+                logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, rs->elapsed, rs->resp.type, rs->resp.code, rs->status, aw->rctx->conn_fd, detail, dlen, rs->be_name, rs->be_port);
             }
         }
 

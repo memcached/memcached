@@ -1243,8 +1243,9 @@ static int mcplib_log_req(lua_State *L) {
     }
     size_t dlen = 0;
     const char *detail = luaL_optlstring(L, 3, NULL, &dlen);
+    int cfd = luaL_optinteger(L, 4, 0);
 
-    logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, elapsed, rtype, rcode, rstatus, detail, dlen, rname, rport);
+    logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, elapsed, rtype, rcode, rstatus, cfd, detail, dlen, rname, rport);
 
     return 0;
 }
@@ -1304,6 +1305,7 @@ static int mcplib_log_reqsample(lua_State *L) {
     }
     size_t dlen = 0;
     const char *detail = luaL_optlstring(L, 6, NULL, &dlen);
+    int cfd = luaL_optinteger(L, 7, 0);
 
     bool do_log = false;
     if (allerr && rstatus != MCMC_OK) {
@@ -1320,7 +1322,7 @@ static int mcplib_log_reqsample(lua_State *L) {
     }
 
     if (do_log) {
-        logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, elapsed, rtype, rcode, rstatus, detail, dlen, rname, rport);
+        logger_log(l, LOGGER_PROXY_REQ, NULL, rq->pr.request, rq->pr.reqlen, elapsed, rtype, rcode, rstatus, cfd, detail, dlen, rname, rport);
     }
 
     return 0;
@@ -1495,6 +1497,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"res_ok", mcplib_rcontext_res_ok},
         {"res_any", mcplib_rcontext_res_any},
         {"result", mcplib_rcontext_result},
+        {"cfd", mcplib_rcontext_cfd},
         {NULL, NULL}
     };
 

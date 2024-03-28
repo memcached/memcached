@@ -395,7 +395,10 @@ sub test_basic {
         $t->c_recv_be();
         for (0 .. 2) {
             like(<$w>, qr/received a response: /, 'got a log line');
-            like(<$w>, qr/even more logs/, 'got logreq line');
+            my $l2 = scalar <$w>;
+            like($l2, qr/even more logs/, 'got logreq line');
+            like($l2, qr/cfd=/, 'client file descriptor present');
+            unlike($l2, qr/cfd=0/, 'client file descriptor is nonzero');
         }
         $t->clear();
     };

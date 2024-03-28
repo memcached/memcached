@@ -347,6 +347,7 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     unsigned short type = va_arg(ap, int);
     unsigned short code = va_arg(ap, int);
     int status = va_arg(ap, int);
+    int conn_fd = va_arg(ap, int);
     char *detail = va_arg(ap, char *);
     int dlen = va_arg(ap, int);
     char *be_name = va_arg(ap, char *);
@@ -356,6 +357,7 @@ static void _logger_log_proxy_req(logentry *e, const entry_details *d, const voi
     le->type = type;
     le->code = code;
     le->status = status;
+    le->conn_fd = conn_fd;
     le->dlen = dlen;
     le->elapsed = elapsed;
     if (be_name && be_port) {
@@ -394,9 +396,9 @@ static int _logger_parse_prx_req(logentry *e, char *scratch) {
     struct logentry_proxy_req *le = (void *)e->data;
 
     total = snprintf(scratch, LOGGER_PARSE_SCRATCH,
-            "ts=%lld.%d gid=%llu type=proxy_req elapsed=%lu type=%d code=%d status=%d be=%.*s:%.*s detail=%.*s req=%.*s\n",
+            "ts=%lld.%d gid=%llu type=proxy_req elapsed=%lu type=%d code=%d status=%d cfd=%d be=%.*s:%.*s detail=%.*s req=%.*s\n",
             (long long int) e->tv.tv_sec, (int) e->tv.tv_usec, (unsigned long long) e->gid,
-            le->elapsed, le->type, le->code, le->status,
+            le->elapsed, le->type, le->code, le->status, le->conn_fd,
             (int)le->be_namelen, le->data+le->reqlen+le->dlen,
             (int)le->be_portlen, le->data+le->reqlen+le->dlen+le->be_namelen, // fml.
             (int)le->dlen, le->data+le->reqlen, (int)le->reqlen, le->data

@@ -703,6 +703,7 @@ struct mcp_rcontext_s {
     unsigned int wait_done; // TODO: change these variables to uint8's
     int wait_handle; // waiting on a specific queue slot
     int parent_handle; // queue slot in parent rctx
+    int conn_fd; // fd of the originating client, as *c can become invalid
     enum mcp_rqueue_e wait_mode;
     bool first_queue; // HACK
     lua_State *Lc; // coroutine thread pointer.
@@ -726,6 +727,7 @@ int mcplib_rcontext_res_good(lua_State *L);
 int mcplib_rcontext_res_any(lua_State *L);
 int mcplib_rcontext_res_ok(lua_State *L);
 int mcplib_rcontext_result(lua_State *L);
+int mcplib_rcontext_cfd(lua_State *L);
 int mcplib_funcgenbare_new(lua_State *L);
 int mcplib_funcgen_new(lua_State *L);
 int mcplib_funcgen_new_handle(lua_State *L);

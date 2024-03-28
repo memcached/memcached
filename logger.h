@@ -128,6 +128,7 @@ struct logentry_proxy_req {
     unsigned short type;
     unsigned short code;
     int status;
+    int conn_fd;
     uint32_t reqlen;
     size_t dlen;
     size_t be_namelen;

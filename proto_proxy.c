@@ -1116,6 +1116,7 @@ static void proxy_process_command(conn *c, char *command, size_t cmdlen, bool mu
     mcp_set_request(&pr, rctx->request, command, cmdlen);
     rctx->request->ascii_multiget = multiget;
     rctx->c = c;
+    rctx->conn_fd = c->sfd;
     rctx->pending_reqs++; // seed counter with the "main" request
     // remember the top level mc_resp, because further requests on the
     // same connection will replace c->resp.
