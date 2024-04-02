@@ -88,6 +88,10 @@ struct mcp_memprofile {
     uint64_t alloc_bytes[8];
 };
 
+// for various time conversion functions
+#define NANOSECONDS(x) ((x) * 1E9 + 0.5)
+#define MICROSECONDS(x) ((x) * 1E6 + 0.5)
+
 // Note: value created from thin air. Could be shorter.
 #define MCP_REQUEST_MAXLEN KEY_MAX_LENGTH * 2
 
@@ -101,6 +105,7 @@ struct mcp_memprofile {
 #define MCP_YIELD_INTERNAL 3
 #define MCP_YIELD_WAITCOND 4
 #define MCP_YIELD_WAITHANDLE 5
+#define MCP_YIELD_SLEEP 6
 
 #define SHAREDVM_FGEN_IDX 1
 #define SHAREDVM_FGENSLOT_IDX 2
@@ -627,7 +632,8 @@ enum mcp_rqueue_e {
     QWAIT_OK,
     QWAIT_GOOD,
     QWAIT_FASTGOOD,
-    QWAIT_HANDLE
+    QWAIT_HANDLE,
+    QWAIT_SLEEP,
 };
 
 enum mcp_funcgen_router_e {
@@ -720,6 +726,7 @@ struct mcp_rcontext_s {
     int parent_handle; // queue slot in parent rctx
     int conn_fd; // fd of the originating client, as *c can become invalid
     enum mcp_rqueue_e wait_mode;
+    uint8_t lua_narg; // number of responses to push when yield resuming.
     bool first_queue; // HACK
     lua_State *Lc; // coroutine thread pointer.
     mcp_request_t *request; // ptr to the above reference.
@@ -727,6 +734,7 @@ struct mcp_rcontext_s {
     conn *c; // associated client object.
     mc_resp *resp; // top level response object to fill.
     mcp_funcgen_t *fgen; // parent function generator context.
+    struct event timeout_event; // for *_wait_timeout() and sleep() calls
     struct mcp_rqueue_s qslots[]; // queueable slots.
 };
 
@@ -743,6 +751,7 @@ int mcplib_rcontext_res_any(lua_State *L);
 int mcplib_rcontext_res_ok(lua_State *L);
 int mcplib_rcontext_result(lua_State *L);
 int mcplib_rcontext_cfd(lua_State *L);
+int mcplib_rcontext_sleep(lua_State *L);
 int mcplib_funcgenbare_new(lua_State *L);
 int mcplib_funcgen_new(lua_State *L);
 int mcplib_funcgen_new_handle(lua_State *L);

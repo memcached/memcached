@@ -6,7 +6,23 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
 static int mcp_funcgen_router_cleanup(lua_State *L, mcp_funcgen_t *fgen);
 static void _mcplib_funcgen_cache(mcp_funcgen_t *fgen, mcp_rcontext_t *rctx);
 static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen);
+static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx);
 static void proxy_return_rqu_cb(io_pending_t *pending);
+
+static inline void _mcp_queue_hack(conn *c) {
+    if (c) {
+        // HACK
+        // see notes above proxy_run_rcontext.
+        // in case the above resume calls queued new work, we have to submit
+        // it to the backend handling system here.
+        for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
+            if (q->stack_ctx != NULL) {
+                io_queue_cb_t *qcb = thread_io_queue_get(c->thread, q->type);
+                qcb->submit_cb(q);
+            }
+        }
+    }
+}
 
 // If we're GC'ed but not closed, it means it was created but never
 // attached to a function, so ensure everything is closed properly.
@@ -20,6 +36,37 @@ int mcplib_funcgen_gc(lua_State *L) {
     mcp_funcgen_cleanup(L, fgen);
     fgen->closed = true;
     return 0;
+}
+
+// handler for *_wait_*() variants and sleep calls
+static void mcp_funcgen_wait_handler(const int fd, const short which, void *arg) {
+    mcp_rcontext_t *rctx = arg;
+
+    // if we were in waiting: reset wait mode, push wait_done + boolean true
+    // if we were in sleep: reset wait mode.
+    // immediately resume.
+    lua_settop(rctx->Lc, 0);
+    rctx->wait_count = 0;
+    rctx->lua_narg = 2;
+    if (rctx->wait_mode == QWAIT_HANDLE) {
+        // if timed out then we shouldn't have a result. just push nil.
+        lua_pushnil(rctx->Lc);
+    } else if (rctx->wait_mode == QWAIT_SLEEP) {
+        // no extra arg.
+        rctx->lua_narg = 1;
+    } else {
+        // how many results were processed
+        lua_pushinteger(rctx->Lc, rctx->wait_done);
+    }
+    // "timed out"
+    lua_pushboolean(rctx->Lc, 1);
+
+    rctx->wait_mode = QWAIT_IDLE;
+
+    mcp_resume_rctx_from_cb(rctx);
+
+    // like proxy_return_rqu_dummy_cb, need the HACK section.
+    _mcp_queue_hack(rctx->c);
 }
 
 // For describing functions which generate functions which can execute
@@ -60,6 +107,12 @@ static void mcp_rcontext_cleanup(lua_State *L, mcp_funcgen_t *fgen, mcp_rcontext
             luaL_unref(L, LUA_REGISTRYINDEX, rqu->cb_ref);
             rqu->cb_ref = 0;
         }
+    }
+
+    // nuke alarm if set.
+    // should only be paranoia here, but just in case.
+    if (event_pending(&rctx->timeout_event, EV_TIMEOUT, NULL)) {
+        event_del(&rctx->timeout_event);
     }
 
     lua_getiuservalue(L, fgen_idx, 1);
@@ -144,6 +197,7 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
     lua_setmetatable(L, -2);
     // allow the rctx to reference the function generator.
     rc->fgen = fgen;
+    rc->lua_narg = 1;
 
     // initialize the queue slots based on the fgen parent
     for (int x = 0; x < fgen->max_queues; x++) {
@@ -231,6 +285,8 @@ static int _mcplib_funcgen_gencall(lua_State *L) {
     LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, fgen->name, 1);
 
+    event_assign(&rc->timeout_event, t->base, -1, EV_TIMEOUT, mcp_funcgen_wait_handler, rc);
+
     // return the fgen.
     // FIXME: just return 0? need to adjust caller to not mis-ref the
     // generator function.
@@ -262,6 +318,11 @@ static void _mcp_funcgen_return_rctx(mcp_rcontext_t *rctx) {
     rctx->first_queue = false; // HACK
     if (rctx->request) {
         mcp_request_cleanup(fgen->thread, rctx->request);
+    }
+
+    // nuke alarm if set.
+    if (event_pending(&rctx->timeout_event, EV_TIMEOUT, NULL)) {
+        event_del(&rctx->timeout_event);
     }
 
     // reset each rqu.
@@ -663,9 +724,13 @@ int mcplib_rcontext_handle_set_cb(lua_State *L) {
 
 // call with request object on top of stack.
 // pops the request object
+// FIXME: callers are doing a pushvalue(L, 2) and then in here we're also
+// pushvalue(L, 2)
+// Think this should just document as needing the request object top of stack
+// and xmove without the extra push bits.
 static void _mcplib_rcontext_queue(lua_State *L, mcp_rcontext_t *rctx, mcp_request_t *rq, int handle) {
     if (handle < 0 || handle >= rctx->fgen->max_queues) {
-        proxy_lua_error(L, "invalid handle passed to queue");
+        proxy_lua_error(L, "attempted to enqueue an invalid handle");
         return;
     }
     struct mcp_rqueue_s *rqu = &rctx->qslots[handle];
@@ -884,19 +949,8 @@ static void proxy_return_rqu_dummy_cb(io_pending_t *pending) {
     mcp_resume_rctx_from_cb(rctx);
 
     do_cache_free(p->thread->io_cache, p);
-    // We always need a C object right now, but just in case.
-    if (c) {
-        // HACK
-        // see notes above proxy_run_rcontext.
-        // in case the above resume calls queued new work, we have to submit
-        // it to the backend handling system here.
-        for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
-            if (q->stack_ctx != NULL) {
-                io_queue_cb_t *qcb = thread_io_queue_get(c->thread, q->type);
-                qcb->submit_cb(q);
-            }
-        }
-    }
+
+    _mcp_queue_hack(c);
 }
 
 void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
@@ -949,6 +1003,9 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
                 rqu->state = RQUEUE_WAITED;
             }
             break;
+        case QWAIT_SLEEP:
+            assert(1 == 0); // should not get here.
+            break;
     }
 
     assert(rctx->pending_reqs != 0);
@@ -964,6 +1021,11 @@ void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
             lua_pushinteger(rctx->Lc, rctx->wait_done);
         }
         rctx->wait_mode = QWAIT_IDLE;
+
+        // nuke alarm if set.
+        if (event_pending(&rctx->timeout_event, EV_TIMEOUT, NULL)) {
+            event_del(&rctx->timeout_event);
+        }
 
         mcp_resume_rctx_from_cb(rctx);
     }
@@ -1044,19 +1106,7 @@ static void proxy_return_rqu_cb(io_pending_t *pending) {
 
     do_cache_free(p->thread->io_cache, p);
 
-    // We always need a C object right now, but just in case.
-    if (c) {
-        // HACK
-        // see notes above proxy_run_rcontext.
-        // in case the above resume calls queued new work, we have to submit
-        // it to the backend handling system here.
-        for (io_queue_t *q = c->io_queues; q->type != IO_QUEUE_NONE; q++) {
-            if (q->stack_ctx != NULL) {
-                io_queue_cb_t *qcb = thread_io_queue_get(c->thread, q->type);
-                qcb->submit_cb(q);
-            }
-        }
-    }
+    _mcp_queue_hack(c);
 }
 
 void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
@@ -1093,12 +1143,29 @@ void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
     }
 }
 
+static inline void _mcplib_set_rctx_alarm(lua_State *L, mcp_rcontext_t *rctx, int arg) {
+    int isnum = 0;
+    lua_Number secondsf = lua_tonumberx(L, arg, &isnum);
+    if (!isnum) {
+        proxy_lua_error(L, "timeout argument to wait or sleep must be a number");
+        return;
+    }
+    int pending = event_pending(&rctx->timeout_event, EV_TIMEOUT, NULL);
+    if ((pending & (EV_TIMEOUT)) == 0) {
+        struct timeval tv = { .tv_sec = 0, .tv_usec = 0 };
+        lua_Integer secondsi = (lua_Integer) secondsf;
+        lua_Number subseconds = secondsf - secondsi;
+
+        tv.tv_sec = secondsi;
+        tv.tv_usec = MICROSECONDS(subseconds);
+        event_add(&rctx->timeout_event, &tv);
+    }
+}
+
 // TODO: one more function to wait on a list of handles? to queue and wait on
 // a list of handles? expand wait_cond()
 
-// takes num, filter mode
-int mcplib_rcontext_wait_cond(lua_State *L) {
-    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+static inline int _mcplib_rcontext_wait_prep(lua_State *L, mcp_rcontext_t *rctx, int argc) {
     int mode = QWAIT_ANY;
     int wait = 0;
 
@@ -1107,19 +1174,19 @@ int mcplib_rcontext_wait_cond(lua_State *L) {
         return 0;
     }
 
-    if (!lua_isnumber(L, 2)) {
-        proxy_lua_error(L, "must pass number to wait_cond");
+    if (argc < 2) {
+        proxy_lua_error(L, "must pass at least count to wait_cond");
         return 0;
-    } else {
-        wait = lua_tointeger(L, 2);
-        if (wait < 0) {
-            proxy_lua_error(L, "wait count for wait_cond must be positive");
-            return 0;
-        }
-        rctx->wait_count = wait;
     }
 
-    if (lua_isnumber(L, 3)) {
+    int isnum = 0;
+    wait = lua_tointegerx(L, 2, &isnum);
+    if (!isnum || wait < 0) {
+        proxy_lua_error(L, "wait count for wait_cond must be a positive integer");
+        return 0;
+    }
+
+    if (argc > 2) {
         mode = lua_tointeger(L, 3);
     }
 
@@ -1133,16 +1200,31 @@ int mcplib_rcontext_wait_cond(lua_State *L) {
             proxy_lua_error(L, "invalid mode sent to wait_cond");
             return 0;
     }
+
+    rctx->wait_count = wait;
     rctx->wait_done = 0;
     rctx->wait_mode = mode;
 
+    return 0;
+}
+
+// takes num, filter mode
+int mcplib_rcontext_wait_cond(lua_State *L) {
+    int argc = lua_gettop(L);
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+
+    _mcplib_rcontext_wait_prep(L, rctx, argc);
+
     // waiting for none, meaning just execute the queues.
-    if (wait == 0) {
+    if (rctx->wait_count == 0) {
         io_pending_proxy_t *p = mcp_queue_rctx_io(rctx, NULL, NULL, NULL);
         p->return_cb = proxy_return_rqu_dummy_cb;
         p->await_background = true;
         rctx->pending_reqs++;
         rctx->wait_mode = QWAIT_IDLE; // not actually waiting.
+    } else if (argc > 3) {
+        // optional wait timeout. does not cancel existing request!
+        _mcplib_set_rctx_alarm(L, rctx, 4);
     }
 
     lua_pushinteger(L, MCP_YIELD_WAITCOND);
@@ -1166,13 +1248,18 @@ int mcplib_rcontext_enqueue_and_wait(lua_State *L) {
     }
 
     if (!isnum) {
-        proxy_lua_error(L, "invalid handle passed to wait_handle");
+        proxy_lua_error(L, "invalid handle passed to enqueue_and_wait");
         return 0;
     }
 
     // queue up this handle and yield for the direct wait.
     lua_pushvalue(L, 2);
     _mcplib_rcontext_queue(L, rctx, rq, handle);
+
+    if (lua_gettop(L) > 3) {
+        _mcplib_set_rctx_alarm(L, rctx, 4);
+    }
+
     rctx->wait_done = 0;
     rctx->wait_count = 1;
     rctx->wait_mode = QWAIT_HANDLE;
@@ -1188,7 +1275,7 @@ int mcplib_rcontext_wait_handle(lua_State *L) {
     int handle = lua_tointegerx(L, 2, &isnum);
 
     if (rctx->wait_mode != QWAIT_IDLE) {
-        proxy_lua_error(L, "wait_cond: cannot call while already in wait mode");
+        proxy_lua_error(L, "wait: cannot call while already in wait mode");
         return 0;
     }
 
@@ -1203,12 +1290,56 @@ int mcplib_rcontext_wait_handle(lua_State *L) {
         return 0;
     }
 
+    if (lua_gettop(L) > 2) {
+        _mcplib_set_rctx_alarm(L, rctx, 3);
+    }
+
     rctx->wait_done = 0;
     rctx->wait_count = 1;
     rctx->wait_mode = QWAIT_HANDLE;
     rctx->wait_handle = handle;
 
     lua_pushinteger(L, MCP_YIELD_WAITHANDLE);
+    return lua_yield(L, 1);
+}
+
+// TODO: This is disabled due to issues with the IO subsystem. Fixing this
+// requires retiring of API1 to allow refactoring or some extra roundtrip
+// work.
+// - if rctx:sleep() is called, the coroutine is suspended.
+// - once resumed after the timeout, we may later suspend again and make
+// backend requests
+// - once the coroutine is completed, we need to check if the owning client
+// conn is ready to be resumed
+// - BUG: we can only get into the "conn is in IO queue wait" state if a
+// sub-IO was created and submitted somewhere.
+// - This means either rctx:sleep() needs to be implemented by submitting a
+// dummy IO req (as other code does)
+// - OR we need to refactor the IO system so the dummies aren't required
+// anymore.
+//
+// If a dummy is used, we would have to implement this as:
+// - immediately submit a dummy IO if sleep is called.
+// - this allows the IO system to move the connection into the right state
+// - will immediately circle back then set an alarm for the sleep timeout
+// - once the sleep resumes, run code as normal. resumption should work
+// properly since we've entered the correct state originally.
+//
+// This adds a lot of CPU overhead to sleep, which should be fine given the
+// nature of the function, but also adds a lot of code and increases the
+// chances of bugs. So I'm leaving it out until this can be implemented more
+// simply.
+int mcplib_rcontext_sleep(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+    if (rctx->wait_mode != QWAIT_IDLE) {
+        proxy_lua_error(L, "sleep: cannot call while already in wait mode");
+        return 0;
+    };
+
+    _mcplib_set_rctx_alarm(L, rctx, 2);
+    rctx->wait_mode = QWAIT_SLEEP;
+
+    lua_pushinteger(L, MCP_YIELD_SLEEP);
     return lua_yield(L, 1);
 }
 

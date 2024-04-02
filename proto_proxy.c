@@ -847,7 +847,9 @@ static void _proxy_run_tresp_to_resp(mc_resp *tresp, mc_resp *resp) {
 int proxy_run_rcontext(mcp_rcontext_t *rctx) {
     int nresults = 0;
     lua_State *Lc = rctx->Lc;
-    int cores = lua_resume(Lc, NULL, 1, &nresults);
+    assert(rctx->lua_narg != 0);
+    int cores = lua_resume(Lc, NULL, rctx->lua_narg, &nresults);
+    rctx->lua_narg = 1; // reset to default since not-default is uncommon.
     size_t rlen = 0;
     conn *c = rctx->c;
     mc_resp *resp = rctx->resp;
@@ -948,6 +950,9 @@ int proxy_run_rcontext(mcp_rcontext_t *rctx) {
                 // Even if we're in WAITHANDLE, we want to dispatch any queued
                 // requests, so we still need to iterate the full set of qslots.
                 _proxy_run_rcontext_queues(rctx);
+                break;
+            case MCP_YIELD_SLEEP:
+                // Pause coroutine and do nothing. Alarm will resume.
                 break;
             default:
                 abort();

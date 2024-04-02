@@ -2,10 +2,6 @@
 
 #include "proxy.h"
 
-// sad, I had to look this up...
-#define NANOSECONDS(x) ((x) * 1E9 + 0.5)
-#define MICROSECONDS(x) ((x) * 1E6 + 0.5)
-
 // func prototype example:
 // static int fname (lua_State *L)
 // normal library open:
@@ -1588,6 +1584,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"res_any", mcplib_rcontext_res_any},
         {"result", mcplib_rcontext_result},
         {"cfd", mcplib_rcontext_cfd},
+        //{"sleep", mcplib_rcontext_sleep}, see comments on function
         {NULL, NULL}
     };
 
