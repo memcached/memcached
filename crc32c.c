@@ -498,11 +498,11 @@ uint32_t crc32c_sw_big(uint32_t crc, void const *buf, size_t len) {
 }
 
 /* Table-driven software CRC-32C.  This is about 15 times slower than using the
-   hardware instructions.  Determine the endianess of the processor and proceed
-   accordingly.  Ideally the endianess will be determined at compile time, in
-   which case the unused functions and tables for the other endianess will be
+   hardware instructions.  Determine the endianness of the processor and proceed
+   accordingly.  Ideally the endianness will be determined at compile time, in
+   which case the unused functions and tables for the other endianness will be
    removed by the optimizer.  If not, then the proper routines and tables will
-   be used, even if the endianess is changed mid-stream.  (Yes, there are
+   be used, even if the endianness is changed mid-stream.  (Yes, there are
    processors that permit that -- go figure.) */
 uint32_t crc32c_sw(uint32_t crc, void const *buf, size_t len) {
     static int const little = 1;

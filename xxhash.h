@@ -1534,7 +1534,7 @@ static xxh_u32 XXH_read32(const void* memPtr)
 
 
 /* ***   Endianness   *** */
-typedef enum { XXH_bigEndian=0, XXH_littleEndian=1 } XXH_endianess;
+typedef enum { XXH_bigEndian=0, XXH_littleEndian=1 } XXH_endianness;
 
 /*!
  * @ingroup tuning
