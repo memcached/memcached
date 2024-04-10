@@ -192,6 +192,8 @@ struct proxy_user_stats {
 struct proxy_global_stats {
     uint64_t config_reloads;
     uint64_t config_reload_fails;
+    uint64_t config_cron_runs;
+    uint64_t config_cron_fails;
     uint64_t backend_total;
     uint64_t backend_disconn; // backends with no connections
     uint64_t backend_requests; // reqs sent to backends
@@ -233,6 +235,9 @@ typedef struct {
     pthread_cond_t manager_cond;
     pthread_mutex_t sharedvm_lock; // protect statevm above
     globalobj_head_t manager_head; // stack for pool deallocation.
+    int config_generation; // counter tracking config reloads
+    int cron_ref; // reference to lua cron table
+    int cron_next; // next cron to sleep to / execute
     bool worker_done; // signal variable for the worker lock/cond system.
     bool worker_failed; // covered by worker_lock as well.
     bool use_uring; // use IO_URING for backend connections.
@@ -288,6 +293,7 @@ enum mcp_backend_states {
     mcp_backend_next_close, // complete current request, then close socket
 };
 
+typedef struct mcp_cron_s mcp_cron_t;
 typedef struct mcp_backend_wrap_s mcp_backend_wrap_t;
 typedef struct mcp_backend_label_s mcp_backend_label_t;
 typedef struct mcp_backend_s mcp_backend_t;
@@ -331,6 +337,13 @@ struct mcp_request_s {
     mcp_parser_t pr; // non-lua-specific parser handling.
     bool ascii_multiget; // ascii multiget mode. (hide errors/END)
     char request[];
+};
+
+struct mcp_cron_s {
+    uint32_t gen;
+    uint32_t next;
+    uint32_t every;
+    bool repeat;
 };
 
 typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;

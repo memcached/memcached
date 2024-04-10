@@ -125,10 +125,12 @@ void proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
        return;
     }
     proxy_ctx_t *ctx = arg;
-    STAT_L(ctx);
 
+    STAT_L(ctx);
     APPEND_STAT("proxy_config_reloads", "%llu", (unsigned long long)ctx->global_stats.config_reloads);
     APPEND_STAT("proxy_config_reload_fails", "%llu", (unsigned long long)ctx->global_stats.config_reload_fails);
+    APPEND_STAT("proxy_config_cron_runs", "%llu", (unsigned long long)ctx->global_stats.config_cron_runs);
+    APPEND_STAT("proxy_config_cron_fails", "%llu", (unsigned long long)ctx->global_stats.config_cron_fails);
     APPEND_STAT("proxy_backend_total", "%llu", (unsigned long long)ctx->global_stats.backend_total);
     APPEND_STAT("proxy_backend_marked_bad", "%llu", (unsigned long long)ctx->global_stats.backend_marked_bad);
     APPEND_STAT("proxy_backend_failed", "%llu", (unsigned long long)ctx->global_stats.backend_failed);
@@ -331,6 +333,10 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     luaL_openlibs(L);
     // NOTE: might need to differentiate the libs yes?
     proxy_register_libs(ctx, NULL, L);
+    // Create the cron table.
+    lua_newtable(L);
+    ctx->cron_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    ctx->cron_next = INT_MAX;
 
     // set up the shared state VM. Used by short-lock events (counters/state)
     // for global visibility.

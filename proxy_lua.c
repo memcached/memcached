@@ -26,6 +26,96 @@ static lua_Integer _mcplib_backend_get_waittime(lua_Number secondsf) {
     return secondsi;
 }
 
+// take string, table as arg:
+// name, { every =, rerun = false, func = f }
+// repeat defaults to true
+static int mcplib_register_cron(lua_State *L) {
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    const char *name = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+
+    // reserve an upvalue for storing the function.
+    mcp_cron_t *ce = lua_newuserdatauv(L, sizeof(mcp_cron_t), 1);
+    memset(ce, 0, sizeof(*ce));
+
+    // default repeat.
+    ce->repeat = true;
+    // sync config generation.
+    ce->gen = ctx->config_generation;
+
+    if (lua_getfield(L, 2, "func") != LUA_TNIL) {
+        luaL_checktype(L, -1, LUA_TFUNCTION);
+        lua_setiuservalue(L, 3, 1); // pop value
+    } else {
+        proxy_lua_error(L, "proxy cron entry missing 'func' field");
+        return 0;
+    }
+
+    if (lua_getfield(L, 2, "rerun") != LUA_TNIL) {
+        int rerun = lua_toboolean(L, -1);
+        if (!rerun) {
+            ce->repeat = false;
+        }
+    }
+    lua_pop(L, 1); // pop val or nil
+
+    // TODO: set a limit on 'every' so we don't have to worry about
+    // underflows. a year? a month?
+    if (lua_getfield(L, 2, "every") != LUA_TNIL) {
+        luaL_checktype(L, -1, LUA_TNUMBER);
+        int every = lua_tointeger(L, -1);
+        if (every < 1) {
+            proxy_lua_error(L, "proxy cron entry 'every' must be > 0");
+            return 0;
+        }
+        ce->every = every;
+    } else {
+        proxy_lua_error(L, "proxy cron entry missing 'every' field");
+        return 0;
+    }
+    lua_pop(L, 1); // pop val or nil
+
+    // schedule the next cron run
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    ce->next = now.tv_sec + ce->every;
+    // we may adjust ce->next shortly, so don't update global yet.
+
+    // valid cron entry, now place into cron table.
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->cron_ref);
+
+    // first, check if a cron of this name already exists.
+    // if so and the 'every' field matches, inherit its 'next' field
+    // so we don't perpetually reschedule all crons.
+    if (lua_getfield(L, -1, name) != LUA_TNIL) {
+        mcp_cron_t *oldce = lua_touserdata(L, -1);
+        if (ce->every == oldce->every) {
+            ce->next = oldce->next;
+        }
+    }
+    lua_pop(L, 1); // drop val/nil
+
+    lua_pushvalue(L, 3); // duplicate cron entry
+    lua_setfield(L, -2, name); // pop duplicate cron entry
+    lua_pop(L, 1); // drop cron table
+
+    // update central cron sleep.
+    if (ctx->cron_next > ce->next) {
+        ctx->cron_next = ce->next;
+    }
+
+    return 0;
+}
+
+// just set ctx->loading = true
+// called from config thread, so config_lock must be held, so it's safe to
+// modify protected ctx contents.
+static int mcplib_schedule_config_reload(lua_State *L) {
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    ctx->loading = true;
+    return 0;
+}
+
 static int mcplib_time_real_millis(lua_State *L) {
     struct timespec now;
     clock_gettime(CLOCK_REALTIME, &now);
@@ -1526,6 +1616,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"tcp_keepalive", mcplib_tcp_keepalive},
         {"active_req_limit", mcplib_active_req_limit},
         {"buffer_memory_limit", mcplib_buffer_memory_limit},
+        {"schedule_config_reload", mcplib_schedule_config_reload},
+        {"register_cron", mcplib_register_cron},
         {NULL, NULL}
     };
 

@@ -123,6 +123,128 @@ static void *_proxy_manager_thread(void *arg) {
     return NULL;
 }
 
+static void proxy_config_reload(proxy_ctx_t *ctx) {
+    LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "start");
+    STAT_INCR(ctx, config_reloads, 1);
+    // gen. used for tracking object lifecycles over time.
+    // ie: ensuring old things are unloaded.
+    ctx->config_generation++;
+    lua_State *L = ctx->proxy_state;
+    lua_settop(L, 0); // clear off any crud that could have been left on the stack.
+
+    // The main stages of config reload are:
+    // - load and execute the config file
+    // - run mcp_config_pools()
+    // - for each worker:
+    //   - copy and execute new lua code
+    //   - copy selector table
+    //   - run mcp_config_routes()
+
+    if (proxy_load_config(ctx) != 0) {
+        // Failed to load. log and wait for a retry.
+        STAT_INCR(ctx, config_reload_fails, 1);
+        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
+        return;
+    }
+
+    // TODO (v2): create a temporary VM to test-load the worker code into.
+    // failing to load partway through the worker VM reloads can be
+    // critically bad if we're not careful about references.
+    // IE: the config VM _must_ hold references to selectors and backends
+    // as long as they exist in any worker for any reason.
+
+    for (int x = 0; x < settings.num_threads; x++) {
+        LIBEVENT_THREAD *thr = get_worker_thread(x);
+
+        pthread_mutex_lock(&ctx->worker_lock);
+        ctx->worker_done = false;
+        ctx->worker_failed = false;
+        proxy_reload_notify(thr);
+        while (!ctx->worker_done) {
+            // in case of spurious wakeup.
+            pthread_cond_wait(&ctx->worker_cond, &ctx->worker_lock);
+        }
+        pthread_mutex_unlock(&ctx->worker_lock);
+
+        // Code load bailed.
+        if (ctx->worker_failed) {
+            STAT_INCR(ctx, config_reload_fails, 1);
+            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
+            return;
+        }
+    }
+
+    lua_pop(ctx->proxy_state, 1); // drop config_pools return value
+    LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "done");
+}
+
+// Very basic scheduler. Unsorted because we don't expect a huge list of
+// functions to run.
+static void proxy_run_crons(proxy_ctx_t *ctx) {
+    lua_State *L = ctx->proxy_state;
+    assert(lua_gettop(L) == 0);
+    assert(ctx->cron_ref);
+    struct timespec now;
+
+    // Fetch the cron table. Created on startup so must exist.
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->cron_ref);
+
+    clock_gettime(CLOCK_REALTIME, &now);
+    if (ctx->cron_next <= now.tv_sec) {
+        ctx->cron_next = INT_MAX;
+    } else {
+        // no crons ready.
+        return;
+    }
+
+    // Loop the cron entries.
+    lua_pushnil(L);
+    while (lua_next(L, 1) != 0) {
+        const char *key = lua_tostring(L, -2);
+        mcp_cron_t *ce = lua_touserdata(L, -1);
+        int idx = lua_absindex(L, -1);
+
+        // check generation.
+        if (ctx->config_generation != ce->gen) {
+            // remove entry.
+            lua_pushnil(L);
+            lua_setfield(L, 1, key);
+        } else if (ce->next <= now.tv_sec) {
+            // grab func and execute it
+            lua_getiuservalue(L, idx, 1);
+            // no arguments or return values
+            int res = lua_pcall(L, 0, 0, 0);
+            STAT_INCR(ctx, config_cron_runs, 1);
+            if (res != LUA_OK) {
+                LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_ERROR, NULL, lua_tostring(L, -1));
+                STAT_INCR(ctx, config_cron_fails, 1);
+                lua_pop(L, 1); // drop error.
+            }
+
+            if (ce->repeat) {
+                ce->next = now.tv_sec + ce->every;
+                // if rescheduled, check next against ctx. update if sooner
+                if (ctx->cron_next > ce->next) {
+                    ctx->cron_next = ce->next;
+                }
+            } else {
+                // non-repeating cron. delete entry.
+                lua_pushnil(L);
+                lua_setfield(L, 1, key);
+            }
+        } else {
+            // not scheduled to run now, but check if we're next.
+            if (ctx->cron_next > ce->next) {
+                ctx->cron_next = ce->next;
+            }
+        }
+
+        lua_pop(L, 1); // drop value so we can loop.
+    }
+
+    lua_pop(L, 1); // drop cron table.
+}
+
 // Thread handling the configuration reload sequence.
 // TODO (v2): get a logger instance.
 // TODO (v2): making this "safer" will require a few phases of work.
@@ -136,60 +258,23 @@ static void *_proxy_manager_thread(void *arg) {
 //    the old structures where marked dirty.
 static void *_proxy_config_thread(void *arg) {
     proxy_ctx_t *ctx = arg;
+    struct timespec wait = {0};
 
     logger_create();
     pthread_mutex_lock(&ctx->config_lock);
     pthread_cond_signal(&ctx->config_cond);
     while (1) {
         ctx->loading = false;
-        pthread_cond_wait(&ctx->config_cond, &ctx->config_lock);
-        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "start");
-        STAT_INCR(ctx, config_reloads, 1);
-        lua_State *L = ctx->proxy_state;
-        lua_settop(L, 0); // clear off any crud that could have been left on the stack.
 
-        // The main stages of config reload are:
-        // - load and execute the config file
-        // - run mcp_config_pools()
-        // - for each worker:
-        //   - copy and execute new lua code
-        //   - copy selector table
-        //   - run mcp_config_routes()
+        // cron only thinks in whole seconds.
+        wait.tv_sec = ctx->cron_next;
+        pthread_cond_timedwait(&ctx->config_cond, &ctx->config_lock, &wait);
 
-        if (proxy_load_config(ctx) != 0) {
-            // Failed to load. log and wait for a retry.
-            STAT_INCR(ctx, config_reload_fails, 1);
-            LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
-            continue;
+        proxy_run_crons(ctx);
+
+        if (ctx->loading) {
+            proxy_config_reload(ctx);
         }
-
-        // TODO (v2): create a temporary VM to test-load the worker code into.
-        // failing to load partway through the worker VM reloads can be
-        // critically bad if we're not careful about references.
-        // IE: the config VM _must_ hold references to selectors and backends
-        // as long as they exist in any worker for any reason.
-
-        for (int x = 0; x < settings.num_threads; x++) {
-            LIBEVENT_THREAD *thr = get_worker_thread(x);
-
-            pthread_mutex_lock(&ctx->worker_lock);
-            ctx->worker_done = false;
-            ctx->worker_failed = false;
-            proxy_reload_notify(thr);
-            while (!ctx->worker_done) {
-                // in case of spurious wakeup.
-                pthread_cond_wait(&ctx->worker_cond, &ctx->worker_lock);
-            }
-            pthread_mutex_unlock(&ctx->worker_lock);
-
-            // Code load bailed.
-            if (ctx->worker_failed) {
-                STAT_INCR(ctx, config_reload_fails, 1);
-                LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
-                continue;
-            }
-        }
-        LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "done");
     }
 
     return NULL;
