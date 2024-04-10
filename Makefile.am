@@ -85,6 +85,8 @@ memcached_debug_LDADD = @PROFILER_LDFLAGS@
 memcached_debug_CFLAGS = @PROFILER_FLAGS@
 
 memcached_LDADD =
+memcached_LDFLAGS =
+memcached_debug_LDFLAGS =
 memcached_DEPENDENCIES =
 memcached_debug_DEPENDENCIES =
 CLEANFILES=
@@ -110,6 +112,8 @@ endif
 if ENABLE_PROXY
 memcached_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
 memcached_debug_LDADD += vendor/lua/src/liblua.a vendor/mcmc/mcmc.o
+memcached_LDFLAGS += -rdynamic
+memcached_debug_LDFLAGS += -rdynamic
 endif
 
 if ENABLE_PROXY_URING
