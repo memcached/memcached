@@ -1063,7 +1063,7 @@ void conn_set_state(conn *c, enum conn_states state);
 void out_of_memory(conn *c, char *ascii_error);
 void out_errstring(conn *c, const char *str);
 void write_and_free(conn *c, char *buf, int bytes);
-void server_stats(ADD_STAT add_stats, conn *c);
+void server_stats(ADD_STAT add_stats, void *c);
 void append_stats(const char *key, const uint16_t klen,
                   const char *val, const uint32_t vlen,
                   const void *cookie);

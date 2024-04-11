@@ -120,7 +120,7 @@ bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len) {
 }
 
 // see also: process_extstore_stats()
-void proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
+void proxy_stats(void *arg, ADD_STAT add_stats, void *c) {
     if (arg == NULL) {
        return;
     }
@@ -137,7 +137,7 @@ void proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
     STAT_UL(ctx);
 }
 
-void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
+void process_proxy_stats(void *arg, ADD_STAT add_stats, void *c) {
     char key_str[STAT_KEY_LEN];
     struct proxy_int_stats istats = {0};
     uint64_t req_limit = 0;
@@ -225,7 +225,7 @@ void process_proxy_stats(void *arg, ADD_STAT add_stats, conn *c) {
     APPEND_STAT("cmd_replace", "%llu", (unsigned long long)istats.counters[CMD_REPLACE]);
 }
 
-void process_proxy_funcstats(void *arg, ADD_STAT add_stats, conn *c) {
+void process_proxy_funcstats(void *arg, ADD_STAT add_stats, void *c) {
     char key_str[STAT_KEY_LEN];
     if (!arg) {
         return;
@@ -261,7 +261,7 @@ void process_proxy_funcstats(void *arg, ADD_STAT add_stats, conn *c) {
     pthread_mutex_unlock(&ctx->sharedvm_lock);
 }
 
-void process_proxy_bestats(void *arg, ADD_STAT add_stats, conn *c) {
+void process_proxy_bestats(void *arg, ADD_STAT add_stats, void *c) {
     char key_str[STAT_KEY_LEN];
     if (!arg) {
         return;

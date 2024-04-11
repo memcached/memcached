@@ -1796,7 +1796,7 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
 }
 
 /* return server specific stats only */
-void server_stats(ADD_STAT add_stats, conn *c) {
+void server_stats(ADD_STAT add_stats, void *c) {
     pid_t pid = getpid();
     rel_time_t now = current_time;
 
@@ -1861,7 +1861,7 @@ void server_stats(ADD_STAT add_stats, conn *c) {
     APPEND_STAT("get_expired", "%llu", (unsigned long long)thread_stats.get_expired);
     APPEND_STAT("get_flushed", "%llu", (unsigned long long)thread_stats.get_flushed);
 #ifdef EXTSTORE
-    if (c->thread->storage) {
+    if (ext_storage) {
         APPEND_STAT("get_extstore", "%llu", (unsigned long long)thread_stats.get_extstore);
         APPEND_STAT("get_aborted_extstore", "%llu", (unsigned long long)thread_stats.get_aborted_extstore);
         APPEND_STAT("get_oom_extstore", "%llu", (unsigned long long)thread_stats.get_oom_extstore);

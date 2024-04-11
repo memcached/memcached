@@ -1,11 +1,118 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
 #include "proxy.h"
+#include "storage.h" // for stats call
 
 // func prototype example:
 // static int fname (lua_State *L)
 // normal library open:
 // int luaopen_mcp(lua_State *L) { }
+
+struct _mcplib_statctx_s {
+    lua_State *L;
+};
+
+static void _mcplib_append_stats(const char *key, const uint16_t klen,
+                  const char *val, const uint32_t vlen,
+                  const void *cookie) {
+    // k + v == 0 means END, but we don't use END for this lua API.
+    if (klen == 0) {
+        return;
+    }
+
+    // cookie -> struct
+    const struct _mcplib_statctx_s *c = cookie;
+    lua_State *L = c->L;
+    // table should always be on the top.
+    lua_pushlstring(L, key, klen);
+    lua_pushlstring(L, val, vlen);
+    lua_rawset(L, -3);
+}
+
+static void _mcplib_append_section_stats(const char *key, const uint16_t klen,
+                  const char *val, const uint32_t vlen,
+                  const void *cookie) {
+    char stat[STAT_KEY_LEN];
+    long section = 0;
+    if (klen == 0) {
+        return;
+    }
+
+    const struct _mcplib_statctx_s *c = cookie;
+    lua_State *L = c->L;
+    // table must be at the top when this function is called.
+    int tidx = lua_absindex(L, -1);
+
+    // NOTE: sscanf is not great, especially with numerics due to UD for out
+    // of range data. It is safe to use here because we're generating the
+    // strings, and we don't use this function on anything that has user
+    // defined data (ie; stats proxy). Otherwise sscanf saves a lot of code so
+    // we use it here.
+    if (sscanf(key, "items:%ld:%s", &section, stat) == 2
+            || sscanf(key, "%ld:%s", &section, stat) == 2) {
+        // stats [items, slabs, conns]
+        if (lua_rawgeti(L, tidx, section) == LUA_TNIL) {
+            lua_pop(L, 1); // drop the nil
+            // no sub-section table yet, create one.
+            lua_newtable(L);
+            lua_pushvalue(L, -1); // copy the table
+            lua_rawseti(L, tidx, section); // remember the table
+            // now top of stack is the table.
+        }
+
+        lua_pushstring(L, stat);
+        lua_pushlstring(L, val, vlen);
+        lua_rawset(L, -3); // put key/val into sub-table
+        lua_pop(L, 1); // pop sub-table.
+    } else {
+        // normal stat counter.
+        lua_pushlstring(L, key, klen);
+        lua_pushlstring(L, val, vlen);
+        lua_rawset(L, tidx);
+    }
+}
+
+// reimplementation of proto_text.c:process_stat()
+static int mcplib_server_stats(lua_State *L) {
+    int argc = lua_gettop(L);
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    lua_newtable(L); // the table to return.
+    struct _mcplib_statctx_s c = {
+        L,
+    };
+
+    if (argc == 0) {
+        server_stats(&_mcplib_append_stats, &c);
+        get_stats(NULL, 0, &_mcplib_append_stats, &c);
+    } else {
+        const char *cmd = luaL_checkstring(L, 1);
+        if (strcmp(cmd, "settings") == 0) {
+            process_stat_settings(&_mcplib_append_stats, &c);
+        } else if (strcmp(cmd, "conns") == 0) {
+            process_stats_conns(&_mcplib_append_section_stats, &c);
+#ifdef EXTSTORE
+        } else if (strcmp(cmd, "extstore") == 0) {
+            process_extstore_stats(&_mcplib_append_stats, &c);
+#endif
+        } else if (strcmp(cmd, "proxy") == 0) {
+            process_proxy_stats(ctx, &_mcplib_append_stats, &c);
+        } else if (strcmp(cmd, "proxyfuncs") == 0) {
+            process_proxy_funcstats(ctx, &_mcplib_append_stats, &c);
+        } else if (strcmp(cmd, "proxybe") == 0) {
+            process_proxy_bestats(ctx, &_mcplib_append_stats, &c);
+        } else {
+            if (get_stats(cmd, strlen(cmd), &_mcplib_append_section_stats, &c)) {
+                // all good.
+            } else {
+                // unknown command.
+                proxy_lua_error(L, "unknown subcommand passed to server_stats");
+            }
+        }
+    }
+
+    // return the table.
+    return 1;
+}
 
 static lua_Integer _mcplib_backend_get_waittime(lua_Number secondsf) {
     lua_Integer secondsi = (lua_Integer) secondsf;
@@ -1293,6 +1400,14 @@ static int mcplib_attach(lua_State *L) {
 
 /*** START lua interface to logger ***/
 
+// user logger specific to the config thread
+static int mcplib_ct_log(lua_State *L) {
+    const char *msg = luaL_checkstring(L, -1);
+    // The only difference is we pull the logger from thread local storage.
+    LOGGER_LOG(NULL, LOG_PROXYUSER, LOGGER_PROXY_USER, NULL, msg);
+    return 0;
+}
+
 static int mcplib_log(lua_State *L) {
     LIBEVENT_THREAD *t = PROXY_GET_THR(L);
     const char *msg = luaL_checkstring(L, -1);
@@ -1615,6 +1730,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"buffer_memory_limit", mcplib_buffer_memory_limit},
         {"schedule_config_reload", mcplib_schedule_config_reload},
         {"register_cron", mcplib_register_cron},
+        {"server_stats", mcplib_server_stats},
+        {"log", mcplib_ct_log},
         {NULL, NULL}
     };
 

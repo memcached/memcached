@@ -12,8 +12,8 @@ void storage_delete(void *e, item *it);
 #endif
 
 // API.
-void storage_stats(ADD_STAT add_stats, conn *c);
-void process_extstore_stats(ADD_STAT add_stats, conn *c);
+void storage_stats(ADD_STAT add_stats, void *c);
+void process_extstore_stats(ADD_STAT add_stats, void *c);
 bool storage_validate_item(void *e, item *it);
 int storage_get_item(conn *c, item *it, mc_resp *resp);
 

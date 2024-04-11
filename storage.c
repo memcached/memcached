@@ -74,7 +74,7 @@ void storage_delete(void *e, item *it) {
 // but feels a little off being defined here.
 // At very least maybe "process_storage_stats" in line with making this more
 // of a generic wrapper module.
-void process_extstore_stats(ADD_STAT add_stats, conn *c) {
+void process_extstore_stats(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
     char val_str[STAT_VAL_LEN];
@@ -83,7 +83,7 @@ void process_extstore_stats(ADD_STAT add_stats, conn *c) {
 
     assert(add_stats);
 
-    void *storage = c->thread->storage;
+    void *storage = ext_storage;
     if (storage == NULL) {
         return;
     }
@@ -106,9 +106,9 @@ void process_extstore_stats(ADD_STAT add_stats, conn *c) {
 }
 
 // Additional storage stats for the main stats output.
-void storage_stats(ADD_STAT add_stats, conn *c) {
+void storage_stats(ADD_STAT add_stats, void *c) {
     struct extstore_stats st;
-    if (c->thread->storage) {
+    if (ext_storage) {
         STATS_LOCK();
         APPEND_STAT("extstore_compact_lost", "%llu", (unsigned long long)stats.extstore_compact_lost);
         APPEND_STAT("extstore_compact_rescues", "%llu", (unsigned long long)stats.extstore_compact_rescues);
@@ -116,7 +116,7 @@ void storage_stats(ADD_STAT add_stats, conn *c) {
         APPEND_STAT("extstore_compact_resc_old", "%llu", (unsigned long long)stats.extstore_compact_resc_old);
         APPEND_STAT("extstore_compact_skipped", "%llu", (unsigned long long)stats.extstore_compact_skipped);
         STATS_UNLOCK();
-        extstore_get_stats(c->thread->storage, &st);
+        extstore_get_stats(ext_storage, &st);
         APPEND_STAT("extstore_page_allocs", "%llu", (unsigned long long)st.page_allocs);
         APPEND_STAT("extstore_page_evictions", "%llu", (unsigned long long)st.page_evictions);
         APPEND_STAT("extstore_page_reclaims", "%llu", (unsigned long long)st.page_reclaims);
