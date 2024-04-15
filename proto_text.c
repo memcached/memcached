@@ -1685,7 +1685,8 @@ static void process_mdelete_command(conn *c, token_t *tokens, const size_t ntoke
             item *new_it = item_alloc(key, nkey, of.client_flags, of.exptime, 2);
             if (new_it != NULL) {
                 memcpy(ITEM_data(new_it), "\r\n", 2);
-                if (do_store_item(new_it, NREAD_SET, c->thread, hv, NULL, NULL, ITEM_get_cas(it), CAS_NO_STALE)) {
+                if (do_store_item(new_it, NREAD_SET, c->thread, hv, NULL, NULL,
+                            of.has_cas_in ? of.cas_id_in : ITEM_get_cas(it), CAS_NO_STALE)) {
                     do_item_remove(it);
                     it = new_it;
                 } else {
