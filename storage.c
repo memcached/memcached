@@ -1238,7 +1238,7 @@ struct extstore_conf_file *storage_conf_parse(char *arg, unsigned int page_size)
     }
 
     // final token would be a default free bucket
-    p = strtok_r(NULL, ",", &b);
+    p = strtok_r(NULL, ":", &b);
     // TODO: We reuse the original DEFINES for now,
     // but if lowttl gets split up this needs to be its own set.
     if (p != NULL) {
