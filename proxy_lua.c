@@ -81,7 +81,7 @@ static int mcplib_server_stats(lua_State *L) {
         L,
     };
 
-    if (argc == 0) {
+    if (argc == 0 || lua_isnil(L, 1)) {
         server_stats(&_mcplib_append_stats, &c);
         get_stats(NULL, 0, &_mcplib_append_stats, &c);
     } else {
