@@ -323,7 +323,7 @@ static int proxy_init_startfiles(proxy_ctx_t *ctx, const char *files) {
     char *b;
     for (const char *p = strtok_r(flist, ":", &b);
             p != NULL;
-            p = strtok_r(NULL, ",", &b)) {
+            p = strtok_r(NULL, ":", &b)) {
         struct _mcp_luafile *db = calloc(sizeof(struct _mcp_luafile), 1);
         if (db == NULL) {
             fprintf(stderr, "ERROR: failed to allocate memory for parsing proxy_startfile\n");
