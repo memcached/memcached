@@ -2184,6 +2184,16 @@ static void conn_to_str(const conn *c, char *addr, char *svr_addr) {
     }
 }
 
+static char *conn_queue_to_str(const conn *c, io_queue_t *q) {
+    if (q->type == IO_QUEUE_EXTSTORE) {
+        return "queue_extstore";
+    } else if (q->type == IO_QUEUE_PROXY) {
+        return "queue_proxy";
+    } else {
+        return "queue_unknown";
+    }
+}
+
 void process_stats_conns(ADD_STAT add_stats, void *c) {
     int i;
     char key_str[STAT_KEY_LEN];
@@ -2208,17 +2218,27 @@ void process_stats_conns(ADD_STAT add_stats, void *c) {
                 APPEND_NUM_STAT(i, "UDP", "%s", "UDP");
             }
             if (conns[i]->state != conn_closed) {
-                conn_to_str(conns[i], addr, svr_addr);
+                conn *sc = conns[i];
+                conn_to_str(sc, addr, svr_addr);
 
                 APPEND_NUM_STAT(i, "addr", "%s", addr);
-                if (conns[i]->state != conn_listening &&
-                    !(IS_UDP(conns[i]->transport) && conns[i]->state == conn_read)) {
+                if (sc->state != conn_listening &&
+                    !(IS_UDP(sc->transport) && sc->state == conn_read)) {
                     APPEND_NUM_STAT(i, "listen_addr", "%s", svr_addr);
                 }
                 APPEND_NUM_STAT(i, "state", "%s",
-                        state_text(conns[i]->state));
+                        state_text(sc->state));
+                if (sc->io_queues_submitted) {
+                    APPEND_NUM_STAT(i, "queues_waiting", "%d", sc->io_queues_submitted);
+                    for (io_queue_t *q = sc->io_queues; q->type != IO_QUEUE_NONE; q++) {
+                        if (q->count) {
+                            const char *qname = conn_queue_to_str(sc, q);
+                            APPEND_NUM_STAT(i, qname, "%d", q->count);
+                        }
+                    }
+                }
                 APPEND_NUM_STAT(i, "secs_since_last_cmd", "%d",
-                        current_time - conns[i]->last_cmd_time);
+                        current_time - sc->last_cmd_time);
             }
         }
     }
