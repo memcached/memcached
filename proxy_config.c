@@ -106,7 +106,19 @@ static void *_proxy_manager_thread(void *arg) {
         struct mcp_globalobj_s *g;
         STAILQ_FOREACH(g, &head, next) {
             // we let the object _gc() handle backend/etc references
-            luaL_unref(L, LUA_REGISTRYINDEX, g->self_ref);
+            pthread_mutex_lock(&g->lock);
+            assert(g->self_ref != -1);
+            // See comment on mcp_gobj_ref()
+            if (g->self_ref < -1) {
+                g->refcount--;
+                g->self_ref = -g->self_ref;
+            }
+            assert(g->self_ref > 0 || g->refcount == 0);
+            if (g->refcount == 0) {
+                luaL_unref(L, LUA_REGISTRYINDEX, g->self_ref);
+                g->self_ref = -1;
+            }
+            pthread_mutex_unlock(&g->lock);
         }
         // force lua garbage collection so any resources close out quickly.
         lua_gc(L, LUA_GCCOLLECT);
@@ -436,9 +448,8 @@ static int _copy_pool(lua_State *from, lua_State *to, LIBEVENT_THREAD *thr) {
         // allow 0 indexing for backends when unique to each worker thread
         pp->pool = &p->pool[thr->thread_baseid * p->pool_size];
     }
-    pthread_mutex_lock(&p->g.lock);
-    p->g.refcount++;
-    pthread_mutex_unlock(&p->g.lock);
+    lua_pushvalue(from, -3); // dupe pool for referencing
+    mcp_gobj_ref(from, &p->g); // pops obj copy
     return 0;
 }
 

@@ -577,6 +577,10 @@ bool proxy_bufmem_checkadd(LIBEVENT_THREAD *t, int len);
 void mcp_sharedvm_delta(proxy_ctx_t *ctx, int tidx, const char *name, int delta);
 void mcp_sharedvm_remove(proxy_ctx_t *ctx, int tidx, const char *name);
 
+void mcp_gobj_ref(lua_State *L, struct mcp_globalobj_s *g);
+void mcp_gobj_unref(proxy_ctx_t *ctx, struct mcp_globalobj_s *g);
+void mcp_gobj_finalize(struct mcp_globalobj_s *g);
+
 // networking interface
 void proxy_init_event_thread(proxy_event_thread_t *t, proxy_ctx_t *ctx, struct event_base *base);
 void *proxy_event_thread(void *arg);

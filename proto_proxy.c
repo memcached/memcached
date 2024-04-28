@@ -1358,6 +1358,60 @@ void mcp_sharedvm_remove(proxy_ctx_t *ctx, int tidx, const char *name) {
     pthread_mutex_unlock(&ctx->sharedvm_lock);
 }
 
+// Global object support code.
+// Global objects are created in the configuration VM, and referenced in
+// worker VMs via proxy objects that refer back to memory in the
+// configuration VM.
+// We manage reference counts: once all remote proxy objects are collected, we
+// signal the config thread to remove a final reference and collect garbage to
+// remove the global object.
+
+static void mcp_gobj_enqueue(proxy_ctx_t *ctx, struct mcp_globalobj_s *g) {
+    pthread_mutex_lock(&ctx->manager_lock);
+    STAILQ_INSERT_TAIL(&ctx->manager_head, g, next);
+    pthread_cond_signal(&ctx->manager_cond);
+    pthread_mutex_unlock(&ctx->manager_lock);
+}
+
+// References the object, initializing the self-reference if necessary.
+// Call from config thread, with global object on top of stack.
+void mcp_gobj_ref(lua_State *L, struct mcp_globalobj_s *g) {
+    pthread_mutex_lock(&g->lock);
+    if (g->self_ref == 0) {
+        // Initialization requires a small dance:
+        // - store a negative of our ref, increase refcount an extra time
+        // - then link and signal the manager thread as though we were GC'ing
+        // the object.
+        // - the manager thread will later acknowledge the initialization of
+        // this global object and negate the self_ref again
+        // - this prevents an unused proxy object from causing the global
+        // object to be reaped early while we are still copying it to worker
+        // threads, as the manager thread will block waiting for the config
+        // thread to finish its reload work.
+        g->self_ref = -luaL_ref(L, LUA_REGISTRYINDEX);
+        g->refcount++;
+        proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+        mcp_gobj_enqueue(ctx, g);
+    } else {
+        lua_pop(L, 1); // drop the reference we didn't end up using.
+    }
+    g->refcount++;
+    pthread_mutex_unlock(&g->lock);
+}
+
+void mcp_gobj_unref(proxy_ctx_t *ctx, struct mcp_globalobj_s *g) {
+    pthread_mutex_lock(&g->lock);
+    g->refcount--;
+    if (g->refcount == 0) {
+        mcp_gobj_enqueue(ctx, g);
+    }
+    pthread_mutex_unlock(&g->lock);
+}
+
+void mcp_gobj_finalize(struct mcp_globalobj_s *g) {
+    pthread_mutex_destroy(&g->lock);
+}
+
 static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize,
                                             size_t nsize) {
     struct mcp_memprofile *prof = ud;

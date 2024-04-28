@@ -22,7 +22,7 @@ struct mcp_ratelim_global_tbf {
 int mcplib_ratelim_global_tbf_gc(lua_State *L) {
     struct mcp_ratelim_global_tbf *lim = luaL_checkudata(L, 1, "mcp.ratelim_global_tbf");
     assert(lim->g.refcount == 0);
-    pthread_mutex_destroy(&lim->g.lock);
+    mcp_gobj_finalize(&lim->g);
 
     // no other memory to directly free, just kill the mutex.
     return 0;
@@ -33,18 +33,7 @@ int mcplib_ratelim_proxy_tbf_gc(lua_State *L) {
     struct mcp_ratelim_global_tbf **lim_p = luaL_checkudata(L, 1, "mcp.ratelim_proxy_tbf");
     struct mcp_ratelim_global_tbf *lim = *lim_p;
     proxy_ctx_t *ctx = PROXY_GET_THR_CTX(L);
-
-    // TODO: the third time we do this, should be easy to abstract into a library
-    // funtion covering this/pools/etc.
-    pthread_mutex_lock(&lim->g.lock);
-    lim->g.refcount--;
-    if (lim->g.refcount == 0) {
-        pthread_mutex_lock(&ctx->manager_lock);
-        STAILQ_INSERT_TAIL(&ctx->manager_head, &lim->g, next);
-        pthread_cond_signal(&ctx->manager_cond);
-        pthread_mutex_unlock(&ctx->manager_lock);
-    }
-    pthread_mutex_unlock(&lim->g.lock);
+    mcp_gobj_unref(ctx, &lim->g);
 
     return 0;
 }
@@ -56,14 +45,8 @@ int mcp_ratelim_proxy_tbf(lua_State *from, lua_State *to) {
     luaL_setmetatable(to, "mcp.ratelim_proxy_tbf");
 
     *lim_p = lim;
-    pthread_mutex_lock(&lim->g.lock);
-    // self reference on our first up-reference.
-    if (lim->g.self_ref == 0) {
-        lua_pushvalue(from, -3); // copy the ratelim object
-        lim->g.self_ref = luaL_ref(from, LUA_REGISTRYINDEX); // pops
-    }
-    lim->g.refcount++;
-    pthread_mutex_unlock(&lim->g.lock);
+    lua_pushvalue(from, -3); // copy ratelim obj to ref below
+    mcp_gobj_ref(from, &lim->g); // pops obj copy
 
     return 0;
 }

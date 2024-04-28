@@ -692,8 +692,8 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
 
 static int mcplib_pool_gc(lua_State *L) {
     mcp_pool_t *p = luaL_checkudata(L, -1, "mcp.pool");
-    assert(p->g.refcount == 0);
-    pthread_mutex_destroy(&p->g.lock);
+
+    mcp_gobj_finalize(&p->g);
 
     luaL_unref(L, LUA_REGISTRYINDEX, p->phc_ref);
 
@@ -898,9 +898,6 @@ static int mcplib_pool(lua_State *L) {
     p->ctx = PROXY_GET_CTX(L);
 
     luaL_setmetatable(L, "mcp.pool");
-
-    lua_pushvalue(L, -1); // dupe self for reference.
-    p->g.self_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // Allow passing an ignored nil as a second argument. Makes the lua easier
     int type = lua_type(L, 2);
