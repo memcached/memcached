@@ -64,9 +64,6 @@ static void mcp_funcgen_wait_handler(const int fd, const short which, void *arg)
     rctx->wait_mode = QWAIT_IDLE;
 
     mcp_resume_rctx_from_cb(rctx);
-
-    // like proxy_return_rqu_dummy_cb, need the HACK section.
-    _mcp_queue_hack(rctx->c);
 }
 
 // For describing functions which generate functions which can execute
@@ -907,6 +904,7 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
             mcp_funcgen_return_rctx(rctx);
         } else if (res == LUA_YIELD) {
             // normal.
+            _mcp_queue_hack(rctx->c);
         } else {
             lua_pop(rctx->Lc, 1); // drop the error message.
             _mcp_resume_rctx_process_error(rctx, rqu);
@@ -930,6 +928,8 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
                 // call re-add directly since we're already in the worker thread.
                 conn_worker_readd(rctx->c);
             }
+        } else if (res == LUA_YIELD) {
+            _mcp_queue_hack(rctx->c);
         }
     }
 }
@@ -939,7 +939,6 @@ static void mcp_resume_rctx_from_cb(mcp_rcontext_t *rctx) {
 static void proxy_return_rqu_dummy_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
     mcp_rcontext_t *rctx = p->rctx;
-    conn *c = rctx->c;
 
     rctx->pending_reqs--;
     assert(rctx->pending_reqs > -1);
@@ -949,8 +948,6 @@ static void proxy_return_rqu_dummy_cb(io_pending_t *pending) {
     mcp_resume_rctx_from_cb(rctx);
 
     do_cache_free(p->thread->io_cache, p);
-
-    _mcp_queue_hack(c);
 }
 
 void mcp_process_rctx_wait(mcp_rcontext_t *rctx, int handle) {
@@ -1089,8 +1086,6 @@ int mcp_process_rqueue_return(mcp_rcontext_t *rctx, int handle, mcp_resp_t *res)
 static void proxy_return_rqu_cb(io_pending_t *pending) {
     io_pending_proxy_t *p = (io_pending_proxy_t *)pending;
     mcp_rcontext_t *rctx = p->rctx;
-    // Hold the client object before we potentially return the rctx below.
-    conn *c = rctx->c;
 
     if (p->client_resp) {
         mcp_process_rqueue_return(rctx, p->queue_handle, p->client_resp);
@@ -1105,8 +1100,6 @@ static void proxy_return_rqu_cb(io_pending_t *pending) {
     }
 
     do_cache_free(p->thread->io_cache, p);
-
-    _mcp_queue_hack(c);
 }
 
 void mcp_run_rcontext_handle(mcp_rcontext_t *rctx, int handle) {
