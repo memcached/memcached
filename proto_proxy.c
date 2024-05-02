@@ -21,13 +21,27 @@ static void *mcp_profile_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
 
 static inline void _proxy_advance_lastkb(lua_State *L, LIBEVENT_THREAD *t) {
     int new_kb = lua_gc(L, LUA_GCCOUNT);
+    // We need to slew the increase in "gc pause" because the lua GC actually
+    // needs to run twice to free a userdata: once to run the _gc's and again
+    // to actually clean up the object.
+    // Meaning we will continually increase in size.
     if (new_kb > t->proxy_vm_last_kb) {
-        // clamp increases of the base memory per run to help
-        // prevent runaway scenarios.
-        t->proxy_vm_last_kb += (new_kb - t->proxy_vm_last_kb) * 0.5;
-    } else {
-        t->proxy_vm_last_kb = new_kb;
+        new_kb = t->proxy_vm_last_kb + (new_kb - t->proxy_vm_last_kb) * 0.50;
     }
+
+    // remove the memory freed during this cycle so we can kick off the GC
+    // early if we're very aggressively making garbage.
+    // carry our negative delta forward so a huge reclaim can push for a
+    // couple cycles.
+    if (t->proxy_vm_negative_delta >= new_kb) {
+        t->proxy_vm_negative_delta -= new_kb;
+        new_kb = 1;
+    } else {
+        new_kb -= t->proxy_vm_negative_delta;
+        t->proxy_vm_negative_delta = 0;
+    }
+
+    t->proxy_vm_last_kb = new_kb;
 }
 
 // The lua GC is paused while running requests. Run it manually inbetween
@@ -51,19 +65,28 @@ void proxy_gc_poke(LIBEVENT_THREAD *t) {
     if (t->proxy_vm_gcrunning > 0) {
         t->proxy_vm_needspoke = false;
         int loops = t->proxy_vm_gcrunning;
+        int done = 0;
         /*fprintf(stderr, "PROXYGC: proxy_gc_poke [cur: %d - last: %d - loops: %d]\n",
             vm_kb,
             t->proxy_vm_last_kb,
             loops);*/
-        while (loops--) {
+        while (loops-- && !done) {
             // reset counters once full GC cycle has completed
-            if (lua_gc(L, LUA_GCSTEP, 0)) {
-                _proxy_advance_lastkb(L, t);
-                t->proxy_vm_extra_kb = 0;
-                t->proxy_vm_gcrunning = 0;
-                //fprintf(stderr, "PROXYGC: proxy_gc_poke COMPLETE [cur: %d next: %d]\n", lua_gc(L, LUA_GCCOUNT), t->proxy_vm_last_kb);
-                break;
-            }
+            done = lua_gc(L, LUA_GCSTEP, 0);
+        }
+
+        int vm_kb_after = lua_gc(L, LUA_GCCOUNT);
+        int vm_kb_clean = vm_kb - t->proxy_vm_extra_kb;
+        if (vm_kb_clean > vm_kb_after) {
+            // track the amount of memory freed during the GC cycle.
+            t->proxy_vm_negative_delta += vm_kb_clean - vm_kb_after;
+        }
+
+        if (done) {
+            _proxy_advance_lastkb(L, t);
+            t->proxy_vm_extra_kb = 0;
+            t->proxy_vm_gcrunning = 0;
+            //fprintf(stderr, "PROXYGC: proxy_gc_poke COMPLETE [cur: %d next: %d]\n", lua_gc(L, LUA_GCCOUNT), t->proxy_vm_last_kb);
         }
 
         // increase the aggressiveness by memory bloat level.

@@ -753,6 +753,7 @@ typedef struct {
     pthread_mutex_t proxy_limit_lock;
     int proxy_vm_extra_kb;
     int proxy_vm_last_kb;
+    unsigned int proxy_vm_negative_delta;
     int proxy_vm_gcrunning;
     bool proxy_vm_needspoke;
     uint64_t proxy_active_req_limit;
