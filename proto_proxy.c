@@ -805,8 +805,10 @@ static void _proxy_run_tresp_to_resp(mc_resp *tresp, mc_resp *resp) {
     // So far all we fill is the wbuf and some iov's? so just copy
     // that + the UDP info?
     memcpy(resp->wbuf, tresp->wbuf, tresp->iov[0].iov_len);
+    resp->tosend = 0;
     for (int x = 0; x < tresp->iovcnt; x++) {
         resp->iov[x] = tresp->iov[x];
+        resp->tosend += tresp->iov[x].iov_len;
     }
     // resp->iov[x].iov_base needs to be updated if it's
     // pointing within its wbuf.

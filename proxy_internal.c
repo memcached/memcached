@@ -1749,7 +1749,7 @@ int mcplib_internal_run(mcp_rcontext_t *rctx) {
     // resp object is associated with the
     // response object, which is about a
     // kilobyte.
-    lua_gc(rctx->Lc, LUA_GCSTEP, 1);
+    t->proxy_vm_extra_kb++;
 
     if (resp->io_pending) {
         // TODO (v2): here we move the IO from the temporary resp to the top

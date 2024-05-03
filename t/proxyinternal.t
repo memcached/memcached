@@ -137,20 +137,50 @@ note "ascii basic";
     is(scalar <$ps>, "VALUE /b/foo 0 2\r\n", "get response");
     is(scalar <$ps>, "hi\r\n", "get value");
     is(scalar <$ps>, "END\r\n", "get END");
+    check_version($ps);
 }
 
-#diag "fetch from extstore"
-{
+subtest 'basic large item' => sub {
+    my $data = 'x' x 500000;
+    print $ps "set /b/beeeg 0 0 500000\r\n$data\r\n";
+    is(scalar <$ps>, "STORED\r\n", "big item stored");
+
+    print $ps "get /b/beeeg\r\n";
+    is(scalar <$ps>, "VALUE /b/beeeg 0 500000\r\n", "got large response");
+    is(scalar <$ps>, "$data\r\n", "got data portion back");
+    is(scalar <$ps>, "END\r\n", "saw END");
+
+    print $ps "delete /b/beeeg\r\n";
+    is(scalar <$ps>, "DELETED\r\n");
+    check_version($ps);
+};
+
+subtest 'basic chunked item' => sub {
+    my $data = 'x' x 900000;
+    print $ps "set /b/chunked 0 0 900000\r\n$data\r\n";
+    is(scalar <$ps>, "STORED\r\n", "big item stored");
+
+    print $ps "get /b/chunked\r\n";
+    is(scalar <$ps>, "VALUE /b/chunked 0 900000\r\n", "got large response");
+    is(scalar <$ps>, "$data\r\n", "got data portion back");
+    is(scalar <$ps>, "END\r\n", "saw END");
+
+    print $ps "delete /b/chunked\r\n";
+    is(scalar <$ps>, "DELETED\r\n");
+    check_version($ps);
+};
+
+subtest 'fetch from extstore' => sub {
     my $data = 'x' x 1000;
     print $ps "set /b/ext 0 0 1000\r\n$data\r\n";
     is(scalar <$ps>, "STORED\r\n", "int set for extstore");
-    sleep 3; # TODO: import wait_for_ext
+    wait_ext_flush($ps);
 
     print $ps "get /b/ext\r\n";
     is(scalar <$ps>, "VALUE /b/ext 0 1000\r\n", "get response from extstore");
     is(scalar <$ps>, "$data\r\n", "got data from extstore");
     is(scalar <$ps>, "END\r\n", "get END");
-}
+};
 
 #diag "flood memory"
 {
