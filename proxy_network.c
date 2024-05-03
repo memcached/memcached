@@ -951,8 +951,18 @@ static void _post_pending_write(struct mcp_backendconn_s *be, ssize_t sent) {
     } // for
 
     // resume the flush from this point.
-    if (io != NULL && !io->flushed) {
-        be->io_next = io;
+    if (io != NULL) {
+        if (!io->flushed) {
+            be->io_next = io;
+        } else {
+            // Check for incomplete list because we hit the iovcnt limit.
+            io_pending_proxy_t *nio = STAILQ_NEXT(io, io_next);
+            if (nio != NULL && !nio->flushed) {
+                be->io_next = io;
+            } else {
+                be->io_next = NULL;
+            }
+        }
     } else {
         be->io_next = NULL;
     }
