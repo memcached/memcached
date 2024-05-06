@@ -490,6 +490,7 @@ void proxy_submit_cb(io_queue_t *q) {
         } else {
             // emulate some of handler_dequeue()
             STAILQ_INSERT_HEAD(&be->io_head, p, io_next);
+            assert(be->depth > -1);
             be->depth++;
             if (!be->stacked) {
                 be->stacked = true;
