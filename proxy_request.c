@@ -648,6 +648,7 @@ int mcplib_request(lua_State *L) {
         return 0;
     }
     mcp_request_t *rq = mcp_new_request(L, &pr, cmd, len);
+    t->proxy_vm_extra_kb++; // oversize the impact of request udata.
 
     if (val != NULL) {
         rq->pr.vlen = vlen;
