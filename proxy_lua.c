@@ -308,7 +308,6 @@ static int mcplib_response_line(lua_State *L) {
 }
 
 void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
-
     // On error/similar we might be holding the read buffer.
     // If the buf is handed off to mc_resp for return, this pointer is NULL
     if (r->buf != NULL) {
@@ -324,6 +323,10 @@ void mcp_response_cleanup(LIBEVENT_THREAD *t, mcp_resp_t *r) {
     if (r->cresp != NULL) {
         mc_resp *cresp = r->cresp;
         assert(r->thread != NULL);
+        if (cresp->item) {
+            item_remove(cresp->item);
+            cresp->item = NULL;
+        }
         resp_free(r->thread, cresp);
         r->cresp = NULL;
     }

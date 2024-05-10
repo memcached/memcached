@@ -828,6 +828,7 @@ static void _proxy_run_tresp_to_resp(mc_resp *tresp, mc_resp *resp) {
     resp->request_addr = tresp->request_addr;
     resp->request_addr_size = tresp->request_addr_size;
     resp->item = tresp->item; // will be populated if not extstore fetch
+    tresp->item = NULL; // move ownership of the item to resp from tresp
     resp->skip = tresp->skip;
 }
 
