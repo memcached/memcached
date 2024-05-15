@@ -738,11 +738,11 @@ void item_stats_totals(ADD_STAT add_stats, void *c) {
         for (x = 0; x < 4; x++) {
             i = n | lru_type_map[x];
             pthread_mutex_lock(&lru_locks[i]);
+            totals.evicted += itemstats[i].evicted;
+            totals.reclaimed += itemstats[i].reclaimed;
             totals.expired_unfetched += itemstats[i].expired_unfetched;
             totals.evicted_unfetched += itemstats[i].evicted_unfetched;
             totals.evicted_active += itemstats[i].evicted_active;
-            totals.evicted += itemstats[i].evicted;
-            totals.reclaimed += itemstats[i].reclaimed;
             totals.crawler_reclaimed += itemstats[i].crawler_reclaimed;
             totals.crawler_items_checked += itemstats[i].crawler_items_checked;
             totals.lrutail_reflocked += itemstats[i].lrutail_reflocked;
@@ -808,9 +808,9 @@ void item_stats(ADD_STAT add_stats, void *c) {
             pthread_mutex_lock(&lru_locks[i]);
             totals.evicted += itemstats[i].evicted;
             totals.evicted_nonzero += itemstats[i].evicted_nonzero;
+            totals.reclaimed += itemstats[i].reclaimed;
             totals.outofmemory += itemstats[i].outofmemory;
             totals.tailrepairs += itemstats[i].tailrepairs;
-            totals.reclaimed += itemstats[i].reclaimed;
             totals.expired_unfetched += itemstats[i].expired_unfetched;
             totals.evicted_unfetched += itemstats[i].evicted_unfetched;
             totals.evicted_active += itemstats[i].evicted_active;
