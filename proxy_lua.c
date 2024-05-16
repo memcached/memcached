@@ -444,11 +444,22 @@ static int mcplib_backend(lua_State *L) {
         if (lua_getfield(L, 1, "failurelimit") != LUA_TNIL) {
             int limit = luaL_checkinteger(L, -1);
             if (limit < 0) {
-                proxy_lua_error(L, "failure_limit must be >= 0");
+                proxy_lua_error(L, "failurelimit must be >= 0");
                 return 0;
             }
 
             be->tunables.backend_failure_limit = limit;
+        }
+        lua_pop(L, 1);
+
+        if (lua_getfield(L, 1, "depthlimit") != LUA_TNIL) {
+            int limit = luaL_checkinteger(L, -1);
+            if (limit < 0) {
+                proxy_lua_error(L, "depthlimit must be >= 0");
+                return 0;
+            }
+
+            be->tunables.backend_depth_limit = limit;
         }
         lua_pop(L, 1);
 
@@ -1125,6 +1136,22 @@ static int mcplib_backend_failure_limit(lua_State *L) {
     return 0;
 }
 
+static int mcplib_backend_depth_limit(lua_State *L) {
+    int limit = luaL_checkinteger(L, -1);
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+
+    if (limit < 0) {
+        proxy_lua_error(L, "backend_depth_limit must be >= 0");
+        return 0;
+    }
+
+    STAT_L(ctx);
+    ctx->tunables.backend_depth_limit = limit;
+    STAT_UL(ctx);
+
+    return 0;
+}
+
 static int mcplib_backend_connect_timeout(lua_State *L) {
     lua_Number secondsf = luaL_checknumber(L, -1);
     lua_Integer secondsi = (lua_Integer) secondsf;
@@ -1721,6 +1748,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"backend_retry_waittime", mcplib_backend_retry_waittime},
         {"backend_read_timeout", mcplib_backend_read_timeout},
         {"backend_failure_limit", mcplib_backend_failure_limit},
+        {"backend_depth_limit", mcplib_backend_depth_limit},
         {"backend_flap_time", mcplib_backend_flap_time},
         {"backend_flap_backoff_ramp", mcplib_backend_flap_backoff_ramp},
         {"backend_flap_backoff_max", mcplib_backend_flap_backoff_max},

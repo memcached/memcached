@@ -200,12 +200,9 @@ struct proxy_global_stats {
     uint64_t config_cron_runs;
     uint64_t config_cron_fails;
     uint64_t backend_total;
-    uint64_t backend_disconn; // backends with no connections
-    uint64_t backend_requests; // reqs sent to backends
-    uint64_t backend_responses; // responses received from backends
-    uint64_t backend_errors; // errors from backends
     uint64_t backend_marked_bad; // backend set to autofail
     uint64_t backend_failed; // an error caused a backend reset
+    uint64_t request_failed_depth; // requests fast-failed due to be depth
 };
 
 struct proxy_tunables {
@@ -215,6 +212,7 @@ struct proxy_tunables {
     struct timeval flap; // need to stay connected this long or it's flapping
     float flap_backoff_ramp; // factorial for retry time
     uint32_t flap_backoff_max; // don't backoff longer than this.
+    int backend_depth_limit; // requests fast fail once depth over this limit
     int backend_failure_limit;
     int max_ustats; // limit the ustats index.
     bool tcp_keepalive;

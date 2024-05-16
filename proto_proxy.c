@@ -157,6 +157,7 @@ void proxy_stats(void *arg, ADD_STAT add_stats, void *c) {
     APPEND_STAT("proxy_backend_total", "%llu", (unsigned long long)ctx->global_stats.backend_total);
     APPEND_STAT("proxy_backend_marked_bad", "%llu", (unsigned long long)ctx->global_stats.backend_marked_bad);
     APPEND_STAT("proxy_backend_failed", "%llu", (unsigned long long)ctx->global_stats.backend_failed);
+    APPEND_STAT("proxy_request_failed_depth", "%llu", (unsigned long long)ctx->global_stats.request_failed_depth);
     STAT_UL(ctx);
 }
 
@@ -340,6 +341,7 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     ctx->tunables.read.tv_sec = 3;
     ctx->tunables.flap_backoff_ramp = 1.5;
     ctx->tunables.flap_backoff_max = 3600;
+    ctx->tunables.backend_depth_limit = 0;
     ctx->tunables.max_ustats = MAX_USTATS_DEFAULT;
     ctx->tunables.use_iothread = false;
 

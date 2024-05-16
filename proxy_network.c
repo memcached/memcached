@@ -139,11 +139,6 @@ struct mcp_backendconn_s *proxy_choose_beconn(mcp_backend_t *be) {
         }
     }
 
-    // drop new requests onto end of conn's io-head, reset the backend one.
-    STAILQ_CONCAT(&bec->io_head, &be->io_head);
-    bec->depth += be->depth;
-    be->depth = 0;
-
     return bec;
 }
 
@@ -295,6 +290,21 @@ static void proxy_event_beconn(evutil_socket_t fd, short which, void *arg) {
     }
 }
 
+static void _proxy_flush_backend_queue(mcp_backend_t *be) {
+    io_pending_proxy_t *io = NULL;
+    P_DEBUG("%s: fast failing request to bad backend (%s:%s) depth: %d\n", __func__, be->name, be->port, be->depth);
+
+    while (!STAILQ_EMPTY(&be->io_head)) {
+        io = STAILQ_FIRST(&be->io_head);
+        STAILQ_REMOVE_HEAD(&be->io_head, io_next);
+        io->client_resp->status = MCMC_ERR;
+        io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
+        be->depth--;
+        assert(be->depth > -1);
+        return_io_pending((io_pending_t *)io);
+    }
+}
+
 void proxy_run_backend_queue(be_head_t *head) {
     mcp_backend_t *be;
     STAILQ_FOREACH(be, head, be_next) {
@@ -302,20 +312,24 @@ void proxy_run_backend_queue(be_head_t *head) {
         int flags = 0;
         struct mcp_backendconn_s *bec = proxy_choose_beconn(be);
 
+        int limit = be->tunables.backend_depth_limit;
         if (bec->bad) {
-            // flush queue if backend is still bad.
-            io_pending_proxy_t *io = NULL;
-            P_DEBUG("%s: fast failing request to bad backend (%s:%s) depth: %d\n", __func__, be->name, be->port, bec->depth);
-            while (!STAILQ_EMPTY(&bec->io_head)) {
-                io = STAILQ_FIRST(&bec->io_head);
-                STAILQ_REMOVE_HEAD(&bec->io_head, io_next);
-                io->client_resp->status = MCMC_ERR;
-                io->client_resp->resp.code = MCMC_CODE_SERVER_ERROR;
-                bec->depth--;
-                assert(bec->depth > -1);
-                return_io_pending((io_pending_t *)io);
-            }
-        } else if (bec->connecting || bec->validating) {
+            // TODO: another counter for fast fails?
+            _proxy_flush_backend_queue(be);
+            continue;
+        } else if (limit && bec->depth > limit) {
+            proxy_ctx_t *ctx = bec->event_thread->ctx;
+            STAT_INCR(ctx, request_failed_depth, be->depth);
+            _proxy_flush_backend_queue(be);
+            continue;
+        }
+
+        // drop new requests onto end of conn's io-head, reset the backend one.
+        STAILQ_CONCAT(&bec->io_head, &be->io_head);
+        bec->depth += be->depth;
+        be->depth = 0;
+
+        if (bec->connecting || bec->validating) {
             P_DEBUG("%s: deferring IO pending connecting (%s:%s)\n", __func__, be->name, be->port);
         } else {
             flags = _flush_pending_write(bec);
