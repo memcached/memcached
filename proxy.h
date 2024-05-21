@@ -217,6 +217,7 @@ struct proxy_tunables {
     int max_ustats; // limit the ustats index.
     bool tcp_keepalive;
     bool use_iothread; // default for using the bg io thread.
+    bool use_tls; // whether or not be should use TLS
     bool down; // backend is forced into a down/bad state.
 };
 
@@ -228,6 +229,9 @@ typedef struct {
     proxy_event_thread_t *proxy_io_thread;
     uint64_t active_req_limit; // max total in-flight requests
     uint64_t buffer_memory_limit; // max bytes for send/receive buffers.
+#ifdef PROXY_TLS
+    void *tls_ctx;
+#endif
     pthread_mutex_t config_lock;
     pthread_cond_t config_cond;
     pthread_t config_tid;
@@ -389,6 +393,9 @@ struct mcp_backendconn_s {
     int flap_count; // number of times we've "flapped" into bad state.
     proxy_event_thread_t *event_thread; // event thread owning this backend.
     void *client; // mcmc client
+#ifdef PROXY_TLS
+    void *ssl;
+#endif
     io_head_t io_head; // stack of requests.
     io_pending_proxy_t *io_next; // next request to write.
     char *rbuf; // statically allocated read buffer.
@@ -404,6 +411,9 @@ struct mcp_backendconn_s {
     bool validating; // in process of validating a new backend connection.
     bool can_write; // recently got a WANT_WRITE or are connecting.
     bool bad; // timed out, marked as bad.
+#ifndef PROXY_TLS
+    bool ssl;
+#endif
     struct iovec write_iovs[BE_IOV_MAX]; // iovs to stage batched writes
 };
 
@@ -439,6 +449,10 @@ struct proxy_event_thread_s {
     eventfd_t event_counter;
     eventfd_t beevent_counter;
     bool use_uring;
+#endif
+#ifdef PROXY_TLS
+    char *tls_wbuf;
+    size_t tls_wbuf_size;
 #endif
     pthread_mutex_t mutex; // covers stack.
     pthread_cond_t cond; // condition to wait on while stack drains.

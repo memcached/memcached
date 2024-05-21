@@ -1,6 +1,7 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
 #include "proxy.h"
+#include "proxy_tls.h"
 #include "storage.h" // for stats call
 
 // func prototype example:
@@ -452,6 +453,11 @@ static int mcplib_backend(lua_State *L) {
         }
         lua_pop(L, 1);
 
+        if (lua_getfield(L, 1, "tls") != LUA_TNIL) {
+            be->tunables.use_tls = lua_toboolean(L, -1);
+        }
+        lua_pop(L, 1);
+
         if (lua_getfield(L, 1, "failurelimit") != LUA_TNIL) {
             int limit = luaL_checkinteger(L, -1);
             if (limit < 0) {
@@ -682,6 +688,16 @@ static mcp_backend_wrap_t *_mcplib_make_backendconn(lua_State *L, mcp_backend_la
         }
         STAT_UL(ctx);
         bec->connect_flags = flags;
+
+        // FIXME: remove ifdef via an initialized checker? or
+        // mcp_tls_backend_init response code?
+#ifdef PROXY_TLS
+        if (be->tunables.use_tls && !ctx->tls_ctx) {
+            proxy_lua_error(L, "TLS requested but not initialized: call mcp.init_tls()");
+            return NULL;
+        }
+#endif
+        mcp_tls_backend_init(ctx, bec);
 
         bec->event_thread = e;
     }
@@ -1115,6 +1131,34 @@ static int mcplib_backend_use_iothread(lua_State *L) {
     STAT_L(ctx);
     ctx->tunables.use_iothread = state;
     STAT_UL(ctx);
+
+    return 0;
+}
+
+static int mcplib_backend_use_tls(lua_State *L) {
+    luaL_checktype(L, -1, LUA_TBOOLEAN);
+    int state = lua_toboolean(L, -1);
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+#ifndef PROXY_TLS
+    if (state == 1) {
+        proxy_lua_error(L, "cannot set mcp.backend_use_tls: TLS support not compiled");
+    }
+#endif
+    STAT_L(ctx);
+    ctx->tunables.use_tls = state;
+    STAT_UL(ctx);
+
+    return 0;
+}
+
+// TODO: error checking.
+static int mcplib_init_tls(lua_State *L) {
+#ifndef PROXY_TLS
+    proxy_lua_error(L, "cannot run mcp.init_tls: TLS support not compiled");
+#else
+    proxy_ctx_t *ctx = PROXY_GET_CTX(L);
+    mcp_tls_init(ctx);
+#endif
 
     return 0;
 }
@@ -1765,6 +1809,8 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"backend_flap_backoff_ramp", mcplib_backend_flap_backoff_ramp},
         {"backend_flap_backoff_max", mcplib_backend_flap_backoff_max},
         {"backend_use_iothread", mcplib_backend_use_iothread},
+        {"backend_use_tls", mcplib_backend_use_tls},
+        {"init_tls", mcplib_init_tls},
         {"tcp_keepalive", mcplib_tcp_keepalive},
         {"active_req_limit", mcplib_active_req_limit},
         {"buffer_memory_limit", mcplib_buffer_memory_limit},

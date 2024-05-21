@@ -130,6 +130,9 @@ AC_ARG_ENABLE(proxy,
 AC_ARG_ENABLE(proxy-uring,
   [AS_HELP_STRING([--enable-proxy-uring], [Enable proxy io_uring code EXPERIMENTAL])])
 
+AC_ARG_ENABLE(proxy-tls,
+  [AS_HELP_STRING([--enable-proxy-tls], [Enable proxy io_uring code EXPERIMENTAL])])
+
 AC_ARG_ENABLE(werror,
   [AS_HELP_STRING([--enable-werror], [Enable -Werror])])
 
@@ -255,6 +258,14 @@ if test "x$enable_proxy_uring" = "xyes"; then
     CPPFLAGS="-Ivendor/liburing/src/include $CPPFLAGS"
 fi
 
+if test "x$enable_proxy_tls" = "xyes"; then
+    if test "x$enable_tls" != "xyes"; then
+        AC_MSG_ERROR([--enable-proxy-tls requires --enable-tls])
+    else
+        AC_DEFINE([PROXY_TLS],1,[Set to nonzero if you want to enable proxy backend tls support])
+    fi
+fi
+
 if test "x$enable_large_client_flags" = "xyes"; then
     AC_DEFINE([LARGE_CLIENT_FLAGS],1,[Set to nonzero if you want 64bit client flags])
 fi
@@ -270,6 +281,7 @@ AM_CONDITIONAL([ENABLE_STATIC],[test "$enable_static" = "yes"])
 AM_CONDITIONAL([DISABLE_UNIX_SOCKET],[test "$enable_unix_socket" = "no"])
 AM_CONDITIONAL([ENABLE_PROXY],[test "$enable_proxy" = "yes"])
 AM_CONDITIONAL([ENABLE_PROXY_URING],[test "$enable_proxy_uring" = "yes"])
+AM_CONDITIONAL([ENABLE_PROXY_TLS],[test "$enable_proxy_tls" = "yes"])
 AM_CONDITIONAL([LARGE_CLIENT_FLAGS],[test "$enable_large_client_flags" = "yes"])
 
 

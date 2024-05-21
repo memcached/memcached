@@ -344,6 +344,7 @@ void *proxy_init(bool use_uring, bool proxy_memprofile) {
     ctx->tunables.backend_depth_limit = 0;
     ctx->tunables.max_ustats = MAX_USTATS_DEFAULT;
     ctx->tunables.use_iothread = false;
+    ctx->tunables.use_tls = false;
 
     STAILQ_INIT(&ctx->manager_head);
     lua_State *L = NULL;

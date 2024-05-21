@@ -65,6 +65,7 @@ memcached_SOURCES += proto_proxy.c proto_proxy.h vendor/mcmc/mcmc.h \
 					 proxy_luafgen.c \
 					 proxy_config.c proxy_ring_hash.c \
 					 proxy_internal.c \
+					 proxy_tls.c proxy_tls.h \
 					 md5.c md5.h
 endif
 

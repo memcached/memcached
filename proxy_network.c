@@ -2,6 +2,7 @@
 // Functions related to the backend handler thread.
 
 #include "proxy.h"
+#include "proxy_tls.h"
 
 enum proxy_be_failures {
     P_BE_FAIL_TIMEOUT = 0,
@@ -41,12 +42,15 @@ const char *proxy_be_failure_text[] = {
 };
 
 static void proxy_backend_handler(const int fd, const short which, void *arg);
+static void proxy_backend_tls_handler(const int fd, const short which, void *arg);
 static void proxy_beconn_handler(const int fd, const short which, void *arg);
+static void proxy_beconn_tls_handler(const int fd, const short which, void *arg);
 static void proxy_event_handler(evutil_socket_t fd, short which, void *arg);
 static void proxy_event_beconn(evutil_socket_t fd, short which, void *arg);
 static int _prep_pending_write(struct mcp_backendconn_s *be);
 static void _post_pending_write(struct mcp_backendconn_s *be, ssize_t sent);
 static int _flush_pending_write(struct mcp_backendconn_s *be);
+static int _flush_pending_tls_write(struct mcp_backendconn_s *be);
 static void _cleanup_backend(mcp_backend_t *be);
 static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failures err);
 static void _set_main_event(struct mcp_backendconn_s *be, struct event_base *base, int flags, struct timeval *t, event_callback_fn callback);
@@ -101,14 +105,7 @@ static int _proxy_beconn_checkconnect(struct mcp_backendconn_s *be) {
     be->validating = true;
     // TODO: make validation optional.
 
-    if (_beconn_send_validate(be) == -1) {
-        _reset_bad_backend(be, P_BE_FAIL_BADVALIDATE);
-        return -1;
-    } else {
-        // buffer should be empty during validation stage.
-        assert(be->rbufused == 0);
-        return 0;
-    }
+    return 0;
 }
 
 // Use a simple heuristic to choose a backend connection socket out of a list
@@ -194,6 +191,7 @@ static void _cleanup_backend(mcp_backend_t *be) {
             // - assert on empty queue
             assert(STAILQ_EMPTY(&bec->io_head));
 
+            mcp_tls_shutdown(bec);
             mcmc_disconnect(bec->client);
 
             if (bec->bad) {
@@ -223,9 +221,15 @@ static void _setup_backend(mcp_backend_t *be) {
         // constantly check if they were initialized yet elsewhere.
         // note these events will not fire until event_add() is called.
         int status = mcmc_connect(bec->client, be->name, be->port, bec->connect_flags);
-        event_assign(&bec->main_event, bec->event_thread->base, mcmc_fd(bec->client), EV_WRITE|EV_TIMEOUT, proxy_beconn_handler, bec);
-        event_assign(&bec->write_event, bec->event_thread->base, mcmc_fd(bec->client), EV_WRITE|EV_TIMEOUT, proxy_backend_handler, bec);
-        event_assign(&bec->timeout_event, bec->event_thread->base, -1, EV_TIMEOUT, proxy_backend_handler, bec);
+        event_callback_fn _beconn_handler = &proxy_beconn_handler;
+        event_callback_fn _backend_handler = &proxy_backend_handler;
+        if (be->tunables.use_tls) {
+            _beconn_handler = &proxy_beconn_tls_handler;
+            _backend_handler = &proxy_backend_tls_handler;
+        }
+        event_assign(&bec->main_event, bec->event_thread->base, mcmc_fd(bec->client), EV_WRITE|EV_TIMEOUT, _beconn_handler, bec);
+        event_assign(&bec->write_event, bec->event_thread->base, mcmc_fd(bec->client), EV_WRITE|EV_TIMEOUT, _backend_handler, bec);
+        event_assign(&bec->timeout_event, bec->event_thread->base, -1, EV_TIMEOUT, _backend_handler, bec);
 
         if (status == MCMC_CONNECTING || status == MCMC_CONNECTED) {
             // if we're already connected for some reason, still push it
@@ -332,7 +336,11 @@ void proxy_run_backend_queue(be_head_t *head) {
         if (bec->connecting || bec->validating) {
             P_DEBUG("%s: deferring IO pending connecting (%s:%s)\n", __func__, be->name, be->port);
         } else {
-            flags = _flush_pending_write(bec);
+            if (!bec->ssl) {
+                flags = _flush_pending_write(bec);
+            } else {
+                flags = _flush_pending_tls_write(bec);
+            }
 
             if (flags == -1) {
                 _reset_bad_backend(bec, P_BE_FAIL_WRITING);
@@ -753,7 +761,11 @@ static void _backend_reconnect(struct mcp_backendconn_s *be) {
     }
     // re-create the write handler for the new file descriptor.
     // the main event will be re-assigned after this call.
-    event_assign(&be->write_event, be->event_thread->base, mcmc_fd(be->client), EV_WRITE|EV_TIMEOUT, proxy_backend_handler, be);
+    event_callback_fn _backend_handler = &proxy_backend_handler;
+    if (be->be_parent->tunables.use_tls) {
+        _backend_handler = &proxy_backend_tls_handler;
+    }
+    event_assign(&be->write_event, be->event_thread->base, mcmc_fd(be->client), EV_WRITE|EV_TIMEOUT, _backend_handler, be);
     // do not need to re-assign the timer event because it's not tied to fd
 }
 
@@ -763,7 +775,11 @@ static void proxy_backend_retry_handler(const int fd, const short which, void *a
     assert(which & EV_TIMEOUT);
     struct timeval tmp_time = be->tunables.connect;
     _backend_reconnect(be);
-    _set_main_event(be, be->event_thread->base, EV_WRITE, &tmp_time, proxy_beconn_handler);
+    event_callback_fn _backend_handler = &proxy_beconn_handler;
+    if (be->be_parent->tunables.use_tls) {
+        _backend_handler = &proxy_beconn_tls_handler;
+    }
+    _set_main_event(be, be->event_thread->base, EV_WRITE, &tmp_time, _backend_handler);
 }
 
 // must be called after _reset_bad_backend(), so the backend is currently
@@ -807,7 +823,11 @@ static void _backend_reschedule(struct mcp_backendconn_s *be) {
         struct timeval tmp_time = be->tunables.connect;
         STAT_INCR(be->event_thread->ctx, backend_failed, 1);
         _backend_reconnect(be);
-        _set_main_event(be, be->event_thread->base, EV_WRITE, &tmp_time, proxy_beconn_handler);
+        event_callback_fn _backend_handler = &proxy_beconn_handler;
+        if (be->be_parent->tunables.use_tls) {
+            _backend_handler = &proxy_beconn_tls_handler;
+        }
+        _set_main_event(be, be->event_thread->base, EV_WRITE, &tmp_time, _backend_handler);
     }
 }
 
@@ -892,6 +912,7 @@ static void _reset_bad_backend(struct mcp_backendconn_s *be, enum proxy_be_failu
     _stop_write_event(be);
     _stop_main_event(be);
     _stop_timeout_event(be);
+    mcp_tls_shutdown(be);
     mcmc_disconnect(be->client);
     // we leave the main event alone, because be_failed() always overwrites.
 
@@ -1017,6 +1038,178 @@ static int _flush_pending_write(struct mcp_backendconn_s *be) {
     return flags;
 }
 
+static int _flush_pending_tls_write(struct mcp_backendconn_s *be) {
+    int flags = 0;
+    // Allow us to be called with an empty stack to prevent dev errors.
+    if (STAILQ_EMPTY(&be->io_head)) {
+        return 0;
+    }
+
+    int iovcnt = _prep_pending_write(be);
+
+    int sent = mcp_tls_writev(be, iovcnt);
+    if (sent > 0) {
+        _post_pending_write(be, sent);
+        // FIXME: can _post_pending_write do this and return EV_WRITE?
+        // still have unflushed pending IO's, check for write and re-loop.
+        if (be->io_next) {
+            be->can_write = false;
+            flags |= EV_WRITE;
+        }
+    } else if (sent == MCP_TLS_NEEDIO) {
+        // want io
+        be->can_write = false;
+        flags |= EV_WRITE;
+    } else if (sent == MCP_TLS_ERR) {
+        // hard error from tls
+        flags = -1;
+    }
+
+    return flags;
+}
+
+
+static void proxy_bevalidate_tls_handler(const int fd, const short which, void *arg) {
+    assert(arg != NULL);
+    struct mcp_backendconn_s *be = arg;
+    int flags = EV_TIMEOUT;
+    struct timeval tmp_time = be->tunables.read;
+
+    if (which & EV_TIMEOUT) {
+        P_DEBUG("%s: backend timed out while connecting [fd: %d]\n", __func__, mcmc_fd(be->client));
+        if (be->connecting) {
+            _reset_bad_backend(be, P_BE_FAIL_CONNTIMEOUT);
+        } else {
+            _reset_bad_backend(be, P_BE_FAIL_READVALIDATE);
+        }
+        return;
+    }
+
+    if (which & EV_READ) {
+        int read = mcp_tls_read(be);
+
+        if (read > 0) {
+            mcmc_resp_t r;
+
+            int status = mcmc_parse_buf(be->client, be->rbuf, be->rbufused, &r);
+            if (status == MCMC_ERR) {
+                // Needed more data for a version line, somehow. I feel like
+                // this should set off some alarms, but it is possible.
+                if (r.code == MCMC_WANT_READ) {
+                    _set_main_event(be, be->event_thread->base, EV_READ, &tmp_time, proxy_bevalidate_tls_handler);
+                    return;
+                }
+
+                _reset_bad_backend(be, P_BE_FAIL_READVALIDATE);
+                return;
+            }
+
+            if (r.code != MCMC_CODE_VERSION) {
+                _reset_bad_backend(be, P_BE_FAIL_BADVALIDATE);
+                return;
+            }
+
+            be->validating = false;
+            be->rbufused = 0;
+        } else if (read == 0) {
+            // not connected or error.
+            _reset_bad_backend(be, P_BE_FAIL_DISCONNECTED);
+            return;
+        } else if (read == MCP_TLS_NEEDIO) {
+            // try again failure.
+            _set_main_event(be, be->event_thread->base, EV_READ, &tmp_time, proxy_bevalidate_tls_handler);
+            return;
+        } else if (read == MCP_TLS_ERR) {
+            // hard failure.
+            _reset_bad_backend(be, P_BE_FAIL_READING);
+            return;
+        }
+
+        // Passed validation, don't need to re-read, flush any pending writes.
+        int res = _flush_pending_tls_write(be);
+        if (res == -1) {
+            _reset_bad_backend(be, P_BE_FAIL_WRITING);
+            return;
+        }
+        if (flags & EV_WRITE) {
+            _start_write_event(be);
+        }
+        if (be->pending_read) {
+            _start_timeout_event(be);
+        }
+    }
+
+    // switch to the primary persistent read event.
+    if (!be->validating) {
+        _set_main_event(be, be->event_thread->base, EV_READ|EV_PERSIST, NULL, proxy_backend_tls_handler);
+
+        // we're happily validated and switching to normal processing, so
+        // _now_ the backend is no longer "bad".
+        // If we reset the failed count earlier we then can fail the
+        // validation loop indefinitely without ever being marked bad.
+        if (be->bad) {
+            // was bad, need to mark as no longer bad in shared space.
+            mcp_sharedvm_delta(be->event_thread->ctx, SHAREDVM_BACKEND_IDX,
+                    be->be_parent->label, -1);
+        }
+        be->bad = false;
+        be->failed_count = 0;
+    }
+}
+
+// Libevent handler when we're in TLS mode. Unfortunately the code is
+// different enough to warrant its own function.
+static void proxy_beconn_tls_handler(const int fd, const short which, void *arg) {
+    assert(arg != NULL);
+    struct mcp_backendconn_s *be = arg;
+    //int flags = EV_TIMEOUT;
+    struct timeval tmp_time = be->tunables.read;
+
+    if (which & EV_TIMEOUT) {
+        P_DEBUG("%s: backend timed out while connecting [fd: %d]\n", __func__, mcmc_fd(be->client));
+        if (be->connecting) {
+            _reset_bad_backend(be, P_BE_FAIL_CONNTIMEOUT);
+        } else {
+            _reset_bad_backend(be, P_BE_FAIL_READVALIDATE);
+        }
+        return;
+    }
+
+    if (which & EV_WRITE) {
+        be->can_write = true;
+
+        if (be->connecting) {
+            if (_proxy_beconn_checkconnect(be) == -1) {
+                return;
+            }
+            // TODO: check return code.
+            mcp_tls_connect(be);
+            // fall through to handshake attempt.
+        }
+    }
+
+    assert(be->validating);
+    int ret = mcp_tls_handshake(be);
+    if (ret == MCP_TLS_NEEDIO) {
+        // Need to try again.
+        _set_main_event(be, be->event_thread->base, EV_READ, &tmp_time, proxy_beconn_tls_handler);
+        return;
+    } else if (ret == 1) {
+        // handshake complete.
+        if (mcp_tls_send_validate(be) != MCP_TLS_OK) {
+            _reset_bad_backend(be, P_BE_FAIL_BADVALIDATE);
+            return;
+        }
+
+        // switch to another handler for the final stage.
+        _set_main_event(be, be->event_thread->base, EV_READ, &tmp_time, proxy_bevalidate_tls_handler);
+    } else if (ret < 0) {
+        // FIXME: FAIL_HANDSHAKE
+        _reset_bad_backend(be, P_BE_FAIL_BADVALIDATE);
+        return;
+    }
+}
+
 // Libevent handler for backends in a connecting state.
 static void proxy_beconn_handler(const int fd, const short which, void *arg) {
     assert(arg != NULL);
@@ -1039,6 +1232,10 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
 
         if (be->connecting) {
             if (_proxy_beconn_checkconnect(be) == -1) {
+                return;
+            }
+            if (_beconn_send_validate(be) == -1) {
+                _reset_bad_backend(be, P_BE_FAIL_BADVALIDATE);
                 return;
             }
             _set_main_event(be, be->event_thread->base, EV_READ, &tmp_time, proxy_beconn_handler);
@@ -1104,6 +1301,7 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
             _reset_bad_backend(be, P_BE_FAIL_WRITING);
             return;
         }
+        // FIXME: flags isn't being set anywhere.
         if (flags & EV_WRITE) {
             _start_write_event(be);
         }
@@ -1127,6 +1325,63 @@ static void proxy_beconn_handler(const int fd, const short which, void *arg) {
         }
         be->bad = false;
         be->failed_count = 0;
+    }
+}
+
+static void proxy_backend_tls_handler(const int fd, const short which, void *arg) {
+    struct mcp_backendconn_s *be = arg;
+
+    if (which & EV_TIMEOUT) {
+        P_DEBUG("%s: timeout received, killing backend queue\n", __func__);
+        _reset_bad_backend(be, P_BE_FAIL_TIMEOUT);
+        return;
+    }
+
+    if (which & EV_WRITE) {
+        be->can_write = true;
+        int res = _flush_pending_tls_write(be);
+        if (res == -1) {
+            _reset_bad_backend(be, P_BE_FAIL_WRITING);
+            return;
+        }
+        if (res & EV_WRITE) {
+            _start_write_event(be);
+        }
+    }
+
+    if (which & EV_READ) {
+        // got a read event, always kill the pending read timer.
+        _stop_timeout_event(be);
+        // We do the syscall here before diving into the state machine to allow a
+        // common code path for io_uring/epoll/tls/etc
+        int read = mcp_tls_read(be);
+        if (read > 0) {
+            int res = proxy_backend_drive_machine(be);
+            if (res != 0) {
+                _reset_bad_backend(be, res);
+                return;
+            }
+        } else if (read == 0) {
+            // not connected or error.
+            _reset_bad_backend(be, P_BE_FAIL_DISCONNECTED);
+            return;
+        } else if (read == MCP_TLS_NEEDIO) {
+            // sit on epoll again.
+            return;
+        } else if (read == MCP_TLS_ERR) {
+            _reset_bad_backend(be, P_BE_FAIL_READING);
+            return;
+        }
+
+#ifdef PROXY_DEBUG
+        if (!STAILQ_EMPTY(&be->io_head)) {
+            P_DEBUG("backend has leftover IOs: %d\n", be->depth);
+        }
+#endif
+    }
+
+    if (be->pending_read) {
+        _start_timeout_event(be);
     }
 }
 
