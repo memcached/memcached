@@ -55,6 +55,7 @@ struct _crawler_module_t {
     void *data; /* opaque data pointer */
     crawler_client_t c;
     crawler_module_reg_t *mod;
+    int status; /* flags/code/etc for internal module usage */
 };
 
 static int crawler_expired_init(crawler_module_t *cm, void *data);
@@ -68,31 +69,33 @@ crawler_module_reg_t crawler_expired_mod = {
     .doneclass = crawler_expired_doneclass,
     .finalize = crawler_expired_finalize,
     .needs_lock = true,
-    .needs_client = false
+    .needs_client = false,
 };
 
+static int crawler_metadump_init(crawler_module_t *cm, void *data);
 static void crawler_metadump_eval(crawler_module_t *cm, item *search, uint32_t hv, int i);
 static void crawler_metadump_finalize(crawler_module_t *cm);
 
 crawler_module_reg_t crawler_metadump_mod = {
-    .init = NULL,
+    .init = crawler_metadump_init,
     .eval = crawler_metadump_eval,
     .doneclass = NULL,
     .finalize = crawler_metadump_finalize,
     .needs_lock = false,
-    .needs_client = true
+    .needs_client = true,
 };
 
+static int crawler_mgdump_init(crawler_module_t *cm, void *data);
 static void crawler_mgdump_eval(crawler_module_t *cm, item *search, uint32_t hv, int i);
 static void crawler_mgdump_finalize(crawler_module_t *cm);
 
 crawler_module_reg_t crawler_mgdump_mod = {
-    .init = NULL,
+    .init = crawler_mgdump_init,
     .eval = crawler_mgdump_eval,
     .doneclass = NULL,
     .finalize = crawler_mgdump_finalize,
     .needs_lock = false,
-    .needs_client = true
+    .needs_client = true,
 };
 
 crawler_module_reg_t *crawler_mod_regs[4] = {
@@ -259,6 +262,11 @@ static void crawler_expired_eval(crawler_module_t *cm, item *search, uint32_t hv
     pthread_mutex_unlock(&d->lock);
 }
 
+static int crawler_metadump_init(crawler_module_t *cm, void *data) {
+    cm->status = 0;
+    return 0;
+}
+
 static void crawler_metadump_eval(crawler_module_t *cm, item *it, uint32_t hv, int i) {
     char keybuf[KEY_MAX_URI_ENCODED_LENGTH];
     int is_flushed = item_is_flushed(it);
@@ -296,10 +304,23 @@ static void crawler_metadump_finalize(crawler_module_t *cm) {
     if (cm->c.c != NULL) {
         // flush any pending data.
         if (lru_crawler_write(&cm->c) == 0) {
-            memcpy(cm->c.buf, "END\r\n", 5);
-            cm->c.bufused += 5;
+            // Only nonzero status right now means we were locked
+            if (cm->status != 0) {
+                const char *errstr = "ERROR locked try again later\r\n";
+                size_t errlen = strlen(errstr);
+                memcpy(cm->c.buf, errstr, errlen);
+                cm->c.bufused += errlen;
+            } else {
+                memcpy(cm->c.buf, "END\r\n", 5);
+                cm->c.bufused += 5;
+            }
         }
     }
+}
+
+static int crawler_mgdump_init(crawler_module_t *cm, void *data) {
+    cm->status = 0;
+    return 0;
 }
 
 static void crawler_mgdump_eval(crawler_module_t *cm, item *it, uint32_t hv, int i) {
@@ -335,8 +356,16 @@ static void crawler_mgdump_finalize(crawler_module_t *cm) {
     if (cm->c.c != NULL) {
         // flush any pending data.
         if (lru_crawler_write(&cm->c) == 0) {
-            memcpy(cm->c.buf, "EN\r\n", 4);
-            cm->c.bufused += 4;
+            // Only nonzero status right now means we were locked
+            if (cm->status != 0) {
+                const char *errstr = "ERROR locked try again later\r\n";
+                size_t errlen = strlen(errstr);
+                memcpy(cm->c.buf, errstr, errlen);
+                cm->c.bufused += errlen;
+            } else {
+                memcpy(cm->c.buf, "EN\r\n", 4);
+                cm->c.bufused += 4;
+            }
         }
     }
 }
@@ -419,6 +448,12 @@ static void item_crawl_hash(void) {
     int crawls_persleep = settings.crawls_persleep;
     item *it = NULL;
     int items = 0;
+
+    // Could not get the iterator: probably locked due to hash expansion.
+    if (iter == NULL) {
+        active_crawler_mod.status = 1;
+        return;
+    }
 
     // loop while iterator returns something
     // - iterator func handles bucket-walking

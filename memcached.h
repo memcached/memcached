@@ -967,6 +967,7 @@ void conn_worker_readd(conn *c);
 extern int daemonize(int nochdir, int noclose);
 
 #define mutex_lock(x) pthread_mutex_lock(x)
+#define mutex_trylock(x) pthread_mutex_trylock(x)
 #define mutex_unlock(x) pthread_mutex_unlock(x)
 
 #include "stats_prefix.h"

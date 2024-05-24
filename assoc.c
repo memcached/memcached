@@ -307,8 +307,11 @@ void *assoc_get_iterator(void) {
         return NULL;
     }
     // this will hang the caller while a hash table expansion is running.
-    mutex_lock(&maintenance_lock);
-    return iter;
+    if (mutex_trylock(&maintenance_lock) == 0) {
+        return iter;
+    } else {
+        return NULL;
+    }
 }
 
 bool assoc_iterate(void *iterp, item **it) {
