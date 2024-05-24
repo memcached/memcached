@@ -340,6 +340,17 @@ static int mcplib_response_gc(lua_State *L) {
     return 0;
 }
 
+// Note that this can be called multiple times for a single object, as opposed
+// to _gc. The cleanup routine is armored against repeat accesses by NULL'ing
+// th efields it checks.
+static int mcplib_response_close(lua_State *L) {
+    LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    mcp_resp_t *r = luaL_checkudata(L, 1, "mcp.response");
+    mcp_response_cleanup(t, r);
+
+    return 0;
+}
+
 // NOTE: backends are global objects owned by pool objects.
 // Each pool has a "proxy pool object" distributed to each worker VM.
 // proxy pool objects are held at the same time as any request exists on a
@@ -1685,6 +1696,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"line", mcplib_response_line},
         {"elapsed", mcplib_response_elapsed},
         {"__gc", mcplib_response_gc},
+        {"__close", mcplib_response_close},
         {NULL, NULL}
     };
 

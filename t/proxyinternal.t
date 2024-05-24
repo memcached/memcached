@@ -45,34 +45,9 @@ sub check_version {
     like(<$ps>, qr/VERSION /, "version received");
 }
 
-my @mocksrvs = ();
-#diag "making mock servers";
-for my $port (11611, 11612, 11613) {
-    my $srv = mock_server($port);
-    ok(defined $srv, "mock server created");
-    push(@mocksrvs, $srv);
-}
-
 my $p_srv = new_memcached("-o proxy_config=./t/proxyinternal.lua,ext_item_size=500,ext_item_age=1,ext_path=$ext_path:64m,ext_max_sleep=100000 -t 1");
 my $ps = $p_srv->sock;
 $ps->autoflush(1);
-
-# set up server backend sockets.
-# uncomment when needed. currently they get thrown out so this can hang.
-#my @mbe = ();
-#diag "accepting mock backends";
-#for my $msrv (@mocksrvs) {
-#    my $be = $msrv->accept();
-#    $be->autoflush(1);
-#    ok(defined $be, "mock backend created");
-#    push(@mbe, $be);
-#}
-
-#diag "validating backends";
-#for my $be (@mbe) {
-#    like(<$be>, qr/version/, "received version command");
-#    print $be "VERSION 1.0.0-mock\r\n";
-#}
 
 {
     print $ps "ms /b/a 2\r\nhi\r\n";
