@@ -999,7 +999,7 @@ static void _post_pending_write(struct mcp_backendconn_s *be, ssize_t sent) {
             // Check for incomplete list because we hit the iovcnt limit.
             io_pending_proxy_t *nio = STAILQ_NEXT(io, io_next);
             if (nio != NULL && !nio->flushed) {
-                be->io_next = io;
+                be->io_next = nio;
             } else {
                 be->io_next = NULL;
             }
