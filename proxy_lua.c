@@ -1741,6 +1741,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"elapsed", mcplib_response_elapsed},
         {"__gc", mcplib_response_gc},
         {"__close", mcplib_response_close},
+        {"close", mcplib_response_close},
         {NULL, NULL}
     };
 

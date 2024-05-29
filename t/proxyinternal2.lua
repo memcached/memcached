@@ -13,6 +13,8 @@ function mcp_config_routes(zones)
             -- it is an error to try to use this 'res' outside of this 'if'
             -- statement!
             local res <close> = mcp.internal(r)
+            local res2 = mcp.internal(r)
+            res2:close() -- test manual closing.
             -- uncomment to test effects of leaking a res obj
             table.insert(result_leak, res)
         end
