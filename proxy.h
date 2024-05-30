@@ -360,7 +360,9 @@ typedef STAILQ_HEAD(io_head_s, _io_pending_proxy_t) io_head_t;
 // TODO (v2): IOV_MAX tends to be 1000+ which would allow for more batching but we
 // don't have a good temporary space and don't want to malloc/free on every
 // write. transmit() uses the stack but we can't do that for uring's use case.
-#if (IOV_MAX > 1024)
+#if MEMCACHED_DEBUG
+#define BE_IOV_MAX 128 // let bench tests trigger max condition easily
+#elif (IOV_MAX > 1024)
 #define BE_IOV_MAX 1024
 #else
 #define BE_IOV_MAX IOV_MAX

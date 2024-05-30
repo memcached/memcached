@@ -459,6 +459,7 @@ static void _drive_machine_next(struct mcp_backendconn_s *be, io_pending_proxy_t
     // set the head here. when we break the head will be correct.
     STAILQ_REMOVE_HEAD(&be->io_head, io_next);
     be->depth--;
+    assert(p != be->io_next); // don't remove what we need to flush.
     assert(be->depth > -1);
     be->pending_read--;
     assert(be->pending_read > -1);
