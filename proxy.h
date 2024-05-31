@@ -185,6 +185,8 @@ void *proxy_event_thread_ur(void *arg);
 // Note: This ends up wasting a few counters, but simplifies the rest of the
 // process for handling internal worker stats.
 struct proxy_int_stats {
+    uint64_t vm_gc_runs;
+    uint64_t vm_memory_kb;
     uint64_t counters[CMD_FINAL];
 };
 

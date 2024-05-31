@@ -119,6 +119,9 @@ static void mcp_rcontext_cleanup(lua_State *L, mcp_funcgen_t *fgen, mcp_rcontext
 
     fgen->total--;
     LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    // Fake an allocation when we free slots as they are long running data.
+    // This tricks the GC into running and freeing them.
+    t->proxy_vm_extra_kb += 2;
     mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGENSLOT_IDX, fgen->name, -1);
 }
 
