@@ -25,6 +25,37 @@ void SSL_UNLOCK(void) {
     pthread_mutex_unlock(&(ssl_ctx_lock));
 }
 
+// TODO: add int offset, and find the nth NID here.
+// or different function that accepts a string, then does etc?
+// Caller _must immediately_ use the string and not store the pointer.
+const unsigned char *ssl_get_peer_cn(conn *c, int *len) {
+    if (!c->ssl) {
+        return NULL;
+    }
+
+    // get0 to avoid getting a reference.
+    X509 *cert = SSL_get0_peer_certificate(c->ssl);
+    if (cert == NULL) {
+        return NULL;
+    }
+    X509_NAME *name = X509_get_subject_name(cert);
+    if (name == NULL) {
+        return NULL;
+    }
+
+    int r = X509_NAME_get_index_by_NID(name, NID_commonName, -1);
+    if (r == -1) {
+        return NULL;
+    }
+    ASN1_STRING *asn1 = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(name, r));
+
+    if (asn1 == NULL) {
+        return NULL;
+    }
+    *len = ASN1_STRING_length(asn1);
+    return ASN1_STRING_get0_data(asn1);
+}
+
 /*
  * Reads decrypted data from the underlying BIO read buffers,
  * which reads from the socket.

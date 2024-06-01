@@ -7,6 +7,7 @@
 
 void SSL_LOCK(void);
 void SSL_UNLOCK(void);
+const unsigned char *ssl_get_peer_cn(conn *c, int *len);
 ssize_t ssl_read(conn *c, void *buf, size_t count);
 ssize_t ssl_sendmsg(conn *c, struct msghdr *msg, int flags);
 ssize_t ssl_write(conn *c, void *buf, size_t count);
