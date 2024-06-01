@@ -1,6 +1,9 @@
 /* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 
 #include "proxy.h"
+#ifdef TLS
+#include "tls.h"
+#endif
 
 static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr);
 static int mcp_funcgen_router_cleanup(lua_State *L, mcp_funcgen_t *fgen);
@@ -1402,6 +1405,29 @@ int mcplib_rcontext_result(lua_State *L) {
 int mcplib_rcontext_cfd(lua_State *L) {
     mcp_rcontext_t *rctx = lua_touserdata(L, 1);
     lua_pushinteger(L, rctx->conn_fd);
+    return 1;
+}
+
+// Must not call this if rctx has returned result to client already.
+int mcplib_rcontext_tls_peer_cn(lua_State *L) {
+    mcp_rcontext_t *rctx = lua_touserdata(L, 1);
+    if (!rctx->c) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+#ifdef TLS
+    int len = 0;
+    const unsigned char *cn = ssl_get_peer_cn(rctx->c, &len);
+    if (cn) {
+        lua_pushlstring(L, (const char *)cn, len);
+    } else {
+        lua_pushnil(L);
+    }
+#else
+    lua_pushnil(L);
+#endif
+
     return 1;
 }
 

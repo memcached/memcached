@@ -1673,6 +1673,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"res_any", mcplib_rcontext_res_any},
         {"result", mcplib_rcontext_result},
         {"cfd", mcplib_rcontext_cfd},
+        {"tls_peer_cn", mcplib_rcontext_tls_peer_cn},
         //{"sleep", mcplib_rcontext_sleep}, see comments on function
         {NULL, NULL}
     };
