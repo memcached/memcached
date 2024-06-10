@@ -1000,6 +1000,84 @@ int mcplib_request_flag_del(lua_State *L) {
     return 1;
 }
 
+// local match, token = req:match_res(res)
+// checks if req has `k` or `O`. If so, checks response for `K` or `O`
+// returns true, nil if matches
+// returns false, res token if not match.
+//
+int mcplib_request_match_res(lua_State *L) {
+    mcp_request_t *rq = luaL_checkudata(L, 1, "mcp.request");
+    mcp_resp_t *rs = luaL_checkudata(L, 2, "mcp.response");
+
+    const char *opaque_token = NULL;
+    size_t opaque_len = 0;
+
+    // requests all have keys. check for an opaque.
+    mcp_request_find_flag_token(rq, 'O', &opaque_token, &opaque_len);
+
+    // scan the response line for tokens, since we don't have a reciprocal API
+    // yet. When we do this code will be replaced with a function call like
+    // the above.
+    const char *p = rs->resp.rline;
+    // TODO: Think this is an off-by-one in mcmc.
+    const char *e = p + rs->resp.rlen - 1;
+    if (!p) {
+        // happens if the result line is blank (ie; 'HD\r\n')
+        lua_pushboolean(L, 0);
+        lua_pushnil(L);
+        return 2;
+    }
+
+    int matched = 0;
+    while (p != e) {
+        if (*p == ' ') {
+            p++;
+        } else if (*p == 'k' || *p == 'O') {
+            const char *rq_token = NULL;
+            int rq_len = 0;
+            if (*p == 'k') {
+                rq_token = MCP_PARSER_KEY(rq->pr);
+                rq_len = rq->pr.klen;
+            } else if (*p == 'O') {
+                rq_token = opaque_token;
+                rq_len = opaque_len;
+            }
+            if (rq_token == NULL) {
+                lua_pushboolean(L, 0);
+                lua_pushnil(L);
+                return 2;
+            }
+
+            p++; // skip flag and start comparing token
+            const char *rs_token = p;
+
+            // find end of token
+            while (p != e && !isspace(*p)) {
+                p++;
+            }
+
+            int rs_len = p - rs_token;
+            if (rq_len != rs_len || memcmp(rq_token, rs_token, rs_len) != 0) {
+                // FAIL, keys aren't the same length or don't match.
+                lua_pushboolean(L, 0);
+                lua_pushlstring(L, rs_token, rs_len);
+                return 2;
+            } else {
+                matched = 1;
+            }
+        } else {
+            // skip token
+            while (p != e && *p != ' ') {
+                p++;
+            }
+        }
+    }
+
+    lua_pushboolean(L, matched);
+    lua_pushnil(L);
+    return 2;
+}
+
 void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq) {
     // During nread c->item is the malloc'ed buffer. not yet put into
     // rq->buf - this gets freed because we've also set c->item_malloced if
