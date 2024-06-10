@@ -1727,6 +1727,7 @@ int proxy_register_libs(void *ctx, LIBEVENT_THREAD *t, void *state) {
         {"flag_set", mcplib_request_flag_set},
         {"flag_replace", mcplib_request_flag_replace},
         {"flag_del", mcplib_request_flag_del},
+        {"match_res", mcplib_request_match_res},
         {"__tostring", NULL},
         {"__gc", mcplib_request_gc},
         {NULL, NULL}

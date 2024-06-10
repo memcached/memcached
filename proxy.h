@@ -803,6 +803,7 @@ int mcplib_request_flag_set(lua_State *L);
 int mcplib_request_flag_replace(lua_State *L);
 int mcplib_request_flag_del(lua_State *L);
 int mcplib_request_gc(lua_State *L);
+int mcplib_request_match_res(lua_State *L);
 void mcp_request_cleanup(LIBEVENT_THREAD *t, mcp_request_t *rq);
 
 // response interface

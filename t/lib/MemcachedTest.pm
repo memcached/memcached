@@ -661,8 +661,11 @@ sub be_recv_c {
 
     my $l = $self->_be_list($list);
     my $cmd = $self->{_cmd};
+    my @cmds = split(/(?<=\r\n)/, $cmd);
     for my $be (@$l) {
-        Test::More::is(scalar <$be>, $cmd, $detail);
+        for my $c (@cmds) {
+            Test::More::is(scalar <$be>, $c, $detail);
+        }
     }
 }
 
