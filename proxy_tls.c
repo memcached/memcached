@@ -2,10 +2,10 @@
 
 #include "proxy.h"
 #include "proxy_tls.h"
+#ifdef PROXY_TLS
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-#ifdef PROXY_TLS
 /* Notes on ERR_clear_error() and friends:
  * - Errors from SSL calls leave errors on a thread-local "error stack"
  * - If an error is received from an SSL call, the stack needs to be inspected
