@@ -1,0 +1,17 @@
+FROM alpine:latest
+
+ARG CONFIGURE_OPTS="--enable-seccomp --enable-proxy"
+
+RUN apk update && apk add --no-cache musl-dev libevent-dev libseccomp-dev linux-headers gcc make automake autoconf perl-test-harness-utils git pkgconfig openssl-dev
+
+RUN adduser -S memcached
+ADD . /src
+WORKDIR /src
+
+RUN ./autogen.sh
+RUN ./configure ${CONFIGURE_OPTS}
+RUN make -j
+
+USER memcached
+
+CMD make test
