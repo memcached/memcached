@@ -191,9 +191,14 @@ struct proxy_int_stats {
 };
 
 struct proxy_user_stats {
-    size_t num_stats; // number of stats, for sizing various arrays
-    char **names; // not needed for worker threads
+    int num_stats; // number of stats, for sizing various arrays
     uint64_t *counters; // array of counters.
+};
+
+struct proxy_user_stats_entry {
+    char *name;
+    unsigned int cname; // offset into compact name buffer
+    bool reset; // counter must reset this cycle
 };
 
 struct proxy_global_stats {
@@ -226,14 +231,21 @@ struct proxy_tunables {
 typedef STAILQ_HEAD(globalobj_head_s, mcp_globalobj_s) globalobj_head_t;
 typedef struct {
     lua_State *proxy_state; // main configuration vm
-    lua_State *proxy_sharedvm; // sub VM for short-lock global events/data
-    void *proxy_code;
     proxy_event_thread_t *proxy_io_thread;
     uint64_t active_req_limit; // max total in-flight requests
     uint64_t buffer_memory_limit; // max bytes for send/receive buffers.
 #ifdef PROXY_TLS
     void *tls_ctx;
 #endif
+    int user_stats_num; // highest seen stat index
+    struct proxy_user_stats_entry *user_stats;
+    char *user_stats_namebuf; // compact linear buffer for stat names
+    struct proxy_tunables tunables; // NOTE: updates covered by stats_lock
+    struct proxy_global_stats global_stats;
+    // less frequently used entries down here.
+    void *proxy_code;
+    lua_State *proxy_sharedvm; // sub VM for short-lock global events/data
+    pthread_mutex_t stats_lock; // used for rare global counters
     pthread_mutex_t config_lock;
     pthread_cond_t config_cond;
     pthread_t config_tid;
@@ -253,10 +265,6 @@ typedef struct {
     bool loading; // bool indicating an active config load.
     bool memprofile; // indicate if we want to profile lua memory.
     uint8_t memprofile_thread_counter;
-    struct proxy_global_stats global_stats;
-    struct proxy_user_stats user_stats;
-    struct proxy_tunables tunables; // NOTE: updates covered by stats_lock
-    pthread_mutex_t stats_lock; // used for rare global counters
 } proxy_ctx_t;
 
 #define PROXY_GET_THR_CTX(L) ((*(LIBEVENT_THREAD **)lua_getextraspace(L))->proxy_ctx)

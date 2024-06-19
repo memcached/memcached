@@ -135,6 +135,74 @@ static void *_proxy_manager_thread(void *arg) {
     return NULL;
 }
 
+// TODO: only run routine if something changed.
+// This compacts all of the names for proxy user stats into a linear buffer,
+// which can save considerable CPU when emitting a large number of stats. It
+// also saves some total memory by having one linear buffer instead of many
+// potentially small aligned allocations.
+static void proxy_config_stats_prep(proxy_ctx_t *ctx) {
+    char *oldnamebuf = ctx->user_stats_namebuf;
+    struct proxy_user_stats_entry *entries = ctx->user_stats;
+    size_t namelen = 0;
+
+    STAT_L(ctx);
+    // find size of new compact name buffer
+    for (int x = 0; x < ctx->user_stats_num; x++) {
+        if (entries[x].name) {
+            namelen += strlen(entries[x].name) + 1; // null byte
+        } else if (entries[x].cname) {
+            char *name = oldnamebuf + entries[x].cname;
+            namelen += strlen(name) + 1;
+        }
+    }
+    // start one byte into the cname buffer so we can do faster checks on if a
+    // name exists or not. so extend the buffer by one byte.
+    namelen++;
+
+    char *namebuf = calloc(1, namelen);
+    // copy names into the compact buffer
+    char *p = namebuf + 1;
+    for (int x = 0; x < ctx->user_stats_num; x++) {
+        struct proxy_user_stats_entry *e = &entries[x];
+        char *newname = NULL;
+        if (e->name) {
+            // skip blank names.
+            if (e->name[0]) {
+                newname = e->name;
+            }
+        } else if (e->cname) {
+            // else re-copy from old buffer
+            newname = oldnamebuf + e->cname;
+        }
+
+        if (newname) {
+            // set the buffer offset for this name
+            e->cname = p - namebuf;
+            // copy in the name
+            size_t nlen = strlen(newname);
+            memcpy(p, newname, nlen);
+            p += nlen;
+            *p = '\0'; // add null byte
+            p++;
+        } else {
+            // name is blank or doesn't exist, ensure we skip it.
+            e->cname = 0;
+        }
+
+        if (e->name) {
+            // now get rid of the name buffer.
+            free(e->name);
+            e->name = NULL;
+        }
+    }
+
+    ctx->user_stats_namebuf = namebuf;
+    if (oldnamebuf) {
+        free(oldnamebuf);
+    }
+    STAT_UL(ctx);
+}
+
 static void proxy_config_reload(proxy_ctx_t *ctx) {
     LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "start");
     STAT_INCR(ctx, config_reloads, 1);
@@ -158,6 +226,8 @@ static void proxy_config_reload(proxy_ctx_t *ctx) {
         LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "failed");
         return;
     }
+
+    proxy_config_stats_prep(ctx);
 
     // TODO (v2): create a temporary VM to test-load the worker code into.
     // failing to load partway through the worker VM reloads can be
@@ -185,6 +255,14 @@ static void proxy_config_reload(proxy_ctx_t *ctx) {
             return;
         }
     }
+
+    // Need to clear the reset flag for the stats system after pushing the new
+    // config to each worker.
+    STAT_L(ctx);
+    for (int x = 0; x < ctx->user_stats_num; x++) {
+        ctx->user_stats[x].reset = false;
+    }
+    STAT_UL(ctx);
 
     lua_pop(ctx->proxy_state, 1); // drop config_pools return value
     LOGGER_LOG(NULL, LOG_PROXYEVENTS, LOGGER_PROXY_CONFIG, NULL, "done");
@@ -609,9 +687,10 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
 
     // update user stats
     STAT_L(ctx);
-    struct proxy_user_stats *us = &ctx->user_stats;
+    struct proxy_user_stats_entry *us = ctx->user_stats;
+    int stats_num = ctx->user_stats_num;
     struct proxy_user_stats *tus = NULL;
-    if (us->num_stats != 0) {
+    if (stats_num != 0) {
         pthread_mutex_lock(&thr->stats.mutex);
         if (thr->proxy_user_stats == NULL) {
             tus = calloc(1, sizeof(struct proxy_user_stats));
@@ -622,18 +701,24 @@ int proxy_thread_loadconf(proxy_ctx_t *ctx, LIBEVENT_THREAD *thr) {
 
         // originally this was a realloc routine but it felt fragile.
         // that might still be a better idea; still need to zero out the end.
-        uint64_t *counters = calloc(us->num_stats, sizeof(uint64_t));
+        uint64_t *counters = calloc(stats_num, sizeof(uint64_t));
 
         // note that num_stats can _only_ grow in size.
-        // we also only care about counters on the worker threads.
         if (tus->counters) {
-            assert(tus->num_stats <= us->num_stats);
-            memcpy(counters, tus->counters, tus->num_stats * sizeof(uint64_t));
+            // pull in old counters, if the names didn't change.
+            for (int x = 0; x < tus->num_stats; x++) {
+                if (us[x].reset) {
+                    counters[x] = 0;
+                } else {
+                    counters[x] = tus->counters[x];
+                }
+            }
+            assert(tus->num_stats <= stats_num);
             free(tus->counters);
         }
-
         tus->counters = counters;
-        tus->num_stats = us->num_stats;
+        tus->num_stats = stats_num;
+
         pthread_mutex_unlock(&thr->stats.mutex);
     }
     // also grab the concurrent request limit
