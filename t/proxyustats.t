@@ -179,13 +179,15 @@ subtest 'ustats incr/decr and perseverance over reload' => sub {
     $p_srv->reload();
     wait_reload($watcher);
 
-    # subtract 2 at idx 2.
-    print $ps "mg -2\r\n";
-    is(scalar <$ps>, "HD\r\n", "mg -2 hit");
+    # add 2 at idx 2.
+    print $ps "mg 2\r\n";
+    is(scalar <$ps>, "HD\r\n", "mg 2 hit");
 
     $stats = mem_stats($ps, 'proxy');
+    # carried over since name did not change
     is($stats->{user_a1}, 1, "user_a1 is 1");
-    is($stats->{user_b2}, 2, "user_b2 is 2");
+    # index 2 changed names, so should be reset.
+    is($stats->{user_b2}, 2, "user_b2 is 2 instead of 4");
     is($stats->{user_b3}, 0, "user_b3 is 0");
     is($stats->{user_b4}, 0, "user_b4 is 0");
 };
