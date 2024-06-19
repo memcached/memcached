@@ -657,31 +657,6 @@ enum mcp_rqueue_e {
     QWAIT_SLEEP,
 };
 
-enum mcp_funcgen_router_e {
-    FGEN_ROUTER_NONE = 0,
-    FGEN_ROUTER_SHORTSEP,
-    FGEN_ROUTER_LONGSEP,
-    FGEN_ROUTER_ANCHORSM,
-    FGEN_ROUTER_ANCHORBIG,
-};
-
-struct mcp_router_long_s {
-    char start[KEY_HASH_FILTER_MAX+1];
-    char stop[KEY_HASH_FILTER_MAX+1];
-};
-
-struct mcp_funcgen_router {
-    enum mcp_funcgen_router_e type;
-    union {
-        char sep;
-        char lsep[KEY_HASH_FILTER_MAX+1];
-        char anchorsm[2]; // short anchored mode.
-        struct mcp_router_long_s big;
-    } conf;
-    mcp_funcgen_t *def_fgen; // default route
-    int map_ref;
-};
-
 #define FGEN_NAME_MAXLEN 80
 struct mcp_funcgen_s {
     LIBEVENT_THREAD *thread; // worker thread that created this funcgen.
@@ -694,13 +669,44 @@ struct mcp_funcgen_s {
     unsigned int free; // free contexts
     unsigned int free_max; // size of list below.
     unsigned int free_pressure; // "pressure" for when to early release rctx
-    unsigned int routecount; // total routes if this fgen is a router.
     bool closed; // the hook holding this fgen has been replaced
     bool ready; // if we're locked down or not.
+    bool is_router; // if this fgen is actually a router object.
     mcp_rcontext_t **list;
     struct mcp_rqueue_s *queue_list;
-    struct mcp_funcgen_router router;
     char name[FGEN_NAME_MAXLEN+1]; // string name for the generator.
+};
+
+enum mcp_funcgen_router_e {
+    FGEN_ROUTER_NONE = 0,
+    FGEN_ROUTER_CMDMAP,
+    FGEN_ROUTER_SHORTSEP,
+    FGEN_ROUTER_LONGSEP,
+    FGEN_ROUTER_ANCHORSM,
+    FGEN_ROUTER_ANCHORBIG,
+};
+
+struct mcp_router_long_s {
+    char start[KEY_HASH_FILTER_MAX+1];
+    char stop[KEY_HASH_FILTER_MAX+1];
+};
+
+// To simplify the attach/start code we wrap a funcgen with the router
+// structure. This allows us to have a larger router structure without
+// bloating the fgen object itself, and still benefit from letting funcgen
+// new/cleanup handle most of the memory management.
+struct mcp_funcgen_router {
+    mcp_funcgen_t fgen_self;
+    enum mcp_funcgen_router_e type;
+    union {
+        char sep;
+        char lsep[KEY_HASH_FILTER_MAX+1];
+        char anchorsm[2]; // short anchored mode.
+        struct mcp_router_long_s big;
+    } conf;
+    int map_ref;
+    mcp_funcgen_t *def_fgen; // default route
+    mcp_funcgen_t *cmap[CMD_END_STORAGE]; // fallback command map
 };
 
 #define RQUEUE_TYPE_NONE 0
