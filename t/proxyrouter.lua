@@ -52,14 +52,28 @@ function mcp_config_routes(p)
         ["cmdd"] = { [mcp.CMD_ANY_STORAGE] = string_fgen("SERVER_ERROR cmd_default\r\n"), },
     }
 
-    local rpfx_short = mcp.router_new({ map = map, mode = "prefix", stop = "|", default = def_fg })
+    local cmap = {
+        [mcp.CMD_INCR] = string_fgen("SERVER_ERROR cmap incr\r\n"),
+        [mcp.CMD_DECR] = string_fgen("SERVER_ERROR cmap decr\r\n")
+    }
+
+    local rpfx_short = mcp.router_new({ map = map, cmap = cmap, mode = "prefix", stop = "|", default = def_fg })
     local rpfx_long = mcp.router_new({ map = map, mode = "prefix", stop = "+#+", default = def_fg })
     local ranc_short = mcp.router_new({ map = map, mode = "anchor", start = "_", stop = ",", default = def_fg })
     local ranc_long = mcp.router_new({ map = map, mode = "anchor", start = "=?=", stop = "__", default = def_fg })
+
+    local cmap_only = mcp.router_new({
+        cmap = {
+            [mcp.CMD_GETS] = string_fgen("SERVER_ERROR cmap_only gets\r\n")
+        },
+        default = string_fgen("SERVER_ERROR cmap_only default\r\n"),
+    })
 
     mcp.attach(mcp.CMD_ANY_STORAGE, rpfx_short)
     mcp.attach(mcp.CMD_MG, rpfx_short)
     mcp.attach(mcp.CMD_MS, rpfx_long)
     mcp.attach(mcp.CMD_MD, ranc_short)
     mcp.attach(mcp.CMD_MA, ranc_long)
+    mcp.attach(mcp.CMD_GETS, cmap_only)
+    mcp.attach(mcp.CMD_GAT, cmap_only)
 end

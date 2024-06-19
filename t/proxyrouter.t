@@ -31,12 +31,25 @@ $t->set_c($ps);
 $t->accept_backends();
 
 {
+    test_cmap();
     test_submap();
     test_basic();
     test_separators();
 }
 
 done_testing();
+
+sub test_cmap {
+    subtest 'check cmap only router' => sub {
+        $t->c_send("gets one|test\r\n");
+        $t->c_recv("SERVER_ERROR cmap_only gets\r\n");
+
+        $t->c_send("gat 5 one|test\r\n");
+        $t->c_recv("SERVER_ERROR cmap_only default\r\n");
+
+        $t->clear();
+    };
+}
 
 sub test_submap {
     subtest 'check sub map routing' => sub {
@@ -50,7 +63,13 @@ sub test_submap {
         $t->c_recv("SERVER_ERROR default route\r\n", "routed to sub-ms function");
 
         $t->c_send("delete cmdd|test\r\n");
-        $t->c_recv("SERVER_ERROR cmd_default\r\n", "routed to sub-ms function");
+        $t->c_recv("SERVER_ERROR cmd_default\r\n", "fall all the way back to default route");
+
+        $t->c_send("incr bar|foo 1\r\n");
+        $t->c_recv("SERVER_ERROR cmap incr\r\n", "routed fallback to cmap");
+
+        $t->c_send("decr bar|foo 1\r\n");
+        $t->c_recv("SERVER_ERROR cmap decr\r\n", "routed fallback to cmap");
 
         $t->clear();
     };

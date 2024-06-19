@@ -408,7 +408,7 @@ mcp_rcontext_t *mcp_funcgen_get_rctx(lua_State *L, int fgen_ref, mcp_funcgen_t *
 }
 
 mcp_rcontext_t *mcp_funcgen_start(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr) {
-    if (fgen->router.type != FGEN_ROUTER_NONE) {
+    if (fgen->is_router) {
         fgen = mcp_funcgen_route(L, fgen, pr);
         if (fgen == NULL) {
             return NULL;
@@ -463,7 +463,7 @@ static void mcp_funcgen_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
         fgen_idx = lua_absindex(L, -1);
     }
 
-    if (fgen->router.type != FGEN_ROUTER_NONE) {
+    if (fgen->is_router) {
         // we're actually a "router", send this out for cleanup.
         mcp_funcgen_router_cleanup(L, fgen);
     }
@@ -614,7 +614,7 @@ int mcplib_funcgen_new_handle(lua_State *L) {
     if ((pp = luaL_testudata(L, 2, "mcp.pool_proxy")) != NULL) {
         // good.
     } else if ((fg = luaL_testudata(L, 2, "mcp.funcgen")) != NULL) {
-        if (fg->router.type != FGEN_ROUTER_NONE) {
+        if (fg->is_router) {
             proxy_lua_error(L, "cannot assign a router to a handle in new_handle");
             return 0;
         }
@@ -1495,8 +1495,15 @@ static inline const char *_mcp_router_anchorbig(const char *key, const int klen,
     return _mcp_router_longsep(key+slen, klen-slen, conf->stop, len);
 }
 
+static inline mcp_funcgen_t *_mcp_funcgen_route_fallback(struct mcp_funcgen_router *fr, int cmd) {
+    if (fr->cmap[cmd]) {
+        return fr->cmap[cmd];
+    }
+    return fr->def_fgen;
+}
+
 static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_parser_t *pr) {
-    struct mcp_funcgen_router *fr = &fgen->router;
+    struct mcp_funcgen_router *fr = (struct mcp_funcgen_router *)fgen;
     if (pr->klen == 0) {
         return NULL;
     }
@@ -1505,6 +1512,10 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
     size_t lookuplen = 0;
     switch(fr->type) {
         case FGEN_ROUTER_NONE:
+            break;
+        case FGEN_ROUTER_CMDMAP:
+            // short circuit if all we can do is cmap and default.
+            return _mcp_funcgen_route_fallback(fr, pr->command);
             break;
         case FGEN_ROUTER_SHORTSEP:
             lookup = _mcp_router_shortsep(key, pr->klen, fr->conf.sep, &lookuplen);
@@ -1521,7 +1532,7 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
     }
 
     if (lookuplen == 0) {
-        return fr->def_fgen;
+        return _mcp_funcgen_route_fallback(fr, pr->command);
     }
 
     // hoping the lua short string cache helps us avoid allocations at least.
@@ -1532,7 +1543,7 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
     lua_rawget(L, -2); // pops key, returns value
     if (lua_isnil(L, -1)) {
         lua_pop(L, 2); // drop nil and map.
-        return fr->def_fgen;
+        return _mcp_funcgen_route_fallback(fr, pr->command);
     } else {
         int type = lua_type(L, -1);
         if (type == LUA_TUSERDATA) {
@@ -1542,14 +1553,13 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
         } else if (type == LUA_TTABLE) {
             lua_rawgeti(L, -1, pr->command);
             // If nil, check CMD_ANY_STORAGE index for a cmap default
-            // if none there, return fr->def_fgen
             if (lua_isnil(L, -1)) {
                 lua_pop(L, 1); // drop nil.
                 // check if we have a local-default
                 lua_rawgeti(L, -1, CMD_ANY_STORAGE);
                 if (lua_isnil(L, -1)) {
                     lua_pop(L, 3); // drop map, cmd map, nil
-                    return fr->def_fgen;
+                    return _mcp_funcgen_route_fallback(fr, pr->command);
                 } else {
                     mcp_funcgen_t *nfgen = lua_touserdata(L, -1);
                     lua_pop(L, 3); // drop map, cmd map, fgen
@@ -1560,14 +1570,14 @@ static mcp_funcgen_t *mcp_funcgen_route(lua_State *L, mcp_funcgen_t *fgen, mcp_p
             lua_pop(L, 3); // drop fgen, cmd map, map
             return nfgen;
         } else {
-            return fr->def_fgen;
+            return _mcp_funcgen_route_fallback(fr, pr->command);
         }
     }
 }
 
 // called from mcp_funcgen_cleanup if necessary.
 static int mcp_funcgen_router_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
-    struct mcp_funcgen_router *fr = &fgen->router;
+    struct mcp_funcgen_router *fr = (struct mcp_funcgen_router *)fgen;
     lua_rawgeti(L, LUA_REGISTRYINDEX, fr->map_ref);
 
     // walk the map, de-ref any funcgens found.
@@ -1594,6 +1604,14 @@ static int mcp_funcgen_router_cleanup(lua_State *L, mcp_funcgen_t *fgen) {
     lua_pop(L, 1); // drop the table.
     luaL_unref(L, LUA_REGISTRYINDEX, fr->map_ref);
     fr->map_ref = 0;
+
+    // release any command map entries.
+    for (int x = 0; x < CMD_END_STORAGE; x++) {
+        if (fr->cmap[x]) {
+            mcp_funcgen_dereference(L, fr->cmap[x]);
+            fr->cmap[x] = NULL;
+        }
+    }
 
     if (fr->def_fgen) {
         mcp_funcgen_dereference(L, fr->def_fgen);
@@ -1623,6 +1641,22 @@ static const char *_mcplib_router_new_check(lua_State *L, const char *arg, size_
     return NULL;
 }
 
+static void _mcplib_router_new_cmapcheck(lua_State *L) {
+    int tidx = lua_absindex(L, -1);
+    lua_pushnil(L); // init next table key.
+    while (lua_next(L, tidx) != 0) {
+        if (!lua_isinteger(L, -2)) {
+            proxy_lua_error(L, "Non integer key in router command map in router_new");
+        }
+        int cmd = lua_tointeger(L, -2);
+        if ((cmd <= 0 || cmd >= CMD_END_STORAGE) && cmd != CMD_ANY_STORAGE) {
+            proxy_lua_error(L, "Bad command in router command map in router_new");
+        }
+        luaL_checkudata(L, -1, "mcp.funcgen");
+        lua_pop(L, 1); // drop val, keep key.
+    }
+}
+
 static size_t _mcplib_router_new_mapcheck(lua_State *L) {
     size_t route_count = 0;
     if (!lua_istable(L, -1)) {
@@ -1635,20 +1669,8 @@ static size_t _mcplib_router_new_mapcheck(lua_State *L) {
         if (type == LUA_TUSERDATA) {
             luaL_checkudata(L, -1, "mcp.funcgen");
         } else if (type == LUA_TTABLE) {
-            int tidx = lua_absindex(L, -1);
             // If table, it's a command map, poke in and validate.
-            lua_pushnil(L); // init next table key.
-            while (lua_next(L, tidx) != 0) {
-                if (!lua_isinteger(L, -2)) {
-                    proxy_lua_error(L, "Non integer key in router command map in router_new");
-                }
-                int cmd = lua_tointeger(L, -2);
-                if ((cmd <= 0 || cmd >= CMD_END_STORAGE) && cmd != CMD_ANY_STORAGE) {
-                    proxy_lua_error(L, "Bad command in router command map in router_new");
-                }
-                luaL_checkudata(L, -1, "mcp.funcgen");
-                lua_pop(L, 1); // drop val, keep key.
-            }
+            _mcplib_router_new_cmapcheck(L);
         } else {
             proxy_lua_error(L, "unhandled data in router_new map");
         }
@@ -1710,9 +1732,11 @@ static void _mcplib_router_new_mode(lua_State *L, struct mcp_funcgen_router *fr)
     }
 }
 
+// FIXME: error if map or cmap not passed in?
 int mcplib_router_new(lua_State *L) {
     struct mcp_funcgen_router fr = {0};
     size_t route_count = 0;
+    bool has_map = false;
 
     if (!lua_istable(L, 1)) {
         proxy_lua_error(L, "Must pass a table of arguments to mcp.router_new");
@@ -1720,23 +1744,44 @@ int mcplib_router_new(lua_State *L) {
 
     if (lua_getfield(L, 1, "map") != LUA_TNIL) {
         route_count = _mcplib_router_new_mapcheck(L);
+        has_map = true;
     }
     lua_pop(L, 1); // drop map or nil
 
-    // default to a short prefix type with a single byte separator.
-    fr.type = FGEN_ROUTER_SHORTSEP;
-    fr.conf.sep = '/';
+    if (lua_getfield(L, 1, "cmap") != LUA_TNIL) {
+        if (!lua_istable(L, -1)) {
+            proxy_lua_error(L, "Must pass a table to cmap argument of mcp.router_new");
+        }
+        _mcplib_router_new_cmapcheck(L);
+    } else {
+        if (!has_map) {
+            proxy_lua_error(L, "Must pass map and/or cmap to mcp.router_new");
+        }
+    }
+    lua_pop(L, 1);
+
+    fr.fgen_self.is_router = true;
 
     // config:
     // { mode = "anchor", start = "/", stop = "/" }
     // { mode = "prefix", stop = "/" }
-    if (lua_getfield(L, 1, "mode") == LUA_TSTRING) {
-        _mcplib_router_new_mode(L, &fr);
-    }
-    lua_pop(L, 1); // drop mode or nil.
+    if (has_map) {
+        // default to a short prefix type with a single byte separator.
+        fr.type = FGEN_ROUTER_SHORTSEP;
+        fr.conf.sep = '/';
 
-    mcp_funcgen_t *fgen = lua_newuserdatauv(L, sizeof(mcp_funcgen_t), 0);
-    memset(fgen, 0, sizeof(mcp_funcgen_t));
+        if (lua_getfield(L, 1, "mode") == LUA_TSTRING) {
+            _mcplib_router_new_mode(L, &fr);
+        }
+        lua_pop(L, 1); // drop mode or nil.
+    } else {
+        // pure command map router.
+        fr.type = FGEN_ROUTER_CMDMAP;
+    }
+
+    struct mcp_funcgen_router *router = lua_newuserdatauv(L, sizeof(struct mcp_funcgen_router), 0);
+    memset(router, 0, sizeof(*router));
+    mcp_funcgen_t *fgen = &router->fgen_self;
 
     luaL_getmetatable(L, "mcp.funcgen");
     lua_setmetatable(L, -2);
@@ -1749,61 +1794,76 @@ int mcplib_router_new(lua_State *L) {
         lua_pop(L, 1);
     }
 
-    fgen->routecount = route_count;
-    memcpy(&fgen->router, &fr, sizeof(struct mcp_funcgen_router));
+    memcpy(router, &fr, sizeof(struct mcp_funcgen_router));
     strncpy(fgen->name, "mcp_router", FGEN_NAME_MAXLEN);
 
-    // walk map table again, funcgen_ref everyone.
-    lua_createtable(L, 0, route_count);
-    lua_pushvalue(L, -1); // dupe table ref for a moment.
-    fgen->router.map_ref = luaL_ref(L, LUA_REGISTRYINDEX); // pops extra map
+    if (has_map) {
+        // walk map table again, funcgen_ref everyone.
+        lua_createtable(L, 0, route_count);
+        lua_pushvalue(L, -1); // dupe table ref for a moment.
+        router->map_ref = luaL_ref(L, LUA_REGISTRYINDEX); // pops extra map
 
-    int mymap = lua_absindex(L, -1);
-    lua_getfield(L, 1, "map");
-    int argmap = lua_absindex(L, -1);
-    lua_pushnil(L); // seed walk of the passed in map
+        int mymap = lua_absindex(L, -1);
+        lua_getfield(L, 1, "map");
+        int argmap = lua_absindex(L, -1);
+        lua_pushnil(L); // seed walk of the passed in map
 
-    while (lua_next(L, argmap) != 0) {
-        // types are already validated.
-        int type = lua_type(L, -1);
-        if (type == LUA_TUSERDATA) {
-            // first lets reference the function generator.
-            lua_pushvalue(L, -1); // duplicate value.
-            mcp_funcgen_reference(L); // pops the funcgen after referencing.
-
-            // duplicate key.
-            lua_pushvalue(L, -2);
-            // move key underneath value
-            lua_insert(L, -2); // take top (key) and move it down one.
-            // now key, key, value
-            lua_rawset(L, mymap); // pops k, v into our internal table.
-        } else if (type == LUA_TTABLE) {
-            int tidx = lua_absindex(L, -1); // idx of our command map table.
-            lua_createtable(L, CMD_END_STORAGE, 0);
-            int midx = lua_absindex(L, -1); // idx of our new command map.
-            lua_pushnil(L); // seed the iterator
-            while (lua_next(L, tidx) != 0) {
+        while (lua_next(L, argmap) != 0) {
+            // types are already validated.
+            int type = lua_type(L, -1);
+            if (type == LUA_TUSERDATA) {
+                // first lets reference the function generator.
                 lua_pushvalue(L, -1); // duplicate value.
-                mcp_funcgen_reference(L); // pop funcgen.
+                mcp_funcgen_reference(L); // pops the funcgen after referencing.
 
-                lua_pushvalue(L, -2); // dupe key.
-                lua_insert(L, -2); // move key down one.
-                lua_rawset(L, midx); // set to new map table.
+                // duplicate key.
+                lua_pushvalue(L, -2);
+                // move key underneath value
+                lua_insert(L, -2); // take top (key) and move it down one.
+                // now key, key, value
+                lua_rawset(L, mymap); // pops k, v into our internal table.
+            } else if (type == LUA_TTABLE) {
+                int tidx = lua_absindex(L, -1); // idx of our command map table.
+                lua_createtable(L, CMD_END_STORAGE, 0);
+                int midx = lua_absindex(L, -1); // idx of our new command map.
+                lua_pushnil(L); // seed the iterator
+                while (lua_next(L, tidx) != 0) {
+                    lua_pushvalue(L, -1); // duplicate value.
+                    mcp_funcgen_reference(L); // pop funcgen.
+
+                    lua_pushvalue(L, -2); // dupe key.
+                    lua_insert(L, -2); // move key down one.
+                    lua_rawset(L, midx); // set to new map table.
+                }
+
+                // -1: new command map
+                // -2: input command map
+                // -3: key
+                lua_pushvalue(L, -3); // dupe key
+                lua_insert(L, -2); // move key down below new cmd map
+                lua_rawset(L, mymap); // pop key, new map into main map.
+                lua_pop(L, 1); // drop input table.
             }
-
-            // -1: new command map
-            // -2: input command map
-            // -3: key
-            lua_pushvalue(L, -3); // dupe key
-            lua_insert(L, -2); // move key down below new cmd map
-            lua_rawset(L, mymap); // pop key, new map into main map.
-            lua_pop(L, 1); // drop input table.
         }
+
+        lua_pop(L, 2); // drop argmap, mymap.
     }
 
-    lua_pop(L, 2); // drop argmap, mymap.
+    // process a command map directly into our internal table.
+    if (lua_getfield(L, 1, "cmap") != LUA_TNIL) {
+        int tidx = lua_absindex(L, -1); // idx of our command map table.
+        lua_pushnil(L); // seed the iterator
+        while (lua_next(L, tidx) != 0) {
+            int cmd = lua_tointeger(L, -2);
+            mcp_funcgen_t *cfgen = lua_touserdata(L, -1);
+            mcp_funcgen_reference(L); // pop funcgen.
+            router->cmap[cmd] = cfgen;
+        }
+    }
+    lua_pop(L, 1);
 
     LIBEVENT_THREAD *t = PROXY_GET_THR(L);
+    fgen->thread = t;
     mcp_sharedvm_delta(t->proxy_ctx, SHAREDVM_FGEN_IDX, "mcp_router", 1);
 
     return 1;
